@@ -3052,6 +3052,14 @@ msgstr "{file} får inga filer: %f inom citattecken är inte filen. Skriv %f som
 msgid "Added formats and tools:"
 msgstr "Tillagda format och verktyg:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; sidofilerna skrivs fortfarande"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Kunde inte ta bort {name}: {e}"
+
 #: src/files/file_io.rs
 msgid "another file has taken its name: the folder is read again"
 msgstr "en annan fil har tagit namnet: mappen läses in igen"

@@ -516,6 +516,7 @@ impl crate::App {
         for (path, tags) in image_keywords {
             sidecars.entry(path).or_default().1 = tags;
         }
+        let sidecars_written_later = !sidecars.is_empty();
         // The catalog names its photos by path alone, so there is no identity to check.
         let sidecars = (sidecars.into_iter())
             .map(|(path, data)| (ListedFile::not_from_the_list(path), data))
@@ -568,6 +569,11 @@ impl crate::App {
             if dir.is_none() && !all.is_empty() {
                 msg += tr(" (no data folder: $HOME is not set)");
             }
+            // The sidecars may still wait for their writer, which tells a failure on its own.
+            // Before, they were told as done here.
+            if sidecars_written_later {
+                msg += tr("; the sidecars are still being written");
+            }
             Some(match any_failed {
                 true => crate::support::threads::Told::FailedWrite(msg),
                 false => crate::support::threads::Told::Notice(msg),
@@ -592,7 +598,7 @@ fn non_table_check() -> String {
 
 /// Read `file`; an error says why in words for the user.
 pub fn read(file: &Path) -> Result<Catalog, String> {
-    if file.with_extension("lrcat.lock").exists() {
+    if !crate::files::file_io::is_surely_gone(&file.with_extension("lrcat.lock")) {
         return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
     }
     if !crate::files::external::has_program("sqlite3") {
@@ -1041,5 +1047,43 @@ mod tests {
             c.stars(&paths);
             c.image_keywords(&paths);
         }
+    }
+
+    /// The import's notice says that the sidecars are still being written, as their writer
+    /// tells only a failure, later. Before, it named their keywords and stars as imported while
+    /// they waited for the writer, which might yet fail.
+    #[test]
+    fn the_import_does_not_tell_sidecars_as_done() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lightroom-told-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&png).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.config.lightroom_keywords = true;
+        let plan = super::Plan {
+            not_found: 0,
+            collections: Vec::new(),
+            existing: Vec::new(),
+            keywords: Vec::new(),
+            stars: Vec::new(),
+            image_keywords: vec![(png, vec!["Tag".into()])],
+            differing_stars: 0,
+            takes_lightroom_stars: false,
+        };
+        app.import_lightroom(&ctx, plan);
+        let imported = std::iter::from_fn(|| {
+            app.notices
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .ok()
+        })
+        .find_map(|told| match told {
+            crate::support::threads::Told::Notice(text) if text.contains("Lightroom") => Some(text),
+            _ => None,
+        })
+        .unwrap();
+        assert!(imported.contains("still being written"), "{imported}");
+        crate::files::file_io::flush();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

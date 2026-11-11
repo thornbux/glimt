@@ -5,7 +5,7 @@ use crate::features::copy_for_sharing::SharingDialog;
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::Login;
-use crate::files::file_io::{FileFingerprint, fingerprint};
+use crate::files::file_io::{FileFingerprint, fingerprint, save_failed};
 use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
@@ -132,8 +132,8 @@ impl Asked {
     }
 }
 
-/// Save as Theme's answer: the theme's name, and its file or why it was not saved.
-type SavedTheme = (String, Result<PathBuf, String>);
+/// Save as Theme's answer when the theme was saved: its name and its file.
+type SavedTheme = (String, PathBuf);
 
 /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file
 /// chooser.
@@ -468,9 +468,10 @@ impl crate::App {
         }
     }
 
-    /// Saves the look shown as the theme `text` in the user's themes folder, in a thread of its
-    /// own, as a home on a share that stopped answering would hold the window. Its answer is
-    /// taken by `receive_saved_theme`.
+    /// Saves the look shown as the theme `text` in the user's themes folder, in the thread of
+    /// Glimt's own files, as a home on a share that stopped answering would hold the window. A
+    /// close waits for it there, and a failure is told as a failed write (`save_failed`), so a
+    /// close does not hide it. The theme saved is taken by `receive_saved_theme`.
     fn save_theme(&mut self, ctx: &egui::Context, text: &str) {
         // Never in the place of a built-in theme, which a file of its name would hide for good.
         let file = match theme::own_themes_dir() {
@@ -487,18 +488,22 @@ impl crate::App {
         let (bytes, text) = (theme::Theme::file_from(ctx), text.to_owned());
         let (tx, rx) = answer_channel(&self.busy);
         let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
-        std::thread::spawn(move || {
+        crate::files::file_io::write_later(move || {
             drop(std::fs::create_dir_all(file.parent().unwrap_or(&file)));
             // Whole or not at all: a full disk left half a theme, whose name was then taken. And
             // never over a theme there, hand-edited perhaps.
-            let made = crate::files::file_io::create_file(&file, bytes);
-            let saved = made.map(|_| file).map_err(|e| match e.kind() {
-                std::io::ErrorKind::AlreadyExists => {
-                    tf!("{text} exists already: choose another name", text)
-                }
-                _ => e.to_string(),
-            });
-            let _ = tx.send((text, saved));
+            match crate::files::file_io::create_file(&file, bytes) {
+                Ok(()) => drop(tx.send((text, file))),
+                Err(e) => save_failed(tf!(
+                    "Could not save the theme: {e}",
+                    e = match e.kind() {
+                        std::io::ErrorKind::AlreadyExists => {
+                            tf!("{text} exists already: choose another name", text)
+                        }
+                        _ => e.to_string(),
+                    }
+                )),
+            }
             drop(pointer);
             ctx.request_repaint();
         });
@@ -509,23 +514,17 @@ impl crate::App {
     /// the theme files are read again for it.
     pub(crate) fn receive_saved_theme(&mut self, ctx: &egui::Context) {
         // The busy pointer stays until the answer is handled.
-        let ((text, saved), _pointer) = match self.dialogs.saved_theme.take() {
-            Took::Answer(answer) => answer,
-            Took::Gone => return self.tell_background_stopped(tr("Save as Theme…")),
-            Took::Nothing => return,
+        // Only a theme saved is answered. A failure, also a panic, was told by the writer.
+        let Took::Answer(((text, file), _pointer)) = self.dialogs.saved_theme.take() else {
+            return;
         };
-        self.notice.give(match saved {
-            Ok(file) => {
-                self.config.theme = text;
-                self.config.save();
-                self.desktop_settings.read_theme_files_again(ctx);
-                tf!(
-                    "Saved as {file}: edit it, then choose it again",
-                    file = file.display()
-                )
-            }
-            Err(e) => tf!("Could not save the theme: {e}", e),
-        });
+        self.config.theme = text;
+        self.config.save();
+        self.desktop_settings.read_theme_files_again(ctx);
+        self.notice.give(tf!(
+            "Saved as {file}: edit it, then choose it again",
+            file = file.display()
+        ));
     }
 
     /// The file dialog's answer, for what it was opened for.
@@ -1926,6 +1925,33 @@ mod tests {
             Some(Action::Next),
             "the key after Esc closed the prompt did nothing"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A theme that could not be saved is told as a failed write, which keeps a close that
+    /// waited for it open. Before, its thread held no count of writing, so a close did not wait
+    /// for the theme, and the failure was a plain notice.
+    #[test]
+    fn a_theme_not_saved_is_a_failed_write() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-theme-fails-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let name = format!("glimt-test-saved-theme-{}", std::process::id());
+        let themes = crate::ui::theme::own_themes_dir().unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        let file = themes.join(format!("{name}.theme"));
+        std::fs::write(&file, "hand-edited").unwrap();
+        let _ = crate::files::file_io::take_saves_failed();
+        app.save_theme(&ctx, &name);
+        crate::files::file_io::flush();
+        let failed = crate::files::file_io::take_saves_failed();
+        assert!(
+            failed.iter().any(|e| e.contains("exists already")),
+            "{failed:?}"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "hand-edited");
+        std::fs::remove_file(file).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

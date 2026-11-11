@@ -3063,6 +3063,14 @@ msgstr "{file} nie dostaje żadnych plików: %f w cudzysłowie nie jest plikiem.
 msgid "Added formats and tools:"
 msgstr "Dodane formaty i narzędzia:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; pliki poboczne są nadal zapisywane"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Nie udało się usunąć {name}: {e}"
+
 #: src/files/file_io.rs
 msgid "another file has taken its name: the folder is read again"
 msgstr "jego nazwę przejął inny plik: folder zostanie wczytany ponownie"

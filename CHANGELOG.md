@@ -5,6 +5,44 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `glimt --wait --remote COMMAND` (and `--wait --remote-all`) waits until the work the command
+  started has ended, with the settings or other files it changed written, and exits with 3 and
+  the reason when a write failed meanwhile. Without `--wait`, a command is done when the window
+  takes it, as before, and a write that fails afterwards shows only in the window.
+
+### Fixed
+
+- Delete for good keeps a photo's sidecar, with its keywords and stars, when the photo could not
+  be looked at after the delete, as on a share that dropped for a moment. Before, the sidecar
+  was deleted while the photo might still be there. A name counts as gone only when the system
+  says that it is not there, also for a move, a rename and the trash.
+- A move, rename or copy on rclone, s3fs or MTP never renames over a name that it could not
+  look at, nor over a link that points nowhere. Before, a failed look let the rename go over
+  the file there.
+- A link or pipe put in Glimt's runtime folder no longer empties the file it points to, nor
+  holds the remote control or a sidecar write for good. The lock files there are opened as the
+  collections' are: never through a link, never emptied, and only a regular file.
+- A photo turned, or changed by a tool, after a move of many thousands of files no longer holds
+  the window while Glimt looks up the real path of every moved file. `--remote selection` with
+  500,000 files selected answers in some 10 ms rather than 50 ms.
+- Print to File and Copy for Sharing that could not write their files keep a closing window
+  open with the failure shown, as other failed writes do. Before, the window closed over it,
+  and the PDF or the copies looked made. So does Save as Theme, which a close did not wait
+  for at all.
+- A file that breaks the work on it (a damaged sidecar or picture that makes a reader fail)
+  costs only that file in a delete, a move, a copy, keywords and stars written to sidecars, and
+  a print's captions. The files after it are still done, the Undo and the marks follow those
+  that were, and the failure is shown. Before, the work stopped there without a word: no Undo,
+  the marks of the files moved stayed under their old names, and a close went ahead.
+- A Lightroom import says that the sidecars are still being written, instead of naming their
+  keywords and stars imported before they were.
+- A Rename Many plan, a Move's log or the window's state file that Glimt could not remove is
+  told. Before, a plan left behind was offered again at the next start, where putting its old
+  names back would have undone the finished rename. A backup that holds a copy of a running
+  Rename Many's plan is told as not whole.
+
 ## [0.80.1] - 2026-11-11
 
 ### Fixed

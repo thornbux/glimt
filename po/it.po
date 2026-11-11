@@ -3052,6 +3052,14 @@ msgstr "{file} non riceve alcun file: %f tra virgolette non è il file. Scrivi %
 msgid "Added formats and tools:"
 msgstr "Formati aggiunti e strumenti:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; i file sidecar sono ancora in scrittura"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Impossibile rimuovere {name}: {e}"
+
 #: src/files/file_io.rs
 msgid "another file has taken its name: the folder is read again"
 msgstr "un altro file ha preso il suo nome: la cartella viene riletta"

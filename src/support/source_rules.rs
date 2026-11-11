@@ -656,6 +656,16 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "write_in_sidecar_thread(",
 ];
 
+/// What starts work that writes, which closing waits for: a job, work in the background, an
+/// operation that will leave an Undo, or the count of writing itself.
+const WRITING_WORK: &[&str] = &[
+    "start_job(",
+    "start_job_of(",
+    "run_in_background(",
+    "undo_on_the_way(",
+    "WRITING",
+];
+
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -2191,8 +2201,10 @@ fn notices_are_given_through_their_setter() {
 /// A failure must also reach the window as a failed write, not as a plain notice, which a
 /// close does not wait for. Work in `run_in_background` answers with a `Told`, so it says which
 /// its answer is, and a function that hands work to a writer thread holds no `notice_sender`,
-/// so the writer tells a failure through `save_failed`. A crop, Save As, an Undo and Rename
-/// Collection sent their failures as plain notices, and a close that waited closed over them.
+/// so the writer tells a failure through `save_failed`. A function that starts a job or other
+/// writing work hands its `notice_sender` only to `threads::told_work`. A crop, Save As, an
+/// Undo and Rename Collection sent their failures as plain notices, and so did Print to File
+/// and Copy for Sharing, and a close that waited closed over them.
 #[test]
 fn a_close_takes_the_failed_writes_first() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
@@ -2230,8 +2242,9 @@ fn finds_a_notice_sender_beside_a_writer() {
 }
 
 /// Returns the functions in `text`, the source of `file`, that hand work to a writer thread
-/// (`write_later` or `write_later_in_user_folders`) and also hold a `notice_sender`, by which
-/// that work could send a failure as a plain notice.
+/// (`write_later` or `write_later_in_user_folders`) or start writing work (`WRITING_WORK`), and
+/// also hold a `notice_sender` that is not handed to `told_work`, by which that work could send
+/// a failure as a plain notice.
 fn notices_beside_writers(file: &str, text: &str) -> Vec<String> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
@@ -2247,7 +2260,68 @@ fn notices_beside_writers(file: &str, text: &str) -> Vec<String> {
             (function, writes, notices) = (name.to_owned(), false, false);
         }
         writes |= mentions(line, "write_later(") || mentions(line, "write_later_in_user_folders(");
-        notices |= line.contains("notice_sender");
+        // A function that starts a job or work that counts as writing hands its sender only to
+        // `told_work`, so the work tells through a `Told`, which says whether it is a failure.
+        writes |= WRITING_WORK.iter().any(|w| line.contains(w));
+        notices |= line.contains("notice_sender") && !line.contains("told_work(");
+    }
+    wrong
+}
+
+/// A thread that writes, one that holds a job, the count of writing or an Undo on the way, runs
+/// its work through `threads::told_work`, which catches a panic and tells it as a failed write,
+/// and keeps the count of writing until it has told. Delete, Copy and Move, Rename Many, Copy for
+/// Sharing and Print ran in threads of their own, and a panic in one ended it with nothing told:
+/// no report, no Undo, and a close that waited for it went ahead. A writer's `Took::Gone` then
+/// needs nothing more, as the thread told its end itself.
+#[test]
+fn writing_threads_tell_what_they_did() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        wrong.extend(untold_writing_threads(&file, &text));
+    }
+    assert!(
+        wrong.is_empty(),
+        "run a thread that writes through run_in_background or threads::told_work:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The checks above find a thread that holds a job and tells nothing, and a function with a job
+/// that holds a `notice_sender`, and leave a thread that reads alone.
+#[test]
+fn finds_a_writing_thread_that_tells_nothing() {
+    // Through `app`, not `self`, so the file operations' contract does not take these for
+    // operations of its own.
+    let text = "impl A {\n    fn a(app: &App) {\n        let job = app.start_job(x);\n        \
+        std::thread::spawn(move || drop(job));\n    }\n    fn b(app: &App) {\n        \
+        let w = app.start_job_of(x);\n        \
+        std::thread::spawn(told_work(app.notice_sender.clone(), c, w, work));\n    }\n    \
+        fn c(app: &App) {\n        std::thread::spawn(move || read());\n    }\n    \
+        fn d(app: &App) {\n        let n = app.notice_sender.clone();\n        \
+        app.run_in_background(ctx, Vec::new(), move || drop(n.send(e)));\n    }\n}\n";
+    assert_eq!(untold_writing_threads("x.rs", text), ["x.rs: a"]);
+    assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d"]);
+}
+
+/// Returns the functions in `text`, the source of `file`, that start writing work
+/// (`WRITING_WORK`) and spawn a thread that does not run through `told_work`.
+fn untold_writing_threads(file: &str, text: &str) -> Vec<String> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let (mut function, mut writes, mut untold) = (String::new(), false, false);
+    let mut wrong = Vec::new();
+    // A last line that starts no function ends the last one, so it is checked too.
+    let last = "fn end".to_owned();
+    for line in lines[..end].iter().chain([&last]) {
+        if let Some(name) = function_name(line) {
+            if writes && untold {
+                wrong.push(format!("{file}: {function}"));
+            }
+            (function, writes, untold) = (name.to_owned(), false, false);
+        }
+        writes |= WRITING_WORK.iter().any(|w| line.contains(w));
+        untold |= line.contains("thread::spawn(") && !line.contains("told_work(");
     }
     wrong
 }
@@ -3622,6 +3696,158 @@ fn finds_a_name_removed_after_a_cached_look() {
     assert_eq!(removals_after_a_look(text), ["a"]);
 }
 
+/// A name counts as gone only when the system said that it is not there (NotFound).
+/// `Path::exists`, and a look whose every error is taken as an answer (`metadata(…).is_err()`
+/// or `.is_ok()`), take a share that dropped for a moment for a name that is gone. That way a
+/// sidecar was trashed while its photo stayed, and a rename went over a file that it could not
+/// look at. So a name is looked at only through `file_io::is_surely_gone` and
+/// `is_surely_there`, whose names say which way a failed look counts.
+#[test]
+fn gone_means_not_found() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = looks_that_guess(&text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a name looked at with exists() or metadata(…).is_err() or .is_ok(), which take any \
+         failed look for an answer; use file_io::is_surely_gone or is_surely_there:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that ask whether a name is there in a
+/// way that takes every failed look for an answer. A call split over two lines is found too.
+fn looks_that_guess(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let guesses = |i: usize| {
+        let line = &lines[i];
+        let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
+        let call = format!("{line}{}", if next.starts_with('.') { next } else { "" });
+        line.contains(".exists()")
+            || mentions(line, "Path::exists")
+            || (line.contains("metadata(")
+                && [".is_err()", ".is_ok()"].iter().any(|c| call.contains(c)))
+    };
+    (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
+}
+
+/// The check above finds `exists`, also as a function value, and a look at the metadata whose
+/// errors count as gone or as there, also when split over two lines. It leaves the helpers, a
+/// metadata read that passes its error on, and `try_exists`, whose `Ok(false)` is NotFound only.
+#[test]
+fn finds_a_look_that_guesses() {
+    let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
+        .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
+        files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
+        let m = std::fs::metadata(p)?;\n    p.try_exists()\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
+}
+
+/// A lock file is opened and waited for only through `file_io::open_and_lock`, which never
+/// truncates it, never follows a link and never waits on a pipe planted in its place. Opened
+/// with `File::create`, a link planted in Glimt's runtime folder emptied the file of the user's
+/// that it pointed to, and a planted pipe held the thread for good. So a function that opens a
+/// file and waits for a lock is found anywhere but there.
+#[test]
+fn lock_files_are_opened_in_one_place() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = (files_locked_by_hand(&text).into_iter())
+            .filter(|f| (file.as_str(), f.as_str()) != ("files/file_io.rs", "open_and_lock"));
+        wrong.extend(found.map(|f| format!("{file}: {f}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a file opened and locked outside file_io::open_and_lock:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the functions of `text` outside the tests that both open a file and wait for a lock.
+/// A `try_lock` waits for nothing, and is left to the files that Glimt makes new.
+fn files_locked_by_hand(text: &str) -> Vec<String> {
+    const OPENS: [&str; 5] = [
+        "File::create(",
+        "File::open(",
+        "File::options(",
+        "OpenOptions",
+        "open_regular(",
+    ];
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    let mut function = String::new();
+    let (mut opens, mut locks) = (false, false);
+    for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
+        if let Some(name) = function_name(line) {
+            if opens && locks {
+                found.push(function);
+            }
+            function = name.to_owned();
+            (opens, locks) = (false, false);
+            continue;
+        }
+        opens |= OPENS.iter().any(|call| line.contains(call));
+        locks |= line.contains(".lock()") || line.contains(".lock_shared()");
+    }
+    found
+}
+
+/// The check above finds a lock file made with `File::create` and locked, and leaves a lock
+/// taken through `open_and_lock`, a `try_lock` of a file made new, and a lock of a mutex.
+#[test]
+fn finds_a_lock_file_opened_by_hand() {
+    let text = "fn a() {\n    let f = std::fs::File::create(p)?;\n    f.lock()?;\n}\n\
+        fn b() {\n    let f = open_and_lock(p)?;\n}\n\
+        fn c() {\n    let f = OpenOptions::new().create_new(true).open(p)?;\n    \
+        f.try_lock()?;\n}\n\
+        fn d() {\n    m.lock()\n}\n";
+    assert_eq!(files_locked_by_hand(text), ["a"]);
+}
+
+/// The functions of the C library are called through the `libc` crate, never declared by hand
+/// in an `extern "C"` block. A declaration written by hand is a guess at the system's types,
+/// and `time_t`, `struct tm` and `struct timespec` differ on 32-bit systems. A function pointer
+/// that C calls (`extern "C" fn`, a signal handler) is not a declaration, and stays.
+#[test]
+fn foreign_functions_come_from_libc() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = foreign_declarations(&text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a C function declared by hand; call it through libc:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that open an `extern` block.
+fn foreign_declarations(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let opens_block = |line: &String| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        words.windows(2).any(|w| w == ["extern", "{"])
+    };
+    (0..end)
+        .filter(|&i| opens_block(&lines[i]))
+        .map(|i| i + 1)
+        .collect()
+}
+
+/// The check above finds an `extern "C"` block, and leaves a function that C calls.
+#[test]
+fn finds_a_foreign_declaration() {
+    let text = "unsafe extern \"C\" {\n    fn kill(pid: i32, signal: i32) -> i32;\n}\n\
+        extern \"C\" fn on_signal(_signal: i32) {}\n";
+    assert_eq!(foreign_declarations(text), [1]);
+}
+
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
 /// `put_file`, each with whether it syncs the folder, itself or through `write_beside`.
 // shortcut: a function counts as synced when it syncs anywhere, so a branch that renames
@@ -3799,7 +4025,7 @@ fn finds_a_lint_turned_off_widely() {
 /// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
 /// used again, or `if let Ok(…) =` with no `else`.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
-    const WRITERS: [&str; 14] = [
+    const WRITERS: [&str; 15] = [
         // collections::edit and edit_open_collection, which write through replace_name.
         "edit(",
         "edit_open_collection(",
@@ -3815,6 +4041,9 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         "replace_name_with(",
         "write_beside(",
         "create_file(",
+        // A removal of Glimt's own plan, log or state file, which the next start would act on
+        // again if it stayed.
+        "remove_own(",
     ];
     const KEYWORDS: [&str; 7] = ["if", "while", "match", "return", "let", "else", "for"];
     let lines = code_lines(text);
@@ -3958,6 +4187,9 @@ fn finds_a_dropped_write() {
         dropped_writes_in(text),
         [2, 3, 4, 6, 14, 15, 20, 23, 26, 27]
     );
+    // A removal of Glimt's own file, whose failure must be told too.
+    let removals = "fn a() {\n    let _ = remove_own(plan);\n    remove_own_or_tell(plan);\n}\n";
+    assert_eq!(dropped_writes_in(removals), [2]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare

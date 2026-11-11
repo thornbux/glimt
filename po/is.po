@@ -3052,6 +3052,14 @@ msgstr "{file} fær engar skrár: %f innan gæsalappa er ekki skráin. Skrifaðu
 msgid "Added formats and tools:"
 msgstr "Viðbætt snið og verkfæri:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; enn er verið að skrifa hliðarskrárnar"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Gat ekki fjarlægt {name}: {e}"
+
 #: src/files/file_io.rs
 msgid "another file has taken its name: the folder is read again"
 msgstr "önnur skrá hefur tekið nafnið: mappan er lesin aftur"

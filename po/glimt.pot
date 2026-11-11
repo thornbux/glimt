@@ -3073,6 +3073,14 @@ msgstr ""
 msgid "Added formats and tools:"
 msgstr ""
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr ""
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr ""
+
 #: src/files/file_io.rs
 msgid "another file has taken its name: the folder is read again"
 msgstr ""

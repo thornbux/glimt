@@ -134,7 +134,10 @@ command is answered with nothing when it was done, and with `not done: <reason>`
 not: a `run` refused while a dialog is open or a field has the focus, an action that
 `App::why_refused` refuses (a kiosk's, say), or a command or choice the window does not know.
 The client then exits with `NOT_DONE` (3). A window from a version before these answers closes
-the connection without one, which the client takes as done.
+the connection without one, which the client takes as done. "Done" means that the command was
+taken; with `--wait` the client sends it after the word `wait`, and the window answers only when
+its work has ended, `done` or `not done: <reason>` when a write failed meanwhile
+(`answer_awaited_outcomes`).
 
 No test pins the following, so they are kept by hand:
 
@@ -484,6 +487,9 @@ method.
       where these are used);
     - a file that several windows share with `file_io::edit_shared`, which locks, reads,
       changes and writes it as one step (clippy refuses `file_lock` elsewhere);
+  - open a lock file and wait for its lock with `file_io::open_and_lock`, which never
+    truncates it, follows a link or waits on a pipe planted in its place
+    (`source_rules::lock_files_are_opened_in_one_place`);
   - change a file the user picked in the list (its sidecar, marks, a delete, a rename, a
     tool) only through a `file_io::ListedFile` (`App::listed_file`), checked with
     `ListedFile::check` right before the change, in the thread that makes it, so that a name
@@ -501,6 +507,10 @@ method.
     unlink surely removed nothing (an unknown error keeps both names), and a second name goes
     only after `save::same_file_by_opening`
     (`source_rules::no_name_is_removed_on_a_cached_look`);
+  - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there`, never
+    with `exists()` or `metadata(…).is_err()` or `.is_ok()`, which take a share that dropped
+    for a moment for a file that is gone. Only NotFound means gone
+    (`source_rules::gone_means_not_found`);
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside
     a Flatpak's sandbox), and one of the user's with `host_command` or `stoppable_host_command`
     (on the host). Wait for it only with `run_limited`, `short_output_of`, `output_of` or a
@@ -535,7 +545,8 @@ whole module. The tests may unwrap (main.rs allows it for them).
   `NoticeSender::send_failed_write`, never as a plain notice, and the window thread through
   `App::tell_failed_write`. Work in `run_in_background` answers with a `Told`, which says
   whether it is a notice or a failed write, and a function that hands work to a writer thread
-  holds no `notice_sender`. Both keep the window open when a close
+  holds no `notice_sender`, and one that starts a job hands it only to `threads::told_work`.
+  Both keep the window open when a close
   waited for the writing. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
   the failed writes before it lets one through
   (`source_rules::a_close_takes_the_failed_writes_first`).
@@ -547,10 +558,16 @@ whole module. The tests may unwrap (main.rs allows it for them).
 - **A panic in a background thread is caught in one place**, `threads::catch_panic`, around
   each file a worker reads or writes, so a broken file costs only that file
   (`source_rules::panics_are_caught_in_one_place`). When it returns `None` for a write, that is
-  a failed write like any other, told to the user.
+  a failed write like any other, told to the user. A thread that writes (one that holds a job,
+  the count of writing or an Undo on the way) runs through `run_in_background` or
+  `threads::told_work`, which tells a panic that escaped the files' own catches as a failed
+  write, and counts as writing until it has told
+  (`source_rules::writing_threads_tell_what_they_did`).
 - **Every `unsafe` block has `#[allow(unsafe_code)]`** on that one statement or function, and a
   `// SAFETY:` comment that says why the call is sound. New `unsafe` needs a reason that no safe
-  API covers, in the standard library or in a crate already in `Cargo.toml`.
+  API covers, in the standard library or in a crate already in `Cargo.toml`. A function of the
+  C library is called through `libc`, never declared by hand in an `extern "C"` block, whose
+  types are a guess (`source_rules::foreign_functions_come_from_libc`).
 
 ## Dependencies
 

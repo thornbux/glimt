@@ -8,7 +8,7 @@ use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{CPU_CHANGED, Told, Took, cores, thumb_threads};
 use crate::ui::file_list::LARGE_THUMBS;
 use crate::ui::file_list::OnScreenFiles;
-use crate::{features::remote, images::thumbs, malloc_trim, tf};
+use crate::{features::remote, images::thumbs, tf};
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -123,7 +123,7 @@ impl crate::App {
     /// `file_io::save_failed` told from any thread, the notices and failures that background
     /// threads sent, and the turns saved. This is the one place they are taken, and
     /// `guard_close` calls it, so each failure is seen before the window closes.
-    fn take_saves(&mut self, ctx: &egui::Context) {
+    pub(crate) fn take_saves(&mut self, ctx: &egui::Context) {
         // `save_failed` and `send_failed_write` printed theirs already.
         if let Some(error) = crate::files::file_io::take_save_error() {
             self.window.keep_failed_write(error);
@@ -191,8 +191,9 @@ impl crate::App {
                 self.finish_rename_many(ctx, job, result)
             }
             Took::Answer((None, ..)) | Took::Nothing => {}
+            // The thread broke, which `run_in_background` told as a failed write, because the
+            // names may be half done.
             Took::Gone => {
-                self.tell_background_stopped(tr("Rename Many"));
                 if let Some(dropped) = self.send_waiting_sidecar_writes(ctx, None) {
                     self.tell_failed_write(dropped);
                 }
@@ -279,7 +280,7 @@ pub(crate) fn spawn_thumbnailers(
                 #[allow(unsafe_code)]
                 // SAFETY: as for the image workers above.
                 unsafe {
-                    malloc_trim(0)
+                    libc::malloc_trim(0)
                 };
                 ctx.request_repaint();
             }

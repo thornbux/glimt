@@ -3063,6 +3063,14 @@ msgstr "{file} får ingen filer: %f inne i hermeteikn er ikkje fila. Skriv %f so
 msgid "Added formats and tools:"
 msgstr "Tilføydde format og verktøy:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; sidefilene blir framleis skrivne"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Kunne ikkje fjerna {name}: {e}"
+
 #: src/files/file_io.rs
 msgid "another file has taken its name: the folder is read again"
 msgstr "ei anna fil har teke namnet: mappa blir lesen på nytt"

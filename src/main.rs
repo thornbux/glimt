@@ -15,8 +15,8 @@ use crate::cli::Start;
 use crate::features::check::ImageCheck;
 use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
-use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
-use crate::files::file_io::write_atomic;
+use crate::files::config::{Config, LOCK_FILE, WindowState, parse_last_dir, state_path};
+use crate::files::file_io::{is_surely_gone, write_atomic};
 use crate::metadata::lightroom::Import;
 use crate::model::list::List;
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, Working};
@@ -40,9 +40,6 @@ mod model;
 mod support;
 mod ui;
 mod viewer;
-
-/// glibc's M_ARENA_MAX.
-const M_ARENA_MAX: i32 = -8;
 
 /// Glimt's logo, 256 pixels square. It is the window's icon and appears on the About page.
 const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
@@ -416,7 +413,6 @@ impl eframe::App for App {
         // disk is.
         std::thread::spawn(crate::features::remote::close);
         self.answer_waiting_selects();
-        crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
         self.take_last_reports_before_exit(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
@@ -435,8 +431,7 @@ impl eframe::App for App {
         // for, so a home on a share that stopped answering does not hold the window.
         if let Some(p) = state_path() {
             crate::files::file_io::write_later(move || match state.is_empty() {
-                #[allow(clippy::disallowed_methods)] // Glimt's own state file
-                true => drop(std::fs::remove_file(p)),
+                true => crate::files::file_io::remove_own_or_tell(&p),
                 false => write_atomic(&p, &state),
             });
         }
@@ -447,6 +442,12 @@ impl eframe::App for App {
         if self.window.waits_at_exit() {
             crate::files::file_io::flush();
         }
+        // The clients are answered after the last writes, so that a command sent with --wait
+        // is told whether they failed. A query that comes meanwhile waits, within its time.
+        crate::features::remote::stop(|| {
+            self.answer_waiting_selects();
+            self.answer_awaited_outcomes(&ctx, true);
+        });
         let at = |share| frame_at(self.decoding.frame_times(), share);
         eprintln!(
             "frames: median {} ms, 90% within {} ms, slowest {} ms",
@@ -483,14 +484,6 @@ impl eframe::App for App {
 /// them. It is glimt.desktop, or io.github.thornbux.Glimt.desktop (FLATPAK_ID) in a Flatpak.
 fn app_id() -> String {
     std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
-}
-
-#[allow(unsafe_code)] // declarations only: each call is an unsafe block
-unsafe extern "C" {
-    /// Returns freed heap memory to the operating system (glibc).
-    fn malloc_trim(pad: usize) -> i32;
-    /// Sets a malloc parameter (glibc).
-    fn mallopt(param: i32, value: i32) -> i32;
 }
 
 /// The program that New Window starts. From an AppImage it is the AppImage, because the binary
@@ -572,7 +565,7 @@ fn main() -> eframe::Result {
         #[allow(unsafe_code)]
         // SAFETY: This is called before any other thread exists.
         unsafe {
-            mallopt(M_ARENA_MAX, 1)
+            libc::mallopt(libc::M_ARENA_MAX, 1)
         };
         HAS_ONE_MALLOC_ARENA.store(true, Ordering::Relaxed);
     }
@@ -604,30 +597,15 @@ fn main() -> eframe::Result {
     let to_all = command.is_some_and(|a| a == remote[1]);
     if command.is_some_and(|a| a == remote[0]) || to_all {
         let paths = args_os.get(2..).unwrap_or_default();
-        match crate::features::remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
+        match crate::features::remote::client(&args[1..], paths, &start, to_all) {
             Some(path) => {
                 arg = Some(path);
-                // `open` found no Glimt of that process ID, so a new one opens the path under
-                // its own process ID.
-                if start
-                    .name
-                    .as_deref()
-                    .is_some_and(crate::features::remote::is_process_id)
-                {
-                    start.name = None;
-                }
+                start.forget_remote_options();
             }
             None => return Ok(()),
         }
     }
-    if start
-        .name
-        .as_deref()
-        .is_some_and(crate::features::remote::is_process_id)
-    {
-        eprintln!("glimt: a --name of only digits is a process ID, which only --remote takes");
-        std::process::exit(2);
-    }
+    start.refuse_remote_options();
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")
         .with_app_id(app_id())
@@ -642,7 +620,7 @@ fn main() -> eframe::Result {
     }
     // A kiosk changes no settings either, because a visitor's changes would last until the
     // next boot.
-    if start.lock_settings || start.kiosk || Path::new(crate::files::config::LOCK_FILE).exists() {
+    if start.lock_settings || start.kiosk || !is_surely_gone(Path::new(LOCK_FILE)) {
         crate::files::config::lock();
     }
     let read = read_at_start(config, problems);

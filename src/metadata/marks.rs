@@ -497,7 +497,9 @@ fn save(edit: Edit) {
         let edits = take_queued_edits();
         // Only a change can add marks, so the other edits make no marks file where none is.
         let adds = edits.iter().any(|edit| matches!(edit, Edit::Change(..)));
-        if let Some(file) = marks_file().filter(|f| adds || f.exists()) {
+        if let Some(file) =
+            marks_file().filter(|f| adds || !crate::files::file_io::is_surely_gone(f))
+        {
             write(&file, &edits);
         }
     });

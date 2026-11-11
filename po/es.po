@@ -3052,6 +3052,14 @@ msgstr "{file} no recibe ningún archivo: %f entre comillas no es el archivo. Es
 msgid "Added formats and tools:"
 msgstr "Formatos añadidos y herramientas:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; los archivos complementarios aún se están escribiendo"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "No se pudo eliminar {name}: {e}"
+
 #: src/files/file_io.rs
 msgid "another file has taken its name: the folder is read again"
 msgstr "otro archivo ha tomado su nombre: la carpeta se vuelve a leer"
