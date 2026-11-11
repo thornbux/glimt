@@ -18,6 +18,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   once. Before, it waited until its time ran out and said "no answer", although the window took
   the name. Such a window also reads a folder opened with `--remote open`, and takes a file
   job's report, while it is not shown, so its busy pointer goes and a `--wait` is answered.
+- A window whose remote control socket, left by a Glimt gone, cannot be removed says why, at
+  start and at a rename. Before, it said that a Glimt of that name was running when none was,
+  and a rename shared the name under the window's process ID or was refused.
+- The PDF that the print portal prints is made readable by its user alone. Before, other users
+  of the computer could read it in the moment before its name was removed.
 - A print whose page image could not be made fails and says so. Before, that page printed
   blank without a word.
 - Open Themes Folder and Open the Tools Folder say so when the folder cannot be made. Before,
