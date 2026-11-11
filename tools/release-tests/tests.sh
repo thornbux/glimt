@@ -79,15 +79,22 @@ if [ "$(id -u)" = 0 ]; then
             && cp ~/.ssh/id_ed25519.pub ~/.ssh/authorized_keys \
             && ssh-keyscan -H localhost >~/.ssh/known_hosts 2>/dev/null'
     fi
-    # The checks of a failing environment (faults=yes): a small tmpfs at /mnt/full, which they
-    # fill, and at /mnt/lossy a FUSE pass-through of /opt/lossy whose unlink of a file named
-    # lost-* removes it but answers EIO, and then answers stat of that name from a cache for 30
-    # seconds, as a share whose reply was lost does (NFS, SMB, sshfs). It writes each EIO it
-    # gives to /tmp/lossyfs.log, so that a check knows that the fault did happen. Both need
-    # --privileged, which run.sh gives the parts with these checks; without it those checks fail.
+    # The checks of a failing environment (faults=yes): a small tmpfs at /mnt/full and a small
+    # ext2 at /mnt/disk, which they fill, and at /mnt/lossy a FUSE pass-through of /opt/lossy
+    # whose unlink of a file named lost-* removes it but answers EIO, and then answers stat of
+    # that name from a cache for 30 seconds, as a share whose reply was lost does (NFS, SMB,
+    # sshfs). Its read of a file named bad-* fails past the first 256 KiB while /tmp/lossy-eio
+    # is there. It writes each EIO it gives to /tmp/lossyfs.log, so that a check knows that the
+    # fault did happen. All three need --privileged, which run.sh gives the parts with these
+    # checks; without it those checks fail.
     if grep -q '^faults=[y]es' "${SCRIPT:-/t/tests.sh}"; then
-        mkdir -p /mnt/full /mnt/lossy /opt/lossy && chown tester: /opt/lossy
+        mkdir -p /mnt/full /mnt/disk /mnt/lossy /opt/lossy && chown tester: /opt/lossy
         mount -t tmpfs -o size=16m,uid=$(id -u tester),gid=$(id -g tester) full /mnt/full
+        # gio refuses to trash on a tmpfs, so the trash's full disk is a small ext2 at
+        # /mnt/disk, as a USB stick is, on a loop device tried again as the card's is.
+        truncate -s 16M /opt/disk.img && mkfs.ext2 -q -b 4096 -m 0 /opt/disk.img
+        for try in 1 2 3 4 5; do mount -o loop /opt/disk.img /mnt/disk 2>/dev/null && break; sleep 1; done
+        chown tester: /mnt/disk
         cat >/opt/lossyfs.py <<'PY'
 import errno, os, sys, time
 from fusepy import FUSE, FuseOSError, Operations, fuse_get_context
@@ -152,6 +159,12 @@ class Lossy(Operations):
         return os.open(self.r(path), flags)
 
     def read(self, path, size, offset, fh):
+        # A read of bad-* past its first 256 KiB fails while /tmp/lossy-eio is there, as on a
+        # disk with a bad sector, so that a check can show the image first and then fail a copy.
+        if (offset + size > 262144 and os.path.basename(path).startswith("bad-")
+                and os.path.exists("/tmp/lossy-eio")):
+            print("EIO-READ", path, flush=True)
+            raise FuseOSError(errno.EIO)
         return os.pread(fh, size, offset)
 
     def write(self, path, data, offset, fh):
@@ -461,6 +474,22 @@ crop_part() {
     xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
     xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
 }
+# The small tmpfs and ext2 of the checks of a full disk (faults=yes), and the FUSE share of the
+# checks of a share that fails (lossyfs.py above): a section that uses one checks that it is
+# mounted.
+full=/mnt/full disk=/mnt/disk lossy=/mnt/lossy
+# leave_free BYTES [AT]: the tmpfs (or the file system at AT) full but for BYTES. ext2 counts
+# what was written only once it is on the disk, hence the syncs.
+leave_free() {
+    local at=${2:-$full}
+    rm -f $at/.fill
+    head -c 20M /dev/zero >$at/.fill 2>/dev/null
+    sync -f $at/.fill
+    truncate -s -$1 $at/.fill
+    sync -f $at/.fill
+}
+# Pictures without the light red of a notice, which a gradient of blues with noise lacks.
+blue_photo() { convert -size $1 gradient:navy-blue -attenuate 0.5 +noise Gaussian -quality 95 $2; }
 
 cd /tmp
 
@@ -4733,15 +4762,6 @@ section "a full disk during a Move, a Copy, a turned save and a sidecar write: e
 # The root part mounts a tmpfs of 16 MB at /mnt/full for the line below. Each step fills it with a
 # hidden file of zeros, all but the room it leaves free.
 faults=yes
-full=/mnt/full
-# leave_free BYTES: the tmpfs full but for BYTES.
-leave_free() {
-    rm -f $full/.fill
-    head -c 20M /dev/zero >$full/.fill 2>/dev/null
-    truncate -s -$1 $full/.fill
-}
-# Pictures without the light red of a notice, which a gradient of blues with noise lacks.
-blue_photo() { convert -size $1 gradient:navy-blue -attenuate 0.5 +noise Gaussian -quality 95 $2; }
 if ! grep -q " $full tmpfs " /proc/mounts; then
     fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
 else
@@ -4833,7 +4853,6 @@ section "a share that removes a file but answers its unlink with an error: a Mov
 # hard link and an unlink; a Move from it to the local disk is a copy and an unlink. Neither may
 # then take back the name that is the only copy left.
 faults=yes
-lossy=/mnt/lossy
 if ! grep -q " $lossy fuse" /proc/mounts; then
     fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
     tail -5 /tmp/lossyfs.log 2>/dev/null | sed 's/^/     /'
@@ -5125,6 +5144,651 @@ time.sleep(12)" &
         else note "old, read-only $kind: $got"; fi
         rm -rf $d
     done
+done
+
+section "the trash failing partway, its disk full or gio failing: each photo there or in the trash, told, Undo puts back what went"
+# FAULT-1. Trash is the everyday delete. A trash cut short leaves some photos in the trash and
+# some in place: each must be in one of the two whole, with its sidecar, and Undo must bring
+# back the ones that went with their stars.
+faults=yes
+if ! grep -q " $disk ext2 " /proc/mounts; then
+    fail "no ext2 at $disk: run.sh's containers need --privileged for its loop device"
+else
+    for v in new old; do
+        for fault in full gio; do
+            as_version $v
+            rm -f $disk/.fill
+            if [ $fault = full ]; then
+                # The photos on the small disk, whose own trash gio uses, as on a USB stick. It
+                # moves each photo there after it wrote the photo's .trashinfo, a block of it.
+                d=$disk/trash-$v trash=$disk/.Trash-$(id -u)
+                rm -rf $trash /tmp/stub/gio; mkdir -p -m 700 $trash/files $trash/info
+            else
+                # gio that trashes the others and fails on stuck-*, as on a file it cannot move.
+                d=$H/trash-$v
+                cat >/tmp/stub/gio <<'STUB'
+#!/bin/sh
+[ "$1" = trash ] || exec /usr/bin/gio "$@"
+shift; [ "$1" = -- ] && shift
+status=0
+for f; do
+    case ${f##*/} in
+        stuck-*) echo "gio: $f: Permission denied" >&2; echo "$f" >>/tmp/gio-refused; status=2 ;;
+        *) /usr/bin/gio trash -- "$f" || status=2 ;;
+    esac
+done
+exit $status
+STUB
+                chmod +x /tmp/stub/gio
+                rm -f /tmp/gio-refused
+                trash=$XDG_DATA_HOME/Trash
+                rm -rf $trash
+            fi
+            rm -rf $d; mkdir -p $d $XDG_STATE_HOME/glimt
+            names="a.jpg stuck-b.jpg c.jpg"
+            for f in $names; do
+                blue_photo 300x200 $d/$f
+                echo "sidecar of $f" >$d/$f.xmp
+                printf '0\t3\t%s/%s\n' $d $f
+            done >$XDG_STATE_HOME/glimt/marks
+            sums=$(cd $d && for f in $names; do md5sum $f $f.xmp; done)
+            marks=$(sort $XDG_STATE_HOME/glimt/marks)
+            config confirm_trash=false
+            start $d
+            # The disk full but for one block: the first .trashinfo fits, the next does not.
+            [ $fault = full ] && leave_free 4096 $disk
+            key ctrl+a; key ctrl+d
+            until_notice trash-$fault-$v 20; told=$?
+            sleep 2
+            # Where each photo and sidecar is: here, in the trash with its .trashinfo, or lost.
+            places=$(for f in $names; do for g in $f $f.xmp; do
+                if [ -e $d/$g ]; then echo "$g:here"
+                elif [ -e $trash/files/$g ] && [ -e $trash/info/$g.trashinfo ]; then echo "$g:trash"
+                else echo "$g:lost"; fi
+            done; done | tr '\n' ' ')
+            whole=$(cd $d && for f in $names; do for g in $f $f.xmp; do
+                [ -e $g ] && md5sum $g || (cd $trash/files 2>/dev/null && md5sum $g 2>/dev/null)
+            done; done)
+            rm -f $disk/.fill
+            key ctrl+z
+            until_ok "[ \$(ls $d | wc -l) = 6 ]" 20
+            sleep 2
+            back=$(ls -A $d | tr '\n' ' ')
+            quit
+            # A photo whose .trashinfo was made but which did not go leaves an entry that names
+            # no file, and a file without its .trashinfo cannot be put back by a file manager.
+            strays=$(cd $trash/info 2>/dev/null && for i in *.trashinfo; do
+                [ -e "$i" ] && [ ! -e "../files/${i%.trashinfo}" ] && echo "$i"; done | tr '\n' ' ')
+            got="$(echo "$places" | grep -q lost && echo lost || echo "none lost")"
+            got="$got,$(echo "$places" | grep -q ':here' && echo "$places" | grep -q ':trash' && echo partway)"
+            got="$got,$([ "$whole" = "$sums" ] && echo whole),$([ $told = 0 ] && echo told)"
+            undone="$back,$([ "$(sort $XDG_STATE_HOME/glimt/marks)" = "$marks" ] && echo "stars kept")"
+            if [ $v = new ]; then
+                if [ $fault = gio ]; then
+                    expect "gio failed on stuck-b.jpg (the control)" "$(grep -c stuck-b.jpg /tmp/gio-refused 2>/dev/null)" 1
+                fi
+                expect "trash, $fault: each photo and sidecar in place or in the trash, whole, told" \
+                    "$got" "none lost,partway,whole,told"
+                expect_empty "trash, $fault: no .trashinfo of a file not in the trash" "$strays"
+                expect "trash, $fault: Ctrl+Z puts back what went, the stars kept" "$undone" \
+                    "a.jpg a.jpg.xmp c.jpg c.jpg.xmp stuck-b.jpg stuck-b.jpg.xmp ,stars kept"
+            else note "old, $fault: $places; $got; strays '$strays'; after Ctrl+Z: $undone"; fi
+            rm -rf $d $trash
+        done
+    done
+fi
+
+section "Glimt's own files on a full disk: the marks file, a collection, Rename Many's plan; nothing lost, told"
+# FAULT-2. The marks file holds every star of every photo and is written whole, and so is a
+# collection. A write that fails must leave the file as it was and be told. Rename Many on a full
+# state folder cannot write its plan: the photos must still each keep their own stars.
+faults=yes
+if ! grep -q " $full tmpfs " /proc/mounts; then
+    fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
+else
+    for v in new old; do
+        as_version $v
+        rm -f $full/.fill
+        export XDG_STATE_HOME=$full/state-$v XDG_DATA_HOME=$full/data-$v
+        rm -rf $XDG_STATE_HOME $XDG_DATA_HOME; mkdir -p $XDG_STATE_HOME/glimt
+        d=/tmp/own-full-$v
+        rm -rf $d; mkdir -p $d
+        blue_photo 300x200 $d/a.jpg
+        # 10,000 photos with stars, a.jpg among them.
+        python3 -c "
+import sys
+with open(sys.argv[1], 'w') as m:
+    for i in range(10000):
+        m.write(f'0\t2\t/tmp/elsewhere/{i:05d}.jpg\n')
+    m.write('0\t1\t$d/a.jpg\n')" $XDG_STATE_HOME/glimt/marks
+        sum=$(md5sum <$XDG_STATE_HOME/glimt/marks)
+        config
+        start $d/a.jpg
+        leave_free 0
+        key alt+3
+        until_notice own-marks-$v; told=$?
+        sleep 1
+        kept=$([ "$(md5sum <$XDG_STATE_HOME/glimt/marks)" = "$sum" ] && echo kept)
+        failed=$(grep -c "Could not save .*marks" /tmp/glimt.err)
+        # The control: with room again, the next star is saved, and the other stars with it.
+        rm -f $full/.fill
+        key alt+4
+        until_ok "grep -q '^0	4	$d/a.jpg\$' $XDG_STATE_HOME/glimt/marks"
+        saved="$(grep -c "^0	4	$d/a.jpg\$" $XDG_STATE_HOME/glimt/marks) $(grep -c '^0	2	/tmp/elsewhere/' $XDG_STATE_HOME/glimt/marks)"
+        quit
+        if [ $v = new ]; then
+            expect "the marks file on a full disk: as it was, the failure told" \
+                "$kept $failed $([ $told = 0 ] && echo told)" "kept 1 told"
+            expect "with room again, the star saved and the 10,000 others kept (the control)" \
+                "$saved" "1 10000"
+        else note "old, the marks file: '$kept' $failed told=$told; then $saved"; fi
+
+        # A collection of 2,000 photos on the full disk, one taken out of it with Delete.
+        c=$XDG_DATA_HOME/glimt/collections
+        rm -f $full/.fill
+        mkdir -p $d/c $c
+        for i in $(seq -w 1 2000); do ln $d/a.jpg $d/c/$i.jpg; done
+        { echo '#GQview collection'; for i in $(seq -w 1 2000); do echo "\"$d/c/$i.jpg\""; done; } >$c/Big.gqv
+        sum=$(md5sum <$c/Big.gqv)
+        start $c/Big.gqv
+        leave_free 0
+        key Delete
+        until_notice own-collection-$v; told=$?
+        sleep 1
+        kept=$([ "$(md5sum <$c/Big.gqv)" = "$sum" ] && echo kept)
+        failed=$(grep -c "Could not save the collection" /tmp/glimt.err)
+        rm -f $full/.fill
+        key Delete
+        until_ok "[ \$(grep -c '^\"' $c/Big.gqv) -lt 2000 ]"
+        left=$(grep -c '^"' $c/Big.gqv)
+        quit
+        if [ $v = new ]; then
+            expect "a collection on a full disk: as it was, the failure told" \
+                "$kept $failed $([ $told = 0 ] && echo told)" "kept 1 told"
+            expect "with room again, Delete takes one out (the control)" \
+                "$([ $left -ge 1998 ] && [ $left -lt 2000 ] && echo yes)" yes
+        else note "old, the collection: '$kept' $failed told=$told; then $left left"; fi
+        rm -rf $d/c $c
+
+        # Rename Many of 20 photos with stars, named so that each takes another's name, while
+        # the state folder, where its plan goes, is full.
+        rm -f $full/.fill
+        for i in $(seq -w 1 20); do
+            convert -size 64x64 xc:blue -set comment "photo $i" $d/$i.jpg
+            printf '0\t%d\t%s/%s.jpg\n' $((10#$i % 5 + 1)) $d $i
+        done >$XDG_STATE_HOME/glimt/marks
+        rm -f $d/a.jpg
+        rm -rf $XDG_STATE_HOME/glimt/renames
+        config sort_ascending=false
+        start $d
+        leave_free 0
+        key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+        xdotool type --delay 30 '##'; sleep 0.4
+        key Return
+        until_notice own-rename-$v 20; told=$?
+        sleep 3
+        quit
+        rm -f $full/.fill
+        # Each photo by its comment: its name now, and the stars the marks file gives that name.
+        got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import os, subprocess, sys
+d, marks = sys.argv[1:]
+stars = {}
+for line in open(marks):
+    f = line.rstrip("\n").split("\t")
+    if len(f) == 3:
+        stars[f[2]] = int(f[1])
+names = sorted(n for n in os.listdir(d))
+held, right = 0, 0
+renamed = 0
+for n in names:
+    c = subprocess.run(["identify", "-format", "%c", f"{d}/{n}"], capture_output=True, text=True).stdout
+    if not c.startswith("photo "):
+        continue
+    i = int(c.split()[1])
+    held += 1
+    renamed += n != f"{i:02d}.jpg"
+    right += stars.get(f"{d}/{n}") == i % 5 + 1
+print(held, right, "renamed" if renamed else "not renamed", len(names))
+PY
+)
+        plans=$(ls -A $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l)
+        failed=$(grep -c "without its plan\|Could not save" /tmp/glimt.err)
+        if [ $v = new ]; then
+            expect "Rename Many with a full state folder: every photo there, its own stars on it, no plan left" \
+                "$(echo $got | cut -d' ' -f1,2,4) $plans" "20 20 20 0"
+            expect "Rename Many with a full state folder: told" \
+                "$([ $told = 0 ] && [ $failed -gt 0 ] && echo told)" told
+            note "new: $got; told: $(grep -m1 "without its plan" /tmp/glimt.err | cut -c1-100)"
+        else note "old, Rename Many: held, stars right, renamed, files: $got; plans $plans; told=$told"; fi
+        rm -rf $d $XDG_STATE_HOME $XDG_DATA_HOME
+    done
+fi
+
+section "a photo and its sidecar split by a full disk during a Move and a Copy: never one without the other"
+# FAULT-3. The target has room for the photo and not for its sidecar (or the other way round).
+# The photo must not be left at the target without its keywords and stars unless the user is
+# told, and the source must keep both.
+faults=yes
+if ! grep -q " $full tmpfs " /proc/mounts; then
+    fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
+else
+    for v in new old; do
+        as_version $v
+        mkdir -p $XDG_STATE_HOME/glimt
+        for op in move copy; do
+            rm -f $full/.fill
+            d=/tmp/split-$op-$v to=$full/split-$op-$v
+            rm -rf $d $to; mkdir -p $d $to
+            blue_photo 800x600 $d/a.jpg
+            echo "sidecar of a" >$d/a.jpg.xmp
+            printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+            photo=$(md5sum <$d/a.jpg) side=$(md5sum <$d/a.jpg.xmp)
+            # Room for the photo's pages and not one more. The control: the photo alone fits,
+            # and its sidecar then does not.
+            room=$(( ($(stat -c %s $d/a.jpg) + 4095) / 4096 * 4096 ))
+            leave_free $room
+            control=$(cp $d/a.jpg $to/control 2>/dev/null && ! cp $d/a.jpg.xmp $to/control.xmp 2>/dev/null && echo split)
+            rm -f $to/control $to/control.xmp
+            config
+            start $d/a.jpg
+            answer $to
+            if [ $op = move ]; then key ctrl+m; else key ctrl+c; fi
+            until_notice split-$op-$v 20; told=$?
+            sleep 2
+            quit
+            rm -f $full/.fill
+            # Each folder: P for the photo whole there, S for its sidecar whole there.
+            at() { echo "$([ "$(md5sum <$1/a.jpg 2>/dev/null)" = "$photo" ] && echo P)$([ "$(md5sum <$1/a.jpg.xmp 2>/dev/null)" = "$side" ] && echo S)"; }
+            from=$(at $d) there=$(at $to)
+            stars=$(for p in $d $to; do [ -e $p/a.jpg ] && grep -c "^0	4	$p/a.jpg\$" $XDG_STATE_HOME/glimt/marks; done | awk '{ s += $1 } END { print s + 0 }')
+            hidden=$(ls -A $to | grep -c '^\.')
+            # Together: in each folder the photo with its sidecar or neither; somewhere at all;
+            # the stars on a photo there; no hidden part left.
+            together=$( { [ "$from" = PS ] || [ "$from" = "" ]; } && { [ "$there" = PS ] || [ "$there" = "" ]; } \
+                && [ "$from$there" != "" ] && [ "${stars:-0}" -ge 1 ] && [ $hidden = 0 ] && echo together)
+            if [ $v = new ]; then
+                expect "$op split by a full disk: the photo alone fits (the control)" "$control" split
+                expect "$op split by a full disk: the photo with its sidecar and stars, told" \
+                    "$together $([ $told = 0 ] && echo told)" "together told"
+                note "new, $op: source '$from', target '$there', stars $stars, hidden $hidden"
+                note "new, $op told: $(grep -m1 'failed' /tmp/glimt.err | cut -c1-100)"
+            else note "old, $op: source '$from', target '$there', stars $stars, hidden $hidden, told=$told"; fi
+            rm -rf $d $to
+        done
+    done
+fi
+
+section "a Move to another disk whose unlink of the source is refused: the photo kept, its stars on it, told"
+# FAULT-4. A read-only card: the copy goes through, and the source cannot be removed. The photo
+# that stays keeps its sidecar and stars, and a copy left at the target has its sidecar too.
+faults=yes
+if ! grep -q " $full tmpfs " /proc/mounts; then
+    fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
+else
+    for v in new old; do
+        as_version $v
+        rm -f $full/.fill
+        mkdir -p $XDG_STATE_HOME/glimt
+        d=$full/refused-$v to=/tmp/refused-to-$v
+        rm -rf $d $to; mkdir -p $d $to
+        blue_photo 300x200 $d/a.jpg
+        echo "sidecar of a" >$d/a.jpg.xmp
+        printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+        photo=$(md5sum <$d/a.jpg) side=$(md5sum <$d/a.jpg.xmp)
+        chmod 555 $d
+        control=$(touch $d/x 2>/dev/null || echo refused)
+        config
+        start $d/a.jpg
+        answer $to
+        key ctrl+m
+        until_notice refused-$v 20; told=$?
+        sleep 2
+        at() { echo "$([ "$(md5sum <$1/a.jpg 2>/dev/null)" = "$photo" ] && echo P)$([ "$(md5sum <$1/a.jpg.xmp 2>/dev/null)" = "$side" ] && echo S)"; }
+        from=$(at $d) there=$(at $to)
+        stars=$(grep -c "^0	4	$d/a.jpg\$" $XDG_STATE_HOME/glimt/marks)
+        hidden=$(ls -A $to | grep -c '^\.')
+        key ctrl+z; sleep 3
+        undone="source '$(at $d)', target '$(at $to)'"
+        quit
+        chmod 755 $d
+        if [ $v = new ]; then
+            expect "the source's folder refuses a change (the control)" "$control" refused
+            expect "a Move whose unlink is refused: the photo and sidecar kept there, the stars on it, told" \
+                "$from $stars $([ $told = 0 ] && echo told)" "PS 1 told"
+            expect "a Move whose unlink is refused: the target has the photo with its sidecar or neither" \
+                "$( { [ "$there" = PS ] || [ "$there" = "" ]; } && [ $hidden = 0 ] && echo yes)" yes
+            note "new: target '$there'; after Ctrl+Z: $undone"
+        else note "old: source '$from', target '$there', stars $stars, told=$told; after Ctrl+Z: $undone"; fi
+        rm -rf $d $to
+    done
+fi
+
+section "a read that fails (EIO) during a Copy, a Move, Copy for Sharing and Save As: the photo kept, no part left, told"
+# FAULT-5. lossyfs fails each read of bad-* past its first 256 KiB while /tmp/lossy-eio is
+# there. The photo is shown first, with the reads whole; then the operation's reads fail.
+faults=yes
+if ! grep -q " $lossy fuse" /proc/mounts; then
+    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+    tail -5 /tmp/lossyfs.log 2>/dev/null | sed 's/^/     /'
+else
+    for v in new old; do
+        as_version $v
+        mkdir -p $XDG_STATE_HOME/glimt
+        for op in copy move sharing save-as; do
+            rm -f /tmp/lossy-eio
+            back=/opt/lossy/eio-$op-$v src=$lossy/eio-$op-$v to=/tmp/eio-to-$op-$v
+            rm -rf $back $to; mkdir -p $back $to
+            blue_photo 1600x1200 $back/bad-a.jpg
+            echo "sidecar of a" >$back/bad-a.jpg.xmp
+            printf '0\t4\t%s/bad-a.jpg\n' $src >$XDG_STATE_HOME/glimt/marks
+            sums=$(cd $back && md5sum bad-a.jpg bad-a.jpg.xmp)
+            config
+            start $src/bad-a.jpg
+            # The reads fail from the operation's last step on, after its dialog read the tags.
+            case $op in
+                copy) answer $to; touch /tmp/lossy-eio; key ctrl+c ;;
+                move) answer $to; touch /tmp/lossy-eio; key ctrl+m ;;
+                sharing)
+                    answer $to
+                    remote select $src/bad-a.jpg >/dev/null; sleep 1
+                    menu File "Copy for Sharing…"; sleep 3
+                    touch /tmp/lossy-eio; menu "Copy…" ;;
+                save-as)
+                    answer $to/b.jpg
+                    key ctrl+shift+s; sleep 1
+                    touch /tmp/lossy-eio; menu "Save…" ;;
+            esac
+            until_notice eio-$op-$v 20; told=$?
+            sleep 2
+            rm -f /tmp/lossy-eio
+            quit
+            eio=$(grep -c "^EIO-READ /eio-$op-$v/bad-a.jpg\$" /tmp/lossyfs.log)
+            got="$([ "$(cd $back && md5sum bad-a.jpg bad-a.jpg.xmp)" = "$sums" ] && echo kept)"
+            got="$got,$(ls -A $to | tr '\n' ' '),$(grep -c "^0	4	$src/bad-a.jpg\$" $XDG_STATE_HOME/glimt/marks)"
+            got="$got,$([ $told = 0 ] && echo told)"
+            if [ $v = new ]; then
+                expect "$op: a read of the photo failed (the control)" "$([ $eio -gt 0 ] && echo EIO)" EIO
+                expect "$op with a read that fails: the photo and sidecar kept, nothing at the target, the stars kept, told" \
+                    "$got" "kept,,1,told"
+            else note "old, $op: $got (EIO answered $eio times)"; fi
+            rm -rf $back $to
+        done
+    done
+fi
+
+section "Copy for Sharing, Crop and Save As onto a full disk: no name written over, no part left, told"
+# FAULT-6. Each writes new files: on a disk that fills up, what fits is whole, what does not
+# leaves nothing, a file of the same name stays as it was, and the failure is told.
+faults=yes
+if ! grep -q " $full tmpfs " /proc/mounts; then
+    fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
+else
+    for v in new old; do
+        as_version $v
+        # Copy for Sharing of three photos: room for the first, c.jpg's name taken already.
+        rm -f $full/.fill
+        d=/tmp/share-full-$v out=$full/share-out-$v
+        rm -rf $d $out; mkdir -p $d $out
+        for f in a b c; do blue_photo 800x600 $d/$f.jpg; done
+        convert -size 64x64 xc:navy $out/c.jpg
+        sums=$(md5sum $d/*.jpg) other=$(md5sum <$out/c.jpg)
+        answer $out
+        config
+        start $d
+        remote select $d/a.jpg $d/b.jpg $d/c.jpg >/dev/null; sleep 1
+        menu File "Copy for Sharing…"; sleep 3
+        leave_free $(( $(stat -c %s $d/a.jpg) + 65536 ))
+        menu "Copy…"
+        until_notice share-full-$v 20; told=$?
+        sleep 2
+        control=$(cp $d/b.jpg $out/control 2>/dev/null || echo full); rm -f $out/control
+        quit
+        rm -f $full/.fill
+        got="$(ls -A $out | tr '\n' ' '),$(identify -format '%wx%h' $out/a.jpg 2>/dev/null)"
+        got="$got,$([ "$(md5sum <$out/c.jpg)" = "$other" ] && echo "c.jpg kept")"
+        got="$got,$([ "$(md5sum $d/*.jpg)" = "$sums" ] && echo "originals kept"),$([ $told = 0 ] && echo told)"
+        if [ $v = new ]; then
+            expect "Copy for Sharing: the disk too full for b.jpg (the control)" "$control" full
+            expect "Copy for Sharing onto a full disk: a.jpg whole, no part of b.jpg, c.jpg not written over, told" \
+                "$got" "a.jpg c.jpg ,800x600,c.jpg kept,originals kept,told"
+        else note "old, Copy for Sharing: $got"; fi
+        rm -rf $d $out
+
+        # Crop of an image on the full disk: the crop beside it does not fit.
+        d=$full/crop-$v
+        rm -rf $d; mkdir -p $d
+        convert -size 300x200 xc:blue $d/a.png
+        sum=$(md5sum <$d/a.png)
+        config
+        start $d/a.png
+        leave_free 0
+        key shift+c; sleep 0.5; crop_part; key Return
+        until_notice crop-full-$v 20; told=$?
+        sleep 1
+        got="$(ls -A $d | tr '\n' ' '),$([ "$(md5sum <$d/a.png)" = "$sum" ] && echo kept),$([ $told = 0 ] && echo told)"
+        # The control: with room again, the same crop is saved.
+        rm -f $full/.fill
+        key shift+c; sleep 0.5; crop_part; key Return
+        until_file $d/a-cropped.png 10
+        control=$(ls $d | grep -c cropped)
+        quit
+        if [ $v = new ]; then
+            expect "Crop onto a full disk: the image kept, no part left, told" "$got" "a.png ,kept,told"
+            expect "with room again, the crop saved (the control)" "$control" 1
+        else note "old, Crop: $got; then $control"; fi
+        rm -rf $d
+
+        # Save As onto the full disk.
+        d=/tmp/save-as-full-$v out=$full/save-as-$v
+        rm -rf $d $out; mkdir -p $d $out
+        blue_photo 800x600 $d/a.jpg
+        sum=$(md5sum <$d/a.jpg)
+        answer $out/b.jpg
+        config
+        start $d/a.jpg
+        leave_free 0
+        key ctrl+shift+s; sleep 1
+        menu "Save…"
+        until_notice save-as-full-$v 20; told=$?
+        sleep 1
+        got="$(ls -A $out | tr '\n' ' '),$([ "$(md5sum <$d/a.jpg)" = "$sum" ] && echo kept),$([ $told = 0 ] && echo told)"
+        rm -f $full/.fill
+        key ctrl+shift+s; sleep 1
+        menu "Save…"
+        until_file $out/b.jpg 10
+        control=$(ls $out | tr '\n' ' ')
+        quit
+        if [ $v = new ]; then
+            expect "Save As onto a full disk: the image kept, no part left, told" "$got" ",kept,told"
+            expect "with room again, the copy saved (the control)" "$control" "b.jpg "
+        else note "old, Save As: $got; then $control"; fi
+        rm -rf $d $out
+    done
+fi
+
+section "Glimt killed (kill -9) during a turn's save, a sidecar write and a Lightroom import: each file whole"
+# FAULT-7. Each writes a new copy beside the file and renames it over the name. Killed at any
+# moment, the file at the name is the old one or the new one, whole; never a part.
+for v in new old; do
+    as_version $v
+    mkdir -p $XDG_STATE_HOME/glimt
+    # A PNG of 6000x4000 with noise, which takes a while to write, turned and saved: killed
+    # once its temporary copy is there. The copy is written at once, so it is looked for
+    # without a pause from before the keys on.
+    d=/tmp/kill-turn-$v
+    rm -rf $d; mkdir -p $d
+    convert -size 3000x4000 xc:red -size 3000x4000 xc:blue +append -attenuate 0.3 +noise Gaussian $d/a.png
+    convert -size 64x64 xc:blue $d/z.png
+    sum=$(md5sum <$d/a.png)
+    config save_orientation=true
+    start $d/a.png
+    sleep 2
+    python3 -c "
+import os, signal, sys, time
+d, pid = sys.argv[1], int(sys.argv[2])
+end = time.time() + 60
+while time.time() < end and not any(n.startswith('.glimt-tmp') for n in os.listdir(d)):
+    pass
+os.kill(pid, signal.SIGKILL)" $d $GPID &
+    killer=$!
+    key bracketright; key space
+    wait $killer
+    wait $GPID 2>/dev/null
+    left=$(ls -A $d | grep -c '^\.glimt-tmp')
+    start $d; sleep 2; quit         # a new start, which may clean up
+    after=$(ls -A $d | grep -c '^\.')
+    shape=$(identify -format '%wx%h' $d/a.png 2>/dev/null)
+    got=$( { [ "$(md5sum <$d/a.png)" = "$sum" ] || \
+        [ "$shape $(side $d/a.png 2000,10) $(side $d/a.png 2000,5990)" = "4000x6000 red blue" ]; } && echo whole)
+    if [ $v = new ]; then
+        expect "killed while the turn was saved (the control: its temporary copy was there)" \
+            "$([ $left -gt 0 ] && echo yes)" yes
+        expect "killed during a turn's save: a.png whole, as it was or turned" "$got" whole
+        note "new: a.png $shape; $left temporary files when killed, $after hidden after a new start"
+    else note "old: a.png ${got:-not whole} $shape; $left temporary when killed, $after after a new start"; fi
+    rm -rf $d
+
+    # Stars to XMP for 3,000 photos, each sidecar holding a keyword: killed halfway.
+    d=/tmp/kill-sidecars-$v
+    rm -rf $d; mkdir -p $d
+    convert -size 32x32 xc:blue $d/0001.jpg
+    for i in $(seq -w 2 3000); do ln $d/0001.jpg $d/$i.jpg; done
+    for i in $(seq -w 1 3000); do
+        printf '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:subject><rdf:Bag><rdf:li>Old</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>\n' >$d/$i.jpg.xmp
+        printf '0\t2\t%s/%s.jpg\n' $d $i
+    done >$XDG_STATE_HOME/glimt/marks
+    config xmp_stars=true
+    start $d
+    sleep 2
+    key ctrl+a; key alt+3
+    rated=$(python3 -c "
+import glob, os, signal, sys, time
+d, pid = sys.argv[1], int(sys.argv[2])
+end = time.time() + 60
+rated = 0
+while time.time() < end:
+    rated = sum('Rating' in open(p).read() for p in glob.glob(d + '/*.xmp'))
+    if rated >= 50:
+        break
+    time.sleep(0.02)
+os.kill(pid, signal.SIGKILL)
+print(rated)" $d $GPID)
+    wait $GPID 2>/dev/null
+    rated_after=$(grep -l Rating $d/*.xmp | wc -l)
+    hidden=$(ls -A $d | grep -c '^\.')
+    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import os, sys, xml.etree.ElementTree as ET
+d, marks = sys.argv[1:]
+whole = 0
+for i in range(1, 3001):
+    try:
+        text = open(f"{d}/{i:04d}.jpg.xmp").read()
+        ET.fromstring(text)
+        whole += ">Old<" in text
+    except (OSError, ET.ParseError):
+        pass
+starred = 0
+for line in open(marks):
+    f = line.rstrip("\n").split("\t")
+    starred += len(f) == 3 and f[1] in ("2", "3") and os.path.exists(f[2])
+print(whole, starred)
+PY
+)
+    if [ $v = new ]; then
+        expect "killed while the sidecars were written (the control)" \
+            "$([ $rated_after -gt 0 ] && [ $rated_after -lt 3000 ] && echo yes)" yes
+        expect "killed during a sidecar write: each sidecar whole with its keyword, each photo's stars" \
+            "$got" "3000 3000"
+        note "new: $rated_after of 3000 sidecars with the stars, $hidden hidden files left"
+    else note "old: whole, starred $got; $rated_after with stars, $hidden hidden left"; fi
+    rm -rf $d
+
+    # A Lightroom import of 3,000 photos with a keyword each, into a collection that is there:
+    # killed once some sidecars have the keyword.
+    d=/tmp/kill-lr-$v
+    rm -rf $d; mkdir -p $d/photos $XDG_DATA_HOME/glimt/collections
+    convert -size 32x32 xc:blue $d/photos/0001.jpg
+    for i in $(seq -w 2 3000); do ln $d/photos/0001.jpg $d/photos/$i.jpg; done
+    for i in $(seq -w 1 3000); do
+        printf '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:subject><rdf:Bag><rdf:li>Old</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>\n' >$d/photos/$i.jpg.xmp
+        printf '0\t2\t%s/photos/%s.jpg\n' $d $i
+    done >$XDG_STATE_HOME/glimt/marks
+    coll=$XDG_DATA_HOME/glimt/collections/Big.gqv
+    printf '#GQview collection\n"%s"\n' /tmp/elsewhere/kept.jpg >$coll
+    printf 'Mine\n' >$XDG_CONFIG_HOME/glimt/keywords
+    python3 - $d <<'PY'
+import subprocess, sys
+d = sys.argv[1]
+sql = ["""CREATE TABLE AgLibraryRootFolder (id_local INTEGER PRIMARY KEY, absolutePath);
+CREATE TABLE AgLibraryFolder (id_local INTEGER PRIMARY KEY, rootFolder, pathFromRoot);
+CREATE TABLE AgLibraryFile (id_local INTEGER PRIMARY KEY, folder, baseName, extension);
+CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile, rating);
+CREATE TABLE AgLibraryCollection (id_local INTEGER PRIMARY KEY, creationId, name, parent);
+CREATE TABLE AgLibraryCollectionImage (id_local INTEGER PRIMARY KEY, collection, image);
+CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, name, parent);
+CREATE TABLE AgLibraryKeywordImage (id_local INTEGER PRIMARY KEY, image, tag);
+BEGIN;""",
+       f"INSERT INTO AgLibraryRootFolder VALUES (1, '{d}/');",
+       "INSERT INTO AgLibraryFolder VALUES (2, 1, 'photos/');",
+       "INSERT INTO AgLibraryCollection VALUES (3, 'com.adobe.ag.library.collection', 'Big', NULL);",
+       "INSERT INTO AgLibraryKeyword VALUES (4, NULL, NULL), (5, 'Tag', 4);"]
+for i in range(1, 3001):
+    f, img = 10 * i, 10 * i + 1
+    sql.append(f"INSERT INTO AgLibraryFile VALUES ({f}, 2, '{i:04d}', 'jpg');")
+    sql.append(f"INSERT INTO Adobe_images VALUES ({img}, {f}, 4);")
+    sql.append(f"INSERT INTO AgLibraryCollectionImage VALUES ({10 * i + 2}, 3, {img});")
+    sql.append(f"INSERT INTO AgLibraryKeywordImage VALUES ({10 * i + 3}, {img}, 5);")
+sql.append("COMMIT;")
+subprocess.run(["sqlite3", f"{d}/Catalog.lrcat"], input="\n".join(sql), text=True, check=True)
+PY
+    config
+    start $d/photos
+    sleep 2
+    answer $d/Catalog.lrcat
+    menu File "Import Lightroom Catalog…"; sleep 3
+    menu Next; sleep 3
+    menu Import
+    python3 -c "
+import glob, os, signal, sys, time
+d, pid = sys.argv[1], int(sys.argv[2])
+end = time.time() + 60
+while time.time() < end:
+    if sum('>Tag<' in open(p).read() for p in glob.glob(d + '/photos/*.xmp')) >= 100:
+        break
+    time.sleep(0.02)
+os.kill(pid, signal.SIGKILL)" $d $GPID
+    wait $GPID 2>/dev/null
+    tagged=$(grep -l '>Tag<' $d/photos/*.xmp | wc -l)
+    hidden=$(ls -A $d/photos $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt | grep -c '^\.glimt')
+    got=$(python3 - $d/photos $XDG_STATE_HOME/glimt/marks $coll <<'PY'
+import os, sys, xml.etree.ElementTree as ET
+d, marks, coll = sys.argv[1:]
+whole = 0
+for i in range(1, 3001):
+    try:
+        text = open(f"{d}/{i:04d}.jpg.xmp").read()
+        ET.fromstring(text)
+        whole += ">Old<" in text
+    except (OSError, ET.ParseError):
+        pass
+starred = sum(len(f) == 3 and f[1] == "2" and os.path.exists(f[2])
+              for f in (l.rstrip("\n").split("\t") for l in open(marks)))
+lines = open(coll).read().split("\n")
+kept = lines[0] == "#GQview collection" and '"/tmp/elsewhere/kept.jpg"' in lines and all(
+    l == "" or l.startswith("#") or (l.startswith('"/') and l.endswith('"')) for l in lines)
+print(whole, starred, "collection whole" if kept else "collection broken")
+PY
+)
+    got="$got $(grep -cx Mine $XDG_CONFIG_HOME/glimt/keywords)"
+    if [ $v = new ]; then
+        expect "killed while the import wrote the sidecars (the control)" \
+            "$([ $tagged -gt 0 ] && [ $tagged -lt 3000 ] && echo yes)" yes
+        expect "killed during a Lightroom import: each sidecar whole with its keyword, the stars, the collection and the keyword tree whole" \
+            "$got" "3000 3000 collection whole 1"
+        note "new: $tagged of 3000 sidecars with Lightroom's keyword, $hidden hidden files left"
+    else note "old: $got; $tagged tagged, $hidden hidden left"; fi
+    rm -rf $d
 done
 
 section "timings: the large folder and EXIF dates, with nothing else running"
