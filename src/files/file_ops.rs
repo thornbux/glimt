@@ -27,7 +27,7 @@ use crate::{
 };
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -161,8 +161,9 @@ pub(crate) struct OperationReport {
     /// folder again.
     pub(crate) folder_made: Option<PathBuf>,
     /// The type of a network or cloud mount whose files the trash refused, and those files,
-    /// which are still there. The window asks whether to delete them for good instead.
-    pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
+    /// which are still there, each with the fingerprint it had when it was picked. The window
+    /// asks whether to delete them for good instead.
+    pub(crate) untrashable: Option<(String, Vec<PickedAs>)>,
     /// The log of a Move, removed once the marks and collections have followed `moved`. One
     /// found at the start comes with the files that went before Glimt was killed.
     pub(crate) move_log: Option<journal::MoveLog>,
@@ -187,6 +188,9 @@ pub(crate) type WithRealFolder = Box<dyn FnOnce(&mut crate::App, &egui::Context)
 
 /// A file saved in the background (a turned image, or a tool's file), and how it went.
 type SavedFile = (PathBuf, Result<(), String>);
+
+/// A file with the fingerprint it had when it was picked.
+type PickedAs = (PathBuf, FileFingerprint);
 
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
 /// files moved, or the last files renamed, each `(from, to, fingerprint)`. The fingerprint
@@ -325,11 +329,11 @@ pub(crate) struct FileOperations {
     /// The renames found cut short at the start, by a crash or a power cut during Rename Many,
     /// so they can be put right. They are read in the background.
     cut_short_rx: Receiving<Vec<journal::CutShort>>,
-    /// The type of the mount and the files the trash refused there, to ask about once the
-    /// folder is read again, and the count of listings (`Folder::whole_listings`) when they came.
-    /// The files left the list when the delete started, and only a newer listing brings them
-    /// back.
-    untrashable: Option<(String, Vec<PathBuf>, u64)>,
+    /// The type of the mount and the files the trash refused there, with their fingerprints
+    /// when picked, to ask about once the folder is read again, and the count of listings
+    /// (`Folder::whole_listings`) when they came. The files left the list when the delete
+    /// started, and only a newer listing brings them back.
+    untrashable: Option<(String, Vec<PickedAs>, u64)>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
@@ -529,13 +533,13 @@ impl FileOperations {
 
     /// Keeps the files `files` that the trash refused on a mount of type `kind`, to ask about
     /// once the list counted `now` listings is read again. The question names the mount of
-    /// the first refusal, and a file refused twice is asked about once.
-    fn keep_untrashable(&mut self, kind: String, files: Vec<PathBuf>, now: u64) {
+    /// the first refusal, and a file refused twice is asked about once, as it was first picked.
+    fn keep_untrashable(&mut self, kind: String, files: Vec<PickedAs>, now: u64) {
         match &mut self.untrashable {
             Some((_, held, since)) => {
                 held.extend(files);
-                held.sort_unstable();
-                held.dedup();
+                held.sort_by(|a, b| a.0.cmp(&b.0));
+                held.dedup_by(|later, first| later.0 == first.0);
                 *since = now;
             }
             none => *none = Some((kind, files, now)),
@@ -923,7 +927,7 @@ impl crate::App {
                 .collect();
             let _ = report_tx.send(OperationReport {
                 untrashable: refused
-                    .then(|| left_by_trash(&refused_paths, crate::files::file_io::file_system_type))
+                    .then(|| left_by_trash_as_picked(&refused_paths, &picked))
                     .flatten(),
                 requested: paths,
                 gone,
@@ -1059,16 +1063,29 @@ impl crate::App {
     /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
     /// a download of each file. It asks only about files the list shows, by their names there.
     /// A notice tells of the others, which are left as they are: another folder was opened
-    /// before the question, or the file is in a subfolder the list does not show.
-    fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
+    /// before the question, or the file is in a subfolder the list does not show. The delete
+    /// acts only on a file that still has the fingerprint it had when it was first picked, and
+    /// the identity the list knows it by now, as another program may have given its name to
+    /// another file since.
+    fn ask_delete_instead(&mut self, kind: String, files: &[PickedAs]) {
         // Only files the list shows are asked about: a subfolder's file strips the folder's
         // prefix too, but is not in the list with Include Subfolders off.
-        let dir = self.folder.dir();
-        let shown: HashSet<&OsString> = self.list.files().iter().collect();
-        let (names, paths): (Vec<OsString>, Vec<PathBuf>) = (files.iter())
-            .filter_map(|p| Some((p.strip_prefix(dir).ok()?.as_os_str().to_owned(), p.clone())))
-            .filter(|(name, _)| shown.contains(name))
-            .unzip();
+        let dir = self.folder.dir().to_path_buf();
+        let as_picked: HashMap<&OsStr, (&PathBuf, &FileFingerprint)> = (files.iter())
+            .filter_map(|(p, picked_as)| {
+                Some((p.strip_prefix(&dir).ok()?.as_os_str(), (p, picked_as)))
+            })
+            .collect();
+        let shown: Vec<usize> = (0..self.list.files().len())
+            .filter(|&i| as_picked.contains_key(self.list.files()[i].as_os_str()))
+            .collect();
+        let names: Vec<OsString> = shown
+            .iter()
+            .map(|&i| self.list.files()[i].clone())
+            .collect();
+        let seen: HashMap<PathBuf, FileFingerprint> = (as_picked.values())
+            .map(|(p, picked_as)| ((*p).clone(), **picked_as))
+            .collect();
         let left = files.len() - names.len();
         if left > 0 {
             self.notice.give(tf!(
@@ -1080,11 +1097,12 @@ impl crate::App {
         if names.is_empty() {
             return;
         }
+        let listed = shown.iter().map(|&i| self.listed_file(i)).collect();
         let asked = Asked::new(
             self.opened_folder_hash(),
             names,
             None,
-            PickedFiles::new(paths),
+            PickedFiles::listed_as_seen(listed, &seen),
         );
         self.dialogs.confirm_delete_instead(asked, kind);
     }
@@ -2511,6 +2529,21 @@ fn left_by_trash(
         .cloned()
         .collect();
     Some((remote(left.first()?)?, left))
+}
+
+/// Returns the files of `refused` that the trash left on a network or cloud mount, with the
+/// mount's type (`left_by_trash`), each with the fingerprint it had when it was `picked`, so that
+/// the question to delete it for good acts on that file only. Returns `None` when there are none.
+fn left_by_trash_as_picked(
+    refused: &[PathBuf],
+    picked: &PickedFingerprints,
+) -> Option<(String, Vec<PickedAs>)> {
+    let (kind, left) = left_by_trash(refused, crate::files::file_io::file_system_type)?;
+    let as_picked = |p: PathBuf| {
+        let picked_as = picked.picked_as(&p)?;
+        Some((p, picked_as))
+    };
+    Some((kind, left.into_iter().filter_map(as_picked).collect()))
 }
 
 /// Deletes the files of `chunk` that are still the ones `picked`, to the trash when `trash` or
@@ -6522,13 +6555,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-busy-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let picked_as = crate::files::file_io::fingerprint(&dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.file_operations.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);
         let refused = super::OperationReport {
             requested: vec![dir.join("a.png")],
             any_failed: true,
-            untrashable: Some(("fuse.rclone".into(), vec![dir.join("a.png")])),
+            untrashable: Some(("fuse.rclone".into(), vec![(dir.join("a.png"), picked_as)])),
             ..Default::default()
         };
         app.file_operations.report_tx.send(refused).unwrap();
@@ -6600,7 +6634,9 @@ mod tests {
     /// the list does not show, are not, because their names could be other files' in this
     /// list, and a notice tells that nothing was deleted. The question waits until the folder
     /// is read again, because the delete took the files out of the list. A file refused twice
-    /// is asked about once.
+    /// is asked about once. The delete for good acts only on the file as it was first picked:
+    /// one that another program put at its name since is left alone. Before, its fingerprint
+    /// was taken at the second question, which took the other file for the one picked.
     #[test]
     fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
         use std::path::PathBuf;
@@ -6608,9 +6644,13 @@ mod tests {
             std::env::temp_dir().join(format!("glimt-test-untrashable-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let picked_as = crate::files::file_io::fingerprint(&dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let refused = |files: Vec<PathBuf>| super::OperationReport {
-            untrashable: Some(("fuse.rclone".into(), files)),
+            untrashable: Some((
+                "fuse.rclone".into(),
+                files.into_iter().map(|f| (f, picked_as)).collect(),
+            )),
             ..Default::default()
         };
         // A refusal comes with the delete failed, which has the folder read again. A file of
@@ -6638,6 +6678,8 @@ mod tests {
             any_failed: true,
             ..refused(vec![dir.join("a.png")])
         };
+        // Another program puts another photo at the name before the question.
+        std::fs::write(dir.join("a.png"), "another photo").unwrap();
         app.file_operations.report_tx.send(failed).unwrap();
         // The same file refused again, by a second Delete, is counted once.
         app.file_operations
@@ -6646,7 +6688,17 @@ mod tests {
             .unwrap();
         assert!(run_background_until(&mut app, &ctx, |app| app.modal_open()));
         assert_eq!(app.dialogs.asked_names(), ["a.png"]);
-        assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![0]));
+        let (found, picked) = app.asked_targets().unwrap();
+        assert_eq!(found, vec![0]);
+        app.notice.clear();
+        app.delete_now(&ctx, false, found, picked);
+        let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("changed"));
+        assert!(
+            run_background_until(&mut app, &ctx, told),
+            "{:?}",
+            app.notice.text()
+        );
+        assert_eq!(std::fs::read(dir.join("a.png")).unwrap(), b"another photo");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

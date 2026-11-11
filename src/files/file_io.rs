@@ -488,6 +488,12 @@ pub(crate) struct PickedFingerprints {
 }
 
 impl PickedFingerprints {
+    /// Returns the fingerprint that the file at `path` had when it was picked. Returns `None`
+    /// when it was not taken in time, or nothing was there.
+    pub(crate) fn picked_as(&self, path: &Path) -> Option<FileFingerprint> {
+        self.taken.get(path).copied()
+    }
+
     /// Looks whether the file at `path` is still the one picked there. Returns the error to tell
     /// when it is not: another file has its name, it was written since, it is gone, or its
     /// fingerprint did not come in time.
