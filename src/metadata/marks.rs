@@ -1313,8 +1313,10 @@ mod tests {
             (meta.ino(), meta.mtime_nsec())
         };
         let before = stamp();
+        // A move that its job just made, as a Move of 500,000 unmarked files, so that the pair
+        // reaches `follow_pairs` and is not left out first by a look at its new name.
         let pairs = vec![("/b.jpg".into(), "/c.jpg".into())];
-        super::write(&file, vec![super::Edit::Follow(pairs, false, true)]);
+        super::write(&file, vec![super::Edit::Follow(pairs, false, false)]);
         super::write(
             &file,
             vec![super::Edit::Forget(vec!["/d.jpg".into()], None)],
