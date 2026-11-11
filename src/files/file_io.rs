@@ -77,6 +77,9 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // How many names `look` looked at on this thread, so that a test can see that a check that
+    // can tell nothing does not wait for the disk.
+    pub(crate) static LOOKS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     // Makes `unlink_linked` on this thread fail for this name with this error number while the
     // name stays, as a share does that lost its answer.
     pub(crate) static UNLINK_FAILS: std::cell::RefCell<Option<(PathBuf, i32)>> =
@@ -540,6 +543,8 @@ pub(crate) fn is_link(path: &Path) -> std::io::Result<bool> {
 /// Looks at the name `path`, through a link when `follow`. In tests, a name in `LOOKS_FAIL`
 /// fails with EIO, as a share that dropped for a moment does.
 fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
+    #[cfg(test)]
+    LOOKS_MADE.set(LOOKS_MADE.get() + 1);
     #[cfg(test)]
     if lock_even_if_poisoned(&LOOKS_FAIL).iter().any(|p| p == path) {
         return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1374,6 +1379,11 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// it is read its folder again (`ListIsOld`). It waits for the disk, so it is called in the
 /// thread that makes the change. Returns the error to tell.
 pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<()> {
+    // With nothing known, nothing could be refused, and a look would only wait for the disk:
+    // a round trip for each file on a share whose identities were forgotten.
+    if known.listed.is_none() && known.fingerprint.is_none() {
+        return Ok(());
+    }
     let another = if is_another_file(identity_of(path), known.listed) {
         std::io::Error::other(crate::support::lang::tr(
             "another file has taken its name: the folder is read again",
@@ -1418,7 +1428,7 @@ pub(crate) fn is_another_file(a: Identity, b: Identity) -> bool {
 /// of the name itself, not of a link's target. Returns `None` when nothing is there. It waits
 /// for the disk.
 pub(crate) fn identity_of(path: &Path) -> Identity {
-    identity_from_metadata(path, &std::fs::symlink_metadata(path).ok()?)
+    identity_from_metadata(path, &look(path, false).ok()?)
 }
 
 /// Returns the identity of the file at `path` from its metadata `meta`, which the caller looked
@@ -1794,6 +1804,29 @@ pub(crate) fn take_saves_failed() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// A check that knows neither the listed inode nor a fingerprint looks at nothing, as it
+    /// could refuse nothing. A star key on 500,000 files of a share, whose identities are
+    /// forgotten, looked at each of them in the thread of Glimt's own files.
+    #[test]
+    fn a_check_that_knows_nothing_does_not_look() {
+        use super::{KnownAs, LOOKS_MADE, is_still_the_file};
+        let path = std::path::Path::new("/");
+        let flag = super::ListIsOld::default();
+        let before = LOOKS_MADE.get();
+        assert!(is_still_the_file(path, KnownAs::listed(None, &flag)).is_ok());
+        assert_eq!(
+            LOOKS_MADE.get(),
+            before,
+            "a check that knows nothing looked"
+        );
+        let known = super::identity_of(path);
+        assert!(is_still_the_file(path, KnownAs::listed(known, &flag)).is_ok());
+        assert!(
+            LOOKS_MADE.get() > before + 1,
+            "a check that knows the inode did not look"
+        );
+    }
+
     /// The system's list of mounts and udev's file of a disk, damaged in any way, are read
     /// without a panic. A mount point's name is the user's, or comes with a stick.
     #[test]

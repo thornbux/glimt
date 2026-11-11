@@ -457,9 +457,10 @@ fn apply_edit_to_file(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: 
 /// list showed them (`ListedFile::check`), and tells the first. Their marks are left out of the
 /// file, and the window, which set them already, reads the file again (`read_again`). It waits
 /// for the disk, so it runs in the writer's thread, before the file's lock is taken.
-/// shortcut: the files are looked at in the thread of Glimt's own files, so a share that stopped
-/// answering holds the settings behind a mark set there; move the marks to the thread of the
-/// user's folders (keeping `read_file_again` in the same thread) if that is seen.
+/// shortcut: the files of a file system that keeps its inodes (NFS among them) are looked at in
+/// the thread of Glimt's own files, so an NFS share that stopped answering holds the settings
+/// behind a mark set there; move the marks to the thread of the user's folders (keeping
+/// `read_file_again` in the same thread) if that is seen.
 fn names_taken(edits: &[Edit]) -> Vec<&ListedFile> {
     let files = edits.iter().flat_map(|edit| match edit {
         Edit::Change(files, _) => files.as_slice(),
