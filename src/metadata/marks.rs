@@ -537,7 +537,8 @@ fn take_queued_edits() -> Vec<Edit> {
 /// written before (`UNWRITTEN_EDITS`).
 fn write(file: &Path, changes: Vec<Edit>) {
     let unwritten = lock_even_if_poisoned(&UNWRITTEN_EDITS).remove(file);
-    let changes: Vec<Edit> = unwritten.into_iter().flatten().chain(changes).collect();
+    let mut changes: Vec<Edit> = unwritten.into_iter().flatten().chain(changes).collect();
+    let some_left_out = follow_only_to_files_there(&mut changes);
     let stamp_before = file_stamp(file);
     // These changes on the file as another window may have left it; one that cannot be read
     // is not written over with these changes alone, as every other mark would be lost.
@@ -549,7 +550,8 @@ fn write(file: &Path, changes: Vec<Edit>) {
         // Under the file's lock: no other window wrote since this one read or wrote it. The file
         // is looked at before `KNOWN_STAMPS` is taken, as in `read_file_again`.
         let stamp = file_stamp(file);
-        let ours = known_stamps().get(file) == Some(&stamp);
+        // A pair left out was made in the window's marks, so the window reads the file again.
+        let ours = known_stamps().get(file) == Some(&stamp) && !some_left_out;
         let mut map = parse(bytes);
         let before = map.clone();
         for change in &changes {
@@ -594,6 +596,39 @@ fn write(file: &Path, changes: Vec<Edit>) {
             keep_unwritten(file, changes);
         }
     }
+}
+
+/// Leaves out of the moves in `changes` each file whose new name holds nothing now, so that its
+/// marks stay where they are and never go to an empty name, where a later file of that name
+/// would get them. A new name that a later edit names is kept, as the file was there and went
+/// on from it. A name that cannot be looked at is left out too, and told. It waits for the
+/// disk, so it runs in the writer's thread. Returns whether a file was left out.
+fn follow_only_to_files_there(changes: &mut [Edit]) -> bool {
+    let mut named_later: std::collections::HashSet<PathBuf> = Default::default();
+    let mut some_left_out = false;
+    for edit in changes.iter_mut().rev() {
+        if let Edit::Follow(pairs, _) = edit {
+            pairs.retain(|(_, to)| {
+                let is_there = match to.ancestors().any(|a| named_later.contains(a)) {
+                    true => true,
+                    false => crate::files::file_io::is_something_at(to).unwrap_or_else(|e| {
+                        crate::files::file_io::save_failed(format!("{}: {e}", to.display()));
+                        false
+                    }),
+                };
+                some_left_out |= !is_there;
+                is_there
+            });
+        }
+        let names: Vec<&Path> = match edit {
+            Edit::Change(files, _) => files.iter().map(ListedFile::path).collect(),
+            Edit::Follow(pairs, _) => pairs.iter().map(|(from, _)| from.as_path()).collect(),
+            Edit::FollowFolder(from, _) => vec![from.as_path()],
+            Edit::Forget(paths, _) => paths.iter().map(PathBuf::as_path).collect(),
+        };
+        named_later.extend(names.into_iter().map(Path::to_path_buf));
+    }
+    some_left_out
 }
 
 /// Keeps the edits among `changes` that follow what happened on disk, to make them again
@@ -855,6 +890,8 @@ mod tests {
         let file = dir.join("marks");
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        // The photo moved to c.png, where its marks follow it.
+        std::fs::write(&c, "c").unwrap();
         // This window read the marks before the other one wrote these.
         let mut marks = super::Marks::default();
         let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
@@ -960,6 +997,8 @@ mod tests {
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
         let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
         std::fs::write(&file, text).unwrap();
+        // The photo moved to c.png, where its marks follow it.
+        std::fs::write(&c, "c").unwrap();
         // The window takes the file as known, as when its refresh is skipped.
         super::known_stamps().insert(file.clone(), super::file_stamp(&file));
         let mut marks = super::Marks::default();
@@ -1174,6 +1213,9 @@ mod tests {
         std::fs::create_dir_all(&file).unwrap();
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        // The photos are there, as marks follow only to a name where a file is.
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
         let swap = vec![(a.clone(), b.clone()), (b.clone(), a.clone())];
         super::write(&file, vec![super::Edit::Follow(swap, false)]);
         // The file as it was before, readable again.
@@ -1271,6 +1313,53 @@ mod tests {
         );
         assert_eq!(stamp(), before);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "1\t0\t/a.jpg\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Marks never follow a file to a name where nothing is, where a later file of that name
+    /// would get them. They stay on the old name. A file that went on from the new name in a
+    /// later edit still takes its marks along.
+    #[test]
+    fn marks_follow_only_to_a_name_where_a_file_is() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        let p = |n: &str| dir.join(n);
+        std::fs::write(p("there.jpg"), "a").unwrap();
+        std::fs::write(p("last.jpg"), "c").unwrap();
+        // A name on a share that does not answer may hold nothing, so its marks stay too.
+        std::fs::write(p("unanswered.jpg"), "d").unwrap();
+        crate::support::threads::lock_even_if_poisoned(&crate::files::file_io::LOOKS_FAIL)
+            .push(p("unanswered.jpg"));
+        let line = |stars: u8, n: &str| format!("0\t{stars}\t{}\n", p(n).display());
+        let text = [
+            line(1, "a.jpg"),
+            line(2, "b.jpg"),
+            line(3, "c.jpg"),
+            line(4, "d.jpg"),
+        ];
+        std::fs::write(&file, text.concat()).unwrap();
+        let moves = vec![
+            (p("a.jpg"), p("there.jpg")),
+            (p("b.jpg"), p("gone.jpg")),
+            (p("c.jpg"), p("middle.jpg")),
+            (p("d.jpg"), p("unanswered.jpg")),
+        ];
+        let on = vec![(p("middle.jpg"), p("last.jpg"))];
+        let edits = vec![
+            super::Edit::Follow(moves, false),
+            super::Edit::Follow(on, false),
+        ];
+        super::write(&file, edits);
+        let written = super::parse(&std::fs::read(&file).unwrap());
+        assert_eq!(written.get(&p("there.jpg")), Some(&(0, 1)));
+        assert_eq!(written.get(&p("b.jpg")), Some(&(0, 2)));
+        assert_eq!(written.get(&p("gone.jpg")), None);
+        assert_eq!(written.get(&p("last.jpg")), Some(&(0, 3)));
+        assert_eq!(written.get(&p("d.jpg")), Some(&(0, 4)));
+        crate::support::threads::lock_even_if_poisoned(&crate::files::file_io::LOOKS_FAIL)
+            .retain(|n| *n != p("unanswered.jpg"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
