@@ -3671,6 +3671,68 @@ fn finds_a_look_that_guesses() {
     assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
 }
 
+/// A lock file is opened and waited for only through `file_io::open_and_lock`, which never
+/// truncates it, never follows a link and never waits on a pipe planted in its place. Opened
+/// with `File::create`, a link planted in Glimt's runtime folder emptied the file of the user's
+/// that it pointed to, and a planted pipe held the thread for good. So a function that opens a
+/// file and waits for a lock is found anywhere but there.
+#[test]
+fn lock_files_are_opened_in_one_place() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = (files_locked_by_hand(&text).into_iter())
+            .filter(|f| (file.as_str(), f.as_str()) != ("files/file_io.rs", "open_and_lock"));
+        wrong.extend(found.map(|f| format!("{file}: {f}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a file opened and locked outside file_io::open_and_lock:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the functions of `text` outside the tests that both open a file and wait for a lock.
+/// A `try_lock` waits for nothing, and is left to the files that Glimt makes new.
+fn files_locked_by_hand(text: &str) -> Vec<String> {
+    const OPENS: [&str; 5] = [
+        "File::create(",
+        "File::open(",
+        "File::options(",
+        "OpenOptions",
+        "open_regular(",
+    ];
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    let mut function = String::new();
+    let (mut opens, mut locks) = (false, false);
+    for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
+        if let Some(name) = function_name(line) {
+            if opens && locks {
+                found.push(function);
+            }
+            function = name.to_owned();
+            (opens, locks) = (false, false);
+            continue;
+        }
+        opens |= OPENS.iter().any(|call| line.contains(call));
+        locks |= line.contains(".lock()") || line.contains(".lock_shared()");
+    }
+    found
+}
+
+/// The check above finds a lock file made with `File::create` and locked, and leaves a lock
+/// taken through `open_and_lock`, a `try_lock` of a file made new, and a lock of a mutex.
+#[test]
+fn finds_a_lock_file_opened_by_hand() {
+    let text = "fn a() {\n    let f = std::fs::File::create(p)?;\n    f.lock()?;\n}\n\
+        fn b() {\n    let f = open_and_lock(p)?;\n}\n\
+        fn c() {\n    let f = OpenOptions::new().create_new(true).open(p)?;\n    \
+        f.try_lock()?;\n}\n\
+        fn d() {\n    m.lock()\n}\n";
+    assert_eq!(files_locked_by_hand(text), ["a"]);
+}
+
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
 /// `put_file`, each with whether it syncs the folder, itself or through `write_beside`.
 // shortcut: a function counts as synced when it syncs anywhere, so a branch that renames

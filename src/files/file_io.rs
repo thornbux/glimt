@@ -851,22 +851,31 @@ pub fn wait_for_queued_writes() {
 /// its own, hidden beside it, as `path` is renamed over. Returns `None`, and the caller goes on
 /// without the lock, when the lock file cannot be made or is not a regular file.
 pub fn file_lock(path: &Path) -> Option<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     let name = path.file_name()?.to_string_lossy();
-    // A collection may come with a download, and so may a lock file beside it. The lock is
-    // never truncated and never opened through a link, so a planted link neither empties nor
-    // makes the file it points to. It is opened without waiting, so that a planted pipe does
-    // not hold the thread for good, and what was opened must be a regular file.
+    open_and_lock(&path.with_file_name(format!(".{name}.lock"))).ok()
+}
+
+/// Opens the lock file `path`, making it when it is not there, and waits for its lock, which
+/// is held while the file stays open. A collection may come with a download, and so may a lock
+/// file beside it, and a link or a pipe may be planted in Glimt's own folders. So the lock file
+/// is never truncated and never opened through a link, and a planted link neither empties nor
+/// makes the file it points to. It is opened without waiting, so that a planted pipe does not
+/// hold the thread for good, and what was opened must be a regular file. This is the one way
+/// Glimt opens a lock file and waits for it (`source_rules::lock_files_are_opened_in_one_place`).
+pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
     #[allow(clippy::disallowed_methods)] // a lock file, never truncated and never a link
     let lock = (std::fs::OpenOptions::new().create(true).append(true))
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path.with_file_name(format!(".{name}.lock")))
-        .ok()?;
-    if !lock.metadata().ok()?.is_file() {
-        return None;
+        .open(path)?;
+    if !lock.metadata()?.is_file() {
+        return Err(std::io::Error::other(format!(
+            "{}: not a regular file",
+            path.display()
+        )));
     }
-    lock.lock().ok()?;
-    Some(lock)
+    lock.lock()?;
+    Ok(lock)
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.

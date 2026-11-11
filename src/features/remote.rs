@@ -1630,9 +1630,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     }
     // From here only one at a time, because another Glimt of this name could take the left
     // socket over between our check and our remove, and lose its new one to us.
-    #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-    let lock = std::fs::File::create(path.with_extension("lock")).map_err(Some)?;
-    lock.lock().map_err(Some)?;
+    let _lock = crate::files::file_io::open_and_lock(&path.with_extension("lock")).map_err(Some)?;
     if answers(path) {
         return Err(None);
     }
@@ -1706,9 +1704,7 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
     let first = std::fs::hard_link(from, to);
     match first {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-            let lock = std::fs::File::create(to.with_extension("lock"))?;
-            lock.lock()?;
+            let _lock = crate::files::file_io::open_and_lock(&to.with_extension("lock"))?;
             if answers(to) {
                 return Err(e);
             }
@@ -2634,6 +2630,23 @@ mod tests {
         assert!(taken);
         std::fs::remove_file(path.with_extension("lock")).unwrap();
         std::fs::remove_file(path).unwrap();
+    }
+
+    /// A link planted at the lock of a left socket is not followed, so the file it points to is
+    /// neither emptied nor locked, and the left socket is not replaced. Before, the lock was
+    /// opened with `File::create`, which emptied it.
+    #[test]
+    fn the_socket_lock_leaves_a_planted_link_alone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-sock-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, target) = (dir.join("glimt.sock"), dir.join("notes.txt"));
+        // A socket left by a Glimt gone, which answers no one.
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+        std::fs::write(&target, "keep").unwrap();
+        std::os::unix::fs::symlink(&target, path.with_extension("lock")).unwrap();
+        assert!(super::bind_socket(&path).is_err_and(|e| e.is_some()));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A socket that another window takes after a left one was removed and before this window

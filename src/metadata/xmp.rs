@@ -586,10 +586,7 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
         .recursive(true)
         .mode(0o700)
         .create(dir);
-    #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-    let file = std::fs::File::create(dir.join(sidecar_lock_number(side).to_string())).ok()?;
-    file.lock().ok()?;
-    Some(file)
+    crate::files::file_io::open_and_lock(&dir.join(sidecar_lock_number(side).to_string())).ok()
 }
 
 /// Which of the 64 lock files a sidecar has. It is FNV-1a of its path's bytes, the same in
@@ -1846,6 +1843,23 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(300));
         drop(first);
         assert!(other.join().unwrap() >= std::time::Duration::from_millis(300));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A link planted in the folder of the sidecar locks is not followed, so the file it points
+    /// to is neither emptied nor locked. Before, the lock was opened with `File::create`, which
+    /// emptied it.
+    #[test]
+    fn a_sidecar_lock_leaves_a_planted_link_alone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-lock-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let side = std::path::PathBuf::from("/photos/b.xmp");
+        let target = dir.join("notes.txt");
+        std::fs::write(&target, "keep").unwrap();
+        let lock = dir.join(super::sidecar_lock_number(&side).to_string());
+        std::os::unix::fs::symlink(&target, lock).unwrap();
+        assert!(super::lock_file(&dir, &side).is_none());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
