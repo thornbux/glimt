@@ -15,11 +15,6 @@ use std::path::{Path, PathBuf};
 /// as a failed write. Any thread sets it, through `save_failed`.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// Set when a write found another file under a name than the one the list showed there
-/// (`ListedFile::check`). The window then reads its folder again (`take_list_is_old`), so it
-/// shows the files as they are.
-static LIST_IS_OLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// How long an act on files picked before a wait waits, once it starts, for each next
 /// fingerprint of the files picked (`PickedFiles`). A file that a share has not answered about by
 /// then counts as changed, and is left alone.
@@ -181,20 +176,55 @@ pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
 /// another file's (`is_another_file`).
 pub(crate) type Identity = Option<std::num::NonZeroU64>;
 
+/// Whether a write found another file under a name than the one a window's list showed there
+/// (`ListedFile::check`). Each window has its own (`Folder::list_is_old`), given to every file
+/// it picks, so only the window whose list is old reads its folder again. A flag for the whole
+/// process had one test's refusal make another test's window read its folder.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ListIsOld(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl ListIsOld {
+    /// Tells the window that its list is old.
+    fn raise(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Returns whether a write found that the list is old since this was last asked, and the
+    /// folder must be read again.
+    pub(crate) fn take(&self) -> bool {
+        self.0.swap(false, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// A file the user picked in the list: its path, and the identity the list knew it by then.
 /// Every write of such a file (its sidecar, its marks, a delete, a rename, a tool) takes one,
 /// and checks with `check` right before it changes the file that no other file has taken the
 /// name since. A path alone cannot be given, so a new write cannot leave the check out.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct ListedFile {
     path: PathBuf,
     identity: Identity,
+    /// The flag of the window whose list showed the file, raised when `check` finds another
+    /// file at its name.
+    list_is_old: ListIsOld,
+}
+
+/// Two are the same file when their path and identity are, whichever window's flag they carry.
+impl PartialEq for ListedFile {
+    fn eq(&self, other: &Self) -> bool {
+        (&self.path, self.identity) == (&other.path, other.identity)
+    }
 }
 
 impl ListedFile {
-    /// The file at `path`, which the list knew by `identity` (`App::listed_file`).
-    pub(crate) fn new(path: PathBuf, identity: Identity) -> Self {
-        ListedFile { path, identity }
+    /// The file at `path`, which the list knew by `identity` (`App::listed_file`). A refusal
+    /// raises `list_is_old`, the flag of the window whose list it is.
+    pub(crate) fn new(path: PathBuf, identity: Identity, list_is_old: &ListIsOld) -> Self {
+        ListedFile {
+            path,
+            identity,
+            list_is_old: list_is_old.clone(),
+        }
     }
 
     /// A file that was not picked in the list, so no identity tells it apart: a Lightroom
@@ -203,6 +233,7 @@ impl ListedFile {
         ListedFile {
             path,
             identity: None,
+            list_is_old: ListIsOld::default(),
         }
     }
 
@@ -214,42 +245,55 @@ impl ListedFile {
         self.identity
     }
 
+    /// The flag of the window whose list showed the file (`ListIsOld`).
+    pub(crate) fn list_is_old(&self) -> &ListIsOld {
+        &self.list_is_old
+    }
+
     /// Refuses to change the file when another file has taken its name since the list showed
     /// it: another window's Rename Many, or another program, swapped or shifted the names. What
     /// the user meant for one photo (a keyword, stars, a delete) would else go to the other. The
-    /// window is then told to read its folder again (`take_list_is_old`). A file that is gone is
-    /// left to the operation, which tells that itself. It waits for the disk, so it is called
-    /// in the thread that makes the change, right before it.
+    /// window whose list showed it is then told to read its folder again (`ListIsOld`). A file
+    /// that is gone is left to the operation, which tells that itself. It waits for the disk, so
+    /// it is called in the thread that makes the change, right before it.
     /// shortcut: a file deleted and another made under its name may get the freed inode and
     /// pass; the size and time of the listing would tell them apart, but cost a look at every
     /// file.
     pub(crate) fn check(&self) -> std::io::Result<()> {
-        is_still_the_file(&self.path, KnownAs::listed(self.identity))
+        is_still_the_file(
+            &self.path,
+            KnownAs::listed(self.identity, &self.list_is_old),
+        )
     }
 }
 
 /// What a file was known by, for `is_still_the_file`: the inode its folder listed, and its
 /// fingerprint when it was picked before a wait or read for a save. Either may be unknown.
+/// With the inode comes the flag of the window whose list it is (`ListIsOld`).
 #[derive(Clone, Copy)]
-pub(crate) struct KnownAs {
+pub(crate) struct KnownAs<'a> {
     fingerprint: Option<FileFingerprint>,
     listed: Identity,
+    list_is_old: Option<&'a ListIsOld>,
 }
 
-impl KnownAs {
+impl<'a> KnownAs<'a> {
     /// A file known by the fingerprint it had when it was read or picked.
-    pub(crate) fn fingerprint(fingerprint: FileFingerprint) -> KnownAs {
+    pub(crate) fn fingerprint(fingerprint: FileFingerprint) -> KnownAs<'a> {
         KnownAs {
             fingerprint: Some(fingerprint),
             listed: None,
+            list_is_old: None,
         }
     }
 
-    /// A file known only by the inode its folder listed.
-    pub(crate) fn listed(identity: Identity) -> KnownAs {
+    /// A file known only by the inode its folder listed, in the list whose flag is
+    /// `list_is_old`.
+    pub(crate) fn listed(identity: Identity, list_is_old: &'a ListIsOld) -> KnownAs<'a> {
         KnownAs {
             fingerprint: None,
             listed: identity,
+            list_is_old: Some(list_is_old),
         }
     }
 }
@@ -266,6 +310,8 @@ pub(crate) struct PickedFiles {
     /// The inode that the folder listed for each file picked in the list, which a file
     /// swapped before the question (and so before its fingerprint) is told by.
     listed: std::collections::HashMap<PathBuf, Identity>,
+    /// The flag of the window whose list showed the files (`ListIsOld`).
+    list_is_old: ListIsOld,
     fingerprints: crate::support::threads::Receiving<Option<FileFingerprint>>,
     /// Whether the paths are folders, which are told apart by their device and inode alone. A
     /// folder's size and time change with every file put into it.
@@ -280,14 +326,16 @@ impl PickedFiles {
     }
 
     /// Starts taking the fingerprints of the files `files`, picked now in the list, which keep
-    /// the inodes the list knew them by.
+    /// the inodes the list knew them by, and the flag of that list's window.
     pub(crate) fn listed(files: Vec<ListedFile>) -> PickedFiles {
         let listed = (files.iter())
             .map(|f| (f.path.clone(), f.identity))
             .collect();
+        let list_is_old = files.first().map(|f| f.list_is_old.clone());
         let paths = files.into_iter().map(|f| f.path).collect();
         PickedFiles {
             listed,
+            list_is_old: list_is_old.unwrap_or_default(),
             ..PickedFiles::taken_in_background(paths, false)
         }
     }
@@ -310,6 +358,7 @@ impl PickedFiles {
         PickedFiles {
             paths,
             listed: Default::default(),
+            list_is_old: ListIsOld::default(),
             fingerprints: crate::support::threads::Receiving::of(rx),
             are_folders: false,
         }
@@ -332,6 +381,7 @@ impl PickedFiles {
         PickedFiles {
             paths,
             listed: Default::default(),
+            list_is_old: ListIsOld::default(),
             fingerprints: crate::support::threads::Receiving::of(rx),
             are_folders,
         }
@@ -359,6 +409,7 @@ impl PickedFiles {
         let fingerprints = PickedFingerprints {
             taken,
             listed: self.listed,
+            list_is_old: self.list_is_old,
             are_folders: self.are_folders,
         };
         (self.paths, fingerprints)
@@ -384,6 +435,7 @@ impl PickedFiles {
 pub(crate) struct PickedFingerprints {
     taken: std::collections::HashMap<PathBuf, FileFingerprint>,
     listed: std::collections::HashMap<PathBuf, Identity>,
+    list_is_old: ListIsOld,
     are_folders: bool,
 }
 
@@ -395,10 +447,14 @@ impl PickedFingerprints {
         let picked = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
         // A folder is told by its inode alone, which it keeps while files come and go.
         let known = match self.are_folders {
-            true => KnownAs::listed(picked.0.and_then(|id| std::num::NonZeroU64::new(id.1))),
+            true => KnownAs::listed(
+                picked.0.and_then(|id| std::num::NonZeroU64::new(id.1)),
+                &self.list_is_old,
+            ),
             false => KnownAs {
                 fingerprint: Some(picked),
                 listed: self.listed.get(path).copied().flatten(),
+                list_is_old: Some(&self.list_is_old),
             },
         };
         is_still_the_file(path, known)
@@ -1297,9 +1353,9 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// it, the user picked it or Glimt read it. Another inode than the one its folder listed is
 /// refused, and an unknown one passes. With a fingerprint, the device, size and time must also
 /// be the same (`same_fingerprint`), and a file that is gone is refused; without one, a file
-/// that is gone is left to the operation to tell. Another file found has the window read its
-/// folder again (`take_list_is_old`). It waits for the disk, so it is called in the thread that
-/// makes the change. Returns the error to tell.
+/// that is gone is left to the operation to tell. Another file found has the window whose list
+/// it is read its folder again (`ListIsOld`). It waits for the disk, so it is called in the
+/// thread that makes the change. Returns the error to tell.
 pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<()> {
     let another = if is_another_file(identity_of(path), known.listed) {
         std::io::Error::other(crate::support::lang::tr(
@@ -1316,7 +1372,9 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
             (None, _) => return Ok(()),
         }
     };
-    LIST_IS_OLD.store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Some(list_is_old) = known.list_is_old {
+        list_is_old.raise();
+    }
     Err(another)
 }
 
@@ -1351,12 +1409,6 @@ pub(crate) fn identity_of(path: &Path) -> Identity {
 pub(crate) fn identity_from_metadata(path: &Path, meta: &std::fs::Metadata) -> Identity {
     let id = crate::images::save::file_id_from_metadata(path, meta).ok()?;
     std::num::NonZeroU64::new(id.1)
-}
-
-/// Returns whether a write found that the list is old since this was last asked, and the folder
-/// must be read again.
-pub(crate) fn take_list_is_old() -> bool {
-    LIST_IS_OLD.swap(false, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Returns the paths of those of `files` that no other file has taken the name of since they

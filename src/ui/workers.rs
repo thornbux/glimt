@@ -42,7 +42,7 @@ impl crate::App {
         // A write found a name that another file has taken since the folder was read, and left
         // that file alone. The folder is read again, and the marks, which showed the change
         // before it was written.
-        if crate::files::file_io::take_list_is_old() {
+        if self.folder.take_list_is_old() {
             #[cfg(feature = "marks")]
             self.marks.read_again();
             self.start_listing(ctx);
