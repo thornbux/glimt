@@ -45,7 +45,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A turn is not saved to a JPEG, PNG or WebP whose end is not there yet, as one still being
   copied in that paused for a moment, and the window says that the file looks incomplete. A
   phone's motion photo or a camera's JPEG with a second image (MPF) counts as whole only when
-  its video or second image is all there.
+  its video or second image is all there, while the file changed in the last minute. An older
+  file whose own lengths of these are wrong, as an editor may leave them, is turned as before.
 
 ## [0.80.0] - 2026-11-10
 

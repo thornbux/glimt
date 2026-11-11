@@ -241,9 +241,15 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
 }
 
 /// Returns the pairs `(from, to)` that the log of a Move holds, `bytes`: each name ends in a
-/// NUL byte. A pair cut off by a kill, at the end, is left out.
+/// NUL byte. A pair cut off by a kill or a full disk, at the end, is left out. A last name
+/// with no NUL after it is left out too, because its end may be cut off at a `/`, and it would
+/// then name the folder the file went to.
 fn parse_move_log(bytes: &[u8]) -> Moves {
-    let paths: Vec<PathBuf> = (bytes.split(|&b| b == 0))
+    let ended = bytes
+        .iter()
+        .rposition(|&b| b == 0)
+        .map_or(0, |last| last + 1);
+    let paths: Vec<PathBuf> = (bytes[..ended].split(|&b| b == 0))
         .filter(|p| !p.is_empty())
         .map(|p| PathBuf::from(OsStr::from_bytes(p)))
         .collect();
@@ -997,8 +1003,18 @@ mod tests {
     fn survives_broken_move_logs() {
         let seed = b"/p/a.jpg\0/q/a.jpg\0/p/b.jpg\0/q/b.jpg\0/p/c.jp";
         assert_eq!(super::parse_move_log(seed).len(), 2);
+        // A write cut off by a full disk just after a slash of the folder the file went to.
+        let torn = super::parse_move_log(b"/p/a.jpg\0/q/a.jpg\0/p/b.jpg\0/q/");
+        let first: super::Moves = vec![("/p/a.jpg".into(), "/q/a.jpg".into())];
+        assert_eq!(torn, first);
         for bytes in crate::support::test_support::broken(seed) {
-            let names = bytes.split(|&b| b == 0).filter(|p| !p.is_empty()).count();
+            // Only the names that a NUL ends are counted.
+            let ended = bytes.split(|&b| b == 0).count() - 1;
+            let names = bytes
+                .split(|&b| b == 0)
+                .take(ended)
+                .filter(|p| !p.is_empty())
+                .count();
             assert!(2 * super::parse_move_log(&bytes).len() <= names);
         }
     }
