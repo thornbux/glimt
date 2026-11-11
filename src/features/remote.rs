@@ -1906,17 +1906,12 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
 /// so another user who swaps the name for a link meanwhile (where $XDG_RUNTIME_DIR is a shared
 /// folder such as /tmp) changes nothing of the user's. Returns the reason when it is not done.
 fn make_own_folder_private(dir: &Path) -> Result<(), String> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     let not_own = || "No remote control: its folder there is not this user's own".to_owned();
     let cannot = |e: std::io::Error| {
         format!("No remote control: its folder there cannot be made private: {e}")
     };
-    #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets, never through a link
-    let opened = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
-        .open(dir);
-    let folder = match opened {
+    let folder = match crate::files::file_io::open_folder_not_through_link(dir) {
         Ok(folder) => folder,
         Err(_) if is_another_users_dir(dir) => return Err(not_own()),
         Err(e) => return Err(cannot(e)),

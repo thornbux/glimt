@@ -3367,15 +3367,19 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
 /// it. Returns, when a sidecar could not follow, whether the file is back at `from`, with the
 /// errors to tell, each saying where the file and that sidecar are. `at_put` is the file's
 /// fingerprint at `to` when it was put there, for a file whose sidecars follow later: it goes
-/// back only while it is still that file. `None` is for a file put there just now.
+/// back only while it is still that file. `None` is for a file put there just now. A sidecar
+/// that was copied, as it could not be moved, is still at its old name, where the next file of
+/// that name would take it. It is told too, with the file at `to`, unless the file went back.
 fn follow_or_go_back(
     (from, to, at_put): (&Path, &Path, Option<FileFingerprint>),
     is_copy: bool,
     moving: &HashSet<&PathBuf>,
     names: &mut xmp::AdobeNames,
 ) -> Result<(), (bool, Vec<String>)> {
-    let Err(not) = xmp::follow(from, to, is_copy, moving, names) else {
-        return Ok(());
+    let not = match xmp::follow(from, to, is_copy, moving, names) {
+        Ok(left_behind) if left_behind.is_empty() => return Ok(()),
+        Ok(left_behind) => return Err((false, left_behind.iter().map(|l| l.told()).collect())),
+        Err(not) => not,
     };
     let file = from.display();
     let is_still_put =
@@ -3430,6 +3434,7 @@ fn follow_or_go_back(
                 to
             )
         })
+        .chain(not.left_behind.iter().map(|l| l.told()))
         .collect();
     Err((false, told))
 }
@@ -4250,6 +4255,40 @@ mod tests {
                 }
             }
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar that cannot be moved (someone else's in a shared folder) is copied with its
+    /// file, and the move tells that it is still at the old name, where the next file of that
+    /// name would take it. Before, it was left there without a word.
+    #[test]
+    fn a_sidecar_left_behind_is_told() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-left-behind-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("a.jpg"), "photo").unwrap();
+        std::fs::write(from.join("a.jpg.xmp"), "keywords").unwrap();
+        let photo = from.join("a.jpg");
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((from.join("a.jpg.xmp"), libc::EPERM)));
+        let result = super::follow_or_go_back(
+            (&photo, &to.join("a.jpg"), None),
+            false,
+            &std::collections::HashSet::from([&photo]),
+            &mut Default::default(),
+        );
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        let Err((false, told)) = &result else {
+            panic!("{result:?}")
+        };
+        assert!(told[0].contains("is still at its old name"), "{told:?}");
+        assert_eq!(std::fs::read(to.join("a.jpg.xmp")).unwrap(), b"keywords");
+        assert_eq!(std::fs::read(to.join("a.jpg")).unwrap(), b"photo");
+        assert!(from.join("a.jpg.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

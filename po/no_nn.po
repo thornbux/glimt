@@ -3934,6 +3934,11 @@ msgstr "Fildialogen svarte ikkje med fullstendige stiar, så ingenting vart opna
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Kunne ikkje låse {name}: {e}. Ei endring som eit anna Glimt-vindauge gjer i same augneblinken, kan gå tapt."
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} kunne ikkje flyttast ({e}), så ho vart kopiert til {copy} og ligg framleis under det gamle namnet òg"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

@@ -3918,6 +3918,11 @@ msgstr "El diálogo de archivos no respondió con rutas completas, así que no s
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "No se pudo bloquear {name}: {e}. Un cambio que otra ventana de Glimt haga en el mismo momento puede perderse."
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} no se pudo mover ({e}), así que se copió a {copy} y sigue también con su nombre anterior"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

@@ -3161,6 +3161,10 @@ msgstr ""
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr ""
 
+#: src/metadata/xmp.rs
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr ""
+
 #: src/files/file_ops.rs
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr ""

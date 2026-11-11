@@ -496,6 +496,9 @@ struct Mount<'a> {
     parent: &'a [u8],
     /// The device's numbers, as major:minor.
     dev: &'a [u8],
+    /// The folder of its file system that it shows: "/" for the whole file system, and a
+    /// folder in it for a bind mount of that folder.
+    root: &'a [u8],
     /// Where it is mounted, as a path.
     at: PathBuf,
     /// Its file system's type, such as ext4, vfat or fuse.rclone.
@@ -845,6 +848,16 @@ fn file_system_type_in(
     let mounts: Vec<Mount> = (mountinfo.split(|&b| b == b'\n'))
         .filter_map(mount_line)
         .collect();
+    let found = mount_holding(&mounts, path)?;
+    (found.kind == b"fuseblk")
+        .then(|| device_type(found.dev))
+        .flatten()
+        .or_else(|| Some(String::from_utf8_lossy(found.kind).into_owned()))
+}
+
+/// Returns the mount of `mounts` that holds `path`, as `file_system_type_in` finds it. Returns
+/// `None` when no mount holds it, or when a chroot leaves it unknown.
+fn mount_holding<'a>(mounts: &'a [Mount<'a>], path: &Path) -> Option<&'a Mount<'a>> {
     let ids: std::collections::HashSet<&[u8]> = mounts.iter().map(|m| m.id).collect();
     // The top mounts are those whose parent is not in the table, or which are their own parent.
     let on = |m: &Mount, under: Option<&[u8]>| match under {
@@ -868,11 +881,24 @@ fn file_system_type_in(
         under = Some(next.id);
         found = Some(next);
     }
-    let found = found?;
-    (found.kind == b"fuseblk")
-        .then(|| device_type(found.dev))
-        .flatten()
-        .or_else(|| Some(String::from_utf8_lossy(found.kind).into_owned()))
+    found
+}
+
+/// Returns whether the mount that holds `path` shows its whole file system, and not only a
+/// folder of it (a bind mount). Returns `false` also when /proc/self/mountinfo cannot be read
+/// or does not tell. The path is taken as it is, as in `file_system_type`.
+pub(crate) fn is_mounted_whole(path: &Path) -> bool {
+    let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").unwrap_or_default();
+    is_mounted_whole_in(&mounts, path)
+}
+
+/// Returns whether the mount in `mountinfo`, the bytes of /proc/self/mountinfo, that holds
+/// `path` shows its whole file system (`is_mounted_whole`).
+fn is_mounted_whole_in(mountinfo: &[u8], path: &Path) -> bool {
+    let mounts: Vec<Mount> = (mountinfo.split(|&b| b == b'\n'))
+        .filter_map(mount_line)
+        .collect();
+    mount_holding(&mounts, path).is_some_and(|m| m.root == b"/")
 }
 
 /// Returns a line of /proc/self/mountinfo as a `Mount`. Returns `None` for a line that is not
@@ -882,12 +908,13 @@ fn file_system_type_in(
 fn mount_line(line: &[u8]) -> Option<Mount<'_>> {
     let mut fields = line.split(|&b| b == b' ');
     let (id, parent, dev) = (fields.next()?, fields.next()?, fields.next()?);
-    let at = unescape_mount(fields.nth(1)?);
+    let (root, at) = (fields.next()?, unescape_mount(fields.next()?));
     let kind = fields.skip_while(|f| *f != b"-").nth(1)?;
     Some(Mount {
         id,
         parent,
         dev,
+        root,
         at,
         kind,
     })
@@ -1325,6 +1352,28 @@ pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
     }
     lock.lock()?;
     Ok(lock)
+}
+
+/// Opens the folder `dir` without following a link at its name. What is then checked through
+/// the folder opened (its owner, its mode) is the folder that is used, also when another user
+/// swaps the name for a link or another folder after the check. This is the one way Glimt opens
+/// a folder in a place that other users can write, to check it and then work in it.
+pub(crate) fn open_folder_not_through_link(dir: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    #[allow(clippy::disallowed_methods)] // a folder, never through a link
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(dir)
+}
+
+/// Returns a path that reaches the folder `opened` itself, whatever its name is now: the
+/// kernel's link to the open descriptor in /proc. Every step taken through this path (a folder
+/// made in it, a file written or renamed into it) acts in the folder that was opened and
+/// checked, so it never needs `openat` and its kin. The path holds while `opened` stays open.
+pub(crate) fn path_through(opened: &std::fs::File) -> PathBuf {
+    use std::os::fd::AsRawFd;
+    PathBuf::from(format!("/proc/self/fd/{}", opened.as_raw_fd()))
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
@@ -1938,6 +1987,7 @@ mod tests {
         for bytes in crate::support::test_support::broken(seed) {
             let path = std::path::Path::new("/media/a b/x.jpg");
             super::file_system_type_in(&bytes, path, |_| Some("exfat".into()));
+            super::is_mounted_whole_in(&bytes, path);
         }
         for bytes in crate::support::test_support::broken(b"S:disk/by-uuid/1\nE:ID_FS_TYPE=exfat\n")
         {
@@ -1998,6 +2048,27 @@ mod tests {
             let denied = super::explain_rename_error(std::io::Error::from_raw_os_error(errno), &to);
             assert_eq!(denied.raw_os_error(), Some(errno));
         }
+    }
+
+    /// A Flatpak with --filesystem=host shows a folder of the host's own file system (/srv) by
+    /// a bind mount of that folder alone, over a tmpfs of its own. Such a mount is not a whole
+    /// file system, so the trash by hand does not put a `.Trash-UID` at its top where the host's
+    /// file managers never look (#108). A disk mounted on its own (a stick) is whole.
+    #[test]
+    fn tells_a_bind_mount_of_a_folder_from_a_whole_file_system() {
+        let mounts = b"1 0 0:30 / / rw - tmpfs tmpfs rw\n\
+            2 1 8:1 /srv /srv rw - ext4 /dev/sda1 rw\n\
+            3 1 8:1 /run/media /run/media rw - ext4 /dev/sda1 rw\n\
+            4 3 8:17 / /run/media/me/STICK rw - vfat /dev/sdb1 rw\n\
+            5 1 8:33 /a\\040b /mnt/a\\040b rw - ext4 /dev/sdc1 rw\n";
+        let whole = |p: &str| super::is_mounted_whole_in(mounts, std::path::Path::new(p));
+        assert!(!whole("/srv"));
+        assert!(!whole("/srv/photos/a.jpg"));
+        assert!(whole("/run/media/me/STICK"));
+        assert!(!whole("/run/media/me"));
+        assert!(!whole("/mnt/a b"));
+        assert!(whole("/tmp"));
+        assert!(!super::is_mounted_whole_in(b"", std::path::Path::new("/")));
     }
 
     /// The mount that holds a path is the one the kernel finds going down through the mounts:
