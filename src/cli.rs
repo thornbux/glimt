@@ -37,6 +37,10 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
         "Name this Glimt; glimt --name NAME --remote COMMAND reaches every Glimt of that name, and NAME may be the process ID of a Glimt, as %id% shows it",
     ),
     (
+        "--wait",
+        "With --remote or --remote-all: answer only when the work the command started has ended, its files written, up to 60 seconds; a write that failed meanwhile is not done (exit 3)",
+    ),
+    (
         "--check-config [FILE]",
         "Tell what is wrong in the settings file (or FILE), line by line",
     ),
@@ -81,6 +85,8 @@ pub(crate) struct Start {
     pub(crate) name: Option<String>,
     pub(crate) kiosk: bool,
     pub(crate) lock_settings: bool,
+    /// --wait: a --remote command is answered when the work it started has ended.
+    pub(crate) wait: bool,
     /// --fade: an index in FADES.
     pub(crate) fade: Option<usize>,
     /// More folders after the first, to show together.
@@ -136,6 +142,30 @@ impl Start {
         Ok((start, paths))
     }
 
+    /// Forgets the options that only `--remote` takes, for the window that `--remote open`
+    /// starts when no Glimt runs: a --name of a process ID, as the new window opens the path
+    /// under its own process ID, and --wait, as nothing waits for the window.
+    pub(crate) fn forget_remote_options(&mut self) {
+        if self.name.as_deref().is_some_and(remote::is_process_id) {
+            self.name = None;
+        }
+        self.wait = false;
+    }
+
+    /// Ends Glimt with exit code 2 when a window starts with an option that only `--remote`
+    /// takes: a --name of only digits, or --wait.
+    pub(crate) fn refuse_remote_options(&self) {
+        let why = match (self.name.as_deref(), self.wait) {
+            (Some(name), _) if remote::is_process_id(name) => {
+                "a --name of only digits is a process ID, which only --remote takes"
+            }
+            (_, true) => "--wait goes only with --remote or --remote-all",
+            _ => return,
+        };
+        eprintln!("glimt: {why}");
+        std::process::exit(2);
+    }
+
     /// Takes the start option `arg`, with `value` after it for an option that has one.
     /// Returns how many arguments it took, or `None` when `arg` is no start option.
     fn take_option(
@@ -150,6 +180,7 @@ impl Start {
             "--fullscreen" => self.fullscreen = true,
             "--kiosk" => self.kiosk = true,
             "--lock-settings" => self.lock_settings = true,
+            "--wait" => self.wait = true,
             "--fade" => {
                 let k = FADES.iter().position(|f| f.0 == value);
                 self.fade = Some(k.ok_or("--fade takes off, short or long")?);
@@ -367,8 +398,11 @@ mod tests {
         assert!(s.fullscreen && s.slideshow && !s.random && s.layout == Some("2x2"));
         assert_eq!(rest, args(&["d"]));
         let (s, rest) = Start::parse(args(&["--random", "--remote", "next"])).unwrap();
-        assert!(s.random && s.layout.is_none());
+        assert!(s.random && s.layout.is_none() && !s.wait);
         assert_eq!(rest, args(&["--remote", "next"]));
+        let (s, rest) = Start::parse(args(&["--wait", "--remote", "run", "Toolbar"])).unwrap();
+        assert!(s.wait);
+        assert_eq!(rest, args(&["--remote", "run", "Toolbar"]));
         assert!(Start::parse(args(&["--layout", "3x3"])).is_err());
         assert!(Start::parse(args(&["--layout"])).is_err());
         assert!(Start::parse(args(&["--bogus"])).is_err());

@@ -6,6 +6,7 @@
 //! A Move keeps a log of the same kind (`MoveLog`), so that the marks and collections of the
 //! files that went before Glimt was killed follow them at the next start.
 
+use crate::files::file_io::{is_surely_gone, is_surely_there};
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -221,13 +222,9 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             if bytes.is_empty() {
                 return None;
             }
-            let is_surely_gone = |p: &Path| {
-                matches!(std::fs::symlink_metadata(p),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound)
-            };
             // A pair cut off by the kill has names that are not there, and is left out so.
             let went: Moves = (parse_move_log(&bytes).into_iter())
-                .filter(|(from, to)| is_surely_gone(from) && std::fs::symlink_metadata(to).is_ok())
+                .filter(|(from, to)| is_surely_gone(from) && is_surely_there(to))
                 .collect();
             let log = MoveLog {
                 path: e.path(),
@@ -551,7 +548,7 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
         .collect();
     let mut on_disk = vec![false; number.len()];
     for (p, &n) in &number {
-        on_disk[n] = p.exists();
+        on_disk[n] = !is_surely_gone(p);
     }
     // Before the first step, each step's old name that no earlier step made is there.
     let (mut there, mut made) = (vec![false; number.len()], vec![false; number.len()]);

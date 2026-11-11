@@ -5,7 +5,7 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, PickedFiles, PickedFingerprints, fingerprint, put_file,
+    FileFingerprint, PickedFiles, PickedFingerprints, fingerprint, is_surely_gone, put_file,
     put_file_until_stopped, rename_never_over, same_fingerprint,
 };
 use crate::files::trash::{TrashMove, restore, trash_dirs};
@@ -40,6 +40,13 @@ pub(crate) const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\
 // and a job's thread sees the same folders as the test that started it.
 #[cfg(test)]
 static TEST_MOUNTS: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
+
+// How many real paths `written_anew` looked up on this thread, so that a test can see that it
+// looks up only those that may be the files written.
+#[cfg(test)]
+thread_local! {
+    static REAL_PATHS_LOOKED_UP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// A Rename Many running in the background. It holds the list as it was (`List::version`),
 /// the files renamed with their new names, and which of them was shown.
@@ -769,7 +776,7 @@ impl crate::App {
                 Vec::new()
             });
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
-                (sides.into_iter()).partition(|s| std::fs::symlink_metadata(s).is_err());
+                (sides.into_iter()).partition(|s| is_surely_gone(s));
             let undo = (trash && !gone.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
                     files: gone.clone(),
@@ -1533,26 +1540,32 @@ impl crate::App {
     pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
         if let Some(Undo::Move(pairs) | Undo::Rename(pairs)) = &mut self.file_operations.undo {
             let written: HashSet<&PathBuf> = paths.iter().collect();
+            let real_path = |p: &PathBuf| {
+                #[cfg(test)]
+                REAL_PATHS_LOOKED_UP.set(REAL_PATHS_LOOKED_UP.get() + 1);
+                p.canonicalize().ok()
+            };
             // A folder opened through a link spells the same file otherwise, so a pair of the
-            // same file name is compared by its real path too. Only the paths whose name a
-            // moved file has are looked up, so a tool's report of 200,000 files after a move
-            // of one costs no look at the disk for the others.
-            let moved: HashSet<std::ffi::OsString> = (pairs.iter())
+            // same file name is compared by its real path too. Only the paths whose name both a
+            // moved file and a file just written have are looked up. A tool's report of 200,000
+            // files after a move of one, or one file written after a move of 500,000, so costs
+            // no look at the disk for the others.
+            let moved: HashSet<&std::ffi::OsStr> = (pairs.iter())
                 .filter(|(_, to, _)| !written.contains(to))
-                .filter_map(|(_, to, _)| to.file_name().map(|n| n.to_owned()))
+                .filter_map(|(_, to, _)| to.file_name())
                 .collect();
             // shortcut: the real paths are looked up in the window's thread, but only of the
-            // files just written that have a moved file's name, which the write reached a moment
-            // ago; look them up with the write if a share is seen to hold the window here.
-            let real: HashSet<PathBuf> = (paths.iter())
-                .filter(|p| p.file_name().is_some_and(|n| moved.contains(n)))
-                .filter_map(|p| p.canonicalize().ok())
-                .collect();
+            // files just written and the moved files that share a name with one, which the write
+            // reached a moment ago; look them up with the write if a share is seen to hold the
+            // window here.
+            let (names, real): (HashSet<&std::ffi::OsStr>, HashSet<PathBuf>) = (paths.iter())
+                .filter_map(|p| Some((p.file_name().filter(|n| moved.contains(n))?, p)))
+                .filter_map(|(name, p)| Some((name, real_path(p)?)))
+                .unzip();
             let same = |to: &PathBuf| {
                 written.contains(to)
-                    || (!real.is_empty()
-                        && to.file_name().is_some_and(|n| moved.contains(n))
-                        && to.canonicalize().is_ok_and(|t| real.contains(&t)))
+                    || (to.file_name().is_some_and(|n| names.contains(n))
+                        && real_path(to).is_some_and(|t| real.contains(&t)))
             };
             // The file takes its new fingerprint, so a file put there later is still told apart.
             // One that is gone has nothing left to put back.
@@ -2304,7 +2317,7 @@ fn left_by_trash(
             .clone()
     };
     let left: Vec<PathBuf> = (paths.iter())
-        .filter(|p| std::fs::symlink_metadata(p).is_ok() && remote(p).is_some())
+        .filter(|p| !is_surely_gone(p) && remote(p).is_some())
         .cloned()
         .collect();
     Some((remote(left.first()?)?, left))
@@ -2351,9 +2364,9 @@ fn delete_chunk(
         }
     }
     // Their sidecars go the same way, so that a new file with the same name does not get their
-    // keywords. A file is gone when its name is, so a link whose target went is not taken for
-    // gone (`exists` follows the link).
-    let is_gone = |p: &&PathBuf| std::fs::symlink_metadata(p).is_err();
+    // keywords. A look that failed (a share that dropped for a moment) keeps the sidecar, as the
+    // photo may still be there.
+    let is_gone = |p: &&PathBuf| is_surely_gone(p);
     let went: Vec<PathBuf> = kept.iter().filter(is_gone).cloned().collect();
     let side = xmp::sidecars_of(&went);
     // A sidecar that stays is told, as the photo's own errors are, because the next file of that
@@ -2490,8 +2503,8 @@ pub(crate) fn name_in_the_way(
 ) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     // A name counts as taken also when it is a link that points nowhere, because nothing may be
-    // made in its place.
-    let there = |p: &PathBuf| std::fs::symlink_metadata(p).is_ok();
+    // made in its place, and when the look at it failed.
+    let there = |p: &PathBuf| !is_surely_gone(p);
     let sidecar_owner = (to.as_os_str().as_bytes().strip_suffix(b".xmp"))
         .map(|owner| PathBuf::from(std::ffi::OsStr::from_bytes(owner)));
     let adobe = xmp::adobe_sidecars_of(to, ours, names);
@@ -4723,7 +4736,10 @@ mod tests {
                 "act_on_prompt_answer",
                 "New Folder: an empty folder, nothing to follow; makes_a_new_folder_in_the_background",
             ),
-            ("trash_collection", "gio trash of the collection's own file"),
+            (
+                "trash_collection",
+                "trash::trash of the collection's own file",
+            ),
             ("back_up", "Glimt's own folders, no file of the user's"),
             (
                 "add_to_collection",
@@ -6038,6 +6054,65 @@ mod tests {
         app.delete_targets(&ctx, false, vec![0]);
         let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
         assert!(run_background_until(&mut app, &ctx, |_| gone(&a) && gone(&side)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file written after a big move looks up the real paths only of the moved files that
+    /// share its name, in the window's thread. Before, one written file with a moved file's name
+    /// looked up the real path of every moved file, 500,000 of them after a move of a big folder.
+    /// The moved file it is, reached through a link, still takes its new fingerprint.
+    #[test]
+    fn a_file_written_after_a_big_move_looks_up_only_its_namesakes() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-namesakes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("moved")).unwrap();
+        std::fs::write(dir.join("moved/1.png"), "turned").unwrap();
+        std::os::unix::fs::symlink(dir.join("moved"), dir.join("link")).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        let none = (None, 0, (0, 0));
+        let pairs = (0..10_000).map(|n| {
+            let name = format!("{n}.png");
+            (
+                dir.join("old").join(&name),
+                dir.join("moved").join(&name),
+                none,
+            )
+        });
+        app.file_operations.undo = Some(super::Undo::Move(pairs.collect()));
+        super::REAL_PATHS_LOOKED_UP.set(0);
+        app.written_anew(&[dir.join("link/1.png")]);
+        assert_eq!(super::REAL_PATHS_LOOKED_UP.get(), 2);
+        let Some(super::Undo::Move(pairs)) = &app.file_operations.undo else {
+            panic!("the Undo is gone");
+        };
+        assert_eq!(pairs.len(), 10_000);
+        assert!(pairs[1].2 != none && pairs[2].2 == none);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A photo whose look fails after its delete (a share that dropped for a moment) is not taken
+    /// for gone, so its sidecar stays, as the photo may still be there. Before, every failed look
+    /// counted as gone, and the sidecar, with the photo's keywords and stars, was deleted for good.
+    #[test]
+    fn a_delete_keeps_the_sidecar_of_a_photo_it_could_not_look_at() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = std::env::temp_dir().join(format!("glimt-test-unseen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let side = crate::metadata::xmp::sidecar(&a);
+        std::fs::write(&side, "a's").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        lock_even_if_poisoned(&LOOKS_FAIL).push(a.clone());
+        app.delete_targets(&ctx, false, vec![0]);
+        let done = run_background_until(&mut app, &ctx, |app| !app.working());
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
+        assert!(done);
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a's");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

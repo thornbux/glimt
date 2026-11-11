@@ -228,7 +228,7 @@ pub fn folder_to_open(glimt_home: &Path, kind: &str) -> PathBuf {
     let new = glimt_home.join(kind);
     let old_name = RENAMED_FOLDERS.iter().find(|r| r.1 == kind).map(|r| r.0);
     match old_name.map(|old| glimt_home.join(old)) {
-        Some(old) if old.is_dir() && !new.exists() => old,
+        Some(old) if old.is_dir() && crate::files::file_io::is_surely_gone(&new) => old,
         _ => new,
     }
 }
@@ -293,9 +293,8 @@ fn parse(text: &str, dir: &Path) -> Option<Tool> {
 }
 
 /// The MIME type of each file name extension, lowercase, from shared-mime-info's `mime/globs2`
-/// in the XDG data folders, read once. The user's own folder comes first, as the spec says.
-// shortcut: read whole in the window's thread at the first tool run, some 100 kB; in the
-// background if it is ever slow.
+/// in the XDG data folders, read once, in the thread of the first tool run. The user's own
+/// folder comes first, as the spec says.
 fn mime_types() -> &'static HashMap<String, String> {
     static TYPES: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
     TYPES.get_or_init(|| {

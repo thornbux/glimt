@@ -15,6 +15,10 @@ glimt \- fast, lightweight image viewer
 .I COMMAND
 .br
 .B glimt
+.B \-\-wait \-\-remote
+.I COMMAND
+.br
+.B glimt
 .B \-\-help
 .br
 .B glimt
@@ -172,6 +176,31 @@ to every running Glimt of this user on this computer. Exits as
 .B \-\-remote
 does, with 3 when any of them did not do it, also when one did not answer within 10 seconds
 while another answered, and with 1 only when none answered.
+.TP
+.B \-\-wait
+Given before
+.B \-\-remote
+or
+.BR \-\-remote\-all ,
+the window answers a command only when the work it started has ended: the place that
+.B open
+names is looked up and its folder read, what the command started in the background is done,
+and the files it changed, such as the settings, are written. Without it, the answer comes when
+the command is taken, and a write that fails later shows only in the window. Exits with 3, with
+the reason on standard error, when such a write failed meanwhile, also one of other work in that
+window, or when the window closed before its writes were done. A command that closes the window,
+as
+.B quit
+or
+.BR "run Quit" ,
+is answered as it closes, after its last writes. It waits up to 60 seconds, and then exits with
+3 and
+.IR "no answer" .
+A query
+.RB ( current ", " selection ", " select ", " info )
+is answered as without it. A Glimt older than 0.81.0 does not do a command sent with
+.BR \-\-wait ,
+and the command exits with 3 and says so.
 .TP
 .BR \-h ", " \-\-help
 List the options and remote commands.

@@ -3621,166 +3621,156 @@ fn finds_a_name_removed_after_a_cached_look() {
     assert_eq!(removals_after_a_look(text), ["a"]);
 }
 
-/// A delete, a move to the trash, a move, a rename or a replace of a user's file looks first
-/// whether the file is still the one the user picked or Glimt read. The function that makes the
-/// call also checks it, with `still_the_one_picked`, `still_the_file`, `same_fingerprint` or
-/// `replace_existing`, and files picked before a wait (a question, a prompt, the file chooser)
-/// come as `file_io::PickedFiles` for it. Before, a delete, a trash or a rename confirmed in a
-/// dialog acted on whatever had the name when the dialog closed, which another window or a sync
-/// may have given to another photo. `file_io.rs` and `trash.rs` hold the one way each change is
-/// made, which their callers check. The functions listed here act on Glimt's own files, or on a
-/// file that their caller checked, each with its reason. A new one is checked or added here.
+/// A name counts as gone only when the system said that it is not there (NotFound).
+/// `Path::exists`, and a look whose every error is taken as an answer (`metadata(…).is_err()`
+/// or `.is_ok()`), take a share that dropped for a moment for a name that is gone. That way a
+/// sidecar was trashed while its photo stayed, and a rename went over a file that it could not
+/// look at. So a name is looked at only through `file_io::is_surely_gone` and
+/// `is_surely_there`, whose names say which way a failed look counts.
 #[test]
-fn destructive_acts_check_the_file_is_still_the_one_picked() {
-    const UNCHECKED: &[(&str, &str, &str)] = &[
-        ("main.rs", "on_exit", "the window's own lock file"),
-        (
-            "images/thumbs.rs",
-            "remove_orphaned_thumbnails_in",
-            "Glimt's thumbnail cache",
-        ),
-        (
-            "features/remote.rs",
-            "bind_socket",
-            "the window's own socket",
-        ),
-        (
-            "features/remote.rs",
-            "move_socket",
-            "the window's own socket",
-        ),
-        (
-            "features/remote.rs",
-            "link_socket",
-            "the window's own socket",
-        ),
-        ("features/remote.rs", "close", "the window's own socket"),
-        (
-            "model/collections.rs",
-            "trash_collection",
-            "a collection file in Glimt's folder",
-        ),
-        (
-            "files/backup.rs",
-            "copy_into",
-            "copies of Glimt's own files",
-        ),
-        (
-            "files/backup.rs",
-            "back_up_to",
-            "a backup folder it made itself",
-        ),
-        (
-            "files/journal.rs",
-            "remove_once_followed",
-            "a Move's own log",
-        ),
-        ("files/journal.rs", "remove_plan", "Rename Many's own plan"),
-        (
-            "files/journal.rs",
-            "rename_step",
-            "a step of rename_files, which its caller checks",
-        ),
-        (
-            "files/journal.rs",
-            "repair_cut_short",
-            "a plan cut short, undone by names: hardening, left for an issue",
-        ),
-        ("files/portal.rs", "print", "its own temporary PDF"),
-        (
-            "metadata/xmp.rs",
-            "follow_one",
-            "a sidecar after its photo, which its caller checks",
-        ),
-    ];
-    const PRIMITIVES: &[&str] = &[
-        "files/file_io.rs",
-        "files/trash.rs",
-        "support/source_rules.rs",
-        "support/test_support.rs",
-    ];
-    let (mut wrong, mut found) = (Vec::new(), Vec::new());
+fn gone_means_not_found() {
+    let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
-        if PRIMITIVES.contains(&file.as_str()) {
-            continue;
-        }
-        for (function, checks) in destructive_acts_in(&text) {
-            let listed = (UNCHECKED.iter()).any(|(f, s, _)| *f == file && *s == function);
-            if !checks && !listed {
-                wrong.push(format!("{file}: {function}"));
-            }
-            found.push((file.clone(), function));
-        }
-    }
-    for (file, function, _) in UNCHECKED {
-        if !found.iter().any(|(f, s)| f == file && s == function) {
-            wrong.push(format!(
-                "{file}: {function} (listed, but makes no such call now)"
-            ));
-        }
+        let found = looks_that_guess(&text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
     }
     assert!(
         wrong.is_empty(),
-        "a delete, trash, move, rename or replace that does not check the file is still the one \
-         picked (file_io::PickedFiles, still_the_file):\n{}",
+        "a name looked at with exists() or metadata(…).is_err() or .is_ok(), which take any \
+         failed look for an answer; use file_io::is_surely_gone or is_surely_there:\n{}",
         wrong.join("\n")
     );
 }
 
-/// Returns the functions of `text` outside the tests that delete, trash, move, rename or replace
-/// a file, each with whether it checks that the file is still the one picked or read.
-// shortcut: a function counts as checked when it checks anywhere, so a branch that acts without
-// the check passes with the rest (rename_undoable checked only for an Undo before 0.81). The
-// PickedFiles type that every such act takes holds the branches; following each branch would
-// need a parser, worth it if this class is found again.
-fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
-    const ACTS: &[&str] = &[
-        "remove_file(",
-        "remove_dir_all(",
-        "trash::trash(",
-        "put_file(",
-        "put_file_until_stopped(",
-        "rename_files(",
-        "replace_name_with(",
-    ];
-    const CHECKS: &[&str] = &[
-        "still_the_one_picked(",
-        "still_the_file(",
-        "same_fingerprint(",
-        "replace_existing(",
+/// Returns the lines (from 1) of `text` outside the tests that ask whether a name is there in a
+/// way that takes every failed look for an answer. A call split over two lines is found too.
+fn looks_that_guess(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let guesses = |i: usize| {
+        let line = &lines[i];
+        let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
+        let call = format!("{line}{}", if next.starts_with('.') { next } else { "" });
+        line.contains(".exists()")
+            || mentions(line, "Path::exists")
+            || (line.contains("metadata(")
+                && [".is_err()", ".is_ok()"].iter().any(|c| call.contains(c)))
+    };
+    (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
+}
+
+/// The check above finds `exists`, also as a function value, and a look at the metadata whose
+/// errors count as gone or as there, also when split over two lines. It leaves the helpers, a
+/// metadata read that passes its error on, and `try_exists`, whose `Ok(false)` is NotFound only.
+#[test]
+fn finds_a_look_that_guesses() {
+    let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
+        .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
+        files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
+        let m = std::fs::metadata(p)?;\n    p.try_exists()\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
+}
+
+/// A lock file is opened and waited for only through `file_io::open_and_lock`, which never
+/// truncates it, never follows a link and never waits on a pipe planted in its place. Opened
+/// with `File::create`, a link planted in Glimt's runtime folder emptied the file of the user's
+/// that it pointed to, and a planted pipe held the thread for good. So a function that opens a
+/// file and waits for a lock is found anywhere but there.
+#[test]
+fn lock_files_are_opened_in_one_place() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = (files_locked_by_hand(&text).into_iter())
+            .filter(|f| (file.as_str(), f.as_str()) != ("files/file_io.rs", "open_and_lock"));
+        wrong.extend(found.map(|f| format!("{file}: {f}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a file opened and locked outside file_io::open_and_lock:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the functions of `text` outside the tests that both open a file and wait for a lock.
+/// A `try_lock` waits for nothing, and is left to the files that Glimt makes new.
+fn files_locked_by_hand(text: &str) -> Vec<String> {
+    const OPENS: [&str; 5] = [
+        "File::create(",
+        "File::open(",
+        "File::options(",
+        "OpenOptions",
+        "open_regular(",
     ];
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let mut found = Vec::new();
     let mut function = String::new();
-    let (mut acts, mut checks) = (false, false);
+    let (mut opens, mut locks) = (false, false);
     for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
         if let Some(name) = function_name(line) {
-            if acts {
-                found.push((function, checks));
+            if opens && locks {
+                found.push(function);
             }
             function = name.to_owned();
-            (acts, checks) = (false, false);
+            (opens, locks) = (false, false);
             continue;
         }
-        acts |= ACTS.iter().any(|act| line.contains(act));
-        checks |= CHECKS.iter().any(|check| line.contains(check));
+        opens |= OPENS.iter().any(|call| line.contains(call));
+        locks |= line.contains(".lock()") || line.contains(".lock_shared()");
     }
     found
 }
 
-/// The check above finds a delete and a trash with no look at the file, and passes one that
-/// looks first and a function that only looks.
+/// The check above finds a lock file made with `File::create` and locked, and leaves a lock
+/// taken through `open_and_lock`, a `try_lock` of a file made new, and a lock of a mutex.
 #[test]
-fn finds_a_destructive_act_without_its_check() {
-    let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
-        fn b() {\n    picked.still_the_one_picked(x)?;\n    trash::trash(&[x])\n}\n\
-        fn c() {\n    crate::files::trash::trash(&[x])\n}\n\
-        fn d() {\n    still_the_file(x, f)\n}\n";
-    assert_eq!(
-        destructive_acts_in(text),
-        [("a".into(), false), ("b".into(), true), ("c".into(), false)]
+fn finds_a_lock_file_opened_by_hand() {
+    let text = "fn a() {\n    let f = std::fs::File::create(p)?;\n    f.lock()?;\n}\n\
+        fn b() {\n    let f = open_and_lock(p)?;\n}\n\
+        fn c() {\n    let f = OpenOptions::new().create_new(true).open(p)?;\n    \
+        f.try_lock()?;\n}\n\
+        fn d() {\n    m.lock()\n}\n";
+    assert_eq!(files_locked_by_hand(text), ["a"]);
+}
+
+/// The functions of the C library are called through the `libc` crate, never declared by hand
+/// in an `extern "C"` block. A declaration written by hand is a guess at the system's types,
+/// and `time_t`, `struct tm` and `struct timespec` differ on 32-bit systems. A function pointer
+/// that C calls (`extern "C" fn`, a signal handler) is not a declaration, and stays.
+#[test]
+fn foreign_functions_come_from_libc() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = foreign_declarations(&text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a C function declared by hand; call it through libc:\n{}",
+        wrong.join("\n")
     );
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that open an `extern` block.
+fn foreign_declarations(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let opens_block = |line: &String| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        words.windows(2).any(|w| w == ["extern", "{"])
+    };
+    (0..end)
+        .filter(|&i| opens_block(&lines[i]))
+        .map(|i| i + 1)
+        .collect()
+}
+
+/// The check above finds an `extern "C"` block, and leaves a function that C calls.
+#[test]
+fn finds_a_foreign_declaration() {
+    let text = "unsafe extern \"C\" {\n    fn kill(pid: i32, signal: i32) -> i32;\n}\n\
+        extern \"C\" fn on_signal(_signal: i32) {}\n";
+    assert_eq!(foreign_declarations(text), [1]);
 }
 
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through

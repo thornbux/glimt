@@ -322,7 +322,7 @@ fn stop_group(group: i32, ended: impl Fn() -> bool) {
     #[allow(unsafe_code)]
     // SAFETY: kill has no preconditions, and the group is ours and not yet waited for.
     unsafe {
-        libc_kill(group, 15)
+        libc::kill(group, 15)
     };
     let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
     while !ended() && std::time::Instant::now() < until {
@@ -332,7 +332,7 @@ fn stop_group(group: i32, ended: impl Fn() -> bool) {
         #[allow(unsafe_code)]
         // SAFETY: The same holds as above.
         unsafe {
-            libc_kill(group, 9)
+            libc::kill(group, 9)
         };
     }
 }
@@ -361,20 +361,14 @@ pub fn stop_process_group(pid: u32) {
         #[allow(unsafe_code)]
         // SAFETY: This is a signal to a group of ours, as in stop_group.
         unsafe {
-            libc_kill(group, 2)
+            libc::kill(group, 2)
         };
     }
     #[allow(unsafe_code)]
     // SAFETY: The same holds as in stop_group, and signal 0 only asks whether the group is
     // there.
-    let is_gone = || unsafe { libc_kill(group, 0) } != 0;
+    let is_gone = || unsafe { libc::kill(group, 0) } != 0;
     stop_group(group, is_gone);
-}
-
-#[allow(unsafe_code)] // declarations only: each call is an unsafe block
-unsafe extern "C" {
-    #[link_name = "kill"]
-    fn libc_kill(pid: i32, signal: i32) -> i32;
 }
 
 /// What `child` writes, at most `max` bytes, its errors, and whether it ended well. When it
@@ -1085,7 +1079,7 @@ mod tests {
         #[allow(unsafe_code)]
         // SAFETY: This ends the test's own helper.
         unsafe {
-            super::libc_kill(helper, 9)
+            libc::kill(helper, 9)
         };
         std::fs::remove_file(pid_file).unwrap();
         assert!(alive, "the watchdog signalled the group after the wait");

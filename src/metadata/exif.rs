@@ -1405,7 +1405,7 @@ pub fn mp_entries(mpf: &[u8]) -> Option<Vec<[u32; 3]>> {
 
 /// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
 /// EXIF in an eXIf chunk, which the decoder reads, or in the text chunk that exiv2 (digiKam,
-/// GIMP) and older ImageMagick write (`png_text`). This is the one reader of an EXIF block the
+/// GIMP) and older ImageMagick write (`png_exif`). This is the one reader of an EXIF block the
 /// image crate decodes, so the panel, the date sort and a copy or turned file all see the same.
 pub fn block_from_decoder(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8>> {
     let png = || crate::model::listing::has_ext(path, &["png"]);

@@ -36,6 +36,12 @@ static OWN_FILES_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite
 static USER_FOLDERS_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
     std::sync::OnceLock::new();
 
+/// The names whose look fails in tests, as on a share that dropped for a moment (`look`). It is
+/// shared by every thread, as the work that looks runs in threads of its own, and each test puts
+/// only names in its own folder here.
+#[cfg(test)]
+pub(crate) static LOOKS_FAIL: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
 /// The saves that replaced a file with other names (hard links) since the window last told of
 /// them, from any thread.
 #[cfg(not(test))]
@@ -310,6 +316,33 @@ impl std::fmt::Display for MayBeUnderBothNames {
 
 impl std::error::Error for MayBeUnderBothNames {}
 
+/// Returns whether nothing is at `path`: the system said that the name is not there (NotFound).
+/// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
+/// permission, says nothing, so the name counts as there. A step that removes, renames over or
+/// counts a file as deleted is then not taken on a look that failed. A link counts by its own
+/// name, not by its target. This and `is_surely_there` are the one way Glimt asks whether a name
+/// is there (`source_rules::gone_means_not_found`).
+pub(crate) fn is_surely_gone(path: &Path) -> bool {
+    look(path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// Returns whether something is surely at `path`: the look at its name answered. A failed look
+/// counts as not there, so this is for a step that needs the name to be there before it is
+/// taken, such as a sidecar written only beside its photo.
+pub(crate) fn is_surely_there(path: &Path) -> bool {
+    look(path).is_ok()
+}
+
+/// Looks at the name `path`, without following a link. In tests, a name in `LOOKS_FAIL` fails
+/// with EIO, as a share that dropped for a moment does.
+fn look(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    #[cfg(test)]
+    if lock_even_if_poisoned(&LOOKS_FAIL).iter().any(|p| p == path) {
+        return Err(std::io::Error::from_raw_os_error(libc::EIO));
+    }
+    std::fs::symlink_metadata(path)
+}
+
 /// Rename `from` to `to`, never over a file or folder there, also one another window put there
 /// a moment ago: in one step where the file system can (RENAME_NOREPLACE); where it cannot (FAT,
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
@@ -338,7 +371,8 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() == Unsupported => match link() {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
-            Err(_) if to.exists() => Err(AlreadyExists.into()),
+            // A name whose look failed counts as there, as does a link that points nowhere.
+            Err(_) if !is_surely_gone(to) => Err(AlreadyExists.into()),
             // shortcut: a file that another program puts at `to` between the look and the
             // rename is written over. rclone, s3fs and MTP offer no way to rename without that
             // race; do more if one of them gains RENAME_NOREPLACE or hard links.
@@ -632,18 +666,6 @@ fn unescape_mount(bytes: &[u8]) -> PathBuf {
 /// which falls back where it is not to be had.
 fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
-    #[allow(unsafe_code)] // declarations only: each call is an unsafe block
-    unsafe extern "C" {
-        fn renameat2(
-            olddirfd: std::ffi::c_int,
-            oldpath: *const std::ffi::c_char,
-            newdirfd: std::ffi::c_int,
-            newpath: *const std::ffi::c_char,
-            flags: std::ffi::c_uint,
-        ) -> std::ffi::c_int;
-    }
-    const AT_FDCWD: std::ffi::c_int = -100;
-    const RENAME_NOREPLACE: std::ffi::c_uint = 1;
     let (from, to) = (
         std::ffi::CString::new(from.as_os_str().as_bytes())?,
         std::ffi::CString::new(to.as_os_str().as_bytes())?,
@@ -652,12 +674,12 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     // SAFETY: two valid C strings for the call's duration; renameat2 reads them and touches
     // nothing else of ours.
     let r = unsafe {
-        renameat2(
-            AT_FDCWD,
+        libc::renameat2(
+            libc::AT_FDCWD,
             from.as_ptr(),
-            AT_FDCWD,
+            libc::AT_FDCWD,
             to.as_ptr(),
-            RENAME_NOREPLACE,
+            libc::RENAME_NOREPLACE,
         )
     };
     if r == 0 {
@@ -694,14 +716,14 @@ pub(crate) fn put_file_until_stopped(
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     let copy = || -> std::io::Result<()> {
-        if to.exists() {
+        if !is_surely_gone(to) {
             return Err(AlreadyExists.into());
         }
         // Written under a hidden name and given its own when whole: a copy cut short (a full
         // disk, Glimt closed, a stick pulled out) never looks like the file.
-        // shortcut: a third close (which waits for nothing) or a stick pulled out leaves the
-        // part under this hidden name, and nothing removes it later; a sweep of
-        // .glimt-tmp-* at the next start if those are ever seen in numbers.
+        // shortcut: a third close (which waits for nothing), a kill, a power cut or a stick
+        // pulled out leaves the part under this hidden name, and nothing removes it later; a
+        // sweep of .glimt-tmp-* at the next start if those are ever seen in numbers.
         let part = tmp_path(to);
         // Private while written: a private photo copied into a shared folder is not readable
         // there until it gets its own permissions below.
@@ -719,8 +741,9 @@ pub(crate) fn put_file_until_stopped(
                 // or sticky, which a copy owned by this user would carry for its owner.
                 let meta = std::fs::metadata(from)?;
                 let mode = std::fs::Permissions::from_mode(meta.mode() & 0o777);
-                #[allow(clippy::disallowed_methods)] // the copy's hidden part, made new
-                std::fs::set_permissions(&part, mode)?;
+                // Through the open file, so that a link put at the part's name meanwhile is
+                // not followed to a file of the user's.
+                out.set_permissions(mode)?;
                 #[allow(clippy::disallowed_methods)] // the copy's time, as mv keeps it
                 out.set_modified(meta.modified()?)?;
                 // A copy leaves the ACL, as cp does without -p, and a move keeps it, as mv does.
@@ -794,7 +817,7 @@ pub fn edit_shared<T>(
 /// A file the windows share removed under its lock, as `edit_shared` changes one: another
 /// window's change cannot land after it and bring back what was cleared.
 pub fn remove_shared(path: &Path) {
-    if std::fs::symlink_metadata(path).is_err() {
+    if !is_surely_there(path) {
         return;
     }
     #[allow(clippy::disallowed_methods)] // as edit_shared
@@ -948,22 +971,31 @@ pub fn wait_for_queued_writes() {
 /// its own, hidden beside it, as `path` is renamed over. Returns `None`, and the caller goes on
 /// without the lock, when the lock file cannot be made or is not a regular file.
 pub fn file_lock(path: &Path) -> Option<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     let name = path.file_name()?.to_string_lossy();
-    // A collection may come with a download, and so may a lock file beside it. The lock is
-    // never truncated and never opened through a link, so a planted link neither empties nor
-    // makes the file it points to. It is opened without waiting, so that a planted pipe does
-    // not hold the thread for good, and what was opened must be a regular file.
+    open_and_lock(&path.with_file_name(format!(".{name}.lock"))).ok()
+}
+
+/// Opens the lock file `path`, making it when it is not there, and waits for its lock, which
+/// is held while the file stays open. A collection may come with a download, and so may a lock
+/// file beside it, and a link or a pipe may be planted in Glimt's own folders. So the lock file
+/// is never truncated and never opened through a link, and a planted link neither empties nor
+/// makes the file it points to. It is opened without waiting, so that a planted pipe does not
+/// hold the thread for good, and what was opened must be a regular file. This is the one way
+/// Glimt opens a lock file and waits for it (`source_rules::lock_files_are_opened_in_one_place`).
+pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
     #[allow(clippy::disallowed_methods)] // a lock file, never truncated and never a link
     let lock = (std::fs::OpenOptions::new().create(true).append(true))
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path.with_file_name(format!(".{name}.lock")))
-        .ok()?;
-    if !lock.metadata().ok()?.is_file() {
-        return None;
+        .open(path)?;
+    if !lock.metadata()?.is_file() {
+        return Err(std::io::Error::other(format!(
+            "{}: not a regular file",
+            path.display()
+        )));
     }
-    lock.lock().ok()?;
-    Some(lock)
+    lock.lock()?;
+    Ok(lock)
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
@@ -1636,6 +1668,37 @@ mod tests {
             );
             assert_eq!(error.contains("check both"), keeps_both, "{error}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Where neither RENAME_NOREPLACE nor links can be made (rclone, s3fs, MTP), the rename after
+    /// looking takes a name for free only when the look said NotFound. A link that points
+    /// nowhere, which `exists` took for no file, and a name whose look failed are not renamed
+    /// over.
+    #[test]
+    fn the_last_way_to_rename_goes_over_no_name_it_could_not_see() {
+        use super::{LOOKS_FAIL, RENAME_WAYS_MISSING};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-look-first-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, link, unseen) = (dir.join("a.jpg"), dir.join("link.jpg"), dir.join("c.jpg"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&unseen, "c").unwrap();
+        std::os::unix::fs::symlink(dir.join("nowhere"), &link).unwrap();
+        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).push(unseen.clone());
+        RENAME_WAYS_MISSING.set(2);
+        let over_link = super::rename_never_over(&a, &link);
+        let over_unseen = super::rename_never_over(&a, &unseen);
+        RENAME_WAYS_MISSING.set(0);
+        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != unseen);
+        let kind = |r: std::io::Result<()>| r.unwrap_err().kind();
+        let text = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
+        assert_eq!(kind(over_link), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(kind(over_unseen), std::io::ErrorKind::AlreadyExists);
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(text(&unseen), "c");
+        assert_eq!(text(&a), "a");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
