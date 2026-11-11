@@ -378,10 +378,10 @@ fn parse_known(text: &str, steps: usize) -> Vec<Option<FileFingerprint>> {
 }
 
 /// Returns the first name of `steps` (from, the step's file) that holds another file than the
-/// step's own, with the error to tell. A name that is not there, or that could not be looked
-/// at, is left to the step itself (`repair_step`), and so is a swap's hidden name. Each name is
-/// looked at before any step is taken, as no earlier step of the repair fills a name of the
-/// user's that a later step takes a file from.
+/// step's own, with the error to tell. A name that is not there is left to the step itself
+/// (`repair_step`), and so is a swap's hidden name. A name whose look failed is refused, as it
+/// may be another file all the same. Each name is looked at before any step is taken, as no
+/// earlier step of the repair fills a name of the user's that a later step takes a file from.
 fn another_file_at<'a>(
     mut steps: impl Iterator<Item = (&'a Path, Option<FileFingerprint>)>,
 ) -> Option<(&'a Path, std::io::Error)> {
@@ -1216,6 +1216,33 @@ mod tests {
             ("a".into(), "new keyword".into())
         );
         assert!(super::cut_short_plans(&plans).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A photo of the plan whose look fails, as on a share that dropped for a moment, is not
+    /// taken for a photo that is gone: the repair renames nothing, and the plan stays. Before,
+    /// the failed look was told as NotFound, and the step ran without its check.
+    #[test]
+    fn a_photo_that_cannot_be_looked_at_stops_the_repair() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = std::env::temp_dir().join(format!("glimt-test-plan-eio-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        super::rename_step(&moves[0].0, &moves[0].1).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        lock_even_if_poisoned(&LOOKS_FAIL).push(p("b.jpg"));
+        let repaired = super::repair_cut_short(&plan, &moves, done, true);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|f| *f != p("b.jpg"));
+        assert_eq!(repaired, Some((0, 1)));
+        assert_eq!(std::fs::read_to_string(p("b.jpg")).unwrap(), "a");
+        assert_eq!(super::cut_short_plans(&plans).len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -1377,7 +1377,9 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// be the same (`same_fingerprint`), and a file that is gone is refused; without one, a file
 /// that is gone is left to the operation to tell. Another file found has the window whose list
 /// it is read its folder again (`ListIsOld`). It waits for the disk, so it is called in the
-/// thread that makes the change. Returns the error to tell.
+/// thread that makes the change. Returns the error to tell. A look that failed returns its own
+/// error, never NotFound, so a caller that leaves a gone file to its operation does not take
+/// a share that dropped for a moment for a file that is gone.
 pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<()> {
     // With nothing known, nothing could be refused, and a look would only wait for the disk:
     // a round trip for each file on a share whose identities were forgotten.
@@ -1389,14 +1391,14 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
             "another file has taken its name: the folder is read again",
         ))
     } else {
-        match (
-            known.fingerprint,
-            known.fingerprint.map(|_| fingerprint(path)),
-        ) {
-            (Some(before), Some(Some(now))) if same_fingerprint(before, now) => return Ok(()),
-            (Some(_), Some(Some(_))) => changed_meanwhile(),
-            (Some(_), _) => return Err(gone_meanwhile()),
-            (None, _) => return Ok(()),
+        let Some(before) = known.fingerprint else {
+            return Ok(());
+        };
+        match fingerprint_or_error(path) {
+            Ok(now) if same_fingerprint(before, now) => return Ok(()),
+            Ok(_) => changed_meanwhile(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(gone_meanwhile()),
+            Err(e) => return Err(e),
         }
     };
     if let Some(list_is_old) = known.list_is_old {
@@ -1512,12 +1514,19 @@ fn has_lasting_inodes(kind: &str) -> bool {
     )
 }
 
-/// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there.
+/// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there or
+/// the look failed.
 pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
+    fingerprint_or_error(path).ok()
+}
+
+/// Returns the fingerprint of the file or link at `path`, or the error of the look: NotFound
+/// when nothing is there.
+fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerprint> {
     use std::os::unix::fs::MetadataExt;
-    let m = std::fs::symlink_metadata(path).ok()?;
+    let m = look(path, false)?;
     let key = crate::images::save::file_id_from_metadata(path, &m).ok();
-    Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
+    Ok((key, m.len(), (m.mtime(), m.mtime_nsec())))
 }
 
 /// Returns the fingerprint of the file at `path`, picked before a wait, or `None` when nothing is
