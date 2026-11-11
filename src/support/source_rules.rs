@@ -145,7 +145,7 @@ const RETIRED_NAMES: &[&str] = &[
     "fs_type_in_udev", // file_system_type_in_udev
     "new_beside",      // create_temp_beside
     "own_tag",         // instance_tag
-    "own_dir",         // is_usable_top_trash
+    "own_dir",         // open_top_trash
     "trash_name",      // name_in_trash
     "Dog",             // WatchdogState
     "dog",             // watchdog

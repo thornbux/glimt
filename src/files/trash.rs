@@ -8,6 +8,14 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+thread_local! {
+    /// What a test does between the check of a trash folder and its first use by
+    /// `trash_by_hand`, as another user who swaps the folder's name meanwhile would.
+    static MEANWHILE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// The marks and stars that a delete took away, for its Undo. The marks writer thread adds them
 /// as it takes them out of the marks file, after the window's earlier edits are in the file.
 pub(crate) type ForgottenMarks = std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, (u8, u8))>>>;
@@ -42,7 +50,8 @@ struct TrashEntry {
 
 /// The trash that the files of one folder go to by hand, and how their .trashinfo names them.
 struct TrashPlace {
-    trash: PathBuf,
+    /// The top of the file system in whose trash the files go. It is `None` for the home trash.
+    top: Option<PathBuf>,
     /// The folder's real path from the top of its file system, which a trash there names its
     /// files from. It is `None` for the home trash, which names them by their absolute path.
     folder_from_top: Option<PathBuf>,
@@ -85,9 +94,12 @@ pub(crate) fn take_forgotten_marks(
 /// Returns the files put back, and the first error.
 pub(crate) fn restore(
     trash_move: &TrashMove,
-    dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf)>,
+    dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
 ) -> (Vec<PathBuf>, Option<String>) {
-    let mut trashes: HashMap<PathBuf, HashMap<PathBuf, TrashEntry>> = HashMap::new();
+    // Each trash folder is read, and its files put back, through the folder that `dirs_of`
+    // opened and checked, which stays open until the end.
+    type Read = (Option<std::fs::File>, HashMap<PathBuf, TrashEntry>);
+    let mut trashes: HashMap<PathBuf, Read> = HashMap::new();
     // As the trash writes DeletionDate: local time, from this computer's clock, as `since` is;
     // not the .trashinfo's own time, which a share stamps with its server's clock. Two seconds
     // early, for a move that began in the second before.
@@ -116,10 +128,12 @@ pub(crate) fn restore(
             .into_iter()
             .flatten()
         {
-            for (dir, top) in dirs_of(at) {
-                let all = (trashes.entry(dir.clone())).or_insert_with(|| {
-                    let all = read_trash(&dir, &top).into_iter();
-                    first_of_each(all.filter(|t| t.date >= since && t.date <= until), rank)
+            for (dir, top, opened) in dirs_of(at) {
+                let (_, all) = (trashes.entry(dir.clone())).or_insert_with(|| {
+                    let through = opened.as_ref().map(crate::files::file_io::path_through);
+                    let all = read_trash(through.as_ref().unwrap_or(&dir), &top).into_iter();
+                    let all = all.filter(|t| t.date >= since && t.date <= until);
+                    (opened, first_of_each(all, rank))
                 });
                 if let Some(t) = all.get(at)
                     && first.as_ref().is_none_or(|f| rank(t) < rank(f))
@@ -359,7 +373,7 @@ fn trash_by_hand_anywhere(paths: &[&Path], home: &Path) -> Vec<(PathBuf, std::io
     // Each folder's trash is looked up once, because its real path, its disk's top and the
     // file system's type take several system calls and a read of the mount table.
     let mut trash_of_folder: HashMap<&Path, std::io::Result<TrashPlace>> = HashMap::new();
-    let mut by_trash: Vec<(PathBuf, Vec<(&Path, String)>)> = Vec::new();
+    let mut by_trash: Vec<(Option<PathBuf>, Vec<_>)> = Vec::new();
     let mut failed = Vec::new();
     for &path in paths {
         let folder = path.parent().unwrap_or(path);
@@ -380,21 +394,31 @@ fn trash_by_hand_anywhere(paths: &[&Path], home: &Path) -> Vec<(PathBuf, std::io
             None => uri_path(path),
             Some(folder) => uri_path(&folder.join(path.file_name().unwrap_or_default())),
         };
-        match by_trash.iter_mut().find(|(trash, _)| *trash == place.trash) {
+        match by_trash.iter_mut().find(|(top, _)| *top == place.top) {
             Some((_, files)) => files.push((path, path_in_trashinfo)),
-            None => by_trash.push((place.trash.clone(), vec![(path, path_in_trashinfo)])),
+            None => by_trash.push((place.top.clone(), vec![(path, path_in_trashinfo)])),
         }
     }
-    for (trash, files) in by_trash {
-        failed.extend(trash_by_hand(&trash, &files));
+    for (top, files) in by_trash {
+        // A trash at a disk's top is opened and checked once, and used through what was opened.
+        match top.as_deref().map(top_trash).transpose() {
+            Ok(None) => failed.extend(trash_by_hand(home, &files)),
+            Ok(Some(opened)) => {
+                let trash = crate::files::file_io::path_through(&opened);
+                failed.extend(trash_by_hand(&trash, &files));
+            }
+            Err(e) => failed.extend((files.iter()).map(|(path, _)| {
+                let e = std::io::Error::new(e.kind(), e.to_string());
+                (path.to_path_buf(), e)
+            })),
+        }
     }
     failed
 }
 
 /// Returns the trash that the files of `folder` go to by hand (`trash_by_hand_anywhere`): the
 /// home trash `home` for a folder on its file system, and otherwise the user's trash at the top
-/// of the folder's own. Returns an error for a folder on a network share, or on a disk whose top
-/// has no trash that the user may use.
+/// of the folder's own. Returns an error for a folder on a network share.
 fn trash_place(folder: &Path, home: &Path) -> std::io::Result<TrashPlace> {
     use std::io::ErrorKind::{CrossesDevices, Unsupported};
     use std::os::unix::fs::MetadataExt;
@@ -402,12 +426,12 @@ fn trash_place(folder: &Path, home: &Path) -> std::io::Result<TrashPlace> {
     // The home trash may not be there yet, so the nearest folder of it that is tells its disk.
     if dev(folder) == home.ancestors().find_map(dev) {
         return Ok(TrashPlace {
-            trash: home.to_path_buf(),
+            top: None,
             folder_from_top: None,
         });
     }
     let real_folder = crate::model::listing::real_dir(folder);
-    let (Some(top), Some(uid)) = (top_of_file_system(&real_folder), own_uid()) else {
+    let Some(top) = top_of_file_system(&real_folder) else {
         return Err(CrossesDevices.into());
     };
     let kind = crate::files::file_io::file_system_type(&top);
@@ -416,38 +440,38 @@ fn trash_place(folder: &Path, home: &Path) -> std::io::Result<TrashPlace> {
     }
     let folder_from_top = real_folder.strip_prefix(&top).unwrap_or(Path::new(""));
     Ok(TrashPlace {
-        trash: top_trash(&top, uid)?,
         folder_from_top: Some(folder_from_top.to_path_buf()),
+        top: Some(top),
     })
 }
 
-/// Returns the user's trash folder at `top`, the top of a file system, as the trash spec says:
+/// Opens the user's trash folder at `top`, the top of a file system, as the trash spec says:
 /// `.Trash/UID` when the administrator made `.Trash` there with the sticky bit, and otherwise
 /// `.Trash-UID`. Either is made when it is not there yet. A folder that another user made first,
-/// or made a link, is not used.
-fn top_trash(top: &Path, uid: u32) -> std::io::Result<PathBuf> {
+/// or made a link, is not used. Returns the folder opened (`open_top_trash`), through which the
+/// files go in.
+fn top_trash(top: &Path) -> std::io::Result<std::fs::File> {
     use std::io::ErrorKind::{AlreadyExists, PermissionDenied};
     use std::os::unix::fs::DirBuilderExt;
+    let uid = own_uid().ok_or(PermissionDenied)?;
     let make = |dir: &Path| match std::fs::DirBuilder::new().mode(0o700).create(dir) {
         Err(e) if e.kind() != AlreadyExists => Err(e),
         _ => Ok(()),
     };
-    let shared = top.join(".Trash");
-    if is_usable_top_trash(&shared, None, true) {
-        let own = shared.join(uid.to_string());
+    if let Some(shared) = open_top_trash(&top.join(".Trash"), None, true) {
+        let own = crate::files::file_io::path_through(&shared).join(uid.to_string());
         // The spec's fallback: a folder that cannot be made there, or that is not the user's
         // own, sends the file to .Trash-UID.
-        if make(&own).is_ok() && is_usable_top_trash(&own, Some(uid), false) {
+        if make(&own).is_ok()
+            && let Some(own) = open_top_trash(&own, Some(uid), false)
+        {
             return Ok(own);
         }
     }
     let trash = top.join(format!(".Trash-{uid}"));
     make(&trash)?;
     // Another user who can write at the top may have made it first, or made it a link.
-    match is_usable_top_trash(&trash, Some(uid), false) {
-        true => Ok(trash),
-        false => Err(PermissionDenied.into()),
-    }
+    open_top_trash(&trash, Some(uid), false).ok_or(PermissionDenied.into())
 }
 
 /// Moves `files` into the trash folder `trash` by hand, as freedesktop.org's trash spec says, each
@@ -460,6 +484,10 @@ fn top_trash(top: &Path, uid: u32) -> std::io::Result<PathBuf> {
 fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::io::Error)> {
     use std::io::ErrorKind::AlreadyExists;
     use std::os::unix::fs::DirBuilderExt;
+    #[cfg(test)]
+    if let Some(meanwhile) = MEANWHILE.with_borrow_mut(Option::take) {
+        meanwhile();
+    }
     let (files_folder, info) = (trash.join("files"), trash.join("info"));
     let all_failed = |e: &std::io::Error| {
         let failed = files.iter().map(|(path, _)| path.to_path_buf());
@@ -581,27 +609,29 @@ fn name_in_trash(name: &std::ffi::OsStr, n: u32) -> OsString {
 
 /// The trash folders a file at `path` may have gone to, each with the folder its relative paths
 /// start from: the home trash, and the two at the top of the file system `path` is on. That top
-/// is found from the real path of the file's folder, as the trash by hand finds it.
-pub(crate) fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
+/// is found from the real path of the file's folder, as the trash by hand finds it. Each folder
+/// at the top comes opened and checked (`open_top_trash`), to be read through what was opened.
+pub(crate) fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)> {
+    use crate::files::file_io::path_through;
     // In a Flatpak, gio trash goes through the trash portal, into the host's trash.
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
-    let mut dirs: Vec<(PathBuf, PathBuf)> = home.map(|h| (h, "/".into())).into_iter().collect();
+    let mut dirs: Vec<_> = home.map(|h| (h, "/".into(), None)).into_iter().collect();
     let folder = crate::model::listing::real_dir(path.parent().unwrap_or(path));
     let (Some(top), Some(uid)) = (top_of_file_system(&folder), own_uid()) else {
         return dirs;
     };
     let shared = top.join(".Trash");
-    let tops = [
-        (
-            shared.join(uid.to_string()),
-            is_usable_top_trash(&shared, None, true),
-        ),
-        (top.join(format!(".Trash-{uid}")), true),
-    ];
-    for (dir, shared_ok) in tops {
-        if shared_ok && is_usable_top_trash(&dir, Some(uid), false) {
-            dirs.push((dir, top.clone()));
-        }
+    if let Some(opened) = open_top_trash(&shared, None, true) {
+        let own = open_top_trash(
+            &path_through(&opened).join(uid.to_string()),
+            Some(uid),
+            false,
+        );
+        dirs.extend(own.map(|own| (shared.join(uid.to_string()), top.clone(), Some(own))));
+    }
+    let own = top.join(format!(".Trash-{uid}"));
+    if let Some(opened) = open_top_trash(&own, Some(uid), false) {
+        dirs.push((own, top, Some(opened)));
     }
     dirs
 }
@@ -626,17 +656,23 @@ fn own_uid() -> Option<u32> {
     std::fs::metadata("/proc/self").map(|m| m.uid()).ok()
 }
 
-/// Returns whether `dir` may be read as a trash folder at the top of a file system, as
+/// Opens `dir` as a trash folder at the top of a file system, when it may be used as one, as
 /// freedesktop.org asks: a folder, not a link, of user `uid` (any user's for `None`), and `sticky`
 /// where every user shares it (.Trash), so none can put a folder of another's name in it. Another
 /// user who can write at the top (a shared disk, a stick) could else make .Trash-1000 first, with a
 /// .trashinfo of a later date for a file just thrown away, and Undo would put their file in its
-/// place.
-fn is_usable_top_trash(dir: &Path, uid: Option<u32>, sticky: bool) -> bool {
+/// place. The checks are made on the folder opened, and the caller works in it through
+/// `file_io::path_through`. So a name that another user swaps for a link or another folder after
+/// the check sends no file there, and no .trashinfo is read from there. Returns `None` when the
+/// folder may not be used.
+fn open_top_trash(dir: &Path, uid: Option<u32>, sticky: bool) -> Option<std::fs::File> {
     use std::os::unix::fs::MetadataExt;
-    std::fs::symlink_metadata(dir).is_ok_and(|m| {
-        m.is_dir() && uid.is_none_or(|uid| m.uid() == uid) && (!sticky || m.mode() & 0o1000 != 0)
-    })
+    let opened = crate::files::file_io::open_folder_not_through_link(dir).ok()?;
+    let meta = opened.metadata().ok()?;
+    let is_usable = meta.is_dir()
+        && uid.is_none_or(|uid| meta.uid() == uid)
+        && (!sticky || meta.mode() & 0o1000 != 0);
+    is_usable.then_some(opened)
 }
 
 /// What the trash folder `dir` holds, its relative paths read from `top`.
@@ -878,6 +914,151 @@ mod tests {
         }
     }
 
+    /// A trash folder at a disk's top that another user swaps for a link to a folder of theirs,
+    /// after Glimt checked it and before the file goes in, gets the file all the same: the file
+    /// goes into the folder that was checked, never through the link. Both of the spec's folders
+    /// are tried, `.Trash-UID` (#107) and `.Trash/UID` (#114). The test needs /dev/shm on another
+    /// file system than the temporary folder, as in Docker and on GitHub's runners.
+    #[test]
+    fn a_trash_folder_swapped_after_its_check_still_gets_the_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let _shm = crate::support::threads::lock_even_if_poisoned(&SHM_TRASH);
+        let Some(top) = other_disk_top() else {
+            return;
+        };
+        let (pid, uid) = (std::process::id(), super::own_uid().unwrap());
+        let shared = top.join(".Trash");
+        let had_shared = shared.symlink_metadata().is_ok();
+        for in_shared in [false, true] {
+            // A .Trash that is there already is not the test's to change.
+            if in_shared && had_shared {
+                continue;
+            }
+            if in_shared {
+                std::fs::create_dir(&shared).unwrap();
+                std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o1777)).unwrap();
+            }
+            let trash = match in_shared {
+                true => shared.join(uid.to_string()),
+                false => top.join(format!(".Trash-{uid}")),
+            };
+            let moved = trash.with_file_name(format!("glimt-test-moved-{pid}"));
+            let dir = top.join(format!("glimt-test-swapped-{pid}"));
+            let decoy = top.join(format!("glimt-test-decoy-{pid}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::create_dir_all(&decoy).unwrap();
+            let name = format!("swapped {pid}.png");
+            let file = dir.join(&name);
+            std::fs::write(&file, "x").unwrap();
+            let (t, m, d) = (trash.clone(), moved.clone(), decoy.clone());
+            super::MEANWHILE.set(Some(Box::new(move || {
+                std::fs::rename(&t, &m).unwrap();
+                std::os::unix::fs::symlink(&d, &t).unwrap();
+            })));
+            super::trash(std::slice::from_ref(&file)).unwrap();
+            assert!(!file.exists());
+            assert!(
+                !decoy.join("files").exists(),
+                "the file went through the link"
+            );
+            assert!(moved.join("files").join(&name).exists());
+            std::fs::remove_file(&trash).unwrap();
+            std::fs::rename(&moved, &trash).unwrap();
+            std::fs::remove_file(trash.join("files").join(&name)).unwrap();
+            std::fs::remove_file(trash.join("info").join(format!("{name}.trashinfo"))).unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            std::fs::remove_dir_all(&decoy).unwrap();
+            // The trash folders stay when another test or program has put something there.
+            for d in [trash.join("files"), trash.join("info"), trash] {
+                let _ = std::fs::remove_dir(d);
+            }
+            if in_shared {
+                let _ = std::fs::remove_dir(&shared);
+            }
+        }
+    }
+
+    /// Undo reads a trash folder at a disk's top through the folder it checked. One whose name
+    /// another user swaps for a link to a folder of theirs after the check, with a .trashinfo for
+    /// the same file in it, gives back the user's own file, not theirs. The test needs /dev/shm
+    /// on another file system than the temporary folder, as in Docker and on GitHub's runners.
+    #[test]
+    fn undo_reads_the_trash_folder_it_checked() {
+        let _shm = crate::support::threads::lock_even_if_poisoned(&SHM_TRASH);
+        let Some(top) = other_disk_top() else {
+            return;
+        };
+        let (pid, uid) = (std::process::id(), super::own_uid().unwrap());
+        if top.join(".Trash").symlink_metadata().is_ok() {
+            eprintln!("{} has a .Trash: not tested", top.display());
+            return;
+        }
+        let trash = top.join(format!(".Trash-{uid}"));
+        let moved = top.join(format!("glimt-test-undo-moved-{pid}"));
+        let dir = top.join(format!("glimt-test-undo-swap-{pid}"));
+        let decoy = top.join(format!("glimt-test-undo-decoy-{pid}"));
+        for d in [dir.clone(), decoy.join("files"), decoy.join("info")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let name = format!("own {pid}.png");
+        let file = dir.join(&name);
+        std::fs::write(&file, "own").unwrap();
+        let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
+        super::trash(std::slice::from_ref(&file)).unwrap();
+        // The other user's file of the same name, a .trashinfo dated now, in their folder.
+        std::fs::write(decoy.join("files").join(&name), "planted").unwrap();
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        let date = crate::support::format::local_time(secs.unwrap().as_secs() as i64);
+        let relative = dir.strip_prefix(&top).unwrap().join(&name);
+        let info = format!(
+            "[Trash Info]\nPath={}\nDeletionDate={}\n",
+            crate::images::thumbs::uri_path(&relative),
+            date.replacen(' ', "T", 1)
+        );
+        std::fs::write(decoy.join("info").join(format!("{name}.trashinfo")), info).unwrap();
+        let swapped = std::cell::Cell::new(false);
+        let dirs = |p: &std::path::Path| {
+            let found = super::trash_dirs(p);
+            if !swapped.replace(true) {
+                std::fs::rename(&trash, &moved).unwrap();
+                std::os::unix::fs::symlink(&decoy, &trash).unwrap();
+            }
+            found
+        };
+        let trash_move = super::TrashMove {
+            files: vec![file.clone()],
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since,
+            marks: Default::default(),
+            collection: None,
+        };
+        let (back, error) = super::restore(&trash_move, dirs);
+        assert_eq!((back, error), (vec![file.clone()], None));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "own");
+        std::fs::remove_file(&trash).unwrap();
+        std::fs::rename(&moved, &trash).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_dir_all(&decoy).unwrap();
+        for d in [trash.join("files"), trash.join("info"), trash] {
+            let _ = std::fs::remove_dir(d);
+        }
+    }
+
+    /// Returns the top of /dev/shm's file system when it is another file system than the
+    /// temporary folder's, as in Docker and on GitHub's runners. Returns `None` elsewhere, and
+    /// the test that asked is passed over.
+    fn other_disk_top() -> Option<std::path::PathBuf> {
+        use std::os::unix::fs::MetadataExt;
+        let shm = std::path::Path::new("/dev/shm");
+        let dev = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+        if dev(shm).is_none() || dev(shm) == dev(&std::env::temp_dir()) {
+            eprintln!("/dev/shm is not another file system here: not tested");
+            return None;
+        }
+        super::top_of_file_system(shm)
+    }
+
     /// A file on the disk of the home trash is named in its .trashinfo by its absolute path,
     /// with the bytes that a URL may not hold escaped, as the trash spec asks.
     #[test]
@@ -1026,23 +1207,19 @@ mod tests {
         std::fs::create_dir_all(&mine).unwrap();
         std::fs::create_dir_all(&shared).unwrap();
         let uid = std::fs::metadata(&mine).unwrap().uid();
-        assert!(super::is_usable_top_trash(&mine, Some(uid), false));
+        assert!(super::open_top_trash(&mine, Some(uid), false).is_some());
         // Another user's, as one made first by someone who can write there.
-        assert!(!super::is_usable_top_trash(&mine, Some(uid + 1), false));
+        assert!(super::open_top_trash(&mine, Some(uid + 1), false).is_none());
         let link = dir.join(".Trash-link");
         std::os::unix::fs::symlink(&mine, &link).unwrap();
-        assert!(!super::is_usable_top_trash(&link, Some(uid), false));
-        assert!(!super::is_usable_top_trash(
-            &dir.join("none"),
-            Some(uid),
-            false
-        ));
+        assert!(super::open_top_trash(&link, Some(uid), false).is_none());
+        assert!(super::open_top_trash(&dir.join("none"), Some(uid), false).is_none());
         // .Trash: without the sticky bit anyone could remove the user's folder in it.
         let mode = |m| std::fs::Permissions::from_mode(m);
         std::fs::set_permissions(&shared, mode(0o777)).unwrap();
-        assert!(!super::is_usable_top_trash(&shared, None, true));
+        assert!(super::open_top_trash(&shared, None, true).is_none());
         std::fs::set_permissions(&shared, mode(0o1777)).unwrap();
-        assert!(super::is_usable_top_trash(&shared, None, true));
+        assert!(super::open_top_trash(&shared, None, true).is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1050,18 +1227,20 @@ mod tests {
     /// the sticky bit, and `.Trash-UID` otherwise, as the trash spec says.
     #[test]
     fn chooses_the_top_trash_as_the_spec_says() {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let top = std::env::temp_dir().join(format!("glimt-test-top-trash-{}", std::process::id()));
         std::fs::create_dir_all(top.join(".Trash")).unwrap();
         let uid = super::own_uid().unwrap();
         let mode = |m| std::fs::Permissions::from_mode(m);
+        let inode = |p: &std::path::Path| std::fs::metadata(p).unwrap().ino();
+        let opened = |top: &std::path::Path| super::top_trash(top).unwrap().metadata().unwrap();
         std::fs::set_permissions(top.join(".Trash"), mode(0o777)).unwrap();
         let own = top.join(format!(".Trash-{uid}"));
-        assert_eq!(super::top_trash(&top, uid).unwrap(), own);
+        assert_eq!(opened(&top).ino(), inode(&own));
         std::fs::set_permissions(top.join(".Trash"), mode(0o1777)).unwrap();
         let shared = top.join(".Trash").join(uid.to_string());
-        assert_eq!(super::top_trash(&top, uid).unwrap(), shared);
-        assert!(super::is_usable_top_trash(&shared, Some(uid), false));
+        assert_eq!(opened(&top).ino(), inode(&shared));
+        assert!(super::open_top_trash(&shared, Some(uid), false).is_some());
         std::fs::remove_dir_all(top).unwrap();
     }
 
@@ -1118,7 +1297,7 @@ mod tests {
         trashed("IMG_0001.jpg", "IMG_0001.jpg", now);
         trashed("IMG_0002.jpg", "IMG_0002.jpg", now);
         trashed("IMG_0002.jpg.xmp", "IMG_0002.jpg.xmp", now);
-        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
         let trash_move = |files: &[&str], sidecars: &[&str]| super::TrashMove {
             files: files.iter().map(|f| photos.join(f)).collect(),
             sidecars: sidecars.iter().map(|f| photos.join(f)).collect(),
@@ -1169,7 +1348,10 @@ mod tests {
         std::fs::write(stick.join("info/IMG_0003.jpg.trashinfo"), info).unwrap();
         let both = |_: &std::path::Path| {
             let root = std::path::PathBuf::from("/");
-            vec![(trash.clone(), root.clone()), (stick.clone(), root)]
+            vec![
+                (trash.clone(), root.clone(), None),
+                (stick.clone(), root, None),
+            ]
         };
         let (back, error) = super::restore(&trash_move(&["IMG_0003.jpg"], &[]), both);
         assert_eq!((back, error), (vec![photos.join("IMG_0003.jpg")], None));
@@ -1272,7 +1454,7 @@ mod tests {
             marks: Default::default(),
             collection: None,
         };
-        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
         let (back, error) = super::restore(&trash_move, dirs);
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
@@ -1311,7 +1493,7 @@ mod tests {
             marks: Default::default(),
             collection: None,
         };
-        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
         // The sidecar's name in the trash cannot be unlinked, so it cannot come back.
         RENAME_WAYS_MISSING.set(1);
         UNLINK_FAILS.set(Some((trash.join("files/a.jpg.xmp"), libc::EPERM)));
@@ -1358,7 +1540,7 @@ mod tests {
             marks: Default::default(),
             collection: None,
         };
-        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
         // The sidecar is linked at its name, and the unlink of its name in the trash fails
         // with an error that says nothing of what was done.
         RENAME_WAYS_MISSING.set(1);
@@ -1409,7 +1591,7 @@ mod tests {
             marks: Default::default(),
             collection: None,
         };
-        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
         let (back, error) = super::restore(&trash_move, dirs);
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
@@ -1448,7 +1630,7 @@ mod tests {
             marks: Default::default(),
             collection: None,
         };
-        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
         let (back, error) = super::restore(&trash_move, dirs);
         assert!(back.is_empty() && error.is_some());
         assert!(!x.join("a.jpg").exists());
@@ -1485,7 +1667,7 @@ mod tests {
         }
         // As trash_dirs gives them: the disk's trash only for a path on the disk itself.
         let dirs = |p: &std::path::Path| match p.starts_with(&disk) {
-            true => vec![(trash.clone(), disk.clone())],
+            true => vec![(trash.clone(), disk.clone(), None)],
             false => Vec::new(),
         };
         let file = dir.join("link/a.jpg");

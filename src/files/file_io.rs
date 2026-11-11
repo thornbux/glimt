@@ -1302,6 +1302,28 @@ pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
     Ok(lock)
 }
 
+/// Opens the folder `dir` without following a link at its name. What is then checked through
+/// the folder opened (its owner, its mode) is the folder that is used, also when another user
+/// swaps the name for a link or another folder after the check. This is the one way Glimt opens
+/// a folder in a place that other users can write, to check it and then work in it.
+pub(crate) fn open_folder_not_through_link(dir: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    #[allow(clippy::disallowed_methods)] // a folder, never through a link
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(dir)
+}
+
+/// Returns a path that reaches the folder `opened` itself, whatever its name is now: the
+/// kernel's link to the open descriptor in /proc. Every step taken through this path (a folder
+/// made in it, a file written or renamed into it) acts in the folder that was opened and
+/// checked, so it never needs `openat` and its kin. The path holds while `opened` stays open.
+pub(crate) fn path_through(opened: &std::fs::File) -> PathBuf {
+    use std::os::fd::AsRawFd;
+    PathBuf::from(format!("/proc/self/fd/{}", opened.as_raw_fd()))
+}
+
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
