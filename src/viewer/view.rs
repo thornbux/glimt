@@ -47,8 +47,6 @@ pub(crate) struct ImageArea {
 
 /// An image for the decode workers.
 pub(crate) struct DecodeJob {
-    /// Its place in the list.
-    pub(crate) index: usize,
     /// Whether it is decoded at full resolution (zoomed in), not at the view's size.
     pub(crate) full_resolution: bool,
     pub(crate) path: PathBuf,
@@ -63,9 +61,13 @@ pub(crate) struct DecodeJob {
 /// The decoding of the shown image and its neighbours. It holds the workers, the images they
 /// keep, and the size they decode to.
 pub(crate) struct Decoding {
-    /// The images to keep decoded, the shown one first and then its neighbours in list order.
-    /// The workers share it, and they skip jobs outside it.
-    kept_images: Arc<Mutex<Vec<usize>>>,
+    /// The files of the images to keep decoded, the shown one first and then its neighbours in
+    /// list order. The workers share it, and they skip jobs outside it. It holds paths, not
+    /// places, because a list read again (the parts of a tree with Include Subfolders) moves
+    /// the shown image to another place while its job waits. A job judged by its old place was
+    /// skipped and asked for again at the new one, and with parts coming faster than a slow
+    /// share served the queue, the image was never decoded.
+    kept_images: Arc<Mutex<Vec<PathBuf>>>,
     /// How many images at the start of `kept_images` may be decoded at full resolution. They
     /// are the shown one and the compared one beside it.
     full_resolution_count: Arc<AtomicUsize>,
@@ -109,7 +111,7 @@ pub(crate) struct Decoding {
 impl Decoding {
     /// The decoder workers started, `workers` of them, with the settings they read.
     pub(crate) fn new(ctx: &egui::Context, config: &Config, workers: usize) -> Self {
-        let kept_images = Arc::new(Mutex::new(vec![0]));
+        let kept_images = Arc::new(Mutex::new(Vec::new()));
         let full_resolution_count = Arc::new(AtomicUsize::new(1));
         let preload = Arc::new(AtomicUsize::new(config.preload));
         let auto_rotate = Arc::new(AtomicBool::new(config.exif_rotate));
@@ -504,7 +506,6 @@ impl crate::App {
                 0
             };
             let _ = (self.decoding.decode_requests).send(DecodeJob {
-                index: idx,
                 full_resolution: full,
                 path,
                 page,
@@ -563,7 +564,8 @@ impl crate::App {
         self.list.keep_loaded_images(|i, s| {
             window.contains(i) && (!s.is_full_resolution || window[..full].contains(i))
         });
-        *lock_even_if_poisoned(&self.decoding.kept_images) = window.clone();
+        *lock_even_if_poisoned(&self.decoding.kept_images) =
+            window.iter().map(|&i| self.path(i)).collect();
         for i in window {
             self.request_decode(i, false);
         }
@@ -590,7 +592,7 @@ impl crate::App {
                 && !crate::files::file_io::is_another_file(identity, self.list.identity(idx))
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.list.shown() { self.viewing.page } else { 0 }
-                && lock_even_if_poisoned(&self.decoding.kept_images).contains(&idx)
+                && lock_even_if_poisoned(&self.decoding.kept_images).contains(&d.path)
                 // Full resolution is kept for each image on screen: the shown one, the compared
                 // one and the panes of a layout, which zoom together.
                 && (!full
@@ -665,7 +667,7 @@ impl crate::App {
                 None if !full
                     && self.is_file(idx, &d.path)
                     && !self.list.loaded_images().contains_key(&idx)
-                    && lock_even_if_poisoned(&self.decoding.kept_images).contains(&idx) =>
+                    && lock_even_if_poisoned(&self.decoding.kept_images).contains(&d.path) =>
                 {
                     self.request_decode(idx, false);
                 }
@@ -1985,7 +1987,7 @@ pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
 pub(crate) fn spawn_decoders(
     ctx: &egui::Context,
     workers: usize,
-    kept_images: &Arc<Mutex<Vec<usize>>>,
+    kept_images: &Arc<Mutex<Vec<PathBuf>>>,
     full_resolution_count: &Arc<AtomicUsize>,
     auto_rotate: &Arc<AtomicBool>,
 ) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
@@ -2004,7 +2006,6 @@ pub(crate) fn spawn_decoders(
         |_| {},
         move |job: DecodeJob| {
             let DecodeJob {
-                index,
                 full_resolution,
                 path,
                 page,
@@ -2013,11 +2014,9 @@ pub(crate) fn spawn_decoders(
             } = job;
             // This cancels work, skipping images the user has already moved past.
             let (wanted, is_shown) = {
-                let w = lock_even_if_poisoned(&kept_images);
+                let kept = lock_even_if_poisoned(&kept_images);
                 let n = full_resolution_count.load(Ordering::Relaxed);
-                let wanted = w.contains(&index)
-                    && (!full_resolution || w.iter().take(n).any(|&i| i == index));
-                (wanted, w.first() == Some(&index))
+                is_wanted(&kept, n, &path, full_resolution)
             };
             // The shown image takes its bytes of the decodes' budget before the thumbnails
             // and the images read ahead.
@@ -2063,6 +2062,16 @@ pub(crate) fn spawn_decoders(
         },
     );
     (jobs, done)
+}
+
+/// Returns whether a decoder wants the job for the file `path` (at full resolution when
+/// `full`), and whether it is of the shown image: the files `kept` hold it, among their first
+/// `full_count` for full resolution, and it is the first of them. A job goes by its file, not
+/// by its place in the list, which a listing may have changed while the job waited.
+fn is_wanted(kept: &[PathBuf], full_count: usize, path: &Path, full: bool) -> (bool, bool) {
+    let wanted = kept.iter().any(|k| k == path)
+        && (!full || kept.iter().take(full_count).any(|k| k == path));
+    (wanted, kept.first().is_some_and(|k| k == path))
 }
 
 /// Draws a play button over a video's preview frame in `area`, readable on any frame. Returns
@@ -2195,6 +2204,24 @@ mod tests {
         assert_eq!((v.turn, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned_file.as_os_str().is_empty() && v.crop.is_none());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A decode job waiting while the list was read again, which moved its image to another
+    /// place (a tree's parts with Include Subfolders), is still wanted, as it goes by its file.
+    /// Before, the workers judged it by its old place and skipped it, and with parts coming
+    /// faster than a slow share served the queue, the next image never showed.
+    #[test]
+    fn a_job_is_wanted_by_its_file_not_its_place() {
+        use std::path::{Path, PathBuf};
+        let kept: Vec<PathBuf> = ["/p/b.jpg", "/p/c.jpg", "/p/a.jpg"]
+            .map(PathBuf::from)
+            .into();
+        let wanted = |path: &str, full| super::is_wanted(&kept, 1, Path::new(path), full);
+        assert_eq!(wanted("/p/b.jpg", false), (true, true));
+        assert_eq!(wanted("/p/b.jpg", true), (true, true));
+        assert_eq!(wanted("/p/c.jpg", false), (true, false));
+        assert_eq!(wanted("/p/c.jpg", true), (false, false));
+        assert_eq!(wanted("/p/d.jpg", false), (false, false));
     }
 
     /// An SVG is asked for at full resolution in the largest texture, as a photo is, so that a
