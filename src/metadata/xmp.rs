@@ -746,7 +746,13 @@ fn lock_file(dir: &Path, number: u64) -> Option<std::fs::File> {
         .recursive(true)
         .mode(0o700)
         .create(dir);
-    crate::files::file_io::lock_or_tell(&dir.join(number.to_string()))
+    crate::files::file_io::lock_or_tell(&lock_file_path(dir, number))
+}
+
+/// Returns the name of the lock file `number` in `dir`. Windows of every version must take the
+/// same lock file for one sidecar, so the name is pinned in src/frozen-1.0.txt.
+pub(crate) fn lock_file_path(dir: &Path, number: u64) -> PathBuf {
+    dir.join(number.to_string())
 }
 
 /// Which of the 64 lock files a sidecar has (`sidecar_hash`), for the tests that pick sidecars
