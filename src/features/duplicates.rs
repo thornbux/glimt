@@ -401,20 +401,7 @@ impl crate::App {
         let kept: Vec<_> = groups.iter().map(|(_, kept)| kept.clone()).collect();
         // No busy pointer: the look, whose answer `wait_for_look_up_before_the_job` holds the
         // pointer for. One given up ends when the share answers, or never.
-        // Each file looked at sends a sign that the look goes on, so a look at many files on a
-        // share that answers is not given up.
-        std::thread::spawn(move || {
-            let changed: Vec<bool> = (kept.iter())
-                .map(|files| {
-                    (files.iter()).any(|(path, seen)| {
-                        let changed = !is_as_seen(path, *seen);
-                        drop(found_tx.send(LookUpStep::GoesOn));
-                        changed
-                    })
-                })
-                .collect();
-            drop(found_tx.send(LookUpStep::Answered(changed)));
-        });
+        std::thread::spawn(move || look_at_kept_files(&kept, &found_tx));
         self.wait_for_look_up_before_the_job(
             folder,
             (held_back, true),
@@ -456,6 +443,26 @@ impl crate::App {
                 .give(tr("The checked files are no longer all in the list").into());
         }
     }
+}
+
+/// Looks at the unchecked files of each group, `kept`, and sends whether any of a group's is no
+/// longer as the search saw it. Each file looked at first sends a sign that the look goes on, so
+/// a look at many files on a share that answers is not given up after a minute in all. It waits
+/// for the disk.
+fn look_at_kept_files(
+    kept: &[Vec<(PathBuf, FileFingerprint)>],
+    found_tx: &std::sync::mpsc::Sender<LookUpStep<Vec<bool>>>,
+) {
+    let changed: Vec<bool> = (kept.iter())
+        .map(|files| {
+            (files.iter()).any(|(path, seen)| {
+                let changed = !is_as_seen(path, *seen);
+                drop(found_tx.send(LookUpStep::GoesOn));
+                changed
+            })
+        })
+        .collect();
+    drop(found_tx.send(LookUpStep::Answered(changed)));
 }
 
 /// Whether the file `path` is still as the search saw it, `seen`. It waits for the disk.
@@ -957,6 +964,36 @@ mod tests {
             app.notice.text()
         );
         assert_eq!(std::fs::read(&b).unwrap(), b"edited");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The look at the unchecked files sends a sign that it goes on for each file it looks at,
+    /// and then its answer, so a look at many files is not given up while it answers (A-1 of
+    /// the audit of 0.83). Without the signs, nothing told the wait that the look went on.
+    #[test]
+    fn the_look_at_kept_files_says_it_goes_on_for_each_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-dup-signs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files: Vec<PathBuf> = ["a.png", "b.png", "c.png"].map(|n| dir.join(n)).into();
+        for f in &files {
+            image::RgbImage::new(2, 2).save(f).unwrap();
+        }
+        let seen = |f: &PathBuf| (f.clone(), super::fingerprint(f).unwrap());
+        let kept = vec![
+            vec![seen(&files[0])],
+            vec![seen(&files[1]), seen(&files[2])],
+        ];
+        let (tx, rx) = std::sync::mpsc::channel();
+        super::look_at_kept_files(&kept, &tx);
+        drop(tx);
+        let (mut signs, mut answer) = (0, None);
+        for step in rx {
+            match step {
+                super::LookUpStep::GoesOn => signs += 1,
+                super::LookUpStep::Answered(changed) => answer = Some(changed),
+            }
+        }
+        assert_eq!((signs, answer), (3, Some(vec![false, false])));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

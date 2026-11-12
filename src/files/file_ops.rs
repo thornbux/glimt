@@ -1302,9 +1302,10 @@ impl crate::App {
     /// one (a Copy, say). The files `held_back_files` that its job will change are held back
     /// from now on, and let go just before `then` starts the job that holds them in turn.
     /// Nothing is waited for, and a notice says so, while other work changes them. A look-up
-    /// that takes longer than `LOOK_UP_GIVEN_UP_AFTER` (a share that stopped answering) is given
-    /// up: the files are let go, `then` never runs, and a notice says so. Before, the files
-    /// stayed held until Glimt ended, and a delete or rename of them was refused. When the job
+    /// that sends neither its answer nor a sign that it goes on (`LookUpStep`) for
+    /// `LOOK_UP_GIVEN_UP_AFTER` (a share that stopped answering) is given up: the files are let
+    /// go, `then` never runs, and a notice says so. Before, the files stayed held until Glimt
+    /// ended, and a delete or rename of them was refused. When the job
     /// `leaves_undo`, Ctrl+Z waits from now on, as it does while the job runs, so it does not
     /// undo the operation before it. Before, it waited only from the job's start.
     pub(crate) fn wait_for_look_up_before_the_job<T: Send + 'static>(
