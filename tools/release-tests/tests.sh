@@ -5665,39 +5665,6 @@ else
     done
 fi
 
-section "a rename to a name with : on a share that stops answering: the window answers meanwhile"
-# STALL-3. A new name with one of : ? * " < > | \ needs a look at its folder's file system, as a
-# camera card refuses those. On a share that stopped answering that look waits, so it is made in
-# the background, and the window still answers. 0.81 made it in the window's thread, which hung
-# until the share answered.
-faults=yes
-if ! grep -q " $lossy fuse" /proc/mounts; then
-    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
-else
-    for v in new old; do
-        as_version $v
-        back=/opt/lossy/stall-rename-$v d=$lossy/stall-rename-$v
-        rm -rf $back; mkdir -p $back
-        convert -size 64x64 xc:red $back/a.png
-        config
-        start $d/a.png
-        echo /stall-rename-$v >/tmp/lossy-stall
-        key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
-        xdotool type --delay 30 'b:#'; sleep 0.4
-        key Return; sleep 1
-        answered=$(timeout 5 $BIN --remote current 2>/dev/null | tr -d '\0')
-        rm -f /tmp/lossy-stall
-        until_file "$back/b:1.png" 15
-        got="${answered:+answered} $(ls $back | tr '\n' ' ')"
-        quit
-        if [ $v = new ]; then
-            expect "the window answers while the look waits; renamed once the share answers" \
-                "$got" "answered b:1.png "
-        else note "old: $got"; fi
-        rm -rf $back
-    done
-fi
-
 section "Copy for Sharing, Crop and Save As onto a full disk: no name written over, no part left, told"
 # FAULT-6. Each writes new files: on a disk that fills up, what fits is whole, what does not
 # leaves nothing, a file of the same name stays as it was, and the failure is told.

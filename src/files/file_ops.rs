@@ -1251,8 +1251,8 @@ impl crate::App {
     }
 
     /// Looks up the real path of `folder` and the type of its file system in the background, as
-    /// both wait for the disk, and then runs `then` with them in the window's thread, as
-    /// `wait_for_look_up_before_the_job` says.
+    /// the real path waits for the disk, and then runs `then` with them in the window's thread,
+    /// as `wait_for_look_up_before_the_job` says.
     pub(crate) fn with_real_folder(
         &mut self,
         folder: PathBuf,
@@ -1528,7 +1528,9 @@ impl crate::App {
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error. Only a
         // new name with such a character needs the look at its folder's file system. That look
-        // waits for the disk, so it is made in the background before the job starts.
+        // reads only the mount table, which never waits for a share, but it reads a file, and
+        // the window's thread reads none (`the_window_thread_never_waits_for_the_disk`). So it
+        // is made in the background before the job starts.
         let Some(folder) = (to.iter())
             .find(|t| (t.file_name()).is_some_and(|n| n.to_string_lossy().contains(NOT_ON_FAT)))
             .and_then(|t| t.parent())
@@ -1859,7 +1861,8 @@ impl crate::App {
         let report_tx = self.file_operations.report_tx.clone();
         self.run_in_background(ctx, vec![old.clone()], move || {
             // A camera card refuses some characters, and its own error would not say which. The
-            // look at its file system waits for the disk, so it is made here, not in the window.
+            // look at its file system reads only the mount table, but that is a file, which the
+            // window's thread never reads, so the look is made here.
             let new_name = std::slice::from_ref(&new);
             if let Some(refused) = refused_on_fat(new_name, file_system_type_or_test) {
                 return Some(Told::Notice(not_renamed(refused)));
@@ -3919,9 +3922,8 @@ mod tests {
     }
 
     /// A rename on a FAT card to a name with a character the card refuses renames nothing, and
-    /// the notice says why before the job starts. The file system is looked at in the
-    /// background, so the window does not wait for a share that stopped answering. The same
-    /// name on another file system is renamed.
+    /// the notice says why before the job starts, also now that the file system is looked at
+    /// in the background. The same name on another file system is renamed.
     #[test]
     fn a_rename_on_fat_with_a_refused_name_is_told_first() {
         let d = std::env::temp_dir().join(format!("glimt-test-fat-ren-{}", std::process::id()));
