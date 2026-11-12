@@ -2844,7 +2844,7 @@ fn take_back_from_the_trash(
 
 /// Returns the type of the file system that `dir` is on, as `file_io::file_system_type` does. A
 /// test gives its folder a type with `test_mount` instead, because no test can mount a FAT card.
-fn file_system_type_or_test(dir: &Path) -> Option<String> {
+pub(crate) fn file_system_type_or_test(dir: &Path) -> Option<String> {
     #[cfg(test)]
     {
         let mounts = crate::support::threads::lock_even_if_poisoned(&TEST_MOUNTS);

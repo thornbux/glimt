@@ -783,19 +783,29 @@ pub(crate) fn lock_file_number(hash: u64) -> u64 {
     hash % LOCK_FILES
 }
 
-/// Returns who the folder of the sidecar `side` is (`save::file_id`), or `None` when it cannot
-/// be looked at, or when its file system makes up its inode numbers (`has_lasting_inodes`).
+/// Returns who the folder of the sidecar `side` is (`save::file_id`). Where its file system
+/// makes up its inode numbers (`has_lasting_inodes`), that is the folder's real path, with its
+/// links resolved, as an `Err`. Returns `None` when the folder cannot be looked at.
+///
+/// The type of the file system is found for the real path, because the identity follows links
+/// too. When it was found for the path as written, a link into a FAT card took the type of the
+/// folder that holds the link, and a sidecar on the card had a lock by inode and another by path.
 fn folder_id(side: &Path) -> Option<FileId> {
     let folder = side.parent().filter(|f| !f.as_os_str().is_empty());
     let folder = folder.unwrap_or(Path::new("."));
-    let kind = crate::files::file_io::file_system_type(folder);
-    is_known_by_inode(kind.as_deref()).then(|| crate::images::save::file_id(folder))?
+    let meta = std::fs::metadata(folder).ok()?;
+    let real = crate::model::listing::real_dir(folder);
+    let kind = crate::files::file_ops::file_system_type_or_test(&real);
+    Some(match is_known_by_inode(kind.as_deref()) {
+        true => crate::images::save::file_id_from_metadata(folder, &meta),
+        false => Err(real),
+    })
 }
 
 /// Whether a sidecar's lock goes by its folder's inode on a file system of type `kind`. FAT,
 /// exFAT, CIFS with noserverino and sshfs make inode numbers up, and they can change while the
 /// path stays, so two writers of one sidecar there could take two locks. There a sidecar is
-/// locked by its path, which never changes, as every sidecar was before 0.82.
+/// locked by its real path, which never changes, as every sidecar was by its path before 0.82.
 fn is_known_by_inode(kind: Option<&str>) -> bool {
     kind.is_some_and(crate::files::file_io::has_lasting_inodes)
 }
@@ -803,8 +813,9 @@ fn is_known_by_inode(kind: Option<&str>) -> bool {
 /// Returns FNV-1a of who the folder of the sidecar `side` is, `folder` (`folder_id`), and of
 /// the sidecar's name. So two windows that reach one folder by two paths (a link to it, a bind
 /// mount) take the same lock for its sidecars. It is the same in every Glimt from 0.82 on,
-/// also one built with another Rust, whose own hasher may differ. A folder that could not be
-/// looked at is taken by the sidecar's path as written.
+/// also one built with another Rust, whose own hasher may differ. A folder known by its real
+/// path gives the hash of the sidecar's real path, as 0.81 hashed a sidecar's path. A
+/// folder that could not be looked at is taken by the sidecar's path as written.
 pub(crate) fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let name = side.file_name().unwrap_or_default().as_bytes();
@@ -2573,11 +2584,14 @@ mod tests {
         );
     }
 
-    /// A sidecar on a file system that makes up its inode numbers is locked by its path, so one
-    /// path always takes one lock. Before 0.83 it went by the folder's inode there too, which
-    /// FAT and sshfs can change while the path stays, and two writers took two locks.
+    /// A sidecar on a file system that makes up its inode numbers is locked by its real path, so
+    /// one sidecar always takes one lock, also through a link to its folder. Before 0.83 it went
+    /// by the folder's inode there too, which FAT and sshfs can change while the path stays, and
+    /// two writers took two locks. Then the type was found for the path as written, which a link
+    /// into a FAT card took past, and the sidecar there was locked by its inode through the link
+    /// and by its path without it.
     #[test]
-    fn a_sidecar_is_locked_by_its_path_where_inodes_change() {
+    fn a_sidecar_is_locked_by_its_real_path_where_inodes_change() {
         for kind in ["vfat", "exfat", "fuse.sshfs", "cifs", "fuseblk"] {
             assert!(!super::is_known_by_inode(Some(kind)), "{kind}");
         }
@@ -2585,6 +2599,21 @@ mod tests {
         for kind in ["ext4", "btrfs", "xfs", "tmpfs", "overlay", "nfs4"] {
             assert!(super::is_known_by_inode(Some(kind)), "{kind}");
         }
+        let dir = std::env::temp_dir().join(format!("glimt-test-lock-fat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (card, link) = (dir.join("card"), dir.join("link"));
+        std::fs::create_dir_all(&card).unwrap();
+        std::os::unix::fs::symlink(&card, &link).unwrap();
+        let card = crate::model::listing::real_dir(&card);
+        crate::files::file_ops::test_mount(&card, Some("vfat"));
+        let real = super::sidecar(&card.join("a.jpg"));
+        let by_path = super::sidecar_hash(&real, None);
+        let through_link = super::sidecar(&link.join("a.jpg"));
+        let hashes = [&real, &through_link]
+            .map(|side| super::sidecar_hash(side, super::folder_id(side).as_ref()));
+        crate::files::file_ops::test_mount(&card, None);
+        assert_eq!(hashes, [by_path, by_path]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Two windows that name one folder differently, through a link to it, take the same lock
