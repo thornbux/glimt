@@ -3030,7 +3030,10 @@ mod tests {
     /// A file reached through a link is written where the link points; the link stays.
     #[test]
     fn writes_through_links() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-link-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-writes-through-links-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let (real, link) = (dir.join("real"), dir.join("config"));
         std::fs::write(&real, "old").unwrap();
