@@ -24,6 +24,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Ctrl+Z pressed while a Move or a rename waits for its folder, as on a share that is slow to
   answer, says that Glimt is still working on the files. Before, it undid the operation before
   it, and the Move then left its own Undo.
+- Copy for Sharing keeps the markers that a few JPEG files need to be shown (DNL, and DHP and
+  EXP of hierarchical JPEG). Since 0.82 they were left out of every copy, so a copy of such a
+  file could not be opened.
 
 ## [0.82.0] - 2026-11-12
 
