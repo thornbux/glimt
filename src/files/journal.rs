@@ -25,6 +25,10 @@ const COUNTED: &[u8] = b"counted";
 /// (`MoveLog::note`), because a Glimt older than 0.82 reads every file beside the logs as a log.
 const KNOWN_FOLDER: &str = "files";
 
+/// How old an empty Move log no window holds must be before it is taken for one whose Move
+/// never started, and removed. A log is locked a moment after it is made.
+const EMPTY_LOG_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// The lock file, in `KNOWN_FOLDER`, that every window holds while it changes a list there
 /// (`note_written_anew_in`). No plan has its name, as a plan's name starts with no dot.
 const LISTS_LOCK: &str = ".lock";
@@ -246,8 +250,10 @@ pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
 /// surely not there any more and whose new one is and holds the file that went
 /// (`is_the_file_that_went`). A file that had not gone yet is still at its old name. A sidecar
 /// that the kill left at a file's old name is moved to the file here
-/// (`sidecars_follow_the_files_that_went`). Each log is held locked until it is removed.
+/// (`sidecars_follow_the_files_that_went`). Each log is held locked until it is removed. What
+/// no start would read goes (`remove_orphan_lists`, and an empty log below).
 pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
+    remove_orphan_lists(dir);
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     entries
         .filter_map(|e| {
@@ -263,8 +269,14 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
                 .take(crate::images::decode::MAX_DECODE_BYTES)
                 .read_to_end(&mut bytes);
             read.ok()?;
-            // A log made a moment ago and not yet locked is not one left by a kill.
+            // A log made a moment ago and not yet locked is not one left by a kill. One made
+            // over a minute ago is a Move whose list could not be made, which never started.
             if bytes.is_empty() {
+                let age = (file.metadata().and_then(|m| m.modified()).ok())
+                    .and_then(|made| made.elapsed().ok());
+                if age.is_some_and(|age| age > EMPTY_LOG_AGE) {
+                    remove_with_its_list(&e.path(), crate::files::file_io::remove_own_or_tell);
+                }
                 return None;
             }
             let known = read_move_known(&known_path(&e.path()));
@@ -285,6 +297,24 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             Some((log, went))
         })
         .collect()
+}
+
+/// Removes each list of files in the Move logs' folder `dir` whose log is gone, which no start
+/// would read: a kill between the removals of a log and its list, or a Glimt before 0.82 that
+/// put a 0.82 log's Move right and removed only the log. A Move makes its log before its list
+/// and removes it first, so a running Move's list always has its log.
+fn remove_orphan_lists(dir: &Path) {
+    let lists = std::fs::read_dir(lists_folder(dir))
+        .into_iter()
+        .flatten()
+        .flatten();
+    for entry in lists {
+        let is_list = entry.file_type().is_ok_and(|kind| kind.is_file())
+            && !entry.file_name().as_bytes().starts_with(b".");
+        if is_list && is_surely_gone(&dir.join(entry.file_name())) {
+            crate::files::file_io::remove_own_or_tell(&entry.path());
+        }
+    }
 }
 
 /// Returns the fingerprint of the file each pair of a Move's log moved, from the log's list of
@@ -1073,6 +1103,35 @@ fn is_linked(file: &File) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// A list of files whose Move log is gone, and an empty log no window holds made over a
+    /// minute ago, are removed at the start. Before, they stayed for good. A log with its list,
+    /// and an empty log made a moment ago, stay.
+    #[test]
+    fn what_no_start_reads_is_removed() {
+        let logs =
+            std::env::temp_dir().join(format!("glimt-test-orphan-lists-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&logs);
+        let lists = super::lists_folder(&logs);
+        std::fs::create_dir_all(&lists).unwrap();
+        std::fs::write(lists.join("orphan"), "-\n").unwrap();
+        std::fs::write(logs.join("kept"), "").unwrap();
+        std::fs::write(lists.join("kept"), "-\n").unwrap();
+        let old = std::fs::File::options()
+            .append(true)
+            .create(true)
+            .open(logs.join("old"))
+            .unwrap();
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        old.set_modified(hour_ago).unwrap();
+        std::fs::write(lists.join("old"), "").unwrap();
+        drop(old);
+        assert!(super::moves_cut_short(&logs).is_empty());
+        assert!(!lists.join("orphan").exists());
+        assert!(!logs.join("old").exists() && !lists.join("old").exists());
+        assert!(logs.join("kept").exists() && lists.join("kept").exists());
+        std::fs::remove_dir_all(logs).unwrap();
+    }
+
     /// A Move log or Rename Many plan that could not be removed keeps its list of files, so the
     /// next start does not take it by its names alone. Before, the list went anyway.
     #[test]
