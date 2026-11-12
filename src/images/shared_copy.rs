@@ -3568,7 +3568,8 @@ mod tests {
     /// The markers a decoder needs besides the frame and tables, DNL (the height when the frame
     /// says 0) and hierarchical JPEG's DHP and EXP, are no tags and stay in every copy, also
     /// after Remove All. Before, they were tagged, and one after the first scan, never listed,
-    /// went from every copy, so a copy of a DNL JPEG had height 0.
+    /// went from every copy, so a copy of a DNL JPEG had height 0. They are put after the scan
+    /// here, where a DNL is.
     #[test]
     fn markers_a_decoder_needs_stay() {
         let dir = folder("needed-markers");
@@ -3580,7 +3581,10 @@ mod tests {
             super::jpeg_segment(0xde, b"DHP-FRAME"),
             super::jpeg_segment(0xdf, &[0x11]),
         ];
-        let original = [&jpeg[..2], &needed.concat(), &jpeg[2..]].concat();
+        // Before the end of image (EOI), after the encoder's one scan.
+        let scan_end = jpeg.len() - 2;
+        assert_eq!(jpeg[scan_end..], [0xff, 0xd9]);
+        let original = [&jpeg[..scan_end], &needed.concat(), &jpeg[scan_end..]].concat();
         let path = dir.join("a.jpg");
         std::fs::write(&path, &original).unwrap();
         let found = super::tags_of(&path).unwrap().unwrap();
