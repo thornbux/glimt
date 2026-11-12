@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Copy for Sharing keeps the markers that a few JPEG files need to be shown (DNL, and DHP and
+  EXP of hierarchical JPEG). Since 0.82 they were left out of every copy, so a copy of such a
+  file could not be opened.
+
 ## [0.82.0] - 2026-11-12
 
 ### Fixed
