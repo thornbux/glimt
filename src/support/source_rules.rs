@@ -694,19 +694,38 @@ const WRITING_WORK: &[&str] = &[
 ];
 
 /// The ways a text is searched for another in Rust, each as the call written and which of its
-/// arguments, counted from 0, is the text searched for: the methods of `str` and of slices,
-/// `memchr::memmem`, and the crate's own `ForwardSearch`. A window compared
+/// arguments, counted from 0, is the text searched for: every method of `str` and of slices
+/// that looks for a pattern (also `split`, `starts_with`, `strip_prefix`, `replace`, `matches`
+/// and their kin), `memchr::memmem`, and the crate's own `ForwardSearch`. A window compared
 /// (`windows(n).position(|w| w == name)`) is read apart, in `window_needles`, and a function of
 /// the crate that passes its own parameter on to one of these is added to them
 /// (`searches_for_xmp_properties`).
-const TEXT_SEARCHES: [(&str, usize); 14] = [
+const TEXT_SEARCHES: [(&str, usize); 32] = [
     (".contains(", 0),
     (".find(", 0),
     (".rfind(", 0),
     (".match_indices(", 0),
     (".rmatch_indices(", 0),
+    (".matches(", 0),
+    (".rmatches(", 0),
     (".split_once(", 0),
     (".rsplit_once(", 0),
+    (".split(", 0),
+    (".rsplit(", 0),
+    (".splitn(", 1),
+    (".rsplitn(", 1),
+    (".split_terminator(", 0),
+    (".rsplit_terminator(", 0),
+    (".split_inclusive(", 0),
+    (".starts_with(", 0),
+    (".ends_with(", 0),
+    (".strip_prefix(", 0),
+    (".strip_suffix(", 0),
+    (".trim_start_matches(", 0),
+    (".trim_end_matches(", 0),
+    (".trim_matches(", 0),
+    (".replace(", 0),
+    (".replacen(", 0),
     ("memmem::find(", 1),
     ("memmem::rfind(", 1),
     ("memmem::find_iter(", 1),
@@ -5978,6 +5997,68 @@ fn finds_a_search_for_an_xmp_property() {
     );
 }
 
+/// Each method of `str` and of slices that looks for a pattern is a search, one spelling at a
+/// time, with the name searched for in its place among the arguments. A search for an RDF
+/// name with the same method passes. Before, `split`, `starts_with`, `strip_prefix`,
+/// `replace`, `matches` and their kin got past the check.
+#[test]
+fn finds_a_search_for_an_xmp_property_in_every_spelling() {
+    let spellings = [
+        "contains(N)",
+        "find(N)",
+        "rfind(N)",
+        "match_indices(N)",
+        "rmatch_indices(N)",
+        "matches(N)",
+        "rmatches(N)",
+        "split_once(N)",
+        "rsplit_once(N)",
+        "split(N)",
+        "rsplit(N)",
+        "splitn(2, N)",
+        "rsplitn(2, N)",
+        "split_terminator(N)",
+        "rsplit_terminator(N)",
+        "split_inclusive(N)",
+        "starts_with(N)",
+        "ends_with(N)",
+        "strip_prefix(N)",
+        "strip_suffix(N)",
+        "trim_start_matches(N)",
+        "trim_end_matches(N)",
+        "trim_matches(N)",
+        "replace(N, \"\")",
+        "replacen(N, \"\", 1)",
+    ];
+    for spelling in spellings {
+        let search = |name: &str| {
+            let call = spelling.replace('N', &format!("\"{name}\""));
+            let text = format!("fn a(x: &str) {{\n    x.{call};\n}}\n");
+            searches_for_xmp_properties(&[("a.rs".into(), text)])
+        };
+        assert_eq!(search("<dc:subject"), ["a.rs:2"], "{spelling}");
+        assert!(search("<rdf:li").is_empty(), "{spelling}");
+        // A URN, such as the name of an ISO gain map's segment, is no property's name.
+        assert!(
+            search("urn:iso:std:iso:ts:21496:-1").is_empty(),
+            "{spelling}"
+        );
+    }
+    // v0.81.1's search for the items of a motion photo, an editor, a hand-written walk and a
+    // name bound by a loop.
+    let a = "fn jpeg_trailer_is_cut(xmp: &str) {\n    \
+        let items = xmp.split(\"<Container:Item\").skip(2);\n}\n\
+        fn edit(xmp: &str) -> String {\n    xmp.replace(\"xmp:Rating=\\\"3\\\"\", \"\")\n}\n\
+        fn walk(xmp: &str, i: usize) -> bool {\n    let rest = &xmp[i..];\n    \
+        rest.starts_with(\"<dc:subject\")\n}\n\
+        fn turn(xmp: &[u8]) {\n    for key in [b\"<rdf:li\", b\"tiff:Orientation\"] {\n        \
+        memchr::memmem::find(xmp, key);\n    }\n}\n";
+    assert_eq!(
+        searches_for_xmp_properties(&[("a.rs".into(), a.into())]),
+        ["a.rs:13", "a.rs:2", "a.rs:5", "a.rs:9"]
+    );
+}
+
 /// Returns the places outside the tests of `sources` where a packet is searched for an XMP
 /// property by its name, as "file:line", in order. A search for a name of the RDF or XML
 /// namespace, such as a Description or a list item, is no search for a property. A function
@@ -6144,9 +6225,10 @@ fn window_needles(code: &str, raw: &[char]) -> Vec<(usize, String)> {
 }
 
 /// Returns what `needle`, the text searched for as written in function `f`, is: a property's
-/// name, one of `f`'s parameters, or something else. A name bound by a `let` in `f` or a
-/// constant of its file (`raw` and `code`) is read as what it is bound to, and `format!` and an
-/// array of parts by their parts, `depth` levels deep at most.
+/// name, one of `f`'s parameters, or something else. A name bound by a `let` or a `for` loop in
+/// `f` or a constant of its file (`raw` and `code`) is read as what it is bound to, and
+/// `format!`, an array of parts and an array looped through by their parts, `depth` levels deep
+/// at most.
 fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth: u8) -> Searched {
     let mut needle = needle.trim().trim_start_matches(['&', '*']).trim();
     for suffix in [
@@ -6156,6 +6238,8 @@ fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth
         ".as_ref()",
         "[..]",
         ".to_vec()",
+        ".iter()",
+        ".into_iter()",
     ] {
         needle = needle.strip_suffix(suffix).unwrap_or(needle);
     }
@@ -6190,6 +6274,12 @@ fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth
             .split(',')
             .map(|p| searched_for(p, f, raw, code, depth + 1)))
         .collect()
+    } else if let Some(inside) = needle.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
+        // An array that a loop goes through, as in `for name in ["tiff:Orientation"]`.
+        (inside
+            .split(',')
+            .map(|p| searched_for(p, f, raw, code, depth + 1)))
+        .collect()
     } else if !needle.is_empty() && needle.chars().all(is_word_char) {
         vec![bound_value(needle, f, raw, code, depth)]
     } else {
@@ -6207,17 +6297,30 @@ fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth
 }
 
 /// Returns what the name `word` is in function `f` of a file whose lines are `raw` and whose
-/// `code_lines` are `code`: one of its parameters, or what a `let` in it or a constant of the
-/// file binds it to (`searched_for`).
+/// `code_lines` are `code`: one of its parameters, or what a `let` or a `for` loop in it or a
+/// constant of the file binds it to (`searched_for`).
 fn bound_value(word: &str, f: &Function, raw: &[&str], code: &[String], depth: u8) -> Searched {
     if let Some(at) = parameters(f, code).iter().position(|p| p == word) {
         return Searched::Parameter(at);
     }
     let in_function = (f.lines.clone()).filter_map(|i| raw.get(i).copied());
-    let bound = (in_function.filter(|l| l.trim_start().starts_with("let ")))
-        .flat_map(let_bindings)
-        .find(|(name, _)| name == word)
-        .map(|(_, value)| value);
+    // A name bound by a `for` loop is each item of what the loop goes through, so an array
+    // of names is read item by item.
+    let looped = |l: &str| {
+        let (name, rest) = l.trim_start().strip_prefix("for ")?.split_once(" in ")?;
+        let items = rest.trim_end().strip_suffix('{')?.trim();
+        Some((
+            name.trim().trim_start_matches("mut ").to_owned(),
+            items.to_owned(),
+        ))
+    };
+    let bound = (in_function.filter_map(|l| match l.trim_start().starts_with("let ") {
+        true => Some(let_bindings(l)),
+        false => looped(l).map(|binding| vec![binding]),
+    }))
+    .flatten()
+    .find(|(name, _)| name == word)
+    .map(|(_, value)| value);
     let constant = format!("const {word}: ");
     let constant = || {
         let line = raw.iter().find(|l| l.trim_start().starts_with(&constant))?;
@@ -6283,7 +6386,8 @@ fn quoted_text(text: &str) -> Option<String> {
 
 /// Returns whether `text` starts with the name of an XMP property, after a "<" or "</" when it
 /// has one: a prefix, a ':' and a name that starts with a letter. The names of the RDF and XML
-/// namespaces (rdf:li, xml:lang, xmlns:dc) are no property's.
+/// namespaces (rdf:li, xml:lang, xmlns:dc) are no property's. Nor is a name with a second ':'
+/// in it, such as a URN ("urn:iso:std:…"), as an XML name has one ':' at most.
 fn names_a_property(text: &str) -> bool {
     let text = text
         .strip_prefix("</")
@@ -6293,8 +6397,11 @@ fn names_a_property(text: &str) -> bool {
         return false;
     };
     let is_prefix = !prefix.is_empty() && prefix.chars().all(|c| is_word_char(c) || c == '-');
+    let is_name_char = |c: char| is_word_char(c) || matches!(c, '-' | '.' | ':');
+    let local_name = local.split(|c: char| !is_name_char(c)).next().unwrap_or("");
     is_prefix
         && local.starts_with(|c: char| c.is_ascii_alphabetic())
+        && !local_name.contains(':')
         && !["rdf", "xml", "xmlns"].contains(&prefix)
 }
 
