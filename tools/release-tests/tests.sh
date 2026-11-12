@@ -5631,7 +5631,10 @@ else
             convert -size 400x300 xc:lime $back/c$k.png
             ln -s $lossy/stall-view-$v/c$k.png $d/c$k.png
         done
-        config decode_threads=1 preload=1 info_panel=true
+        # Without thumbnails, as the view shows the shown file's thumbnail while it is decoded,
+        # and c4's, lime, made before the stall, would stand where its decode is held. The view
+        # then keeps a.jpg, blue.
+        config decode_threads=1 preload=1 info_panel=true thumbnails=false
         start $d/a.jpg
         gps() { remote info $1 | sed -n 's/^exif.gps\t//p'; }
         gps_a=$(gps $d/a.jpg) gps_z=$(gps $d/z.jpg)
