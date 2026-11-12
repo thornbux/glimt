@@ -521,3 +521,18 @@ file $XDG_STATE_HOME/glimt/moves
 option --wait
 sharing_tag JPEG marker 0xf0
 file $XDG_STATE_HOME/glimt/moves/files
+file $XDG_STATE_HOME/glimt/renames/files
+file $XDG_STATE_HOME/glimt/renames/files/.lock
+file $XDG_CONFIG_HOME/glimt/.config.lock
+file $XDG_CONFIG_HOME/glimt/.keywords.lock
+file $XDG_CONFIG_HOME/glimt/.sort-folders.lock
+file $XDG_STATE_HOME/glimt/.recent.lock
+file $XDG_STATE_HOME/glimt/.sharing.lock
+file $XDG_DATA_HOME/glimt/collections/.NAME.gqv.lock
+file $XDG_STATE_HOME/glimt/.marks.lock
+file $XDG_RUNTIME_DIR/glimt/glimt-NAME.lock
+file $XDG_RUNTIME_DIR/glimt/sidecar-locks
+sidecar_lock files 64
+sidecar_lock /x/a.xmp by its folder's device 1 and inode 2 is sidecar-locks/6
+sidecar_lock /x/a.xmp by its folder's real path /y is sidecar-locks/30
+sidecar_lock /x/a.xmp by its path as written is sidecar-locks/1

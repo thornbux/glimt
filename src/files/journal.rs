@@ -23,7 +23,7 @@ const COUNTED: &[u8] = b"counted";
 /// own, because a Glimt older than 0.81 reads every file beside the plans as a plan. The folder
 /// of the Moves' logs has one of the same name, for the files each log's pairs moved
 /// (`MoveLog::note`), because a Glimt older than 0.82 reads every file beside the logs as a log.
-pub(crate) const KNOWN_FOLDER: &str = "files";
+const KNOWN_FOLDER: &str = "files";
 
 /// The lock file, in `KNOWN_FOLDER`, that every window holds while it changes a list there
 /// (`note_written_anew_in`). No plan has its name, as a plan's name starts with no dot.
@@ -196,6 +196,19 @@ impl MoveLog {
     }
 }
 
+/// Returns the folder of the lists of files (`KNOWN_FOLDER`) in the folder of plans or logs
+/// `dir`. Every Glimt from 0.81 on finds the lists there, so its name is pinned in
+/// src/frozen-1.0.txt.
+pub(crate) fn lists_folder(dir: &Path) -> PathBuf {
+    dir.join(KNOWN_FOLDER)
+}
+
+/// Returns the lock file of the lists in the folder of plans `dir` (`LISTS_LOCK`). Every Glimt
+/// from 0.82 on takes this one, so its name is pinned in src/frozen-1.0.txt.
+pub(crate) fn lists_lock(dir: &Path) -> PathBuf {
+    lists_folder(dir).join(LISTS_LOCK)
+}
+
 pub fn journal_dir() -> Option<PathBuf> {
     crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
         .map(|d| d.join("renames"))
@@ -209,7 +222,7 @@ pub fn move_log_dir() -> Option<PathBuf> {
 
 /// Makes a new log of a Move in `dir`, locked, with its list of the files it moves.
 pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
-    std::fs::create_dir_all(dir.join(KNOWN_FOLDER))?;
+    std::fs::create_dir_all(lists_folder(dir))?;
     let path = dir.join(new_name());
     #[allow(clippy::disallowed_methods)] // a log made new, in Glimt's own state folder
     let open_new = |path: &Path| {
@@ -408,7 +421,7 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Resul
 /// Returns where the files that the steps of the plan `plan` move are written down.
 fn known_path(plan: &Path) -> PathBuf {
     let name = plan.file_name().unwrap_or_default();
-    plan.with_file_name(KNOWN_FOLDER).join(name)
+    lists_folder(plan.parent().unwrap_or(Path::new(""))).join(name)
 }
 
 /// Returns the text that names the photo each of `moves` moves, by its fingerprint now: one line
@@ -458,14 +471,14 @@ pub fn note_written_anew(path: &Path, before: FileFingerprint) {
 fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
     use crate::images::decode::{read_limited, read_text};
     // Without the lists' folder there is no plan to note in, and no lock is made.
-    let Ok(lists) = std::fs::read_dir(dir.join(KNOWN_FOLDER)) else {
+    let Ok(lists) = std::fs::read_dir(lists_folder(dir)) else {
         return;
     };
     // Each list is read, changed and written under one lock that every window takes for it, so
     // two windows saving photos of one plan at once both keep their change. It is not the plan's
     // own lock, which a running Rename Many holds for its whole run, while its sidecar locks
     // wait for the save that called this.
-    let _held = crate::files::file_io::lock_or_tell(&dir.join(KNOWN_FOLDER).join(LISTS_LOCK));
+    let _held = crate::files::file_io::lock_or_tell(&lists_lock(dir));
     let mut now = None;
     for entry in lists.flatten() {
         if entry

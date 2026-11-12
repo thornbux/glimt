@@ -109,6 +109,13 @@ out of use is still read, and ignored.
   `Theme::parse`);
 - the files and folders Glimt owns (`file` lines, from `config_path` and the other functions
   that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::socket_name` and `FOCUSED_FILE`);
+- the names of the lock files, frozen like the files (`file` lines, from `file_io::lock_beside`,
+  `journal::lists_lock`, `remote::socket_lock` and `xmp::LOCK_FOLDER`), and which of the
+  sidecars' lock files a sidecar takes (`sidecar_lock` lines, from `xmp::LOCK_FILES` and
+  `lock_file_number` of `sidecar_hash`). Windows of two versions that run at once must take
+  the same lock for one file, or both read it and the last write drops the other's change. A
+  plan of Rename Many and a log of Move are each locked as the file itself, which tells one
+  still running from one cut short;
 - the words of the groups in the sharing file (`sharing` lines, `Group::key`), and the names
   of the single tags and parts it holds (`sharing_tag` lines, from
   `shared_copy::names_of_single_tags`): each EXIF tag's name, one of each form a tag or part

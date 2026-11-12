@@ -94,7 +94,16 @@ const NOT_ELEMENTS: [(&[u8], &[u8]); 3] =
 
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.
 #[cfg(not(test))]
-static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
+static SIDECAR_LOCKS: [std::sync::Mutex<()>; LOCK_FILES as usize] =
+    [const { std::sync::Mutex::new(()) }; LOCK_FILES as usize];
+
+/// The number of lock files of sidecars, in `LOCK_FOLDER`. Windows of every version must take the
+/// same lock file for a sidecar, so this, the folder's name and how a sidecar's lock file is
+/// numbered (`lock_file_number`) are pinned in src/frozen-1.0.txt.
+pub(crate) const LOCK_FILES: u64 = 64;
+
+/// The folder of the lock files of sidecars, in Glimt's runtime folder (`lock_dir`).
+pub(crate) const LOCK_FOLDER: &str = "sidecar-locks";
 
 thread_local! {
     /// The file the sidecar write of this thread is for (`write_for`), which `update` checks
@@ -642,7 +651,10 @@ fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
     let side = sidecar(path);
     let hash = sidecar_hash(&side, folder_id(&side).as_ref());
     let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
-    (dir.and_then(|d| lock_file(d, hash % 64)), guard)
+    (
+        dir.and_then(|d| lock_file(d, lock_file_number(hash))),
+        guard,
+    )
 }
 
 /// `lock_sidecar` for many files at once, as Rename Many and a delete move a photo and then its
@@ -663,7 +675,10 @@ fn lock_sidecars_in<'a>(
     (hashes.iter())
         .map(|&hash| {
             let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
-            (dir.and_then(|d| lock_file(d, hash % 64)), guard)
+            (
+                dir.and_then(|d| lock_file(d, lock_file_number(hash))),
+                guard,
+            )
         })
         .collect()
 }
@@ -689,7 +704,7 @@ fn sidecar_hashes<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<u64> 
 /// call, and on a share that stopped answering most sidecar writes in every window waited for
 /// good.
 pub(crate) fn chunks_by_sidecar_lock(paths: &[PathBuf], most_files: usize) -> Vec<Vec<PathBuf>> {
-    let numbers = sidecar_hashes(paths).into_iter().map(|h| h % 64);
+    let numbers = sidecar_hashes(paths).into_iter().map(lock_file_number);
     let mut numbered: Vec<(u64, &PathBuf)> = numbers.zip(paths).collect();
     numbered.sort_by_key(|n| n.0);
     let mut chunks: Vec<Vec<PathBuf>> = Vec::new();
@@ -721,7 +736,7 @@ fn lock_dir() -> Option<PathBuf> {
     #[cfg(test)]
     return None;
     #[cfg(not(test))]
-    return crate::features::remote::runtime_dir().map(|d| d.join("sidecar-locks"));
+    return crate::features::remote::runtime_dir().map(|d| d.join(LOCK_FOLDER));
 }
 
 /// Takes the lock file `number` in `dir`, the number that `sidecar_lock_number` gives a sidecar.
@@ -738,7 +753,13 @@ fn lock_file(dir: &Path, number: u64) -> Option<std::fs::File> {
 /// of other locks.
 #[cfg(test)]
 pub(crate) fn sidecar_lock_number(side: &Path) -> u64 {
-    sidecar_hash(side, folder_id(side).as_ref()) % 64
+    lock_file_number(sidecar_hash(side, folder_id(side).as_ref()))
+}
+
+/// Returns the number of the lock file, in `LOCK_FOLDER`, of the sidecar of the hash `hash`
+/// (`sidecar_hash`).
+pub(crate) fn lock_file_number(hash: u64) -> u64 {
+    hash % LOCK_FILES
 }
 
 /// Returns who the folder of the sidecar `side` is (`save::file_id`), or `None` when it cannot
@@ -753,7 +774,7 @@ fn folder_id(side: &Path) -> Option<FileId> {
 /// mount) take the same lock for its sidecars. It is the same in every Glimt, also one built
 /// with another Rust, whose own hasher may differ. A folder that could not be looked at is
 /// taken by the sidecar's path as written.
-fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
+pub(crate) fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let name = side.file_name().unwrap_or_default().as_bytes();
     let bytes = match folder {
@@ -781,7 +802,7 @@ fn sidecar_lock_key(hash: u64) -> u64 {
     #[cfg(test)]
     return hash;
     #[cfg(not(test))]
-    return hash % 64;
+    return lock_file_number(hash);
 }
 
 /// Returns the mutex of the lock number `key` (`sidecar_lock_key`).

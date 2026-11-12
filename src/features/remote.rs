@@ -1369,6 +1369,13 @@ pub fn socket_name(id: &str) -> String {
     format!("glimt-{id}.sock")
 }
 
+/// Returns the lock file of the socket at `path`, `glimt-ID.lock`, which a window holds while it
+/// replaces a socket left there or links its own to it (`bind_socket`, `link_socket`). Windows
+/// of every version must take the same one, so its name is pinned in src/frozen-1.0.txt.
+pub(crate) fn socket_lock(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_extension("lock")
+}
+
 /// Send `command` to the socket at `path`, and print what it answers (`print_answer`).
 fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     send_command(path, command).is_some_and(|stream| {
@@ -2002,7 +2009,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     }
     // From here only one at a time, because another Glimt of this name could take the left
     // socket over between our check and our remove, and lose its new one to us.
-    let _lock = crate::files::file_io::open_and_lock(&path.with_extension("lock")).map_err(Some)?;
+    let _lock = crate::files::file_io::open_and_lock(&socket_lock(path)).map_err(Some)?;
     if answers(path) {
         return Err(None);
     }
@@ -2119,7 +2126,7 @@ fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> 
 /// between a starting window's look at a left socket and its remove, and that window removed
 /// the new link and took the name.
 fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-    let _lock = crate::files::file_io::open_and_lock(&to.with_extension("lock"))?;
+    let _lock = crate::files::file_io::open_and_lock(&socket_lock(to))?;
     #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
     let first = std::fs::hard_link(from, to);
     match first {
