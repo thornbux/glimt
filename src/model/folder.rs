@@ -1469,13 +1469,21 @@ impl crate::App {
         {
             files.swap(0, at);
         }
+        // The sizes and dates of the rows go from one part of the tree to the next, and to the
+        // whole list after it, as the files are the same ones, read by the same walk. Before,
+        // each part read them again, and an answer still on its way was dropped and asked
+        // again, which on a slow share kept the list busy until the tree was read.
+        let after_a_part = std::mem::replace(&mut self.folder.list_is_a_part, !whole);
         // When nothing changed (most refreshes, after Glimt's own writes beside the files), the
         // list, the selection and the search stay as they are. A name that another file has
         // taken since is a change, as what was read of the file it held is that file's.
         if self.list.is_listed_as(&files) && !self.folder.sort_collection {
             // A file may have been saved over under its own name (an editor writes and
-            // renames), so its size and date are read again, for the rows on screen only.
-            self.list.forget_sizes_and_dates();
+            // renames), so its size and date are read again, for the rows on screen only. A
+            // tree's whole list that is its last part keeps them, as the same walk read them.
+            if !after_a_part {
+                self.list.forget_sizes_and_dates();
+            }
             // A rename keeps the list as it is but forgot the file's decoded image, which is
             // asked for again here.
             self.refill_preload();
@@ -1494,12 +1502,7 @@ impl crate::App {
         let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
-        // The sizes and dates of the rows go from one part of the tree to the next, and to the
-        // whole list after it, as the files are the same ones, read by the same walk. Before,
-        // each part read them again, and an answer still on its way was dropped and asked
-        // again, which on a slow share kept the list busy until the tree was read.
-        let read = std::mem::replace(&mut self.folder.list_is_a_part, !whole)
-            .then(|| self.list.take_sizes_and_dates());
+        let read = after_a_part.then(|| self.list.take_sizes_and_dates());
         self.replace_files(ctx, files, shown);
         if let Some(read) = read {
             self.list.keep_sizes_and_dates(read);
@@ -2030,6 +2033,35 @@ mod tests {
                     .all(|i| app.list.loaded_images().contains_key(i))
         };
         assert!(run_background_until(&mut app, &ctx, decoded));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A tree's whole list that is the same as its last part keeps the sizes and dates read for
+    /// the part, as the same walk read both. Before, the rows on screen read them again.
+    #[test]
+    fn a_whole_list_like_its_last_part_keeps_the_sizes_read() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-whole-as-part-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            std::fs::write(dir.join(name), name).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let part = || {
+            vec![(
+                "a.png".into(),
+                crate::files::file_io::identity_of(&dir.join("a.png")),
+            )]
+        };
+        app.take_listed_files(&ctx, part(), false);
+        let read =
+            std::collections::HashMap::from([(std::ffi::OsString::from("a.png"), Some((5, 6)))]);
+        app.list.keep_sizes_and_dates(read.clone());
+        app.take_listed_files(&ctx, part(), true);
+        assert_eq!(app.list.sizes_and_dates(), &read);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
