@@ -46,8 +46,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   date of the rows on screen again for each part of the tree that comes, which on a slow share
   kept it busy until the whole tree was read.
 - On a memory card (FAT, exFAT), an SMB share mounted with noserverino or an sshfs folder, a
-  sidecar is locked by its real path again, so two windows that write it at once wait for each
-  other, also when one reaches its folder through a link. Since 0.82 the lock went by the
+  sidecar is locked by its folder's real path, so two windows that write it at once wait for
+  each other, also when one reaches its folder through a link. Since 0.82 the lock went by the
   folder's inode number, which those file systems make up and can change, so the two could
   take different locks and one change could be lost. A 0.81 window still open after an upgrade
   to 0.82 or later takes other locks for sidecars on other disks than the new windows do, and a
