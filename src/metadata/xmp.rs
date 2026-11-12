@@ -241,6 +241,11 @@ enum Edited {
 /// mutex in `SIDECAR_LOCKS` that its number picks.
 pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
 
+/// The folders of the sidecars that one operation locks, each with who it is (`folder_id`).
+/// Each folder is looked at once for the whole operation, as finding its file system's type
+/// reads the mount table, so a Move of 500,000 files of one folder reads it once.
+pub(crate) type FolderIds = std::collections::HashMap<PathBuf, Option<FileId>>;
+
 /// The RAW files and Adobe sidecars of each folder that one operation looks at, by their name
 /// stem (`adobe_stem`). A folder is read once for the whole operation, and only when a RAW file
 /// in it is asked about, so a folder of JPEG files is never read. Before, every RAW extension
@@ -647,12 +652,17 @@ pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, 
 /// holds it too, so a write that waited finds the photo gone, not its old name free for a
 /// sidecar.
 pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
-    lock_sidecar_in(lock_dir().as_deref(), path)
+    lock_sidecar_among(path, &mut FolderIds::new())
 }
 
-fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
-    let side = sidecar(path);
-    let hash = sidecar_hash(&side, folder_id(&side).as_ref());
+/// `lock_sidecar` for one file of an operation over many, which looks at each folder once
+/// (`FolderIds`).
+pub(crate) fn lock_sidecar_among(path: &Path, folders: &mut FolderIds) -> SidecarLock {
+    lock_sidecar_in(lock_dir().as_deref(), path, folders)
+}
+
+fn lock_sidecar_in(dir: Option<&Path>, path: &Path, folders: &mut FolderIds) -> SidecarLock {
+    let hash = sidecar_hash_among(&sidecar(path), folders);
     let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
     (
         dir.and_then(|d| lock_file(d, lock_file_number(hash))),
@@ -689,15 +699,18 @@ fn lock_sidecars_in<'a>(
 /// Returns `sidecar_hash` of the sidecar of each of `paths`, in their order. Each folder is
 /// looked at once, so 500,000 photos of one folder cost one look.
 fn sidecar_hashes<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<u64> {
-    let mut folders: std::collections::HashMap<PathBuf, Option<FileId>> = Default::default();
+    let mut folders = FolderIds::new();
     (paths.into_iter())
-        .map(|p| {
-            let side = sidecar(p);
-            let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
-            let id = folders.entry(folder).or_insert_with(|| folder_id(&side));
-            sidecar_hash(&side, id.as_ref())
-        })
+        .map(|p| sidecar_hash_among(&sidecar(p), &mut folders))
         .collect()
+}
+
+/// Returns `sidecar_hash` of the sidecar `side`, with its folder looked at only when `folders`
+/// does not have it yet.
+fn sidecar_hash_among(side: &Path, folders: &mut FolderIds) -> u64 {
+    let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
+    let id = folders.entry(folder).or_insert_with(|| folder_id(side));
+    sidecar_hash(side, id.as_ref())
 }
 
 /// Splits `paths` into the chunks whose sidecar locks a delete holds at once: at most
@@ -2655,7 +2668,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-slots-{}", std::process::id()));
         let photo = std::path::PathBuf::from("/photos/slot.jpg");
         for (first, then) in [(Some(dir.as_path()), None), (None, Some(dir.as_path()))] {
-            let lock = super::lock_sidecar_in(first, &photo);
+            let lock = super::lock_sidecar_in(first, &photo, &mut super::FolderIds::new());
             let (tx, rx) = std::sync::mpsc::channel();
             let (dir2, p) = (then.map(|d| d.to_path_buf()), photo.clone());
             let waiter = std::thread::spawn(move || {

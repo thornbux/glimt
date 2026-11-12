@@ -3227,6 +3227,7 @@ fn put_files(
     let mut moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
     let mut stems_to_come = raw_files_by_stem(moving.iter().copied());
     let none_leaving = HashSet::new();
+    let mut folders = xmp::FolderIds::new();
     for path in paths.iter().take_while(|_| !job.is_stopped()) {
         let target = target_of(path);
         let put_one = || {
@@ -3241,7 +3242,7 @@ fn put_files(
             // sidecar as a write does, so a write that waited lands on no old name. A copy
             // does not hold it, because the photo stays. A move to another disk holds it
             // while the photo is copied, which only makes writes under the same lock wait.
-            let _lock = (!is_copy).then(|| xmp::lock_sidecar(path));
+            let _lock = (!is_copy).then(|| xmp::lock_sidecar_among(path, &mut folders));
             // Another window or program may have given the name to another photo meanwhile.
             if let Err(e) = picked.still_the_one_picked(path) {
                 failed(path, e);
@@ -3349,9 +3350,10 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
     let mut moving: HashSet<&PathBuf> = moving_back.iter().collect();
     let mut stems_to_come = raw_files_by_stem(moving_back.iter());
     let none_leaving = HashSet::new();
+    let mut folders = xmp::FolderIds::new();
     for (from, to, at_move) in pairs {
         let another_to_come = is_another_of_its_stem_to_come(&to, &mut stems_to_come);
-        let _lock = xmp::lock_sidecar(&to);
+        let _lock = xmp::lock_sidecar_among(&to, &mut folders);
         // Another program may have put another file at `to` since the move.
         if !fingerprint(&to).is_some_and(|now| same_fingerprint(at_move, now)) {
             let other = tr("another file has taken its place");
@@ -4284,6 +4286,53 @@ mod tests {
         assert_eq!(left[0].1, to.join("a.cr2"));
         assert_eq!(std::fs::read_to_string(to.join("a.cr2")).unwrap(), "cr2");
         assert_eq!(std::fs::read_to_string(to.join("a.xmp")).unwrap(), "stem");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move of many files of one folder, and its Undo, read the mount table for the sidecars'
+    /// locks once each, not once for each file. Before, each file's lock read and parsed
+    /// /proc/self/mountinfo again, which for 500,000 files took tens of seconds more.
+    #[test]
+    fn a_move_and_its_undo_read_the_mount_table_once() {
+        use crate::files::file_io::MOUNT_TABLES_PARSED;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-move-mounts-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        let paths: Vec<_> = (0..20).map(|i| from.join(format!("{i}.jpg"))).collect();
+        for path in &paths {
+            std::fs::write(path, "jpg").unwrap();
+        }
+        let job = super::Job::new("Moving", paths.len(), false, Vec::new());
+        let picked = crate::files::file_io::PickedFiles::new(paths.clone());
+        let (_, picked) = picked.wait_for_fingerprints();
+        MOUNT_TABLES_PARSED.set(0);
+        let (errors, put) = super::put_files(&paths, (&picked, &to), (false, None), &job);
+        assert_eq!(put.len(), paths.len(), "{errors:?}");
+        assert!(
+            MOUNT_TABLES_PARSED.get() <= 2,
+            "{}",
+            MOUNT_TABLES_PARSED.get()
+        );
+        let moved = (put.iter())
+            .map(|(from, to)| {
+                (
+                    from.clone(),
+                    to.clone(),
+                    crate::files::file_io::fingerprint(to).unwrap(),
+                )
+            })
+            .collect();
+        MOUNT_TABLES_PARSED.set(0);
+        let (back, _, errors) = super::move_back(moved);
+        assert_eq!(back.len(), paths.len(), "{errors:?}");
+        assert!(
+            MOUNT_TABLES_PARSED.get() <= 2,
+            "{}",
+            MOUNT_TABLES_PARSED.get()
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
