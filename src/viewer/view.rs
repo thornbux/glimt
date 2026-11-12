@@ -575,9 +575,9 @@ impl crate::App {
     /// could not be decoded.
     pub(crate) fn receive_decoded(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.decoding.decoded.try_recv() {
-            // A result whose job is no longer pending was asked for again, in another list,
-            // page or look, and is skipped. Its place in the list is the job's now, because the
-            // list may have been read again since.
+            // A result whose job is no longer pending was asked for again, in another page or
+            // look, or its file left the list, and it is skipped. Its place in the list is the
+            // job's now, because the list may have been read again since.
             let Some(&(idx, full)) = (self.list.decodes_pending().iter())
                 .find(|(_, j)| j.0 == d.request_number)
                 .map(|(k, _)| k)
@@ -660,10 +660,10 @@ impl crate::App {
                 Some(Err(e)) if wanted => {
                     self.list.decode_failed(idx, e);
                 }
-                // A worker skipped the image by the place the job had when it was sent. The list
-                // was read again meanwhile and moved the file to `idx`, where it is still
-                // wanted. It is asked for again, because nothing else would ask, and the
-                // previous image would stay on screen.
+                // A worker skipped the image, because it was not among the images kept when the
+                // worker took the job. The user went away from it and came back before the job
+                // was taken, so it is kept again now. Nothing else asks for it while this job is
+                // pending, so it is asked for again here, or the previous image would stay.
                 None if !full
                     && self.is_file(idx, &d.path)
                     && !self.list.loaded_images().contains_key(&idx)
