@@ -337,9 +337,8 @@ impl ListedFile {
 #[derive(Clone, Copy)]
 pub(crate) struct KnownAs<'a> {
     fingerprint: Option<FileFingerprint>,
-    /// Whether the fingerprint is compared as one taken on another mount (`size_and_time`):
-    /// without the device, and with the time as any file system keeps it (`same_time_as_kept`).
-    is_from_another_mount: bool,
+    /// How the fingerprint is compared with the file's fingerprint now.
+    compared: Compared,
     listed: Identity,
     list_is_old: Option<&'a ListIsOld>,
 }
@@ -349,22 +348,35 @@ impl<'a> KnownAs<'a> {
     pub(crate) fn fingerprint(fingerprint: FileFingerprint) -> KnownAs<'a> {
         KnownAs {
             fingerprint: Some(fingerprint),
-            is_from_another_mount: false,
+            compared: Compared::Whole,
             listed: None,
             list_is_old: None,
         }
     }
 
-    /// A file known by the size and time of the fingerprint it had on another mount, or before
-    /// a reboot: a Rename Many's plan or a Move's log, read again at the next start. A share, a
-    /// FUSE mount or a card reader may have come back with another device number, so the device
-    /// is left out. A Move to another disk sets the time of the copy, which that disk keeps only
-    /// to its own resolution, so the times are compared as any file system keeps them
-    /// (`same_time_as_kept`).
+    /// A file known by the size and time of the fingerprint it had before a reboot: a Rename
+    /// Many's plan, read again at the next start. A share, a FUSE mount or a card reader may have
+    /// come back with another device number, so the device is left out. The time is compared to
+    /// the nanosecond, as a rename keeps it and a file system gives the same file the same time
+    /// again after a reboot.
     pub(crate) fn size_and_time((_, size, time): FileFingerprint) -> KnownAs<'a> {
         KnownAs {
             fingerprint: Some((None, size, time)),
-            is_from_another_mount: true,
+            compared: Compared::WithoutDevice,
+            listed: None,
+            list_is_old: None,
+        }
+    }
+
+    /// A file known by the size and time of the fingerprint it had before a Move, which may have
+    /// copied it to another disk: a Move's log, read again at the next start. The device is left
+    /// out, as the copy is on another device. A Move to another disk sets the time of the copy,
+    /// which that disk keeps only to its own resolution, so the times are compared as any file
+    /// system keeps them (`same_time_as_kept`).
+    pub(crate) fn size_and_time_as_kept((_, size, time): FileFingerprint) -> KnownAs<'a> {
+        KnownAs {
+            fingerprint: Some((None, size, time)),
+            compared: Compared::TimeAsKept,
             listed: None,
             list_is_old: None,
         }
@@ -375,11 +387,23 @@ impl<'a> KnownAs<'a> {
     pub(crate) fn listed(identity: Identity, list_is_old: &'a ListIsOld) -> KnownAs<'a> {
         KnownAs {
             fingerprint: None,
-            is_from_another_mount: false,
+            compared: Compared::Whole,
             listed: identity,
             list_is_old: Some(list_is_old),
         }
     }
+}
+
+/// How `is_still_the_file` compares a fingerprint with the file's fingerprint now.
+#[derive(Clone, Copy)]
+enum Compared {
+    /// The device, size and time, each to the last digit (`same_fingerprint`).
+    Whole,
+    /// The size and time to the nanosecond, without the device (`KnownAs::size_and_time`).
+    WithoutDevice,
+    /// The size, and the time as any file system keeps it (`same_time_as_kept`), without the
+    /// device (`KnownAs::size_and_time_as_kept`).
+    TimeAsKept,
 }
 
 /// The identity that the list knew each picked file by, in the order of the files, and the
@@ -573,7 +597,7 @@ impl PickedFingerprints {
         }
         let known = KnownAs {
             fingerprint: Some(picked),
-            is_from_another_mount: false,
+            compared: Compared::Whole,
             listed,
             list_is_old: Some(&self.list_is_old),
         };
@@ -1686,13 +1710,14 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// tells, right before a change, that no other file has taken the name since the list showed
 /// it, the user picked it or Glimt read it. Another inode than the one its folder listed is
 /// refused, and an unknown one passes. With a fingerprint, the device, size and time must also
-/// be the same (`same_fingerprint`), or for `size_and_time` the size and the time as any file
-/// system keeps it (`same_time_as_kept`), and a file that is gone is
-/// refused; without one, a file that is gone is left to the operation to tell. Another file
-/// found has the window whose list it is read its folder again (`ListIsOld`). It waits for the
-/// disk, so it is called in the thread that makes the change. Returns the error to tell. A look
-/// that failed returns its own error, never NotFound, so a caller that leaves a gone file to its
-/// operation does not take a share that dropped for a moment for a file that is gone.
+/// be the same (`same_fingerprint`), for `size_and_time` the size and the time, and for
+/// `size_and_time_as_kept` the size and the time as any file system keeps it
+/// (`same_time_as_kept`). A file that is gone is then refused. Without a fingerprint, a file
+/// that is gone is left to the operation to tell. Another file found has the window whose list
+/// it is read its folder again (`ListIsOld`). It waits for the disk, so it is called in the
+/// thread that makes the change. Returns the error to tell. A look that failed returns its own
+/// error, never NotFound, so a caller that leaves a gone file to its operation does not take a
+/// share that dropped for a moment for a file that is gone.
 pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<()> {
     // With nothing known, nothing could be refused, and a look would only wait for the disk:
     // a round trip for each file on a share whose identities were forgotten.
@@ -1707,9 +1732,10 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
         let Some(before) = known.fingerprint else {
             return Ok(());
         };
-        let is_same = |now: FileFingerprint| match known.is_from_another_mount {
-            true => before.1 == now.1 && same_time_as_kept(before.2, now.2),
-            false => same_fingerprint(before, now),
+        let is_same = |now: FileFingerprint| match known.compared {
+            Compared::Whole => same_fingerprint(before, now),
+            Compared::WithoutDevice => (before.1, before.2) == (now.1, now.2),
+            Compared::TimeAsKept => before.1 == now.1 && same_time_as_kept(before.2, now.2),
         };
         match fingerprint_or_error(path) {
             Ok(now) if is_same(now) => return Ok(()),
@@ -1927,7 +1953,8 @@ fn folder_time((_, _, time): FileFingerprint, keeps_inodes: bool) -> Option<(i64
 /// first one was deleted may have the same inode. The inode itself may differ, as FAT gives the
 /// same file another one later. Glimt's own rewrites of the
 /// file (a turn saved) update the fingerprint through `written_anew`, so they still match. A
-/// fingerprint taken on another mount is compared by `same_time_as_kept` instead.
+/// fingerprint taken before a Move that may have copied the file to another disk is compared
+/// by `same_time_as_kept` instead.
 pub(crate) fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
     (a.1, a.2) == (b.1, b.2)
         && match (a.0, b.0) {
@@ -1942,9 +1969,10 @@ pub(crate) fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
 /// system keeps: 2 seconds on FAT, 10 ms on exFAT, 100 ns on NTFS and SMB, and whole seconds on
 /// some FUSE file systems. So the time a Move to another disk gave the copy can be up to 2
 /// seconds before the time the file had, and a time within that of the other counts as the
-/// same. Glimt tells a file by this rule wherever the fingerprint was taken on another mount
-/// (`KnownAs::size_and_time`). Within one mount the times are compared to the nanosecond
-/// (`same_fingerprint`), as a file written again there in the same 2 seconds would else pass.
+/// same. Glimt tells a file by this rule only where the fingerprint was taken before such a
+/// Move, in a Move's log (`KnownAs::size_and_time_as_kept`). Everywhere else, a Rename Many's
+/// plan among them, the file was only renamed or not moved at all, so its time is compared to
+/// the nanosecond, as another file written there in the same 2 seconds would else pass.
 pub(crate) fn same_time_as_kept(a: (i64, i64), b: (i64, i64)) -> bool {
     let nanoseconds = |(seconds, nanoseconds): (i64, i64)| {
         i128::from(seconds) * 1_000_000_000 + i128::from(nanoseconds)
