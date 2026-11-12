@@ -116,9 +116,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   ExifTool 12.87 and later write them (GContainer, GItem) or without a prefix, with the padding
   after the main image. The depth images of a portrait photo in Dynamic Depth count too, also
   when its directory is in the extended XMP, where Android writes it; a photo whose extended XMP
-  lacks a part counts as cut. A photo with both directories is measured by the longer one, as
-  both list the same images. Before, such a photo still being copied in could be turned and
-  lose its video or depth images.
+  lacks a part, or is longer than the 16 MiB no camera comes near, is read by its main XMP alone.
+  A photo with both directories is measured by the longer one, as both list the same images.
+  Before, such a photo still being copied in could be turned and lose its video or depth
+  images.
 - A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
   instead says that the sidecar is still at the old name, where a later file of that name would
   take it. Before, it said nothing.
