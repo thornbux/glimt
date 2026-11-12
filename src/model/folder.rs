@@ -1362,6 +1362,15 @@ impl crate::App {
     pub(crate) fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
         // The place to open comes first, as its listing starts when it is opened.
         self.receive_looked_up(ctx, wait);
+        // While Rename Many renames files of the folder shown, a listing (the watcher saw a
+        // rename) waits in its channel, untaken. It may hold a name in the middle of the
+        // rename, such as the new name of the shown image, or a name between two steps of a
+        // swap, and the shown image would then move to another file, which the next key would
+        // act on. The rename's report reads the folder again, and that listing takes this one's
+        // place.
+        if self.file_operations.renames_files_in(&self.folder.dir) {
+            return;
+        }
         // A thread that broke leaves no folders, and nothing waiting for it.
         if let Took::Answer(dirs) = self.folder.subdirs_rx.take() {
             self.folder.subdirs = dirs;

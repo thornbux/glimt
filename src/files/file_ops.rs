@@ -57,13 +57,15 @@ thread_local! {
     static REAL_PATHS_LOOKED_UP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// A Rename Many running in the background. It holds the list as it was (`List::version`),
-/// the files renamed with their new names, and which of them was shown.
+/// A Rename Many running in the background. It holds the files renamed with their new names,
+/// and which of them was shown.
 pub(crate) struct RenameJob {
-    list_version: usize,
     /// The old names, for the marks and a collection's entries to follow.
     from: Vec<PathBuf>,
     to: Vec<PathBuf>,
+    /// The deepest folder that holds every file renamed, found once at the start, so that a
+    /// frame can tell whether the folder shown holds any of them.
+    folder: PathBuf,
     shown: Option<usize>,
     /// Whether this is an Undo giving the old names back. Such a rename is not undone itself.
     undoing: bool,
@@ -561,6 +563,15 @@ impl FileOperations {
         if !self.deleting.is_empty() {
             files.retain(|f| !self.deleting.contains(&f.0));
         }
+    }
+
+    /// Whether the running Rename Many may rename files that a list of `dir` shows: the
+    /// folder shown, with its subfolders, or `/` for several folders or a collection. It may
+    /// when `dir` holds the folder of the renamed files, or that folder holds `dir`. The test
+    /// does no work per file, as it runs every frame.
+    pub(crate) fn renames_files_in(&self, dir: &Path) -> bool {
+        (self.renaming.as_ref())
+            .is_some_and(|job| job.folder.starts_with(dir) || dir.starts_with(&job.folder))
     }
 
     /// The names being deleted, taken to keep across another list of the same collection.
@@ -1577,7 +1588,7 @@ impl crate::App {
         };
         let shown = from.iter().position(|f| self.is_file(self.list.shown(), f));
         let job = RenameJob {
-            list_version: self.list.version(),
+            folder: folder_of_all(&from),
             from: from.clone(),
             to: to.clone(),
             shown,
@@ -1673,15 +1684,13 @@ impl crate::App {
         if self.folder.collection().is_some() {
             return self.start_listing(ctx);
         }
-        // When the list changed meanwhile, its numbers now point at other files, so it is read
-        // again.
-        if job.list_version != self.list.version() {
-            return self.start_listing(ctx);
-        }
         // When the image shown at the start is still shown (the user may have moved on), it
         // stays shown under its new name, with any turn not saved yet, while the list is read
         // again. It is read again rather than opened, so the view stays in the folder,
-        // subfolders or folders it shows.
+        // subfolders or folders it shows. The shown image is checked by its name, so this holds
+        // also when the list changed while the files were renamed. Before, a list changed
+        // meanwhile was only read again, and the shown image's old name, gone from it, moved
+        // the view to another file.
         if let Some(k) = job.shown
             && !failed
             && left_alone.binary_search(&k).is_err()
@@ -3571,6 +3580,17 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
             false => to.join(rest),
         })
     })
+}
+
+/// Returns the deepest folder that holds every file of `paths`, or `/` when they share none.
+fn folder_of_all(paths: &[PathBuf]) -> PathBuf {
+    let mut folder = (paths.first())
+        .and_then(|p| p.parent())
+        .map_or_else(|| PathBuf::from("/"), Path::to_path_buf);
+    for path in paths {
+        while !path.starts_with(&folder) && folder.pop() {}
+    }
+    folder
 }
 
 #[cfg(test)]
@@ -7162,6 +7182,114 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A listing read while Rename Many renames files of the folder waits for the rename's
+    /// report, and the list and the shown image stay as they are until then. After it, the
+    /// renamed image is shown under its new name. Before, a listing that had the new name and
+    /// not the old one moved the view to the next file, which the next key acted on. The
+    /// release tests saw it on an sftp:// folder, whose watcher saw the rename before the
+    /// rename's report came.
+    #[test]
+    fn a_listing_during_a_rename_waits_for_its_report() {
+        let d = contract_folder("listing-during-rename");
+        let (a, r) = (d.join("a.png"), d.join("r.png"));
+        let (mut app, ctx) = app_on(&d);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert!(app.is_file(app.list.shown(), &a));
+        let before = app.list.files().to_vec();
+        app.file_operations.renaming = Some(super::RenameJob {
+            folder: d.clone(),
+            from: vec![a.clone()],
+            to: vec![r.clone()],
+            shown: Some(0),
+            undoing: false,
+        });
+        std::fs::rename(&a, &r).unwrap();
+        app.start_listing(&ctx);
+        // The listing thread is done long before this, and its answer waits.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        app.receive_listing(&ctx, std::time::Duration::from_millis(500));
+        let shown = |app: &crate::App| app.list.files().get(app.list.shown()).cloned();
+        assert_eq!(
+            app.list.files(),
+            &before[..],
+            "the list changed during the rename"
+        );
+        assert!(app.is_file(app.list.shown(), &a), "{:?}", shown(&app));
+        let job = app.file_operations.renaming.take().unwrap();
+        app.finish_rename_many(&ctx, job, renamed_whole());
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert!(app.is_file(app.list.shown(), &r), "{:?}", shown(&app));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A listing waits while Rename Many renames files that it would show, whichever of them
+    /// comes first: in several folders shown together (`/`), in a folder that holds the
+    /// renamed ones, and in a subfolder of their folder. A folder apart from them is listed.
+    /// Before, only the folder of the first file renamed held a listing back, so another of
+    /// the folders moved its shown image to another file in the middle of the rename.
+    #[test]
+    fn a_rename_holds_back_the_listing_of_every_folder_it_renames_in() {
+        let d = contract_folder("rename-in-folders");
+        let (mut app, _ctx) = app_on(&d);
+        let (p, q) = (d.join("p"), d.join("q"));
+        let from = vec![p.join("a.png"), q.join("s").join("b.png")];
+        app.file_operations.renaming = Some(super::RenameJob {
+            folder: super::folder_of_all(&from),
+            to: vec![p.join("x.png"), q.join("s").join("y.png")],
+            from,
+            shown: None,
+            undoing: false,
+        });
+        let holds = |dir: &std::path::Path| app.file_operations.renames_files_in(dir);
+        for dir in [&std::path::PathBuf::from("/"), &d, &q, &q.join("s")] {
+            assert!(holds(dir), "{dir:?} was listed in the middle of the rename");
+        }
+        assert!(
+            !holds(&d.with_extension("apart")),
+            "a folder apart was held"
+        );
+        assert_eq!(super::folder_of_all(&[p.join("a"), p.join("b")]), p);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// The shown image renamed by Rename Many stays shown under its new name when the list
+    /// changed while the files were renamed. Before, a list changed meanwhile was only read
+    /// again, without the old name, and the view moved to the next file.
+    #[test]
+    fn a_list_changed_during_a_rename_keeps_the_renamed_image_shown() {
+        let d = contract_folder("changed-during-rename");
+        let (a, r) = (d.join("a.png"), d.join("r.png"));
+        let (mut app, ctx) = app_on(&d);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert!(app.is_file(app.list.shown(), &a));
+        let job = super::RenameJob {
+            folder: d.clone(),
+            from: vec![a.clone()],
+            to: vec![r.clone()],
+            shown: Some(0),
+            undoing: false,
+        };
+        // The list changes while the file is renamed, as a refresh would change it.
+        app.list.note_names_changed();
+        std::fs::rename(&a, &r).unwrap();
+        app.finish_rename_many(&ctx, job, renamed_whole());
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        let shown = app.list.files().get(app.list.shown()).cloned();
+        assert!(app.is_file(app.list.shown(), &r), "{shown:?}");
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// The report of a Rename Many that renamed every file and left an Undo of nothing.
+    fn renamed_whole() -> super::RenameOutcome {
+        super::RenameOutcome {
+            result: Ok(()),
+            left_alone: Vec::new(),
+            undo: Vec::new(),
+            names_known: true,
+            stopped: false,
+        }
+    }
+
     /// A sidecar write that waited for a Rename Many that failed, and could not put every old
     /// name back, is dropped, and the user is told with the rename's error. Before, it was
     /// written to the old name, which may hold the other photo of a swap by then.
@@ -7172,7 +7300,7 @@ mod tests {
         std::fs::remove_file(crate::metadata::xmp::sidecar(&a)).unwrap();
         let (mut app, ctx) = app_on(&d);
         let job = super::RenameJob {
-            list_version: app.list.version(),
+            folder: d.clone(),
             from: vec![a.clone()],
             to: vec![d.join("b.png")],
             shown: None,
@@ -7892,6 +8020,43 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         assert!(app.run_in_background(&ctx, Vec::new(), || panic!("a broken file")));
         assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// When the thread of a Rename Many ends without an answer (a file broke it), the folder is
+    /// read again, as the rename's report would have had it read. Before, nothing read it, and
+    /// a listing held back while the rename ran, read in the middle of it, stood for the list.
+    #[test]
+    fn a_rename_that_breaks_reads_the_folder_again() {
+        let dir = folder_with("rename-thread-ends", &["a.png", "b.png"]);
+        let a = dir.join("a.png");
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .list
+            .files()
+            .len()
+            == 2
+            && !app.working()));
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).push(a.clone());
+        let read_before = app.folder.whole_listings();
+        let listed = app.listed_file(0);
+        let picked = crate::files::file_io::PickedFiles::listed(vec![listed.clone()]);
+        app.rename_in_background(&ctx, vec![listed], vec![dir.join("r.png")], picked);
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()
+            && !app.working()));
+        // The control: the rename broke, so no report read the folder again.
+        assert!(
+            a.exists() && !dir.join("r.png").exists(),
+            "the rename was not broken"
+        );
+        assert!(
+            app.folder.whole_listings() > read_before,
+            "the folder was not read again"
+        );
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).retain(|p| *p != a);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
