@@ -5791,6 +5791,29 @@ fi
 section "Glimt killed (kill -9) during a turn's save, a sidecar write and a Lightroom import: each file whole"
 # FAULT-7. Each writes a new copy beside the file and renames it over the name. Killed at any
 # moment, the file at the name is the old one or the new one, whole; never a part.
+# kill_once_rewritten GLOB: kills Glimt once one of every hundredth file of GLOB, from the 51st,
+# is written again (another inode, time or size), so the kill lands with most still to be
+# written, however fast the disk. Started before the keys that start the writes, it returns once
+# it has seen the files as they are; the caller waits for $killer. A watch that read the files
+# for a count of those written started after the keys, and on a /tmp in memory Glimt had
+# written all 3,000 before its first look.
+kill_once_rewritten() {
+    rm -f /tmp/killer-ready
+    python3 -c "
+import glob, os, signal, sys, time
+pattern, pid = sys.argv[1], int(sys.argv[2])
+def seen(p):
+    s = os.stat(p)
+    return s.st_ino, s.st_mtime_ns, s.st_size
+before = {p: seen(p) for p in sorted(glob.glob(pattern))[50::100]}
+open('/tmp/killer-ready', 'w').close()
+end = time.time() + 60
+while time.time() < end and all(seen(p) == s for p, s in before.items()):
+    pass
+os.kill(pid, signal.SIGKILL)" "$1" $GPID &
+    killer=$!
+    for i in $(seq 100); do [ -e /tmp/killer-ready ] && break; sleep 0.05; done
+}
 for v in new old; do
     as_version $v
     mkdir -p $XDG_STATE_HOME/glimt
@@ -5830,7 +5853,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     else note "old: a.png ${got:-not whole} $shape; $left temporary when killed, $after after a new start"; fi
     rm -rf $d
 
-    # Stars to XMP for 3,000 photos, each sidecar holding a keyword: killed halfway.
+    # Stars to XMP for 3,000 photos, each sidecar holding a keyword: killed once some are written.
     d=/tmp/kill-sidecars-$v
     rm -rf $d; mkdir -p $d
     convert -size 32x32 xc:blue $d/0001.jpg
@@ -5842,19 +5865,10 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     config xmp_stars=true
     start $d
     sleep 2
-    key ctrl+a; key alt+3
-    rated=$(python3 -c "
-import glob, os, signal, sys, time
-d, pid = sys.argv[1], int(sys.argv[2])
-end = time.time() + 60
-rated = 0
-while time.time() < end:
-    rated = sum('Rating' in open(p).read() for p in glob.glob(d + '/*.xmp'))
-    if rated >= 50:
-        break
-    time.sleep(0.02)
-os.kill(pid, signal.SIGKILL)
-print(rated)" $d $GPID)
+    key ctrl+a
+    kill_once_rewritten "$d/*.xmp"
+    key alt+3
+    wait $killer
     wait $GPID 2>/dev/null
     rated_after=$(grep -l Rating $d/*.xmp | wc -l)
     hidden=$(ls -A $d | grep -c '^\.')
@@ -5929,16 +5943,9 @@ PY
     answer $d/Catalog.lrcat
     menu File "Import Lightroom Catalog…"; sleep 3
     menu Next; sleep 3
+    kill_once_rewritten "$d/photos/*.xmp"
     menu Import
-    python3 -c "
-import glob, os, signal, sys, time
-d, pid = sys.argv[1], int(sys.argv[2])
-end = time.time() + 60
-while time.time() < end:
-    if sum('>Tag<' in open(p).read() for p in glob.glob(d + '/photos/*.xmp')) >= 100:
-        break
-    time.sleep(0.02)
-os.kill(pid, signal.SIGKILL)" $d $GPID
+    wait $killer
     wait $GPID 2>/dev/null
     tagged=$(grep -l '>Tag<' $d/photos/*.xmp | wc -l)
     hidden=$(ls -A $d/photos $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt | grep -c '^\.glimt')
