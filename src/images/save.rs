@@ -398,10 +398,9 @@ fn looks_cut_short(data: &[u8], changed_lately: bool) -> bool {
 /// second image, a gain map), the items of its XMP directories (`appended_items_length`), or
 /// the video at the end that `GCamera:MicroVideoOffset` counts back to (a phone's motion
 /// photo). An offset of 0 means that the photo has no video. The XMP is read in the main packet
-/// and in the extended one (`jpeg_xmp_packets`), and a file whose extended XMP lacks a part
-/// counts as cut. The first end marker is only the main image's end, so a copy that paused in
-/// the video passed before and was written back without the rest. Data that none of them names
-/// is no matter.
+/// and in the extended one (`jpeg_xmp_packets`). The first end marker is only the main image's
+/// end, so a copy that paused in the video passed before and was written back without the rest.
+/// Data that none of them names is no matter.
 fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     if image_end >= data.len() {
         return false;
@@ -414,9 +413,7 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
         ends.map(|&[_, size, offset]| at as u64 + 4 + offset as u64 + size as u64)
             .max()
     });
-    let Some(packets) = jpeg_xmp_packets(data) else {
-        return true;
-    };
+    let packets = jpeg_xmp_packets(data);
     // The Dynamic Depth spec lets a namespace be declared in either packet, so the
     // declarations of both count for each.
     let declared: Vec<(&str, &str)> = (packets.iter())
@@ -455,9 +452,14 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
 /// when it names none. The Dynamic Depth spec says that "If the Device element is more than 64K
 /// (true of most Dynamic Depth files), the rules of XMP force the Device and its children out
 /// of the main XMP section and into the extended section", and Android's writer always puts
-/// it there. Returns `None` when a part of the extended packet is missing or cut short, so such
-/// a file never counts as whole.
-fn jpeg_xmp_packets(data: &[u8]) -> Option<[String; 2]> {
+/// it there.
+///
+/// The extended packet is empty too when it does not join, as when a tool dropped a part of it.
+/// This is read only once the image data and its end marker are found, and every part of the
+/// extended XMP comes before the image data, so a copy still coming in has them all. A part
+/// missing is a writer's doing, then, not a copy cut short. Before, such a whole file was
+/// refused as if it were still being copied.
+fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
     let main = exif::jpeg_segment_with(data, 0xe1, b"http://ns.adobe.com/xap/1.0/\0");
     let main = main.map_or_else(String::new, |(_, body)| {
         String::from_utf8_lossy(body).into_owned()
@@ -469,11 +471,11 @@ fn jpeg_xmp_packets(data: &[u8]) -> Option<[String; 2]> {
         crate::metadata::xmp::is_in_namespace(name, &declared, &[XMP_NOTE], "HasExtendedXMP")
     });
     let Some(guid) = guid.map(|found| main[found.value.clone()].trim().to_owned()) else {
-        return Some([main, String::new()]);
+        return [main, String::new()];
     };
-    let extended = exif::jpeg_extended_xmp(data, guid.as_bytes())?;
+    let extended = exif::jpeg_extended_xmp(data, guid.as_bytes()).unwrap_or_default();
     let extended = String::from_utf8_lossy(&extended).into_owned();
-    Some([main, extended])
+    [main, extended]
 }
 
 /// Returns the length of what a JPEG's XMP `xmp` says follows its main image, from the
@@ -3150,9 +3152,9 @@ mod tests {
     }
 
     /// A depth photo whose Dynamic Depth directory is in its extended XMP, where Android's writer
-    /// always puts it, is not turned while its depth images are cut, nor while a part of its
-    /// extended XMP is missing. Before, only the main packet was read, and such a photo counted
-    /// as whole however short it was.
+    /// always puts it, is not turned while its depth images are cut. Before, only the main packet
+    /// was read, and such a photo counted as whole however short it was. A whole photo whose
+    /// extended XMP lacks a part is turned, as no copy still coming in lacks one.
     #[test]
     fn a_depth_photo_with_its_directory_in_the_extended_xmp_is_read() {
         use crate::images::shared_copy::jpeg_segment;
@@ -3232,9 +3234,11 @@ mod tests {
             &whole[..whole.len() - confidence.len()],
             true
         ));
-        // A part missing leaves the directory unknown, so the file is not taken for whole.
-        assert!(super::looks_cut_short(&file(&[part(0, first)]), true));
-        assert!(super::looks_cut_short(
+        // A whole file whose extended XMP lacks a part, as a tool may leave it, is read by its
+        // main packet alone, which names no directory. Its image data comes after every part,
+        // so a copy still coming in never lacks one.
+        assert!(!super::looks_cut_short(&file(&[part(0, first)]), true));
+        assert!(!super::looks_cut_short(
             &file(&[part(first.len(), second)]),
             true
         ));

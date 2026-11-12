@@ -810,9 +810,8 @@ pub fn jpeg_segment_with<'a>(
 /// its GUID in xmpNote:HasExtendedXMP. The XMP spec (part 3) puts each part in an APP1 segment
 /// of its own, after `EXTENDED_XMP`, the GUID as 32 hex digits, and the whole packet's length
 /// and the part's offset in it (4 bytes each, big-endian). The parts may come in any order.
-/// Returns `None` when a part of the GUID is missing or cut short, or the parts do not agree on
-/// the length, as in a file cut short. A packet is never longer than the file that holds it,
-/// which bounds what is made.
+/// Returns `None` when a part of the GUID is missing or too short, or the parts do not agree on
+/// the length. A packet is never longer than the file that holds it, which bounds what is made.
 pub fn jpeg_extended_xmp(data: &[u8], guid: &[u8]) -> Option<Vec<u8>> {
     let (segments, _) = jpeg_segments(data)?;
     let mut packet: Option<Vec<u8>> = None;
