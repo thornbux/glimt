@@ -494,7 +494,10 @@ method.
 - **An XMP property** is read, taken out or changed only where `xmp::top_level_properties`
   finds it, at the top of a Description, never by a search of the packet for its name, which
   also finds another document's inside xmpMM:Pantry
-  (`source_rules::xmp_properties_are_found_at_the_top_level`).
+  (`source_rules::xmp_properties_are_found_at_the_top_level`, which finds such a search in
+  every spelling: a method of `str` or a slice, a window compared, `memmem`, and a function
+  that passes its own parameter on to one of these). Every walk over a packet passes over
+  comments, CDATA sections and processing instructions through `xmp::not_element_length`.
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:

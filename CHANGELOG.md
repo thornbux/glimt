@@ -100,6 +100,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   photo's own XMP properties. Before, those of another document inside a property, such as a
   placed image in Photoshop's xmpMM:Pantry, were read as the photo's, and an edit, a turn or a
   copy took them out or changed them.
+- XMP with CDATA sections, comments or processing instructions is read as XML reads it. The
+  info panel shows a CDATA section's text without its markup, a rating or keyword is never
+  written into a Description that is commented out, and a keyword or comment with an XML
+  comment inside it is replaced, not written a second time beside it.
 - A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
   instead says that the sidecar is still at the old name, where a later file of that name would
   take it. Before, it said nothing.
