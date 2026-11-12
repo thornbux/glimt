@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With View → Include Subfolders on a slow share, such as SMB over wireless, the next image is
+  shown while the folders below are still read. Before, only the first image showed until the
+  whole tree was read, as each part of it that came put the next image's decode back in line.
+
 ## [0.82.0] - 2026-11-12
 
 ### Fixed
