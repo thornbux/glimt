@@ -12,7 +12,9 @@ use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
 /// The last save that failed, of a file of the user's or of Glimt's own, for the window to tell
-/// as a failed write. Any thread sets it, through `save_failed`.
+/// as a failed write. Any thread sets it, through `save_failed`. Tests keep their own instead
+/// (`ToldInTest`), because the tests share this one.
+#[cfg(not(test))]
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// The folder in /proc where each descriptor that Glimt holds open is a link to its file
@@ -160,10 +162,13 @@ impl Default for LocksTold {
 }
 
 /// What a test's work told: the failed writes, and the edits that went on without their lock.
+/// `taken_by_window` counts the failed writes that the test's window has taken already, as
+/// `take_save_error` takes the window's own slot outside tests.
 #[cfg(test)]
 #[derive(Default)]
 struct ToldInTest {
     saves_failed: Vec<String>,
+    taken_by_window: usize,
     locks: LocksTold,
 }
 
@@ -1315,7 +1320,22 @@ pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 /// Takes the last error that `save_failed` told. Returns `None` when no save failed since the
 /// last call.
 pub fn take_save_error() -> Option<String> {
-    lock_even_if_poisoned(&SAVE_ERROR).take()
+    #[cfg(not(test))]
+    {
+        lock_even_if_poisoned(&SAVE_ERROR).take()
+    }
+    // In tests the window takes the last error told for its own test since its last call, as
+    // it takes the one slot outside tests. Before, it took none in tests, so no test saw the
+    // way from `save_failed` to a failed write that the window counts.
+    #[cfg(test)]
+    {
+        let mut told = lock_even_if_poisoned(told_here());
+        let last = (told.saves_failed.len() > told.taken_by_window)
+            .then(|| told.saves_failed.last().cloned())
+            .flatten();
+        told.taken_by_window = told.saves_failed.len();
+        last
+    }
 }
 
 /// Takes the warnings that edits went on without their lock, one line for each. They are not
@@ -2197,7 +2217,9 @@ fn told_here() -> &'static std::sync::Mutex<ToldInTest> {
 /// Returns the errors that `save_failed` told for this thread's test, and empties the list.
 #[cfg(test)]
 pub(crate) fn take_saves_failed() -> Vec<String> {
-    std::mem::take(&mut lock_even_if_poisoned(told_here()).saves_failed)
+    let mut told = lock_even_if_poisoned(told_here());
+    told.taken_by_window = 0;
+    std::mem::take(&mut told.saves_failed)
 }
 
 #[cfg(test)]
