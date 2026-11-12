@@ -123,9 +123,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   client threads, and every other `--remote` got no answer.
 - A Move, Copy or Copy for Sharing to a folder on a share that stopped answering is given up
   after a minute, with a notice, and its files are free again. Before, they stayed held until
-  Glimt ended, and a delete or rename of them was refused. A rename to a name with one of
-  : ? * " < > | \ looks at its folder's file system in the background, so such a share no
-  longer hangs the window.
+  Glimt ended, and a delete or rename of them was refused.
 - A delete holds at most four of the 64 sidecar locks at a time, so a trash call that hangs on a
   share holds up few sidecar writes in other windows. Before, it held about 51 of them.
 

@@ -84,11 +84,11 @@ if [ "$(id -u)" = 0 ]; then
     # whose unlink of a file named lost-* removes it but answers EIO, and then answers stat of
     # that name from a cache for 30 seconds, as a share whose reply was lost does (NFS, SMB,
     # sshfs). Its read of a file named bad-* fails past the first 256 KiB while /tmp/lossy-eio
-    # is there. It writes each EIO it gives to /tmp/lossyfs.log, so that a check knows that the
-    # fault did happen. A look at a path, an open, a read or a statfs that starts with a line of
+    # is there. A look at a path, an open, a read or a statfs that starts with a line of
     # /tmp/lossy-stall (such as /stall-view) waits while that line is there, as on a share that
-    # stopped answering. All three need --privileged, which run.sh gives the parts with these
-    # checks; without it those checks fail.
+    # stopped answering. It writes each EIO it gives and each call it holds (STALL and the path)
+    # to /tmp/lossyfs.log, so that a check knows that the fault did happen. All three need
+    # --privileged, which run.sh gives the parts with these checks; without it those checks fail.
     if grep -q '^faults=[y]es' "${SCRIPT:-/t/tests.sh}"; then
         mkdir -p /mnt/full /mnt/disk /mnt/lossy /opt/lossy && chown tester: /opt/lossy
         mount -t tmpfs -o size=16m,uid=$(id -u tester),gid=$(id -g tester) full /mnt/full
@@ -120,7 +120,8 @@ class Lossy(Operations):
 
     def stall(self, path):
         # Waits while a line of /tmp/lossy-stall starts the path. fusepy serves each call in a
-        # thread of its own, so the other paths still answer.
+        # thread of its own, so the other paths still answer. A call held is logged once.
+        held = False
         while True:
             try:
                 with open("/tmp/lossy-stall") as f:
@@ -129,6 +130,9 @@ class Lossy(Operations):
                 return
             if not any(path.startswith(line) for line in stalled):
                 return
+            if not held:
+                print("STALL", path, flush=True)
+                held = True
             time.sleep(0.2)
 
     def owned(self, path):
@@ -5586,10 +5590,11 @@ fi
 
 section "a share that stops answering: the image after it is decoded, the info panel shows its own EXIF"
 # STALL-1. lossyfs holds every look at and read of /stall-view-* while /tmp/lossy-stall names
-# it. Links to images there hold the decode worker, the thumbnail worker and the info panel's
-# reader in turn. Each is given up after ten seconds and another worker takes its place, so a
-# local image shown after them is decoded and its own EXIF read. 0.81 waited for good, and its
-# panel showed the EXIF of the image before the stalled ones under every later name.
+# it. A link to an image there, shown, holds the one decode worker and the info panel's reader.
+# Each is given up after ten seconds and another worker takes its place, so a local image shown
+# after it is decoded and its own EXIF read. 0.81 waited for good, and its panel showed the EXIF
+# of the image before the stalled one under every later name. That the stall held is shown by
+# lossyfs's log and by c4, lime, not being on the screen two seconds after it was picked.
 faults=yes
 if ! grep -q " $lossy fuse" /proc/mounts; then
     fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
@@ -5615,6 +5620,9 @@ else
         until_ok "[ -n \"\$(where '$gps_a')\" ]"; control=$?
         echo /stall-view-$v >/tmp/lossy-stall
         remote select $d/c4.png >/dev/null; sleep 2
+        shot stall-view-held-$v
+        held="$(grep -q "^STALL /stall-view-$v" /tmp/lossyfs.log && echo held)"
+        held="$held $([ "$(colour stall-view-held-$v 500 400)" != green ] && echo "c4 not shown")"
         remote select $d/z.jpg >/dev/null
         until_ok "[ -n \"\$(where '$gps_z')\" ]" 30; own=$?
         sleep 1; shot stall-view-$v
@@ -5625,6 +5633,7 @@ else
         if [ $v = new ]; then
             expect "the control: GPS values read, a's shown in the panel" \
                 "$control $([ -n "$gps_a" ] && [ -n "$gps_z" ] && echo both)" "0 both"
+            expect "the share held c4, which was not shown meanwhile" "$held" "held c4 not shown"
             expect "after images that stall: z decoded, its own EXIF shown, none of a's" \
                 "$got" "z's EXIF red "
         else note "old: $got"; fi
@@ -5636,7 +5645,8 @@ section "a Move to a share that stops answering: given up after a minute, the ph
 # STALL-2. lossyfs holds every look at /stall-move-* while /tmp/lossy-stall names it. A Move
 # there waits for the folder's real path and file system, and holds its photo meanwhile. After
 # a minute the look is given up with a notice, and the photo can be moved elsewhere. 0.81 held
-# it until Glimt ended, and refused every other operation on it.
+# it until Glimt ended, and refused every other operation on it. lossyfs's log shows that the
+# look was held, so that a notice of another failure does not pass for the give-up.
 faults=yes
 if ! grep -q " $lossy fuse" /proc/mounts; then
     fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
@@ -5653,48 +5663,17 @@ else
         until_notice stall-move-$v 75; told=$?
         answer $d/sub; key ctrl+m
         until_file $d/sub/a.jpg 10; moved=$?
+        held=$(grep -q "^STALL /stall-move-$v" /tmp/lossyfs.log && echo held)
         rm -f /tmp/lossy-stall
         sleep 3
-        got="$([ $told = 0 ] && echo told) $([ $moved = 0 ] && echo moved) $(ls $back/to | wc -l)"
+        got="$held $([ $told = 0 ] && echo told) $([ $moved = 0 ] && echo moved)"
+        got="$got $(ls $back/to | wc -l)"
         quit
         if [ $v = new ]; then
-            expect "a Move to the stalled share given up and told; the photo moved elsewhere, none to the share" \
-                "$got" "told moved 0"
+            expect "a Move to the stalled share held, given up and told; the photo moved elsewhere, none to the share" \
+                "$got" "held told moved 0"
         else note "old: $got"; fi
         rm -rf $d $back
-    done
-fi
-
-section "a rename to a name with : on a share that stops answering: the window answers meanwhile"
-# STALL-3. A new name with one of : ? * " < > | \ needs a look at its folder's file system, as a
-# camera card refuses those. On a share that stopped answering that look waits, so it is made in
-# the background, and the window still answers. 0.81 made it in the window's thread, which hung
-# until the share answered.
-faults=yes
-if ! grep -q " $lossy fuse" /proc/mounts; then
-    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
-else
-    for v in new old; do
-        as_version $v
-        back=/opt/lossy/stall-rename-$v d=$lossy/stall-rename-$v
-        rm -rf $back; mkdir -p $back
-        convert -size 64x64 xc:red $back/a.png
-        config
-        start $d/a.png
-        echo /stall-rename-$v >/tmp/lossy-stall
-        key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
-        xdotool type --delay 30 'b:#'; sleep 0.4
-        key Return; sleep 1
-        answered=$(timeout 5 $BIN --remote current 2>/dev/null | tr -d '\0')
-        rm -f /tmp/lossy-stall
-        until_file "$back/b:1.png" 15
-        got="${answered:+answered} $(ls $back | tr '\n' ' ')"
-        quit
-        if [ $v = new ]; then
-            expect "the window answers while the look waits; renamed once the share answers" \
-                "$got" "answered b:1.png "
-        else note "old: $got"; fi
-        rm -rf $back
     done
 fi
 
