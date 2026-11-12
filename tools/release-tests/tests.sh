@@ -2170,7 +2170,17 @@ for v in new old; do
     cp $d/v.mp4 $d/one/w.mp4
     convert -size 64x64 xc:red $d/one/a.png
     convert -size 64x64 xc:red $d/two/b.png
-    printf '#!/bin/sh\nprintf "%%s\\n%%s\\n" %s %s\n' $d/one $d/two >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
+    # As zenity answers: the folders with the separator Glimt asks for between them (0.81 asks
+    # for a line break, 0.82 for "\n//\n", which no path holds) and a line break at the end.
+    cat >/tmp/stub/zenity <<'EOF'
+#!/bin/bash
+sep='|'
+while [ $# -gt 0 ]; do
+    case $1 in --separator) sep=$2; shift ;; --separator=*) sep=${1#--separator=} ;; esac
+    shift
+done
+EOF
+    echo "printf '%s%s%s\n' $d/one \"\$sep\" $d/two" >>/tmp/stub/zenity; chmod +x /tmp/stub/zenity
     config list_videos=false
     start $d/v.mp4; sleep 2
     menu File "Open Several Folders…"; sleep 3
