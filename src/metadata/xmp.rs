@@ -1739,14 +1739,24 @@ fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {
     hay.windows(what.len()).position(|w| w == what)
 }
 
-/// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written.
-/// It is the one reading of them, for `properties`, for the writers (`first_description`) and
-/// for `is_in_namespace`. A declaration inside a comment, a CDATA section or a processing
-/// instruction declares nothing, so these are passed over whole (`not_element_length`), and
-/// the reading stops at one that does not end. Before, a Description commented out declared
-/// its prefixes for the one after it, and the writers wrote a property with its prefix bound
-/// to nothing.
+/// The namespaces that `xmp` declares with a prefix, each as (prefix, URI), in the order they
+/// are written. It is the reading of them for `properties` and for the writers
+/// (`first_description`), which write only names with a prefix. It is
+/// `namespace_declarations_with_default` without the default namespaces.
 pub(crate) fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
+    let mut out = namespace_declarations_with_default(xmp);
+    out.retain(|(prefix, _)| !prefix.is_empty());
+    out
+}
+
+/// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written. A
+/// default namespace (`xmlns="…"`) has the prefix "". It is the one reading of them, also for
+/// `namespace_declarations` and for `is_in_namespace`. A declaration inside a comment, a CDATA
+/// section or a processing instruction declares nothing, so these are passed over whole
+/// (`not_element_length`), and the reading stops at one that does not end. Before, a
+/// Description commented out declared its prefixes for the one after it, and the writers wrote
+/// a property with its prefix bound to nothing.
+pub(crate) fn namespace_declarations_with_default(xmp: &str) -> Vec<(&str, &str)> {
     let bytes = xmp.as_bytes();
     let (mut out, mut from, mut at) = (Vec::new(), 0, 0);
     while let Some(found) = bytes[at..].iter().position(|&c| c == b'<') {
@@ -1767,18 +1777,25 @@ pub(crate) fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
 }
 
 /// Adds the namespaces that `text`, a part of a packet outside its comments, CDATA sections
-/// and processing instructions, declares to `out`. `namespace_declarations` cuts the packet
-/// into such parts at the markup that `not_element_length` passes over.
+/// and processing instructions, declares to `out`. `namespace_declarations_with_default` cuts
+/// the packet into such parts at the markup that `not_element_length` passes over.
 fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
-    for (at, _) in text.match_indices("xmlns:") {
+    for (at, _) in text.match_indices("xmlns") {
         // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
         // would be searched to its end a million times. The cap is moved back to the start of
         // a letter, as a cut inside one would panic.
-        let rest = &text[at + 6..text.floor_char_boundary(at + 1024)];
+        let rest = &text[at + 5..text.floor_char_boundary(at + 1024)];
         // XML allows spaces around the "=", as in `xmlns:tiff = "…"`.
         let declared = rest.split_once('=');
-        if let Some((prefix, uri)) =
+        let Some((name, uri)) =
             declared.and_then(|(p, v)| Some((p.trim_end(), quoted(v.trim_start())?)))
+        else {
+            continue;
+        };
+        // A default namespace, written `xmlns="…"`, is given the prefix "".
+        if name.is_empty() {
+            out.push(("", uri));
+        } else if let Some(prefix) = name.strip_prefix(':')
             && is_name(prefix)
             && !prefix.contains(':')
         {
@@ -1789,19 +1806,23 @@ fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
 
 /// Returns whether `name`, an element's or attribute's name as written ("GContainer:Item"), is
 /// `local` in one of the namespaces `uris`. Its prefix counts when any of the `declared`
-/// namespaces (`namespace_declarations`) binds it to one of them, whatever the prefix is. One
-/// writer's prefix is not another's: ExifTool writes Google's Container as GContainer, and
-/// Dynamic Depth binds Container to a namespace of its own.
+/// namespaces (`namespace_declarations_with_default`) binds it to one of them, whatever the
+/// prefix is. One writer's prefix is not another's: ExifTool writes Google's Container as
+/// GContainer, and Dynamic Depth binds Container to a namespace of its own. A name without a
+/// prefix counts when a default namespace (the prefix "") is one of them. XML puts only an
+/// element's name in the default namespace, and the readers of properties list no attribute
+/// without a prefix. Before, such an element was in no namespace.
 pub(crate) fn is_in_namespace(
     name: &[u8],
     declared: &[(&str, &str)],
     uris: &[&str],
     local: &str,
 ) -> bool {
-    let Some(colon) = name.iter().position(|&c| c == b':') else {
-        return false;
+    let colon = name.iter().position(|&c| c == b':');
+    let (prefix, rest) = match colon {
+        Some(colon) => (&name[..colon], &name[colon + 1..]),
+        None => (&b""[..], name),
     };
-    let (prefix, rest) = (&name[..colon], &name[colon + 1..]);
     rest == local.as_bytes()
         && (declared.iter()).any(|(p, uri)| p.as_bytes() == prefix && uris.contains(uri))
 }
@@ -3978,5 +3999,21 @@ mod tests {
         assert!(written.is_err());
         assert!(!side.exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A default namespace puts an element's name without a prefix in it, for the readers of
+    /// what follows a JPEG's image. The writers, which write only names with a prefix, never
+    /// see it. Before, it was not read, and such a name was in no namespace.
+    #[test]
+    fn a_default_namespace_is_read_for_names_without_a_prefix() {
+        let xmp = "<rdf:Description xmlns:p = 'urn:p'><Directory xmlns = 'urn:d'/>\
+            <!-- <a xmlns='urn:hidden'/> --></rdf:Description>";
+        let all = super::namespace_declarations_with_default(xmp);
+        assert_eq!(all, [("p", "urn:p"), ("", "urn:d")]);
+        assert_eq!(super::namespace_declarations(xmp), [("p", "urn:p")]);
+        let is = |name: &[u8], uri: &str| super::is_in_namespace(name, &all, &[uri], "Directory");
+        assert!(is(b"Directory", "urn:d"));
+        assert!(is(b"p:Directory", "urn:p"));
+        assert!(!is(b"Directory", "urn:p"));
     }
 }

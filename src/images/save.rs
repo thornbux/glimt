@@ -416,7 +416,7 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     // Only the photo's own properties count, not those of another document inside one, such
     // as a placed image in xmpMM:Pantry.
     let properties = crate::metadata::xmp::top_level_properties(xmp.as_bytes());
-    let declared = crate::metadata::xmp::namespace_declarations(&xmp);
+    let declared = crate::metadata::xmp::namespace_declarations_with_default(&xmp);
     let items_length = appended_items_length(&xmp, &properties, &declared);
     let offset = properties.iter().find(|found| {
         let name = &xmp.as_bytes()[found.name.clone()];
@@ -3016,6 +3016,18 @@ mod tests {
             ),
             &[&[0; 60][..], &video].concat(),
         );
+        // RDF/XML may write the directory and its items in default namespaces, without
+        // prefixes. Before, such names were in no namespace, and a cut copy was turned.
+        let default_namespace = with_packet(format!(
+            "<rdf:Description><Directory \
+             xmlns='http://ns.google.com/photos/1.0/container/'><rdf:Seq>\
+             <rdf:li rdf:parseType='Resource'><Item rdf:parseType='Resource'><Semantic \
+             xmlns='http://ns.google.com/photos/1.0/container/item/'>Primary</Semantic></Item>\
+             </rdf:li><rdf:li rdf:parseType='Resource'><Item rdf:parseType='Resource'><Length \
+             xmlns='http://ns.google.com/photos/1.0/container/item/'>{}</Length></Item>\
+             </rdf:li></rdf:Seq></Directory></rdf:Description>",
+            video.len()
+        ));
         // Google's camera also writes its namespace with the prefix Camera.
         let camera = with_packet(format!(
             "<rdf:Description xmlns:Camera='http://ns.google.com/photos/1.0/camera/' \
@@ -3033,6 +3045,7 @@ mod tests {
             &gitem,
             &depth_photo,
             &padded,
+            &default_namespace,
             &camera,
         ];
         for whole in forms {
