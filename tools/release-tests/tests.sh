@@ -61,15 +61,23 @@ if [ "$(id -u)" = 0 ]; then
     # needs a loop device, which run.sh gives only the part with that check, with --privileged.
     # Without one, that check fails and says so. The pattern does not match its own line.
     # Containers started at the same moment can take the same free loop device, and the one
-    # that loses fails, so the mount is tried again a few times.
+    # that loses fails, so the mount is tried again a few times. The kernel then makes a new
+    # device, but a privileged container's /dev is a copy taken when it started and lacks the
+    # new device's node, so each try makes the node of the device that losetup -f names (as
+    # "/dev/loopN (lost)" when the node is missing). Before, the container that lost the last
+    # free loop device of the host never mounted.
+    loop_mount() {
+        local try dev
+        for try in 1 2 3 4 5; do
+            dev=$(losetup -f) && dev=${dev%% *} && { [ -e "$dev" ] || mknod "$dev" b 7 "${dev#/dev/loop}"; }
+            mount -o loop${3:+,$3} "$1" "$2" 2>/dev/null && return
+            sleep 1
+        done
+    }
     if grep -q '^card=/mnt/[c]ard' "${SCRIPT:-/t/tests.sh}" \
         && truncate -s 16M /opt/card.img && mkfs.vfat -n CARD /opt/card.img >/dev/null \
         && mkdir -p /mnt/card; then
-        for try in 1 2 3 4 5; do
-            mount -o loop,uid=$(id -u tester),gid=$(id -g tester) /opt/card.img /mnt/card \
-                2>/dev/null && break
-            sleep 1
-        done
+        loop_mount /opt/card.img /mnt/card uid=$(id -u tester),gid=$(id -g tester)
     fi
     # The sftp:// folder of the check of network folders: an sshd on localhost that lets the
     # tester in with a key. ssh finds its keys in the home folder of /etc/passwd, not in $HOME.
@@ -95,7 +103,7 @@ if [ "$(id -u)" = 0 ]; then
         # gio refuses to trash on a tmpfs, so the trash's full disk is a small ext2 at
         # /mnt/disk, as a USB stick is, on a loop device tried again as the card's is.
         truncate -s 16M /opt/disk.img && mkfs.ext2 -q -b 4096 -m 0 /opt/disk.img
-        for try in 1 2 3 4 5; do mount -o loop /opt/disk.img /mnt/disk 2>/dev/null && break; sleep 1; done
+        loop_mount /opt/disk.img /mnt/disk
         chown tester: /mnt/disk
         cat >/opt/lossyfs.py <<'PY'
 import errno, os, sys, time
