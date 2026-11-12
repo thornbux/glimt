@@ -117,6 +117,12 @@ thread_local! {
     /// under the sidecar's lock, and the refusal of that check.
     static WRITING_FOR: std::cell::RefCell<Option<(ListedFile, Option<String>)>> =
         const { std::cell::RefCell::new(None) };
+    /// The folders whose sidecars this thread locked one at a time (`lock_sidecar`), each with
+    /// who it was when it was looked at (`file_id`) and who it is for its sidecars' locks
+    /// (`folder_id`). A folder that is still who it was is not looked at again, so stars set on
+    /// 500,000 files of one folder read the mount table once, not once for each file.
+    static FOLDERS_LOCKED: std::cell::RefCell<FoldersLocked> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -249,6 +255,10 @@ pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'sta
 /// Each folder is looked at once for the whole operation, as finding its file system's type
 /// reads the mount table, so a Move of 500,000 files of one folder reads it once.
 pub(crate) type FolderIds = std::collections::HashMap<PathBuf, Option<FileId>>;
+
+/// The folders of `FOLDERS_LOCKED`, each with who it was when it was looked at and its
+/// `folder_id`.
+type FoldersLocked = std::collections::HashMap<PathBuf, (FileId, Option<FileId>)>;
 
 /// The RAW files and Adobe sidecars of each folder that one operation looks at, by their name
 /// stem (`adobe_stem`). A folder is read once for the whole operation, and only when a RAW file
@@ -656,7 +666,9 @@ pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, 
 /// holds it too, so a write that waited finds the photo gone, not its old name free for a
 /// sidecar.
 pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
-    lock_sidecar_among(path, &mut FolderIds::new())
+    let side = sidecar(path);
+    let hash = sidecar_hash(&side, known_folder_id(&side).as_ref());
+    lock_by_hash(lock_dir().as_deref(), hash)
 }
 
 /// `lock_sidecar` for one file of an operation over many, which looks at each folder once
@@ -666,12 +678,43 @@ pub(crate) fn lock_sidecar_among(path: &Path, folders: &mut FolderIds) -> Sideca
 }
 
 fn lock_sidecar_in(dir: Option<&Path>, path: &Path, folders: &mut FolderIds) -> SidecarLock {
-    let hash = sidecar_hash_among(&sidecar(path), folders);
+    lock_by_hash(dir, sidecar_hash_among(&sidecar(path), folders))
+}
+
+/// Takes the lock of the sidecar whose hash is `hash` (`sidecar_hash`): its mutex, and its lock
+/// file in `dir` when there is one.
+fn lock_by_hash(dir: Option<&Path>, hash: u64) -> SidecarLock {
     let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
     (
         dir.and_then(|d| lock_file(d, lock_file_number(hash))),
         guard,
     )
+}
+
+/// Returns `folder_id` of the folder of the sidecar `side`. The folder is looked at once for
+/// each file, as in 0.82, and its `folder_id` is worked out again only when this thread has not
+/// seen it before or another folder has taken its place since (`FOLDERS_LOCKED`). So the mount
+/// table is not read for each file of a write over many files. Returns `None` when the folder
+/// cannot be looked at.
+fn known_folder_id(side: &Path) -> Option<FileId> {
+    let folder = folder_of(side);
+    let meta = std::fs::metadata(folder).ok()?;
+    let now = crate::images::save::file_id_from_metadata(folder, &meta);
+    FOLDERS_LOCKED.with_borrow_mut(|known| {
+        if let Some((was, id)) = known.get(folder)
+            && *was == now
+        {
+            return id.clone();
+        }
+        let id = folder_id_from(folder, &meta);
+        // shortcut: past 4,096 folders the thread forgets them all, so the map stays small;
+        // forget only the oldest instead if a write over more folders is seen to slow down.
+        if known.len() >= 4096 {
+            known.clear();
+        }
+        known.insert(folder.to_path_buf(), (now, id.clone()));
+        id
+    })
 }
 
 /// `lock_sidecar` for many files at once, as Rename Many and a delete move a photo and then its
@@ -808,15 +851,24 @@ pub(crate) fn lock_file_number(hash: u64) -> u64 {
 /// too. When it was found for the path as written, a link into a FAT card took the type of the
 /// folder that holds the link, and a sidecar on the card had a lock by inode and another by path.
 fn folder_id(side: &Path) -> Option<FileId> {
-    let folder = side.parent().filter(|f| !f.as_os_str().is_empty());
-    let folder = folder.unwrap_or(Path::new("."));
-    let meta = std::fs::metadata(folder).ok()?;
+    let folder = folder_of(side);
+    folder_id_from(folder, &std::fs::metadata(folder).ok()?)
+}
+
+/// Returns `folder_id` of `folder`, whose metadata the caller looked up as `meta`.
+fn folder_id_from(folder: &Path, meta: &std::fs::Metadata) -> Option<FileId> {
     let real = crate::model::listing::real_dir(folder);
     let kind = crate::files::file_ops::file_system_type_or_test(&real);
     Some(match is_known_by_inode(kind.as_deref()) {
-        true => crate::images::save::file_id_from_metadata(folder, &meta),
+        true => crate::images::save::file_id_from_metadata(folder, meta),
         false => Err(real),
     })
+}
+
+/// Returns the folder of the sidecar `side`, which is "." for a sidecar named without one.
+fn folder_of(side: &Path) -> &Path {
+    let folder = side.parent().filter(|f| !f.as_os_str().is_empty());
+    folder.unwrap_or(Path::new("."))
 }
 
 /// Whether a sidecar's lock goes by its folder's inode on a file system of type `kind`. FAT,
@@ -828,11 +880,13 @@ fn is_known_by_inode(kind: Option<&str>) -> bool {
 }
 
 /// Returns FNV-1a of who the folder of the sidecar `side` is, `folder` (`folder_id`), and of
-/// the sidecar's name. So two windows that reach one folder by two paths (a link to it, a bind
-/// mount) take the same lock for its sidecars. It is the same in every Glimt from 0.82 on,
-/// also one built with another Rust, whose own hasher may differ. A folder known by its real
-/// path gives the hash of the sidecar's real path, as 0.81 hashed a sidecar's path. A
-/// folder that could not be looked at is taken by the sidecar's path as written.
+/// the sidecar's name. It is the same in every Glimt from 0.82 on, also one built with another
+/// Rust, whose own hasher may differ. On a file system known by inode, two windows that reach
+/// one folder by two paths (a link to it, a bind mount) take the same lock for its sidecars. A
+/// folder known by its real path gives the hash of the sidecar's real path, as 0.81 hashed a
+/// sidecar's path. There a link to the folder takes the same lock, but each bind mount of it
+/// has a real path, and so a lock, of its own. A folder that could not be looked at is taken by
+/// the sidecar's path as written.
 pub(crate) fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let name = side.file_name().unwrap_or_default().as_bytes();
@@ -2668,6 +2722,47 @@ mod tests {
         drop(lock);
         waiter.join().unwrap();
         assert!(waited, "the lock through the link did not wait");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Stars, keywords, tags and a comment written to many files of one folder, one file at a
+    /// time as `write_sidecars` writes them, read the mount table for their locks once, not
+    /// once for each file. A folder that another has taken the place of is looked up again.
+    /// Before, each file's lock read and parsed /proc/self/mountinfo again, which for 500,000
+    /// files took tens of seconds more than 0.82.
+    #[test]
+    fn sidecar_writes_of_one_folder_read_the_mount_table_once() {
+        use crate::files::file_io::MOUNT_TABLES_PARSED;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lock-mounts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let photos = dir.join("photos");
+        std::fs::create_dir_all(&photos).unwrap();
+        MOUNT_TABLES_PARSED.set(0);
+        for i in 0..20 {
+            let file = photos.join(format!("{i}.jpg"));
+            std::fs::write(&file, "jpg").unwrap();
+            super::add_keywords(&file, &["Oslo".into()]).unwrap();
+            super::tag_file(&file, "Places|Norway|Bergen", true).unwrap();
+            super::write_changed(&file, None, Some("Trip".into())).unwrap();
+            super::update_sidecar(&file, true, |x| Some(x.to_owned())).unwrap();
+        }
+        assert!(
+            MOUNT_TABLES_PARSED.get() <= 1,
+            "{}",
+            MOUNT_TABLES_PARSED.get()
+        );
+        // Another folder put in its place, here one that a test takes for a FAT card, is not
+        // taken for the folder that was there.
+        std::fs::rename(&photos, dir.join("old")).unwrap();
+        std::fs::create_dir_all(&photos).unwrap();
+        let real = crate::model::listing::real_dir(&photos);
+        crate::files::file_ops::test_mount(&real, Some("vfat"));
+        let side = super::sidecar(&photos.join("0.jpg"));
+        let (known, fresh) = (super::known_folder_id(&side), super::folder_id(&side));
+        crate::files::file_ops::test_mount(&real, None);
+        assert_eq!(known, fresh);
+        assert_eq!(known, Some(Err(real)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
