@@ -2,6 +2,7 @@
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
 use crate::files::file_io::{FileFingerprint, fingerprint};
+use crate::files::file_ops::LookUpStep;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
@@ -400,11 +401,19 @@ impl crate::App {
         let kept: Vec<_> = groups.iter().map(|(_, kept)| kept.clone()).collect();
         // No busy pointer: the look, whose answer `wait_for_look_up_before_the_job` holds the
         // pointer for. One given up ends when the share answers, or never.
+        // Each file looked at sends a sign that the look goes on, so a look at many files on a
+        // share that answers is not given up.
         std::thread::spawn(move || {
             let changed: Vec<bool> = (kept.iter())
-                .map(|files| (files.iter()).any(|(path, seen)| !is_as_seen(path, *seen)))
+                .map(|files| {
+                    (files.iter()).any(|(path, seen)| {
+                        let changed = !is_as_seen(path, *seen);
+                        drop(found_tx.send(LookUpStep::GoesOn));
+                        changed
+                    })
+                })
                 .collect();
-            drop(found_tx.send(changed));
+            drop(found_tx.send(LookUpStep::Answered(changed)));
         });
         self.wait_for_look_up_before_the_job(
             folder,

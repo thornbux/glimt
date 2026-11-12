@@ -36,9 +36,10 @@ use std::time::Instant;
 /// The characters that FAT and exFAT refuse in a name, as on a camera card.
 pub(crate) const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
 
-/// How long a look at a folder before its job is waited for (`wait_for_look_up_before_the_job`).
-/// A share that stopped answering waits for ever, and one that wakes from sleep answers within
-/// this. A test waits less for the look-up that it holds back.
+/// How long a look at a folder before its job is waited for (`wait_for_look_up_before_the_job`),
+/// from its start or from its last sign that it goes on. A share that stopped answering waits for
+/// ever, and one that wakes from sleep answers within this. A test waits less for the look-up
+/// that it holds back.
 #[cfg(not(test))]
 const LOOK_UP_GIVEN_UP_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 #[cfg(test)]
@@ -55,6 +56,14 @@ static TEST_MOUNTS: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex:
 #[cfg(test)]
 thread_local! {
     static REAL_PATHS_LOOKED_UP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// What a look before a job sends `wait_for_look_up_before_the_job`: that it goes on, after each
+/// file of a look at many files, or its answer. The wait gives up only when neither has come for
+/// `LOOK_UP_GIVEN_UP_AFTER`, so a look at many files on a share that answers is not given up.
+pub(crate) enum LookUpStep<T> {
+    GoesOn,
+    Answered(T),
 }
 
 /// A Rename Many running in the background. It holds the files renamed with their new names,
@@ -1277,7 +1286,7 @@ impl crate::App {
         std::thread::spawn(move || {
             let real = crate::model::listing::real_dir(&looked_at);
             let file_system = file_system_type_or_test(&real);
-            drop(found_tx.send((real, file_system)));
+            drop(found_tx.send(LookUpStep::Answered((real, file_system))));
         });
         self.wait_for_look_up_before_the_job(
             folder,
@@ -1302,7 +1311,7 @@ impl crate::App {
         &mut self,
         folder: PathBuf,
         (held_back_files, leaves_undo): (Vec<PathBuf>, bool),
-        found: mpsc::Receiver<T>,
+        found: mpsc::Receiver<LookUpStep<T>>,
         then: impl FnOnce(&mut crate::App, &egui::Context, T) + Send + 'static,
     ) {
         // Before, the files were held only from the job's start, so a delete and a rename in
@@ -1315,7 +1324,15 @@ impl crate::App {
         let awaited = Working::new(&self.file_operations.real_folders_awaited);
         let undo_on_the_way = leaves_undo.then(|| self.file_operations.undo_on_the_way());
         let wait = move || {
-            let found = found.recv_timeout(LOOK_UP_GIVEN_UP_AFTER);
+            // Each sign that the look goes on starts the time again. Before, the time counted
+            // from the start only, and a look at many files was given up while it answered.
+            let found = loop {
+                match found.recv_timeout(LOOK_UP_GIVEN_UP_AFTER) {
+                    Ok(LookUpStep::GoesOn) => continue,
+                    Ok(LookUpStep::Answered(found)) => break Ok(found),
+                    Err(e) => break Err(e),
+                }
+            };
             // The close waits until `then` has run, and the job it starts holds the close
             // from then on.
             let _ = tx.send(Box::new(
@@ -1567,7 +1584,10 @@ impl crate::App {
         // No busy pointer: the look-up, whose answer `wait_for_look_up_before_the_job` holds
         // the pointer for. One given up ends when the share answers, or never.
         std::thread::spawn(move || {
-            drop(found_tx.send(refused_on_fat(&names, file_system_type_or_test)));
+            drop(found_tx.send(LookUpStep::Answered(refused_on_fat(
+                &names,
+                file_system_type_or_test,
+            ))));
         });
         self.wait_for_look_up_before_the_job(
             folder,
@@ -6200,6 +6220,42 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A look that sends a sign after each file is waited for as long as it goes on, also
+    /// past `LOOK_UP_GIVEN_UP_AFTER` in all. Before, the time counted from the start, so Find
+    /// Duplicates' look at many files on a share that answered was given up and nothing was
+    /// moved to the trash.
+    #[test]
+    fn a_look_up_that_goes_on_is_waited_for() {
+        use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+        let dir = std::env::temp_dir().join(format!("glimt-test-lookon-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let (tx, found) = std::sync::mpsc::channel();
+        let step = super::LOOK_UP_GIVEN_UP_AFTER / 2;
+        std::thread::spawn(move || {
+            for _ in 0..3 {
+                std::thread::sleep(step);
+                drop(tx.send(super::LookUpStep::GoesOn));
+            }
+            drop(tx.send(super::LookUpStep::Answered(())));
+        });
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        let then = ran.clone();
+        app.wait_for_look_up_before_the_job(
+            dir.clone(),
+            (Vec::new(), false),
+            found,
+            move |_, _, ()| then.store(true, SeqCst),
+        );
+        // The look answers after one and a half times the limit, which is longer than one wait.
+        let answered = |_: &crate::App| ran.load(SeqCst);
+        assert!(
+            run_background_until(&mut app, &ctx, answered)
+                || run_background_until(&mut app, &ctx, answered)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A look at a folder before its job that does not answer (a share that stopped answering)
     /// is given up: the files it held are let go, its job never starts, and a notice says so.
     /// Before, they stayed held until Glimt ended, and a delete or rename of them was refused.
@@ -6214,7 +6270,7 @@ mod tests {
         image::RgbImage::new(4, 4).save(&a).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         // A look at a folder on the share, which never answers.
-        let (_never_sent, found) = std::sync::mpsc::channel::<()>();
+        let (_never_sent, found) = std::sync::mpsc::channel::<super::LookUpStep<()>>();
         let ran = std::sync::Arc::new(AtomicBool::new(false));
         let then = ran.clone();
         app.wait_for_look_up_before_the_job(
