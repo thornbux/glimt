@@ -64,7 +64,8 @@ The rule for the timings and memory that fail a run is 1.5 times the last releas
 with the other, and the best of its two runs counts, because one run can be slow by chance.
 `within` in `tests.sh` then passes the new value when it is at most 1.5 times the old one plus
 a slack of 100 ms or 20 MB, because a few hundred milliseconds vary by more than half when
-something else runs on the machine. A version whose run gave no number fails the check. The
+something else runs on the machine. A version fails the check only when neither of its runs gave
+a number. The
 median frame with all 500,000 files selected must also take at most 10 ms of the window
 thread's processor time. The other timings are only printed. `QUICK=1` leaves out the large
 folder and the EXIF timings. Screenshots of the steps are in

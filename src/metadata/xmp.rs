@@ -802,9 +802,9 @@ fn is_known_by_inode(kind: Option<&str>) -> bool {
 
 /// Returns FNV-1a of who the folder of the sidecar `side` is, `folder` (`folder_id`), and of
 /// the sidecar's name. So two windows that reach one folder by two paths (a link to it, a bind
-/// mount) take the same lock for its sidecars. It is the same in every Glimt, also one built
-/// with another Rust, whose own hasher may differ. A folder that could not be looked at is
-/// taken by the sidecar's path as written.
+/// mount) take the same lock for its sidecars. It is the same in every Glimt from 0.82 on,
+/// also one built with another Rust, whose own hasher may differ. A folder that could not be
+/// looked at is taken by the sidecar's path as written.
 pub(crate) fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let name = side.file_name().unwrap_or_default().as_bytes();
