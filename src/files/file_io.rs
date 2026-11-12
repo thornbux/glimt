@@ -1866,7 +1866,7 @@ pub(crate) fn forget_passing_identities(
 /// and exFAT make up an inode each time a file is read into memory, and FUSE and SMB mounts may
 /// too, so a file there would be taken for another one. Any type not known to keep it counts
 /// as one that does not, and its files are not told apart by identity.
-fn has_lasting_inodes(kind: &str) -> bool {
+pub(crate) fn has_lasting_inodes(kind: &str) -> bool {
     matches!(
         kind,
         "ext2"

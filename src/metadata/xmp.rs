@@ -784,10 +784,20 @@ pub(crate) fn lock_file_number(hash: u64) -> u64 {
 }
 
 /// Returns who the folder of the sidecar `side` is (`save::file_id`), or `None` when it cannot
-/// be looked at.
+/// be looked at, or when its file system makes up its inode numbers (`has_lasting_inodes`).
 fn folder_id(side: &Path) -> Option<FileId> {
     let folder = side.parent().filter(|f| !f.as_os_str().is_empty());
-    crate::images::save::file_id(folder.unwrap_or(Path::new(".")))
+    let folder = folder.unwrap_or(Path::new("."));
+    let kind = crate::files::file_io::file_system_type(folder);
+    is_known_by_inode(kind.as_deref()).then(|| crate::images::save::file_id(folder))?
+}
+
+/// Whether a sidecar's lock goes by its folder's inode on a file system of type `kind`. FAT,
+/// exFAT, CIFS with noserverino and sshfs make inode numbers up, and they can change while the
+/// path stays, so two writers of one sidecar there could take two locks. There a sidecar is
+/// locked by its path, which never changes, as every sidecar was before 0.82.
+fn is_known_by_inode(kind: Option<&str>) -> bool {
+    kind.is_some_and(crate::files::file_io::has_lasting_inodes)
 }
 
 /// Returns FNV-1a of who the folder of the sidecar `side` is, `folder` (`folder_id`), and of
@@ -2561,6 +2571,20 @@ mod tests {
             super::sidecar_hash(Path::new("a"), None),
             0xaf63_dc4c_8601_ec8c
         );
+    }
+
+    /// A sidecar on a file system that makes up its inode numbers is locked by its path, so one
+    /// path always takes one lock. Before 0.83 it went by the folder's inode there too, which
+    /// FAT and sshfs can change while the path stays, and two writers took two locks.
+    #[test]
+    fn a_sidecar_is_locked_by_its_path_where_inodes_change() {
+        for kind in ["vfat", "exfat", "fuse.sshfs", "cifs", "fuseblk"] {
+            assert!(!super::is_known_by_inode(Some(kind)), "{kind}");
+        }
+        assert!(!super::is_known_by_inode(None));
+        for kind in ["ext4", "btrfs", "xfs", "tmpfs", "overlay", "nfs4"] {
+            assert!(super::is_known_by_inode(Some(kind)), "{kind}");
+        }
     }
 
     /// Two windows that name one folder differently, through a link to it, take the same lock
