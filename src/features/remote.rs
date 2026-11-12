@@ -1137,11 +1137,18 @@ pub(crate) fn runtime_dir() -> Option<PathBuf> {
     if let Some(id) = std::env::var_os("FLATPAK_ID") {
         dir = dir.join("app").join(id);
     }
-    let dir = dir.join("glimt");
+    let dir = glimt_folder_in(&dir);
     // A folder of this name may be another user's, where $XDG_RUNTIME_DIR is not private as it
     // should be (/tmp). Its sockets would be theirs to answer, and its locks theirs to hold.
     let uid = std::fs::metadata("/proc/self").ok()?.uid();
     is_own_or_missing(&dir, uid).then_some(dir)
+}
+
+/// Returns Glimt's own folder in the runtime folder `dir`. Windows of every version must find
+/// each other's sockets and take the same sidecar locks there, so its name is pinned in
+/// src/frozen-1.0.txt.
+pub(crate) fn glimt_folder_in(dir: &std::path::Path) -> PathBuf {
+    dir.join("glimt")
 }
 
 /// Returns `$XDG_RUNTIME_DIR` as given in `set`, or `None` when it is unset, empty or relative.

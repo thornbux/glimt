@@ -51,7 +51,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Two windows that reach one folder by two paths, through a link or a bind mount, wait for each
   other's sidecar writes there. Before, both could read the old sidecar, and the last write
   dropped the other's keywords or stars.
-
 - Copy for Sharing lists a JPEG's markers that a decoder does not need, such as JPG0, as tags
   that Remove All leaves out, instead of copying them whatever they hold. An Adobe segment
   keeps only its 12 bytes, so text after them is no longer carried.

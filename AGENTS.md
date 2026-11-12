@@ -108,14 +108,20 @@ out of use is still read, and ignored.
 - the keys of a theme file (`theme_key`, from `Theme::file_from`, each read by
   `Theme::parse`);
 - the files and folders Glimt owns (`file` lines, from `config_path` and the other functions
-  that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::socket_name` and `FOCUSED_FILE`);
+  that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::glimt_folder_in`,
+  `remote::socket_name` and `FOCUSED_FILE`);
 - the names of the lock files, frozen like the files (`file` lines, from `file_io::lock_beside`,
   `journal::lists_lock`, `remote::socket_lock` and `xmp::LOCK_FOLDER`), and which of the
-  sidecars' lock files a sidecar takes (`sidecar_lock` lines, from `xmp::LOCK_FILES` and
-  `lock_file_number` of `sidecar_hash`). Windows of two versions that run at once must take
-  the same lock for one file, or both read it and the last write drops the other's change. A
-  plan of Rename Many and a log of Move are each locked as the file itself, which tells one
-  still running from one cut short;
+  sidecars' lock files a sidecar takes (`sidecar_lock` lines, from `xmp::LOCK_FILES`,
+  `lock_file_number` of `sidecar_hash` and `xmp::lock_file_path`). Windows of two versions that
+  run at once must take the same lock for one file, or both read it and the last write drops
+  the other's change. A plan of Rename Many and a log of Move are each locked as the file
+  itself, which tells one still running from one cut short. Every lock is a flock
+  (`lock_kind` lines, for `file_io::open_and_lock`, `journal::start_journal` and
+  `start_move_log`): a lock of another kind (fcntl) would keep every name and exclude
+  nothing. Where a plan or log has the list of the files it moves (`list` lines, from
+  `journal::known_path`) is pinned too, or a later Glimt would take every older plan and log by
+  its names alone;
 - the words of the groups in the sharing file (`sharing` lines, `Group::key`), and the names
   of the single tags and parts it holds (`sharing_tag` lines, from
   `shared_copy::names_of_single_tags`): each EXIF tag's name, one of each form a tag or part

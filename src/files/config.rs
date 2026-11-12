@@ -1986,13 +1986,11 @@ mod tests {
             files.push(shown(data.as_ref().map(|d| d.join(old))));
         }
         files.push(format!("file {}", super::LOCK_FILE));
-        let runtime = "$XDG_RUNTIME_DIR/glimt";
-        let socket = crate::features::remote::socket_name("NAME");
-        files.push(format!("file {runtime}/{socket}"));
-        files.push(format!(
-            "file {runtime}/{}",
-            crate::features::remote::FOCUSED_FILE
-        ));
+        let runtime = runtime_folder();
+        let socket = runtime.join(crate::features::remote::socket_name("NAME"));
+        files.push(format!("file {}", socket.display()));
+        let focused = runtime.join(crate::features::remote::FOCUSED_FILE);
+        files.push(format!("file {}", focused.display()));
         files.extend(owned_locks(shown));
         files
     }
@@ -2026,13 +2024,12 @@ mod tests {
         // The marks file's lock is pinned also in a build without the marks feature.
         #[cfg(not(feature = "marks"))]
         files.push("file $XDG_STATE_HOME/glimt/.marks.lock".to_owned());
-        let runtime = "$XDG_RUNTIME_DIR/glimt";
-        let socket =
-            std::path::Path::new(runtime).join(crate::features::remote::socket_name("NAME"));
+        let runtime = runtime_folder();
+        let socket = runtime.join(crate::features::remote::socket_name("NAME"));
         let socket_lock = crate::features::remote::socket_lock(&socket);
         files.push(format!("file {}", socket_lock.display()));
         use crate::metadata::xmp::{LOCK_FILES, LOCK_FOLDER, lock_file_number, sidecar_hash};
-        files.push(format!("file {runtime}/{LOCK_FOLDER}"));
+        files.push(format!("file {}", runtime.join(LOCK_FOLDER).display()));
         files.push(format!("sidecar_lock files {LOCK_FILES}"));
         // A sidecar's lock file by its folder's device and inode and its name, by its folder's
         // real path where the file system numbers every file 0, and by its path as written
@@ -2045,12 +2042,74 @@ mod tests {
         ];
         for (form, folder) in forms {
             let number = lock_file_number(sidecar_hash(side, folder.as_ref()));
+            let lock = crate::metadata::xmp::lock_file_path(LOCK_FOLDER.as_ref(), number);
             files.push(format!(
-                "sidecar_lock {} by {form} is {LOCK_FOLDER}/{number}",
-                side.display()
+                "sidecar_lock {} by {form} is {}",
+                side.display(),
+                lock.display()
             ));
         }
+        files.extend(lists_and_kinds_of_locks());
         files
+    }
+
+    /// Returns Glimt's runtime folder as the code names it in `$XDG_RUNTIME_DIR`.
+    fn runtime_folder() -> std::path::PathBuf {
+        crate::features::remote::glimt_folder_in("$XDG_RUNTIME_DIR".as_ref())
+    }
+
+    /// Returns a "list" line for where a plan of Rename Many and a log of Move have the list of
+    /// the files they move (`journal::known_path`), and a "lock_kind" line for each way Glimt
+    /// takes a lock. Two versions that took locks of different kinds (flock and fcntl) would
+    /// keep every name and exclude nothing. A lock is told to be a flock when a flock of the
+    /// same file, opened anew, cannot be had while the code's lock is held.
+    fn lists_and_kinds_of_locks() -> Vec<String> {
+        use crate::files::journal::{journal_dir, known_path, move_log_dir};
+        let state = |p: std::path::PathBuf| {
+            let rest = p
+                .strip_prefix(super::test_home().join(".local/state"))
+                .unwrap();
+            format!("$XDG_STATE_HOME/{}", rest.display())
+        };
+        let mut lines = Vec::new();
+        for dir in [journal_dir().unwrap(), move_log_dir().unwrap()] {
+            let plan = dir.join("NAME");
+            let list = state(known_path(&plan));
+            lines.push(format!("list of {} is {list}", state(plan)));
+        }
+        // A folder for each call, as two tests ask for the names at once.
+        static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-lock-kind-{}-{call}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let kind = |held: &std::path::Path| {
+            #[allow(clippy::disallowed_methods)] // a file of the test's own
+            let other = std::fs::File::open(held).unwrap();
+            let fd = std::os::fd::AsRawFd::as_raw_fd(&other);
+            // SAFETY: `fd` is open for as long as `other` lives, and flock only locks it.
+            #[allow(unsafe_code)]
+            let free = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0;
+            if free { "not flock" } else { "flock" }
+        };
+        let lock = dir.join("lock");
+        let held = crate::files::file_io::open_and_lock(&lock).unwrap();
+        lines.push(format!("lock_kind lock file {}", kind(&lock)));
+        drop(held);
+        let plan = crate::files::journal::start_journal(&dir.join("plans"), &[]).unwrap();
+        let path = std::fs::read_dir(dir.join("plans")).unwrap().flatten();
+        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
+        lines.push(format!("lock_kind plan {}", kind(&path)));
+        drop(plan);
+        let log = crate::files::journal::start_move_log(&dir.join("logs")).unwrap();
+        let path = std::fs::read_dir(dir.join("logs")).unwrap().flatten();
+        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
+        lines.push(format!("lock_kind move log {}", kind(&path)));
+        drop(log);
+        std::fs::remove_dir_all(dir).unwrap();
+        lines
     }
 
     /// Returns a "theme_key" line for each key of a theme file, as Save as Theme writes one,
