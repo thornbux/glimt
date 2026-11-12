@@ -28,8 +28,9 @@ pub const EXTENDED_XMP: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
 /// The longest extended XMP that `jpeg_extended_xmp` joins, 16 MiB. The longest that cameras
 /// write are Google Camera's Lens Blur photos, whose GImage:Data holds the whole original JPEG
 /// in base64, a few MB for a 12 MP photo. Dynamic Depth's Device element, which is what the
-/// extended XMP is read for, takes a few kB. Without a cap, a crafted packet could be as long as
-/// the file, up to 512 MiB, and the memory and the reading of it would grow with it.
+/// extended XMP is read for, is more than 64 kB in most files and often some MB, as the Dynamic
+/// Depth 1.0 specification says. Without a cap, a crafted packet could be as long as the file,
+/// up to 512 MiB, and the memory and the reading of it would grow with it.
 pub const MAX_EXTENDED_XMP: usize = 16 << 20;
 
 /// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
