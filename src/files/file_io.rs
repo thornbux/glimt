@@ -549,6 +549,8 @@ struct Mount<'a> {
     at: PathBuf,
     /// Its file system's type, such as ext4, vfat or fuse.rclone.
     kind: &'a [u8],
+    /// Its file system's options, such as btrfs's subvol=/@data.
+    options: &'a [u8],
 }
 
 /// The text of `unlink_linked`'s error when the old name may be gone and the file may be only
@@ -958,8 +960,10 @@ fn mount_holding<'a>(mounts: &'a [Mount<'a>], path: &Path) -> Option<&'a Mount<'
     found
 }
 
-/// Returns whether the mount that holds `path` shows its whole file system, and not only a
-/// folder of it (a bind mount). Returns `false` also when /proc/self/mountinfo cannot be read
+/// Returns whether the mount that holds `path` is one that the host may have made itself, so
+/// that the host's gio finds the same top there: a whole file system, a whole btrfs subvolume,
+/// or a folder mounted at a place of another name. Returns `false` for the mount that a Flatpak
+/// makes of a host's folder at its own path, and also when /proc/self/mountinfo cannot be read
 /// or does not tell. The path is taken as it is, as in `file_system_type`.
 pub(crate) fn is_mounted_whole(path: &Path) -> bool {
     let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").unwrap_or_default();
@@ -967,20 +971,36 @@ pub(crate) fn is_mounted_whole(path: &Path) -> bool {
 }
 
 /// Returns whether the mount in `mountinfo`, the bytes of /proc/self/mountinfo, that holds
-/// `path` shows its whole file system (`is_mounted_whole`).
+/// `path` is one that the host may have made itself (`is_mounted_whole`).
 fn is_mounted_whole_in(mountinfo: &[u8], path: &Path) -> bool {
-    mount_holding(&mounts_in(mountinfo), path).is_some_and(|m| m.root == b"/")
+    let mounts = mounts_in(mountinfo);
+    let Some(mount) = mount_holding(&mounts, path) else {
+        return false;
+    };
+    let root = unescape_mount(mount.root);
+    // The root of a btrfs mount starts with its subvolume, which the host mounted whole.
+    let subvol = (mount.kind == b"btrfs")
+        .then(|| (mount.options.split(|&b| b == b',')).find_map(|o| o.strip_prefix(b"subvol=")))
+        .flatten()
+        .map(unescape_mount);
+    let folder = (subvol.as_deref()).and_then(|subvol| root.strip_prefix(subvol).ok());
+    // A Flatpak shows a host's folder at the folder's own path, so the folder it shows always
+    // ends with the name it is mounted at: /srv at /srv, /root/srv at /srv on a btrfs root
+    // subvolume, /u at /home/u when /home is a disk of its own. A folder that the host mounted
+    // at a place of the same name is refused too, and the window asks to delete for good.
+    (folder.unwrap_or(&root).file_name()).is_none_or(|name| Some(name) != mount.at.file_name())
 }
 
 /// Returns a line of /proc/self/mountinfo as a `Mount`. Returns `None` for a line that is not
 /// whole. The fields are the mount's id, its parent's id, the device, the folder of the file
 /// system that is mounted, the mount point and the mount's options. Optional fields follow,
-/// ended by a lone "-", and then the type.
+/// ended by a lone "-", and then the type, the source and the file system's options.
 fn mount_line(line: &[u8]) -> Option<Mount<'_>> {
     let mut fields = line.split(|&b| b == b' ');
     let (id, parent, dev) = (fields.next()?, fields.next()?, fields.next()?);
     let (root, at) = (fields.next()?, unescape_mount(fields.next()?));
-    let kind = fields.skip_while(|f| *f != b"-").nth(1)?;
+    let mut after = fields.skip_while(|f| *f != b"-").skip(1);
+    let (kind, options) = (after.next()?, after.nth(1).unwrap_or_default());
     Some(Mount {
         id,
         parent,
@@ -988,6 +1008,7 @@ fn mount_line(line: &[u8]) -> Option<Mount<'_>> {
         root,
         at,
         kind,
+        options,
     })
 }
 
@@ -2200,6 +2221,46 @@ mod tests {
         assert!(!whole("/mnt/a b"));
         assert!(whole("/tmp"));
         assert!(!super::is_mounted_whole_in(b"", std::path::Path::new("/")));
+    }
+
+    /// A mount that the host made itself, at whose top the host's gio puts a trash too, is not
+    /// taken for a Flatpak's bind of a folder, though its root is not "/": a btrfs subvolume, also
+    /// one named as its mount point, and a folder the host mounts at a place of another name.
+    /// Before, each of them was refused, and the window asked to delete for good. A Flatpak's
+    /// bind of a folder is still told, through --filesystem=host, =home and =/some/dir, on ext4,
+    /// btrfs, overlay and vfat. The document portal (fuse.portal) is refused as remote before.
+    #[test]
+    fn tells_a_hosts_own_mount_from_a_flatpaks_bind_of_a_folder() {
+        let whole =
+            |mounts: &[u8], p: &str| super::is_mounted_whole_in(mounts, std::path::Path::new(p));
+        // --filesystem=host on Fedora's btrfs, with a second disk of a subvolume of its own.
+        let host = b"1 0 0:30 / / rw - tmpfs tmpfs rw\n\
+            2 1 0:40 /root/srv /srv rw - btrfs /dev/sda3 rw,seclabel,subvolid=256,subvol=/root\n\
+            3 1 0:40 /root/mnt /mnt rw - btrfs /dev/sda3 rw,seclabel,subvolid=256,subvol=/root\n\
+            4 3 0:41 /@data /mnt/data rw - btrfs /dev/sdd1 rw,subvolid=257,subvol=/@data\n\
+            5 1 0:42 /home /home rw - btrfs /dev/sda3 rw,seclabel,subvolid=258,subvol=/home\n\
+            6 3 8:49 /photos /mnt/pictures rw - ext4 /dev/sdd2 rw\n\
+            7 1 0:43 /opt /opt rw - overlay overlay rw,lowerdir=/l,upperdir=/u,workdir=/w\n\
+            8 3 0:44 / /mnt/ov rw - overlay overlay rw,lowerdir=/l,upperdir=/u,workdir=/w\n";
+        assert!(!whole(host, "/srv"));
+        assert!(!whole(host, "/mnt"));
+        assert!(whole(host, "/mnt/data"));
+        assert!(whole(host, "/home"));
+        assert!(whole(host, "/mnt/pictures"));
+        assert!(!whole(host, "/opt"));
+        assert!(whole(host, "/mnt/ov"));
+        // --filesystem=home with /home a disk of its own, and --filesystem=/some/dir in a folder
+        // of a subvolume, of a stick and of a host's bind mount of a folder.
+        let dirs = b"1 0 0:30 / / rw - tmpfs tmpfs rw\n\
+            2 1 8:2 /u /home/u rw - ext4 /dev/sda2 rw\n\
+            3 1 0:41 /@data/photos /mnt/data/photos rw - btrfs /dev/sdd1 rw,subvol=/@data\n\
+            4 1 8:17 /DCIM /run/media/u/STICK/DCIM rw - vfat /dev/sdb1 rw\n\
+            5 1 8:49 /photos/2024 /mnt/pictures/2024 rw - ext4 /dev/sdd2 rw\n";
+        for top in ["/home/u", "/mnt/data/photos", "/run/media/u/STICK/DCIM"] {
+            assert!(!whole(dirs, top), "{top}");
+        }
+        assert!(!whole(dirs, "/mnt/pictures/2024"));
+        assert!(super::is_remote("fuse.portal"));
     }
 
     /// The mount that holds a path is the one the kernel finds going down through the mounts:
