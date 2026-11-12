@@ -3816,6 +3816,50 @@ fn no_name_is_removed_on_a_cached_look() {
     );
 }
 
+/// A path through an opened folder (`file_io::path_through`, `/proc/self/fd/N/…`) is used only
+/// in the modules that show every path through `file_io::shown_path`, which names it by the
+/// folder's own path. The trash at the top of a disk is reached through such a path, and the
+/// text of an unlink that may have been done named `/proc/self/fd/12/files/a.jpg`, which the
+/// user cannot open, in the one message whose job is to say where the file is. Questions about
+/// the file system such a path is on are answered by the folder's own path in
+/// `file_io::mount_holding`, which `a_path_through_an_opened_folder_is_asked_and_shown_by_its_name`
+/// holds.
+#[test]
+fn paths_through_a_descriptor_are_shown_by_their_names() {
+    const SHOWN_BY_NAME: [&str; 2] = ["files/file_io.rs", "files/trash.rs"];
+    let homes: Vec<(&str, &str)> = SHOWN_BY_NAME.iter().map(|f| (*f, "")).collect();
+    let mut wrong = outside_their_homes(&[("path_through(", &homes)]);
+    for (file, text) in rust_sources() {
+        if SHOWN_BY_NAME.contains(&file.as_str()) {
+            wrong.extend(outside_homes_in(
+                &file,
+                &text,
+                &[(".display()", &[(file.as_str(), "shown_path")])],
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a path through a descriptor used outside the modules that show paths by their names, \
+         or a path shown there without file_io::shown_path:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The rule of `paths_through_a_descriptor_are_shown_by_their_names` finds a path shown by
+/// `.display()` outside `shown_path`, and none inside it or in the tests.
+#[test]
+fn finds_a_path_shown_without_its_name() {
+    let text = "fn shown_path(path: &Path) -> String {\n    path.display().to_string()\n}\n\
+                fn told(path: &Path) -> String {\n    format!(\"{}\", path.display())\n}\n\
+                mod tests {\n    fn t() { p.display(); }\n}\n";
+    let homes: &[(&str, &[(&str, &str)])] = &[(".display()", &[("files/trash.rs", "shown_path")])];
+    assert_eq!(
+        outside_homes_in("files/trash.rs", text, homes),
+        ["files/trash.rs:5 (.display())"]
+    );
+}
+
 /// Returns the functions of `text` outside the tests that both look with `same_file` and
 /// remove a name.
 fn removals_after_a_look(text: &str) -> Vec<String> {

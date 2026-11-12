@@ -518,6 +518,11 @@ method.
   - open a lock file and wait for its lock with `file_io::open_and_lock`, which never
     truncates it, follows a link or waits on a pipe planted in its place
     (`source_rules::lock_files_are_opened_in_one_place`);
+  - work in a folder that other users can write (a trash at a disk's top) through the folder
+    opened, with `file_io::open_folder_not_through_link` and `path_through`. Such a path,
+    `/proc/self/fd/N/…`, is used only in file_io and the trash, which show every path with
+    `file_io::shown_path`, by the folder's own name, and the mount table is asked about it by
+    that name too (`source_rules::paths_through_a_descriptor_are_shown_by_their_names`);
   - change a file the user picked in the list (its sidecar, marks, a delete, a rename, a
     tool) only through a `file_io::ListedFile` (`App::listed_file`), checked with
     `ListedFile::check` right before the change, in the thread that makes it, so that a name
