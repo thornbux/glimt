@@ -25,6 +25,13 @@ pub const LABELS: [&str; 10] = [
 /// (`jpeg_extended_xmp`).
 pub const EXTENDED_XMP: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
 
+/// The longest extended XMP that `jpeg_extended_xmp` joins, 16 MiB. The longest that cameras
+/// write are Google Camera's Lens Blur photos, whose GImage:Data holds the whole original JPEG
+/// in base64, a few MB for a 12 MP photo. Dynamic Depth's Device element, which is what the
+/// extended XMP is read for, takes a few kB. Without a cap, a crafted packet could be as long as
+/// the file, up to 512 MiB, and the memory and the reading of it would grow with it.
+pub const MAX_EXTENDED_XMP: usize = 16 << 20;
+
 /// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
 const ORIENTATION: u16 = 0x0112;
 
@@ -811,7 +818,7 @@ pub fn jpeg_segment_with<'a>(
 /// of its own, after `EXTENDED_XMP`, the GUID as 32 hex digits, and the whole packet's length
 /// and the part's offset in it (4 bytes each, big-endian). The parts may come in any order.
 /// Returns `None` when a part of the GUID is missing or too short, or the parts do not agree on
-/// the length. A packet is never longer than the file that holds it, which bounds what is made.
+/// the length, or the packet is longer than `MAX_EXTENDED_XMP`.
 pub fn jpeg_extended_xmp(data: &[u8], guid: &[u8]) -> Option<Vec<u8>> {
     let (segments, _) = jpeg_segments(data)?;
     let mut packet: Option<Vec<u8>> = None;
@@ -826,7 +833,7 @@ pub fn jpeg_extended_xmp(data: &[u8], guid: &[u8]) -> Option<Vec<u8>> {
         let head = rest.get(32..40)?;
         let whole = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as usize;
         let offset = u32::from_be_bytes([head[4], head[5], head[6], head[7]]) as usize;
-        if whole > data.len() {
+        if whole > data.len() || whole > MAX_EXTENDED_XMP {
             return None;
         }
         let packet = packet.get_or_insert_with(|| vec![0; whole]);

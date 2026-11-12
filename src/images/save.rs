@@ -416,7 +416,7 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     let packets = jpeg_xmp_packets(data);
     // The Dynamic Depth spec lets a namespace be declared in either packet, so the
     // declarations of both count for each.
-    let declared: Vec<(&str, &str)> = (packets.iter())
+    let declared: std::collections::HashSet<(&str, &str)> = (packets.iter())
         .flat_map(|xmp| crate::metadata::xmp::namespace_declarations_with_default(xmp))
         .collect();
     let (mut items_length, mut offset) = (0, None);
@@ -454,7 +454,8 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
 /// of the main XMP section and into the extended section", and Android's writer always puts
 /// it there.
 ///
-/// The extended packet is empty too when it does not join, as when a tool dropped a part of it.
+/// The extended packet is empty too when it does not join, as when a tool dropped a part of it,
+/// or when it is longer than `exif::MAX_EXTENDED_XMP`, which no camera writes.
 /// This is read only once the image data and its end marker are found, and every part of the
 /// extended XMP comes before the image data, so a copy still coming in has them all. A part
 /// missing is a writer's doing, then, not a copy cut short. Before, such a whole file was
@@ -465,6 +466,7 @@ fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
         String::from_utf8_lossy(body).into_owned()
     });
     let declared = crate::metadata::xmp::namespace_declarations_with_default(&main);
+    let declared = declared.into_iter().collect();
     let properties = crate::metadata::xmp::top_level_properties(main.as_bytes());
     let guid = properties.iter().find(|found| {
         let name = &main.as_bytes()[found.name.clone()];
@@ -474,7 +476,9 @@ fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
         return [main, String::new()];
     };
     let extended = exif::jpeg_extended_xmp(data, guid.as_bytes()).unwrap_or_default();
-    let extended = String::from_utf8_lossy(&extended).into_owned();
+    // A packet in UTF-8, as XMP must be, is taken as it is, not copied.
+    let extended = String::from_utf8(extended)
+        .unwrap_or_else(|bad| String::from_utf8_lossy(bad.as_bytes()).into_owned());
     [main, extended]
 }
 
@@ -499,7 +503,7 @@ fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
 fn appended_items_length(
     xmp: &str,
     properties: &[crate::metadata::xmp::TopLevelProperty],
-    declared: &[(&str, &str)],
+    declared: &std::collections::HashSet<(&str, &str)>,
 ) -> u64 {
     let is = |name: &[u8], uris: &[&str], local: &str| {
         crate::metadata::xmp::is_in_namespace(name, declared, uris, local)
@@ -3240,6 +3244,62 @@ mod tests {
         assert!(!super::looks_cut_short(&file(&[part(0, first)]), true));
         assert!(!super::looks_cut_short(
             &file(&[part(first.len(), second)]),
+            true
+        ));
+    }
+
+    /// A crafted extended XMP as long as `MAX_EXTENDED_XMP`, of Descriptions that each declare a
+    /// prefix and have a property that the check of what follows the image looks up, is read in
+    /// a fraction of a second. One a byte longer is not read: the main packet is read alone.
+    /// Before, each name was compared with every declaration, about 10^11 comparisons for this
+    /// packet, which took nine minutes, and a packet as long as the file was read.
+    #[test]
+    fn a_crafted_extended_xmp_is_read_in_bounded_time() {
+        use crate::images::shared_copy::jpeg_segment;
+        use crate::metadata::exif::{EXTENDED_XMP, MAX_EXTENDED_XMP};
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(4, 2)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let guid = "1D6C4D1E0A4F4E2B9C3D5E6F7A8B9C0D";
+        let main = format!(
+            "<rdf:Description xmlns:xmpNote='http://ns.adobe.com/xmp/note/' \
+             xmpNote:HasExtendedXMP='{guid}'/>"
+        );
+        let xap = [&b"http://ns.adobe.com/xap/1.0/\0"[..], main.as_bytes()].concat();
+        // The file with `extended` in parts after the main packet, and a byte after its end.
+        let with_extended = |extended: &str| {
+            let length = (extended.len() as u32).to_be_bytes();
+            let head = [EXTENDED_XMP, guid.as_bytes(), &length].concat();
+            let mut file = [&jpeg[..2], &jpeg_segment(0xe1, &xap)].concat();
+            for (n, part) in extended.as_bytes().chunks(65000).enumerate() {
+                let offset = ((n * 65000) as u32).to_be_bytes();
+                file.extend(jpeg_segment(0xe1, &[&head[..], &offset, part].concat()));
+            }
+            [&file[..], &jpeg[2..], &[7]].concat()
+        };
+        let one = "<rdf:Description xmlns:a=\"u\" a:MicroVideoOffset=\"1\"/>";
+        let crafted = with_extended(&one.repeat(MAX_EXTENDED_XMP / one.len()));
+        let started = std::time::Instant::now();
+        assert!(!super::looks_cut_short(&crafted, true));
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+        drop(crafted);
+        // A directory that names more than follows the image counts up to the cap, not past it.
+        let directory = "<rdf:Description \
+            xmlns:C='http://ns.google.com/photos/1.0/container/' \
+            xmlns:I='http://ns.google.com/photos/1.0/container/item/'><C:Directory><rdf:Seq>\
+            <rdf:li><C:Item I:Padding='99999'/></rdf:li></rdf:Seq></C:Directory>\
+            </rdf:Description>";
+        let padded = |length: usize| directory.to_owned() + &" ".repeat(length - directory.len());
+        let at_cap = with_extended(&padded(MAX_EXTENDED_XMP));
+        assert!(super::looks_cut_short(&at_cap, true));
+        drop(at_cap);
+        assert!(!super::looks_cut_short(
+            &with_extended(&padded(MAX_EXTENDED_XMP + 1)),
             true
         ));
     }
