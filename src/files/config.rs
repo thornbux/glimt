@@ -2061,8 +2061,8 @@ mod tests {
     /// Returns a "list" line for where a plan of Rename Many and a log of Move have the list of
     /// the files they move (`journal::known_path`), and a "lock_kind" line for each way Glimt
     /// takes a lock. Two versions that took locks of different kinds (flock and fcntl) would
-    /// keep every name and exclude nothing. A lock is told to be a flock when a flock of the
-    /// same file, opened anew, cannot be had while the code's lock is held.
+    /// keep every name and exclude nothing. A lock's kind is read from /proc/locks while the
+    /// code's lock is held.
     fn lists_and_kinds_of_locks() -> Vec<String> {
         use crate::files::journal::{journal_dir, known_path, move_log_dir};
         let state = |p: std::path::PathBuf| {
@@ -2085,14 +2085,28 @@ mod tests {
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        // The kind of the lock held on the file, from its line in /proc/locks, which the
+        // kernel writes as "N: KIND ADVISORY WRITE PID MAJOR:MINOR:INODE START END" with the
+        // device numbers in hex. FLOCK is told as "flock", and POSIX (fcntl) or OFDLCK by
+        // their own names, so the pin does not follow the kind std happens to take.
         let kind = |held: &std::path::Path| {
-            #[allow(clippy::disallowed_methods)] // a file of the test's own
-            let other = std::fs::File::open(held).unwrap();
-            let fd = std::os::fd::AsRawFd::as_raw_fd(&other);
-            // SAFETY: `fd` is open for as long as `other` lives, and flock only locks it.
-            #[allow(unsafe_code)]
-            let free = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0;
-            if free { "not flock" } else { "flock" }
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::metadata(held).unwrap();
+            let dev = meta.dev();
+            // The device's major and minor numbers, as glibc's `major` and `minor` split them.
+            let major = ((dev >> 8) & 0xfff) | ((dev >> 32) & !0xfff);
+            let minor = (dev & 0xff) | ((dev >> 12) & !0xff);
+            let file = format!("{major:02x}:{minor:02x}:{}", meta.ino());
+            let locks = std::fs::read_to_string("/proc/locks").unwrap();
+            let line = locks
+                .lines()
+                .map(|l| l.split_whitespace().collect::<Vec<_>>());
+            let mut kinds = line.filter(|w| w.get(5) == Some(&file.as_str()));
+            match kinds.next().as_deref() {
+                Some([_, "FLOCK", ..]) => "flock".to_string(),
+                Some([_, kind, ..]) => kind.to_lowercase(),
+                _ => "not locked".to_string(),
+            }
         };
         let lock = dir.join("lock");
         let held = crate::files::file_io::open_and_lock(&lock).unwrap();
