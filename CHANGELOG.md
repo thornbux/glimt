@@ -80,7 +80,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   bring back a file of theirs.
 - In the Flatpak, a file that the trash portal refused, in a folder that the sandbox shows by a
   mount of that folder alone (such as /srv), is no longer put in a `.Trash-UID` there, where the
-  host's file managers never look. The window asks whether to delete it for good instead.
+  host's file managers never look. The window asks whether to delete it for good instead. A
+  disk or btrfs subvolume that the host mounts itself still gets its own trash.
 - The HDF5 added format reads only what the file holds. Before, a downloaded file could show
   another file of the user's through external storage, a link to another file or a virtual
   dataset, and it was saved as a thumbnail.
@@ -102,6 +103,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   photo's own XMP properties. Before, those of another document inside a property, such as a
   placed image in Photoshop's xmpMM:Pantry, were read as the photo's, and an edit, a turn or a
   copy took them out or changed them.
+- XMP with CDATA sections, comments or processing instructions is read as XML reads it. The
+  info panel shows a CDATA section's text without its markup, a rating or keyword is never
+  written into a Description that is commented out, and a keyword or comment with an XML
+  comment inside it is replaced, not written a second time beside it.
 - A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
   instead says that the sidecar is still at the old name, where a later file of that name would
   take it. Before, it said nothing.

@@ -693,6 +693,29 @@ const WRITING_WORK: &[&str] = &[
     "WRITING",
 ];
 
+/// The ways a text is searched for another in Rust, each as the call written and which of its
+/// arguments, counted from 0, is the text searched for: the methods of `str` and of slices,
+/// `memchr::memmem`, and the crate's own `ForwardSearch`. A window compared
+/// (`windows(n).position(|w| w == name)`) is read apart, in `window_needles`, and a function of
+/// the crate that passes its own parameter on to one of these is added to them
+/// (`searches_for_xmp_properties`).
+const TEXT_SEARCHES: [(&str, usize); 14] = [
+    (".contains(", 0),
+    (".find(", 0),
+    (".rfind(", 0),
+    (".match_indices(", 0),
+    (".rmatch_indices(", 0),
+    (".split_once(", 0),
+    (".rsplit_once(", 0),
+    ("memmem::find(", 1),
+    ("memmem::rfind(", 1),
+    ("memmem::find_iter(", 1),
+    ("memmem::rfind_iter(", 1),
+    ("Finder::new(", 0),
+    ("FinderRev::new(", 0),
+    ("ForwardSearch::new(", 1),
+];
+
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -716,6 +739,17 @@ impl Section {
             Section::Tests => "the tests",
         }
     }
+}
+
+/// What a search looks for, as `searched_for` reads it.
+#[derive(Clone, Copy, PartialEq)]
+enum Searched {
+    /// The name of an XMP property, such as "dc:subject" or "<xmp:Rating".
+    Property,
+    /// The parameter of its function at this place, counted without `self`.
+    Parameter(usize),
+    /// Anything else, or what the check cannot tell.
+    Other,
 }
 
 /// A function of the crate outside the tests, as `CallGraph` follows it.
@@ -5814,13 +5848,11 @@ fn finds_a_wait_for_a_program_in_the_window_thread() {
 /// and the editors took them out or changed them.
 #[test]
 fn xmp_properties_are_found_at_the_top_level() {
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        // This file names such searches in its own tests.
-        if file != "support/source_rules.rs" {
-            wrong.extend(searches_for_xmp_properties(&file, &text));
-        }
-    }
+    // This file names such searches in its own tests.
+    let sources: Vec<(String, String)> = (rust_sources().into_iter())
+        .filter(|(file, _)| file != "support/source_rules.rs")
+        .collect();
+    let wrong = searches_for_xmp_properties(&sources);
     assert!(
         wrong.is_empty(),
         "find an XMP property with xmp::top_level_properties, not by a search for its name:\n{}",
@@ -5828,46 +5860,381 @@ fn xmp_properties_are_found_at_the_top_level() {
     );
 }
 
-/// The check above finds a search for an element by its name, also one made with `format!`
-/// and one in bytes, and lets a search for a Description or a list item pass.
+/// The check above finds a search for a property by its name in each way it can be written: a
+/// method of `str` or of a slice, a window compared, `memchr::memmem`, a crate's own search
+/// such as `find_bytes` or `ForwardSearch`, with the name as a literal, a `let`, a constant or
+/// `format!`, and also when a function passes its own parameter on as what is searched for and
+/// a caller gives it the name. The two searches before 0.82.0, `set_xmp_orientation`'s and
+/// `xmp_without_property`'s, are found as they were written then. A search for a Description,
+/// a list item or a comment's end passes, and so does a comparison with a name that the walk
+/// found.
 #[test]
 fn finds_a_search_for_an_xmp_property() {
-    let text = "fn a(x: &str) {\n    x.contains(\"<dc:subject\");\n    \
+    let exif = "pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {\n    \
+        let key = b\"tiff:Orientation\";\n    let mut from = 0;\n    \
+        while let Some(at) = xmp[from..].windows(key.len()).position(|w| w == key) {\n        \
+        from = at;\n    }\n}\n";
+    let save = "pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {\n    \
+        let end_tag = [&b\"</\"[..], name, b\">\"].concat();\n    \
+        let [mut names, mut gts] = [\n        ForwardSearch::new(xmp, name),\n        \
+        ForwardSearch::new(xmp, b\">\"),\n    ];\n    \
+        let mut opens = ForwardSearch::new(xmp, b\"<!--\");\n    Vec::new()\n}\n";
+    let xmp = "pub(crate) fn without_property(xmp: &str, tag: &str) -> String {\n    \
+        let out = crate::images::save::xmp_without_property(xmp.as_bytes(), tag.as_bytes());\n    \
+        String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())\n}\n\
+        fn set_keywords(xmp: &str) -> String {\n    without_property(xmp, \"dc:subject\")\n}\n";
+    let other = "const DESCRIPTION: &[u8] = b\"<rdf:Description\";\n\
+        const RATING: &str = \"xmp:Rating=\";\n\
+        fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {\n    \
+        hay.windows(what.len()).position(|w| w == what)\n}\n\
+        fn a(x: &str, tag: &str, found: &[u8]) {\n    x.contains(\"<dc:subject\");\n    \
         x.find(&format!(\"<{tag}\"));\n    x.find(\"<rdf:Description\");\n    \
-        rest.find(\"<rdf:li\");\n    x.contains(b\"<xmp:Rating\");\n}\n";
+        find_bytes(x.as_bytes(), b\"-->\");\n    \
+        ForwardSearch::new(x.as_bytes(), DESCRIPTION);\n    \
+        x.find(|c: char| c == ':');\n    \
+        find_bytes(x.as_bytes(), b\"<dc:subject\");\n    \
+        memchr::memmem::find(x.as_bytes(), b\"lr:hierarchicalSubject\");\n    \
+        x.find(RATING);\n    \
+        let named = found == b\"tiff:Orientation\";\n    \
+        x.match_indices(\"xmp:Rating\");\n}\n";
+    let sources = [
+        ("exif.rs", exif),
+        ("save.rs", save),
+        ("xmp.rs", xmp),
+        ("a.rs", other),
+    ];
+    let sources = sources.map(|(file, text)| (file.to_owned(), text.to_owned()));
     assert_eq!(
-        searches_for_xmp_properties("a.rs", text),
-        ["a.rs:2", "a.rs:3", "a.rs:6"]
+        searches_for_xmp_properties(&sources),
+        [
+            "a.rs:13 through a.rs:4",
+            "a.rs:14",
+            "a.rs:15",
+            "a.rs:17",
+            "a.rs:7",
+            "a.rs:8",
+            "exif.rs:4",
+            "xmp.rs:6 through xmp.rs:2 through save.rs:4",
+        ]
     );
 }
 
-/// Returns the places outside the tests of `text`, the source of `file`, where a packet is
-/// searched for an XMP element by its name, as "file:line". A search for an element of the RDF
-/// namespace, such as a Description or a list item, is no search for a property.
-fn searches_for_xmp_properties(file: &str, text: &str) -> Vec<String> {
-    const SEARCHES: [&str; 3] = [".contains(", ".find(", ".rfind("];
-    let end = tests_start(&code_lines(text));
-    let is_property_name = |argument: &str| {
-        let argument = argument.trim_start_matches('&');
-        let argument = argument.strip_prefix('b').unwrap_or(argument);
-        let Some(name) = argument.strip_prefix("\"<") else {
-            return argument.starts_with("format!(\"<{");
-        };
-        let name: String = (name.chars())
-            .take_while(|&c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
-            .collect();
-        name.contains(':') && !name.starts_with("rdf:")
-    };
-    let mut wrong = Vec::new();
-    for (i, line) in text.lines().take(end).enumerate() {
-        if line.trim_start().starts_with("//") {
-            continue;
+/// Returns the places outside the tests of `sources` where a packet is searched for an XMP
+/// property by its name, as "file:line", in order. A search for a name of the RDF or XML
+/// namespace, such as a Description or a list item, is no search for a property. A function
+/// whose search looks for its own parameter is a search too, so a caller that gives it a
+/// property's name is found, at the place of the search that the name reaches.
+fn searches_for_xmp_properties(sources: &[(String, String)]) -> Vec<String> {
+    let mut searches: Vec<(String, usize, Option<String>)> = (TEXT_SEARCHES.iter())
+        .map(|&(call, at)| (call.to_owned(), at, None))
+        .collect();
+    let mut wrong = std::collections::BTreeSet::new();
+    loop {
+        let known = searches.len();
+        for (file, text) in sources {
+            let (raw, code) = (text.lines().collect::<Vec<_>>(), code_lines(text));
+            for f in functions_in(file, &code) {
+                let found = searches_in(&f, &raw, &code, &searches);
+                for (needle, line, through) in found {
+                    let where_found = match through {
+                        Some(search) => format!("{file}:{line} through {search}"),
+                        None => format!("{file}:{line}"),
+                    };
+                    match searched_for(&needle, &f, &raw, &code, 0) {
+                        Searched::Property => _ = wrong.insert(where_found),
+                        Searched::Parameter(at) => {
+                            let call = format!("{}(", f.name);
+                            if !searches.iter().any(|(c, a, _)| *c == call && *a == at) {
+                                searches.push((call, at, Some(where_found)));
+                            }
+                        }
+                        Searched::Other => {}
+                    }
+                }
+            }
         }
-        let arguments = (SEARCHES.iter())
-            .flat_map(|search| line.match_indices(search).map(|(at, _)| at + search.len()));
-        if arguments.map(|at| &line[at..]).any(is_property_name) {
-            wrong.push(format!("{file}:{}", i + 1));
+        if searches.len() == known {
+            return wrong.into_iter().collect();
         }
     }
-    wrong
+}
+
+/// Returns the searches in function `f` of a file whose lines are `raw` and whose `code_lines`
+/// are `code`, each as what it looks for (as written), its line counted from 1, and the place of
+/// the search it reaches when it calls a function of the crate that searches for its parameter.
+/// `searches` are the calls that search, as in `TEXT_SEARCHES`, each with that place.
+fn searches_in(
+    f: &Function,
+    raw: &[&str],
+    code: &[String],
+    searches: &[(String, usize, Option<String>)],
+) -> Vec<(String, usize, Option<String>)> {
+    let (raw_text, code_text) = function_texts(f, raw, code);
+    let line_of = |at: usize| f.lines.start() + 1 + code_text[..at].matches('\n').count();
+    let mut found = Vec::new();
+    for (call, argument, through) in searches {
+        for (at, _) in code_text.match_indices(call.as_str()) {
+            let before = code_text[..at].chars().next_back().unwrap_or(' ');
+            let is_whole_name = call.starts_with('.') || !is_word_char(before);
+            if !is_whole_name || code_text[..at].ends_with("fn ") {
+                continue;
+            }
+            let arguments = call_arguments(&code_text, at + call.len());
+            if let Some(span) = arguments.get(*argument) {
+                let needle = raw_text[span.clone()].iter().collect();
+                found.push((needle, line_of(at), through.clone()));
+            }
+        }
+    }
+    for (at, needle) in window_needles(&code_text, &raw_text) {
+        found.push((needle, line_of(at), None));
+    }
+    found
+}
+
+/// Returns the text of function `f` twice, as characters: as written in `raw`, and as code only
+/// from `code`, with a character of the one at each place of the other.
+fn function_texts(f: &Function, raw: &[&str], code: &[String]) -> (Vec<char>, String) {
+    let (mut raw_text, mut code_text) = (Vec::new(), String::new());
+    for i in f.lines.clone() {
+        let written: Vec<char> = raw.get(i).unwrap_or(&"").chars().collect();
+        // The code line lost its blanks at the end, and a literal's letter of several bytes is
+        // one blank in it, so it is laid out again by the characters of the line.
+        let mut code_line: Vec<char> = code[i].chars().collect();
+        code_line.resize(written.len(), ' ');
+        raw_text.extend(written);
+        raw_text.push('\n');
+        code_text.extend(
+            code_line
+                .into_iter()
+                .map(|c| if c.is_ascii() { c } else { ' ' }),
+        );
+        code_text.push('\n');
+    }
+    (raw_text, code_text)
+}
+
+/// Returns where each argument of the call whose arguments start at `from` in `code` is, up to
+/// the ')' that closes the call. An argument may be blank in `code`, as a literal is blanked
+/// there. Returns nothing when the call does not close.
+fn call_arguments(code: &str, from: usize) -> Vec<std::ops::Range<usize>> {
+    let (mut out, mut depth, mut start) = (Vec::new(), 0usize, from);
+    for (i, c) in code[from..].char_indices() {
+        let at = from + i;
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth > 0 => depth -= 1,
+            ')' => {
+                out.push(start..at);
+                return out;
+            }
+            ',' if depth == 0 => {
+                out.push(start..at);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    Vec::new()
+}
+
+/// Returns each window compared in `code`, the code of a function whose text as written is
+/// `raw` (`function_texts`), with where it is and what the window is compared with, as written:
+/// the `name` of `windows(n).position(|w| w == name)` or `.any(|w| name == w)`.
+fn window_needles(code: &str, raw: &[char]) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    for (at, call) in code.match_indices(".windows(") {
+        let Some(size) = call_arguments(code, at + call.len()).pop() else {
+            continue;
+        };
+        let rest = &code[size.end + 1..];
+        let Some(open) = rest
+            .find('(')
+            .filter(|&i| rest[..i].trim_start().starts_with('.'))
+        else {
+            continue;
+        };
+        let from = size.end + 1 + open + 1;
+        let Some(closure) = call_arguments(code, from).pop() else {
+            continue;
+        };
+        let body = &code[closure.clone()];
+        // The closure's argument is between its two bars, and the comparison after them.
+        let Some(argument) = body.trim_start().strip_prefix('|') else {
+            continue;
+        };
+        let opened = body.len() - argument.len();
+        let Some(bar) = argument.find('|').map(|i| opened + i) else {
+            continue;
+        };
+        let Some(equals) = body[bar..].find("==").map(|i| bar + i) else {
+            continue;
+        };
+        let variable = body[opened..bar].trim();
+        let sides = [closure.start + bar + 1..closure.start + equals, {
+            closure.start + equals + 2..closure.end
+        }];
+        let text = |r: &std::ops::Range<usize>| raw[r.clone()].iter().collect::<String>();
+        let other = sides
+            .iter()
+            .map(text)
+            .find(|side| side.trim().trim_start_matches(['*', '&']) != variable);
+        out.extend(other.map(|needle| (at, needle.trim().to_owned())));
+    }
+    out
+}
+
+/// Returns what `needle`, the text searched for as written in function `f`, is: a property's
+/// name, one of `f`'s parameters, or something else. A name bound by a `let` in `f` or a
+/// constant of its file (`raw` and `code`) is read as what it is bound to, and `format!` and an
+/// array of parts by their parts, `depth` levels deep at most.
+fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth: u8) -> Searched {
+    let mut needle = needle.trim().trim_start_matches(['&', '*']).trim();
+    for suffix in [
+        ".as_bytes()",
+        ".as_str()",
+        ".as_slice()",
+        ".as_ref()",
+        "[..]",
+        ".to_vec()",
+    ] {
+        needle = needle.strip_suffix(suffix).unwrap_or(needle);
+    }
+    if depth > 4 || needle.starts_with('|') || needle.starts_with("move |") {
+        return Searched::Other;
+    }
+    let parts: Vec<Searched> = if let Some(template) = needle.strip_prefix("format!(") {
+        let template = quoted_text(template).unwrap_or_default();
+        let placeholders = template
+            .split('{')
+            .skip(1)
+            .filter_map(|p| p.split('}').next());
+        let named = placeholders.map(|p| searched_for(p, f, raw, code, depth + 1));
+        let starts_a_tag = template.starts_with("<{") || template.starts_with("</{");
+        std::iter::once(match starts_a_tag || names_a_property(&template) {
+            true => Searched::Property,
+            false => Searched::Other,
+        })
+        .chain(named)
+        .collect()
+    } else if let Some(text) = quoted_text(needle).filter(|_| needle.ends_with('"')) {
+        vec![match names_a_property(&text) {
+            true => Searched::Property,
+            false => Searched::Other,
+        }]
+    } else if let Some(inside) = needle
+        .strip_suffix(".concat()")
+        .and_then(|n| n.strip_prefix('['))
+    {
+        let inside = inside.trim_end_matches(']');
+        (inside
+            .split(',')
+            .map(|p| searched_for(p, f, raw, code, depth + 1)))
+        .collect()
+    } else if !needle.is_empty() && needle.chars().all(is_word_char) {
+        vec![bound_value(needle, f, raw, code, depth)]
+    } else {
+        Vec::new()
+    };
+    let property = parts.contains(&Searched::Property);
+    let parameter = parts
+        .into_iter()
+        .find(|p| matches!(p, Searched::Parameter(_)));
+    match (property, parameter) {
+        (true, _) => Searched::Property,
+        (false, Some(parameter)) => parameter,
+        (false, None) => Searched::Other,
+    }
+}
+
+/// Returns what the name `word` is in function `f` of a file whose lines are `raw` and whose
+/// `code_lines` are `code`: one of its parameters, or what a `let` in it or a constant of the
+/// file binds it to (`searched_for`).
+fn bound_value(word: &str, f: &Function, raw: &[&str], code: &[String], depth: u8) -> Searched {
+    if let Some(at) = parameters(f, code).iter().position(|p| p == word) {
+        return Searched::Parameter(at);
+    }
+    let in_function = (f.lines.clone()).filter_map(|i| raw.get(i).copied());
+    let bound = (in_function.filter(|l| l.trim_start().starts_with("let ")))
+        .flat_map(let_bindings)
+        .find(|(name, _)| name == word)
+        .map(|(_, value)| value);
+    let constant = format!("const {word}: ");
+    let constant = || {
+        let line = raw.iter().find(|l| l.trim_start().starts_with(&constant))?;
+        Some(line.split_once(" = ")?.1.trim_end_matches(';').to_owned())
+    };
+    match bound.or_else(constant) {
+        Some(value) => searched_for(&value, f, raw, code, depth + 1),
+        None => Searched::Other,
+    }
+}
+
+/// Returns the names of the parameters of function `f`, whose file's `code_lines` are `code`,
+/// in order and without `self`.
+fn parameters(f: &Function, code: &[String]) -> Vec<String> {
+    let lines = &code[f.lines.clone()];
+    let opens = lines.iter().position(|l| l.ends_with('{')).unwrap_or(0);
+    let signature = lines[..=opens].join(" ");
+    let Some(at) = signature.find(&format!("fn {}", f.name)) else {
+        return Vec::new();
+    };
+    // The parameters start at the first '(' after the generics, and are parted by the commas
+    // outside every bracket, also the angle brackets of a type (`HashMap<K, V>`).
+    let (mut depth, mut previous) = (0usize, ' ');
+    let (mut names, mut parameter, mut started) = (Vec::new(), String::new(), false);
+    for c in signature[at + 3 + f.name.len()..].chars() {
+        let is_arrow = c == '>' && previous == '-';
+        previous = c;
+        match c {
+            '(' if depth == 0 && !started => {
+                started = true;
+                continue;
+            }
+            '<' | '(' | '[' => depth += 1,
+            '>' if is_arrow => {}
+            ')' if depth == 0 => break,
+            '>' | ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 && started => {
+                names.push(std::mem::take(&mut parameter));
+                continue;
+            }
+            _ => {}
+        }
+        if started {
+            parameter.push(c);
+        }
+    }
+    names.push(parameter);
+    (names.iter())
+        .filter_map(|p| {
+            let name = p.trim().trim_start_matches('&').trim_start_matches("mut ");
+            let name = name.split(':').next()?.trim();
+            (!name.is_empty() && name != "self").then(|| name.to_owned())
+        })
+        .collect()
+}
+
+/// Returns the text between the first quote of `text` and the next quote after it, as written,
+/// or `None` when `text` has no quote.
+fn quoted_text(text: &str) -> Option<String> {
+    let (_, rest) = text.split_once('"')?;
+    Some(rest.split('"').next().unwrap_or(rest).to_owned())
+}
+
+/// Returns whether `text` starts with the name of an XMP property, after a "<" or "</" when it
+/// has one: a prefix, a ':' and a name that starts with a letter. The names of the RDF and XML
+/// namespaces (rdf:li, xml:lang, xmlns:dc) are no property's.
+fn names_a_property(text: &str) -> bool {
+    let text = text
+        .strip_prefix("</")
+        .or(text.strip_prefix('<'))
+        .unwrap_or(text);
+    let Some((prefix, local)) = text.split_once(':') else {
+        return false;
+    };
+    let is_prefix = !prefix.is_empty() && prefix.chars().all(|c| is_word_char(c) || c == '-');
+    is_prefix
+        && local.starts_with(|c: char| c.is_ascii_alphabetic())
+        && !["rdf", "xml", "xmlns"].contains(&prefix)
 }
