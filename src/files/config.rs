@@ -1735,7 +1735,8 @@ mod tests {
 
     /// The man page's FILES names each file and folder that Glimt owns, as src/frozen-1.0.txt
     /// pins them, so a new one cannot ship without its line. The page lacked `recent` and
-    /// `sharing` before.
+    /// `sharing` before. Each is named by its path in Glimt's folder, because the last part
+    /// alone passed `renames/files` while the page named only `moves/files`.
     #[test]
     fn man_page_names_every_file_glimt_owns() {
         let page = include_str!("../../docs/glimt.1").replace("\\-", "-");
@@ -1743,7 +1744,7 @@ mod tests {
         let files = files.split(".SH ").next().unwrap();
         let missing: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
             .filter_map(|l| l.strip_prefix("file "))
-            .filter(|path| !files.contains(path.rsplit('/').next().unwrap()))
+            .filter(|path| !files.contains(path.split_once("glimt/").map_or(*path, |p| p.1)))
             .collect();
         assert!(missing.is_empty(), "docs/glimt.1's FILES lacks {missing:?}");
     }
@@ -1969,8 +1970,8 @@ mod tests {
             shown(crate::files::journal::journal_dir()),
             shown(crate::files::journal::move_log_dir()),
             shown(
-                crate::files::journal::move_log_dir()
-                    .map(|d| d.join(crate::files::journal::KNOWN_FOLDER)),
+                (crate::files::journal::move_log_dir())
+                    .map(|d| crate::files::journal::lists_folder(&d)),
             ),
             shown(crate::model::collections::collections_dir()),
         ];
@@ -1992,6 +1993,63 @@ mod tests {
             "file {runtime}/{}",
             crate::features::remote::FOCUSED_FILE
         ));
+        files.extend(owned_locks(shown));
+        files
+    }
+
+    /// Returns a "file" line for each lock file that Glimt owns, and the lines that say which of
+    /// the lock files of sidecars a sidecar takes. Windows of two versions that run at once
+    /// must take the same lock for the same file, or both read it and the last write drops
+    /// the other's change. `shown` gives a path's line as `owned_files` does.
+    fn owned_locks(shown: impl Fn(Option<std::path::PathBuf>) -> String) -> Vec<String> {
+        use crate::files::file_io::lock_beside;
+        use crate::files::journal::{journal_dir, lists_folder, lists_lock};
+        let mut files = vec![
+            shown(journal_dir().map(|d| lists_folder(&d))),
+            shown(journal_dir().map(|d| lists_lock(&d))),
+        ];
+        // The files that the windows share (`edit_shared`) and the collections.
+        let collection = crate::model::collections::collections_dir().map(|d| d.join("NAME.gqv"));
+        let shared = [
+            super::config_path(),
+            super::keyword_tree_path(),
+            super::sort_folders_path(),
+            super::recent_path(),
+            super::sharing_path(),
+            collection,
+        ];
+        files.extend((shared.into_iter()).map(|p| shown(p.and_then(|p| lock_beside(&p)))));
+        #[cfg(feature = "marks")]
+        files.push(shown(
+            crate::metadata::marks::marks_file().and_then(|p| lock_beside(&p)),
+        ));
+        // The marks file's lock is pinned also in a build without the marks feature.
+        #[cfg(not(feature = "marks"))]
+        files.push("file $XDG_STATE_HOME/glimt/.marks.lock".to_owned());
+        let runtime = "$XDG_RUNTIME_DIR/glimt";
+        let socket =
+            std::path::Path::new(runtime).join(crate::features::remote::socket_name("NAME"));
+        let socket_lock = crate::features::remote::socket_lock(&socket);
+        files.push(format!("file {}", socket_lock.display()));
+        use crate::metadata::xmp::{LOCK_FILES, LOCK_FOLDER, lock_file_number, sidecar_hash};
+        files.push(format!("file {runtime}/{LOCK_FOLDER}"));
+        files.push(format!("sidecar_lock files {LOCK_FILES}"));
+        // A sidecar's lock file by its folder's device and inode and its name, by its folder's
+        // real path where the file system numbers every file 0, and by its path as written
+        // where its folder could not be looked at.
+        let side = std::path::Path::new("/x/a.xmp");
+        let forms = [
+            ("its folder's device 1 and inode 2", Some(Ok((1, 2)))),
+            ("its folder's real path /y", Some(Err("/y".into()))),
+            ("its path as written", None),
+        ];
+        for (form, folder) in forms {
+            let number = lock_file_number(sidecar_hash(side, folder.as_ref()));
+            files.push(format!(
+                "sidecar_lock {} by {form} is {LOCK_FOLDER}/{number}",
+                side.display()
+            ));
+        }
         files
     }
 

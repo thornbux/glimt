@@ -588,14 +588,34 @@ is still read.
 .TP
 .I $XDG_STATE_HOME/glimt/renames
 A Rename Many while it runs, so that one cut short by a crash is put right at the next start.
+Its folder
+.I renames/files
+holds, for each plan, the fingerprint (device, inode, size and time) of each photo its steps
+move, of which size and time are compared, so that only a photo that is still the one planned
+is renamed; the windows take the lock
+.I renames/files/.lock
+while they change these lists.
 .TP
 .I $XDG_STATE_HOME/glimt/moves
 A Move while it runs, so that the marks, stars and collection entries of the files moved before
 Glimt was killed follow them at the next start.
 Its folder
-.I files
-holds, for each log, the size and time of each file moved, so that they follow only a file
-that is still the one moved.
+.I moves/files
+holds, for each log, the fingerprint (device, inode, size and time) of each file moved, of
+which size and time are compared, so that they follow only a file that is still the one moved.
+.TP
+.IR .config.lock ", " .keywords.lock ", " .sort\-folders.lock ", " .recent.lock ", " .sharing.lock ", " .marks.lock
+The locks beside the files of the same name above, which every window holds while it reads and
+writes the file, so that two windows' changes made at once are both kept. A collection's lock
+is beside it too, as
+.I collections/.NAME.gqv.lock
+for one in the collections folder.
+.TP
+.IR $XDG_RUNTIME_DIR/glimt/glimt\-NAME.lock " and " $XDG_RUNTIME_DIR/glimt/sidecar\-locks
+The lock that a window holds while it takes over the socket of a Glimt gone, and the 64 locks
+of the
+.I .xmp
+sidecars, one of which a window holds while it writes a sidecar.
 .TP
 .I $XDG_DATA_HOME/glimt/formats
 Added formats: desktop files whose command turns a file of a format Glimt does not read itself

@@ -906,10 +906,10 @@ mod tests {
             return;
         }
         let pid = std::process::id();
-        let real = shm.join(format!("glimt-test-linked-{pid}"));
+        let real = shm.join(format!("glimt-test-trash-linked-{pid}"));
         let pictures = real.join("pictures");
         std::fs::create_dir_all(&pictures).unwrap();
-        let link = std::env::temp_dir().join(format!("glimt-test-link-{pid}"));
+        let link = std::env::temp_dir().join(format!("glimt-test-trash-link-{pid}"));
         let _ = std::fs::remove_file(&link);
         std::os::unix::fs::symlink(&pictures, &link).unwrap();
         let name = format!("linked {pid}.png");
@@ -974,7 +974,7 @@ mod tests {
                 false => top.join(format!(".Trash-{uid}")),
             };
             let moved = trash.with_file_name(format!("glimt-test-moved-{pid}"));
-            let dir = top.join(format!("glimt-test-swapped-{pid}"));
+            let dir = top.join(format!("glimt-test-trash-swapped-{pid}"));
             let decoy = top.join(format!("glimt-test-decoy-{pid}"));
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::create_dir_all(&decoy).unwrap();

@@ -1457,8 +1457,14 @@ pub fn wait_for_queued_writes() {
 /// its own, hidden beside it, as `path` is renamed over. Returns `None`, and the caller goes on
 /// without the lock, when the lock file cannot be made or is not a regular file.
 pub fn file_lock(path: &Path) -> Option<std::fs::File> {
+    lock_or_tell(&lock_beside(path)?)
+}
+
+/// Returns the name of the lock file of `path` (`file_lock`), `.NAME.lock` beside it. Every
+/// window of every version takes the same one, so the names are pinned in src/frozen-1.0.txt.
+pub(crate) fn lock_beside(path: &Path) -> Option<PathBuf> {
     let name = path.file_name()?.to_string_lossy();
-    lock_or_tell(&path.with_file_name(format!(".{name}.lock")))
+    Some(path.with_file_name(format!(".{name}.lock")))
 }
 
 /// `open_and_lock` for an edit that goes on without the lock when it cannot be had, as on a
@@ -3024,7 +3030,10 @@ mod tests {
     /// A file reached through a link is written where the link points; the link stays.
     #[test]
     fn writes_through_links() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-link-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-writes-through-links-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let (real, link) = (dir.join("real"), dir.join("config"));
         std::fs::write(&real, "old").unwrap();
