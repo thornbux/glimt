@@ -313,8 +313,8 @@ fn parse_move_known(text: &str) -> Vec<Option<FileFingerprint>> {
 /// next start, so the marks and the sidecar of the file that went would else go to a later
 /// photo of that name. A file is told by its size and time, which a move to another disk keeps
 /// (`put_file`) to the resolution of that disk's file system, so the times are compared as any
-/// file system keeps them (`KnownAs::size_and_time`). A log without a list, of a Glimt before
-/// 0.82, is taken by its names. A pair left alone is told.
+/// file system keeps them (`KnownAs::size_and_time_as_kept`). A log without a list, of a Glimt
+/// before 0.82, is taken by its names. A pair left alone is told.
 fn is_the_file_that_went(
     to: &Path,
     known: Option<&[Option<FileFingerprint>]>,
@@ -325,7 +325,7 @@ fn is_the_file_that_went(
         return true;
     };
     let is_it = match known.get(step).copied().flatten() {
-        Some(fingerprint) => is_still_the_file(to, KnownAs::size_and_time(fingerprint)),
+        Some(fingerprint) => is_still_the_file(to, KnownAs::size_and_time_as_kept(fingerprint)),
         None => Err(changed_meanwhile()),
     };
     if let Err(e) = &is_it {
@@ -550,7 +550,9 @@ fn parse_known_line(line: &str) -> Option<FileFingerprint> {
 /// Returns the first name of `steps` (from, the step's file) that holds another file than the
 /// step's own, with the error to tell. A file is told by its size and time, not by its device,
 /// which a share, a FUSE mount or a card reader gets anew after the reboot the plan is kept
-/// for. A name that is not there is left to the step itself (`repair_step`), and so is a swap's
+/// for. Its time is compared to the nanosecond, as a rename keeps it, so a file of the same
+/// size written a moment later is still another file. A name that is not there is left to the
+/// step itself (`repair_step`), and so is a swap's
 /// hidden name. A name whose look failed is refused, as it may be another file all the same.
 /// Each name is looked at before any step is taken, as no earlier step of the repair fills a
 /// name of the user's that a later step takes a file from.
@@ -1552,6 +1554,45 @@ mod tests {
         assert_eq!(read("a.jpg"), "a");
         assert!(super::cut_short_plans(&plans).is_empty());
         assert!(!super::known_path(&plan).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file of the same size whose time is 1 second off the plan's file is another file, and
+    /// the repair leaves it alone. A rename keeps a file's time to the nanosecond, so the plan's
+    /// checks compare it exactly. Before, the 2 seconds that a Move to another disk allows
+    /// reached them too, and a photo of a batch export written a second later was taken for the
+    /// plan's photo and given its old name.
+    #[test]
+    fn a_file_of_the_same_size_a_second_off_is_another_file() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-second-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        let set_time = |path: &std::path::Path, seconds| {
+            let file = std::fs::File::options().write(true).open(path).unwrap();
+            let time = std::time::UNIX_EPOCH + std::time::Duration::new(seconds, 500_000_000);
+            file.set_modified(time).unwrap();
+        };
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        set_time(&p("a.jpg"), 1_700_000_000);
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        super::rename_step(&moves[0].0, &moves[0].1).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        // Another photo of the batch, of the same size and a second later, takes b.jpg's name.
+        std::fs::remove_file(p("b.jpg")).unwrap();
+        std::fs::write(p("b.jpg"), "x").unwrap();
+        set_time(&p("b.jpg"), 1_700_000_001);
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        assert!(super::names_left(&plan, &moves, done, true).contains(": "));
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((0, 1))
+        );
+        assert_eq!(std::fs::read_to_string(p("b.jpg")).unwrap(), "x");
+        assert!(!p("a.jpg").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
