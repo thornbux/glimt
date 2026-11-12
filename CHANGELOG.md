@@ -112,9 +112,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   take it. Before, it said nothing.
 - A few images on a share that stopped answering no longer stop every other image and
   thumbnail from being decoded. A decode or thumbnail worker, or the info panel's reader, that
-  waits more than ten seconds is given up, and another takes its place. The info panel and the
-  EXIF window show only the EXIF of the image shown. Before, a read that never answered left
-  the EXIF of the image before it, GPS link included, under every later name.
+  waits more than ten seconds is given up, and another takes its place. The info panel, the
+  EXIF window and the full screen info keep what they read of the image before for half a
+  second at most while the next image is read, and the panel's fields cannot be edited
+  meanwhile. Before, a read that never answered left the EXIF of the image before it, GPS link
+  included, under every later name. The panel no longer blinks at each image either, as its
+  keyword fields and keyword tree stay while the next image is read.
 - In Import Lightroom Catalog, a folder typed on a share that stopped answering no longer keeps
   every later field from showing its check mark.
 - `--remote`: a client has ten seconds for its whole command, not for each read, and each record
