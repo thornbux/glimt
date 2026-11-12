@@ -23,6 +23,10 @@ const FINGERPRINT_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 #[cfg(test)]
 const FINGERPRINT_WAIT: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// The modification time that some FUSE and MTP file systems give every file, as they do not
+/// know it. A folder is not told apart by this time (`folder_time`).
+const TIME_NOT_KNOWN: (i64, i64) = (0, 0);
+
 /// In a test, a file picked whose fingerprint never comes, as on a share that stopped
 /// answering, until the test takes it away.
 #[cfg(test)]
@@ -284,8 +288,9 @@ impl ListedFile {
 #[derive(Clone, Copy)]
 pub(crate) struct KnownAs<'a> {
     fingerprint: Option<FileFingerprint>,
-    /// Whether the fingerprint is compared without the device (`size_and_time`).
-    without_device: bool,
+    /// Whether the fingerprint is compared as one taken on another mount (`size_and_time`):
+    /// without the device, and with the time as any file system keeps it (`same_time_as_kept`).
+    is_from_another_mount: bool,
     listed: Identity,
     list_is_old: Option<&'a ListIsOld>,
 }
@@ -295,19 +300,22 @@ impl<'a> KnownAs<'a> {
     pub(crate) fn fingerprint(fingerprint: FileFingerprint) -> KnownAs<'a> {
         KnownAs {
             fingerprint: Some(fingerprint),
-            without_device: false,
+            is_from_another_mount: false,
             listed: None,
             list_is_old: None,
         }
     }
 
-    /// A file known by the size and time of the fingerprint it had when it was picked, without
-    /// its device: a Rename Many's plan, read again after a reboot, when a share, a FUSE mount
-    /// or a card reader may have come back with another device number.
+    /// A file known by the size and time of the fingerprint it had on another mount, or before
+    /// a reboot: a Rename Many's plan or a Move's log, read again at the next start. A share, a
+    /// FUSE mount or a card reader may have come back with another device number, so the device
+    /// is left out. A Move to another disk sets the time of the copy, which that disk keeps only
+    /// to its own resolution, so the times are compared as any file system keeps them
+    /// (`same_time_as_kept`).
     pub(crate) fn size_and_time((_, size, time): FileFingerprint) -> KnownAs<'a> {
         KnownAs {
             fingerprint: Some((None, size, time)),
-            without_device: true,
+            is_from_another_mount: true,
             listed: None,
             list_is_old: None,
         }
@@ -318,7 +326,7 @@ impl<'a> KnownAs<'a> {
     pub(crate) fn listed(identity: Identity, list_is_old: &'a ListIsOld) -> KnownAs<'a> {
         KnownAs {
             fingerprint: None,
-            without_device: false,
+            is_from_another_mount: false,
             listed: identity,
             list_is_old: Some(list_is_old),
         }
@@ -346,8 +354,8 @@ pub(crate) struct PickedFiles {
     /// The flag of the window whose list showed the files (`ListIsOld`).
     list_is_old: ListIsOld,
     fingerprints: crate::support::threads::Receiving<Option<FileFingerprint>>,
-    /// Whether the paths are folders, which are told apart by what `folder_fingerprint` keeps.
-    /// A folder's size changes with every file put into it.
+    /// Whether the paths are folders, which are told apart by their inode or their time
+    /// (`is_still_the_folder`), not by their size, which changes with every file put into them.
     are_folders: bool,
 }
 
@@ -428,7 +436,7 @@ impl PickedFiles {
         std::thread::spawn(move || {
             for path in taken.iter() {
                 // Once nobody waits for them, the rest are not taken.
-                if tx.send(picked_fingerprint(path, are_folders)).is_err() {
+                if tx.send(picked_fingerprint(path)).is_err() {
                     break;
                 }
             }
@@ -509,27 +517,16 @@ impl PickedFingerprints {
     /// fingerprint did not come in time.
     pub(crate) fn still_the_one_picked(&self, path: &Path) -> std::io::Result<()> {
         let (picked, listed) = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
-        // A folder is told by its inode alone, which it keeps while files come and go, or else
-        // by its device and time (`folder_fingerprint`). One that is gone is left to the act.
-        let known = match self.are_folders {
-            true if picked.2 != (0, 0) => {
-                return match fingerprint_or_error(path) {
-                    Ok(now) if folder_fingerprint(now, false) == picked => Ok(()),
-                    Ok(_) => Err(changed_meanwhile()),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                    Err(e) => Err(e),
-                };
-            }
-            true => KnownAs::listed(
-                picked.0.and_then(|id| std::num::NonZeroU64::new(id.1)),
-                &self.list_is_old,
-            ),
-            false => KnownAs {
-                fingerprint: Some(picked),
-                without_device: false,
-                listed,
-                list_is_old: Some(&self.list_is_old),
-            },
+        if self.are_folders {
+            let kind = file_system_type(path);
+            let keeps_inodes = kind.is_some_and(|kind| has_lasting_inodes(&kind));
+            return is_still_the_folder(path, picked, keeps_inodes, &self.list_is_old);
+        }
+        let known = KnownAs {
+            fingerprint: Some(picked),
+            is_from_another_mount: false,
+            listed,
+            list_is_old: Some(&self.list_is_old),
         };
         is_still_the_file(path, known)
     }
@@ -1572,8 +1569,9 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// Looks whether the file at `path` is still the file `known`: the one rule by which Glimt
 /// tells, right before a change, that no other file has taken the name since the list showed
 /// it, the user picked it or Glimt read it. Another inode than the one its folder listed is
-/// refused, and an unknown one passes. With a fingerprint, the device (unless `size_and_time`),
-/// size and time must also be the same (`same_fingerprint`), and a file that is gone is
+/// refused, and an unknown one passes. With a fingerprint, the device, size and time must also
+/// be the same (`same_fingerprint`), or for `size_and_time` the size and the time as any file
+/// system keeps it (`same_time_as_kept`), and a file that is gone is
 /// refused; without one, a file that is gone is left to the operation to tell. Another file
 /// found has the window whose list it is read its folder again (`ListIsOld`). It waits for the
 /// disk, so it is called in the thread that makes the change. Returns the error to tell. A look
@@ -1593,12 +1591,12 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
         let Some(before) = known.fingerprint else {
             return Ok(());
         };
-        let without_device = |(id, size, time): FileFingerprint| match known.without_device {
-            true => (None, size, time),
-            false => (id, size, time),
+        let is_same = |now: FileFingerprint| match known.is_from_another_mount {
+            true => before.1 == now.1 && same_time_as_kept(before.2, now.2),
+            false => same_fingerprint(before, now),
         };
         match fingerprint_or_error(path) {
-            Ok(now) if same_fingerprint(before, without_device(now)) => return Ok(()),
+            Ok(now) if is_same(now) => return Ok(()),
             Ok(_) => changed_meanwhile(),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(gone_meanwhile()),
             Err(e) => return Err(e),
@@ -1757,8 +1755,8 @@ fn paths_and_identities(files: Vec<ListedFile>) -> (Vec<PathBuf>, Listed) {
 }
 
 /// Returns the fingerprint of the file at `path`, picked before a wait, or `None` when nothing is
-/// there. A folder (`is_folder`) has what tells it apart (`folder_fingerprint`).
-fn picked_fingerprint(path: &Path, is_folder: bool) -> Option<FileFingerprint> {
+/// there.
+fn picked_fingerprint(path: &Path) -> Option<FileFingerprint> {
     #[cfg(test)]
     loop {
         let stalls = lock_even_if_poisoned(&FINGERPRINT_STALLS).as_deref() == Some(path);
@@ -1767,26 +1765,43 @@ fn picked_fingerprint(path: &Path, is_folder: bool) -> Option<FileFingerprint> {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let found = fingerprint(path)?;
-    Some(match is_folder {
-        true => {
-            let kind = file_system_type(path);
-            folder_fingerprint(found, kind.is_some_and(|kind| has_lasting_inodes(&kind)))
-        }
-        false => found,
-    })
+    fingerprint(path)
 }
 
-/// Returns what tells apart the folder whose fingerprint is `found`, picked before a wait: its
-/// device and inode where its file system keeps a file's inode (`keeps_inodes`), and elsewhere
-/// its device and modification time, as FAT, exFAT and FUSE may give its inode to another folder
-/// later. Its size is left out, as it changes with what is put into it, and so is its time where
-/// the inode tells it. The time then refuses a folder that files came into or left since.
-fn folder_fingerprint((id, _, time): FileFingerprint, keeps_inodes: bool) -> FileFingerprint {
-    match keeps_inodes {
-        true => (id, 0, (0, 0)),
-        false => (id.map(|(device, _)| (device, 0)), 0, time),
+/// Looks whether the folder at `path` is still the folder whose fingerprint was `picked`, on a
+/// file system that keeps a file's inode or not (`keeps_inodes`). A folder is told by its inode
+/// alone, which it keeps while files come and go, or else by its device and time
+/// (`folder_time`). Another inode found has the window whose list is `list_is_old` read its
+/// folder again. A folder that is gone is left to the act. Returns the error to tell.
+fn is_still_the_folder(
+    path: &Path,
+    picked: FileFingerprint,
+    keeps_inodes: bool,
+    list_is_old: &ListIsOld,
+) -> std::io::Result<()> {
+    let Some(time) = folder_time(picked, keeps_inodes) else {
+        let inode = picked
+            .0
+            .and_then(|(_, inode)| std::num::NonZeroU64::new(inode));
+        return is_still_the_file(path, KnownAs::listed(inode, list_is_old));
+    };
+    let device = |(id, _, _): FileFingerprint| id.map(|(device, _)| device);
+    match fingerprint_or_error(path) {
+        Ok(now) if device(now) == device(picked) && now.2 == time => Ok(()),
+        Ok(_) => Err(changed_meanwhile()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
     }
+}
+
+/// Returns the modification time by which the folder whose fingerprint is `found` is told apart,
+/// with its device, where its file system does not keep a file's inode (`keeps_inodes`), as FAT,
+/// exFAT and FUSE may give the inode to another folder later. The time then refuses a folder
+/// that files came into or left since. Returns `None` where the inode tells the folder instead:
+/// where the file system keeps it, and where the file system does not know the time
+/// (`TIME_NOT_KNOWN`), as nothing else tells the folder there.
+fn folder_time((_, _, time): FileFingerprint, keeps_inodes: bool) -> Option<(i64, i64)> {
+    Some(time).filter(|&time| !keeps_inodes && time != TIME_NOT_KNOWN)
 }
 
 /// Returns whether fingerprints `a` and `b` are of the same file, the one rule Glimt tells a file
@@ -1795,7 +1810,8 @@ fn folder_fingerprint((id, _, time): FileFingerprint, keeps_inodes: bool) -> Fil
 /// file system gives a freed inode to the next new file, so a file copied in at the name after the
 /// first one was deleted may have the same inode. The inode itself may differ, as FAT gives the
 /// same file another one later. Glimt's own rewrites of the
-/// file (a turn saved) update the fingerprint through `written_anew`, so they still match.
+/// file (a turn saved) update the fingerprint through `written_anew`, so they still match. A
+/// fingerprint taken on another mount is compared by `same_time_as_kept` instead.
 pub(crate) fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
     (a.1, a.2) == (b.1, b.2)
         && match (a.0, b.0) {
@@ -1803,6 +1819,21 @@ pub(crate) fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
             (None, None) => true,
             _ => false,
         }
+}
+
+/// Returns whether the modification times `a` and `b`, in seconds and nanoseconds, are the same
+/// time as any file system keeps it. A time set on a file is cut to the resolution its file
+/// system keeps: 2 seconds on FAT, 10 ms on exFAT, 100 ns on NTFS and SMB, and whole seconds on
+/// some FUSE file systems. So the time a Move to another disk gave the copy can be up to 2
+/// seconds before the time the file had, and a time within that of the other counts as the
+/// same. Glimt tells a file by this rule wherever the fingerprint was taken on another mount
+/// (`KnownAs::size_and_time`). Within one mount the times are compared to the nanosecond
+/// (`same_fingerprint`), as a file written again there in the same 2 seconds would else pass.
+pub(crate) fn same_time_as_kept(a: (i64, i64), b: (i64, i64)) -> bool {
+    let nanoseconds = |(seconds, nanoseconds): (i64, i64)| {
+        i128::from(seconds) * 1_000_000_000 + i128::from(nanoseconds)
+    };
+    (nanoseconds(a) - nanoseconds(b)).abs() < 2_000_000_000
 }
 
 /// Refuses to replace the file at `path` when this user may not write it: a photo made
@@ -2379,29 +2410,82 @@ mod tests {
         assert_eq!(super::MOUNT_TABLES_PARSED.get(), 1);
     }
 
+    /// A time cut to what FAT (2 s), exFAT (10 ms), NTFS (100 ns) or a FUSE mount (1 s) keeps
+    /// is the same time as kept, either way round, and a time 2 seconds or more off is not.
+    #[test]
+    fn a_time_is_the_same_as_any_file_system_keeps_it() {
+        let set = (1_700_000_001, 999_999_999);
+        for kept in [
+            (1_700_000_000, 0),
+            (1_700_000_001, 990_000_000),
+            (1_700_000_001, 0),
+        ] {
+            assert!(super::same_time_as_kept(set, kept) && super::same_time_as_kept(kept, set));
+        }
+        assert!(!super::same_time_as_kept(
+            (1_700_000_002, 0),
+            (1_700_000_000, 0)
+        ));
+        assert!(!super::same_time_as_kept(
+            (1_700_000_000, 0),
+            (1_699_999_997, 999_999_999)
+        ));
+    }
+
     /// A folder picked before a wait on a file system that may give its inode to another folder
     /// (FAT, exFAT, FUSE) is told apart by its device and time, not by that inode. Before, a
-    /// folder made since under the picked one's name could pass with the freed inode.
+    /// folder made since under the picked one's name could pass with the freed inode. Where the
+    /// file system keeps a folder's inode, the inode tells it, also when files came into it.
     #[test]
     fn a_folder_without_a_lasting_inode_is_told_by_its_time() {
         let dir =
             std::env::temp_dir().join(format!("glimt-test-folder-time-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let found = super::fingerprint(&dir).unwrap();
-        assert_eq!(super::folder_fingerprint(found, true), (found.0, 0, (0, 0)));
-        let picked = super::folder_fingerprint(found, false);
-        assert_eq!(picked.0.map(|(_, inode)| inode), Some(0));
+        let picked = super::fingerprint(&dir).unwrap();
+        assert_eq!(super::folder_time(picked, true), None);
+        assert_eq!(super::folder_time(picked, false), Some(picked.2));
+        super::is_still_the_folder(&dir, picked, false, &Default::default()).unwrap();
+        // Another folder in its place, as a folder that files came into, has another time.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.join("new.jpg"), "x").unwrap();
+        assert!(super::is_still_the_folder(&dir, picked, false, &Default::default()).is_err());
+        super::is_still_the_folder(&dir, picked, true, &Default::default()).unwrap();
         let fingerprints = super::PickedFingerprints {
             taken: [(dir.clone(), (picked, None))].into(),
             list_is_old: Default::default(),
             are_folders: true,
         };
-        fingerprints.still_the_one_picked(&dir).unwrap();
-        // Another folder in its place, as a folder that files came into, has another time.
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        std::fs::write(dir.join("new.jpg"), "x").unwrap();
-        assert!(fingerprints.still_the_one_picked(&dir).is_err());
+        if super::file_system_type(&dir).is_some_and(|kind| super::has_lasting_inodes(&kind)) {
+            fingerprints.still_the_one_picked(&dir).unwrap();
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder picked on a FUSE or MTP mount that gives every file the time 0 is told by its
+    /// inode, as nothing else tells it. Before, the time 0 was taken for the mark of a folder
+    /// told by its inode, and the inode kept was 0, so any folder at the name passed unlooked.
+    #[test]
+    fn a_folder_without_a_known_time_is_told_by_its_inode() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-folder-no-time-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (picked_dir, other) = (dir.join("picked"), dir.join("other"));
+        std::fs::create_dir_all(&picked_dir).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        for folder in [&picked_dir, &other] {
+            let opened = std::fs::File::open(folder).unwrap();
+            opened.set_modified(std::time::UNIX_EPOCH).unwrap();
+        }
+        let picked = super::fingerprint(&picked_dir).unwrap();
+        assert_eq!(picked.2, super::TIME_NOT_KNOWN);
+        super::is_still_the_folder(&picked_dir, picked, false, &Default::default()).unwrap();
+        // Another folder, with the same time 0, takes the picked one's name.
+        std::fs::rename(&picked_dir, dir.join("gone")).unwrap();
+        std::fs::rename(&other, &picked_dir).unwrap();
+        assert!(
+            super::is_still_the_folder(&picked_dir, picked, false, &Default::default()).is_err()
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -24,7 +24,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Delete for good, asked after the trash refused files on a network or cloud mount, deletes
   only the files as they were first picked, not another file put at a name since.
 - A folder picked on FAT, exFAT or FUSE is told by its time too before it is deleted, moved or
-  renamed, as its inode may be given to another folder.
+  renamed, as its inode may be given to another folder. Where the file system does not know
+  the time (some FUSE and MTP mounts), the folder is told by its inode as before.
 - A name that another file has taken since the folder was read loses the old photo's `exif:`
   entry, Pan view date and thumbnail.
 - Files picked before a question keep their paths once, not three or four times, and a list
@@ -53,7 +54,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   file that went follow it only when its new name still holds that file. Before, a photo that
   another program put there since, or a later photo of that name when the Move's log outlived
   it, got them. Each log now has a list of the files it moves in `moves/files`, beside it,
-  which older versions leave alone; a log without one is read as before.
+  which older versions leave alone; a log without one is read as before. A file is told by its
+  size and its time to the 2 seconds that any disk keeps, so the marks still follow a file
+  moved to an exFAT, FAT or NTFS disk or an SMB share.
 - A `--remote` command line that is not UTF-8 is answered "not done: not UTF-8". Before, the
   window closed the connection without an answer, which the client read as done.
 - The folder of the remote control sockets is made private through the folder itself, opened
@@ -84,7 +87,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and one more is told at once that it was not done.
 - `--wait --remote-all`, and `--wait` to a name that several windows share, send the command to
   every window before waiting for any, so each starts its work at once instead of after the
-  work of the one before.
+  work of the one before. Every window's answer is read at once, so a long `info` or
+  `selection` from one window is not cut short while another window's answer is read.
+- An answer of `--remote current`, `selection` or `select` that ends inside a path, as when the
+  window closed meanwhile, is printed as far as it came and told as not done (exit 3). Before,
+  it was taken as the whole answer.
 - A window that crashes while `--wait` waits for its work is told as closed, not as a Glimt
   that does not know `--wait`.
 - A window that starts under heavy load no longer takes the socket left by a Glimt gone for a
