@@ -47,6 +47,17 @@ thread_local! {
     static GOES_FIRST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+// The budget of this thread, when it was given one. The tests run side by side in one process,
+// and a test that held much of the shared budget for seconds, or waited first in line for all
+// of it, held up every decode of the other tests behind it. So each test's thread (named after
+// its test) has a budget of its own, and the other threads share `BUDGET`. A thread that a test
+// starts is given the test's budget, or one of its own, by setting this.
+#[cfg(test)]
+thread_local! {
+    static TEST_BUDGET: std::cell::Cell<Option<&'static DecodeBudget>> =
+        const { std::cell::Cell::new(None) };
+}
+
 pub struct Decoded {
     /// The file the job was for. It rejects results from a folder that has since been replaced.
     pub path: PathBuf,
@@ -181,9 +192,34 @@ pub struct DecodeJobBudget {
 impl Drop for DecodeJobBudget {
     fn drop(&mut self) {
         if self.is_outermost {
-            BUDGET.give_back(JOB_HOLDS.take().unwrap_or(0));
+            budget().give_back(JOB_HOLDS.take().unwrap_or(0));
         }
     }
+}
+
+/// Returns the budget that this thread's decodes take their bytes from, the shared `BUDGET`.
+/// In tests, each test's own thread has a budget of its own (`TEST_BUDGET`).
+fn budget() -> &'static DecodeBudget {
+    #[cfg(test)]
+    return TEST_BUDGET.get().unwrap_or_else(|| {
+        let is_a_test = std::thread::current()
+            .name()
+            .is_some_and(|n| n.contains("::"));
+        let budget = match is_a_test {
+            true => own_budget(),
+            false => &BUDGET,
+        };
+        TEST_BUDGET.set(Some(budget));
+        budget
+    });
+    #[cfg(not(test))]
+    return &BUDGET;
+}
+
+/// Returns a whole budget of its own, for a test's thread. It is kept to the end of the tests.
+#[cfg(test)]
+fn own_budget() -> &'static DecodeBudget {
+    Box::leak(Box::new(DecodeBudget::new(DECODE_BUDGET)))
 }
 
 /// Starts a decode job on this thread, or joins the one already running there. While the job
@@ -212,9 +248,9 @@ pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
     let job = JOB_HOLDS.get().is_none().then(start_decode_job);
     let held = JOB_HOLDS.get().unwrap_or(0);
     if bytes > held {
-        BUDGET.give_back(held);
+        budget().give_back(held);
         JOB_HOLDS.set(Some(0));
-        BUDGET.take(bytes, GOES_FIRST.get())?;
+        budget().take(bytes, GOES_FIRST.get())?;
         JOB_HOLDS.set(Some(bytes));
     }
     Ok(BudgetReservation { _job: job })
@@ -1281,7 +1317,10 @@ mod tests {
     fn glimts_own_image_takes_nothing_from_the_budget() {
         let whole = super::reserve_from_budget(super::DECODE_BUDGET).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
+        // The decode runs in a thread of its own, with the budget this test holds whole.
+        let held = super::budget();
         std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(held));
             let logo = include_bytes!("../../assets/glimt-256.png");
             tx.send(super::decode_glimts_own_image(logo).is_ok())
         });
@@ -1290,12 +1329,35 @@ mod tests {
         assert_eq!(decoded, Ok(true));
     }
 
+    /// Two tests never wait for each other's decodes, because each test's thread has a budget
+    /// of its own. Before, the tests shared Glimt's one budget, and a test that asked for the
+    /// whole of it waited first in line while an SVG test's drawing child held a quarter for
+    /// seconds. Every decode of the other tests waited behind it, and the file operations'
+    /// contract timed out now and then on "save frame over b".
+    #[test]
+    fn tests_never_wait_for_each_others_decode_budget() {
+        let whole = super::reserve_from_budget(super::DECODE_BUDGET).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let other_test = std::thread::Builder::new().name("other::tests::decodes".into());
+        other_test
+            .spawn(move || tx.send(super::reserve_from_budget(1).is_ok()))
+            .unwrap();
+        let taken = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(whole);
+        assert_eq!(
+            taken,
+            Ok(true),
+            "a test waited for another test's decode budget"
+        );
+    }
+
     /// A second reservation outside a decode job, while the first is held, does not wait for
     /// the first: together they need more than the budget. Before, it waited for good.
     #[test]
     fn a_reservation_outside_a_job_never_waits_for_itself() {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(super::own_budget()));
             let first = super::reserve_from_budget(super::DECODE_BUDGET / 2 + 1).unwrap();
             let second = super::reserve_from_budget(super::DECODE_BUDGET / 2 + 2).unwrap();
             drop((first, second));
