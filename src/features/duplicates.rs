@@ -65,6 +65,10 @@ type FoundGroups = (Vec<Vec<PathBuf>>, HashMap<PathBuf, u64>, Seen);
 /// out a file that no longer has it, as it may no longer be what the search found.
 type Seen = HashMap<PathBuf, FileFingerprint>;
 
+/// A group's checked files, and its unchecked ones with their fingerprints as the search saw
+/// them (`FindDuplicates::kept_beside_checked`).
+type CheckedAndKept = (Vec<PathBuf>, Vec<(PathBuf, FileFingerprint)>);
+
 /// The Find Duplicates window: what to compare by, the search running and its results.
 pub(crate) struct FindDuplicates {
     by: duplicates::By,
@@ -90,6 +94,22 @@ pub(crate) struct FindDuplicates {
 }
 
 impl FindDuplicates {
+    /// Each group with a checked file and a file left unchecked: its checked files, and the
+    /// unchecked ones with their fingerprints as the search saw them.
+    fn kept_beside_checked(&self) -> Vec<CheckedAndKept> {
+        let groups = self.groups.iter().map(|group| {
+            let (checked, kept): (Vec<&PathBuf>, Vec<&PathBuf>) =
+                group.iter().partition(|p| self.checked.contains(*p));
+            let kept = (kept.into_iter())
+                .filter_map(|p| self.seen.get(p).map(|seen| (p.clone(), *seen)))
+                .collect::<Vec<_>>();
+            (checked.into_iter().cloned().collect::<Vec<_>>(), kept)
+        });
+        groups
+            .filter(|(checked, kept)| !checked.is_empty() && !kept.is_empty())
+            .collect()
+    }
+
     /// The groups found: their count, buttons to check and uncheck, and the list, where a
     /// click on a name sets `show`. Returns whether Move to Trash was clicked.
     fn results(&mut self, ui: &mut egui::Ui, show: &mut Option<PathBuf>) -> bool {
@@ -360,23 +380,79 @@ impl crate::App {
 
     /// Move to Trash: the checked files of the list, through the usual delete with its
     /// confirmation. A file that is no longer as the search saw it (`Seen`) is left out and told,
-    /// as one edited since may no longer be a copy.
+    /// as one edited since may no longer be a copy. So are the checked files of a group whose
+    /// unchecked file is no longer as seen, as an edit of that one may have made it the last
+    /// copy of the original. That file is looked at in the background first.
     fn trash_checked(&mut self, ctx: &egui::Context, find_duplicates: &FindDuplicates) {
-        let checked = (0..self.list.files().len())
-            .filter(|&i| find_duplicates.checked.contains(&self.path(i)))
+        let groups = find_duplicates.kept_beside_checked();
+        let Some(folder) = (groups.iter())
+            .flat_map(|(_, kept)| kept.first())
+            .find_map(|(path, _)| path.parent().map(Path::to_path_buf))
+        else {
+            return self.trash_now(ctx, &find_duplicates.checked, &find_duplicates.seen);
+        };
+        let (checked, seen) = (
+            find_duplicates.checked.clone(),
+            find_duplicates.seen.clone(),
+        );
+        let held_back = checked.iter().cloned().collect();
+        let (found_tx, found) = std::sync::mpsc::channel();
+        let kept: Vec<_> = groups.iter().map(|(_, kept)| kept.clone()).collect();
+        // No busy pointer: the look, whose answer `wait_for_look_up_before_the_job` holds the
+        // pointer for. One given up ends when the share answers, or never.
+        std::thread::spawn(move || {
+            let changed: Vec<bool> = (kept.iter())
+                .map(|files| (files.iter()).any(|(path, seen)| !is_as_seen(path, *seen)))
+                .collect();
+            drop(found_tx.send(changed));
+        });
+        self.wait_for_look_up_before_the_job(
+            folder,
+            (held_back, true),
+            found,
+            move |app, ctx, changed: Vec<bool>| {
+                let left_out: HashSet<PathBuf> = (groups.into_iter().zip(changed))
+                    .filter(|(_, changed)| *changed)
+                    .flat_map(|((checked_in_group, _), _)| checked_in_group)
+                    .collect();
+                let checked: HashSet<PathBuf> = checked.difference(&left_out).cloned().collect();
+                if !checked.is_empty() {
+                    app.trash_now(ctx, &checked, &seen);
+                }
+                if !left_out.is_empty() {
+                    let files = count(left_out.len(), "file");
+                    app.notice.give(tf!(
+                        "{files} not moved to the trash: another file of their group changed after the search",
+                        files
+                    ));
+                }
+            },
+        );
+    }
+
+    /// Moves the files `checked` of the list to the trash, each only while it is as `seen`.
+    fn trash_now(&mut self, ctx: &egui::Context, checked: &HashSet<PathBuf>, seen: &Seen) {
+        let checked_rows = (0..self.list.files().len())
+            .filter(|&i| checked.contains(&self.path(i)))
             .collect();
-        if !self.select_for_action(ctx, checked) {
+        if !self.select_for_action(ctx, checked_rows) {
             return;
         }
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
-        if self.list.selected().len() == find_duplicates.checked.len() {
-            self.request_delete_as_seen(ctx, true, Some(&find_duplicates.seen));
+        if self.list.selected().len() == checked.len() {
+            self.request_delete_as_seen(ctx, true, Some(seen));
         } else {
             self.notice
                 .give(tr("The checked files are no longer all in the list").into());
         }
     }
+}
+
+/// Whether the file `path` is still as the search saw it, `seen`. It waits for the disk.
+fn is_as_seen(path: &Path, seen: FileFingerprint) -> bool {
+    let known = crate::files::file_io::KnownAs::fingerprint(seen);
+    crate::files::file_io::is_still_the_file(path, known).is_ok()
 }
 
 /// Groups of two or more of `paths` that match `by`, largest groups first, with the fingerprint
@@ -872,6 +948,45 @@ mod tests {
             app.notice.text()
         );
         assert_eq!(std::fs::read(&b).unwrap(), b"edited");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Move to Trash leaves out the checked copy of a group whose unchecked file was edited
+    /// after the search, and says so, as the copy may now be the last of the original. Before,
+    /// only the checked files were looked at, so the copy went to the trash.
+    #[test]
+    fn a_copy_whose_original_was_edited_is_not_trashed() {
+        use crate::support::test_support::{app_on, run_background_until};
+        let dir = std::env::temp_dir().join(format!("glimt-test-dup-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(3, 3).save(&a).unwrap();
+        std::fs::copy(&a, &b).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let mut find_duplicates = super::FindDuplicates::new();
+        app.start_find(&ctx, &mut find_duplicates);
+        let took = (find_duplicates.groups_rx).wait(std::time::Duration::from_secs(5));
+        let super::Took::Answer(((groups, _, seen), pointer)) = took else {
+            panic!("no groups");
+        };
+        drop(pointer);
+        (find_duplicates.groups, find_duplicates.seen) = (groups, seen);
+        std::fs::write(&a, "edited").unwrap();
+        find_duplicates.checked = [b.clone()].into();
+        app.config.confirm_trash = false;
+        app.trash_checked(&ctx, &find_duplicates);
+        let told = |app: &crate::App| {
+            (app.notice.text()).is_some_and(|n| n.contains("another file of their group"))
+        };
+        assert!(
+            run_background_until(&mut app, &ctx, told),
+            "{:?}",
+            app.notice.text()
+        );
+        assert!(b.exists() && !app.working());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

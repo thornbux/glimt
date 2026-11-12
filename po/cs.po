@@ -3949,3 +3949,8 @@ msgstr "{sidecar} nešlo přesunout ({e}), proto byl zkopírován do {copy} a je
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} neodpověděl do minuty, takže se nic neprovedlo"
+
+#: src/features/duplicates.rs
+#, fuzzy
+msgid "{files} not moved to the trash: another file of their group changed after the search"
+msgstr "Nepřesunuto do koše: {files}, jiný soubor ze skupiny se po hledání změnil"
