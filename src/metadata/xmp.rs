@@ -1815,8 +1815,8 @@ fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
 ///
 /// The declarations are a set of (prefix, URI), so a name is looked up once for each of `uris`,
 /// however many declarations a packet has. Before, every declaration was compared for each
-/// name, and a crafted packet of a few MB with a declaration and a property in each
-/// Description took hours.
+/// name, and a crafted packet of 16 MiB with a declaration and a property in each Description
+/// took about nine minutes (hours at 100 MB).
 pub(crate) fn is_in_namespace(
     name: &[u8],
     declared: &std::collections::HashSet<(&str, &str)>,
