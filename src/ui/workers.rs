@@ -211,6 +211,9 @@ impl crate::App {
                 if let Some(dropped) = self.send_waiting_sidecar_writes(ctx, None) {
                     self.tell_failed_write(dropped);
                 }
+                // A listing held while the rename ran may have been read in the middle of it,
+                // so the folder is read again, as the rename's report would have had it read.
+                self.start_listing(ctx);
             }
         }
         if !self.file_operations.receive_cut_short() {
