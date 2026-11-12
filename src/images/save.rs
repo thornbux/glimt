@@ -396,19 +396,26 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     // Only the photo's own properties count, not those of another document inside one, such
     // as a placed image in xmpMM:Pantry.
     let properties = crate::metadata::xmp::top_level_properties(xmp.as_bytes());
-    let value_of = |name: &str| {
-        (properties.iter())
-            .find(|found| xmp[found.name.clone()] == *name)
-            .map(|found| &xmp[found.value.clone()])
+    let named = |found: &&crate::metadata::xmp::TopLevelProperty, name: &str| {
+        xmp[found.name.clone()] == *name
     };
-    // The first item is the main image, and the others follow it in their order.
-    let items = value_of("Container:Directory").unwrap_or("");
-    let items = items.split("<Container:Item").skip(2);
-    let lengths = items.flat_map(|item| {
-        let attributes = crate::metadata::xmp::attributes(item);
+    let property = |name: &str| properties.iter().find(|found| named(found, name));
+    let value_of = |name: &str| property(name).map(|found| &xmp[found.value.clone()]);
+    // The first item is the main image, and the others follow it in their order. Their
+    // lengths are read in every form XMP writes them in, also as the elements that ExifTool
+    // writes, which were read as 0 before.
+    let directory = property("Container:Directory").filter(|found| !found.is_attribute);
+    let items = directory.map_or_else(Vec::new, |found| {
+        crate::metadata::xmp::structure_items(
+            xmp.as_bytes(),
+            found.value.clone(),
+            b"Container:Item",
+        )
+    });
+    let lengths = items.iter().skip(1).flat_map(|fields| {
         ["Item:Length", "Item:Padding"].map(|name| {
-            let value = attributes.iter().find(|(found, _)| *found == name);
-            value.and_then(|(_, value)| leading_number(value))
+            let field = fields.iter().find(|found| named(found, name));
+            field.and_then(|found| leading_number(&xmp[found.value.clone()]))
         })
     });
     let items_length: u64 = lengths.flatten().sum();
@@ -2804,7 +2811,55 @@ mod tests {
             "<rdf:Description>{}</rdf:Description>",
             directory(video.len())
         ));
-        for whole in [&mpf_file, &micro_video, &container] {
+        // ExifTool writes each item's fields as elements when it rewrites the XMP, as when it
+        // geotags a photo. These are a Pixel's and a Samsung's motion photo as it leaves them.
+        // Before, their lengths were read as 0, and a copy cut in the video was turned.
+        let pixel = with_xmp(format!(
+            "<rdf:Description rdf:about=''>\n <GCamera:MotionPhoto>1</GCamera:MotionPhoto>\n \
+             <Container:Directory>\n  <rdf:Seq>\n   <rdf:li rdf:parseType='Resource'>\n    \
+             <Container:Item rdf:parseType='Resource'>\n     \
+             <Item:Mime>image/jpeg</Item:Mime>\n     <Item:Semantic>Primary</Item:Semantic>\n    \
+             </Container:Item>\n   </rdf:li>\n   <rdf:li rdf:parseType='Resource'>\n    \
+             <Container:Item rdf:parseType='Resource'>\n     \
+             <Item:Length>{}</Item:Length>\n     <Item:Mime>video/mp4</Item:Mime>\n     \
+             <!-- <Item:Length>0</Item:Length> -->\n     \
+             <Item:Padding>0</Item:Padding>\n     \
+             <Item:Semantic>MotionPhoto</Item:Semantic>\n    </Container:Item>\n   \
+             </rdf:li>\n  </rdf:Seq>\n </Container:Directory>\n</rdf:Description>",
+            video.len()
+        ));
+        let samsung = with_xmp(format!(
+            "<rdf:Description rdf:about=''>\n <Container:Directory>\n  <rdf:Seq>\n   \
+             <rdf:li rdf:parseType='Resource'>\n    \
+             <Container:Item rdf:parseType='Resource'>\n     \
+             <Item:Mime>image/jpeg</Item:Mime>\n     <Item:Padding>0</Item:Padding>\n     \
+             <Item:Semantic>Primary</Item:Semantic>\n    </Container:Item>\n   </rdf:li>\n   \
+             <rdf:li rdf:parseType='Resource'>\n    \
+             <Container:Item rdf:parseType='Resource'>\n     \
+             <Item:Length>{}</Item:Length>\n     <Item:Mime>video/mp4</Item:Mime>\n     \
+             <Item:Padding>0</Item:Padding>\n     <Item:Semantic>MotionPhoto</Item:Semantic>\n    \
+             </Container:Item>\n   </rdf:li>\n  </rdf:Seq>\n </Container:Directory>\n\
+             <GCamera:MotionPhotoVersion>1</GCamera:MotionPhotoVersion>\n</rdf:Description>",
+            video.len()
+        ));
+        // The fields of an item may also be in an rdf:Description of their own.
+        let described = with_xmp(format!(
+            "<rdf:Description><Container:Directory><rdf:Seq><rdf:li><Container:Item>\
+             <rdf:Description Item:Semantic='Primary'/></Container:Item></rdf:li><rdf:li>\
+             <Container:Item><rdf:Description Item:Semantic='MotionPhoto'>\
+             <Item:Length>{}</Item:Length></rdf:Description></Container:Item></rdf:li>\
+             </rdf:Seq></Container:Directory></rdf:Description>",
+            video.len()
+        ));
+        let forms = [
+            &mpf_file,
+            &micro_video,
+            &container,
+            &pixel,
+            &samsung,
+            &described,
+        ];
+        for whole in forms {
             assert!(!super::looks_cut_short(whole, true));
             assert!(super::looks_cut_short(&whole[..whole.len() - 10], true));
         }
