@@ -595,7 +595,9 @@ whole module. The tests may unwrap (main.rs allows it for them).
   or to `write_sidecars` holds no `notice_sender`, and one that starts a job hands it only to
   `threads::told_work`.
   Both keep the window open when a close
-  waited for the writing. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
+  waited for the writing. A warning about a write that was made is not a failed write: an
+  edit that goes on without its lock is told by `file_io::lock_or_tell` as a notice, once for
+  each folder of locks, so that `--wait` still answers done and a close goes on. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
   the failed writes before it lets one through
   (`source_rules::a_close_takes_the_failed_writes_first`).
 - **An `unwrap` or `expect` outside the tests** is only where it cannot fail, with

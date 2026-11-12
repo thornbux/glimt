@@ -3063,6 +3063,48 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// An edit that goes on without its lock (NFS without lockd, a lock planted beside a
+    /// collection) while a `--wait` command waits leaves the command done, and the warning is
+    /// shown as a notice. Before, the warning was told as a failed write, so the command was
+    /// answered "not done" (exit 3) although the edit was made.
+    #[test]
+    fn wait_answers_done_after_an_edit_without_its_lock() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-wait-unlocked-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".marks.lock")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png"].map(Into::into).to_vec());
+        crate::files::file_io::take_saves_failed();
+        let work = crate::support::threads::Working::new(&app.busy);
+        let (reply, answer) = std::sync::mpsc::channel();
+        app.remote
+            .tx
+            .send(("wait next".to_owned(), Some(reply)))
+            .unwrap();
+        app.receive_remote(&ctx);
+        let marks = dir.join("marks");
+        let edited = crate::files::file_io::edit_shared(&marks, |_| (b"1".to_vec(), ()));
+        assert!(edited.is_ok());
+        drop(work);
+        let start = std::time::Instant::now();
+        let got = loop {
+            app.receive_remote(&ctx);
+            if let Ok(got) = answer.try_recv() {
+                break got;
+            }
+            assert!(start.elapsed() < std::time::Duration::from_secs(20));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert_eq!(got, super::OUTCOME_DONE.as_bytes(), "{got:?}");
+        assert_eq!(app.window.failed_writes_told(), 0);
+        let failed = crate::files::file_io::take_saves_failed();
+        assert!(failed.is_empty(), "told as a failed write: {failed:?}");
+        let shown = app.notice.text().unwrap_or_default();
+        assert!(shown.starts_with("Could not lock"), "{shown:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A hidden window runs `logic`, which calls `receive_remote`, but no `ui`. An `open` sent
     /// with `--wait` is still answered once its folder is read, and `name` once the name is
     /// taken. Before, the listing and the name's answer were taken only in `ui`, so the client
