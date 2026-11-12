@@ -612,7 +612,11 @@ is beside it too, as
 for one in the collections folder.
 .TP
 .IR $XDG_RUNTIME_DIR/glimt/glimt\-NAME.lock " and " $XDG_RUNTIME_DIR/glimt/sidecar\-locks
-The lock that a window holds while it takes over the socket of a Glimt gone, and the 64 locks
+The lock that a window holds while it takes over the socket of a Glimt gone, or while it
+links its socket to a new name
+.RB ( "\-\-remote name"
+or Window \(-> Set Window Name…),
+and the 64 locks
 of the
 .I .xmp
 sidecars, one of which a window holds while it writes a sidecar.

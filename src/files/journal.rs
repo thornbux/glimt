@@ -418,8 +418,10 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Resul
     Ok(plan)
 }
 
-/// Returns where the files that the steps of the plan `plan` move are written down.
-fn known_path(plan: &Path) -> PathBuf {
+/// Returns where the files that the steps of the plan or log `plan` move are written down. A
+/// Glimt that looked elsewhere would take every plan and log of an older one by its names
+/// alone, so the name is pinned in src/frozen-1.0.txt.
+pub(crate) fn known_path(plan: &Path) -> PathBuf {
     let name = plan.file_name().unwrap_or_default();
     lists_folder(plan.parent().unwrap_or(Path::new(""))).join(name)
 }

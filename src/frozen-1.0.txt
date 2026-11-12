@@ -536,3 +536,8 @@ sidecar_lock files 64
 sidecar_lock /x/a.xmp by its folder's device 1 and inode 2 is sidecar-locks/6
 sidecar_lock /x/a.xmp by its folder's real path /y is sidecar-locks/30
 sidecar_lock /x/a.xmp by its path as written is sidecar-locks/1
+list of $XDG_STATE_HOME/glimt/renames/NAME is $XDG_STATE_HOME/glimt/renames/files/NAME
+list of $XDG_STATE_HOME/glimt/moves/NAME is $XDG_STATE_HOME/glimt/moves/files/NAME
+lock_kind lock file flock
+lock_kind plan flock
+lock_kind move log flock
