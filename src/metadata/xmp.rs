@@ -1812,9 +1812,14 @@ fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
 /// prefix counts when a default namespace (the prefix "") is one of them. XML puts only an
 /// element's name in the default namespace, and the readers of properties list no attribute
 /// without a prefix. Before, such an element was in no namespace.
+///
+/// The declarations are a set of (prefix, URI), so a name is looked up once for each of `uris`,
+/// however many declarations a packet has. Before, every declaration was compared for each
+/// name, and a crafted packet of a few MB with a declaration and a property in each
+/// Description took hours.
 pub(crate) fn is_in_namespace(
     name: &[u8],
-    declared: &[(&str, &str)],
+    declared: &std::collections::HashSet<(&str, &str)>,
     uris: &[&str],
     local: &str,
 ) -> bool {
@@ -1823,8 +1828,10 @@ pub(crate) fn is_in_namespace(
         Some(colon) => (&name[..colon], &name[colon + 1..]),
         None => (&b""[..], name),
     };
-    rest == local.as_bytes()
-        && (declared.iter()).any(|(p, uri)| p.as_bytes() == prefix && uris.contains(uri))
+    let Ok(prefix) = std::str::from_utf8(prefix) else {
+        return false;
+    };
+    rest == local.as_bytes() && uris.iter().any(|uri| declared.contains(&(prefix, *uri)))
 }
 
 /// Returns where the start tag of the first rdf:Description in `xmp` ends, at its '>' past any
@@ -4011,6 +4018,7 @@ mod tests {
         let all = super::namespace_declarations_with_default(xmp);
         assert_eq!(all, [("p", "urn:p"), ("", "urn:d")]);
         assert_eq!(super::namespace_declarations(xmp), [("p", "urn:p")]);
+        let all = all.into_iter().collect();
         let is = |name: &[u8], uri: &str| super::is_in_namespace(name, &all, &[uri], "Directory");
         assert!(is(b"Directory", "urn:d"));
         assert!(is(b"p:Directory", "urn:p"));
