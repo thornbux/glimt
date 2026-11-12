@@ -3920,6 +3920,11 @@ msgstr "Kohdetta {name} ei voitu lukita: {e}. Muutos, jonka toinen Glimt-ikkuna 
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "sitä ei ole asetettu, tai se ei ole tämän käyttäjän oma kansio"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "Kohdetta {sidecar} ei voitu siirtää ({e}), joten se kopioitiin kohteeseen {copy}, ja se on yhä myös vanhalla nimellään"
 

@@ -3931,6 +3931,11 @@ msgstr "Não foi possível bloquear {name}: {e}. Uma alteração feita no mesmo 
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "não está definida, ou não é uma pasta própria deste usuário"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} não pôde ser movido ({e}), então foi copiado para {copy} e continua também com o nome antigo"
 

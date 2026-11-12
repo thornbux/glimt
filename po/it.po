@@ -3920,6 +3920,11 @@ msgstr "Impossibile bloccare {name}: {e}. Una modifica fatta nello stesso moment
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "non è impostata, o non è una cartella propria di questo utente"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} non è stato spostato ({e}), quindi è stato copiato in {copy} ed è ancora anche con il suo vecchio nome"
 

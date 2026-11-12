@@ -3148,6 +3148,10 @@ msgid "Could not lock {name}: {e}. A change that another Glimt window makes at t
 msgstr "Kunne ikke låse {name}: {e}. En endring som et annet Glimt-vindu gjør i samme øyeblikk, kan gå tapt."
 
 #: src/metadata/xmp.rs
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "den er ikke satt, eller er ikke en mappe som tilhører denne brukeren"
+
+#: src/metadata/xmp.rs
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunne ikke flyttes ({e}), så den ble kopiert til {copy} og ligger fortsatt under det gamle navnet også"
 

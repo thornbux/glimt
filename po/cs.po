@@ -3942,6 +3942,11 @@ msgstr "Nelze zamknout {name}: {e}. Změna, kterou ve stejnou chvíli provede ji
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "není nastavena, nebo to není vlastní složka tohoto uživatele"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} nešlo přesunout ({e}), proto byl zkopírován do {copy} a je stále i pod starým názvem"
 

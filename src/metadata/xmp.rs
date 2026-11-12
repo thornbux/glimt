@@ -81,6 +81,10 @@ const KNOWN_NAMESPACES: [(&str, &str); 31] = [
 /// It holds them across a gio call, which waits for ever on a share that stopped answering.
 const MOST_LOCKS_IN_A_CHUNK: usize = 4;
 
+/// Why there are no sidecar locks without a runtime folder, which the warning of `locks_in`
+/// shows in the user's language.
+const NO_RUNTIME_FOLDER: &str = "it is not set, or is not a folder of this user's own";
+
 /// The start of an rdf:Description's start tag, as `next_description` finds it.
 const DESCRIPTION: &[u8] = b"<rdf:Description";
 
@@ -760,7 +764,7 @@ fn lock_dir() -> Option<PathBuf> {
 /// keeping each other out, and the user is told so once, as when a lock cannot be had.
 fn locks_in(runtime: Option<PathBuf>) -> Option<PathBuf> {
     let Some(dir) = runtime else {
-        let why = "it is not set, or is not a folder of this user's own";
+        let why = crate::support::lang::tr(NO_RUNTIME_FOLDER);
         crate::files::file_io::tell_unlocked(PathBuf::new(), "$XDG_RUNTIME_DIR", why);
         return None;
     };
@@ -2325,8 +2329,14 @@ mod tests {
         assert_eq!(super::locks_in(None), None);
         let told = crate::files::file_io::take_lock_warning().unwrap_or_default();
         assert!(told.contains("$XDG_RUNTIME_DIR"), "{told}");
+        assert!(told.contains(super::NO_RUNTIME_FOLDER), "{told}");
         super::locks_in(None);
         assert_eq!(crate::files::file_io::take_lock_warning(), None);
+        // The reason is translated as the rest of the warning is. Before, it stayed English.
+        let msgid = format!("msgid \"{}\"", super::NO_RUNTIME_FOLDER);
+        for (code, _, _, po) in crate::support::lang::LANGUAGES {
+            assert!(po.contains(&msgid), "{code}");
+        }
     }
 
     /// The readers and editors see only the photo's own properties, the top-level ones of its

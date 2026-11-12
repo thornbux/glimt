@@ -3920,6 +3920,11 @@ msgstr "Konnte {name} nicht sperren: {e}. Eine Änderung, die ein anderes Glimt-
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "sie ist nicht gesetzt oder kein eigener Ordner dieses Benutzers"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} konnte nicht verschoben werden ({e}), daher wurde sie nach {copy} kopiert und liegt weiterhin auch unter dem alten Namen"
 

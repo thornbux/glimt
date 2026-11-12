@@ -3920,6 +3920,11 @@ msgstr "No se pudo bloquear {name}: {e}. Un cambio que otra ventana de Glimt hag
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "no está definida, o no es una carpeta propia de este usuario"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} no se pudo mover ({e}), así que se copió a {copy} y sigue también con su nombre anterior"
 
