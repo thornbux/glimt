@@ -3832,11 +3832,6 @@ msgstr "ei anna fil har teke namnet: mappa blir lesen på nytt"
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "Rename failed ({count}): {first}"
-msgstr "Endring av namn feila ({count}): {first}"
-
-#: src/files/file_ops.rs
-#, fuzzy
-msgid "Rename failed ({count}): {first}"
 msgstr "Namneendring feila ({count}): {first}"
 
 #: src/files/file_ops.rs

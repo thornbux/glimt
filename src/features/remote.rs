@@ -1791,7 +1791,8 @@ fn serve_clients(
     serve: impl Fn(UnixStream, ClientPlace) + Clone + Send + 'static,
 ) {
     // A free place is a message in this channel: taken before a client is accepted, and given
-    // back when its thread is done.
+    // back when its thread is done, or earlier by a command sent with `--wait`, which takes a
+    // place of `waiting_places` instead.
     let (free, places) = mpsc::channel();
     for _ in 0..most {
         let _ = free.send(());
@@ -2443,7 +2444,7 @@ mod tests {
         linking.join().unwrap().unwrap();
         assert!(
             !linked_while_held,
-            "linked while a starting window starting_windows_lock the lock"
+            "linked while a starting window held the lock"
         );
         assert!(std::os::unix::net::UnixStream::connect(&b).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
