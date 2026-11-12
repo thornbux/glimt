@@ -3954,3 +3954,17 @@ msgstr "{folder} neodpověděl do minuty, takže se nic neprovedlo"
 #, fuzzy
 msgid "{files} not moved to the trash: another file of their group changed after the search"
 msgstr "Nepřesunuto do koše: {files}, jiný soubor ze skupiny se po hledání změnil"
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Stejný název jako jiný vybraný obrázek z jiné složky: {images}"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Dát kopii nový název, když je její název obsazený (NÁZEV-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "; {files} given new names"
+msgstr "; nový název dostalo: {files}"

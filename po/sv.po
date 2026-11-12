@@ -3932,3 +3932,17 @@ msgstr "{folder} svarade inte inom en minut, så ingenting gjordes"
 #, fuzzy
 msgid "{files} not moved to the trash: another file of their group changed after the search"
 msgstr "{files} inte flyttade till papperskorgen: en annan fil i gruppen har ändrats efter sökningen"
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Samma namn som en annan vald bild, från en annan mapp: {images}"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Ge en kopia ett nytt namn när namnet är upptaget (NAMN-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "; {files} given new names"
+msgstr "; {files} fick nya namn"

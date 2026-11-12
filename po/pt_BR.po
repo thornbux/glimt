@@ -3943,3 +3943,17 @@ msgstr "{folder} não respondeu em um minuto, então nada foi feito"
 #, fuzzy
 msgid "{files} not moved to the trash: another file of their group changed after the search"
 msgstr "{files} não movidos para a lixeira: outro arquivo do grupo mudou depois da busca"
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Mesmo nome de outra imagem escolhida, de outra pasta: {images}"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Dar um novo nome a uma cópia cujo nome já existe (NOME-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "; {files} given new names"
+msgstr "; {files} com novo nome"

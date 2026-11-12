@@ -67,8 +67,9 @@ pub(crate) enum Pick {
     /// The folder for every frame (or page) of the file .0, as PNG files turned as the view
     /// showed it (.1).
     ExportFrames(PathBuf, save::CopyAs),
-    /// Copy for Sharing: the folder for the copies of these images, which keep the tags named.
-    CopyForSharing(PickedFiles, std::collections::HashSet<String>),
+    /// Copy for Sharing: the folder for the copies of these images, which keep the tags named,
+    /// and get a new name when theirs is taken if .2.
+    CopyForSharing(PickedFiles, std::collections::HashSet<String>, bool),
     /// Where to save this list of the files that a Rename Many cut short left not under the
     /// names they were to get (`journal::names_left`).
     SaveNamesLeft(String),
@@ -616,8 +617,8 @@ impl crate::App {
                 (Pick::SaveAs(picked, how, _), Some(to)) => {
                     self.save_as_to(ctx, picked, how, (to, at_pick))
                 }
-                (Pick::CopyForSharing(picked, kept), Some(dir)) => {
-                    self.copy_for_sharing(picked, dir, kept)
+                (Pick::CopyForSharing(picked, kept, renames), Some(dir)) => {
+                    self.copy_for_sharing(picked, dir, kept, renames)
                 }
                 (Pick::SaveNamesLeft(list), Some(file)) => {
                     self.work_on_cut_short(ctx, CutShortWork::SaveList(list, file, at_pick))

@@ -33,6 +33,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - While Include Subfolders reads the folders below, the file list no longer reads the size and
   date of the rows on screen again for each part of the tree that comes, which on a slow share
   kept it busy until the whole tree was read.
+### Added
+
+- Copy for Sharing says in its dialog how many of the selected images have the same name as
+  another one from another folder, as with View → Include Subfolders, and can give a copy whose
+  name is taken a new name, "NAME-2.EXT". The box is ticked when there are such images. Before,
+  the second image of a name was left out, and the message said only that the folder had files
+  of those names.
 
 ## [0.82.0] - 2026-11-12
 

@@ -3162,3 +3162,14 @@ msgstr "{folder} svarte ikke innen ett minutt, så ingenting ble gjort"
 #: src/features/duplicates.rs
 msgid "{files} not moved to the trash: another file of their group changed after the search"
 msgstr "{files} ikke flyttet til papirkurven: en annen fil i gruppa er endret etter søket"
+#: src/features/copy_for_sharing.rs
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Samme navn som et annet valgt bilde, fra en annen mappe: {images}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Gi en kopi nytt navn når navnet er tatt (NAVN-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} given new names"
+msgstr "; {files} fikk nye navn"
