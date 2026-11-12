@@ -187,10 +187,8 @@ impl MoveLog {
         crate::files::file_io::write_later_in_user_folders(move || {
             // A log left behind makes the marks follow again at every start, so a failure is
             // told.
-            // The list goes after the log, as a log without its list is taken by its names.
             crate::files::file_io::write_later(move || {
-                crate::files::file_io::remove_own_or_tell(&self.path);
-                crate::files::file_io::remove_own_or_tell(&known_path(&self.path));
+                remove_with_its_list(&self.path, crate::files::file_io::remove_own_or_tell);
             });
         });
     }
@@ -1048,14 +1046,23 @@ fn remove_plan(plan: &Path, names: &[PathBuf]) {
     let renames_synced = sync_folders(names);
     // A plan left behind would be offered again at the next start, and putting its old names
     // back would undo a finished rename, so a failure is told.
-    crate::files::file_io::remove_own_or_tell(plan);
     // shortcut: a crash between the two removals leaves the list of the plan's files behind,
     // and nothing removes it; a sweep at the start if those are ever seen in numbers.
-    crate::files::file_io::remove_own_or_tell(&known_path(plan));
+    remove_with_its_list(plan, crate::files::file_io::remove_own_or_tell);
     // The plan's folder is synced too, because a plan brought back by a power cut, after the
     // marks followed, would move them again. A disk that fails both is told once.
     let plan_name = [plan.to_path_buf()];
     tell_when_not_synced(renames_synced.and(sync_folders(&plan_name)));
+}
+
+/// Removes the plan or log `plan` with `remove`, which tells a failure and returns whether the
+/// file is gone, and then the list of its files. The list stays when the plan does, because a
+/// plan or log without its list is taken by its names alone at the next start, and could put a
+/// photo's stars on a later photo of that name.
+fn remove_with_its_list(plan: &Path, remove: impl Fn(&Path) -> bool) {
+    if remove(plan) {
+        remove(&known_path(plan));
+    }
 }
 
 /// Whether `file` still has a name. A plan that another window put right and deleted has none.
@@ -1066,6 +1073,29 @@ fn is_linked(file: &File) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// A Move log or Rename Many plan that could not be removed keeps its list of files, so the
+    /// next start does not take it by its names alone. Before, the list went anyway.
+    #[test]
+    fn a_plan_that_stays_keeps_its_list() {
+        let plan = std::path::Path::new("/state/moves/NAME");
+        let tried = std::cell::RefCell::new(Vec::new());
+        let tried = &tried;
+        let remove = |works: bool| {
+            move |path: &std::path::Path| {
+                tried.borrow_mut().push(path.to_path_buf());
+                works
+            }
+        };
+        super::remove_with_its_list(plan, remove(false));
+        assert_eq!(*tried.borrow(), [plan]);
+        tried.borrow_mut().clear();
+        super::remove_with_its_list(plan, remove(true));
+        assert_eq!(
+            *tried.borrow(),
+            [plan.to_path_buf(), super::known_path(plan)]
+        );
+    }
+
     /// A Move killed after a photo went and before its sidecar did leaves the sidecar at the old
     /// name. The next start moves it to the photo, but never over a sidecar at the new name.
     /// Before, the sidecar stayed behind, and the photo had no keywords.
