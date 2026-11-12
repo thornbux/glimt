@@ -35,9 +35,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A shared file (settings, marks, keyword tree, recent list, collections, sidecars) whose lock
   cannot be had, as on NFS without lockd, is still edited, and the window says once for each
   folder of locks that a change another window makes at the same moment may be lost. The
-  warning stays under every other notice until it has been shown, so the "Saved" of the same
-  Save As or Crop does not hide it. It is not a failed write, so a command sent with `--wait` is
-  still done and a close goes on. Before, it said nothing.
+  warning is shown under the other notices of the frame it comes in, so a "Saved" that comes
+  in the same frame does not hide it. It is not a failed write, so a command sent with `--wait`
+  is still done and a close goes on. Before, it said nothing.
 - Marks and stars set where there is no marks file, as neither `$HOME` nor `$XDG_STATE_HOME` is
   set, are told as not saved. Before, they were dropped without a word.
 - Stars above 5 in the marks file, which a later Glimt may write, are kept when this one
@@ -111,6 +111,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   written into a Description that is commented out nor with a prefix that only a comment
   declares (which darktable and digiKam refused), and a keyword or comment with an XML
   comment inside it is replaced, not written a second time beside it.
+- A motion photo whose XMP ExifTool has rewritten, as when it geotags a photo, counts as whole
+  only when its video is all there, while the file changed in the last minute, as one fresh
+  from the phone does. The lengths in its directory are read by their namespaces, also as
+  ExifTool 12.87 and later write them (GContainer, GItem), and the depth images of a portrait
+  photo in Dynamic Depth count too. Before, such a photo still being copied in could be turned
+  and lose its video.
 - A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
   instead says that the sidecar is still at the old name, where a later file of that name would
   take it. Before, it said nothing.
@@ -119,9 +125,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   waits more than ten seconds is given up, and another takes its place. The info panel, the
   EXIF window and the full screen info keep what they read of the image before for half a
   second at most while the next image is read, and the panel shows them disabled meanwhile:
-  its fields cannot be edited and its GPS link cannot be clicked. Before, a read that never answered left the EXIF of the image before it, GPS link
-  included, under every later name. The panel no longer blinks at each image either, as its
-  keyword fields and keyword tree stay while the next image is read.
+  its fields cannot be edited and its GPS link cannot be clicked. Before, a read that never
+  answered left the EXIF of the image before it, GPS link included, under every later name. The
+  panel no longer blinks at each image either, as its keyword fields and keyword tree stay
+  while the next image is read.
 - In Import Lightroom Catalog, a folder typed on a share that stopped answering no longer keeps
   every later field from showing its check mark.
 - `--remote`: a client has ten seconds for its whole command, not for each read, and each record
