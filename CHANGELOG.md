@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- When the log of a Move or the plan of a Rename Many could not be removed after it was done,
+  its list of files is kept too. Before, the list went, and the next start took the log by its
+  names alone, which could give a later photo of that name the stars and keywords of another.
+
 ## [0.82.0] - 2026-11-12
 
 ### Fixed
