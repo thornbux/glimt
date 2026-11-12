@@ -1691,8 +1691,10 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
         0xfe => Some(JPEG_COMMENT.to_owned()),
         0xe0..=0xef => Some(format!("JPEG APP{}", marker - 0xe0)),
         // What a decoder needs: the frame (SOFn), the Huffman, arithmetic and quantisation
-        // tables (DHT, DAC, DQT) and the restart interval (DRI).
-        0xc0..=0xc7 | 0xc9..=0xcf | 0xdb | 0xdd => None,
+        // tables (DHT, DAC, DQT), the restart interval (DRI), the number of lines (DNL), which
+        // gives the height when the frame says 0, and hierarchical JPEG's DHP and EXP. A tagged
+        // marker after the first scan is never listed, so it would go from every copy.
+        0xc0..=0xc7 | 0xc9..=0xcf | 0xdb..=0xdf => None,
         // Any other marker (JPG0 to JPG13, the reserved ones) can hold any text.
         _ => Some(format!("JPEG marker 0x{marker:02x}")),
     };
@@ -3560,6 +3562,38 @@ mod tests {
         assert!(has(&copy, b"\xff\xee\0\x0eAdobe\0\x64\0\0\0\0\x01"));
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy) && pixels(&original) == pixels(&kept));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The markers a decoder needs besides the frame and tables, DNL (the height when the frame
+    /// says 0) and hierarchical JPEG's DHP and EXP, are no tags and stay in every copy, also
+    /// after Remove All. Before, they were tagged, and one after the first scan, never listed,
+    /// went from every copy, so a copy of a DNL JPEG had height 0.
+    #[test]
+    fn markers_a_decoder_needs_stay() {
+        let dir = folder("needed-markers");
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        let needed = [
+            super::jpeg_segment(0xdc, &[0, 8]),
+            super::jpeg_segment(0xde, b"DHP-FRAME"),
+            super::jpeg_segment(0xdf, &[0x11]),
+        ];
+        let original = [&jpeg[..2], &needed.concat(), &jpeg[2..]].concat();
+        let path = dir.join("a.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        assert!(
+            !found.iter().any(|t| t.starts_with("JPEG marker")),
+            "{found:?}"
+        );
+        let mut left_out = super::LeftOut::default();
+        left_out.remove_all();
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        for segment in &needed {
+            assert!(copy.windows(segment.len()).any(|w| w == segment.as_slice()));
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
