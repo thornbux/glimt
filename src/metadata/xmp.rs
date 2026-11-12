@@ -739,7 +739,19 @@ fn lock_dir() -> Option<PathBuf> {
     #[cfg(test)]
     return None;
     #[cfg(not(test))]
-    return crate::features::remote::runtime_dir().map(|d| d.join(LOCK_FOLDER));
+    return locks_in(crate::features::remote::runtime_dir());
+}
+
+/// Returns the folder of the sidecar locks in Glimt's runtime folder `runtime`. Without one
+/// ($XDG_RUNTIME_DIR unset, relative or another user's), windows edit a sidecar without
+/// keeping each other out, and the user is told so once, as when a lock cannot be had.
+fn locks_in(runtime: Option<PathBuf>) -> Option<PathBuf> {
+    let Some(dir) = runtime else {
+        let why = "it is not set, or is not a folder of this user's own";
+        crate::files::file_io::tell_unlocked(PathBuf::new(), "$XDG_RUNTIME_DIR", why);
+        return None;
+    };
+    Some(dir.join(LOCK_FOLDER))
 }
 
 /// Takes the lock file `number` in `dir`, the number that `sidecar_lock_number` gives a sidecar.
@@ -2265,6 +2277,24 @@ pub(crate) fn keyword_tree_changed(
 
 #[cfg(test)]
 mod tests {
+    /// Without a runtime folder, sidecars are edited without the locks between windows, and
+    /// the user is told so once. Before, nothing was told.
+    #[test]
+    fn no_runtime_folder_is_told() {
+        let _ = crate::files::file_io::take_lock_warning();
+        let dir = std::path::PathBuf::from("/run/user/1000/glimt");
+        assert_eq!(
+            super::locks_in(Some(dir.clone())),
+            Some(dir.join(super::LOCK_FOLDER))
+        );
+        assert_eq!(crate::files::file_io::take_lock_warning(), None);
+        assert_eq!(super::locks_in(None), None);
+        let told = crate::files::file_io::take_lock_warning().unwrap_or_default();
+        assert!(told.contains("$XDG_RUNTIME_DIR"), "{told}");
+        super::locks_in(None);
+        assert_eq!(crate::files::file_io::take_lock_warning(), None);
+    }
+
     /// The readers and editors see only the photo's own properties, the top-level ones of its
     /// Descriptions. Before, the keywords of another document in xmpMM:Pantry were read as the
     /// photo's, and an edit of the keywords, the rating or the orientation changed that

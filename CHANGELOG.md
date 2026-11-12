@@ -10,6 +10,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - When the log of a Move or the plan of a Rename Many could not be removed after it was done,
   its list of files is kept too. Before, the list went, and the next start took the log by its
   names alone, which could give a later photo of that name the stars and keywords of another.
+- Without a runtime folder ($XDG_RUNTIME_DIR unset, or not the user's own), the window says
+  once that a change another Glimt window makes to a sidecar at the same moment may be lost,
+  as it does when a lock cannot be had. Before, sidecars were then edited without the locks
+  between windows, and nothing was said.
 
 ## [0.82.0] - 2026-11-12
 
