@@ -2478,9 +2478,22 @@ mod tests {
     /// a missing socket counts as no Glimt, never another error.
     #[test]
     fn a_look_at_a_socket_that_comes_late_is_waited_for_again() {
-        let late = || {
-            std::thread::sleep(std::time::Duration::from_millis(400));
-            false
+        // The first look answers only once the second has started, so after its own time ran
+        // out, however slowly the threads start. The second never answers in time. Before, the
+        // first slept 400 ms against a limit of 300 ms, and a runner under load that started it
+        // 200 ms late failed the test.
+        use std::sync::{Arc, Mutex, mpsc};
+        let (release, released) = mpsc::channel::<()>();
+        let released = Arc::new(Mutex::new(released));
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let late = move || {
+            if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                let _ = crate::support::threads::lock_even_if_poisoned(&released).recv();
+                return false;
+            }
+            let _ = release.send(());
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            true
         };
         let limit = std::time::Duration::from_millis(300);
         assert!(!super::connected_in_time(late, limit));
