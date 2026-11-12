@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Without a runtime folder ($XDG_RUNTIME_DIR unset, or not the user's own), the window says
+  once that a change another Glimt window makes to a sidecar at the same moment may be lost,
+  as it does when a lock cannot be had. Before, sidecars were then edited without the locks
+  between windows, and nothing was said.
+
 ## [0.82.0] - 2026-11-12
 
 ### Fixed
