@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- On a memory card (FAT, exFAT), an SMB share mounted with noserverino or an sshfs folder, a
+  sidecar is locked by its path again, so two windows that write it at once wait for each
+  other. Since 0.82 the lock went by the folder's inode number, which those file systems make
+  up and can change, so the two could take different locks and one change could be lost.
+  A 0.81 window still open after an upgrade to 0.82 or later takes other locks for sidecars on
+  other disks than the new windows do; close it after upgrading.
+
 ## [0.82.0] - 2026-11-12
 
 ### Fixed
