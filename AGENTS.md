@@ -608,9 +608,11 @@ whole module. The tests may unwrap (main.rs allows it for them).
   `threads::told_work`.
   Both keep the window open when a close
   waited for the writing. A warning about a write that was made is not a failed write: an
-  edit that goes on without its lock is told by `file_io::lock_or_tell` as a notice, once for
-  each folder of locks, so that `--wait` still answers done and a close goes on. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
-  the failed writes before it lets one through
+  edit that goes on without its lock is told by `file_io::lock_or_tell`, once for each folder
+  of locks, so that `--wait` still answers done and a close goes on. The window shows it with
+  `Notice::keep_until_drawn`, under every notice of the frame, so that none of them hides it.
+  A Close is sent only by `App::ask_to_close`, and `guard_close` takes the failed writes
+  before it lets one through
   (`source_rules::a_close_takes_the_failed_writes_first`).
 - **An `unwrap` or `expect` outside the tests** is only where it cannot fail, with
   `#[allow(clippy::unwrap_used)]` (or `expect_used`) on that one statement and the reason on
