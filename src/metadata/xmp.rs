@@ -1714,7 +1714,7 @@ fn start_tag_end(xmp: &[u8], start: usize) -> Option<usize> {
 
 /// Returns the attributes of a start tag's text `head` after its name, as (name, value), the
 /// value as written, up to what does not read as one.
-fn attributes(head: &str) -> Vec<(&str, &str)> {
+pub(crate) fn attributes(head: &str) -> Vec<(&str, &str)> {
     let (mut out, mut rest) = (Vec::new(), head);
     while let Some((name, after)) = rest.split_once('=') {
         let after = after.trim_start();

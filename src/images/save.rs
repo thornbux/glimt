@@ -393,11 +393,27 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     let xmp = xmp
         .map(|(_, body)| String::from_utf8_lossy(body))
         .unwrap_or_default();
+    // Only the photo's own properties count, not those of another document inside one, such
+    // as a placed image in xmpMM:Pantry.
+    let properties = crate::metadata::xmp::top_level_properties(xmp.as_bytes());
+    let value_of = |name: &str| {
+        (properties.iter())
+            .find(|found| xmp[found.name.clone()] == *name)
+            .map(|found| &xmp[found.value.clone()])
+    };
     // The first item is the main image, and the others follow it in their order.
-    let items = xmp.split("<Container:Item").skip(2);
-    let lengths = items.flat_map(|i| [xmp_number(i, "Item:Length"), xmp_number(i, "Item:Padding")]);
+    let items = value_of("Container:Directory").unwrap_or("");
+    let items = items.split("<Container:Item").skip(2);
+    let lengths = items.flat_map(|item| {
+        let attributes = crate::metadata::xmp::attributes(item);
+        ["Item:Length", "Item:Padding"].map(|name| {
+            let value = attributes.iter().find(|(found, _)| *found == name);
+            value.and_then(|(_, value)| leading_number(value))
+        })
+    });
     let items_length: u64 = lengths.flatten().sum();
-    let offset = xmp_number(&xmp, "GCamera:MicroVideoOffset").filter(|&back| back != 0);
+    let offset = value_of("GCamera:MicroVideoOffset").and_then(leading_number);
+    let offset = offset.filter(|&back| back != 0);
     let video_is_cut = offset.is_some_and(|back| {
         let start = (data.len() as u64)
             .checked_sub(back)
@@ -411,13 +427,10 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
         || length < image_end as u64 + items_length
 }
 
-/// Returns the number that the XMP `text` gives the property `name`, written as an attribute
-/// (`name="12"`) or as an element (`<name>12</name>`). Returns `None` when it has none.
-fn xmp_number(text: &str, name: &str) -> Option<u64> {
-    let after = &text[text.find(name)? + name.len()..];
-    let value = after
-        .strip_prefix("=\"")
-        .or_else(|| after.strip_prefix('>'))?;
+/// Returns the number that an XMP value `value` starts with, after its blanks, or `None` when
+/// it starts with no digit.
+fn leading_number(value: &str) -> Option<u64> {
+    let value = value.trim_start();
     let digits = value
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(value.len());
@@ -2775,17 +2788,36 @@ mod tests {
             let body = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
             [&main[..2], &jpeg_segment(0xe1, &body), &main[2..], &video].concat()
         };
-        let micro_video = with_xmp(format!("<x GCamera:MicroVideoOffset=\"{}\"/>", video.len()));
-        let container = with_xmp(format!(
-            "<Container:Directory><rdf:Seq><rdf:li><Container:Item Item:Semantic=\"Primary\"/>\
-             </rdf:li><rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" \
-             Item:Length=\"{}\"/></rdf:li></rdf:Seq></Container:Directory>",
+        let micro_video = with_xmp(format!(
+            "<rdf:Description GCamera:MicroVideoOffset=\"{}\"/>",
             video.len()
+        ));
+        let directory = |length: usize| {
+            format!(
+                "<Container:Directory><rdf:Seq><rdf:li><Container:Item \
+                 Item:Semantic=\"Primary\"/></rdf:li><rdf:li><Container:Item \
+                 Item:Semantic=\"MotionPhoto\" Item:Length=\"{length}\"/></rdf:li></rdf:Seq>\
+                 </Container:Directory>"
+            )
+        };
+        let container = with_xmp(format!(
+            "<rdf:Description>{}</rdf:Description>",
+            directory(video.len())
         ));
         for whole in [&mpf_file, &micro_video, &container] {
             assert!(!super::looks_cut_short(whole, true));
             assert!(super::looks_cut_short(&whole[..whole.len() - 10], true));
         }
+        // The lengths of another document inside a property, here a placed image's in
+        // xmpMM:Pantry, are not the photo's. Before, they were read as its own, and the photo
+        // was taken for one still being copied.
+        let pantry = with_xmp(format!(
+            "<rdf:Description><xmpMM:Pantry><rdf:Bag><rdf:li><rdf:Description \
+             GCamera:MicroVideoOffset=\"99999\">{}</rdf:Description></rdf:li></rdf:Bag>\
+             </xmpMM:Pantry></rdf:Description>",
+            directory(99999)
+        ));
+        assert!(!super::looks_cut_short(&pantry, true));
         let dir = std::env::temp_dir().join(format!("glimt-turn-mpf-cut-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
@@ -2812,7 +2844,7 @@ mod tests {
             .unwrap();
         let trailer = [&b"SEFH"[..], &[7; 100]].concat();
         let with_offset = |offset: usize| {
-            let xmp = format!("<x GCamera:MicroVideoOffset=\"{offset}\"/>");
+            let xmp = format!("<rdf:Description GCamera:MicroVideoOffset=\"{offset}\"/>");
             let body = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
             [&main[..2], &jpeg_segment(0xe1, &body), &main[2..], &trailer].concat()
         };
