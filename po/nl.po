@@ -3920,6 +3920,11 @@ msgstr "Kon {name} niet vergrendelen: {e}. Een wijziging die een ander Glimt-ven
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "deze is niet ingesteld, of is geen eigen map van deze gebruiker"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kon niet worden verplaatst ({e}), dus het is gekopieerd naar {copy} en staat ook nog onder de oude naam"
 

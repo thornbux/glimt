@@ -3158,6 +3158,10 @@ msgid "Could not lock {name}: {e}. A change that another Glimt window makes at t
 msgstr ""
 
 #: src/metadata/xmp.rs
+msgid "it is not set, or is not a folder of this user's own"
+msgstr ""
+
+#: src/metadata/xmp.rs
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr ""
 

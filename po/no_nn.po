@@ -3931,6 +3931,11 @@ msgstr "Kunne ikkje låse {name}: {e}. Ei endring som eit anna Glimt-vindauge gj
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "den er ikkje sett, eller er ikkje ei mappe som høyrer til denne brukaren"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunne ikkje flyttast ({e}), så ho vart kopiert til {copy} og ligg framleis under det gamle namnet òg"
 

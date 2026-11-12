@@ -3920,6 +3920,11 @@ msgstr "Gat ekki læst {name}: {e}. Breyting sem annar Glimt-gluggi gerir á sam
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "hún er ekki stillt, eða er ekki eigin mappa þessa notanda"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "Ekki tókst að færa {sidecar} ({e}), svo hún var afrituð í {copy} og er enn líka undir gamla nafninu"
 

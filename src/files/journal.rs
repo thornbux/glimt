@@ -370,8 +370,9 @@ fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
     use crate::metadata::xmp;
     let moving: std::collections::HashSet<&PathBuf> = went.iter().map(|(from, _)| from).collect();
     let mut names = xmp::AdobeNames::default();
+    let mut folders = xmp::FolderIds::new();
     for (from, to) in went {
-        let _lock = xmp::lock_sidecar(from);
+        let _lock = xmp::lock_sidecar_among(from, &mut folders);
         // The file stays at `to`, so the sidecars that followed stay with it. One copied, as it
         // could not be moved, is still at the old name too, and is told.
         let (failed, left_behind) = match xmp::follow(from, to, false, &moving, &mut names) {

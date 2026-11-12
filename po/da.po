@@ -3920,6 +3920,11 @@ msgstr "Kunne ikke låse {name}: {e}. En ændring, som et andet Glimt-vindue for
 
 #: src/metadata/xmp.rs
 #, fuzzy
+msgid "it is not set, or is not a folder of this user's own"
+msgstr "den er ikke sat, eller er ikke en mappe, der tilhører denne bruger"
+
+#: src/metadata/xmp.rs
+#, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunne ikke flyttes ({e}), så den blev kopieret til {copy} og ligger stadig også under det gamle navn"
 

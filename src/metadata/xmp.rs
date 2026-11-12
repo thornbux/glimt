@@ -81,6 +81,10 @@ const KNOWN_NAMESPACES: [(&str, &str); 31] = [
 /// It holds them across a gio call, which waits for ever on a share that stopped answering.
 const MOST_LOCKS_IN_A_CHUNK: usize = 4;
 
+/// Why there are no sidecar locks without a runtime folder, which the warning of `locks_in`
+/// shows in the user's language.
+const NO_RUNTIME_FOLDER: &str = "it is not set, or is not a folder of this user's own";
+
 /// The start of an rdf:Description's start tag, as `next_description` finds it.
 const DESCRIPTION: &[u8] = b"<rdf:Description";
 
@@ -240,6 +244,11 @@ enum Edited {
 /// A sidecar's lock while it is held. It holds the lock file, if it could be made, and the
 /// mutex in `SIDECAR_LOCKS` that its number picks.
 pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
+
+/// The folders of the sidecars that one operation locks, each with who it is (`folder_id`).
+/// Each folder is looked at once for the whole operation, as finding its file system's type
+/// reads the mount table, so a Move of 500,000 files of one folder reads it once.
+pub(crate) type FolderIds = std::collections::HashMap<PathBuf, Option<FileId>>;
 
 /// The RAW files and Adobe sidecars of each folder that one operation looks at, by their name
 /// stem (`adobe_stem`). A folder is read once for the whole operation, and only when a RAW file
@@ -647,12 +656,17 @@ pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, 
 /// holds it too, so a write that waited finds the photo gone, not its old name free for a
 /// sidecar.
 pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
-    lock_sidecar_in(lock_dir().as_deref(), path)
+    lock_sidecar_among(path, &mut FolderIds::new())
 }
 
-fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
-    let side = sidecar(path);
-    let hash = sidecar_hash(&side, folder_id(&side).as_ref());
+/// `lock_sidecar` for one file of an operation over many, which looks at each folder once
+/// (`FolderIds`).
+pub(crate) fn lock_sidecar_among(path: &Path, folders: &mut FolderIds) -> SidecarLock {
+    lock_sidecar_in(lock_dir().as_deref(), path, folders)
+}
+
+fn lock_sidecar_in(dir: Option<&Path>, path: &Path, folders: &mut FolderIds) -> SidecarLock {
+    let hash = sidecar_hash_among(&sidecar(path), folders);
     let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
     (
         dir.and_then(|d| lock_file(d, lock_file_number(hash))),
@@ -689,15 +703,18 @@ fn lock_sidecars_in<'a>(
 /// Returns `sidecar_hash` of the sidecar of each of `paths`, in their order. Each folder is
 /// looked at once, so 500,000 photos of one folder cost one look.
 fn sidecar_hashes<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<u64> {
-    let mut folders: std::collections::HashMap<PathBuf, Option<FileId>> = Default::default();
+    let mut folders = FolderIds::new();
     (paths.into_iter())
-        .map(|p| {
-            let side = sidecar(p);
-            let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
-            let id = folders.entry(folder).or_insert_with(|| folder_id(&side));
-            sidecar_hash(&side, id.as_ref())
-        })
+        .map(|p| sidecar_hash_among(&sidecar(p), &mut folders))
         .collect()
+}
+
+/// Returns `sidecar_hash` of the sidecar `side`, with its folder looked at only when `folders`
+/// does not have it yet.
+fn sidecar_hash_among(side: &Path, folders: &mut FolderIds) -> u64 {
+    let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
+    let id = folders.entry(folder).or_insert_with(|| folder_id(side));
+    sidecar_hash(side, id.as_ref())
 }
 
 /// Splits `paths` into the chunks whose sidecar locks a delete holds at once: at most
@@ -747,7 +764,7 @@ fn lock_dir() -> Option<PathBuf> {
 /// keeping each other out, and the user is told so once, as when a lock cannot be had.
 fn locks_in(runtime: Option<PathBuf>) -> Option<PathBuf> {
     let Some(dir) = runtime else {
-        let why = "it is not set, or is not a folder of this user's own";
+        let why = crate::support::lang::tr(NO_RUNTIME_FOLDER);
         crate::files::file_io::tell_unlocked(PathBuf::new(), "$XDG_RUNTIME_DIR", why);
         return None;
     };
@@ -783,19 +800,29 @@ pub(crate) fn lock_file_number(hash: u64) -> u64 {
     hash % LOCK_FILES
 }
 
-/// Returns who the folder of the sidecar `side` is (`save::file_id`), or `None` when it cannot
-/// be looked at, or when its file system makes up its inode numbers (`has_lasting_inodes`).
+/// Returns who the folder of the sidecar `side` is (`save::file_id`). Where its file system
+/// makes up its inode numbers (`has_lasting_inodes`), that is the folder's real path, with its
+/// links resolved, as an `Err`. Returns `None` when the folder cannot be looked at.
+///
+/// The type of the file system is found for the real path, because the identity follows links
+/// too. When it was found for the path as written, a link into a FAT card took the type of the
+/// folder that holds the link, and a sidecar on the card had a lock by inode and another by path.
 fn folder_id(side: &Path) -> Option<FileId> {
     let folder = side.parent().filter(|f| !f.as_os_str().is_empty());
     let folder = folder.unwrap_or(Path::new("."));
-    let kind = crate::files::file_io::file_system_type(folder);
-    is_known_by_inode(kind.as_deref()).then(|| crate::images::save::file_id(folder))?
+    let meta = std::fs::metadata(folder).ok()?;
+    let real = crate::model::listing::real_dir(folder);
+    let kind = crate::files::file_ops::file_system_type_or_test(&real);
+    Some(match is_known_by_inode(kind.as_deref()) {
+        true => crate::images::save::file_id_from_metadata(folder, &meta),
+        false => Err(real),
+    })
 }
 
 /// Whether a sidecar's lock goes by its folder's inode on a file system of type `kind`. FAT,
 /// exFAT, CIFS with noserverino and sshfs make inode numbers up, and they can change while the
 /// path stays, so two writers of one sidecar there could take two locks. There a sidecar is
-/// locked by its path, which never changes, as every sidecar was before 0.82.
+/// locked by its real path, which never changes, as every sidecar was by its path before 0.82.
 fn is_known_by_inode(kind: Option<&str>) -> bool {
     kind.is_some_and(crate::files::file_io::has_lasting_inodes)
 }
@@ -803,8 +830,9 @@ fn is_known_by_inode(kind: Option<&str>) -> bool {
 /// Returns FNV-1a of who the folder of the sidecar `side` is, `folder` (`folder_id`), and of
 /// the sidecar's name. So two windows that reach one folder by two paths (a link to it, a bind
 /// mount) take the same lock for its sidecars. It is the same in every Glimt from 0.82 on,
-/// also one built with another Rust, whose own hasher may differ. A folder that could not be
-/// looked at is taken by the sidecar's path as written.
+/// also one built with another Rust, whose own hasher may differ. A folder known by its real
+/// path gives the hash of the sidecar's real path, as 0.81 hashed a sidecar's path. A
+/// folder that could not be looked at is taken by the sidecar's path as written.
 pub(crate) fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let name = side.file_name().unwrap_or_default().as_bytes();
@@ -2301,8 +2329,14 @@ mod tests {
         assert_eq!(super::locks_in(None), None);
         let told = crate::files::file_io::take_lock_warning().unwrap_or_default();
         assert!(told.contains("$XDG_RUNTIME_DIR"), "{told}");
+        assert!(told.contains(super::NO_RUNTIME_FOLDER), "{told}");
         super::locks_in(None);
         assert_eq!(crate::files::file_io::take_lock_warning(), None);
+        // The reason is translated as the rest of the warning is. Before, it stayed English.
+        let msgid = format!("msgid \"{}\"", super::NO_RUNTIME_FOLDER);
+        for (code, _, _, po) in crate::support::lang::LANGUAGES {
+            assert!(po.contains(&msgid), "{code}");
+        }
     }
 
     /// The readers and editors see only the photo's own properties, the top-level ones of its
@@ -2573,11 +2607,14 @@ mod tests {
         );
     }
 
-    /// A sidecar on a file system that makes up its inode numbers is locked by its path, so one
-    /// path always takes one lock. Before 0.83 it went by the folder's inode there too, which
-    /// FAT and sshfs can change while the path stays, and two writers took two locks.
+    /// A sidecar on a file system that makes up its inode numbers is locked by its real path, so
+    /// one sidecar always takes one lock, also through a link to its folder. Before 0.83 it went
+    /// by the folder's inode there too, which FAT and sshfs can change while the path stays, and
+    /// two writers took two locks. Then the type was found for the path as written, which a link
+    /// into a FAT card took past, and the sidecar there was locked by its inode through the link
+    /// and by its path without it.
     #[test]
-    fn a_sidecar_is_locked_by_its_path_where_inodes_change() {
+    fn a_sidecar_is_locked_by_its_real_path_where_inodes_change() {
         for kind in ["vfat", "exfat", "fuse.sshfs", "cifs", "fuseblk"] {
             assert!(!super::is_known_by_inode(Some(kind)), "{kind}");
         }
@@ -2585,6 +2622,21 @@ mod tests {
         for kind in ["ext4", "btrfs", "xfs", "tmpfs", "overlay", "nfs4"] {
             assert!(super::is_known_by_inode(Some(kind)), "{kind}");
         }
+        let dir = std::env::temp_dir().join(format!("glimt-test-lock-fat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (card, link) = (dir.join("card"), dir.join("link"));
+        std::fs::create_dir_all(&card).unwrap();
+        std::os::unix::fs::symlink(&card, &link).unwrap();
+        let card = crate::model::listing::real_dir(&card);
+        crate::files::file_ops::test_mount(&card, Some("vfat"));
+        let real = super::sidecar(&card.join("a.jpg"));
+        let by_path = super::sidecar_hash(&real, None);
+        let through_link = super::sidecar(&link.join("a.jpg"));
+        let hashes = [&real, &through_link]
+            .map(|side| super::sidecar_hash(side, super::folder_id(side).as_ref()));
+        crate::files::file_ops::test_mount(&card, None);
+        assert_eq!(hashes, [by_path, by_path]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Two windows that name one folder differently, through a link to it, take the same lock
@@ -2626,7 +2678,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-slots-{}", std::process::id()));
         let photo = std::path::PathBuf::from("/photos/slot.jpg");
         for (first, then) in [(Some(dir.as_path()), None), (None, Some(dir.as_path()))] {
-            let lock = super::lock_sidecar_in(first, &photo);
+            let lock = super::lock_sidecar_in(first, &photo, &mut super::FolderIds::new());
             let (tx, rx) = std::sync::mpsc::channel();
             let (dir2, p) = (then.map(|d| d.to_path_buf()), photo.clone());
             let waiter = std::thread::spawn(move || {
