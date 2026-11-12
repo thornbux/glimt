@@ -1641,17 +1641,17 @@ fn element_properties(
     }
 }
 
-/// Returns the fields of each item named `name` inside `within`, the place of a property's
-/// value in `xmp`, in the order the items are written. Such items are the parts of a
-/// structure, such as the Container:Item elements of a motion photo's Container:Directory, and
-/// they are found at any depth inside the value. An item's fields are read in each form that
-/// XMP writes a structure in (`item_fields`). Comments, CDATA sections and processing
-/// instructions are passed over whole (`not_element_length`). The walk stops at such markup
-/// that does not end, and at an item that does not end.
+/// Returns the fields of each item whose name as written `is_item` takes, inside `within`, the
+/// place of a property's value in `xmp`, in the order the items are written. Such items are the
+/// parts of a structure, such as the Container:Item elements of a motion photo's
+/// Container:Directory, and they are found at any depth inside the value. An item's fields are
+/// read in each form that XMP writes a structure in (`item_fields`). Comments, CDATA sections
+/// and processing instructions are passed over whole (`not_element_length`). The walk stops at
+/// such markup that does not end, and at an item that does not end.
 pub(crate) fn structure_items(
     xmp: &[u8],
     within: std::ops::Range<usize>,
-    name: &[u8],
+    is_item: impl Fn(&[u8]) -> bool,
 ) -> Vec<Vec<TopLevelProperty>> {
     let (xmp, mut from, mut out) = (&xmp[..within.end], within.start, Vec::new());
     while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
@@ -1669,7 +1669,7 @@ pub(crate) fn structure_items(
             + (xmp[at + 1..gt].iter())
                 .take_while(|&&c| is_name_byte(c))
                 .count();
-        if xmp[at + 1..name_end] != *name {
+        if !is_item(&xmp[at + 1..name_end]) {
             from = gt + 1;
             continue;
         }
@@ -1740,12 +1740,13 @@ fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {
 }
 
 /// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written.
-/// It is the one reading of them, for `properties` and for the writers (`first_description`).
-/// A declaration inside a comment, a CDATA section or a processing instruction declares
-/// nothing, so these are passed over whole (`not_element_length`), and the reading stops at one
-/// that does not end. Before, a Description commented out declared its prefixes for the one
-/// after it, and the writers wrote a property with its prefix bound to nothing.
-fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
+/// It is the one reading of them, for `properties`, for the writers (`first_description`) and
+/// for `is_in_namespace`. A declaration inside a comment, a CDATA section or a processing
+/// instruction declares nothing, so these are passed over whole (`not_element_length`), and
+/// the reading stops at one that does not end. Before, a Description commented out declared
+/// its prefixes for the one after it, and the writers wrote a property with its prefix bound
+/// to nothing.
+pub(crate) fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
     let bytes = xmp.as_bytes();
     let (mut out, mut from, mut at) = (Vec::new(), 0, 0);
     while let Some(found) = bytes[at..].iter().position(|&c| c == b'<') {
@@ -1784,6 +1785,25 @@ fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
             out.push((prefix, uri));
         }
     }
+}
+
+/// Returns whether `name`, an element's or attribute's name as written ("GContainer:Item"), is
+/// `local` in one of the namespaces `uris`. Its prefix counts when any of the `declared`
+/// namespaces (`namespace_declarations`) binds it to one of them, whatever the prefix is. One
+/// writer's prefix is not another's: ExifTool writes Google's Container as GContainer, and
+/// Dynamic Depth binds Container to a namespace of its own.
+pub(crate) fn is_in_namespace(
+    name: &[u8],
+    declared: &[(&str, &str)],
+    uris: &[&str],
+    local: &str,
+) -> bool {
+    let Some(colon) = name.iter().position(|&c| c == b':') else {
+        return false;
+    };
+    let (prefix, rest) = (&name[..colon], &name[colon + 1..]);
+    rest == local.as_bytes()
+        && (declared.iter()).any(|(p, uri)| p.as_bytes() == prefix && uris.contains(uri))
 }
 
 /// Returns where the start tag of the first rdf:Description in `xmp` ends, at its '>' past any
@@ -3781,7 +3801,8 @@ mod tests {
         let read = |xmp: &[u8]| {
             let found = super::top_level_properties(xmp);
             let directory = found.into_iter().find(|f| !f.is_attribute);
-            directory.map(|d| super::structure_items(xmp, d.value, b"Container:Item"))
+            let is_item = |name: &[u8]| name == b"Container:Item";
+            directory.map(|d| super::structure_items(xmp, d.value, is_item))
         };
         let lengths: Vec<Vec<&str>> = (read(seed.as_bytes()).unwrap().iter())
             .map(|fields| fields.iter().map(|f| &seed[f.value.clone()]).collect())
