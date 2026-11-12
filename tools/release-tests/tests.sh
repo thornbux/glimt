@@ -61,15 +61,23 @@ if [ "$(id -u)" = 0 ]; then
     # needs a loop device, which run.sh gives only the part with that check, with --privileged.
     # Without one, that check fails and says so. The pattern does not match its own line.
     # Containers started at the same moment can take the same free loop device, and the one
-    # that loses fails, so the mount is tried again a few times.
+    # that loses fails, so the mount is tried again a few times. The kernel then makes a new
+    # device, but a privileged container's /dev is a copy taken when it started and lacks the
+    # new device's node, so each try makes the node of the device that losetup -f names (as
+    # "/dev/loopN (lost)" when the node is missing). Before, the container that lost the last
+    # free loop device of the host never mounted.
+    loop_mount() {
+        local try dev
+        for try in 1 2 3 4 5; do
+            dev=$(losetup -f) && dev=${dev%% *} && { [ -e "$dev" ] || mknod "$dev" b 7 "${dev#/dev/loop}"; }
+            mount -o loop${3:+,$3} "$1" "$2" 2>/dev/null && return
+            sleep 1
+        done
+    }
     if grep -q '^card=/mnt/[c]ard' "${SCRIPT:-/t/tests.sh}" \
         && truncate -s 16M /opt/card.img && mkfs.vfat -n CARD /opt/card.img >/dev/null \
         && mkdir -p /mnt/card; then
-        for try in 1 2 3 4 5; do
-            mount -o loop,uid=$(id -u tester),gid=$(id -g tester) /opt/card.img /mnt/card \
-                2>/dev/null && break
-            sleep 1
-        done
+        loop_mount /opt/card.img /mnt/card uid=$(id -u tester),gid=$(id -g tester)
     fi
     # The sftp:// folder of the check of network folders: an sshd on localhost that lets the
     # tester in with a key. ssh finds its keys in the home folder of /etc/passwd, not in $HOME.
@@ -95,7 +103,7 @@ if [ "$(id -u)" = 0 ]; then
         # gio refuses to trash on a tmpfs, so the trash's full disk is a small ext2 at
         # /mnt/disk, as a USB stick is, on a loop device tried again as the card's is.
         truncate -s 16M /opt/disk.img && mkfs.ext2 -q -b 4096 -m 0 /opt/disk.img
-        for try in 1 2 3 4 5; do mount -o loop /opt/disk.img /mnt/disk 2>/dev/null && break; sleep 1; done
+        loop_mount /opt/disk.img /mnt/disk
         chown tester: /mnt/disk
         cat >/opt/lossyfs.py <<'PY'
 import errno, os, sys, time
@@ -2162,7 +2170,17 @@ for v in new old; do
     cp $d/v.mp4 $d/one/w.mp4
     convert -size 64x64 xc:red $d/one/a.png
     convert -size 64x64 xc:red $d/two/b.png
-    printf '#!/bin/sh\nprintf "%%s\\n%%s\\n" %s %s\n' $d/one $d/two >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
+    # As zenity answers: the folders with the separator Glimt asks for between them (0.81 asks
+    # for a line break, 0.82 for "\n//\n", which no path holds) and a line break at the end.
+    cat >/tmp/stub/zenity <<'EOF'
+#!/bin/bash
+sep='|'
+while [ $# -gt 0 ]; do
+    case $1 in --separator) sep=$2; shift ;; --separator=*) sep=${1#--separator=} ;; esac
+    shift
+done
+EOF
+    echo "printf '%s%s%s\n' $d/one \"\$sep\" $d/two" >>/tmp/stub/zenity; chmod +x /tmp/stub/zenity
     config list_videos=false
     start $d/v.mp4; sleep 2
     menu File "Open Several Folders…"; sleep 3
@@ -5613,7 +5631,10 @@ else
             convert -size 400x300 xc:lime $back/c$k.png
             ln -s $lossy/stall-view-$v/c$k.png $d/c$k.png
         done
-        config decode_threads=1 preload=1 info_panel=true
+        # Without thumbnails, as the view shows the shown file's thumbnail while it is decoded,
+        # and c4's, lime, made before the stall, would stand where its decode is held. The view
+        # then keeps a.jpg, blue.
+        config decode_threads=1 preload=1 info_panel=true thumbnails=false
         start $d/a.jpg
         gps() { remote info $1 | sed -n 's/^exif.gps\t//p'; }
         gps_a=$(gps $d/a.jpg) gps_z=$(gps $d/z.jpg)
@@ -5770,6 +5791,29 @@ fi
 section "Glimt killed (kill -9) during a turn's save, a sidecar write and a Lightroom import: each file whole"
 # FAULT-7. Each writes a new copy beside the file and renames it over the name. Killed at any
 # moment, the file at the name is the old one or the new one, whole; never a part.
+# kill_once_rewritten GLOB: kills Glimt once one of every hundredth file of GLOB, from the 51st,
+# is written again (another inode, time or size), so the kill lands with most still to be
+# written, however fast the disk. Started before the keys that start the writes, it returns once
+# it has seen the files as they are; the caller waits for $killer. A watch that read the files
+# for a count of those written started after the keys, and on a /tmp in memory Glimt had
+# written all 3,000 before its first look.
+kill_once_rewritten() {
+    rm -f /tmp/killer-ready
+    python3 -c "
+import glob, os, signal, sys, time
+pattern, pid = sys.argv[1], int(sys.argv[2])
+def seen(p):
+    s = os.stat(p)
+    return s.st_ino, s.st_mtime_ns, s.st_size
+before = {p: seen(p) for p in sorted(glob.glob(pattern))[50::100]}
+open('/tmp/killer-ready', 'w').close()
+end = time.time() + 60
+while time.time() < end and all(seen(p) == s for p, s in before.items()):
+    pass
+os.kill(pid, signal.SIGKILL)" "$1" $GPID &
+    killer=$!
+    for i in $(seq 100); do [ -e /tmp/killer-ready ] && break; sleep 0.05; done
+}
 for v in new old; do
     as_version $v
     mkdir -p $XDG_STATE_HOME/glimt
@@ -5809,7 +5853,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     else note "old: a.png ${got:-not whole} $shape; $left temporary when killed, $after after a new start"; fi
     rm -rf $d
 
-    # Stars to XMP for 3,000 photos, each sidecar holding a keyword: killed halfway.
+    # Stars to XMP for 3,000 photos, each sidecar holding a keyword: killed once some are written.
     d=/tmp/kill-sidecars-$v
     rm -rf $d; mkdir -p $d
     convert -size 32x32 xc:blue $d/0001.jpg
@@ -5821,19 +5865,10 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     config xmp_stars=true
     start $d
     sleep 2
-    key ctrl+a; key alt+3
-    rated=$(python3 -c "
-import glob, os, signal, sys, time
-d, pid = sys.argv[1], int(sys.argv[2])
-end = time.time() + 60
-rated = 0
-while time.time() < end:
-    rated = sum('Rating' in open(p).read() for p in glob.glob(d + '/*.xmp'))
-    if rated >= 50:
-        break
-    time.sleep(0.02)
-os.kill(pid, signal.SIGKILL)
-print(rated)" $d $GPID)
+    key ctrl+a
+    kill_once_rewritten "$d/*.xmp"
+    key alt+3
+    wait $killer
     wait $GPID 2>/dev/null
     rated_after=$(grep -l Rating $d/*.xmp | wc -l)
     hidden=$(ls -A $d | grep -c '^\.')
@@ -5908,16 +5943,9 @@ PY
     answer $d/Catalog.lrcat
     menu File "Import Lightroom Catalog…"; sleep 3
     menu Next; sleep 3
+    kill_once_rewritten "$d/photos/*.xmp"
     menu Import
-    python3 -c "
-import glob, os, signal, sys, time
-d, pid = sys.argv[1], int(sys.argv[2])
-end = time.time() + 60
-while time.time() < end:
-    if sum('>Tag<' in open(p).read() for p in glob.glob(d + '/photos/*.xmp')) >= 100:
-        break
-    time.sleep(0.02)
-os.kill(pid, signal.SIGKILL)" $d $GPID
+    wait $killer
     wait $GPID 2>/dev/null
     tagged=$(grep -l '>Tag<' $d/photos/*.xmp | wc -l)
     hidden=$(ls -A $d/photos $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt | grep -c '^\.glimt')
