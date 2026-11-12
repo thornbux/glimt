@@ -239,7 +239,9 @@ impl crate::App {
     pub(crate) fn pan_view(&mut self, ctx: &egui::Context) {
         // The thumbnail workers make the cells drawn last frame (a frame late is soon enough);
         // this frame's are noted as they are drawn.
-        let mut view = self.list.take_pan_thumbs();
+        let mut view: Vec<_> = (self.list.take_pan_thumbs().into_iter())
+            .map(|i| self.path(i))
+            .collect();
         view.sort_unstable();
         view.dedup();
         self.thumbs.pan_view_shows(view);

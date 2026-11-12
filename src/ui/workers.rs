@@ -256,29 +256,30 @@ pub(crate) fn spawn_thumbnailers(
     on_screen: &OnScreenFiles,
     save: &Arc<AtomicBool>,
 ) -> (
-    mpsc::Sender<(usize, PathBuf, u64)>,
+    mpsc::Sender<(PathBuf, u64)>,
     mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
 ) {
-    let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf, u64)>();
+    let (thumb_jobs, thumb_rx) = mpsc::channel::<(PathBuf, u64)>();
     let (tx, thumbs_done) = mpsc::channel();
     let (on_screen, rotate, save, ctx) =
         (on_screen.clone(), rotate.clone(), save.clone(), ctx.clone());
-    // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
-    // changes without a restart.
-    let wait_for_turn = move |place: usize| {
-        let mut idle = lock_even_if_poisoned(&CPU_CHANGED.0);
-        while place >= thumb_threads(workers) {
-            idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
-        }
-    };
     spawn_worker_pool(
         cores(),
         STUCK_AFTER,
         thumb_rx,
-        wait_for_turn,
-        move |(idx, path, n): (usize, PathBuf, u64)| {
+        // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
+        // changes without a restart.
+        move |place| {
+            let mut idle = lock_even_if_poisoned(&CPU_CHANGED.0);
+            while place >= thumb_threads(workers) {
+                idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
+            }
+        },
+        // A job goes by its file, as the decoders' do, because a listing (a tree's next part)
+        // moves the files while the jobs wait.
+        move |(path, n): (PathBuf, u64)| {
             let wanted =
-                (lock_even_if_poisoned(&on_screen).iter()).any(|v| v.binary_search(&idx).is_ok());
+                (lock_even_if_poisoned(&on_screen).iter()).any(|v| v.binary_search(&path).is_ok());
             let result = wanted.then(|| {
                 let (rotate, save) = (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
                 let large = LARGE_THUMBS.load(Ordering::Relaxed);

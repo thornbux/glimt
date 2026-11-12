@@ -453,7 +453,9 @@ method.
   is checked without being listed.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
-  `latest` or `wait`, which also tell, once, when the thread is gone. An answer that the window
+  `latest` or `wait`, which also tell, once, when the thread is gone. A pool's workers judge a
+  job by its file, never by its place in the list, which a listing moves while the jobs wait
+  (`source_rules::worker_pools_judge_jobs_by_their_files`). An answer that the window
   must still act on (a report, a path looked up, a file saved) goes through a
   `threads::AnswerSender`, whose answer keeps the busy pointer on until the window has handled
   it, so the window never sees no work running in between
