@@ -3158,3 +3158,15 @@ msgstr "{sidecar} kunne ikke flyttes ({e}), så den ble kopiert til {copy} og li
 #: src/files/file_ops.rs
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} svarte ikke innen ett minutt, så ingenting ble gjort"
+
+#: src/features/copy_for_sharing.rs
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Samme navn som et annet valgt bilde, fra en annen mappe: {images}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Gi en kopi nytt navn når navnet er tatt (NAVN-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} given new names"
+msgstr "; {files} fikk nye navn"

@@ -3927,3 +3927,18 @@ msgstr "{sidecar} n'a pas pu être déplacé ({e}), il a donc été copié dans 
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} n'a pas répondu en une minute : rien n'a été fait"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Même nom qu'une autre image choisie, d'un autre dossier : {images}"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Donner un nouveau nom à une copie dont le nom est pris (NOM-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "; {files} given new names"
+msgstr "; {files} renommés"

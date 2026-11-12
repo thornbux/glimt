@@ -3949,3 +3949,18 @@ msgstr "{sidecar} nešlo přesunout ({e}), proto byl zkopírován do {copy} a je
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} neodpověděl do minuty, takže se nic neprovedlo"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Stejný název jako jiný vybraný obrázek z jiné složky: {images}"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Dát kopii nový název, když je její název obsazený (NÁZEV-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "; {files} given new names"
+msgstr "; nový název dostalo: {files}"

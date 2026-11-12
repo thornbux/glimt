@@ -3943,3 +3943,18 @@ msgstr "{sidecar} kunne ikkje flyttast ({e}), så ho vart kopiert til {copy} og 
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} svarte ikkje innan eitt minutt, så ingenting vart gjort"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Same name as another image picked, from another folder: {images}"
+msgstr "Same namn som eit anna valt bilete, frå ei anna mappe: {images}"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "Give a copy whose name is taken a new name (NAME-2.EXT)"
+msgstr "Gje ein kopi nytt namn når namnet er teke (NAMN-2.EXT)"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "; {files} given new names"
+msgstr "; {files} fekk nye namn"
