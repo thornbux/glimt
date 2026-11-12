@@ -132,6 +132,12 @@ pub(crate) struct InfoPanel {
     /// The moment the panel turned to another file than the one it read last, while that read
     /// has not answered. It is None once the read of the file asked for has answered.
     reading_since: Option<Instant>,
+    /// The moment that the panel, the EXIF window and the full screen info are drawn at
+    /// (`drawn`). `request_and_take_exif` reads the clock once before they are drawn, so the
+    /// rows and whether they are kept of the image before are decided at one moment. Before,
+    /// each read the clock, and at the end of `KEPT_WHILE_READING` the rows of the image before
+    /// could be drawn enabled for a frame, with their GPS link live.
+    drawn_at: Instant,
     /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
     exif_all: Vec<(&'static str, String, String)>,
     /// View → EXIF Window is open.
@@ -174,6 +180,7 @@ impl InfoPanel {
             exif_asked: None,
             exif: None,
             reading_since: None,
+            drawn_at: Instant::now(),
             exif_all: Vec::new(),
             reread_after_write: None,
             is_exif_window_open: false,
@@ -209,9 +216,10 @@ impl InfoPanel {
         self.keyword_tree = tree;
     }
 
-    /// Returns how what was read of `read` is drawn now for the shown file `shown`.
+    /// Returns how what was read of `read` is drawn for the shown file `shown`, at the moment
+    /// `drawn_at` that the drawing reads as now.
     fn drawn(&self, read: &Path, shown: &Path) -> Drawn {
-        drawn(read, shown, self.reading_since, Instant::now())
+        drawn(read, shown, self.reading_since, self.drawn_at)
     }
 
     /// Returns the info panel's rows to draw for the shown file `shown`, or None when none are
@@ -266,6 +274,7 @@ impl crate::App {
 
     /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
     pub(crate) fn request_and_take_exif(&mut self, ctx: &egui::Context) {
+        self.info_panel.drawn_at = Instant::now();
         self.reread_when_written();
         let path = self.path(self.list.shown());
         // A file whose name another file has taken since is another image, read anew.
@@ -1113,6 +1122,37 @@ mod tests {
         app.request_and_take_exif(&ctx);
         assert_eq!(app.info_panel.exif_row(&b, "File size"), None);
         assert!(app.info_panel.edit_drawn_for(&b).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The rows kept of the image before and whether they are kept are decided at one moment,
+    /// also when the time they are kept runs out between the two. Before, each read the clock,
+    /// so for one frame the rows could be drawn but not as kept, with their GPS link enabled.
+    #[test]
+    fn the_rows_and_whether_they_are_kept_are_decided_at_one_moment() {
+        let name = format!("glimt-test-exif-one-moment-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        // A stand-in for a reader that does not answer.
+        let (_answers, rx) = std::sync::mpsc::channel::<super::ExifRead>();
+        app.info_panel.exif_answers = rx;
+        app.show_file(&ctx, 1);
+        let edge = std::time::Duration::from_millis(50);
+        let since = Instant::now().checked_sub(super::KEPT_WHILE_READING - edge);
+        app.info_panel.reading_since = since;
+        app.request_and_take_exif(&ctx);
+        // The time runs out after the drawing has begun.
+        std::thread::sleep(edge * 2);
+        let b = dir.join("b.png");
+        assert!(app.info_panel.rows_drawn_for(&b).is_some());
+        let (read, _) = app.info_panel.exif.as_ref().unwrap();
+        let drawn = app.info_panel.drawn(read, &b);
+        assert_eq!(drawn, super::Drawn::KeptWhileReading);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
