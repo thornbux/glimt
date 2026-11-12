@@ -1523,9 +1523,16 @@ pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
         Err(e) => e,
     };
     let folder = path.parent().unwrap_or(Path::new("")).to_path_buf();
+    tell_unlocked(folder, &shown_path(path), e);
+    None
+}
+
+/// Tells once for the folder of locks `folder` that an edit goes on without its lock, the lock
+/// `name`, which could not be had for the reason `e`.
+pub fn tell_unlocked(folder: PathBuf, name: &str, e: impl std::fmt::Display) {
     let warning = crate::tf!(
         "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost.",
-        name = shown_path(path),
+        name,
         e
     );
     #[cfg(not(test))]
@@ -1534,7 +1541,6 @@ pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
     lock_even_if_poisoned(told_here())
         .locks
         .tell(folder, warning);
-    None
 }
 
 /// Opens the lock file `path`, making it when it is not there, and waits for its lock, which
