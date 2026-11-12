@@ -364,6 +364,10 @@ impl List {
         self.loaded_images = without_indices(std::mem::take(&mut self.loaded_images), removed);
         self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
         self.panes.clear();
+        // The cells pan view drew are named again in its next frame. Before, they were kept, and
+        // pan view read a place past the end of the shorter list, and the window crashed.
+        self.pan_thumbs.clear();
+        self.last_slide -= removed.partition_point(|&r| r < self.last_slide);
     }
 
     /// Lets go of everything that holds a place in the list, because files were taken out of
@@ -374,6 +378,7 @@ impl List {
         self.selected.clear();
         self.hidden_selected.clear();
         self.anchor = None;
+        self.range_end = None;
         self.rubber_band = None;
         self.dragging = None;
         self.decodes_pending.clear();
@@ -730,6 +735,84 @@ mod tests {
             .collect();
         let named: Vec<&str> = FATE.iter().map(|f| f.0).collect();
         assert_eq!(fields, named);
+    }
+
+    /// Every field of the list says what happens to it when files are taken out of the list in
+    /// place (`List::remove`, then `forget_places`), and the function named there touches it.
+    /// So a new field that holds a place in the list cannot keep a place past the end of a
+    /// shorter list, as `pan_thumbs` did, and pan view crashed the window after a Move.
+    #[test]
+    fn every_field_follows_files_taken_out_of_the_list() {
+        const ON_REMOVE: &[(&str, &str)] = &[
+            ("files", "remove"),
+            ("identities", "remove"),
+            ("shown", "set by remove_indices"),
+            ("selected", "forget_places"),
+            ("hidden_selected", "forget_places"),
+            ("anchor", "forget_places"),
+            ("range_end", "forget_places"),
+            ("panes", "remove"),
+            ("loaded_images", "remove"),
+            ("decode_errors", "remove"),
+            ("decodes_pending", "forget_places"),
+            ("matches", "worked out again: update_search"),
+            ("is_match", "worked out again: update_search"),
+            ("match_size", "worked out again: update_search"),
+            ("rubber_band", "forget_places"),
+            ("dragging", "forget_places"),
+            ("last_slide", "remove"),
+            ("pan_thumbs", "remove"),
+            ("sizes_and_dates", "not a place: by name"),
+            ("version", "forget_places"),
+            ("has_unchecked_entries", "not a place"),
+        ];
+        let sources = crate::support::source_rules::sources();
+        let text = &sources
+            .iter()
+            .find(|(n, _)| n == "model/list.rs")
+            .unwrap()
+            .1;
+        let body = text.split("pub(crate) struct List {").nth(1).unwrap();
+        let body = body.split("\n}").next().unwrap();
+        let fields: Vec<&str> = (body.lines())
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//") && l.contains(':'))
+            .map(|l| l.split(':').next().unwrap())
+            .collect();
+        let named: Vec<&str> = ON_REMOVE.iter().map(|f| f.0).collect();
+        assert_eq!(fields, named);
+        let function = |name: &str| {
+            let start = format!("pub(crate) fn {name}(");
+            let from = text.split(start.as_str()).nth(1).unwrap();
+            from.split("\n    }\n").next().unwrap().to_owned()
+        };
+        for (field, fate) in ON_REMOVE {
+            if *fate == "remove" || *fate == "forget_places" {
+                assert!(
+                    function(fate).contains(&format!("self.{field}")),
+                    "{fate} does not touch {field}"
+                );
+            }
+        }
+    }
+
+    /// Pan view takes the cells it drew last frame after files left the list, as after a Move,
+    /// without reading a place past the end of the shorter list. Before, the window crashed.
+    #[test]
+    fn pan_view_after_files_left_the_list_does_not_crash() {
+        use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        let dir = contract_folder("pan-after-remove");
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .list
+            .files()
+            .len()
+            == 2));
+        app.list.note_pan_thumb(1);
+        app.remove_indices(&ctx, &[0]);
+        app.pan_view(&ctx);
+        assert_eq!(app.list.files().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
