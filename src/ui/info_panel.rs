@@ -354,11 +354,9 @@ impl crate::App {
         }
         // The frame after the read of the file before stops being drawn, also when nothing
         // else asks for one.
-        if let Some(since) = self.info_panel.reading_since {
-            let left = KEPT_WHILE_READING.saturating_sub(since.elapsed());
-            if !left.is_zero() {
-                ctx.request_repaint_after(left);
-            }
+        let (since, now) = (self.info_panel.reading_since, self.info_panel.drawn_at);
+        if let Some(left) = kept_for(since, now) {
+            ctx.request_repaint_after(left);
         }
     }
 
@@ -940,6 +938,17 @@ fn drawn(read: &Path, shown: &Path, reading_since: Option<Instant>, now: Instant
     }
 }
 
+/// Returns how much longer, from `now`, what was read of another file is kept while the read
+/// that started at `reading_since` has not answered, so that a frame is asked for when it
+/// stops being drawn. Returns `None` when it is not kept at `now`. It reads the same moment
+/// as `drawn`, so rows that `drawn` keeps always have a frame after them. Before, the time
+/// left was read from the clock a second time, and a frame begun just before the end drew
+/// the kept rows and asked for no frame after them.
+fn kept_for(reading_since: Option<Instant>, now: Instant) -> Option<Duration> {
+    let left = KEPT_WHILE_READING.saturating_sub(now.saturating_duration_since(reading_since?));
+    (!left.is_zero()).then_some(left)
+}
+
 /// Returns the keyword tree as its file has it. It waits for the disk, so `main` calls it before
 /// the window opens.
 pub(crate) fn read_keyword_tree() -> Vec<String> {
@@ -1093,6 +1102,31 @@ mod tests {
         // A name read again (another file has taken it) is kept a moment too, and no longer.
         assert_eq!(drawn(a, a, Some(since), young), Drawn::KeptWhileReading);
         assert_eq!(drawn(a, a, Some(since), old), Drawn::Not);
+    }
+
+    /// A frame is asked for after every moment at which the rows before are kept, also one just
+    /// before the end, worked out when the clock has passed it. Before, the time left was read
+    /// from the clock again, and rows drawn just before the end asked for no frame after them.
+    #[test]
+    fn kept_rows_always_ask_for_a_frame_after_them() {
+        use super::{Drawn, KEPT_WHILE_READING, drawn, kept_for};
+        let (a, b) = (Path::new("/p/a.jpg"), Path::new("/p/b.jpg"));
+        let since = Instant::now();
+        let tiny = std::time::Duration::from_micros(1);
+        let last = since + KEPT_WHILE_READING - tiny;
+        // The clock is past the end when the frame's moment is looked at.
+        std::thread::sleep(KEPT_WHILE_READING + tiny);
+        for now in [since, since + KEPT_WHILE_READING / 2, last] {
+            assert_eq!(drawn(a, b, Some(since), now), Drawn::KeptWhileReading);
+            assert_eq!(
+                kept_for(Some(since), now),
+                Some(since + KEPT_WHILE_READING - now)
+            );
+        }
+        let end = since + KEPT_WHILE_READING;
+        assert_eq!(drawn(a, b, Some(since), end), Drawn::Not);
+        assert_eq!(kept_for(Some(since), end), None);
+        assert_eq!(kept_for(None, last), None);
     }
 
     /// The panel keeps the rows and the fields of the image before, which cannot be edited, while

@@ -1669,7 +1669,7 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
             walked.xmp.get_or_insert(&body[XMP_NAME.len()..]);
             return;
         }
-        0xe1 if body.starts_with(b"http://ns.adobe.com/xmp/extension/\0") => return,
+        0xe1 if body.starts_with(crate::metadata::exif::EXTENDED_XMP) => return,
         0xe2 if body.starts_with(b"ICC_PROFILE\0") || body.starts_with(ISO_GAIN_MAP_NAME) => None,
         0xe2 if body.starts_with(b"MPF\0") => Some(MPF.to_owned()),
         // Content credentials (C2PA) hash the file's other bytes, which every copy changes,

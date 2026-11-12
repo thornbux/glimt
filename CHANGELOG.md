@@ -113,9 +113,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A motion photo whose XMP ExifTool has rewritten, as when it geotags a photo, counts as whole
   only when its video is all there, while the file changed in the last minute, as one fresh
   from the phone does. The lengths in its directory are read by their namespaces, also as
-  ExifTool 12.87 and later write them (GContainer, GItem), and the depth images of a portrait
-  photo in Dynamic Depth count too. Before, such a photo still being copied in could be turned
-  and lose its video.
+  ExifTool 12.87 and later write them (GContainer, GItem) or without a prefix, with the padding
+  after the main image. The depth images of a portrait photo in Dynamic Depth count too, also
+  when its directory is in the extended XMP, where Android writes it; a photo whose extended XMP
+  lacks a part counts as cut. A photo with both directories is measured by the longer one, as
+  both list the same images. Before, such a photo still being copied in could be turned and
+  lose its video or depth images.
 - A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
   instead says that the sidecar is still at the old name, where a later file of that name would
   take it. Before, it said nothing.
