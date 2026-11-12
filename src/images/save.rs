@@ -55,6 +55,26 @@ const DROPPED_FROM_COPIES: [&str; 13] = [
 /// space says which colours its pixels are in.
 const ALWAYS_SHARED_XMP: [&str; 2] = ["tiff:Orientation", "exif:ColorSpace"];
 
+/// The namespace of Google's camera, whose MicroVideoOffset counts back from a JPEG's end to
+/// its video. Google writes it with the prefix GCamera or Camera.
+const GOOGLE_CAMERA: &str = "http://ns.google.com/photos/1.0/camera/";
+
+/// The namespaces of the directories that list what follows a JPEG's main image: Google's
+/// Container (a motion photo, an Ultra HDR gain map) and Dynamic Depth's.
+const CONTAINERS: [&str; 2] = [
+    "http://ns.google.com/photos/1.0/container/",
+    "http://ns.google.com/photos/dd/1.0/container/",
+];
+
+/// The namespaces of the fields of the items of `CONTAINERS`, in the same order.
+const ITEMS: [&str; 2] = [
+    "http://ns.google.com/photos/1.0/container/item/",
+    "http://ns.google.com/photos/dd/1.0/item/",
+];
+
+/// The namespace of Dynamic Depth's device, whose Container holds its directory.
+const DEPTH_DEVICE: &str = "http://ns.google.com/photos/dd/1.0/device/";
+
 /// The largest EXIF block a JPEG holds. Its APP1 segment holds 65,533 bytes, and the encoder
 /// puts six of them, "Exif\0\0", before the block.
 pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
@@ -372,11 +392,11 @@ fn looks_cut_short(data: &[u8], changed_lately: bool) -> bool {
 
 /// Returns whether what follows the main image of the JPEG `data`, which ends at `image_end`, is
 /// shorter than the file's own lengths say: the images that its MPF index names (a camera's
-/// second image, a gain map), the items of its XMP `Container:Directory`, or the video at the
-/// end that `GCamera:MicroVideoOffset` counts back to (a phone's motion photo). An offset of 0
-/// means that the photo has no video. The first end marker is only the main image's end, so a
-/// copy that paused in the video passed before and was written back without the rest. Data
-/// that none of them names is no matter.
+/// second image, a gain map), the items of its XMP directories (`appended_items_length`), or
+/// the video at the end that `GCamera:MicroVideoOffset` counts back to (a phone's motion
+/// photo). An offset of 0 means that the photo has no video. The first end marker is only the
+/// main image's end, so a copy that paused in the video passed before and was written back
+/// without the rest. Data that none of them names is no matter.
 fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     if image_end >= data.len() {
         return false;
@@ -396,30 +416,14 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     // Only the photo's own properties count, not those of another document inside one, such
     // as a placed image in xmpMM:Pantry.
     let properties = crate::metadata::xmp::top_level_properties(xmp.as_bytes());
-    let named = |found: &&crate::metadata::xmp::TopLevelProperty, name: &str| {
-        xmp[found.name.clone()] == *name
-    };
-    let property = |name: &str| properties.iter().find(|found| named(found, name));
-    let value_of = |name: &str| property(name).map(|found| &xmp[found.value.clone()]);
-    // The first item is the main image, and the others follow it in their order. Their
-    // lengths are read in every form XMP writes them in, also as the elements that ExifTool
-    // writes, which were read as 0 before.
-    let directory = property("Container:Directory").filter(|found| !found.is_attribute);
-    let items = directory.map_or_else(Vec::new, |found| {
-        crate::metadata::xmp::structure_items(
-            xmp.as_bytes(),
-            found.value.clone(),
-            b"Container:Item",
-        )
+    let declared = crate::metadata::xmp::namespace_declarations(&xmp);
+    let items_length = appended_items_length(&xmp, &properties, &declared);
+    let offset = properties.iter().find(|found| {
+        let name = &xmp.as_bytes()[found.name.clone()];
+        let camera = [GOOGLE_CAMERA];
+        crate::metadata::xmp::is_in_namespace(name, &declared, &camera, "MicroVideoOffset")
     });
-    let lengths = items.iter().skip(1).flat_map(|fields| {
-        ["Item:Length", "Item:Padding"].map(|name| {
-            let field = fields.iter().find(|found| named(found, name));
-            field.and_then(|found| leading_number(&xmp[found.value.clone()]))
-        })
-    });
-    let items_length: u64 = lengths.flatten().sum();
-    let offset = value_of("GCamera:MicroVideoOffset").and_then(leading_number);
+    let offset = offset.and_then(|found| leading_number(&xmp[found.value.clone()]));
     let offset = offset.filter(|&back| back != 0);
     let video_is_cut = offset.is_some_and(|back| {
         let start = (data.len() as u64)
@@ -432,6 +436,49 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     video_is_cut
         || mpf_end.is_some_and(|end| length < end)
         || length < image_end as u64 + items_length
+}
+
+/// Returns the length of what a JPEG's XMP `xmp` says follows its main image: the lengths and
+/// paddings of the items of each directory among its top-level `properties`, but the first,
+/// which is the main image. Google's Container:Directory lists a motion photo's video and an
+/// Ultra HDR photo's gain map, and Dynamic Depth's Device:Container (a Pixel's portrait photo,
+/// Android's depth photo) holds a directory of its own of the depth images. The names are read
+/// by their namespaces in `declared` (`xmp::is_in_namespace`), not by their prefixes, as ExifTool
+/// 12.87 and later write GContainer and GItem. Before, those lengths and Dynamic Depth's were
+/// read as 0, and a copy cut in its trailer was turned and lost the rest.
+fn appended_items_length(
+    xmp: &str,
+    properties: &[crate::metadata::xmp::TopLevelProperty],
+    declared: &[(&str, &str)],
+) -> u64 {
+    let is = |name: &[u8], uris: &[&str], local: &str| {
+        crate::metadata::xmp::is_in_namespace(name, declared, uris, local)
+    };
+    let name_of =
+        |found: &crate::metadata::xmp::TopLevelProperty| &xmp.as_bytes()[found.name.clone()];
+    let directories = properties.iter().filter(|found| {
+        let name = name_of(found);
+        !found.is_attribute
+            && (is(name, &CONTAINERS, "Directory") || is(name, &[DEPTH_DEVICE], "Container"))
+    });
+    let mut total = 0;
+    for directory in directories {
+        let is_item = |name: &[u8]| is(name, &CONTAINERS, "Item");
+        let items =
+            crate::metadata::xmp::structure_items(xmp.as_bytes(), directory.value.clone(), is_item);
+        // The items are read in every form XMP writes them in, also as the elements that
+        // ExifTool writes.
+        for fields in items.iter().skip(1) {
+            for local in ["Length", "Padding"] {
+                let field = fields
+                    .iter()
+                    .find(|found| is(name_of(found), &ITEMS, local));
+                let value = field.and_then(|found| leading_number(&xmp[found.value.clone()]));
+                total = value.unwrap_or(0).saturating_add(total);
+            }
+        }
+    }
+    total
 }
 
 /// Returns the number that an XMP value `value` starts with, after its blanks, or `None` when
@@ -2791,9 +2838,21 @@ mod tests {
         );
         let mpf_file = [&main[..2], &mpf, &main[2..], &second].concat();
         let video = [&b"\0\0\0\x18ftypmp42"[..], &[7; 200]].concat();
-        let with_xmp = |xmp: String| {
+        let with_packet = |xmp: String| {
             let body = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
             [&main[..2], &jpeg_segment(0xe1, &body), &main[2..], &video].concat()
+        };
+        // Google's namespaces with the prefixes that Google writes.
+        let with_xmp = |descriptions: String| {
+            with_packet(format!(
+                "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF \
+                 xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#' \
+                 xmlns:GCamera='http://ns.google.com/photos/1.0/camera/' \
+                 xmlns:Container='http://ns.google.com/photos/1.0/container/' \
+                 xmlns:Item='http://ns.google.com/photos/1.0/container/item/' \
+                 xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/'>{descriptions}</rdf:RDF>\
+                 </x:xmpmeta>"
+            ))
         };
         let micro_video = with_xmp(format!(
             "<rdf:Description GCamera:MicroVideoOffset=\"{}\"/>",
@@ -2812,8 +2871,9 @@ mod tests {
             directory(video.len())
         ));
         // ExifTool writes each item's fields as elements when it rewrites the XMP, as when it
-        // geotags a photo. These are a Pixel's and a Samsung's motion photo as it leaves them.
-        // Before, their lengths were read as 0, and a copy cut in the video was turned.
+        // geotags a photo. These are a Pixel's and a Samsung's motion photo as ExifTool before
+        // 12.87 leaves them. Before, their lengths were read as 0, and a copy cut in the video
+        // was turned.
         let pixel = with_xmp(format!(
             "<rdf:Description rdf:about=''>\n <GCamera:MotionPhoto>1</GCamera:MotionPhoto>\n \
              <Container:Directory>\n  <rdf:Seq>\n   <rdf:li rdf:parseType='Resource'>\n    \
@@ -2851,6 +2911,81 @@ mod tests {
              </rdf:Seq></Container:Directory></rdf:Description>",
             video.len()
         ));
+        // ExifTool 12.87 and later write Google's Container with the prefix GContainer. This is
+        // ExifTool 13.50's packet of a Pixel's motion photo that it geotagged, with its padding
+        // left out. Before, its lengths were read as 0.
+        let exiftool_13 = with_packet(format!(
+            "<?xpacket begin='\u{feff}' id='W5M0MpCehiHzreSzNTczkc9d'?>\n\
+             <x:xmpmeta xmlns:x='adobe:ns:meta/' x:xmptk='Image::ExifTool 13.50'>\n\
+             <rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>\n\n \
+             <rdf:Description rdf:about=''\n  \
+             xmlns:GCamera='http://ns.google.com/photos/1.0/camera/'>\n  \
+             <GCamera:MotionPhoto>1</GCamera:MotionPhoto>\n  \
+             <GCamera:MotionPhotoPresentationTimestampUs>968866\
+             </GCamera:MotionPhotoPresentationTimestampUs>\n  \
+             <GCamera:MotionPhotoVersion>1</GCamera:MotionPhotoVersion>\n </rdf:Description>\n\n \
+             <rdf:Description rdf:about=''\n  \
+             xmlns:GContainer='http://ns.google.com/photos/1.0/container/'\n  \
+             xmlns:Item='http://ns.google.com/photos/1.0/container/item/'>\n  \
+             <GContainer:Directory>\n   <rdf:Seq>\n    <rdf:li rdf:parseType='Resource'>\n     \
+             <GContainer:Item rdf:parseType='Resource'>\n      \
+             <Item:Length>0</Item:Length>\n      <Item:Mime>image/jpeg</Item:Mime>\n      \
+             <Item:Padding>0</Item:Padding>\n      <Item:Semantic>Primary</Item:Semantic>\n     \
+             </GContainer:Item>\n    </rdf:li>\n    <rdf:li rdf:parseType='Resource'>\n     \
+             <GContainer:Item rdf:parseType='Resource'>\n      \
+             <Item:Length>{}</Item:Length>\n      <Item:Mime>video/mp4</Item:Mime>\n      \
+             <Item:Padding>0</Item:Padding>\n      \
+             <Item:Semantic>MotionPhoto</Item:Semantic>\n     </GContainer:Item>\n    \
+             </rdf:li>\n   </rdf:Seq>\n  </GContainer:Directory>\n </rdf:Description>\n\n \
+             <rdf:Description rdf:about=''\n  xmlns:exif='http://ns.adobe.com/exif/1.0/'>\n  \
+             <exif:GPSLatitude>59,54.0N</exif:GPSLatitude>\n  \
+             <exif:GPSLongitude>10,42.0E</exif:GPSLongitude>\n </rdf:Description>\n\n \
+             <rdf:Description rdf:about=''\n  \
+             xmlns:hdrgm='http://ns.adobe.com/hdr-gain-map/1.0/'>\n  \
+             <hdrgm:Version>1.0</hdrgm:Version>\n </rdf:Description>\n</rdf:RDF>\n\
+             </x:xmpmeta>\n<?xpacket end='w'?>",
+            video.len()
+        ));
+        // ExifTool names the fields it writes anew with the prefix GItem.
+        let gitem = with_packet(format!(
+            "<rdf:Description xmlns:GContainer='http://ns.google.com/photos/1.0/container/' \
+             xmlns:GItem='http://ns.google.com/photos/1.0/container/item/'>\
+             <GContainer:Directory><rdf:Seq><rdf:li rdf:parseType='Resource'>\
+             <GContainer:Item rdf:parseType='Resource'><GItem:Semantic>Primary</GItem:Semantic>\
+             </GContainer:Item></rdf:li><rdf:li rdf:parseType='Resource'>\
+             <GContainer:Item rdf:parseType='Resource'><GItem:Length>{}</GItem:Length>\
+             </GContainer:Item></rdf:li></rdf:Seq></GContainer:Directory></rdf:Description>",
+            video.len()
+        ));
+        // Dynamic Depth (a Pixel's portrait photo, Android's depth photo) nests its directory
+        // in Device:Container, in namespaces of its own, and appends its depth images without
+        // MPF. Here a gain map in Google's Container and a depth image in Dynamic Depth's
+        // follow the main image, so both directories count. Before, Dynamic Depth's did not.
+        let (gain_map, depth) = (100, video.len() - 100);
+        let depth_photo = with_packet(format!(
+            "<rdf:Description xmlns:Container='http://ns.google.com/photos/1.0/container/' \
+             xmlns:Item='http://ns.google.com/photos/1.0/container/item/'>\
+             <Container:Directory><rdf:Seq><rdf:li rdf:parseType='Resource'><Container:Item \
+             Item:Semantic='Primary' Item:Mime='image/jpeg'/></rdf:li><rdf:li \
+             rdf:parseType='Resource'><Container:Item Item:Semantic='GainMap' \
+             Item:Mime='image/jpeg' Item:Length='{gain_map}'/></rdf:li></rdf:Seq>\
+             </Container:Directory></rdf:Description>\
+             <rdf:Description xmlns:Device='http://ns.google.com/photos/dd/1.0/device/'>\
+             <Device:Container rdf:parseType='Resource' \
+             xmlns:Container='http://ns.google.com/photos/dd/1.0/container/' \
+             xmlns:Item='http://ns.google.com/photos/dd/1.0/item/'>\
+             <Container:Directory><rdf:Seq><rdf:li rdf:parseType='Resource'><Container:Item \
+             Item:Mime='image/jpeg' Item:Length='0'/></rdf:li><rdf:li \
+             rdf:parseType='Resource'><Container:Item Item:Mime='image/jpeg' \
+             Item:Length='{depth}' Item:Padding='0'/></rdf:li></rdf:Seq></Container:Directory>\
+             </Device:Container></rdf:Description>"
+        ));
+        // Google's camera also writes its namespace with the prefix Camera.
+        let camera = with_packet(format!(
+            "<rdf:Description xmlns:Camera='http://ns.google.com/photos/1.0/camera/' \
+             Camera:MicroVideoOffset=\"{}\"/>",
+            video.len()
+        ));
         let forms = [
             &mpf_file,
             &micro_video,
@@ -2858,6 +2993,10 @@ mod tests {
             &pixel,
             &samsung,
             &described,
+            &exiftool_13,
+            &gitem,
+            &depth_photo,
+            &camera,
         ];
         for whole in forms {
             assert!(!super::looks_cut_short(whole, true));
@@ -2873,6 +3012,14 @@ mod tests {
             directory(99999)
         ));
         assert!(!super::looks_cut_short(&pantry, true));
+        // The names are read by their namespaces, so the prefixes bound to another one are no
+        // directory and no offset.
+        let other = with_packet(format!(
+            "<rdf:Description xmlns:Container='urn:other' xmlns:Item='urn:other' \
+             xmlns:GCamera='urn:other' GCamera:MicroVideoOffset=\"99999\">{}</rdf:Description>",
+            directory(99999)
+        ));
+        assert!(!super::looks_cut_short(&other, true));
         let dir = std::env::temp_dir().join(format!("glimt-turn-mpf-cut-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
@@ -2899,7 +3046,10 @@ mod tests {
             .unwrap();
         let trailer = [&b"SEFH"[..], &[7; 100]].concat();
         let with_offset = |offset: usize| {
-            let xmp = format!("<rdf:Description GCamera:MicroVideoOffset=\"{offset}\"/>");
+            let xmp = format!(
+                "<rdf:Description xmlns:GCamera='http://ns.google.com/photos/1.0/camera/' \
+                 GCamera:MicroVideoOffset=\"{offset}\"/>"
+            );
             let body = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
             [&main[..2], &jpeg_segment(0xe1, &body), &main[2..], &trailer].concat()
         };
