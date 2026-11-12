@@ -72,9 +72,10 @@ pub(crate) struct RubberBand {
     touched: Option<[usize; 4]>,
 }
 
-/// The files whose thumbnails are on screen, for the thumbnail workers to make first. `[0]` is
-/// for the file list, and `[1]` for pan view.
-pub(crate) type OnScreenFiles = Arc<Mutex<[Vec<usize>; 2]>>;
+/// The files whose thumbnails are on screen, sorted, for the thumbnail workers to make first.
+/// `[0]` is for the file list, and `[1]` for pan view. They are paths, not places in the list,
+/// because a listing moves the files while the jobs wait.
+pub(crate) type OnScreenFiles = Arc<Mutex<[Vec<PathBuf>; 2]>>;
 
 /// The thumbnails for the file list. It holds those made, those being made, and the workers
 /// that make them.
@@ -90,8 +91,8 @@ pub(crate) struct Thumbs {
     pending: HashMap<OsString, (u64, Identity)>,
     /// The number of the last request made.
     last_request_number: u64,
-    /// (image index, file, request number)
-    requests: mpsc::Sender<(usize, PathBuf, u64)>,
+    /// (file, request number)
+    requests: mpsc::Sender<(PathBuf, u64)>,
     /// The answers as (file, request number, thumbnail). The outer `None` means it was skipped
     /// because it scrolled out of view.
     answers: mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
@@ -160,14 +161,14 @@ impl Thumbs {
         self.pending.clear();
     }
 
-    /// Asks the workers for the thumbnail of file `i` at `path`, named `name` in the list with
+    /// Asks the workers for the thumbnail of the file at `path`, named `name` in the list with
     /// the identity `identity`, unless it is being made already.
-    fn ask(&mut self, name: &OsStr, i: usize, path: PathBuf, identity: Identity) {
+    fn ask(&mut self, name: &OsStr, path: PathBuf, identity: Identity) {
         let asked = self.pending.get(name);
         if asked.is_none_or(|&(_, asked)| is_another_file(asked, identity)) {
             self.last_request_number += 1;
             (self.pending).insert(name.to_owned(), (self.last_request_number, identity));
-            let _ = self.requests.send((i, path, self.last_request_number));
+            let _ = self.requests.send((path, self.last_request_number));
         }
     }
 
@@ -187,7 +188,7 @@ impl Thumbs {
     }
 
     /// The files pan view shows, sorted, for the workers to make.
-    pub(crate) fn pan_view_shows(&self, files: Vec<usize>) {
+    pub(crate) fn pan_view_shows(&self, files: Vec<PathBuf>) {
         lock_even_if_poisoned(&self.on_screen)[1] = files;
     }
 
@@ -923,7 +924,7 @@ impl crate::App {
             Some(None) => {}
             None => {
                 let path = self.path(i);
-                self.thumbs.ask(name, i, path, identity);
+                self.thumbs.ask(name, path, identity);
             }
         }
     }
@@ -944,7 +945,7 @@ impl crate::App {
         shown.dedup();
         // Thumbnails for these, as for the rows of the file list.
         if !shown.is_empty() {
-            let mut view = shown.clone();
+            let mut view: Vec<PathBuf> = shown.iter().map(|&i| self.path(i)).collect();
             view.sort_unstable();
             lock_even_if_poisoned(&self.thumbs.on_screen)[0] = view;
             let row = match self.list.matches() {
@@ -1592,9 +1593,9 @@ impl crate::App {
         // The rows shown and some around them, as files, are kept being made while they are
         // near.
         let near = rows.start.saturating_sub(THUMB_MARGIN)..(rows.end + THUMB_MARGIN).min(count);
-        let mut view: Vec<usize> = match self.list.matches() {
-            Some(m) => m[near].to_vec(),
-            None => near.collect(),
+        let mut view: Vec<PathBuf> = match self.list.matches() {
+            Some(m) => m[near].iter().map(|&i| self.path(i)).collect(),
+            None => near.map(|i| self.path(i)).collect(),
         };
         view.sort_unstable();
         lock_even_if_poisoned(&self.thumbs.on_screen)[0] = view;
@@ -2202,10 +2203,10 @@ mod tests {
         let ctx = eframe::egui::Context::default();
         let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
         let name = std::ffi::OsStr::new("a.jpg");
-        thumbs.ask(name, 0, "a.jpg".into(), None);
+        thumbs.ask(name, "a.jpg".into(), None);
         let old = thumbs.last_request_number;
         thumbs.forget(name);
-        thumbs.ask(name, 0, "a.jpg".into(), None);
+        thumbs.ask(name, "a.jpg".into(), None);
         let new = thumbs.last_request_number;
         assert!(
             thumbs.answered(name, new).is_some(),
@@ -2217,7 +2218,7 @@ mod tests {
         );
         // In the other order, the old answer neither shows nor ends the new request.
         thumbs.forget(name);
-        thumbs.ask(name, 0, "a.jpg".into(), None);
+        thumbs.ask(name, "a.jpg".into(), None);
         assert!(thumbs.answered(name, new).is_none());
         assert!(thumbs.answered(name, thumbs.last_request_number).is_some());
     }
@@ -2231,7 +2232,7 @@ mod tests {
         let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
         let name = std::ffi::OsStr::new("a.jpg");
         let (first, second) = (std::num::NonZeroU64::new(1), std::num::NonZeroU64::new(2));
-        thumbs.ask(name, 0, "a.jpg".into(), first);
+        thumbs.ask(name, "a.jpg".into(), first);
         let identity = thumbs.answered(name, thumbs.last_request_number).unwrap();
         let image = eframe::egui::ColorImage::new([1, 1], vec![eframe::egui::Color32::RED]);
         let texture = ctx.load_texture("t", image, Default::default());
@@ -2242,9 +2243,9 @@ mod tests {
         // An identity not known, as after Glimt's own write, takes it for the same file.
         assert!(thumbs.thumbnail_of(name, None).is_some());
         assert!(thumbs.thumbnail_of(name, second).is_none());
-        thumbs.ask(name, 0, "a.jpg".into(), second);
+        thumbs.ask(name, "a.jpg".into(), second);
         let asked = thumbs.last_request_number;
-        thumbs.ask(name, 0, "a.jpg".into(), second);
+        thumbs.ask(name, "a.jpg".into(), second);
         assert_eq!(thumbs.last_request_number, asked, "asked for twice");
     }
 

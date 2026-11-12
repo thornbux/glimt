@@ -1469,13 +1469,21 @@ impl crate::App {
         {
             files.swap(0, at);
         }
+        // The sizes and dates of the rows go from one part of the tree to the next, and to the
+        // whole list after it, as the files are the same ones, read by the same walk. Before,
+        // each part read them again, and an answer still on its way was dropped and asked
+        // again, which on a slow share kept the list busy until the tree was read.
+        let after_a_part = std::mem::replace(&mut self.folder.list_is_a_part, !whole);
         // When nothing changed (most refreshes, after Glimt's own writes beside the files), the
         // list, the selection and the search stay as they are. A name that another file has
         // taken since is a change, as what was read of the file it held is that file's.
         if self.list.is_listed_as(&files) && !self.folder.sort_collection {
             // A file may have been saved over under its own name (an editor writes and
-            // renames), so its size and date are read again, for the rows on screen only.
-            self.list.forget_sizes_and_dates();
+            // renames), so its size and date are read again, for the rows on screen only. A
+            // tree's whole list that is its last part keeps them, as the same walk read them.
+            if !after_a_part {
+                self.list.forget_sizes_and_dates();
+            }
             // A rename keeps the list as it is but forgot the file's decoded image, which is
             // asked for again here.
             self.refill_preload();
@@ -1494,12 +1502,7 @@ impl crate::App {
         let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
-        // The sizes and dates of the rows go from one part of the tree to the next, and to the
-        // whole list after it, as the files are the same ones, read by the same walk. Before,
-        // each part read them again, and an answer still on its way was dropped and asked
-        // again, which on a slow share kept the list busy until the tree was read.
-        let read = std::mem::replace(&mut self.folder.list_is_a_part, !whole)
-            .then(|| self.list.take_sizes_and_dates());
+        let read = after_a_part.then(|| self.list.take_sizes_and_dates());
         self.replace_files(ctx, files, shown);
         if let Some(read) = read {
             self.list.keep_sizes_and_dates(read);
@@ -1568,10 +1571,10 @@ impl crate::App {
     }
 
     /// Replaces the file list and goes to `shown` (otherwise the first image). Textures are
-    /// kept for the files they were made from, at their new places, by name and identity. All
-    /// other state based on places is reset, and jobs in flight are rejected by path when they
-    /// arrive. When the same file is still shown (a refresh, or the list put in another order),
-    /// it keeps its zoom, turn and place. A name that another file has taken since (another
+    /// kept for the files they were made from, at their new places, by name and identity, and so
+    /// are the decodes still being made. All other state based on places is reset. When the
+    /// same file is still shown (a refresh, or the list put in another order), it keeps its
+    /// zoom, turn and place. A name that another file has taken since (another
     /// window's Rename Many swapped two names) keeps nothing of the file it held.
     pub(crate) fn replace_files(
         &mut self,
@@ -1590,12 +1593,21 @@ impl crate::App {
             self.list.files().get(self.list.shown()) == shown.as_ref()
                 && !is_another_file(files[k].1, self.list.identity(self.list.shown()))
         });
-        // The shown file's decodes still being made are kept, so it is not decoded twice. Those
-        // of a later page are not kept, because the file is shown again from its first page.
-        let jobs: Vec<_> = ([false, true].into_iter())
-            .filter(|_| self.viewing.page() == 0)
-            .filter_map(|full| Some((full, self.list.take_decode((self.list.shown(), full))?)))
-            .collect();
+        // The decodes still being made are kept by name, as the decoded images below, so no
+        // file is decoded twice while the parts of a tree come in. The shown file's decodes of a
+        // later page are not kept, because the file is shown again from its first page.
+        let (old_shown, later_page) = (self.list.shown(), self.viewing.page() > 0);
+        let mut decodes: HashMap<OsString, Vec<_>> = HashMap::new();
+        for ((i, full), job) in self.list.take_decodes() {
+            if let Some(name) = self
+                .list
+                .files()
+                .get(i)
+                .filter(|_| !later_page || i != old_shown)
+            {
+                decodes.entry(name.clone()).or_default().push((full, job));
+            }
+        }
         if !still {
             self.leave_image(ctx);
         }
@@ -1616,6 +1628,9 @@ impl crate::App {
         // A name that another file has taken since keeps nothing that was read of the file it
         // held: its thumbnail, size and date, its part of the exif: index and its Pan view date.
         let taken = self.list.names_another_file_took(&files);
+        for name in &taken {
+            decodes.remove(name);
+        }
         // A new List means every place held in the old one goes with it, whatever field holds
         // it. Only what is carried over by name above comes back.
         self.list = List::replacing(&self.list, files);
@@ -1635,14 +1650,17 @@ impl crate::App {
         let last = last_slide.and_then(|n| self.list.files().iter().position(|f| *f == n));
         let last = last.or(self.list.panes().last().copied()).unwrap_or(shown);
         self.list.set_last_slide(last);
-        // One pass over the list for a handful of textures.
-        let mut kept = Vec::new();
+        // One pass over the list for a handful of textures and decodes.
+        let (mut kept, mut asked) = (Vec::new(), Vec::new());
         for (i, name) in self.list.files().iter().enumerate() {
-            if loaded_images.is_empty() {
+            if loaded_images.is_empty() && decodes.is_empty() {
                 break;
             }
             if let Some(loaded) = loaded_images.remove(name) {
                 kept.push((i, loaded));
+            }
+            for (full, job) in decodes.remove(name).unwrap_or_default() {
+                asked.push((i, full, job));
             }
         }
         for (i, loaded) in kept {
@@ -1652,9 +1670,9 @@ impl crate::App {
                 self.list.keep_loaded_image(i, loaded);
             }
         }
-        for (full, job) in jobs {
-            if self.is_file(shown, &job.1) {
-                self.list.ask_decode((shown, full), job);
+        for (i, full, job) in asked {
+            if self.is_file(i, &job.1) {
+                self.list.ask_decode((i, full), job);
             }
         }
         // The search runs first, after the decoded images are carried over, because with Compare on
@@ -1967,6 +1985,83 @@ mod tests {
         app.replace_files(&ctx, listing(&["a.png", "c.png", "b.png"]), None);
         assert!(app.search.reads_exif_again("a.png") && app.search.reads_exif_again("c.png"));
         assert!(!app.search.reads_exif_again("b.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The decodes still being made when the list is read again (a tree's next part, which moves
+    /// the files) go with their files to their new places, and are neither sent again nor
+    /// dropped. Before, only the shown file's went: each neighbour was asked for again at every
+    /// part, and its job before was decoded and thrown away, which on a slow share queued the
+    /// next image behind them all. Before that, the workers judged a job by its old place.
+    #[test]
+    fn decodes_being_made_follow_their_files_to_a_new_list() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-decodes-follow-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = ["a.png", "b.png", "c.png", "d.png"];
+        for name in names {
+            image::RgbImage::new(8, 8).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.refill_preload();
+        let asked = |app: &crate::App| -> std::collections::BTreeMap<_, _> {
+            (app.list.decodes_pending().iter())
+                .map(|(&(i, full), job)| ((app.list.files()[i].clone(), full), job.0))
+                .collect()
+        };
+        let before = asked(&app);
+        assert_eq!(before.len(), 3, "{before:?}");
+        let identity = |n: &str| crate::files::file_io::identity_of(&dir.join(n));
+        let reversed = names
+            .iter()
+            .rev()
+            .map(|n| (n.into(), identity(n)))
+            .collect();
+        app.replace_files(&ctx, reversed, Some("a.png".into()));
+        assert_eq!(app.list.shown(), 3);
+        app.refill_preload();
+        // d.png is asked for too, now the slideshow's next image after a.png.
+        let asked_now = asked(&app);
+        assert!(
+            before.iter().all(|(k, n)| asked_now.get(k) == Some(n)),
+            "{asked_now:?}"
+        );
+        let decoded = |app: &crate::App| {
+            app.list.decodes_pending().is_empty()
+                && [1, 2, 3]
+                    .iter()
+                    .all(|i| app.list.loaded_images().contains_key(i))
+        };
+        assert!(run_background_until(&mut app, &ctx, decoded));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A tree's whole list that is the same as its last part keeps the sizes and dates read for
+    /// the part, as the same walk read both. Before, the rows on screen read them again.
+    #[test]
+    fn a_whole_list_like_its_last_part_keeps_the_sizes_read() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-whole-as-part-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            std::fs::write(dir.join(name), name).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let part = || {
+            vec![(
+                "a.png".into(),
+                crate::files::file_io::identity_of(&dir.join("a.png")),
+            )]
+        };
+        app.take_listed_files(&ctx, part(), false);
+        let read =
+            std::collections::HashMap::from([(std::ffi::OsString::from("a.png"), Some((5, 6)))]);
+        app.list.keep_sizes_and_dates(read.clone());
+        app.take_listed_files(&ctx, part(), true);
+        assert_eq!(app.list.sizes_and_dates(), &read);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

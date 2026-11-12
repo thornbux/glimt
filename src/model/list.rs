@@ -103,9 +103,9 @@ pub(crate) struct List {
     panes: Vec<usize>,
     loaded_images: HashMap<usize, LoadedImage>,
     decode_errors: HashMap<usize, String>,
-    /// Decodes asked for, with the number of the job: only its result is taken, so one asked
-    /// for before the list, the page, the look or the file changed is dropped; and the box it
-    /// was asked for in.
+    /// The decodes asked for, each with the number of its job and the box it was asked for in.
+    /// Only the result of that job is taken, so one asked for before the page, the look or the
+    /// file changed is dropped. A new list carries them by name, as the decoded images.
     decodes_pending: HashMap<(usize, bool), (u64, PathBuf, [u32; 2])>,
     matches: Option<Vec<usize>>,
     /// Whether each file is among `matches`, by its place, so the selection can be kept to the
@@ -520,6 +520,11 @@ impl List {
         self.decodes_pending.insert(key, job);
     }
 
+    /// Takes every decode asked for, by its place, to carry them into a new list by name.
+    pub(crate) fn take_decodes(&mut self) -> HashMap<(usize, bool), (u64, PathBuf, [u32; 2])> {
+        std::mem::take(&mut self.decodes_pending)
+    }
+
     /// Takes decode `key` as answered. Returns the job it was asked as, or `None` when it is no
     /// longer asked for.
     pub(crate) fn take_decode(&mut self, key: (usize, bool)) -> Option<(u64, PathBuf, [u32; 2])> {
@@ -692,10 +697,7 @@ mod tests {
             ("panes", "carried by name"),
             ("loaded_images", "carried by name"),
             ("decode_errors", "reset: decoded again"),
-            (
-                "decodes_pending",
-                "the shown file's carried, the others reset",
-            ),
+            ("decodes_pending", "carried by name"),
             ("matches", "worked out again: update_search"),
             ("is_match", "worked out again with the matches"),
             ("match_size", "worked out again: update_search"),

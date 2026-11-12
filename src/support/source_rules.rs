@@ -6574,3 +6574,101 @@ fn walks_without_markup_skip(sources: &[(String, String)]) -> Vec<String> {
     }
     wrong
 }
+
+/// A pool's workers judge each job by its file, never by its place in the list, because a
+/// listing moves the files while the jobs wait: each part of a tree read with Include Subfolders
+/// is a new list. The decoders and then the thumbnail workers judged by place, and on a slow
+/// share the parts came faster than the jobs were served, so the jobs were skipped and asked for
+/// again until the tree was read. In a function that starts a pool, no line about its jobs or
+/// what its workers share (a channel, an `Arc` or `Mutex`, a closure), with the crate's type
+/// aliases written out, names a `usize`.
+#[test]
+fn worker_pools_judge_jobs_by_their_files() {
+    let sources = rust_sources();
+    let aliases = type_aliases(&sources);
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        wrong.extend(pools_judged_by_place(file, text, &aliases));
+    }
+    assert!(
+        wrong.is_empty(),
+        "send a pool's workers files, not places in the list:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds a place in a job, in a channel and in what the workers share through a
+/// type alias, but not a count of workers.
+#[test]
+fn finds_a_pool_judged_by_place() {
+    let text = "type Shown = Arc<Mutex<Vec<usize>>>;\n\
+        fn a(shown: &Shown) {\n    spawn_worker_pool(n, rx, |_| {}, \
+        move |(i, path): (usize, PathBuf)| go(i));\n}\n\
+        fn b(shown: &Shown) {\n    spawn_worker_pool(n, rx, |_| {}, go);\n}\n\
+        fn c() -> mpsc::Sender<(usize, PathBuf)> {\n    \
+        spawn_worker_pool(n, rx, |_| {}, go);\n}\n\
+        fn d(\n    workers: usize,\n    shown: &Arc<Mutex<Vec<PathBuf>>>,\n) {\n    \
+        spawn_worker_pool(n, rx, |_| {}, move |path: PathBuf| go(path));\n}\n\
+        fn e(shown: &Shown) {\n    go(shown);\n}\n";
+    let sources = [("x.rs".to_owned(), text.to_owned())];
+    let aliases = type_aliases(&sources);
+    assert_eq!(
+        pools_judged_by_place("x.rs", text, &aliases),
+        ["x.rs: a", "x.rs: b", "x.rs: c"]
+    );
+}
+
+/// Returns the crate's type aliases in `sources`, each name with what it stands for.
+fn type_aliases(sources: &[(String, String)]) -> Vec<(String, String)> {
+    let mut aliases = Vec::new();
+    for (_, text) in sources {
+        for line in code_lines(text) {
+            let Some(rest) = without_qualifiers(line.trim_start()).strip_prefix("type ") else {
+                continue;
+            };
+            if let Some((name, stands_for)) = rest.split_once('=') {
+                let name = name.split('<').next().unwrap_or(name).trim();
+                aliases.push((name.to_owned(), stands_for.to_owned()));
+            }
+        }
+    }
+    aliases
+}
+
+/// Returns the functions in `text`, the source of `file`, that start a worker pool with a place
+/// in the list (a `usize`) in a line about its jobs: a channel, an `Arc` or `Mutex`, or a
+/// closure, with the type aliases in `aliases` written out.
+fn pools_judged_by_place(file: &str, text: &str, aliases: &[(String, String)]) -> Vec<String> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let has_word = |line: &str, word: &str| {
+        (line.match_indices(word)).any(|(at, _)| {
+            !line[..at].ends_with(is_word_char)
+                && !line[at + word.len()..].starts_with(is_word_char)
+        })
+    };
+    let (mut function, mut starts_pool, mut by_place) = (String::new(), false, false);
+    let mut wrong = Vec::new();
+    // A last line that starts no function ends the last one, so it is checked too.
+    let last = "fn end".to_owned();
+    for line in lines[..end].iter().chain([&last]) {
+        if let Some(name) = function_name(line) {
+            if starts_pool && by_place {
+                wrong.push(format!("{file}: {function}"));
+            }
+            (function, starts_pool, by_place) = (name.to_owned(), false, false);
+        }
+        starts_pool |= line.contains("spawn_worker_pool(");
+        let mut written_out = line.clone();
+        for (name, stands_for) in aliases {
+            if has_word(line, name) {
+                written_out.push_str(stands_for);
+            }
+        }
+        let about_jobs = ["mpsc", "Arc<", "Mutex<", "|"]
+            .iter()
+            .any(|w| written_out.contains(w));
+        by_place |= about_jobs && has_word(&written_out, "usize");
+    }
+    wrong
+}
