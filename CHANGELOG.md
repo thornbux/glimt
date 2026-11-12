@@ -37,6 +37,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - With View → Include Subfolders on a slow share, such as SMB over wireless, the next image is
   shown while the folders below are still read. Before, only the first image showed until the
   whole tree was read, as each part of it that came put the next image's decode back in line.
+  The images read ahead are decoded once, not again for each part that comes.
+- While Include Subfolders reads the folders below on a slow share, the thumbnails of the file
+  list, the icon grid, the grid in the image area (G) and the film strip are made once. Before,
+  each part of the tree that came put them back in line, so they were asked for again and
+  again until the whole tree was read.
 - While Include Subfolders reads the folders below, the file list no longer reads the size and
   date of the rows on screen again for each part of the tree that comes, which on a slow share
   kept it busy until the whole tree was read.
