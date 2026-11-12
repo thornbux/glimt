@@ -2,7 +2,7 @@
 //! gio is not there or the Flatpak's trash portal refuses one), and put back from it for Undo by
 //! reading the trash folders' own files.
 
-use crate::files::file_io::rename_never_over;
+use crate::files::file_io::{rename_never_over, shown_path};
 use crate::{files::config, model::collections, tf};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -156,13 +156,13 @@ pub(crate) fn restore(
         // program, or synced in) takes it too, as the file would come back with its keywords.
         // The file's own sidecar, which the move could not take along, is no other file's.
         if let Some(at) = crate::files::file_ops::name_in_the_way(path, &left, &mut names) {
-            error.get_or_insert(tf!("{name} exists already", name = at.display()));
+            error.get_or_insert(tf!("{name} exists already", name = shown_path(&at)));
             continue;
         }
         match find(path) {
             Some(t) => found.push(t),
             None => {
-                error.get_or_insert(tf!("{name} is not in the trash", name = path.display()));
+                error.get_or_insert(tf!("{name} is not in the trash", name = shown_path(path)));
             }
         }
     }
@@ -233,7 +233,7 @@ fn put_back(
 ) -> Vec<PathBuf> {
     let rename = |t: &TrashEntry| {
         rename_never_over(&t.file, &t.from)
-            .map_err(|e| format!("{display}: {e}", display = t.from.display()))
+            .map_err(|e| format!("{display}: {e}", display = shown_path(&t.from)))
     };
     let (mut back, mut renamed) = (Vec::new(), Vec::new());
     for (t, is_file, sides) in steps {
@@ -245,7 +245,7 @@ fn put_back(
         let mut out = vec![t];
         for side in sides {
             if let Err(e) = rename_never_over(&side.file, &side.from) {
-                let told = format!("{display}: {e}", display = side.from.display());
+                let told = format!("{display}: {e}", display = shown_path(&side.from));
                 match sidecar_back_after_all(&side, &e) {
                     Some(true) => {
                         out.push(side);
@@ -260,7 +260,7 @@ fn put_back(
                     }
                     Some(false) => {}
                 }
-                let file = out[0].from.display().to_string();
+                let file = shown_path(&out[0].from);
                 while let Some(last) = out.last()
                     && rename_never_over(&last.from, &last.file).is_ok()
                 {
@@ -294,7 +294,7 @@ fn put_back(
         let is_on_disk = *synced.entry(folder).or_insert_with(|| {
             let result = crate::files::file_io::sync_folder_of(&t.from);
             if let Err(e) = &result {
-                error.get_or_insert(format!("{}: {e}", folder.display()));
+                error.get_or_insert(format!("{}: {e}", shown_path(folder)));
             }
             result.is_ok()
         });
@@ -378,7 +378,7 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
         .collect();
     match trash_by_hand_anywhere(&left, &home).into_iter().next() {
         None => Ok(()),
-        Some((path, e)) => Err(format!("{}: {e}", path.display())),
+        Some((path, e)) => Err(format!("{}: {e}", shown_path(&path))),
     }
 }
 

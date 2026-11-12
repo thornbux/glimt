@@ -15,6 +15,10 @@ use std::path::{Path, PathBuf};
 /// as a failed write. Any thread sets it, through `save_failed`.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// The folder in /proc where each descriptor that Glimt holds open is a link to its file
+/// (`path_through`).
+const DESCRIPTORS: &str = "/proc/self/fd";
+
 /// The warnings that an edit went on without its lock, and the folders of the locks told so,
 /// from any thread (`lock_or_tell`). In tests each test has its own (`told_here`).
 #[cfg(not(test))]
@@ -643,7 +647,7 @@ pub(crate) fn is_followed_to(path: &Path) -> bool {
             save_failed(crate::tf!(
                 "Could not look at {name}: {e}. Its marks and collection entries followed it \
                  there all the same, as the file was there before.",
-                name = path.display(),
+                name = shown_path(path),
                 e
             ));
             true
@@ -765,7 +769,7 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
             return Err(e);
         }
     }
-    let (from, to) = (from.display(), to.display());
+    let (from, to) = (shown_path(from), shown_path(to));
     let text = crate::tf!(
         "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})",
         from,
@@ -976,9 +980,13 @@ fn file_system_type_among(
         .or_else(|| Some(String::from_utf8_lossy(found.kind).into_owned()))
 }
 
-/// Returns the mount of `mounts` that holds `path`, as `file_system_type_in` finds it. Returns
-/// `None` when no mount holds it, or when a chroot leaves it unknown.
+/// Returns the mount of `mounts` that holds `path`, as `file_system_type_in` finds it. A path
+/// through a descriptor (`path_through`) is looked up by the opened folder's own path. Returns
+/// `None` when no mount holds it, when a chroot leaves it unknown, or when the descriptor's link
+/// cannot be read.
 fn mount_holding<'a>(mounts: &'a [Mount<'a>], path: &Path) -> Option<&'a Mount<'a>> {
+    // A path through a descriptor is on the opened folder's mount, not on /proc.
+    let path = &*named_without_descriptor(path)?;
     let ids: std::collections::HashSet<&[u8]> = mounts.iter().map(|m| m.id).collect();
     // The top mounts are those whose parent is not in the table, or which are their own parent.
     let on = |m: &Mount, under: Option<&[u8]>| match under {
@@ -1286,7 +1294,7 @@ pub fn remove_own_or_tell(path: &Path) {
     if let Err(e) = remove_own(path) {
         save_failed(crate::tf!(
             "Could not remove {name}: {e}",
-            name = path.display(),
+            name = shown_path(path),
             e
         ));
     }
@@ -1466,7 +1474,7 @@ pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
     let folder = path.parent().unwrap_or(Path::new("")).to_path_buf();
     let warning = crate::tf!(
         "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost.",
-        name = path.display(),
+        name = shown_path(path),
         e
     );
     #[cfg(not(test))]
@@ -1494,7 +1502,7 @@ pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
     if !lock.metadata()?.is_file() {
         return Err(std::io::Error::other(format!(
             "{}: not a regular file",
-            path.display()
+            shown_path(path)
         )));
     }
     lock.lock()?;
@@ -1518,9 +1526,35 @@ pub(crate) fn open_folder_not_through_link(dir: &Path) -> std::io::Result<std::f
 /// kernel's link to the open descriptor in /proc. Every step taken through this path (a folder
 /// made in it, a file written or renamed into it) acts in the folder that was opened and
 /// checked, so it never needs `openat` and its kin. The path holds while `opened` stays open.
+/// Its name is Glimt's own and means nothing to the user, and the mount table knows it as a
+/// path on /proc. So a question about the file system it is on, and a text that shows it, take
+/// it through `named_without_descriptor`.
 pub(crate) fn path_through(opened: &std::fs::File) -> PathBuf {
     use std::os::fd::AsRawFd;
-    PathBuf::from(format!("/proc/self/fd/{}", opened.as_raw_fd()))
+    Path::new(DESCRIPTORS).join(opened.as_raw_fd().to_string())
+}
+
+/// Returns `path` by the name that the user and the mount table know it by. A path that
+/// `path_through` made, `/proc/self/fd/N/…`, gets the opened folder's own path in place of the
+/// descriptor's link, and any other path is given back as it is. The link is read from /proc,
+/// which reads no disk. Returns `None` when the descriptor's link cannot be read.
+fn named_without_descriptor(path: &Path) -> Option<std::borrow::Cow<'_, Path>> {
+    let Ok(rest) = path.strip_prefix(DESCRIPTORS) else {
+        return Some(std::borrow::Cow::Borrowed(path));
+    };
+    let mut parts = rest.components();
+    let descriptor = parts.next()?;
+    let folder = std::fs::read_link(Path::new(DESCRIPTORS).join(descriptor)).ok()?;
+    Some(std::borrow::Cow::Owned(folder.join(parts.as_path())))
+}
+
+/// Returns `path` as a text for the user, by its own name also when it was reached through a
+/// descriptor (`named_without_descriptor`). It is the one way file_io and the trash show a path,
+/// as both work in folders through `path_through`
+/// (`source_rules::paths_through_a_descriptor_are_shown_by_their_names`).
+pub(crate) fn shown_path(path: &Path) -> String {
+    let named = named_without_descriptor(path);
+    named.as_deref().unwrap_or(path).display().to_string()
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
@@ -1724,7 +1758,7 @@ pub(crate) fn still_listed(files: Vec<ListedFile>) -> (Vec<PathBuf>, Vec<String>
     for file in files {
         match file.check() {
             Ok(()) => kept.push(file.path),
-            Err(e) => refused.push(format!("{}: {e}", file.path.display())),
+            Err(e) => refused.push(format!("{}: {e}", shown_path(&file.path))),
         }
     }
     (kept, refused)
@@ -2126,7 +2160,7 @@ pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
     if let Err(e) = replace_file(path, bytes) {
         save_failed(crate::tf!(
             "Could not save {name}: {e}",
-            name = path.display(),
+            name = shown_path(path),
             e
         ));
     }
@@ -2602,6 +2636,54 @@ mod tests {
         assert!(
             super::is_still_the_folder(&picked_dir, picked, false, &Default::default()).is_err()
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A path through an opened folder (`path_through`) is asked about and shown by the folder's
+    /// own name. Before, the mount table found it on /proc, so a trash at the top of an NFS or
+    /// SMB mount was taken for a local one, and ENOENT there for nothing done. A sidecar whose
+    /// rename was sent again then went back into the trash without its photo. The text of an
+    /// unlink that may have been done named /proc/self/fd/N, which the user cannot open, and the
+    /// text of a rename the file system refuses called it "proc".
+    #[test]
+    fn a_path_through_an_opened_folder_is_asked_and_shown_by_its_name() {
+        use super::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-through-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let opened = super::open_folder_not_through_link(&dir).unwrap();
+        let through = super::path_through(&opened);
+        let shown = |p: &std::path::Path| super::shown_path(p);
+        assert_eq!(shown(&through.join("a.jpg")), shown(&dir.join("a.jpg")));
+        assert_eq!(
+            super::file_system_type(&through.join("a.jpg")),
+            super::file_system_type(&dir.join("a.jpg"))
+        );
+        assert_eq!(
+            super::is_mounted_whole(&through),
+            super::is_mounted_whole(&dir)
+        );
+        // The folder on an NFS mount, with /proc as every system has it.
+        let mounts = b"1 0 0:40 / / rw - nfs4 nas:/ rw\n2 1 0:5 / /proc rw - proc proc rw\n";
+        let kind = super::file_system_type_in(mounts, &through.join("a.jpg"), |_| None);
+        assert_eq!(kind.as_deref(), Some("nfs4"));
+        let enoent = std::io::Error::from_raw_os_error(libc::ENOENT);
+        assert!(super::may_have_been_done_on(&enoent, || kind));
+        // The unlink of the old name fails with an error that may hide one done.
+        std::fs::write(dir.join("a.jpg"), "a").unwrap();
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((through.join("a.jpg"), libc::EBADE)));
+        let renamed = super::rename_never_over(&through.join("a.jpg"), &dir.join("b.jpg"));
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        let told = renamed.unwrap_err().to_string();
+        assert!(told.contains(&shown(&dir.join("a.jpg"))), "{told}");
+        assert!(!told.contains("/proc/self/fd"), "{told}");
+        let refused = std::io::Error::from_raw_os_error(libc::EXDEV);
+        let told = super::explain_rename_error(refused, &through.join("b.jpg")).to_string();
+        let kind = super::file_system_type(&dir).unwrap();
+        assert!(told.contains(&format!("({kind})")), "{told}");
+        drop(opened);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
