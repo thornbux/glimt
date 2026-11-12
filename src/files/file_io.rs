@@ -15,6 +15,11 @@ use std::path::{Path, PathBuf};
 /// as a failed write. Any thread sets it, through `save_failed`.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// The warnings that an edit went on without its lock, and the folders of the locks told so,
+/// from any thread (`lock_or_tell`). In tests each test has its own (`told_here`).
+#[cfg(not(test))]
+static LOCKS_TOLD: std::sync::Mutex<LocksTold> = std::sync::Mutex::new(LocksTold::new());
+
 /// How long an act on files picked before a wait waits, once it starts, for each next
 /// fingerprint of the files picked (`PickedFiles`). A file that a share has not answered about by
 /// then counts as changed, and is left alone.
@@ -99,10 +104,10 @@ thread_local! {
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
     // leaked, so that the writer thread can tell a test's errors to that test's list.
-    static SAVES_FAILED: &'static std::sync::Mutex<Vec<String>> = Box::leak(Box::default());
+    static SAVES_FAILED: &'static std::sync::Mutex<ToldInTest> = Box::leak(Box::default());
     // The list of the test whose work the writer thread is doing now, so that what that work
     // tells reaches the test that queued it. It is `None` on every other thread.
-    static TOLD_FOR: std::cell::Cell<Option<&'static std::sync::Mutex<Vec<String>>>> =
+    static TOLD_FOR: std::cell::Cell<Option<&'static std::sync::Mutex<ToldInTest>>> =
         const { std::cell::Cell::new(None) };
     // The saves over a file with other names (hard links) on this thread. They do not go to
     // the window's own count in tests, where another test's window would take them as its
@@ -116,6 +121,46 @@ thread_local! {
 pub(crate) struct OtherNames {
     count: usize,
     first: Option<String>,
+}
+
+/// The warnings that an edit went on without its lock, not yet shown, and the folders whose
+/// lock has been told. Each folder is told once, so a share without locks warns once for its
+/// folder, and a lock planted beside one collection does not keep the warning for another
+/// folder, or for another kind of lock, from being told.
+struct LocksTold {
+    warnings: Vec<String>,
+    folders: std::collections::BTreeSet<PathBuf>,
+}
+
+impl LocksTold {
+    const fn new() -> Self {
+        LocksTold {
+            warnings: Vec::new(),
+            folders: std::collections::BTreeSet::new(),
+        }
+    }
+
+    /// Keeps `warning` to show and prints it, unless the lock's `folder` was told already.
+    fn tell(&mut self, folder: PathBuf, warning: String) {
+        if self.folders.insert(folder) {
+            eprintln!("{warning}");
+            self.warnings.push(warning);
+        }
+    }
+}
+
+impl Default for LocksTold {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// What a test's work told: the failed writes, and the edits that went on without their lock.
+#[cfg(test)]
+#[derive(Default)]
+struct ToldInTest {
+    saves_failed: Vec<String>,
+    locks: LocksTold,
 }
 
 /// The count behind `WRITING` in tests: the count of the thread that reads it.
@@ -1244,6 +1289,16 @@ pub fn take_save_error() -> Option<String> {
     lock_even_if_poisoned(&SAVE_ERROR).take()
 }
 
+/// Takes the warnings that edits went on without their lock, one line for each. They are not
+/// failed writes, as each edit was made. Returns `None` when there is no new one.
+pub fn take_lock_warning() -> Option<String> {
+    #[cfg(not(test))]
+    let warnings = std::mem::take(&mut lock_even_if_poisoned(&LOCKS_TOLD).warnings);
+    #[cfg(test)]
+    let warnings = std::mem::take(&mut lock_even_if_poisoned(told_here()).locks.warnings);
+    (!warnings.is_empty()).then(|| warnings.join("\n"))
+}
+
 /// Takes the note of the saves over files with other names (hard links), once no file is being
 /// written any more. A job over many files then gives one note with their count, rather than a
 /// new one for each file every frame. Returns `None` while files are written, or when there is
@@ -1378,27 +1433,27 @@ pub fn file_lock(path: &Path) -> Option<std::fs::File> {
 }
 
 /// `open_and_lock` for an edit that goes on without the lock when it cannot be had, as on a
-/// share without file locks (NFS without lockd). The user is told so, once for each Glimt,
-/// because a change that another window makes at the same moment may then be lost. Returns
-/// `None` when the lock cannot be had.
+/// share without file locks (NFS without lockd). The user is told so, once for each folder of
+/// locks, because a change that another window makes at the same moment may then be lost. It
+/// is a warning, not a failed write, because the edit itself is made: a `--wait` answers done,
+/// and a close that waited for the edit goes on. Returns `None` when the lock cannot be had.
 pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
     let e = match open_and_lock(path) {
         Ok(lock) => return Some(lock),
         Err(e) => e,
     };
-    // Every test is told, as each one takes its own errors.
-    #[cfg(not(test))]
-    {
-        static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            return None;
-        }
-    }
-    save_failed(crate::tf!(
+    let folder = path.parent().unwrap_or(Path::new("")).to_path_buf();
+    let warning = crate::tf!(
         "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost.",
         name = path.display(),
         e
-    ));
+    );
+    #[cfg(not(test))]
+    lock_even_if_poisoned(&LOCKS_TOLD).tell(folder, warning);
+    #[cfg(test)]
+    lock_even_if_poisoned(told_here())
+        .locks
+        .tell(folder, warning);
     None
 }
 
@@ -2062,17 +2117,17 @@ pub fn save_failed(error: String) {
     // In tests the error stays on this thread. The window's own slot is shared by every test,
     // and another test's window took the error as its notice in place of its own.
     #[cfg(test)]
-    lock_even_if_poisoned(told_here()).push(error);
+    lock_even_if_poisoned(told_here()).saves_failed.push(error);
     #[cfg(not(test))]
     {
         *lock_even_if_poisoned(&SAVE_ERROR) = Some(error);
     }
 }
 
-/// Returns the list of the errors told for this thread's test, also on the writer thread while
+/// Returns what was told for this thread's test, also on the writer thread while
 /// it does that test's work.
 #[cfg(test)]
-fn told_here() -> &'static std::sync::Mutex<Vec<String>> {
+fn told_here() -> &'static std::sync::Mutex<ToldInTest> {
     TOLD_FOR
         .get()
         .unwrap_or_else(|| SAVES_FAILED.with(|told| *told))
@@ -2081,7 +2136,7 @@ fn told_here() -> &'static std::sync::Mutex<Vec<String>> {
 /// Returns the errors that `save_failed` told for this thread's test, and empties the list.
 #[cfg(test)]
 pub(crate) fn take_saves_failed() -> Vec<String> {
-    std::mem::take(&mut *lock_even_if_poisoned(told_here()))
+    std::mem::take(&mut lock_even_if_poisoned(told_here()).saves_failed)
 }
 
 #[cfg(test)]
@@ -3041,11 +3096,42 @@ mod tests {
         let edited = super::edit_shared(&file, |_| (b"new".to_vec(), ()));
         assert!(edited.is_ok());
         assert_eq!(std::fs::read(&file).unwrap(), b"new");
-        let told = super::take_saves_failed();
+        let failed = super::take_saves_failed();
         assert!(
-            told.iter().any(|e| e.starts_with("Could not lock")),
-            "{told:?}"
+            !failed.iter().any(|e| e.starts_with("Could not lock")),
+            "an edit that was made is told as a failed write: {failed:?}"
         );
+        let warning = super::take_lock_warning().unwrap_or_default();
+        assert!(warning.starts_with("Could not lock"), "{warning:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The warning of an edit without its lock is told once for each folder of locks, so a lock
+    /// planted beside a downloaded collection does not keep the warning of Glimt's own files, or
+    /// of another folder, from being told. Before, one warning for each Glimt covered every kind
+    /// of lock, and the planted one used it up.
+    #[test]
+    fn a_planted_lock_does_not_hide_the_warning_of_another() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lock-folders-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (downloads, own) = (dir.join("downloads"), dir.join("state"));
+        std::fs::create_dir_all(downloads.join(".trip.gqv.lock")).unwrap();
+        std::fs::create_dir_all(downloads.join(".other.gqv.lock")).unwrap();
+        std::fs::create_dir_all(own.join(".marks.lock")).unwrap();
+        super::take_lock_warning();
+        assert!(super::file_lock(&downloads.join("trip.gqv")).is_none());
+        let first = super::take_lock_warning().unwrap_or_default();
+        assert!(first.contains("trip.gqv"), "{first:?}");
+        assert!(super::file_lock(&downloads.join("other.gqv")).is_none());
+        assert_eq!(
+            super::take_lock_warning(),
+            None,
+            "told twice for one folder"
+        );
+        assert!(super::file_lock(&own.join("marks")).is_none());
+        let other = super::take_lock_warning().unwrap_or_default();
+        assert!(other.contains(".marks.lock"), "{other:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

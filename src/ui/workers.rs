@@ -127,11 +127,18 @@ impl crate::App {
     /// Takes every answer that can tell of a failed write: the error that
     /// `file_io::save_failed` told from any thread, the notices and failures that background
     /// threads sent, and the turns saved. This is the one place they are taken, and
-    /// `guard_close` calls it, so each failure is seen before the window closes.
+    /// `guard_close` calls it, so each failure is seen before the window closes. It also takes
+    /// the warnings of edits made without their lock, which are shown but are not failures.
     pub(crate) fn take_saves(&mut self, ctx: &egui::Context) {
         // `save_failed` and `send_failed_write` printed theirs already.
         if let Some(error) = crate::files::file_io::take_save_error() {
             self.window.keep_failed_write(error);
+        }
+        // An edit that went on without its lock was made, so its warning is a notice and not a
+        // failed write: a `--wait` answers done, and a close that waited for the edit goes on.
+        if let Some(warning) = crate::files::file_io::take_lock_warning() {
+            self.notice.give(warning);
+            ctx.request_repaint();
         }
         while let Ok(told) = self.notices.try_recv() {
             match told {
