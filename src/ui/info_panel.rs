@@ -19,6 +19,13 @@ use eframe::egui;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
+
+/// How long the panel keeps drawing what it read of the image before, while the read of the
+/// image shown now has not answered. A read answers within a frame or two from a local disk, so
+/// the panel does not blink at each image. A read that hangs on a share leaves the panel without
+/// the rows after this, so they are never taken for the shown image's own for long.
+const KEPT_WHILE_READING: Duration = Duration::from_millis(500);
 
 /// A file's EXIF from the reader thread.
 pub(crate) struct ExifRead {
@@ -32,6 +39,18 @@ pub(crate) struct ExifRead {
     meta: xmp::KeywordsAndComment,
     paths: Vec<String>,
     alt_text: xmp::AltText,
+}
+
+/// How what the panel read of a file is drawn while another file may be shown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Drawn {
+    /// It was read of the shown file, and is drawn as it is.
+    AsRead,
+    /// It was read of the file shown before, and is drawn without being edited while the read
+    /// of the shown file is young (`KEPT_WHILE_READING`).
+    KeptWhileReading,
+    /// It is not drawn.
+    Not,
 }
 
 /// Keywords, comment, alt text and extended description of the shown image as being edited in
@@ -110,6 +129,9 @@ pub(crate) struct InfoPanel {
     /// the panel's rows as read for a file.
     exif_asked: Option<(PathBuf, Identity)>,
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
+    /// The moment the panel turned to another file than the one it read last, while that read
+    /// has not answered. It is None once the read of the file asked for has answered.
+    reading_since: Option<Instant>,
     /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
     exif_all: Vec<(&'static str, String, String)>,
     /// View → EXIF Window is open.
@@ -151,6 +173,7 @@ impl InfoPanel {
             exif_answers,
             exif_asked: None,
             exif: None,
+            reading_since: None,
             exif_all: Vec::new(),
             reread_after_write: None,
             is_exif_window_open: false,
@@ -186,13 +209,39 @@ impl InfoPanel {
         self.keyword_tree = tree;
     }
 
-    /// The info panel's row `label` of `path`, when that is the file read.
-    pub(crate) fn exif_row(&self, path: &Path, label: &str) -> Option<&str> {
-        let (_, rows) = self.exif.as_ref().filter(|e| e.0 == path)?;
+    /// Returns how what was read of `read` is drawn now for the shown file `shown`.
+    fn drawn(&self, read: &Path, shown: &Path) -> Drawn {
+        drawn(read, shown, self.reading_since, Instant::now())
+    }
+
+    /// Returns the info panel's rows to draw for the shown file `shown`, or None when none are
+    /// drawn.
+    fn rows_drawn_for(&self, shown: &Path) -> Option<&[(&'static str, String)]> {
+        let (read, rows) = self.exif.as_ref()?;
+        (self.drawn(read, shown) != Drawn::Not).then_some(rows.as_slice())
+    }
+
+    /// Returns the edit to draw for the shown file `shown` and how it is drawn, or None when
+    /// none is drawn.
+    fn edit_drawn_for(&self, shown: &Path) -> Option<(&MetadataEdit, Drawn)> {
+        let edit = self.metadata_edit.as_ref()?;
+        Some((edit, self.drawn(&edit.path, shown))).filter(|(_, d)| *d != Drawn::Not)
+    }
+
+    /// Returns the info panel's row `label` as it is drawn for the shown file `shown`.
+    pub(crate) fn exif_row(&self, shown: &Path, label: &str) -> Option<&str> {
+        let rows = self.rows_drawn_for(shown)?;
         rows.iter().find(|r| r.0 == label).map(|r| r.1.as_str())
     }
 
-    /// What the panel edits of `path`, when it is that file's.
+    /// Returns the keywords and comment as they are drawn for the shown file `shown`.
+    pub(crate) fn saved_drawn_for(&self, shown: &Path) -> Option<&xmp::KeywordsAndComment> {
+        self.edit_drawn_for(shown).map(|(edit, _)| &edit.saved)
+    }
+
+    /// What the panel edits of `path`, when it is that file's. A screen reader reads only
+    /// this, never what is kept of the image before, as it would be read out as this image's.
+    #[cfg(feature = "accessibility")]
     pub(crate) fn metadata_edit_of(&self, path: &Path) -> Option<&MetadataEdit> {
         self.metadata_edit.as_ref().filter(|m| m.path == path)
     }
@@ -240,6 +289,9 @@ impl crate::App {
                 self.save_metadata_edit(ctx);
                 self.info_panel.reread_after_write = Some((path.clone(), writes));
             }
+        }
+        if asked_again && self.info_panel.reading_since.is_none() {
+            self.info_panel.reading_since = Some(Instant::now());
         }
         if asked_again && self.info_panel.reread_after_write.is_none() {
             *lock_even_if_poisoned(&self.info_panel.exif_newest_request) = path.clone();
@@ -289,6 +341,15 @@ impl crate::App {
             }
             self.info_panel.exif = Some((path, rows));
             self.info_panel.exif_all = all;
+            self.info_panel.reading_since = None;
+        }
+        // The frame after the read of the file before stops being drawn, also when nothing
+        // else asks for one.
+        if let Some(since) = self.info_panel.reading_since {
+            let left = KEPT_WHILE_READING.saturating_sub(since.elapsed());
+            if !left.is_zero() {
+                ctx.request_repaint_after(left);
+            }
         }
     }
 
@@ -309,11 +370,11 @@ impl crate::App {
                             ui.label(format!("{} × {}", s.original_size[0], s.original_size[1]));
                             ui.end_row();
                         }
-                        // Only the rows of the image shown, never those of the one before under
-                        // its name, as a read that does not answer would leave them for good.
+                        // The rows of the image before stay only while the read of this one is
+                        // young, as a read that does not answer would leave them for good.
                         let shown = self.path(self.list.shown());
-                        let rows = (self.info_panel.exif.iter()).filter(|e| e.0 == shown);
-                        for (label, value) in rows.flat_map(|e| &e.1) {
+                        let rows = self.info_panel.rows_drawn_for(&shown).unwrap_or_default();
+                        for (label, value) in rows {
                             ui.weak(tr(label));
                             // The place opens on a map in the browser.
                             if *label == "GPS" {
@@ -347,12 +408,15 @@ impl crate::App {
         if self.info_panel.reread_after_write.is_some() {
             ui.disable();
         }
-        let Some(edit) = self
-            .info_panel
-            .metadata_edit
-            .as_mut()
-            .filter(|m| m.path == path)
-        else {
+        // The fields of the image before stay, but cannot be edited, while this one's read is
+        // young. Typed there, the text would go to the image before.
+        let Some((_, drawn)) = self.info_panel.edit_drawn_for(&path) else {
+            return;
+        };
+        if drawn == Drawn::KeptWhileReading {
+            ui.disable();
+        }
+        let Some(edit) = self.info_panel.metadata_edit.as_mut() else {
             return;
         };
         ui.weak(tr("Keywords"));
@@ -361,7 +425,7 @@ impl crate::App {
                 .hint_text(tr("Separated by commas"))
                 .desired_width(f32::INFINITY),
         );
-        if std::mem::take(&mut self.info_panel.keywords_take_focus) {
+        if drawn == Drawn::AsRead && std::mem::take(&mut self.info_panel.keywords_take_focus) {
             keywords.request_focus();
         }
         ui.weak(tr("Comment"));
@@ -409,13 +473,13 @@ impl crate::App {
     /// image has it; a click sets it on the selected images (or the shown one), or takes it off.
     pub(crate) fn keyword_tree(&mut self, ui: &mut egui::Ui) {
         let path = self.path(self.list.shown());
-        let Some((have, paths)) = (self.info_panel.metadata_edit.as_ref())
-            .filter(|m| m.path == path)
-            .map(|m| (m.saved.keywords.clone(), m.paths.clone()))
+        let Some((have, paths, drawn)) = (self.info_panel.edit_drawn_for(&path))
+            .map(|(m, drawn)| (m.saved.keywords.clone(), m.paths.clone(), drawn))
         else {
             return;
         };
-        if self.info_panel.reread_after_write.is_some() {
+        // The tree of the image before cannot be ticked while it is kept (`meta_fields`).
+        if self.info_panel.reread_after_write.is_some() || drawn == Drawn::KeptWhileReading {
             ui.disable();
         }
         ui.separator();
@@ -755,10 +819,11 @@ impl crate::App {
             self.request_and_take_exif(ctx);
             let mut open = true;
             let title = tf!("EXIF: {name}", name = self.name(self.list.shown()));
-            // Only the fields of the image shown, as in the info panel.
+            // The fields of the image before stay only while the read of this one is young, as
+            // in the info panel.
             let shown = self.path(self.list.shown());
-            let is_of_shown = (self.info_panel.exif.as_ref()).is_some_and(|e| e.0 == shown);
-            let all: &[_] = match is_of_shown {
+            let is_drawn = self.info_panel.rows_drawn_for(&shown).is_some();
+            let all: &[_] = match is_drawn {
                 true => &self.info_panel.exif_all,
                 false => &[],
             };
@@ -844,6 +909,20 @@ pub(crate) fn spawn_exif_reader(
     (exif_requests, exif_answers)
 }
 
+/// Decides how what was read of `read` is drawn at `now` for the shown file `shown`, when the
+/// panel turned to another file at `reading_since` and that read has not answered. What was read
+/// of another file is kept a moment (`KEPT_WHILE_READING`), so the panel does not blink at each
+/// image, but not for longer, so a read that hangs never leaves it standing for the shown image.
+fn drawn(read: &Path, shown: &Path, reading_since: Option<Instant>, now: Instant) -> Drawn {
+    match reading_since {
+        None if read == shown => Drawn::AsRead,
+        Some(since) if now.saturating_duration_since(since) < KEPT_WHILE_READING => {
+            Drawn::KeptWhileReading
+        }
+        _ => Drawn::Not,
+    }
+}
+
 /// Returns the keyword tree as its file has it. It waits for the disk, so `main` calls it before
 /// the window opens.
 pub(crate) fn read_keyword_tree() -> Vec<String> {
@@ -855,6 +934,8 @@ pub(crate) fn read_keyword_tree() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, run_background_until};
+    use std::path::Path;
+    use std::time::Instant;
 
     /// Another window's keyword, written to the tree's file meanwhile, shows in this window's
     /// tree once this window's own change is written, as it did when the window's thread wrote
@@ -973,6 +1054,57 @@ mod tests {
             .unwrap();
         app.request_and_take_exif(&ctx);
         assert_eq!(app.info_panel.exif_row(&a, "Camera"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// What was read of the image before is drawn while the read of the shown image is young,
+    /// and not after. Before, the panel drew only the shown image's rows, so every image change
+    /// drew a frame without them and the panel blinked. Before that, it drew the rows of the
+    /// image before for as long as a read that hung did not answer.
+    #[test]
+    fn the_rows_before_stay_only_while_the_read_is_young() {
+        use super::{Drawn, KEPT_WHILE_READING, drawn};
+        let (a, b) = (Path::new("/p/a.jpg"), Path::new("/p/b.jpg"));
+        let since = Instant::now();
+        let young = since + KEPT_WHILE_READING / 5;
+        let old = since + KEPT_WHILE_READING;
+        assert_eq!(drawn(a, a, None, since), Drawn::AsRead);
+        assert_eq!(drawn(a, b, None, since), Drawn::Not);
+        assert_eq!(drawn(a, b, Some(since), since), Drawn::KeptWhileReading);
+        assert_eq!(drawn(a, b, Some(since), young), Drawn::KeptWhileReading);
+        assert_eq!(drawn(a, b, Some(since), old), Drawn::Not);
+        // A name read again (another file has taken it) is kept a moment too, and no longer.
+        assert_eq!(drawn(a, a, Some(since), young), Drawn::KeptWhileReading);
+        assert_eq!(drawn(a, a, Some(since), old), Drawn::Not);
+    }
+
+    /// The panel keeps the rows and the fields of the image before, which cannot be edited, while
+    /// a read that does not answer is young, and drops them after.
+    #[test]
+    fn a_read_that_does_not_answer_keeps_the_rows_before_a_moment() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-exif-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        // A stand-in for a reader that does not answer.
+        let (_answers, rx) = std::sync::mpsc::channel::<super::ExifRead>();
+        app.info_panel.exif_answers = rx;
+        app.show_file(&ctx, 1);
+        app.request_and_take_exif(&ctx);
+        let b = dir.join("b.png");
+        assert!(app.info_panel.exif_row(&b, "File size").is_some());
+        let edit = app.info_panel.edit_drawn_for(&b).map(|(_, drawn)| drawn);
+        assert_eq!(edit, Some(super::Drawn::KeptWhileReading));
+        let past = Instant::now()
+            .checked_sub(super::KEPT_WHILE_READING)
+            .unwrap();
+        app.info_panel.reading_since = Some(past);
+        app.request_and_take_exif(&ctx);
+        assert_eq!(app.info_panel.exif_row(&b, "File size"), None);
+        assert!(app.info_panel.edit_drawn_for(&b).is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

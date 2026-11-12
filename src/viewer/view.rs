@@ -958,7 +958,7 @@ impl crate::App {
     pub(crate) fn full_screen_info_text(&mut self, ctx: &egui::Context) -> String {
         self.request_and_take_exif(ctx);
         let path = self.path(self.list.shown());
-        let meta = self.info_panel.metadata_edit_of(&path).map(|m| &m.saved);
+        let meta = self.info_panel.saved_drawn_for(&path);
         fill_template(
             &self.config.full_screen_info_template,
             |field| match field {
