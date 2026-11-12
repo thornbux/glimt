@@ -3168,3 +3168,7 @@ msgstr ""
 #: src/files/file_ops.rs
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr ""
+
+#: src/features/duplicates.rs
+msgid "{files} not moved to the trash: another file of their group changed after the search"
+msgstr ""

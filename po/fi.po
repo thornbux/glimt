@@ -3932,3 +3932,8 @@ msgstr "Kohdetta {sidecar} ei voitu siirtää ({e}), joten se kopioitiin kohtees
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} ei vastannut minuutin kuluessa, joten mitään ei tehty"
+
+#: src/features/duplicates.rs
+#, fuzzy
+msgid "{files} not moved to the trash: another file of their group changed after the search"
+msgstr "Ei siirretty roskakoriin: {files}, toinen ryhmän tiedosto muuttui haun jälkeen"

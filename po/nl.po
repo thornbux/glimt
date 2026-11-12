@@ -3927,3 +3927,8 @@ msgstr "{sidecar} kon niet worden verplaatst ({e}), dus het is gekopieerd naar {
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} antwoordde niet binnen een minuut, dus er is niets gedaan"
+
+#: src/features/duplicates.rs
+#, fuzzy
+msgid "{files} not moved to the trash: another file of their group changed after the search"
+msgstr "{files} niet naar de prullenbak verplaatst: een ander bestand van de groep is na het zoeken gewijzigd"

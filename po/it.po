@@ -3927,3 +3927,8 @@ msgstr "{sidecar} non è stato spostato ({e}), quindi è stato copiato in {copy}
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} non ha risposto entro un minuto, quindi non è stato fatto nulla"
+
+#: src/features/duplicates.rs
+#, fuzzy
+msgid "{files} not moved to the trash: another file of their group changed after the search"
+msgstr "{files} non spostati nel cestino: un altro file del gruppo è cambiato dopo la ricerca"

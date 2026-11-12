@@ -14,6 +14,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   once that a change another Glimt window makes to a sidecar at the same moment may be lost,
   as it does when a lock cannot be had. Before, sidecars were then edited without the locks
   between windows, and nothing was said.
+- Find Duplicates' Move to Trash leaves out the checked files of a group whose unchecked file
+  was changed after the search, and says so, as they may now be the last copies of the
+  original. Before, only the checked files were looked at, so an edit of the file kept could
+  send its last copy to the trash.
+
+### Fixed
+
+- Ctrl+Z pressed while a Move or a rename waits for its folder, as on a share that is slow to
+  answer, says that Glimt is still working on the files. Before, it undid the operation before
+  it, and the Move then left its own Undo.
 
 ## [0.82.0] - 2026-11-12
 
