@@ -2480,9 +2480,11 @@ mod tests {
     #[test]
     fn a_look_at_a_socket_that_comes_late_is_waited_for_again() {
         // The first look answers only once the second has started, so after its own time ran
-        // out, however slowly the threads start. The second never answers in time. Before, the
-        // first slept 400 ms against a limit of 300 ms, and a runner under load that started it
-        // 200 ms late failed the test.
+        // out, however slowly the first thread starts. The second never answers in time. The
+        // one margin left is the second wait: the second thread must start, and the first
+        // answer, within `limit`, 300 ms, or the look counts as answered and the test fails.
+        // Before, the first slept 400 ms against a limit of 300 ms, and a runner under load
+        // that started it 200 ms late failed the test.
         use std::sync::{Arc, Mutex, mpsc};
         let (release, released) = mpsc::channel::<()>();
         let released = Arc::new(Mutex::new(released));
