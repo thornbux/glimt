@@ -396,7 +396,12 @@ Print the path of the image shown.
 .TP
 .B selection
 Print the paths of the selected files, or of the image shown when none is selected. When the
-search hides every selected file, nothing is printed.
+search hides every selected file, nothing is printed. When the window closes in the middle of a
+path, here or in the answer of
+.B current
+or
+.BR select ,
+what came is printed and the exit status is 3.
 .TP
 .BI select " PATH ..."
 Select these files of the list (at most 100,000) and show the first; print those that are not
