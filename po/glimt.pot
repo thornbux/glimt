@@ -3167,6 +3167,7 @@ msgstr ""
 
 #: src/features/duplicates.rs
 msgid "{files} not moved to the trash: another file of their group changed after the search"
+msgstr ""
 #: src/features/copy_for_sharing.rs
 msgid "Same name as another image picked, from another folder: {images}"
 msgstr ""
