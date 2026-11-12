@@ -6297,3 +6297,85 @@ fn names_a_property(text: &str) -> bool {
         && local.starts_with(|c: char| c.is_ascii_alphabetic())
         && !["rdf", "xml", "xmlns"].contains(&prefix)
 }
+
+/// Every walk over an XMP packet passes over its comments, CDATA sections and processing
+/// instructions through `xmp::not_element_length`. A walk that does not finds a Description, a
+/// property or a namespace declaration inside one, which XML does not see. A namespace declared
+/// in a comment once made the star writer write xmp:Rating with its prefix bound to nothing.
+#[test]
+fn packet_walks_pass_over_markup_that_is_no_element() {
+    let sources: Vec<(String, String)> = (rust_sources().into_iter())
+        .filter(|(file, _)| file != "support/source_rules.rs")
+        .collect();
+    let wrong = walks_without_markup_skip(&sources);
+    assert!(
+        wrong.is_empty(),
+        "pass over comments, CDATA and processing instructions with xmp::not_element_length, \
+         or say in the doc comment how the text given has none (`not_element_length`):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds a walk from one '<' to the next, and a search for namespace
+/// declarations, that neither calls `not_element_length` nor names it in its doc comment. It
+/// finds `namespace_declarations` as it was written before this check.
+#[test]
+fn finds_a_walk_that_does_not_pass_over_markup() {
+    let a = "/// The namespaces.\nfn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {\n    \
+        for (at, _) in xmp.match_indices(\"xmlns:\") {\n        out.push(at);\n    }\n}\n\
+        fn walk(x: &[u8]) {\n    let at = x.iter().position(|&c| c == b'<');\n}\n\
+        fn text(x: &str) {\n    x.find('<');\n}\n\
+        fn skips(x: &[u8]) {\n    x.iter().position(|&c| c == b'<');\n    \
+        not_element_length(x);\n}\n\
+        /// Text outside markup (`not_element_length`).\nfn given(x: &str) {\n    \
+        x.match_indices(\"xmlns:\");\n}\n\
+        fn tag(name: &[u8]) -> bool {\n    name.starts_with(b\"xmlns:\")\n}\n";
+    let found = walks_without_markup_skip(&[("a.rs".into(), a.into())]);
+    assert_eq!(
+        found,
+        [
+            "a.rs:2 namespace_declarations",
+            "a.rs:7 walk",
+            "a.rs:10 text"
+        ]
+    );
+}
+
+/// Returns the functions outside the tests of `sources` that walk a packet from one '<' to the
+/// next or search it for namespace declarations, without `not_element_length` in their body or
+/// in the doc comment above them, as "file:line name".
+fn walks_without_markup_skip(sources: &[(String, String)]) -> Vec<String> {
+    const WALKS: [&str; 5] = [
+        "c == b'<'",
+        "find('<')",
+        "match_indices('<')",
+        "match_indices(\"xmlns",
+        "find(\"xmlns",
+    ];
+    let names_the_skip = |l: &&str| l.contains("not_element_length");
+    let mut wrong = Vec::new();
+    for (file, text) in sources {
+        let (raw, code) = (text.lines().collect::<Vec<_>>(), code_lines(text));
+        for f in functions_in(file, &code) {
+            let body: Vec<&str> = (f.lines.clone())
+                .filter_map(|i| raw.get(i).copied())
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect();
+            if !body
+                .iter()
+                .any(|l| WALKS.iter().any(|walk| l.contains(walk)))
+            {
+                continue;
+            }
+            let is_doc = |l: &&&str| {
+                let l = l.trim_start();
+                l.starts_with("///") || l.starts_with("#[")
+            };
+            let mut doc = raw[..*f.lines.start()].iter().rev().take_while(is_doc);
+            if !(body.iter().any(names_the_skip) || doc.any(names_the_skip)) {
+                wrong.push(format!("{file}:{} {}", f.lines.start() + 1, f.name));
+            }
+        }
+    }
+    wrong
+}

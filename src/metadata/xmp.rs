@@ -1735,13 +1735,39 @@ fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {
 
 /// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written.
 /// It is the one reading of them, for `properties` and for the writers (`first_description`).
+/// A declaration inside a comment, a CDATA section or a processing instruction declares
+/// nothing, so these are passed over whole (`not_element_length`), and the reading stops at one
+/// that does not end. Before, a Description commented out declared its prefixes for the one
+/// after it, and the writers wrote a property with its prefix bound to nothing.
 fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
-    let mut out = Vec::new();
-    for (at, _) in xmp.match_indices("xmlns:") {
+    let bytes = xmp.as_bytes();
+    let (mut out, mut from, mut at) = (Vec::new(), 0, 0);
+    while let Some(found) = bytes[at..].iter().position(|&c| c == b'<') {
+        let start = at + found;
+        let Some(length) = not_element_length(&bytes[start..]) else {
+            at = start + 1;
+            continue;
+        };
+        // The markup starts at a '<', so the text before it is whole UTF-8.
+        declarations_in(&xmp[from..start], &mut out);
+        let Some(length) = length else {
+            return out;
+        };
+        (from, at) = (start + length, start + length);
+    }
+    declarations_in(&xmp[from..], &mut out);
+    out
+}
+
+/// Adds the namespaces that `text`, a part of a packet outside its comments, CDATA sections
+/// and processing instructions, declares to `out`. `namespace_declarations` cuts the packet
+/// into such parts at the markup that `not_element_length` passes over.
+fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
+    for (at, _) in text.match_indices("xmlns:") {
         // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
         // would be searched to its end a million times. The cap is moved back to the start of
         // a letter, as a cut inside one would panic.
-        let rest = &xmp[at + 6..xmp.floor_char_boundary(at + 1024)];
+        let rest = &text[at + 6..text.floor_char_boundary(at + 1024)];
         // XML allows spaces around the "=", as in `xmlns:tiff = "…"`.
         let declared = rest.split_once('=');
         if let Some((prefix, uri)) =
@@ -1752,7 +1778,6 @@ fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
             out.push((prefix, uri));
         }
     }
-    out
 }
 
 /// Returns where the start tag of the first rdf:Description in `xmp` ends, at its '>' past any
@@ -2330,6 +2355,33 @@ mod tests {
             "{turned}"
         );
         assert!(turned.contains("<![CDATA[Where's </dc:title> <dc:subject>]]>"));
+        // A namespace declared only inside a comment, a CDATA section or a processing
+        // instruction is not in force, so a writer declares it where it writes. Before, a
+        // keyword went in with its prefix bound to nothing.
+        let hidden = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+            <!-- <rdf:Description xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\"/> -->\
+            <?note xmlns:dc='http://purl.org/dc/elements/1.1/'?>\
+            <![CDATA[ xmlns:x='u' ]]><rdf:Description rdf:about=\"\"/></rdf:RDF>";
+        let (_, declared) = super::first_description(hidden).unwrap();
+        assert_eq!(
+            declared,
+            [("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")]
+        );
+        let tagged = super::with_paths(hidden.into(), &["Places|Oslo".into()]).unwrap();
+        assert!(
+            tagged.contains("<rdf:Description rdf:about=\"\" xmlns:lr="),
+            "{tagged}"
+        );
+        let meta = KeywordsAndComment {
+            keywords: vec!["Oslo".into()],
+            comment: String::new(),
+        };
+        let keyworded = set_keywords_and_comment(hidden, &meta, false).unwrap();
+        assert!(
+            keyworded.contains("rdf:about=\"\" xmlns:dc="),
+            "{keyworded}"
+        );
+        assert_eq!(parse(&keyworded).keywords, ["Oslo"]);
     }
 
     /// A keyword tree file damaged in any way is read without a panic.
