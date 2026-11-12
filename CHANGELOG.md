@@ -27,6 +27,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Copy for Sharing keeps the markers that a few JPEG files need to be shown (DNL, and DHP and
   EXP of hierarchical JPEG). Since 0.82 they were left out of every copy, so a copy of such a
   file could not be opened.
+- With View → Include Subfolders on a slow share, such as SMB over wireless, the next image is
+  shown while the folders below are still read. Before, only the first image showed until the
+  whole tree was read, as each part of it that came put the next image's decode back in line.
+- While Include Subfolders reads the folders below, the file list no longer reads the size and
+  date of the rows on screen again for each part of the tree that comes, which on a slow share
+  kept it busy until the whole tree was read.
 
 ## [0.82.0] - 2026-11-12
 

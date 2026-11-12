@@ -630,6 +630,16 @@ impl List {
         self.sizes_and_dates.remove(name);
     }
 
+    /// Takes every file's size and date, to carry them to the next list of the same files.
+    pub(crate) fn take_sizes_and_dates(&mut self) -> HashMap<OsString, Option<(u64, i64)>> {
+        std::mem::take(&mut self.sizes_and_dates)
+    }
+
+    /// Keeps `read`, the sizes and dates of a list of the same files before this one.
+    pub(crate) fn keep_sizes_and_dates(&mut self, read: HashMap<OsString, Option<(u64, i64)>>) {
+        self.sizes_and_dates = read;
+    }
+
     /// Forgets every file's size and date, so the rows on screen read them again.
     pub(crate) fn forget_sizes_and_dates(&mut self) {
         self.sizes_and_dates.clear();
@@ -696,7 +706,10 @@ mod tests {
                 "pan_thumbs",
                 "reset: pan view names them again in its next frame",
             ),
-            ("sizes_and_dates", "reset: read again as the rows are drawn"),
+            (
+                "sizes_and_dates",
+                "reset, but carried by name from a tree's part (take_listed_files)",
+            ),
             ("version", "goes up in List::replacing"),
             ("has_unchecked_entries", "carried by List::replacing"),
         ];
