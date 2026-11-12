@@ -959,7 +959,8 @@ pub(crate) fn file_system_type(path: &Path) -> Option<String> {
 /// Returns the file system's type in `udev`, a device's file in /run/udev/data, as blkid
 /// found it on the disk. Returns `None` when blkid found none.
 fn file_system_type_in_udev(udev: &str) -> Option<String> {
-    let kind = udev.lines().find_map(|l| l.strip_prefix("E:ID_FS_TYPE="))?;
+    let kind = (udev.lines().filter_map(|l| l.split_once('=')))
+        .find_map(|(key, value)| (key == "E:ID_FS_TYPE").then_some(value))?;
     (!kind.is_empty()).then(|| kind.to_owned())
 }
 

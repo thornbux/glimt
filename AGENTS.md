@@ -510,7 +510,9 @@ method.
   (`source_rules::xmp_properties_are_found_at_the_top_level`, which finds such a search in
   every spelling: a method of `str` or a slice, a window compared, `memmem`, and a function
   that passes its own parameter on to one of these). Every walk over a packet passes over
-  comments, CDATA sections and processing instructions through `xmp::not_element_length`.
+  comments, CDATA sections and processing instructions through `xmp::not_element_length`, also
+  the reading of its namespace declarations
+  (`source_rules::packet_walks_pass_over_markup_that_is_no_element`).
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:
