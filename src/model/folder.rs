@@ -96,6 +96,9 @@ pub(crate) struct Folder {
     /// The image the first part of a tree showed by itself. The whole list then goes to its
     /// first image instead.
     first_part_shown: Option<OsString>,
+    /// Whether the list is a part of the tree being read, whose files' sizes and dates the
+    /// next part, and the whole list after the parts, carry over by name.
+    list_is_a_part: bool,
     /// Set to stop the listing of the tree before, when another one starts.
     listing_stop: Arc<AtomicBool>,
     /// Whether the folder changed while a listing was running. It is listed again when the
@@ -169,6 +172,7 @@ impl Folder {
             lists_tree_in_parts: false,
             listed_as: None,
             first_part_shown: None,
+            list_is_a_part: false,
             listing_stop: Arc::default(),
             relist_when_done: false,
             change_waits: false,
@@ -1255,6 +1259,7 @@ impl crate::App {
         let parts =
             std::mem::take(&mut self.folder.lists_tree_in_parts) && !self.slideshow.is_shuffled();
         self.folder.first_part_shown = None;
+        self.folder.list_is_a_part = false;
         let listing = Listing {
             dir: list_dir,
             types,
@@ -1489,7 +1494,16 @@ impl crate::App {
         let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
+        // The sizes and dates of the rows go from one part of the tree to the next, and to the
+        // whole list after it, as the files are the same ones, read by the same walk. Before,
+        // each part read them again, and an answer still on its way was dropped and asked
+        // again, which on a slow share kept the list busy until the tree was read.
+        let read = std::mem::replace(&mut self.folder.list_is_a_part, !whole)
+            .then(|| self.list.take_sizes_and_dates());
         self.replace_files(ctx, files, shown);
+        if let Some(read) = read {
+            self.list.keep_sizes_and_dates(read);
+        }
         if first {
             self.folder.first_part_shown = self.list.files().get(self.list.shown()).cloned();
         }
@@ -2324,6 +2338,36 @@ mod tests {
         app.search.set_query("");
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[1, 2].into());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The sizes and dates read for the rows go from one part of a tree to the next, and to
+    /// the whole list after the parts, so a slow share is not asked again for each part. A
+    /// whole list read again after a whole one reads them anew.
+    #[test]
+    fn the_parts_of_a_tree_keep_the_sizes_read() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-part-sizes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let listed = |names: &[&str]| names.iter().map(|f| ((*f).into(), None)).collect();
+        let known = |app: &crate::App| {
+            app.list
+                .sizes_and_dates()
+                .get(std::ffi::OsStr::new("b/x.png"))
+                .copied()
+        };
+        app.take_listed_files(&ctx, listed(&["b/x.png"]), false);
+        app.list.remember_size_and_date("b/x.png".into(), (7, 1));
+        app.take_listed_files(&ctx, listed(&["a/w.png", "b/x.png"]), false);
+        assert_eq!(known(&app), Some(Some((7, 1))));
+        app.take_listed_files(&ctx, listed(&["a/w.png", "b/x.png", "c/y.png"]), true);
+        assert_eq!(known(&app), Some(Some((7, 1))));
+        app.take_listed_files(&ctx, listed(&["a/w.png", "b/x.png"]), true);
+        assert_eq!(known(&app), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
