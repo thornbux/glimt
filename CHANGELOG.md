@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-11-13
+
+### Added
+
+- Copy for Sharing says in its dialog how many of the selected images have the same name as
+  another one from another folder, as with View → Include Subfolders, and can give a copy whose
+  name is taken a new name, "NAME-2.EXT". The box is ticked when there are such images. Before,
+  the second image of a name was left out, and the message said only that the folder had files
+  of those names.
+
 ### Fixed
 
 - When the log of a Move or the plan of a Rename Many could not be removed after it was done,
@@ -18,9 +28,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   was changed after the search, and says so, as they may now be the last copies of the
   original. Before, only the checked files were looked at, so an edit of the file kept could
   send its last copy to the trash.
-
-### Fixed
-
 - Ctrl+Z pressed while a Move or a rename waits for its folder, as on a share that is slow to
   answer, says that Glimt is still working on the files. Before, it undid the operation before
   it, and the Move then left its own Undo.
@@ -33,13 +40,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - While Include Subfolders reads the folders below, the file list no longer reads the size and
   date of the rows on screen again for each part of the tree that comes, which on a slow share
   kept it busy until the whole tree was read.
-### Added
-
-- Copy for Sharing says in its dialog how many of the selected images have the same name as
-  another one from another folder, as with View → Include Subfolders, and can give a copy whose
-  name is taken a new name, "NAME-2.EXT". The box is ticked when there are such images. Before,
-  the second image of a name was left out, and the message said only that the folder had files
-  of those names.
 - On a memory card (FAT, exFAT), an SMB share mounted with noserverino or an sshfs folder, a
   sidecar is locked by its path again, so two windows that write it at once wait for each
   other. Since 0.82 the lock went by the folder's inode number, which those file systems make
@@ -4008,7 +4008,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.82.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.83.0...HEAD
+[0.83.0]: https://github.com/thornbux/glimt/compare/v0.82.0...v0.83.0
 [0.82.0]: https://github.com/thornbux/glimt/compare/v0.81.1...v0.82.0
 [0.81.1]: https://github.com/thornbux/glimt/compare/v0.81.0...v0.81.1
 [0.81.0]: https://github.com/thornbux/glimt/compare/v0.80.1...v0.81.0
