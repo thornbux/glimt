@@ -108,7 +108,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   copy took them out or changed them.
 - XMP with CDATA sections, comments or processing instructions is read as XML reads it. The
   info panel shows a CDATA section's text without its markup, a rating or keyword is never
-  written into a Description that is commented out, and a keyword or comment with an XML
+  written into a Description that is commented out nor with a prefix that only a comment
+  declares (which darktable and digiKam refused), and a keyword or comment with an XML
   comment inside it is replaced, not written a second time beside it.
 - A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
   instead says that the sidecar is still at the old name, where a later file of that name would
@@ -117,8 +118,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   thumbnail from being decoded. A decode or thumbnail worker, or the info panel's reader, that
   waits more than ten seconds is given up, and another takes its place. The info panel, the
   EXIF window and the full screen info keep what they read of the image before for half a
-  second at most while the next image is read, and the panel's fields cannot be edited
-  meanwhile. Before, a read that never answered left the EXIF of the image before it, GPS link
+  second at most while the next image is read, and the panel shows them disabled meanwhile:
+  its fields cannot be edited and its GPS link cannot be clicked. Before, a read that never answered left the EXIF of the image before it, GPS link
   included, under every later name. The panel no longer blinks at each image either, as its
   keyword fields and keyword tree stay while the next image is read.
 - In Import Lightroom Catalog, a folder typed on a share that stopped answering no longer keeps

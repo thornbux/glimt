@@ -374,21 +374,29 @@ impl crate::App {
                         // young, as a read that does not answer would leave them for good.
                         let shown = self.path(self.list.shown());
                         let rows = self.info_panel.rows_drawn_for(&shown).unwrap_or_default();
+                        // The rows kept of the image before are disabled, as its fields below
+                        // are, so that its GPS link cannot be clicked under this image's name
+                        // and a screen reader reads them as unavailable.
+                        let is_kept = (self.info_panel.exif.as_ref()).is_some_and(|(read, _)| {
+                            self.info_panel.drawn(read, &shown) == Drawn::KeptWhileReading
+                        });
                         for (label, value) in rows {
-                            ui.weak(tr(label));
-                            // The place opens on a map in the browser.
-                            if *label == "GPS" {
-                                let link = crate::ui::menus::link(ui, value).on_hover_text(tr("Show on OpenStreetMap"));
-                                if link.clicked()
-                                    && let Some((lat, lon)) = value.split_once(", ")
-                                {
-                                    open_url(&format!(
-                                        "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
-                                    ));
+                            ui.add_enabled_ui(!is_kept, |ui| ui.weak(tr(label)));
+                            ui.add_enabled_ui(!is_kept, |ui| {
+                                // The place opens on a map in the browser.
+                                if *label == "GPS" {
+                                    let link = crate::ui::menus::link(ui, value).on_hover_text(tr("Show on OpenStreetMap"));
+                                    if link.clicked()
+                                        && let Some((lat, lon)) = value.split_once(", ")
+                                    {
+                                        open_url(&format!(
+                                            "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
+                                        ));
+                                    }
+                                } else {
+                                    ui.label(exif::shown_value(label, value));
                                 }
-                            } else {
-                                ui.label(exif::shown_value(label, value));
-                            }
+                            });
                             ui.end_row();
                         }
                     });
@@ -1105,6 +1113,45 @@ mod tests {
         app.request_and_take_exif(&ctx);
         assert_eq!(app.info_panel.exif_row(&b, "File size"), None);
         assert!(app.info_panel.edit_drawn_for(&b).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The rows kept of the image before while the next one is read are disabled: their GPS
+    /// link cannot be clicked, and a screen reader reads them as unavailable. Before, the link
+    /// opened the place of the image before under the new image's name.
+    #[cfg(feature = "accessibility")]
+    #[test]
+    fn the_rows_kept_of_the_image_before_are_disabled() {
+        let name = format!("glimt-test-exif-kept-disabled-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        // A stand-in for a reader that does not answer.
+        let (_answers, rx) = std::sync::mpsc::channel::<super::ExifRead>();
+        app.info_panel.exif_answers = rx;
+        let place = "59.9, 10.7";
+        app.info_panel.exif = Some((dir.join("a.png"), vec![("GPS", place.into())]));
+        ctx.enable_accesskit();
+        let is_disabled = |app: &mut crate::App| {
+            let mut found = None;
+            for _ in 0..2 {
+                let out = ctx.run_ui(Default::default(), |ui| app.info_panel(ui));
+                let update = out.platform_output.accesskit_update.map(|u| u.nodes);
+                for (_, node) in update.into_iter().flatten() {
+                    if node.role() == eframe::egui::Role::Link && node.label() == Some(place) {
+                        found = Some(node.is_disabled());
+                    }
+                }
+            }
+            found
+        };
+        assert_eq!(is_disabled(&mut app), Some(false));
+        app.show_file(&ctx, 1);
+        assert_eq!(is_disabled(&mut app), Some(true));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -2116,7 +2116,9 @@ fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
                 attributes += &format!(" {name}=\"{}\"", value.replace('"', "&quot;"));
             }
             // A value for each colour is a list, and only the list stays (`with_own_value_only`).
-            _ if element.starts_with(&format!("<{name}>")) => {
+            // The element is written with the property's own name and no attributes. It is
+            // compared, as the walk found it, rather than searched for.
+            _ if element.get(..name.len() + 2) == Some(format!("<{name}>").as_str()) => {
                 elements +=
                     &crate::metadata::xmp::with_own_value_only(element, namespaces, &|_| false)
             }

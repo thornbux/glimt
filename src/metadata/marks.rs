@@ -1609,6 +1609,24 @@ mod tests {
                  {title}</rdf:Description>"
             )
         );
+        // A declaration of the prefix in a comment, a CDATA section or a processing
+        // instruction is none, so the rating's Description declares it. Before, the rating was
+        // written with its prefix bound to nothing, and darktable and digiKam refused the
+        // whole sidecar.
+        for hidden in [
+            "<!-- <rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:Rating='1'/> -->",
+            "<?note xmlns:xmp='http://ns.adobe.com/xap/1.0/'?>",
+            "<![CDATA[ xmlns:xmp='http://ns.adobe.com/xap/1.0/' ]]>",
+        ] {
+            let xmp = format!("<rdf:RDF>{hidden}<rdf:Description rdf:about=\"\"/></rdf:RDF>");
+            assert_eq!(
+                super::set_rating(&xmp, 4).unwrap(),
+                format!(
+                    "<rdf:RDF>{hidden}<rdf:Description xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" \
+                     xmp:Rating=\"4\" rdf:about=\"\"/></rdf:RDF>"
+                )
+            );
+        }
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
     }
 

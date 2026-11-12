@@ -84,6 +84,9 @@ const MOST_LOCKS_IN_A_CHUNK: usize = 4;
 /// The start of an rdf:Description's start tag, as `next_description` finds it.
 const DESCRIPTION: &[u8] = b"<rdf:Description";
 
+/// The end tag of an rdf:Description.
+const DESCRIPTION_END: &[u8] = b"</rdf:Description>";
+
 /// The kinds of XML markup that are no element, each as how it starts and how it ends: a
 /// comment, a CDATA section and a processing instruction. A quote, a '<' or a tag inside one is
 /// no part of the packet's structure, so every walk over a packet passes over them whole
@@ -1498,7 +1501,7 @@ pub(crate) fn top_level_properties(xmp: &[u8]) -> Vec<TopLevelProperty> {
             from = gt + 1;
             continue;
         }
-        match element_properties(xmp, gt + 1, &mut out) {
+        match element_properties(xmp, gt + 1, DESCRIPTION_END, &mut out) {
             Some(end) => from = end,
             None => break,
         }
@@ -1584,15 +1587,16 @@ fn attribute_properties(xmp: &[u8], head: std::ops::Range<usize>, out: &mut Vec<
     }
 }
 
-/// Adds the elements in `xmp` from `from` on, the properties inside a Description, to `out`.
-/// Returns the place just after the Description's end tag, or `None` when something else
+/// Adds the elements in `xmp` from `from` on, the properties inside a Description or the
+/// fields inside a structure's item, to `out`. They end at the end tag `end`, such as
+/// `DESCRIPTION_END`. Returns the place just after that end tag, or `None` when something else
 /// stops the reading.
 fn element_properties(
     xmp: &[u8],
     mut from: usize,
+    end_tag: &[u8],
     out: &mut Vec<TopLevelProperty>,
 ) -> Option<usize> {
-    const END: &[u8] = b"</rdf:Description>";
     loop {
         from += (xmp[from..].iter())
             .take_while(|c| c.is_ascii_whitespace())
@@ -1602,8 +1606,8 @@ fn element_properties(
             from += length?;
             continue;
         }
-        if rest.starts_with(END) {
-            return Some(from + END.len());
+        if rest.starts_with(end_tag) {
+            return Some(from + end_tag.len());
         }
         if rest.first() != Some(&b'<') {
             return None;
@@ -1631,6 +1635,89 @@ fn element_properties(
     }
 }
 
+/// Returns the fields of each item named `name` inside `within`, the place of a property's
+/// value in `xmp`, in the order the items are written. Such items are the parts of a
+/// structure, such as the Container:Item elements of a motion photo's Container:Directory, and
+/// they are found at any depth inside the value. An item's fields are read in each form that
+/// XMP writes a structure in (`item_fields`). Comments, CDATA sections and processing
+/// instructions are passed over whole (`not_element_length`). The walk stops at such markup
+/// that does not end, and at an item that does not end.
+pub(crate) fn structure_items(
+    xmp: &[u8],
+    within: std::ops::Range<usize>,
+    name: &[u8],
+) -> Vec<Vec<TopLevelProperty>> {
+    let (xmp, mut from, mut out) = (&xmp[..within.end], within.start, Vec::new());
+    while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
+        let at = from + found;
+        if let Some(length) = not_element_length(&xmp[at..]) {
+            let Some(length) = length else { break };
+            from = at + length;
+            continue;
+        }
+        let Some(gt) = start_tag_end(xmp, at) else {
+            break;
+        };
+        let name_end = at
+            + 1
+            + (xmp[at + 1..gt].iter())
+                .take_while(|&&c| is_name_byte(c))
+                .count();
+        if xmp[at + 1..name_end] != *name {
+            from = gt + 1;
+            continue;
+        }
+        let mut fields = Vec::new();
+        let Some(end) = item_fields(xmp, at, name_end, gt, &mut fields) else {
+            break;
+        };
+        out.push(fields);
+        from = end;
+    }
+    out
+}
+
+/// Adds the fields of the structure's item whose start tag starts at `start` in `xmp`, with
+/// its name ending at `name_end` and its '>' at `gt`, to `out` (`structure_items`). XMP writes
+/// them in three forms, and all three are read: as attributes of the item's start tag, as
+/// elements inside it (rdf:parseType="Resource", as ExifTool writes them), and as the
+/// attributes and elements of an rdf:Description just inside it. The elements are read up to
+/// what does not read as one. Returns the place just past the item's end tag, or `None` when
+/// it does not end.
+fn item_fields(
+    xmp: &[u8],
+    start: usize,
+    name_end: usize,
+    gt: usize,
+    out: &mut Vec<TopLevelProperty>,
+) -> Option<usize> {
+    attribute_properties(xmp, name_end..gt, out);
+    if xmp[gt - 1] == b'/' {
+        return Some(gt + 1);
+    }
+    let end = element_end(xmp, gt + 1, &xmp[start + 1..name_end])?;
+    // The end tag is "</", the name and ">".
+    let end_tag = end - (name_end - start) - 2;
+    let mut inside = Vec::new();
+    // What follows a field that does not read as one is not read, and the fields before it
+    // count, as at the top of a Description.
+    element_properties(xmp, gt + 1, &xmp[end_tag..end], &mut inside);
+    for field in inside {
+        if xmp[field.name.clone()] != DESCRIPTION[1..] {
+            out.push(field);
+            continue;
+        }
+        let Some(description_gt) = start_tag_end(xmp, field.whole.start) else {
+            continue;
+        };
+        attribute_properties(xmp, field.name.end..description_gt, out);
+        if xmp[description_gt - 1] != b'/' {
+            element_properties(xmp, description_gt + 1, DESCRIPTION_END, out);
+        }
+    }
+    Some(end)
+}
+
 /// Whether `c` may be in an XML name, such as "dc:subject". A byte of a letter beyond ASCII is.
 fn is_name_byte(c: u8) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b':') || c >= 0x80
@@ -1648,13 +1735,39 @@ fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {
 
 /// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written.
 /// It is the one reading of them, for `properties` and for the writers (`first_description`).
+/// A declaration inside a comment, a CDATA section or a processing instruction declares
+/// nothing, so these are passed over whole (`not_element_length`), and the reading stops at one
+/// that does not end. Before, a Description commented out declared its prefixes for the one
+/// after it, and the writers wrote a property with its prefix bound to nothing.
 fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
-    let mut out = Vec::new();
-    for (at, _) in xmp.match_indices("xmlns:") {
+    let bytes = xmp.as_bytes();
+    let (mut out, mut from, mut at) = (Vec::new(), 0, 0);
+    while let Some(found) = bytes[at..].iter().position(|&c| c == b'<') {
+        let start = at + found;
+        let Some(length) = not_element_length(&bytes[start..]) else {
+            at = start + 1;
+            continue;
+        };
+        // The markup starts at a '<', so the text before it is whole UTF-8.
+        declarations_in(&xmp[from..start], &mut out);
+        let Some(length) = length else {
+            return out;
+        };
+        (from, at) = (start + length, start + length);
+    }
+    declarations_in(&xmp[from..], &mut out);
+    out
+}
+
+/// Adds the namespaces that `text`, a part of a packet outside its comments, CDATA sections
+/// and processing instructions, declares to `out`. `namespace_declarations` cuts the packet
+/// into such parts at the markup that `not_element_length` passes over.
+fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
+    for (at, _) in text.match_indices("xmlns:") {
         // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
         // would be searched to its end a million times. The cap is moved back to the start of
         // a letter, as a cut inside one would panic.
-        let rest = &xmp[at + 6..xmp.floor_char_boundary(at + 1024)];
+        let rest = &text[at + 6..text.floor_char_boundary(at + 1024)];
         // XML allows spaces around the "=", as in `xmlns:tiff = "…"`.
         let declared = rest.split_once('=');
         if let Some((prefix, uri)) =
@@ -1665,7 +1778,6 @@ fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
             out.push((prefix, uri));
         }
     }
-    out
 }
 
 /// Returns where the start tag of the first rdf:Description in `xmp` ends, at its '>' past any
@@ -1735,7 +1847,7 @@ fn start_tag_end(xmp: &[u8], start: usize) -> Option<usize> {
 
 /// Returns the attributes of a start tag's text `head` after its name, as (name, value), the
 /// value as written, up to what does not read as one.
-pub(crate) fn attributes(head: &str) -> Vec<(&str, &str)> {
+fn attributes(head: &str) -> Vec<(&str, &str)> {
     let (mut out, mut rest) = (Vec::new(), head);
     while let Some((name, after)) = rest.split_once('=') {
         let after = after.trim_start();
@@ -2243,6 +2355,33 @@ mod tests {
             "{turned}"
         );
         assert!(turned.contains("<![CDATA[Where's </dc:title> <dc:subject>]]>"));
+        // A namespace declared only inside a comment, a CDATA section or a processing
+        // instruction is not in force, so a writer declares it where it writes. Before, a
+        // keyword went in with its prefix bound to nothing.
+        let hidden = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+            <!-- <rdf:Description xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\"/> -->\
+            <?note xmlns:dc='http://purl.org/dc/elements/1.1/'?>\
+            <![CDATA[ xmlns:x='u' ]]><rdf:Description rdf:about=\"\"/></rdf:RDF>";
+        let (_, declared) = super::first_description(hidden).unwrap();
+        assert_eq!(
+            declared,
+            [("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")]
+        );
+        let tagged = super::with_paths(hidden.into(), &["Places|Oslo".into()]).unwrap();
+        assert!(
+            tagged.contains("<rdf:Description rdf:about=\"\" xmlns:lr="),
+            "{tagged}"
+        );
+        let meta = KeywordsAndComment {
+            keywords: vec!["Oslo".into()],
+            comment: String::new(),
+        };
+        let keyworded = set_keywords_and_comment(hidden, &meta, false).unwrap();
+        assert!(
+            keyworded.contains("rdf:about=\"\" xmlns:dc="),
+            "{keyworded}"
+        );
+        assert_eq!(parse(&keyworded).keywords, ["Oslo"]);
     }
 
     /// A keyword tree file damaged in any way is read without a panic.
@@ -3619,6 +3758,34 @@ mod tests {
             for (name, element, namespaces) in &read.list {
                 super::with_own_value_only(element, namespaces, &|n| n != name);
             }
+        }
+    }
+
+    /// A motion photo's directory broken in thousands of ways: the fields of its items read in
+    /// each of their forms, without a panic.
+    #[test]
+    fn survives_broken_structure_items() {
+        let seed = "<rdf:Description><Container:Directory><rdf:Seq><rdf:li \
+                    rdf:parseType='Resource'><Container:Item Item:Semantic=\"Primary\"/>\
+                    </rdf:li><rdf:li><Container:Item rdf:parseType='Resource'><!-- c -->\
+                    <Item:Length>12</Item:Length><Item:Padding>0</Item:Padding>\
+                    </Container:Item></rdf:li><rdf:li><Container:Item><rdf:Description \
+                    Item:Mime='video/mp4'><Item:Length>7</Item:Length></rdf:Description>\
+                    </Container:Item></rdf:li></rdf:Seq></Container:Directory></rdf:Description>";
+        let read = |xmp: &[u8]| {
+            let found = super::top_level_properties(xmp);
+            let directory = found.into_iter().find(|f| !f.is_attribute);
+            directory.map(|d| super::structure_items(xmp, d.value, b"Container:Item"))
+        };
+        let lengths: Vec<Vec<&str>> = (read(seed.as_bytes()).unwrap().iter())
+            .map(|fields| fields.iter().map(|f| &seed[f.value.clone()]).collect())
+            .collect();
+        assert_eq!(
+            lengths,
+            [vec!["Primary"], vec!["12", "0"], vec!["video/mp4", "7"]]
+        );
+        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
+            read(&bytes);
         }
     }
 
