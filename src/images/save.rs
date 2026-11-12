@@ -75,6 +75,9 @@ const ITEMS: [&str; 2] = [
 /// The namespace of Dynamic Depth's device, whose Container holds its directory.
 const DEPTH_DEVICE: &str = "http://ns.google.com/photos/dd/1.0/device/";
 
+/// The namespace of XMP's notes, whose HasExtendedXMP names a JPEG's extended XMP.
+const XMP_NOTE: &str = "http://ns.adobe.com/xmp/note/";
+
 /// The largest EXIF block a JPEG holds. Its APP1 segment holds 65,533 bytes, and the encoder
 /// puts six of them, "Exif\0\0", before the block.
 pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
@@ -394,9 +397,11 @@ fn looks_cut_short(data: &[u8], changed_lately: bool) -> bool {
 /// shorter than the file's own lengths say: the images that its MPF index names (a camera's
 /// second image, a gain map), the items of its XMP directories (`appended_items_length`), or
 /// the video at the end that `GCamera:MicroVideoOffset` counts back to (a phone's motion
-/// photo). An offset of 0 means that the photo has no video. The first end marker is only the
-/// main image's end, so a copy that paused in the video passed before and was written back
-/// without the rest. Data that none of them names is no matter.
+/// photo). An offset of 0 means that the photo has no video. The XMP is read in the main packet
+/// and in the extended one (`jpeg_xmp_packets`), and a file whose extended XMP lacks a part
+/// counts as cut. The first end marker is only the main image's end, so a copy that paused in
+/// the video passed before and was written back without the rest. Data that none of them names
+/// is no matter.
 fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     if image_end >= data.len() {
         return false;
@@ -409,21 +414,28 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
         ends.map(|&[_, size, offset]| at as u64 + 4 + offset as u64 + size as u64)
             .max()
     });
-    let xmp = exif::jpeg_segment_with(data, 0xe1, b"http://ns.adobe.com/xap/1.0/\0");
-    let xmp = xmp
-        .map(|(_, body)| String::from_utf8_lossy(body))
-        .unwrap_or_default();
-    // Only the photo's own properties count, not those of another document inside one, such
-    // as a placed image in xmpMM:Pantry.
-    let properties = crate::metadata::xmp::top_level_properties(xmp.as_bytes());
-    let declared = crate::metadata::xmp::namespace_declarations_with_default(&xmp);
-    let items_length = appended_items_length(&xmp, &properties, &declared);
-    let offset = properties.iter().find(|found| {
-        let name = &xmp.as_bytes()[found.name.clone()];
-        let camera = [GOOGLE_CAMERA];
-        crate::metadata::xmp::is_in_namespace(name, &declared, &camera, "MicroVideoOffset")
-    });
-    let offset = offset.and_then(|found| leading_number(&xmp[found.value.clone()]));
+    let Some(packets) = jpeg_xmp_packets(data) else {
+        return true;
+    };
+    // The Dynamic Depth spec lets a namespace be declared in either packet, so the
+    // declarations of both count for each.
+    let declared: Vec<(&str, &str)> = (packets.iter())
+        .flat_map(|xmp| crate::metadata::xmp::namespace_declarations_with_default(xmp))
+        .collect();
+    let (mut items_length, mut offset) = (0, None);
+    for xmp in &packets {
+        // Only the photo's own properties count, not those of another document inside one,
+        // such as a placed image in xmpMM:Pantry.
+        let properties = crate::metadata::xmp::top_level_properties(xmp.as_bytes());
+        // A directory in each packet describes the same bytes, as two in one packet do.
+        items_length = appended_items_length(xmp, &properties, &declared).max(items_length);
+        let found = properties.iter().find(|found| {
+            let name = &xmp.as_bytes()[found.name.clone()];
+            let camera = [GOOGLE_CAMERA];
+            crate::metadata::xmp::is_in_namespace(name, &declared, &camera, "MicroVideoOffset")
+        });
+        offset = offset.or(found.and_then(|found| leading_number(&xmp[found.value.clone()])));
+    }
     let offset = offset.filter(|&back| back != 0);
     let video_is_cut = offset.is_some_and(|back| {
         let start = (data.len() as u64)
@@ -436,6 +448,32 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     video_is_cut
         || mpf_end.is_some_and(|end| length < end)
         || length < image_end as u64 + items_length
+}
+
+/// Returns the XMP packets of the JPEG `data`: its main packet, and the extended packet that
+/// the main one names in xmpNote:HasExtendedXMP (`exif::jpeg_extended_xmp`), or an empty one
+/// when it names none. The Dynamic Depth spec says that "If the Device element is more than 64K
+/// (true of most Dynamic Depth files), the rules of XMP force the Device and its children out
+/// of the main XMP section and into the extended section", and Android's writer always puts
+/// it there. Returns `None` when a part of the extended packet is missing or cut short, so such
+/// a file never counts as whole.
+fn jpeg_xmp_packets(data: &[u8]) -> Option<[String; 2]> {
+    let main = exif::jpeg_segment_with(data, 0xe1, b"http://ns.adobe.com/xap/1.0/\0");
+    let main = main.map_or_else(String::new, |(_, body)| {
+        String::from_utf8_lossy(body).into_owned()
+    });
+    let declared = crate::metadata::xmp::namespace_declarations_with_default(&main);
+    let properties = crate::metadata::xmp::top_level_properties(main.as_bytes());
+    let guid = properties.iter().find(|found| {
+        let name = &main.as_bytes()[found.name.clone()];
+        crate::metadata::xmp::is_in_namespace(name, &declared, &[XMP_NOTE], "HasExtendedXMP")
+    });
+    let Some(guid) = guid.map(|found| main[found.value.clone()].trim().to_owned()) else {
+        return Some([main, String::new()]);
+    };
+    let extended = exif::jpeg_extended_xmp(data, guid.as_bytes())?;
+    let extended = String::from_utf8_lossy(&extended).into_owned();
+    Some([main, extended])
 }
 
 /// Returns the length of what a JPEG's XMP `xmp` says follows its main image, from the
@@ -1553,6 +1591,37 @@ mod tests {
             )
             .unwrap();
         for bytes in crate::support::test_support::broken(&jpeg) {
+            let _ = super::looks_cut_short(&bytes, true);
+        }
+        // A JPEG with extended XMP, whose parts are joined by their offsets.
+        use crate::images::shared_copy::jpeg_segment;
+        let guid = "1D6C4D1E0A4F4E2B9C3D5E6F7A8B9C0D";
+        let main = format!(
+            "<rdf:Description xmlns:xmpNote='http://ns.adobe.com/xmp/note/' \
+             xmpNote:HasExtendedXMP='{guid}'/>"
+        );
+        let extended = "<rdf:Description xmlns:C='http://ns.google.com/photos/1.0/container/' \
+            xmlns:I='http://ns.google.com/photos/1.0/container/item/'><C:Directory><rdf:Seq>\
+            <rdf:li><C:Item I:Padding='2'/></rdf:li><rdf:li><C:Item I:Length='4'/></rdf:li>\
+            </rdf:Seq></C:Directory></rdf:Description>";
+        let length = (extended.len() as u32).to_be_bytes();
+        let part = |offset: u32, bytes: &str| {
+            let head = [
+                crate::metadata::exif::EXTENDED_XMP,
+                guid.as_bytes(),
+                &length,
+            ]
+            .concat();
+            let body = [&head[..], &offset.to_be_bytes(), bytes.as_bytes()].concat();
+            jpeg_segment(0xe1, &body)
+        };
+        let xap = [&b"http://ns.adobe.com/xap/1.0/\0"[..], main.as_bytes()].concat();
+        let (first, second) = extended.split_at(40);
+        let parts = [part(40, second), part(0, first)].concat();
+        let head = [&jpeg[..2], &jpeg_segment(0xe1, &xap), &parts].concat();
+        let extended_xmp = [&head[..], &jpeg[2..], &[7; 6]].concat();
+        assert!(!super::looks_cut_short(&extended_xmp, true));
+        for bytes in crate::support::test_support::broken(&extended_xmp) {
             let _ = super::looks_cut_short(&bytes, true);
         }
     }
@@ -3078,6 +3147,97 @@ mod tests {
         assert!(crate::metadata::exif::write_orientation(&file, 1, false, true).is_err());
         assert_eq!(std::fs::read(&file).unwrap(), cut);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A depth photo whose Dynamic Depth directory is in its extended XMP, where Android's writer
+    /// always puts it, is not turned while its depth images are cut, nor while a part of its
+    /// extended XMP is missing. Before, only the main packet was read, and such a photo counted
+    /// as whole however short it was.
+    #[test]
+    fn a_depth_photo_with_its_directory_in_the_extended_xmp_is_read() {
+        use crate::images::shared_copy::jpeg_segment;
+        let mut main = Vec::new();
+        image::RgbImage::new(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut main),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let (depth, confidence) = ([&main[..], &[7; 300]].concat(), main.clone());
+        let guid = "1D6C4D1E0A4F4E2B9C3D5E6F7A8B9C0D";
+        // The main packet as Android's writer leaves it: what fits, and the GUID.
+        let main_packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.1.2\">\n \
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
+             <rdf:Description rdf:about=\"\"\n    \
+             xmlns:xmpNote=\"http://ns.adobe.com/xmp/note/\"\n   \
+             xmpNote:HasExtendedXMP=\"{guid}\"/>\n </rdf:RDF>\n</x:xmpmeta>\n"
+        );
+        let item = |semantic: &str, length: usize| {
+            format!(
+                "      <rdf:li rdf:parseType=\"Resource\">\n       <Container:Item\n        \
+                 Item:Mime=\"image/jpeg\"\n        Item:Length=\"{length}\"\n        \
+                 Item:DataURI=\"{semantic}\"/>\n      </rdf:li>\n"
+            )
+        };
+        let extended = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.1.2\">\n \
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
+             <rdf:Description rdf:about=\"\"\n    \
+             xmlns:Device=\"http://ns.google.com/photos/dd/1.0/device/\"\n    \
+             xmlns:Container=\"http://ns.google.com/photos/dd/1.0/container/\"\n    \
+             xmlns:Item=\"http://ns.google.com/photos/dd/1.0/item/\"\n    \
+             xmlns:Camera=\"http://ns.google.com/photos/dd/1.0/camera/\"\n    \
+             xmlns:DepthMap=\"http://ns.google.com/photos/dd/1.0/depthmap/\">\n   \
+             <Device:Cameras>\n    <rdf:Seq>\n     <rdf:li rdf:parseType=\"Resource\">\n      \
+             <Device:Camera rdf:parseType=\"Resource\">\n       <Camera:DepthMap\n        \
+             DepthMap:Format=\"RangeInverse\"\n        DepthMap:Near=\"0.3\"\n        \
+             DepthMap:Far=\"4.2\"\n        DepthMap:ItemSemantic=\"Depth\"\n        \
+             DepthMap:DepthURI=\"android/depthmap\"\n        \
+             DepthMap:ConfidenceURI=\"android/confidencemap\"/>\n      </Device:Camera>\n     \
+             </rdf:li>\n    </rdf:Seq>\n   </Device:Cameras>\n   <Device:Container>\n    \
+             <Container:Directory>\n     <rdf:Seq>\n{}{}{}     </rdf:Seq>\n    \
+             </Container:Directory>\n   </Device:Container>\n  </rdf:Description>\n \
+             </rdf:RDF>\n</x:xmpmeta>\n",
+            item("primary_image", 0),
+            item("android/depthmap", depth.len()),
+            item("android/confidencemap", confidence.len()),
+        );
+        let part = |offset: usize, bytes: &[u8]| {
+            let whole = (extended.len() as u32).to_be_bytes();
+            let head = [
+                crate::metadata::exif::EXTENDED_XMP,
+                guid.as_bytes(),
+                &whole[..],
+            ]
+            .concat();
+            let body = [&head[..], &(offset as u32).to_be_bytes(), bytes].concat();
+            jpeg_segment(0xe1, &body)
+        };
+        let file = |parts: &[Vec<u8>]| {
+            let xap = [
+                &b"http://ns.adobe.com/xap/1.0/\0"[..],
+                main_packet.as_bytes(),
+            ]
+            .concat();
+            let head = [&main[..2], &jpeg_segment(0xe1, &xap), &parts.concat()].concat();
+            [&head[..], &main[2..], &depth, &confidence].concat()
+        };
+        let (first, second) = extended.as_bytes().split_at(extended.len() / 2);
+        // The parts may come in any order.
+        let whole = file(&[part(first.len(), second), part(0, first)]);
+        assert!(!super::looks_cut_short(&whole, true));
+        assert!(super::looks_cut_short(&whole[..whole.len() - 10], true));
+        assert!(super::looks_cut_short(
+            &whole[..whole.len() - confidence.len()],
+            true
+        ));
+        // A part missing leaves the directory unknown, so the file is not taken for whole.
+        assert!(super::looks_cut_short(&file(&[part(0, first)]), true));
+        assert!(super::looks_cut_short(
+            &file(&[part(first.len(), second)]),
+            true
+        ));
     }
 
     /// A JPEG whose own lengths of what follows its image are wrong, as an editor may leave

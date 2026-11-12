@@ -21,6 +21,10 @@ pub const LABELS: [&str; 10] = [
     "GPS",
 ];
 
+/// The start of a JPEG's APP1 segment that holds a part of its extended XMP
+/// (`jpeg_extended_xmp`).
+pub const EXTENDED_XMP: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
+
 /// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
 const ORIENTATION: u16 = 0x0112;
 
@@ -799,6 +803,52 @@ pub fn jpeg_segment_with<'a>(
     let found =
         (segments.iter()).find(|s| s.0 == marker && segment(data, s).starts_with(prefix))?;
     Some((found.1, segment(data, found)))
+}
+
+/// Returns the extended XMP of the JPEG `data` whose GUID is `guid`, joined from its parts.
+/// The extended XMP is the rest of a packet too long for one segment, and the main packet names
+/// its GUID in xmpNote:HasExtendedXMP. The XMP spec (part 3) puts each part in an APP1 segment
+/// of its own, after `EXTENDED_XMP`, the GUID as 32 hex digits, and the whole packet's length
+/// and the part's offset in it (4 bytes each, big-endian). The parts may come in any order.
+/// Returns `None` when a part of the GUID is missing or cut short, or the parts do not agree on
+/// the length, as in a file cut short. A packet is never longer than the file that holds it,
+/// which bounds what is made.
+pub fn jpeg_extended_xmp(data: &[u8], guid: &[u8]) -> Option<Vec<u8>> {
+    let (segments, _) = jpeg_segments(data)?;
+    let mut packet: Option<Vec<u8>> = None;
+    let mut filled = Vec::new();
+    for found in segments.iter().filter(|s| s.0 == 0xe1) {
+        let Some(rest) = segment(data, found).strip_prefix(EXTENDED_XMP) else {
+            continue;
+        };
+        if rest.get(..32) != Some(guid) {
+            continue;
+        }
+        let head = rest.get(32..40)?;
+        let whole = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as usize;
+        let offset = u32::from_be_bytes([head[4], head[5], head[6], head[7]]) as usize;
+        if whole > data.len() {
+            return None;
+        }
+        let packet = packet.get_or_insert_with(|| vec![0; whole]);
+        let part = &rest[40..];
+        let end = offset.checked_add(part.len())?;
+        if packet.len() != whole || end > whole {
+            return None;
+        }
+        packet[offset..end].copy_from_slice(part);
+        filled.push(offset..end);
+    }
+    // The parts must cover the packet with no gap between them.
+    filled.sort_by_key(|part| part.start);
+    let mut covered = 0;
+    for part in filled {
+        if part.start > covered {
+            return None;
+        }
+        covered = covered.max(part.end);
+    }
+    packet.filter(|packet| covered == packet.len())
 }
 
 /// The bytes of a segment from `jpeg_segments`, as far as `data` has them: a prefix is looked
