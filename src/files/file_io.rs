@@ -1319,15 +1319,17 @@ pub fn remove_own(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// `remove_own`, with a failure told through `save_failed`.
-pub fn remove_own_or_tell(path: &Path) {
-    if let Err(e) = remove_own(path) {
-        save_failed(crate::tf!(
-            "Could not remove {name}: {e}",
-            name = shown_path(path),
-            e
-        ));
-    }
+/// `remove_own`, with a failure told through `save_failed`. Returns whether `path` is gone.
+pub fn remove_own_or_tell(path: &Path) -> bool {
+    let Err(e) = remove_own(path) else {
+        return true;
+    };
+    save_failed(crate::tf!(
+        "Could not remove {name}: {e}",
+        name = shown_path(path),
+        e
+    ));
+    false
 }
 
 /// A file Glimt is about to write again, as it is: `None` when there is none yet, and an error
