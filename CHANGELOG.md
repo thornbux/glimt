@@ -9,6 +9,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- After Rename Many renamed the shown image, another image could be shown and selected in its
+  place when the folder was read again while the rename ran, as on an sftp:// folder. Keys
+  pressed then, such as stars or Move, acted on that image. The renamed image now stays shown
+  under its new name. This was there in 0.81.1 too.
 - Rename Many and the trash without gio take a rename that a network or cloud mount answered
   with "no such file" as one that may have been done, as NFS and SMB answer so to a rename sent
   again after its answer was lost. Before, Rename Many could leave a file under a hidden name,
