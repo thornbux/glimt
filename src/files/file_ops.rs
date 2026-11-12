@@ -1263,11 +1263,11 @@ impl crate::App {
 
     /// Looks up the real path of `folder` and the type of its file system in the background, as
     /// the real path waits for the disk, and then runs `then` with them in the window's thread,
-    /// as `wait_for_look_up_before_the_job` says.
+    /// as `wait_for_look_up_before_the_job` says, with `leaves_undo` when its job leaves an Undo.
     pub(crate) fn with_real_folder(
         &mut self,
         folder: PathBuf,
-        held_back_files: Vec<PathBuf>,
+        (held_back_files, leaves_undo): (Vec<PathBuf>, bool),
         then: impl FnOnce(&mut crate::App, &egui::Context, PathBuf, Option<String>) + Send + 'static,
     ) {
         let (found_tx, found) = mpsc::channel();
@@ -1281,7 +1281,7 @@ impl crate::App {
         });
         self.wait_for_look_up_before_the_job(
             folder,
-            held_back_files,
+            (held_back_files, leaves_undo),
             found,
             move |app, ctx, found| then(app, ctx, found.0, found.1),
         );
@@ -1295,11 +1295,13 @@ impl crate::App {
     /// Nothing is waited for, and a notice says so, while other work changes them. A look-up
     /// that takes longer than `LOOK_UP_GIVEN_UP_AFTER` (a share that stopped answering) is given
     /// up: the files are let go, `then` never runs, and a notice says so. Before, the files
-    /// stayed held until Glimt ended, and a delete or rename of them was refused.
+    /// stayed held until Glimt ended, and a delete or rename of them was refused. When the job
+    /// `leaves_undo`, Ctrl+Z waits from now on, as it does while the job runs, so it does not
+    /// undo the operation before it. Before, it waited only from the job's start.
     pub(crate) fn wait_for_look_up_before_the_job<T: Send + 'static>(
         &mut self,
         folder: PathBuf,
-        held_back_files: Vec<PathBuf>,
+        (held_back_files, leaves_undo): (Vec<PathBuf>, bool),
         found: mpsc::Receiver<T>,
         then: impl FnOnce(&mut crate::App, &egui::Context, T) + Send + 'static,
     ) {
@@ -1311,7 +1313,8 @@ impl crate::App {
         let tx = self.file_operations.real_folder_tx.clone();
         let (pointer, ctx) = (Working::new(&self.busy), self.ctx.clone());
         let awaited = Working::new(&self.file_operations.real_folders_awaited);
-        std::thread::spawn(move || {
+        let undo_on_the_way = leaves_undo.then(|| self.file_operations.undo_on_the_way());
+        let wait = move || {
             let found = found.recv_timeout(LOOK_UP_GIVEN_UP_AFTER);
             // The close waits until `then` has run, and the job it starts holds the close
             // from then on.
@@ -1326,12 +1329,14 @@ impl crate::App {
                             folder = folder.display()
                         )),
                     }
-                    drop(awaited);
+                    // The job that `then` started took its own, so Ctrl+Z waits on.
+                    drop((awaited, undo_on_the_way));
                 },
             ));
-            drop(pointer);
-            ctx.request_repaint();
-        });
+            None
+        };
+        // Through `told_work`, as the thread holds an Undo on the way.
+        std::thread::spawn(told_work(self.notice_sender.clone(), &ctx, pointer, wait));
     }
 
     /// Runs what waited for a look at a folder, once the look has answered or been given up.
@@ -1352,9 +1357,14 @@ impl crate::App {
         // through a link is seen as one. It is looked up in the background, because it waits
         // for the disk, and checked before the files leave the list, so a refused move keeps
         // the view.
-        self.with_real_folder(dest, paths, move |app, ctx, dest, file_system| {
-            app.transfer_into_real_folder(ctx, picked, (dest, file_system), is_copy)
-        });
+        let leaves_undo = !is_copy;
+        self.with_real_folder(
+            dest,
+            (paths, leaves_undo),
+            move |app, ctx, dest, file_system| {
+                app.transfer_into_real_folder(ctx, picked, (dest, file_system), is_copy)
+            },
+        );
     }
 
     /// Copies or moves the files `picked` into `dest`, a folder by its real path, as `transfer`
@@ -1561,7 +1571,7 @@ impl crate::App {
         });
         self.wait_for_look_up_before_the_job(
             folder,
-            held_back_files,
+            (held_back_files, true),
             found,
             move |app, ctx, refused| match refused {
                 Some(refused) => app.notice.give(not_renamed(refused)),
@@ -6193,6 +6203,8 @@ mod tests {
     /// A look at a folder before its job that does not answer (a share that stopped answering)
     /// is given up: the files it held are let go, its job never starts, and a notice says so.
     /// Before, they stayed held until Glimt ended, and a delete or rename of them was refused.
+    /// Ctrl+Z meanwhile waits, as the job would leave an Undo; before, it undid the operation
+    /// before it.
     #[test]
     fn a_look_up_that_does_not_answer_lets_its_files_go() {
         use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -6207,11 +6219,14 @@ mod tests {
         let then = ran.clone();
         app.wait_for_look_up_before_the_job(
             dir.clone(),
-            vec![a.clone()],
+            (vec![a.clone()], true),
             found,
             move |_, _, ()| then.store(true, SeqCst),
         );
         assert!(app.is_changed_by_running_work(std::slice::from_ref(&a)));
+        app.undo(&ctx);
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(told.contains("Still working"), "{told}");
         let let_go = |app: &crate::App| !app.is_changed_by_running_work(std::slice::from_ref(&a));
         assert!(
             run_background_until(&mut app, &ctx, let_go),
@@ -6219,6 +6234,10 @@ mod tests {
         );
         assert!(!ran.load(SeqCst) && app.notice.text().is_some_and(|t| t.contains("a minute")));
         assert!(app.are_free_to_change(std::slice::from_ref(&a)));
+        assert_eq!(
+            std::sync::Arc::strong_count(&app.file_operations.undo_on_the_way),
+            1
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -6243,7 +6262,7 @@ mod tests {
         for _ in 0..300 {
             let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let then = ran.clone();
-            app.with_real_folder(dir.clone(), Vec::new(), move |_, _, _, _| {
+            app.with_real_folder(dir.clone(), (Vec::new(), false), move |_, _, _, _| {
                 then.store(true, SeqCst)
             });
             // The pending look-up counts as work that a close waits for.
