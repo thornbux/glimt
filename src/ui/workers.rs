@@ -134,10 +134,12 @@ impl crate::App {
         if let Some(error) = crate::files::file_io::take_save_error() {
             self.window.keep_failed_write(error);
         }
-        // An edit that went on without its lock was made, so its warning is a notice and not a
-        // failed write: a `--wait` answers done, and a close that waited for the edit goes on.
+        // An edit that went on without its lock was made, so its warning is not a failed write:
+        // a `--wait` answers done, and a close that waited for the edit goes on. It stays under
+        // every notice until a frame has drawn it, so that the notice of the same work ("Saved")
+        // or a failed write of the same frame does not hide it.
         if let Some(warning) = crate::files::file_io::take_lock_warning() {
-            self.notice.give(warning);
+            self.notice.keep_until_drawn(warning);
             ctx.request_repaint();
         }
         while let Ok(told) = self.notices.try_recv() {
@@ -382,6 +384,40 @@ mod tests {
         app.notice_sender.send("3 files moved".into()).unwrap();
         app.poll_background(&ctx);
         assert_eq!(app.notice.text(), Some(failed));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The warning of an edit without its lock stays under every notice of the frame that takes
+    /// it, the "Saved" of the same work, a failed write and a key's notice after them among
+    /// them, until that frame is drawn. Before, it was given as a plain notice, and the notice
+    /// that came with it in the same frame took its place before it was ever shown.
+    #[test]
+    fn a_lock_warning_is_not_hidden_by_a_notice_of_the_same_frame() {
+        let dir = contract_folder("lock-warning-not-hidden");
+        let (mut app, ctx) = app_on(&dir);
+        // A folder where the lock file goes cannot be opened as one, as on a share without locks.
+        let lock = dir.join(".marks.lock");
+        std::fs::create_dir_all(&lock).unwrap();
+        assert!(crate::files::file_io::lock_or_tell(&lock).is_none());
+        app.notice_sender
+            .send("Saved a-cropped.png".into())
+            .unwrap();
+        app.poll_background(&ctx);
+        let shown = app.notice.text().unwrap_or_default().to_owned();
+        assert!(shown.contains("Saved a-cropped.png"), "{shown:?}");
+        assert!(
+            shown.contains("Could not lock"),
+            "hidden by the notice: {shown:?}"
+        );
+        assert_eq!(app.window.failed_writes_told(), 0, "told as a failed write");
+        app.tell_failed_write("Could not save the keywords: test".into());
+        app.poll_background(&ctx);
+        app.notice.give("A key's notice".into());
+        let shown = app.notice.text().unwrap_or_default().to_owned();
+        assert!(shown.contains("Could not lock"), "hidden later: {shown:?}");
+        app.notice.frame_drawn();
+        app.notice.give("The next frame's notice".into());
+        assert_eq!(app.notice.text(), Some("The next frame's notice"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

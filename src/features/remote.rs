@@ -3585,43 +3585,61 @@ mod tests {
     }
 
     /// A query sent to two windows, as `--remote-all selection` does, gets the whole answer of
-    /// the second window, larger than a socket holds, while the first takes longer than the
-    /// window's time limit for a write. Before, the client read the second answer only after
-    /// the first, so the second window's write timed out and its answer was cut short. The cut
-    /// comes after two time limits, as the first write gives back the part that went, so the
-    /// first window here answers after four, still before its own time limit of `wait` and a
-    /// second.
+    /// the second window, larger than a socket holds, while the first answers only once the
+    /// second has written all of its answer. Before, the client read the second answer only
+    /// after the first, so neither came: the second window's write waited until its time limit
+    /// cut it short, and the first window's own time limit ran out meanwhile. The time limit
+    /// is long, so a slow runner does not cut the answer with the fix, and the test does not
+    /// wait for it then.
     #[test]
     fn a_long_answer_is_read_whole_while_another_window_answers() {
         let dir = std::env::temp_dir().join(format!("glimt-test-long-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let wait = std::time::Duration::from_millis(200);
+        let wait = std::time::Duration::from_secs(5);
         let long_answer = b"/a/long/path/to/a/file.jpg\0".repeat(40_000);
-        let window = |id: &str, answer: Vec<u8>, after: std::time::Duration| {
+        let window = |id: &str,
+                      answer: Vec<u8>,
+                      before: std::sync::mpsc::Receiver<()>,
+                      after: std::sync::mpsc::Sender<()>| {
             let path = dir.join(super::socket_name(id));
             let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
             let (tx, commands) = std::sync::mpsc::channel();
             let serve = move |stream, place| {
                 let ctx = eframe::egui::Context::default();
                 super::serve(stream, place, &tx, &ctx, wait, &super::WAITING_PLACES);
+                let _ = after.send(());
             };
             std::thread::spawn(move || super::serve_clients(listener, 1, serve));
             std::thread::spawn(move || {
                 let (_, reply): (String, Option<super::Reply>) = commands.recv().unwrap();
-                std::thread::sleep(after);
-                reply.unwrap().send(answer).unwrap();
+                let _ = before.recv();
+                let _ = reply.unwrap().send(answer);
             });
             path
         };
-        let slow = window("slow", b"/b.jpg\0".to_vec(), 4 * wait);
-        let fast = window("fast", long_answer.clone(), std::time::Duration::ZERO);
+        // The fast window answers at once, and the slow one when the fast one has written its
+        // whole answer.
+        let (now, at_once) = std::sync::mpsc::channel();
+        drop(now);
+        let (fast_done, after_fast) = std::sync::mpsc::channel();
+        let slow = window(
+            "slow",
+            b"/b.jpg\0".to_vec(),
+            after_fast,
+            std::sync::mpsc::channel().0,
+        );
+        let fast = window("fast", long_answer.clone(), at_once, fast_done);
         let sent =
             [slow, fast].map(|path| (super::send_command(&path, "selection").unwrap(), path));
         let mut answers = Vec::new();
         super::read_each_answer(sent.into(), "selection", |_, (answer, read)| {
             answers.push((answer, read.is_ok()));
         });
-        assert_eq!(answers[0], (b"/b.jpg\0".to_vec(), true));
+        assert_eq!(
+            answers[0],
+            (b"/b.jpg\0".to_vec(), true),
+            "the first window's answer did not come, as the second's was not read"
+        );
         assert!(answers[1].1, "the second answer was not read in time");
         assert_eq!(
             answers[1].0.len(),

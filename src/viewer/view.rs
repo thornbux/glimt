@@ -385,6 +385,10 @@ pub(crate) struct Notice {
     shown: Option<(String, u64)>,
     /// How many notices were given, so the next one gets a number of its own.
     given: u64,
+    /// The warnings that must reach the user, kept until a frame has drawn them. Every notice
+    /// given meanwhile shows them under its own text, so a notice of the same frame cannot
+    /// hide them.
+    kept_until_drawn: Vec<String>,
 }
 
 impl Notice {
@@ -397,15 +401,45 @@ impl Notice {
         notice
     }
 
-    /// Shows `text`, as a new notice, also when the same text is shown already.
+    /// Shows `text`, as a new notice, also when the same text is shown already. The warnings
+    /// that no frame has drawn yet are shown under it.
     pub(crate) fn give(&mut self, text: String) {
+        let lines = std::iter::once(text).chain(self.kept_until_drawn.iter().cloned());
+        let text = lines
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
         self.given += 1;
         self.shown = Some((text, self.given));
     }
 
-    /// Takes the notice away.
+    /// Shows `warning` under the notice shown, and under every notice given after it until a
+    /// frame has drawn it (`frame_drawn`). A warning given as a plain notice was hidden by
+    /// the next notice of the same frame, and so never shown nor read out.
+    pub(crate) fn keep_until_drawn(&mut self, warning: String) {
+        let shown = self.shown.take().map(|(text, _)| text).unwrap_or_default();
+        let lines = [shown, warning.clone()];
+        let text = lines
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        self.given += 1;
+        self.shown = Some((text.join("\n"), self.given));
+        self.kept_until_drawn.push(warning);
+    }
+
+    /// Lets the warnings kept until a frame has drawn them go, because this frame drew them.
+    /// They stay shown until the next notice takes their place.
+    pub(crate) fn frame_drawn(&mut self) {
+        self.kept_until_drawn.clear();
+    }
+
+    /// Takes the notice away. The warnings that no frame has drawn yet stay shown.
     pub(crate) fn clear(&mut self) {
         self.shown = None;
+        if !self.kept_until_drawn.is_empty() {
+            self.give(String::new());
+        }
     }
 
     /// Returns the text shown, or `None` when no notice is shown.
@@ -430,6 +464,7 @@ impl Notice {
     pub(crate) fn put_back(&mut self, kept: Option<(String, u64)>) {
         match kept {
             Some((text, number)) if number == 0 || number > self.given => self.give(text),
+            None => self.clear(),
             kept => self.shown = kept,
         }
     }

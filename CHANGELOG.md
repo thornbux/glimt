@@ -34,9 +34,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   with subfolders reads the mount table once, not once for each folder.
 - A shared file (settings, marks, keyword tree, recent list, collections, sidecars) whose lock
   cannot be had, as on NFS without lockd, is still edited, and the window says once for each
-  folder of locks that a change another window makes at the same moment may be lost. It is a
-  notice, not a failed write, so a command sent with `--wait` is still done and a close goes on.
-  Before, it said nothing.
+  folder of locks that a change another window makes at the same moment may be lost. The
+  warning stays under every other notice until it has been shown, so the "Saved" of the same
+  Save As or Crop does not hide it. It is not a failed write, so a command sent with `--wait` is
+  still done and a close goes on. Before, it said nothing.
 - Marks and stars set where there is no marks file, as neither `$HOME` nor `$XDG_STATE_HOME` is
   set, are told as not saved. Before, they were dropped without a word.
 - Stars above 5 in the marks file, which a later Glimt may write, are kept when this one

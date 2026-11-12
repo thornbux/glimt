@@ -3866,11 +3866,7 @@ fn paths_through_a_descriptor_are_shown_by_their_names() {
     let mut wrong = outside_their_homes(&[("path_through(", &homes)]);
     for (file, text) in rust_sources() {
         if SHOWN_BY_NAME.contains(&file.as_str()) {
-            wrong.extend(outside_homes_in(
-                &file,
-                &text,
-                &[(".display()", &[(file.as_str(), "shown_path")])],
-            ));
+            wrong.extend(paths_made_into_text(&file, &text));
         }
     }
     assert!(
@@ -3881,17 +3877,109 @@ fn paths_through_a_descriptor_are_shown_by_their_names() {
     );
 }
 
-/// The rule of `paths_through_a_descriptor_are_shown_by_their_names` finds a path shown by
-/// `.display()` outside `shown_path`, and none inside it or in the tests.
+/// Returns the places in `text`, of `file`, where a whole path is made into text outside
+/// `shown_path` and the tests: through `.display()`, `.to_string_lossy()`, `.to_str()` or
+/// `.into_string()`, or as Debug (`:?}`) in a format string. A path has no Display, so `{}`
+/// takes one only through these, and an `OsStr` from `as_os_str()` becomes text only through
+/// them too. The text of a last name alone (`file_name()`, `file_stem()`, `extension()`) is
+/// not counted, as no path through a descriptor shows in it. A chain of calls over several
+/// lines is read as one.
+fn paths_made_into_text(file: &str, text: &str) -> Vec<String> {
+    const TO_TEXT: [&str; 4] = [
+        ".display()",
+        ".to_string_lossy()",
+        ".to_str()",
+        ".into_string()",
+    ];
+    let code = code_lines(text);
+    let comments = comment_lines(text);
+    let end = tests_start(&code);
+    let is_last_name = |receiver: &str| {
+        let mut rest = receiver;
+        while let Some(shorter) = (rest.strip_suffix('?'))
+            .or_else(|| rest.strip_suffix(".unwrap_or_default()"))
+            .or_else(|| rest.strip_suffix(".unwrap()"))
+        {
+            rest = shorter;
+        }
+        ["file_name()", "file_stem()", "extension()"]
+            .iter()
+            .any(|name| rest.ends_with(name))
+    };
+    let mut wrong = Vec::new();
+    let mut function = String::new();
+    for (i, (line, raw)) in code[..end].iter().zip(text.lines()).enumerate() {
+        if line.starts_with(|c: char| c.is_alphabetic()) {
+            function.clear();
+        }
+        if let Some(name) = function_name(line) {
+            function = name.to_owned();
+        }
+        if function == "shown_path" {
+            continue;
+        }
+        // The chain of calls that this line goes on with, from the line where it starts.
+        let first = (0..=i)
+            .rev()
+            .find(|&j| !code[j].trim_start().starts_with('.'));
+        let chain: String = code[first.unwrap_or(0)..=i]
+            .iter()
+            .map(|l| l.trim())
+            .collect();
+        let this_line = line.trim();
+        let before_this_line = chain.len() - this_line.len();
+        for call in TO_TEXT {
+            for (at, _) in this_line.match_indices(call) {
+                if !is_last_name(&chain[..before_this_line + at]) {
+                    wrong.push(format!("{file}:{} ({call})", i + 1));
+                }
+            }
+        }
+        // The text of the line's literals, with its code and its comments blanked.
+        let comment = comments.get(i).map_or("", String::as_str);
+        let blank = std::iter::repeat(' ');
+        let literals: String = (raw.chars())
+            .zip(line.chars().chain(blank.clone()))
+            .zip(comment.chars().chain(blank))
+            .map(|((r, c), m)| if c == ' ' && m == ' ' { r } else { ' ' })
+            .collect();
+        if literals.contains(":?}") || literals.contains(":#?}") {
+            wrong.push(format!("{file}:{} (:?}})", i + 1));
+        }
+    }
+    wrong
+}
+
+/// The rule of `paths_through_a_descriptor_are_shown_by_their_names` finds a whole path made
+/// into text in each spelling outside `shown_path`. It finds none inside `shown_path`, in the
+/// tests, in a comment, or of a last name alone, also through a chain of calls over several
+/// lines.
 #[test]
 fn finds_a_path_shown_without_its_name() {
     let text = "fn shown_path(path: &Path) -> String {\n    path.display().to_string()\n}\n\
-                fn told(path: &Path) -> String {\n    format!(\"{}\", path.display())\n}\n\
-                mod tests {\n    fn t() { p.display(); }\n}\n";
-    let homes: &[(&str, &[(&str, &str)])] = &[(".display()", &[("files/trash.rs", "shown_path")])];
+        fn told(path: &Path) -> String {\n    format!(\"{}\", path.display())\n}\n\
+        fn debug(path: &Path) -> String {\n    format!(\"{path:?}\")\n}\n\
+        fn pretty(path: &Path) -> String {\n    format!(\"{:#?}\", path)\n}\n\
+        fn lossy(path: &Path) -> String {\n    path.to_string_lossy().into()\n}\n\
+        fn checked(path: &Path) -> Option<&str> {\n    path.to_str()\n}\n\
+        fn bytes(path: &Path) -> String {\n    path.as_os_str().to_string_lossy().into()\n}\n\
+        fn owned(path: PathBuf) -> String {\n    path.into_os_string().into_string().unwrap()\n}\n\
+        fn name(path: &Path) -> String {\n    path.file_name()?.to_string_lossy().into()\n}\n\
+        fn chained(path: &Path) -> String {\n    path.file_name()\n    .unwrap_or_default()\n\
+        .to_string_lossy()\n    .into_owned()\n}\n\
+        // Debug ({:?}) of a path is no text for the user.\n\
+        mod tests {\n    fn t() { p.display(); format!(\"{p:?}\"); }\n}\n";
     assert_eq!(
-        outside_homes_in("files/trash.rs", text, homes),
-        ["files/trash.rs:5 (.display())"]
+        paths_made_into_text("files/trash.rs", text),
+        [
+            "files/trash.rs:5 (.display())",
+            "files/trash.rs:8 (:?})",
+            "files/trash.rs:11 (:?})",
+            "files/trash.rs:14 (.to_string_lossy())",
+            "files/trash.rs:17 (.to_str())",
+            "files/trash.rs:20 (.to_string_lossy())",
+            "files/trash.rs:23 (.into_string())",
+        ]
     );
 }
 
