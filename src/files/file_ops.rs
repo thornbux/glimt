@@ -726,15 +726,21 @@ impl crate::App {
         seen: Option<&HashMap<PathBuf, FileFingerprint>>,
     ) -> Option<Asked> {
         let targets = self.targets()?;
+        Some(self.ask_about_files(&targets, seen))
+    }
+
+    /// The files at `targets` for a dialog about them, as `ask_about_targets_as_seen` takes
+    /// them. A dialog about one file of the selection (Rename) asks about that one file alone,
+    /// so that its answer can act on no other.
+    fn ask_about_files(
+        &mut self,
+        targets: &[usize],
+        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+    ) -> Asked {
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
-        let picked = self.picked_targets(&targets, seen);
+        let picked = self.picked_targets(targets, seen);
         let left_out = self.hidden_selection_notice();
-        Some(Asked::new(
-            self.opened_folder_hash(),
-            names.collect(),
-            left_out,
-            picked,
-        ))
+        Asked::new(self.opened_folder_hash(), names.collect(), left_out, picked)
     }
 
     /// The places now of the files the dialog asked about that are still in the list, and the
@@ -2580,8 +2586,11 @@ impl crate::App {
             .get(self.list.shown())
             .and_then(|f| Path::new(f).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            && let Some(asked) = self.ask_about_targets()
+            && self.targets().is_some()
         {
+            // The file named, alone. The answer renames it wherever the list has put it since,
+            // or nothing, never another selected file that came first meanwhile.
+            let asked = self.ask_about_files(&[self.list.shown()], None);
             self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
@@ -4082,6 +4091,35 @@ mod tests {
         app.undo(&ctx);
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         assert!(old.exists() && !new.exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Rename asks about the one file it names, not every selected file. Before, its answer
+    /// renamed the first of them still in the list, so another selected file got the typed
+    /// name when the one named left the list while the dialog was open.
+    #[test]
+    fn rename_acts_only_on_the_file_it_names() {
+        let d = std::env::temp_dir().join(format!("glimt-test-rename-one-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(d.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .files()
+            .len()
+            == 2));
+        app.run(&ctx, crate::ui::actions::Action::SelectAll);
+        app.start_rename(&ctx);
+        assert_eq!(app.dialogs.asked_names(), ["a.png"]);
+        // Another program deletes a.png, and the list follows.
+        std::fs::remove_file(d.join("a.png")).unwrap();
+        app.remove_indices(&ctx, &[0]);
+        let rename = crate::ui::dialogs::Prompt::Rename;
+        app.act_on_prompt_answer(&ctx, rename, "holiday.png");
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
+        assert!(d.join("b.png").exists() && !d.join("holiday.png").exists());
         std::fs::remove_dir_all(d).unwrap();
     }
 
