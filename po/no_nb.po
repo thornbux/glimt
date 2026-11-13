@@ -2871,6 +2871,10 @@ msgstr "filsystemet her ({kind}) tillater ikke denne omdøpingen, slik som på e
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} kunne ikke fjernes etter at den ble lagt på {to}, så filen kan ha begge navnene eller bare ligge på {to}; sjekk begge før du fjerner noen av dem ({e})"
 
+#: src/files/file_io.rs
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr "{from} ble latt der den var etter at den ble kopiert til {to}, så filen har begge navnene: {e}"
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "«{name}»: et {kind}-filsystem, som på minnekortet i et kamera, tillater ingen av : ? * \" < > | \\ i et navn. Ingenting fikk nytt navn."

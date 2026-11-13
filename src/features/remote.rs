@@ -1007,7 +1007,8 @@ fn is_info(command: &str) -> bool {
 /// not a regular file has every value but its path empty.
 fn info_record(path: &Path, marks: Option<(u8, u8)>) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
-    let file = std::fs::metadata(path).ok().filter(|m| m.is_file());
+    let is_file = crate::files::file_io::is_surely_file(path);
+    let file = is_file.then(|| std::fs::metadata(path).ok()).flatten();
     let (values, exif_rows) = match file {
         Some(file) => info_values(path, &file, marks),
         None => Default::default(),

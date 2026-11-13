@@ -4028,20 +4028,54 @@ fn finds_a_name_removed_after_a_cached_look() {
 /// function that finds them. A finder there excuses no act on the photo itself.
 /// What is no user's file is out of the rule by what it is: Glimt's own files are removed through
 /// `file_io::remove_own`, or by a raw removal or rename whose `#[allow]` or comment says
-/// "Glimt's own:"; a copy changes no file. The ways themselves are out of it too: the files that
-/// define them (`file_io.rs`, `trash.rs`, `journal.rs`), a function that is one of the acts
-/// (`rename_files`), whose callers check, and the tests.
+/// "Glimt's own:"; a copy changes no file. The ways themselves are out of it too: a function that
+/// is one of the acts (`rename_files`), whose callers check, each of `WAYS_OF_CHANGING_FILES`
+/// by its file and name, and the tests. Before, the files that define the ways were left out
+/// whole, so a removal after a long copy in one of them (a move to another disk) was never seen.
 #[test]
 fn destructive_acts_check_the_file_is_still_the_one_picked() {
+    /// The functions that are the ways a user's file is changed, each in its file, with why
+    /// it needs no check of its own. Every other function of their files is checked.
+    const WAYS_OF_CHANGING_FILES: [(&str, &str, &str); 8] = [
+        // A move or a copy, `put_file_until_stopped` with no stop; a call that moves is an act.
+        ("files/file_io.rs", "put_file", "its callers check"),
+        // The old name of a file just linked at its new one, or copied there and looked at
+        // (`still_the_file_copied`), and a new name it just made, taken back.
+        (
+            "files/file_io.rs",
+            "unlink_linked",
+            "it removes names it looked at or made",
+        ),
+        ("files/file_io.rs", "unlink", "the unlink of unlink_linked"),
+        // A document read and written again whole, a sidecar or a collection, not a file
+        // picked: `replace_name_with` with nothing to look at before.
+        ("files/file_io.rs", "replace_name", "it writes what it read"),
+        (
+            "files/trash.rs",
+            "trash_by_hand",
+            "the way `trash` takes a file there",
+        ),
+        // Undo's way out of the trash, to names that `rename_never_over` never goes over.
+        (
+            "files/trash.rs",
+            "put_back",
+            "it takes back what the trash holds",
+        ),
+        // Rename Many's steps, as its plan names them, settled after a cut or a lost answer.
+        ("files/journal.rs", "finish_step", "a step of a plan"),
+        ("files/journal.rs", "repair_step", "a step of a plan"),
+    ];
     let sources = rust_sources();
-    let (ways, tests) = (ways_of_changing_files(&sources), test_only_files(&sources));
+    let tests = test_only_files(&sources);
     let mut wrong = Vec::new();
     for (file, text) in &sources {
-        if ways.contains(file) || tests.contains(file) {
+        if tests.contains(file) {
             continue;
         }
         for (function, checks) in destructive_acts_in(text) {
-            if !checks {
+            let is_a_way = (WAYS_OF_CHANGING_FILES.iter())
+                .any(|&(f, name, _)| (f, name) == (file.as_str(), function.as_str()));
+            if !checks && !is_a_way {
                 wrong.push(format!("{file}: {function}"));
             }
         }
@@ -4052,27 +4086,6 @@ fn destructive_acts_check_the_file_is_still_the_one_picked() {
          picked (file_io::PickedFiles, is_still_the_file):\n{}",
         wrong.join("\n")
     );
-}
-
-/// Returns the files of `sources` that define the ways a user's file is trashed, moved,
-/// renamed or replaced (`trash`, `put_file`, `put_file_until_stopped`, `replace_name_with`,
-/// Rename Many's `rename_step`), whose own calls are those ways and not acts of an operation.
-fn ways_of_changing_files(sources: &[(String, String)]) -> Vec<String> {
-    let defines = |text: &str| {
-        let lines = code_lines(text);
-        let names = [
-            "trash",
-            "put_file",
-            "put_file_until_stopped",
-            "replace_name_with",
-            "rename_step",
-        ];
-        (lines.iter()).any(|l| function_name(l).is_some_and(|name| names.contains(&name)))
-    };
-    (sources.iter())
-        .filter(|(_, text)| defines(text))
-        .map(|(file, _)| file.clone())
-        .collect()
 }
 
 /// Returns the files of `sources` that are built only for the tests: a `mod` under
@@ -4326,7 +4339,8 @@ fn finds_the_files_built_only_for_tests() {
 
 /// A name counts as gone only when the system said that it is not there (NotFound).
 /// `Path::exists`, `Path::is_file` and `is_dir`, and a look whose every error is taken as an
-/// answer (`metadata(…).is_err()`, `.is_ok()`, `.is_ok_and(|m| m.is_dir())` or
+/// answer (`metadata(…).is_err()`, `.is_ok()`, `let Ok(m) = metadata(…) else`,
+/// `.is_ok_and(|m| m.is_dir())`, `.ok().filter(|m| m.is_file())` or
 /// `.map_or((false, false), |m| (m.is_file(), m.is_dir()))`, also of `is_symlink`), take a share
 /// that dropped for a moment for a name that is gone, or for one that is no file or folder.
 /// That way a sidecar was trashed while its photo stayed, a rename went over a file that it
@@ -4345,7 +4359,7 @@ fn gone_means_not_found() {
     assert!(
         wrong.is_empty(),
         "a name looked at with exists(), is_file(), is_dir() or metadata(…).is_err(), .is_ok(), \
-         .is_ok_and(…) or .map_or(…) of its kind, which take any failed look for an answer; use \
+         let Ok(…) = …, .is_ok_and(…), .ok().filter(…) or .map_or(…) of its kind, which take any failed look for an answer; use \
          file_io::is_surely_gone, is_surely_there, is_surely_file, is_surely_dir or is_link:\n{}",
         wrong.join("\n")
     );
@@ -4368,8 +4382,13 @@ fn looks_that_guess(text: &str) -> Vec<usize> {
                 .iter()
                 .any(|f| mentions(line, f))
             || (line.contains("metadata(")
-                && ([".is_err()", ".is_ok()"].iter().any(|c| call.contains(c))
-                    || ([".is_ok_and(", ".map_or("].iter().any(|c| call.contains(c)) && asks_kind)))
+                && ([".is_err()", ".is_ok()", "let Ok("]
+                    .iter()
+                    .any(|c| call.contains(c))
+                    || ([".is_ok_and(", ".map_or(", ".ok().filter("]
+                        .iter()
+                        .any(|c| call.contains(c))
+                        && asks_kind)))
             || asks_a_path_its_kind(line)
     };
     (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
@@ -4408,23 +4427,29 @@ fn asks_a_path_its_kind(line: &str) -> bool {
 /// The check above finds `exists`, also as a function value, and a look at the metadata whose
 /// errors count as gone or as there, also when split over two lines. It leaves the helpers, a
 /// metadata read that passes its error on, and `try_exists`, whose `Ok(false)` is NotFound only.
+/// A `let Ok(…) = metadata(…) else`, which takes every failed look for no file, is found too:
+/// `create_temp_beside` made a new file so, without the mode of the file it replaced.
 #[test]
 fn finds_a_look_that_guesses() {
     let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
         .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
         files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
-        let m = std::fs::metadata(p)?;\n    p.try_exists()\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
+        let m = std::fs::metadata(p)?;\n    p.try_exists()\n    \
+        let Ok(old) = std::fs::metadata(p) else {\n    if let Ok(m) = p.metadata() {}\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 5, 6, 10, 11]);
 }
 
 /// The check above finds a look whose failure is taken for "no link" or "neither a file nor a
-/// folder", also when its default comes first (`map_or`). It leaves a size whose look failed.
+/// folder", also when its default comes first (`map_or`) or it is filtered (`.ok().filter`). It
+/// leaves a size whose look failed.
 #[test]
 fn finds_a_failed_look_taken_for_its_kind() {
     let text = "fn a() {\n    let l = std::fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink());\n    \
         let (t, d) = std::fs::metadata(p).map_or((false, false), |m| (true, m.is_dir()));\n    \
-        let size = std::fs::metadata(p).map_or(0, |m| m.len());\n    let l = is_link(p)?;\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3]);
+        let size = std::fs::metadata(p).map_or(0, |m| m.len());\n    let l = is_link(p)?;\n    \
+        let f = std::fs::metadata(p).ok().filter(|m| m.is_file());\n    \
+        let n = std::fs::metadata(p).ok().map(|m| m.len());\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 6]);
 }
 
 /// The check above finds a path asked whether it is a file or a folder, also as a function value

@@ -3573,6 +3573,11 @@ msgstr "el sistema de archivos de aquí ({kind}) no permite este cambio de nombr
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "no se pudo quitar {from} después de ponerlo en {to}, así que el archivo puede tener ambos nombres o estar solo en {to}; comprueba los dos antes de quitar cualquiera ({e})"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr "{from} se dejó donde estaba después de copiarse a {to}, así que el archivo tiene ambos nombres: {e}"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

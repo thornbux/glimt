@@ -3573,6 +3573,11 @@ msgstr "skráakerfið hér ({kind}) leyfir ekki þessa nafnbreytingu, eins og á
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "ekki tókst að fjarlægja {from} eftir að það var sett á {to}, svo skráin getur borið bæði nöfnin eða aðeins verið á {to}; athugaðu hvort tveggja áður en þú fjarlægir annað hvort ({e})"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr "{from} var skilin eftir þar sem hún var eftir að hún var afrituð í {to}, svo skráin ber bæði nöfnin: {e}"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

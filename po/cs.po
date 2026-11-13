@@ -3595,6 +3595,11 @@ msgstr "souborový systém zde ({kind}) toto přejmenování nepovoluje, stejně
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} se nepodařilo odstranit poté, co byl umístěn do {to}, takže soubor může mít obě jména, nebo být jen v {to}; před odstraněním kteréhokoli z nich zkontrolujte obě ({e})"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr "{from} zůstal na svém místě poté, co byl zkopírován do {to}, takže soubor má oba názvy: {e}"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

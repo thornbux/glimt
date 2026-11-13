@@ -2881,6 +2881,10 @@ msgstr ""
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr ""
 
+#: src/files/file_io.rs
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr ""
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr ""

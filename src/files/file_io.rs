@@ -92,6 +92,13 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // Makes a rename by `rename_never_over` from this name, or a delete for good of it, on this
+    // thread be done and then fail with EIO (`answer_lost_in_a_test`).
+    pub(crate) static ANSWER_LOST_AT: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+    // Makes a move by `put_file_until_stopped` on this thread a copy and an unlink, as a move
+    // to another disk is, so that a test needs no second disk.
+    pub(crate) static MOVES_CROSS_DEVICES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     // How many names `look` looked at on this thread, so that a test can see that a check that
     // can tell nothing does not wait for the disk.
     pub(crate) static LOOKS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -731,7 +738,8 @@ fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
 /// old name unlinked; where links cannot be made either, a rename after looking first. The one
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
-/// a file back from the trash. `CrossesDevices` is the caller's to copy instead. The rename
+/// a file back from the trash. A rename that failed but was done all the same (`done_after_all`)
+/// counts as done. `CrossesDevices` is the caller's to copy instead. The rename
 /// is not synced to disk here. One rename alone is one step, so a power cut leaves the file
 /// under its old name or its new one. A caller whose next step counts on the new name being on
 /// disk (an unlink of the source, a plan removed) syncs the folder with `sync_folder_of` first.
@@ -746,11 +754,13 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         0 => rename_noreplace(from, to),
         _ => Err(Unsupported.into()),
     };
+    #[cfg(test)]
+    let one_step = answer_lost_in_a_test(from, one_step);
     let link = || match missing {
         0 | 1 => std::fs::hard_link(from, to),
         _ => Err(Unsupported.into()),
     };
-    match one_step {
+    let renamed = match one_step {
         Err(e) if e.kind() == Unsupported => match link() {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
@@ -762,7 +772,8 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
             Err(_) => std::fs::rename(from, to).map_err(|e| explain_rename_error(e, to)),
         },
         done => done,
-    }
+    };
+    done_after_all(renamed, from, Some(to))
 }
 
 /// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
@@ -872,6 +883,41 @@ fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<Strin
                     | ENOBUFS
             )
         )
+}
+
+/// Returns `result`, of a step that moved the file at `from` to `to`, or removed it when `to` is
+/// `None`, as done when the step failed in a way that may have been done (`may_have_been_done`)
+/// and the names show that it was: `from` is surely gone, and `to` is surely there. A share
+/// that did the step and lost its answer otherwise had the file counted as where it was, so its
+/// sidecars and marks stayed at the old name for the next file of that name. A look that fails
+/// leaves the error as it is.
+pub(crate) fn done_after_all(
+    result: std::io::Result<()>,
+    from: &Path,
+    to: Option<&Path>,
+) -> std::io::Result<()> {
+    match result {
+        Err(e) if may_have_been_done(&e, from) && is_surely_gone(from) => match to {
+            Some(to) if !is_surely_there(to) => Err(e),
+            _ => Ok(()),
+        },
+        result => result,
+    }
+}
+
+/// Returns `result` as a lost answer, EIO, when the step on `path` was done and `path` is the
+/// name in `ANSWER_LOST_AT`, as a share does that did the step and lost its answer.
+#[cfg(test)]
+pub(crate) fn answer_lost_in_a_test(
+    path: &Path,
+    result: std::io::Result<()>,
+) -> std::io::Result<()> {
+    match result {
+        Ok(()) if ANSWER_LOST_AT.with_borrow(|at| at.as_deref() == Some(path)) => {
+            Err(std::io::Error::from_raw_os_error(libc::EIO))
+        }
+        result => result,
+    }
 }
 
 /// Unlinks `path`, the old name of a file that `unlink_linked` has linked or copied.
@@ -1189,7 +1235,8 @@ pub(crate) fn put_file_until_stopped(
 ) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-    let copy = || -> std::io::Result<()> {
+    // Returns the fingerprint of the file at `from` as it was when it was opened to be copied.
+    let copy = || -> std::io::Result<FileFingerprint> {
         if !is_surely_gone(to) {
             return Err(AlreadyExists.into());
         }
@@ -1209,11 +1256,18 @@ pub(crate) fn put_file_until_stopped(
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before it takes its name.
         let copied = crate::images::decode::open_regular(from)
-            .and_then(|mut f| copy_until_stopped(&mut f, &mut out, is_stopped))
-            .and_then(|_| {
+            .and_then(|mut f| {
+                // The mode and time are those of the file opened, not of whatever has the name
+                // after the copy. The name is looked at just after the open, so that a move
+                // can tell before it unlinks the name that it still holds the file copied.
+                let meta = f.metadata()?;
+                let at_open = fingerprint_or_error(from)?;
+                copy_until_stopped(&mut f, &mut out, is_stopped)?;
+                Ok((meta, at_open))
+            })
+            .and_then(|(meta, at_open)| {
                 // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID
                 // or sticky, which a copy owned by this user would carry for its owner.
-                let meta = std::fs::metadata(from)?;
                 let mode = std::fs::Permissions::from_mode(meta.mode() & 0o777);
                 // Through the open file, so that a link put at the part's name meanwhile is
                 // not followed to a file of the user's.
@@ -1222,9 +1276,9 @@ pub(crate) fn put_file_until_stopped(
                 out.set_modified(meta.modified()?)?;
                 // A copy leaves the ACL, as cp does without -p, and a move keeps it, as mv does.
                 copy_extended_attributes(from, &out, !is_copy);
-                out.sync_all()
+                out.sync_all().map(|()| at_open)
             })
-            .and_then(|_| rename_never_over(&part, to));
+            .and_then(|at_open| rename_never_over(&part, to).map(|()| at_open));
         #[allow(clippy::disallowed_methods)] // the copy's hidden part
         // Not told: a copy that failed is told by its own error, and a copy that took its name
         // has no part left to remove.
@@ -1232,16 +1286,42 @@ pub(crate) fn put_file_until_stopped(
         copied
     };
     if is_copy {
-        return copy();
+        return copy().map(|_| ());
     }
-    match rename_never_over(from, to) {
+    #[cfg(test)]
+    let moved = match MOVES_CROSS_DEVICES.get() {
+        true => Err(CrossesDevices.into()),
+        false => rename_never_over(from, to),
+    };
+    #[cfg(not(test))]
+    let moved = rename_never_over(from, to);
+    match moved {
         // The copy is on disk with its name before the source goes: a stick pulled out right
         // after must not lose both.
         Err(e) if e.kind() == CrossesDevices => (copy())
-            .and_then(|_| sync_folder_of(to))
-            .and_then(|_| unlink_linked(from, to)),
+            .and_then(|at_open| sync_folder_of(to).map(|()| at_open))
+            .and_then(|at_open| still_the_file_copied(from, to, at_open))
+            .and_then(|()| unlink_linked(from, to)),
         done => done,
     }
+}
+
+/// Looks, right before a move to another disk unlinks `from`, whether `from` still holds the
+/// file that was copied to `to`, whose fingerprint was `at_open` when it was opened. A copy
+/// takes minutes for a video, and a sync client or an editor may save a new version at the name
+/// meanwhile. Unlinking the name then would lose that version, so both names are kept, and the
+/// error says so. A look that fails keeps both names too.
+fn still_the_file_copied(from: &Path, to: &Path, at_open: FileFingerprint) -> std::io::Result<()> {
+    let Err(e) = is_still_the_file(from, KnownAs::fingerprint(at_open)) else {
+        return Ok(());
+    };
+    let (from, to) = (shown_path(from), shown_path(to));
+    Err(std::io::Error::other(crate::tf!(
+        "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}",
+        from,
+        to,
+        e
+    )))
 }
 
 /// Copies all of `from` to `to` in parts, and stops before the next part when `is_stopped`
@@ -1310,7 +1390,9 @@ pub fn remove_shared(path: &Path) {
 pub fn remove_own(path: &Path) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // the one way Glimt's own files are removed
     let removed = match std::fs::symlink_metadata(path) {
+        // Glimt's own: a folder, such as the copy of a state folder in a backup.
         Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        // Glimt's own: a plan, a log or a state file.
         _ => std::fs::remove_file(path),
     };
     match removed {
@@ -2051,15 +2133,19 @@ pub(crate) fn same_time_as_kept(a: (i64, i64), b: (i64, i64)) -> bool {
 /// which needs only the folder's write bit, so without this check a read-only file would be
 /// written over, where Geeqie, which writes in place, fails. A file without a write bit is
 /// refused also for root, who may write any file, as its owner marked it so. A link at the name
-/// passes, because the link itself is replaced, and so does a name that is not there yet.
+/// passes, because the link itself is replaced, and so does a name that is not there yet. A
+/// look that fails returns its error, as the file may be there and read-only.
 /// Glimt's own files (`replace_file`) are not asked, as before. A turn saved asks it first too,
 /// before the slow work of encoding the image. Returns whether the file has other names (hard
 /// links), which the replace will not change.
 pub(crate) fn check_writable(path: &Path) -> std::io::Result<bool> {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
-    let Some(meta) = std::fs::symlink_metadata(path).ok().filter(|m| m.is_file()) else {
-        return Ok(false);
+    // Only a name that is surely not there is a new file. A look that failed is no answer.
+    let meta = match look(path, false) {
+        Ok(meta) if meta.is_file() => meta,
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => return Ok(false),
     };
     let name = std::ffi::CString::new(path.as_os_str().as_bytes())?;
     #[allow(unsafe_code)]
@@ -2118,7 +2204,7 @@ pub fn write_beside_without_folder_sync(
         .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
         .and_then(|_| give_name(tmp));
     if result.is_err() {
-        #[allow(clippy::disallowed_methods)] // the temporary file, not finished
+        #[allow(clippy::disallowed_methods)] // Glimt's own: the temporary file, not finished
         // Not told: the write's own failure is returned, and a hidden name left takes no file's
         // place.
         let _ = std::fs::remove_file(tmp);
@@ -2134,6 +2220,7 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
         &tmp_path(path),
         path,
         |f| f.write_all(bytes.as_ref()),
+        // Glimt's own: the new file under its temporary name, given its name never over a file.
         |tmp| crate::files::file_io::rename_never_over(tmp, path),
     )
 }
@@ -2169,13 +2256,15 @@ pub fn instance_tag() -> &'static str {
 
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar
 /// or a list kept private, 0600, stays so). Made private first when `path` is there, and given
-/// those before a byte is written: no one else can open it meanwhile. A new file as usual.
+/// those before a byte is written: no one else can open it meanwhile. A new file as usual, but
+/// only when nothing is surely at `path`. A look at `path` that fails returns its error, as a
+/// new file would lose the mode, the user's attributes and the ACL of the file it replaces.
 #[allow(clippy::disallowed_methods)] // the one way a new file is made, under its temporary name
 pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    // Made new, never opened: a link left or planted at `tmp` would be followed and the file
-    // it points to emptied. Not told: a name still at `tmp` makes `create_new` below fail, and
-    // that failure is returned.
+    // Glimt's own: the temporary name. The file is made new, never opened: a link left or
+    // planted at `tmp` would be followed and the file it points to emptied. Not told: a name
+    // still at `tmp` makes `create_new` below fail, and that failure is returned.
     let _ = std::fs::remove_file(tmp);
     let new = || {
         std::fs::OpenOptions::new()
@@ -2183,8 +2272,10 @@ pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::F
             .create_new(true)
             .clone()
     };
-    let Ok(old) = std::fs::metadata(path) else {
-        return new().open(tmp);
+    let old = match look(path, true) {
+        Ok(old) => old,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return new().open(tmp),
+        Err(e) => return Err(e),
     };
     let file = new().mode(0o600).open(tmp)?;
     file.set_permissions(old.permissions())?;
@@ -2962,6 +3053,64 @@ mod tests {
         assert_eq!(asked.get(), 2, "not stopped inside the file");
         assert_eq!(std::fs::read_dir(dir.join("to")).unwrap().count(), 0);
         assert_eq!(std::fs::read(&a).unwrap().len(), 1 << 20);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A move to another disk whose source gets a new version while it is copied keeps that
+    /// version, and says so. Before, the name was unlinked after the copy, and the new version,
+    /// which a sync client had put there meanwhile, was gone.
+    #[test]
+    fn a_move_to_another_disk_keeps_a_source_changed_meanwhile() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-move-new-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let (a, newer) = (dir.join("a.mp4"), dir.join("newer.mp4"));
+        std::fs::write(&a, vec![1u8; 64 << 10]).unwrap();
+        let asked = std::cell::Cell::new(0);
+        // A new version is put at the name while the second part is copied.
+        let is_stopped = || {
+            asked.set(asked.get() + 1);
+            if asked.get() == 2 {
+                std::fs::write(&newer, "the new version").unwrap();
+                std::fs::rename(&newer, &a).unwrap();
+            }
+            false
+        };
+        super::MOVES_CROSS_DEVICES.set(true);
+        let moved = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), false, &is_stopped);
+        super::MOVES_CROSS_DEVICES.set(false);
+        let e = moved.unwrap_err().to_string();
+        assert!(e.contains("under both names"), "{e}");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "the new version");
+        assert_eq!(std::fs::read(dir.join("to/a.mp4")).unwrap().len(), 64 << 10);
+        // A source that stays as it was is moved.
+        std::fs::remove_file(dir.join("to/a.mp4")).unwrap();
+        super::MOVES_CROSS_DEVICES.set(true);
+        let moved = super::put_file(&a, &dir.join("to/a.mp4"), false);
+        super::MOVES_CROSS_DEVICES.set(false);
+        moved.unwrap();
+        assert!(super::is_surely_gone(&a));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file written again whose look fails, as on a share that dropped for a moment, is not
+    /// written as a new file. Before, it lost its mode (a private sidecar became readable by
+    /// all), its user attributes and its ACL.
+    #[test]
+    fn a_failed_look_at_a_file_written_again_is_no_new_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-temp-look-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, tmp) = (dir.join("a.xmp"), dir.join(".a.xmp.tmp"));
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).push(path.clone());
+        let made = super::create_temp_beside(&tmp, &path);
+        let checked = super::check_writable(&path);
+        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).retain(|p| *p != path);
+        assert!(made.is_err() && checked.is_err());
+        assert!(super::is_surely_gone(&tmp));
+        let made = super::create_temp_beside(&tmp, &path).unwrap();
+        assert_eq!(made.metadata().unwrap().permissions().mode() & 0o777, 0o600);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

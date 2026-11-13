@@ -3584,6 +3584,11 @@ msgstr "filsystemet her ({kind}) tillèt ikkje denne namneendringa, slik som på
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} kunne ikkje fjernast etter at han vart lagd på {to}, så fila kan ha begge namna eller berre liggje på {to}; sjekk begge før du fjernar nokon av dei ({e})"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr "{from} vart late vere der han var etter at han vart kopiert til {to}, så fila har begge namna: {e}"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

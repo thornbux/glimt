@@ -3573,6 +3573,11 @@ msgstr "tämä tiedostojärjestelmä ({kind}) ei salli tätä uudelleennimeämis
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "kohdetta {from} ei voitu poistaa sen jälkeen, kun se oli viety kohteeseen {to}, joten tiedostolla voi olla molemmat nimet tai se voi olla vain kohteessa {to}; tarkista molemmat ennen kuin poistat kumpaakaan ({e})"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr "{from} jätettiin paikalleen sen jälkeen, kun se kopioitiin kohteeseen {to}, joten tiedostolla on molemmat nimet: {e}"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
