@@ -6011,6 +6011,30 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Glimt killed during a Move to Trash between a photo's sidecar and the photo, which go to
+    /// the trash in that order, leaves the photo at its name and its sidecar in the trash. The
+    /// next start takes the sidecar back. Before, the photo's keywords, comment and alt text
+    /// stayed in the trash.
+    #[test]
+    fn a_killed_move_to_trash_takes_back_the_sidecar_of_a_photo_that_stayed() {
+        let dir = contract_folder("killed-trash-sidecar");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        // The sidecar went to the trash, and the kill came before the photo.
+        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        assert!(!side.exists());
+        drop(log);
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].1.is_empty(), "a.png did not go");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// Glimt killed during a Move leaves the Move's log, and the next start makes the marks
     /// follow the files that went, and only those. Before, the marks followed only the Move's
     /// last report, so a kill (a logout's SIGKILL, Ctrl+C) left the stars of every file already

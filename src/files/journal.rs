@@ -8,7 +8,8 @@
 //! Trash keep one too (`DeleteLog`), so that the marks and stars of the files that went before a
 //! kill are forgotten at the next start. A name whose folder is not there at that start, as on a
 //! stick not plugged in yet, keeps its marks, and its log stays for a later start. The files
-//! that went also leave the collection that was shown during the delete.
+//! that went also leave the collection that was shown during the delete, and a photo that
+//! stayed takes back its sidecars that the kill left in the trash.
 
 use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
 use crate::images::save::{same_file, same_file_by_opening};
@@ -394,20 +395,30 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
 /// The logs in `dir` of deletes that Glimt was killed during, which are those no running window
 /// holds locked. Each comes with the files whose marks and stars are to be forgotten: those
 /// whose name is surely not there any more in a folder that surely is (`went_before_the_kill`).
-/// A file that had not gone yet is still at its name, and keeps them. Each log is held locked
-/// until it is removed, or until it is let go for a later start (`DeleteLog::has_names_left`).
+/// A file that had not gone yet is still at its name, and keeps them. A file still there as the
+/// log's list knew it takes back its sidecars from the trash (`sidecars_back_from_the_trash`).
+/// Each log is held locked until it is removed, or until it is let go for a later start
+/// (`DeleteLog::has_names_left`).
 pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
     (logs_left_by_a_kill(dir).into_iter())
         .map(|(path, file, bytes)| {
-            let (mut gone, mut has_names_left) = (Vec::new(), false);
-            for name in parse_names(&bytes) {
+            let known = read_move_known(&known_path(&path)).unwrap_or_default();
+            let (mut gone, mut stayed, mut has_names_left) = (Vec::new(), Vec::new(), false);
+            for (i, name) in parse_names(&bytes).into_iter().enumerate() {
                 match went_before_the_kill(&name) {
                     Some(true) => gone.push(name),
+                    Some(false) if is_as_known(&name, known.get(i).copied().flatten()) => {
+                        stayed.push(name);
+                    }
                     Some(false) => {}
                     None => has_names_left = true,
                 }
             }
             forget_in_the_collection_shown(&path, &gone);
+            // The log was last written just before the last of its files went. A log whose time
+            // cannot be read takes no sidecar back, as it cannot tell which went after it.
+            let written = file.metadata().and_then(|m| m.modified());
+            (written.into_iter()).for_each(|since| sidecars_back_from_the_trash(&stayed, since));
             let log = DeleteLog {
                 path,
                 file,
@@ -469,6 +480,48 @@ fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
     let forgotten = crate::files::file_ops::forget_in_collection(Some(&collection), gone);
     if let Err(e) = forgotten {
         crate::files::file_io::save_failed(e);
+    }
+}
+
+/// Returns whether the file at `path` has the size and time of the fingerprint `known`, which a
+/// delete's log took before the file was to go. The device is left out, as after a reboot.
+/// Returns false when there is no fingerprint or the look fails.
+fn is_as_known(path: &Path, known: Option<FileFingerprint>) -> bool {
+    let now = crate::files::file_io::fingerprint_or_error(path);
+    now.is_ok_and(|(_, size, time)| known.is_some_and(|(_, was, at)| (size, time) == (was, at)))
+}
+
+/// Takes back from the trash the sidecars of the files `stayed`, which a delete's log names and
+/// which are still there as they were, when they went to the trash after `since`. A Move to
+/// Trash sends each photo's sidecars just before the photo, so Glimt killed between the two
+/// left the photo without its keywords, comment and alt text. Only a sidecar whose name is
+/// surely free is looked for, and none comes back over a file (`trash::restore`). One that
+/// cannot come back is told.
+fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime) {
+    use crate::metadata::xmp;
+    // Adobe's sidecar has the RAW file's name stem, with the extension in either case.
+    let sidecars: Vec<PathBuf> = (stayed.iter())
+        .flat_map(|p| {
+            let adobe = xmp::adobe_stem(p).map(|_| ["xmp", "XMP"].map(|e| p.with_extension(e)));
+            std::iter::once(xmp::sidecar(p)).chain(adobe.into_iter().flatten())
+        })
+        .filter(|side| is_surely_gone(side))
+        .collect();
+    if sidecars.is_empty() {
+        return;
+    }
+    let _locks = xmp::lock_sidecars(stayed);
+    let trash_move = crate::files::trash::TrashMove {
+        files: Vec::new(),
+        sidecars,
+        sidecars_left: Vec::new(),
+        since,
+        marks: Default::default(),
+        collection: None,
+    };
+    let trash_dirs = crate::files::trash::trash_dirs;
+    if let (_, Some(error)) = crate::files::trash::restore(&trash_move, trash_dirs) {
+        crate::files::file_io::save_failed(error);
     }
 }
 

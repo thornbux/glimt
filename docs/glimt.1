@@ -613,7 +613,9 @@ name keeps its marks, and a name whose folder is not there, as on a stick not pl
 keeps them too, and the log stays for a later start.
 Its folder
 .I deletes/files
-holds, for each log, the fingerprint (device, inode, size and time) of each file to delete.
+holds, for each log, the fingerprint (device, inode, size and time) of each file to delete, of
+which size and time are compared, so that a photo still there as it was takes back from the
+trash the sidecar that went just before Glimt was killed.
 Its folder
 .I deletes/collections
 holds, for each log of a delete in a collection, the path of that collection, so that the next
