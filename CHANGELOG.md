@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A Move to another disk leaves the file where it was, and says so, when a new version of it
+  was saved at its name while it was copied (by a sync client or an editor). Before, the name
+  was removed after the copy, and the new version with it.
+- A Move, its Undo and a Delete without the trash on a share that did the step but lost its
+  answer count the file as moved or deleted, so its sidecars and marks go with it. Before, they
+  stayed at the old name, where the next file of that name took them.
+- A sidecar or collection written again on a share that failed to answer for a moment is not
+  written as a new file. Before, it could lose its permissions (a private sidecar became
+  readable by all), its tags from the file manager and its ACL.
+
 ## [0.83.0] - 2026-11-13
 
 ### Added
