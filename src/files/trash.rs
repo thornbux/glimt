@@ -565,7 +565,8 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
     let date = crate::support::format::local_time(secs.map_or(0, |d| d.as_secs()) as i64)
         .replacen(' ', "T", 1);
     let (mut made, mut failed) = (Vec::new(), Vec::new());
-    let one_sync = crate::files::file_ops::file_system_type_or_test(&info)
+    // The mount's own type, where a disk through FUSE would elsewhere take udev's type of the disk.
+    let one_sync = crate::files::file_ops::mounted_type_or_test(&info)
         .is_some_and(|kind| crate::files::file_io::is_put_on_disk_by_one_sync(&kind));
     for &(path, ref path_in_trashinfo) in files {
         let text = format!("[Trash Info]\nPath={path_in_trashinfo}\nDeletionDate={date}\n");

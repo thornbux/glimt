@@ -3043,6 +3043,18 @@ fn take_back_from_the_trash(
 /// Returns the type of the file system that `dir` is on, as `file_io::file_system_type` does. A
 /// test gives its folder a type with `test_mount` instead, because no test can mount a FAT card.
 pub(crate) fn file_system_type_or_test(dir: &Path) -> Option<String> {
+    test_mount_of(dir).or_else(|| crate::files::file_io::file_system_type(dir))
+}
+
+/// Returns the type of the mount that holds `dir`, as `file_io::mounted_type` does, a disk
+/// through FUSE as "fuseblk". A test gives its folder a type with `test_mount` instead.
+pub(crate) fn mounted_type_or_test(dir: &Path) -> Option<String> {
+    test_mount_of(dir).or_else(|| crate::files::file_io::mounted_type(dir))
+}
+
+/// Returns the type that a test gave `dir` or a folder above it with `test_mount`, and `None`
+/// outside the tests.
+fn test_mount_of(dir: &Path) -> Option<String> {
     #[cfg(test)]
     {
         let mounts = crate::support::threads::lock_even_if_poisoned(&TEST_MOUNTS);
@@ -3051,7 +3063,9 @@ pub(crate) fn file_system_type_or_test(dir: &Path) -> Option<String> {
             return Some(kind.clone());
         }
     }
-    crate::files::file_io::file_system_type(dir)
+    #[cfg(not(test))]
+    let _ = dir;
+    None
 }
 
 /// Gives `dir` and the folders below it the file system `kind` in a test, as if a card were
