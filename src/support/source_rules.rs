@@ -206,7 +206,7 @@ const RETIRED_NAMES: &[&str] = &[
     "undo_left",         // is_undo_remainder
     "move_held",         // move_lock
     "has_access",        // has_alt_text
-    "is_unlocked",       // take_lock_if_free
+    "is_unlocked",       // open_if_unlocked
     "background_paths",  // held_back_files
     "renamed_in_place",  // note_names_changed
     "places_changed",    // forget_places
@@ -310,7 +310,7 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("files/file_ops.rs", "touches"),       // held_back_files
     ("files/file_ops.rs", "touching"),      // held_back_files
     ("files/journal.rs", "begin"),          // start_journal
-    ("files/journal.rs", "free"),           // take_lock_if_free
+    ("files/journal.rs", "free"),           // open_if_unlocked
     ("files/journal.rs", "interrupted"),    // cut_short_plans
     ("files/journal.rs", "linked"),         // is_linked
     ("files/journal.rs", "settle"),         // repair_cut_short, run_background_until
@@ -4440,66 +4440,70 @@ fn finds_a_path_asked_its_kind() {
     assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9]);
 }
 
-/// A lock file is opened and waited for only through `file_io::open_and_lock`, which never
-/// truncates it, never follows a link and never waits on a pipe planted in its place. Opened
-/// with `File::create`, a link planted in Glimt's runtime folder emptied the file of the user's
-/// that it pointed to, and a planted pipe held the thread for good. So a function that opens a
-/// file and waits for a lock is found anywhere but there.
+/// A file is locked only through `file_io::open_and_lock` and `open_if_unlocked`, which open it
+/// for reading and writing, never truncate it, never follow a link and never wait on a pipe
+/// planted in its place. Opened to be read only, a plan of Rename Many or a log of Move was
+/// never locked on an NFS home, where a flock needs a file open for writing, so none was put
+/// right after a kill. Opened with `File::create`, a link planted in Glimt's runtime folder
+/// emptied the file of the user's that it pointed to. So a lock taken in any other function is
+/// found: a `lock`, a `try_lock` or their shared forms, a `flock` or an `fcntl` lock. A mutex
+/// is locked in the one way for it too, `threads::lock_even_if_poisoned` (clippy.toml).
 #[test]
-fn lock_files_are_opened_in_one_place() {
+fn files_are_locked_in_one_place() {
+    const ONE_WAYS: [(&str, &str); 3] = [
+        ("files/file_io.rs", "open_and_lock"),
+        ("files/file_io.rs", "open_if_unlocked"),
+        ("support/threads.rs", "lock_even_if_poisoned"),
+    ];
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
-        let found = (files_locked_by_hand(&text).into_iter())
-            .filter(|f| (file.as_str(), f.as_str()) != ("files/file_io.rs", "open_and_lock"));
+        let found = (functions_that_lock(&text).into_iter())
+            .filter(|f| !ONE_WAYS.contains(&(file.as_str(), f.as_str())));
         wrong.extend(found.map(|f| format!("{file}: {f}")));
     }
     assert!(
         wrong.is_empty(),
-        "a file opened and locked outside file_io::open_and_lock:\n{}",
+        "a lock taken outside file_io::open_and_lock and open_if_unlocked:\n{}",
         wrong.join("\n")
     );
 }
 
-/// Returns the functions of `text` outside the tests that both open a file and wait for a lock.
-/// A `try_lock` waits for nothing, and is left to the files that Glimt makes new.
-fn files_locked_by_hand(text: &str) -> Vec<String> {
-    const OPENS: [&str; 5] = [
-        "File::create(",
-        "File::open(",
-        "File::options(",
-        "OpenOptions",
-        "open_regular(",
+/// Returns the functions of `text` outside the tests that take a lock, of a file or a mutex.
+fn functions_that_lock(text: &str) -> Vec<String> {
+    const LOCKS: [&str; 7] = [
+        ".lock()",
+        ".try_lock()",
+        ".lock_shared()",
+        ".try_lock_shared()",
+        "flock(",
+        "F_SETLK",
+        "F_OFD_SETLK",
     ];
     let lines = code_lines(text);
     let end = tests_start(&lines);
-    let mut found = Vec::new();
+    let mut found: Vec<String> = Vec::new();
     let mut function = String::new();
-    let (mut opens, mut locks) = (false, false);
-    for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
+    for line in &lines[..end] {
         if let Some(name) = function_name(line) {
-            if opens && locks {
-                found.push(function);
-            }
             function = name.to_owned();
-            (opens, locks) = (false, false);
-            continue;
         }
-        opens |= OPENS.iter().any(|call| line.contains(call));
-        locks |= line.contains(".lock()") || line.contains(".lock_shared()");
+        let locks = LOCKS.iter().any(|call| line.contains(call));
+        if locks && found.last() != Some(&function) {
+            found.push(function.clone());
+        }
     }
     found
 }
 
-/// The check above finds a lock file made with `File::create` and locked, and leaves a lock
-/// taken through `open_and_lock`, a `try_lock` of a file made new, and a lock of a mutex.
+/// The check above finds a `try_lock`, a `flock` and a shared lock, and leaves a lock taken
+/// through `open_and_lock`.
 #[test]
-fn finds_a_lock_file_opened_by_hand() {
-    let text = "fn a() {\n    let f = std::fs::File::create(p)?;\n    f.lock()?;\n}\n\
+fn finds_a_lock_taken_by_hand() {
+    let text = "fn a() {\n    let f = open_regular(p)?;\n    f.try_lock()?;\n}\n\
         fn b() {\n    let f = open_and_lock(p)?;\n}\n\
-        fn c() {\n    let f = OpenOptions::new().create_new(true).open(p)?;\n    \
-        f.try_lock()?;\n}\n\
-        fn d() {\n    m.lock()\n}\n";
-    assert_eq!(files_locked_by_hand(text), ["a"]);
+        fn c() {\n    libc::flock(fd, libc::LOCK_EX);\n}\n\
+        fn d() {\n    f.lock_shared()\n}\n";
+    assert_eq!(functions_that_lock(text), ["a", "c", "d"]);
 }
 
 /// The functions of the C library are called through the `libc` crate, never declared by hand
