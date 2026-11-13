@@ -111,7 +111,8 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             // show a picture from anywhere in the home folder, which a copy or a print then
             // passes on, and a path under /net would mount a share.
             let file = file_below(opts.resources_dir.as_deref()?, Path::new(href))?;
-            let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
+            // A folder or a pipe at the name is refused by `read_limited` below.
+            let meta = std::fs::metadata(&file).ok()?;
             if meta.len() > 64 << 20 {
                 return None;
             }

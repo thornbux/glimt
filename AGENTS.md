@@ -571,7 +571,8 @@ method.
     marks behind, and a failed look keeps them with it and is told), whether
     it is a file or a folder with `is_surely_file` or `is_surely_dir`, and whether it is a link
     with `is_link`, never with `exists()`, `Path::is_file`, `Path::is_dir`, or
-    `metadata(…).is_err()`, `.is_ok()`, `.is_ok_and(|m| m.is_dir())` or
+    `metadata(…).is_err()`, `.is_ok()`, `let Ok(m) = metadata(…) else`,
+    `.is_ok_and(|m| m.is_dir())`, `.ok().filter(|m| m.is_file())` or
     `.map_or((false, false), |m| (m.is_file(), m.is_dir()))`, which take a share that dropped
     for a moment for a file that is gone. Only NotFound means gone. A metadata or file type that has been read is named `m`,
     `meta` or `kind`, so the check tells it from a path

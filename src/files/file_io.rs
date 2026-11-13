@@ -2094,15 +2094,19 @@ pub(crate) fn same_time_as_kept(a: (i64, i64), b: (i64, i64)) -> bool {
 /// which needs only the folder's write bit, so without this check a read-only file would be
 /// written over, where Geeqie, which writes in place, fails. A file without a write bit is
 /// refused also for root, who may write any file, as its owner marked it so. A link at the name
-/// passes, because the link itself is replaced, and so does a name that is not there yet.
+/// passes, because the link itself is replaced, and so does a name that is not there yet. A
+/// look that fails returns its error, as the file may be there and read-only.
 /// Glimt's own files (`replace_file`) are not asked, as before. A turn saved asks it first too,
 /// before the slow work of encoding the image. Returns whether the file has other names (hard
 /// links), which the replace will not change.
 pub(crate) fn check_writable(path: &Path) -> std::io::Result<bool> {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
-    let Some(meta) = std::fs::symlink_metadata(path).ok().filter(|m| m.is_file()) else {
-        return Ok(false);
+    // Only a name that is surely not there is a new file. A look that failed is no answer.
+    let meta = match look(path, false) {
+        Ok(meta) if meta.is_file() => meta,
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => return Ok(false),
     };
     let name = std::ffi::CString::new(path.as_os_str().as_bytes())?;
     #[allow(unsafe_code)]
@@ -2212,7 +2216,9 @@ pub fn instance_tag() -> &'static str {
 
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar
 /// or a list kept private, 0600, stays so). Made private first when `path` is there, and given
-/// those before a byte is written: no one else can open it meanwhile. A new file as usual.
+/// those before a byte is written: no one else can open it meanwhile. A new file as usual, but
+/// only when nothing is surely at `path`. A look at `path` that fails returns its error, as a
+/// new file would lose the mode, the user's attributes and the ACL of the file it replaces.
 #[allow(clippy::disallowed_methods)] // the one way a new file is made, under its temporary name
 pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
@@ -2226,8 +2232,10 @@ pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::F
             .create_new(true)
             .clone()
     };
-    let Ok(old) = std::fs::metadata(path) else {
-        return new().open(tmp);
+    let old = match look(path, true) {
+        Ok(old) => old,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return new().open(tmp),
+        Err(e) => return Err(e),
     };
     let file = new().mode(0o600).open(tmp)?;
     file.set_permissions(old.permissions())?;
@@ -3041,6 +3049,28 @@ mod tests {
         super::MOVES_CROSS_DEVICES.set(false);
         moved.unwrap();
         assert!(super::is_surely_gone(&a));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file written again whose look fails, as on a share that dropped for a moment, is not
+    /// written as a new file. Before, it lost its mode (a private sidecar became readable by
+    /// all), its user attributes and its ACL.
+    #[test]
+    fn a_failed_look_at_a_file_written_again_is_no_new_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-temp-look-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, tmp) = (dir.join("a.xmp"), dir.join(".a.xmp.tmp"));
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).push(path.clone());
+        let made = super::create_temp_beside(&tmp, &path);
+        let checked = super::check_writable(&path);
+        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).retain(|p| *p != path);
+        assert!(made.is_err() && checked.is_err());
+        assert!(super::is_surely_gone(&tmp));
+        let made = super::create_temp_beside(&tmp, &path).unwrap();
+        assert_eq!(made.metadata().unwrap().permissions().mode() & 0o777, 0o600);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

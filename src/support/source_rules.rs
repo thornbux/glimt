@@ -4326,7 +4326,8 @@ fn finds_the_files_built_only_for_tests() {
 
 /// A name counts as gone only when the system said that it is not there (NotFound).
 /// `Path::exists`, `Path::is_file` and `is_dir`, and a look whose every error is taken as an
-/// answer (`metadata(…).is_err()`, `.is_ok()`, `.is_ok_and(|m| m.is_dir())` or
+/// answer (`metadata(…).is_err()`, `.is_ok()`, `let Ok(m) = metadata(…) else`,
+/// `.is_ok_and(|m| m.is_dir())`, `.ok().filter(|m| m.is_file())` or
 /// `.map_or((false, false), |m| (m.is_file(), m.is_dir()))`, also of `is_symlink`), take a share
 /// that dropped for a moment for a name that is gone, or for one that is no file or folder.
 /// That way a sidecar was trashed while its photo stayed, a rename went over a file that it
@@ -4345,7 +4346,7 @@ fn gone_means_not_found() {
     assert!(
         wrong.is_empty(),
         "a name looked at with exists(), is_file(), is_dir() or metadata(…).is_err(), .is_ok(), \
-         .is_ok_and(…) or .map_or(…) of its kind, which take any failed look for an answer; use \
+         let Ok(…) = …, .is_ok_and(…), .ok().filter(…) or .map_or(…) of its kind, which take any failed look for an answer; use \
          file_io::is_surely_gone, is_surely_there, is_surely_file, is_surely_dir or is_link:\n{}",
         wrong.join("\n")
     );
@@ -4368,8 +4369,13 @@ fn looks_that_guess(text: &str) -> Vec<usize> {
                 .iter()
                 .any(|f| mentions(line, f))
             || (line.contains("metadata(")
-                && ([".is_err()", ".is_ok()"].iter().any(|c| call.contains(c))
-                    || ([".is_ok_and(", ".map_or("].iter().any(|c| call.contains(c)) && asks_kind)))
+                && ([".is_err()", ".is_ok()", "let Ok("]
+                    .iter()
+                    .any(|c| call.contains(c))
+                    || ([".is_ok_and(", ".map_or(", ".ok().filter("]
+                        .iter()
+                        .any(|c| call.contains(c))
+                        && asks_kind)))
             || asks_a_path_its_kind(line)
     };
     (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
@@ -4408,23 +4414,29 @@ fn asks_a_path_its_kind(line: &str) -> bool {
 /// The check above finds `exists`, also as a function value, and a look at the metadata whose
 /// errors count as gone or as there, also when split over two lines. It leaves the helpers, a
 /// metadata read that passes its error on, and `try_exists`, whose `Ok(false)` is NotFound only.
+/// A `let Ok(…) = metadata(…) else`, which takes every failed look for no file, is found too:
+/// `create_temp_beside` made a new file so, without the mode of the file it replaced.
 #[test]
 fn finds_a_look_that_guesses() {
     let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
         .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
         files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
-        let m = std::fs::metadata(p)?;\n    p.try_exists()\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
+        let m = std::fs::metadata(p)?;\n    p.try_exists()\n    \
+        let Ok(old) = std::fs::metadata(p) else {\n    if let Ok(m) = p.metadata() {}\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 5, 6, 10, 11]);
 }
 
 /// The check above finds a look whose failure is taken for "no link" or "neither a file nor a
-/// folder", also when its default comes first (`map_or`). It leaves a size whose look failed.
+/// folder", also when its default comes first (`map_or`) or it is filtered (`.ok().filter`). It
+/// leaves a size whose look failed.
 #[test]
 fn finds_a_failed_look_taken_for_its_kind() {
     let text = "fn a() {\n    let l = std::fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink());\n    \
         let (t, d) = std::fs::metadata(p).map_or((false, false), |m| (true, m.is_dir()));\n    \
-        let size = std::fs::metadata(p).map_or(0, |m| m.len());\n    let l = is_link(p)?;\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3]);
+        let size = std::fs::metadata(p).map_or(0, |m| m.len());\n    let l = is_link(p)?;\n    \
+        let f = std::fs::metadata(p).ok().filter(|m| m.is_file());\n    \
+        let n = std::fs::metadata(p).ok().map(|m| m.len());\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 6]);
 }
 
 /// The check above finds a path asked whether it is a file or a folder, also as a function value
