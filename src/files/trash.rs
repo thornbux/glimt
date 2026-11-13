@@ -121,21 +121,40 @@ pub(crate) fn restore(
     // path as it was given, but gio records one in a trash at the top of a file system by its
     // real path, from the real top: an entry of a collection spelled through a link to another
     // disk is there only by its real path. Found either way, it comes back as the list named it.
+    // Both spellings and their trash folders depend only on the file's folder, and take a dozen
+    // system calls or more, so they are looked up once for each folder, not for each file.
+    let mut real_of_folder: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut dirs_of_folder: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     let mut find = |path: &Path| {
         let mut first: Option<TrashEntry> = None;
-        let real = crate::model::listing::real_path(path);
+        let (folder, name) = (path.parent().unwrap_or(path), path.file_name());
+        let real_folder = (real_of_folder.entry(folder.to_path_buf()))
+            .or_insert_with(|| crate::model::listing::real_dir(folder));
+        let real = match name {
+            Some(name) => real_folder.join(name),
+            None => crate::model::listing::real_path(path),
+        };
         for at in [Some(path), Some(real.as_path()).filter(|r| *r != path)]
             .into_iter()
             .flatten()
         {
-            for (dir, top, opened) in dirs_of(at) {
-                let (_, all) = (trashes.entry(dir.clone())).or_insert_with(|| {
-                    let through = opened.as_ref().map(crate::files::file_io::path_through);
-                    let all = read_trash(through.as_ref().unwrap_or(&dir), &top).into_iter();
-                    let all = all.filter(|t| t.date >= since && t.date <= until);
-                    (opened, first_of_each(all, rank))
-                });
-                if let Some(t) = all.get(at)
+            let at_folder = at.parent().unwrap_or(at);
+            let dirs = (dirs_of_folder.entry(at_folder.to_path_buf())).or_insert_with(|| {
+                let mut dirs = Vec::new();
+                for (dir, top, opened) in dirs_of(at) {
+                    trashes.entry(dir.clone()).or_insert_with(|| {
+                        let through = opened.as_ref().map(crate::files::file_io::path_through);
+                        let all = read_trash(through.as_ref().unwrap_or(&dir), &top).into_iter();
+                        let all = all.filter(|t| t.date >= since && t.date <= until);
+                        (opened, first_of_each(all, rank))
+                    });
+                    dirs.push(dir);
+                }
+                dirs
+            });
+            for dir in dirs.iter() {
+                if let Some((_, all)) = trashes.get(dir)
+                    && let Some(t) = all.get(at)
                     && first.as_ref().is_none_or(|f| rank(t) < rank(f))
                 {
                     first = Some(TrashEntry {
@@ -1490,6 +1509,63 @@ mod tests {
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
         assert!(x.join("a.jpg.xmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move to the trash looks up the trash folders once for each folder of the files,
+    /// not once for each file and sidecar. Each look-up takes a dozen system calls or more, so a
+    /// delete of 500,000 files took millions of them to undo.
+    #[test]
+    fn undo_looks_up_the_trash_folders_once_for_each_folder() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-back-once-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x) = (dir.join("trash"), dir.join("x"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        let names = [
+            "a.jpg",
+            "a.jpg.xmp",
+            "b.jpg",
+            "b.jpg.xmp",
+            "c.jpg",
+            "c.jpg.xmp",
+        ];
+        for kept in names {
+            crate::files::file_io::create_file(&trash.join("files").join(kept), kept).unwrap();
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                x.join(kept).display()
+            );
+            let info = trash.join("info").join(format!("{kept}.trashinfo"));
+            crate::files::file_io::create_file(&info, text).unwrap();
+        }
+        let (files, sidecars): (Vec<_>, Vec<_>) = names
+            .iter()
+            .map(|n| x.join(n))
+            .partition(|p| p.extension().is_some_and(|e| e == "jpg"));
+        let trash_move = super::TrashMove {
+            files,
+            sidecars,
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let looked_up = std::cell::Cell::new(0);
+        let dirs = |_: &std::path::Path| {
+            looked_up.set(looked_up.get() + 1);
+            vec![(trash.clone(), "/".into(), None)]
+        };
+        let (back, error) = super::restore(&trash_move, dirs);
+        assert_eq!(back.len(), 3, "{error:?}");
+        assert_eq!(std::fs::read_dir(&x).unwrap().count(), 6);
+        // Once for the folder as named, and once for its real path when that is another.
+        let spellings = 1 + usize::from(crate::model::listing::real_dir(&x) != x);
+        assert_eq!(looked_up.get(), spellings);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
