@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A cropped copy saved with Save As keeps no EXIF thumbnail of the whole frame, also when the
+  file's first directory lies after the thumbnail, as a turn saved by Glimt leaves it. Before,
+  such a copy kept the camera's thumbnail of what was cut away.
 - An Undo of a rename back to a name with a character that a camera card refuses stays to be
   done again when it could not start: the card refused the name, other work on the files was
   still running, or the look at the card did not answer. Before, the Undo was lost, and the
