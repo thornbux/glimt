@@ -19,6 +19,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   ICC profile picked as the screen or input profile, is saved as its default. Before, its
   second line was read as another setting, so a file named so could turn off Delete to trash
   and the question before a delete.
+- Undo of a delete to the trash looks up the trash folders once for each folder, not once for
+  each file and sidecar, and a delete to the trash without gio puts the trash's records of a
+  batch of files on disk with one sync, not one for each file. Before, undoing a delete of
+  500,000 files took more than ten million system calls, and a delete of 10,000 photos on a
+  USB stick without gio took 10,000 syncs. A record in a trash on a stick is read only up to
+  64 KB, so a large one planted there no longer fills memory at the Undo.
 
 ## [0.83.0] - 2026-11-13
 
