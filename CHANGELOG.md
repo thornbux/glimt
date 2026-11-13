@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An Undo of a rename back to a name with a character that a camera card refuses stays to be
+  done again when it could not start: the card refused the name, other work on the files was
+  still running, or the look at the card did not answer. Before, the Undo was lost, and the
+  next Ctrl+Z said that there was nothing to undo.
+
 ## [0.83.0] - 2026-11-13
 
 ### Added
