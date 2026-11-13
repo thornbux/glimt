@@ -547,3 +547,5 @@ list of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/file
 lock_kind delete log flock
 file $XDG_STATE_HOME/glimt/deletes/collections
 collection of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/collections/NAME
+file $XDG_STATE_HOME/glimt/deletes/aside
+aside of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/aside/NAME

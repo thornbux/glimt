@@ -38,6 +38,9 @@ const FINGERPRINT_WAIT: std::time::Duration = std::time::Duration::from_millis(2
 /// know it. A folder is not told apart by this time (`folder_time`).
 const TIME_NOT_KNOWN: (i64, i64) = (0, 0);
 
+/// The start of every name that `tmp_path` gives.
+pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
+
 /// In a test, a file picked whose fingerprint never comes, as on a share that stopped
 /// answering, until the test takes it away.
 #[cfg(test)]
@@ -2297,7 +2300,7 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
 pub fn tmp_path(path: &Path) -> PathBuf {
     static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_file_name(format!(".glimt-tmp-{}-{k}", instance_tag()))
+    path.with_file_name(format!("{TMP_PREFIX}{}-{k}", instance_tag()))
 }
 
 /// This Glimt's instance ID and a random number of its own, for the names of its temporary

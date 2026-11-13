@@ -620,6 +620,11 @@ Its folder
 .I deletes/collections
 holds, for each log of a delete in a collection, the path of that collection, so that the next
 start takes the files that went out of it.
+Its folder
+.I deletes/aside
+holds, for each log of a Delete for good, each sidecar put aside under a hidden name just before
+its photo goes, so that the next start puts it back beside a photo that is still there, or
+deletes it when the photo went.
 .TP
 .IR .config.lock ", " .keywords.lock ", " .sort\-folders.lock ", " .recent.lock ", " .sharing.lock ", " .marks.lock
 The locks beside the files of the same name above, which every window holds while it reads and
