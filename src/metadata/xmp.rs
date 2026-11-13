@@ -430,33 +430,53 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
 /// Fields the image holds itself and that were cleared are written empty, as the comment is.
 pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let own = embedded(path).is_some_and(|x| parse_alt_text(&x) != AltText::default());
+    let inside = embedded(path);
+    let own = (inside.as_deref()).is_some_and(|x| parse_alt_text(x) != AltText::default());
     let fields = [&change.text, &change.extended_description];
     let clears_only = fields
         .iter()
         .all(|f| f.as_deref().is_none_or(str::is_empty));
-    update(path, clears_only && !own, |x| set_alt_text(x, change, own))
+    update(path, clears_only && !own, |x| {
+        set_alt_text(x, change, inside.as_deref(), own)
+    })
 }
 
 /// `xmp` with the fields of `change` that were edited, each in place of the language shown, and
 /// their other languages kept (`language_alternative`). A field that was not edited stays as
-/// `xmp` has it. Returns `None` if `xmp` has no rdf:Description.
-fn set_alt_text(xmp: &str, change: &AltTextChange, say_empty: bool) -> Option<String> {
+/// `xmp` has it. When `xmp` has neither field, they are taken from `inside`, the image's own
+/// XMP, and the field not edited is written as the image has it. The alt text is read whole from
+/// a sidecar that has either field (`read_all`), so before, an edit of one hid the image's
+/// other. Returns `None` if `xmp` has no rdf:Description.
+fn set_alt_text(
+    xmp: &str,
+    change: &AltTextChange,
+    inside: Option<&str>,
+    say_empty: bool,
+) -> Option<String> {
+    let from_image = !has_property(xmp, ALT) && !has_property(xmp, EXTENDED);
+    let from = inside.filter(|_| from_image).unwrap_or(xmp);
     let fields = [
         (ALT, &change.text),
         (EXTENDED, &change.extended_description),
     ];
-    let edited: Vec<(&str, &String)> = (fields.into_iter())
-        .filter_map(|(tag, text)| Some((tag, text.as_ref()?)))
+    // A field not edited is written with its own text, and nothing when the image has none.
+    let written: Vec<(&str, String, bool)> = (fields.into_iter())
+        .filter_map(|(tag, text)| match text {
+            Some(text) => Some((tag, text.clone(), say_empty)),
+            None if from_image => Some((tag, language_text(from, tag), false)),
+            None => None,
+        })
         .collect();
     let mut edited_out = xmp.to_owned();
-    for (tag, _) in &edited {
+    for (tag, ..) in &written {
         edited_out = without_property(&edited_out, tag);
     }
     let uri = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
     insert(edited_out, "Iptc4xmpCore", uri, |prefix| {
-        (edited.iter())
-            .map(|(tag, text)| language_alternative(xmp, tag, text, say_empty, &named(prefix, tag)))
+        (written.iter())
+            .map(|(tag, text, say_empty)| {
+                language_alternative(from, tag, text, *say_empty, &named(prefix, tag))
+            })
             .collect()
     })
 }
@@ -3249,7 +3269,7 @@ mod tests {
             text: "Ein Hund am Strand".into(),
             extended_description: String::new(),
         };
-        let written = set_alt_text(&written, &both(&alt_text), false).unwrap();
+        let written = set_alt_text(&written, &both(&alt_text), None, false).unwrap();
         let languages = |tag| items_with_languages(&written, tag);
         let pair = |l: &str, t: &str| (l.to_owned(), t.to_owned());
         assert_eq!(
@@ -3632,7 +3652,7 @@ mod tests {
             text: "A dog <on> a beach".into(),
             extended_description: "Long & detailed".into(),
         };
-        let written = set_alt_text(&with_meta, &both(&alt_text), false).unwrap();
+        let written = set_alt_text(&with_meta, &both(&alt_text), None, false).unwrap();
         assert_eq!(parse_alt_text(&written), alt_text);
         assert_eq!(parse(&written), meta);
         assert_eq!(written.matches("xmlns:Iptc4xmpCore=").count(), 1);
@@ -3640,16 +3660,16 @@ mod tests {
             text: "A cat".into(),
             extended_description: String::new(),
         };
-        let again = set_alt_text(&written, &both(&other), false).unwrap();
+        let again = set_alt_text(&written, &both(&other), None, false).unwrap();
         assert_eq!(parse_alt_text(&again), other);
         assert_eq!(again.matches("AltTextAccessibility>").count(), 2);
-        let none = set_alt_text(&again, &both(&AltText::default()), false).unwrap();
+        let none = set_alt_text(&again, &both(&AltText::default()), None, false).unwrap();
         assert_eq!(parse_alt_text(&none), AltText::default());
         assert_eq!(parse(&none), meta);
         // The image's own fields that are cleared are written empty, so they are not read from
         // the image again.
         assert!(
-            set_alt_text(&none, &both(&AltText::default()), true)
+            set_alt_text(&none, &both(&AltText::default()), None, true)
                 .unwrap()
                 .contains("<rdf:Alt/>")
         );
@@ -3708,6 +3728,42 @@ mod tests {
         assert_eq!(read_all(&file).2, expected);
         write_alt_text(&file, &only(None, Some(""))).unwrap();
         assert_eq!(read_all(&file).2.text, "Pier");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An edit of one alt text field in a sidecar without either field keeps the image's own
+    /// other field. Before, only the edited field went into the sidecar, and the panel then read
+    /// the whole alt text from it, so the image's extended description read as empty.
+    #[test]
+    fn an_alt_text_edit_keeps_the_images_other_field() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-alt-own-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        jpeg_with_xmp(
+            &file,
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+             xmlns:Iptc4xmpCore=\"http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/\">\
+             <Iptc4xmpCore:AltTextAccessibility><rdf:Alt><rdf:li xml:lang=\"x-default\">Dog\
+             </rdf:li></rdf:Alt></Iptc4xmpCore:AltTextAccessibility>\
+             <Iptc4xmpCore:ExtDescrAccessibility><rdf:Alt><rdf:li xml:lang=\"x-default\">A dog \
+             on a beach</rdf:li><rdf:li xml:lang=\"de\">Ein Hund</rdf:li></rdf:Alt>\
+             </Iptc4xmpCore:ExtDescrAccessibility></rdf:Description></rdf:RDF></x:xmpmeta>",
+        );
+        let only_text = |text: &str| AltTextChange {
+            text: Some(text.into()),
+            extended_description: None,
+        };
+        write_alt_text(&file, &only_text("Brown dog")).unwrap();
+        let read = read_all(&file).2;
+        assert_eq!(read.text, "Brown dog");
+        assert_eq!(read.extended_description, "A dog on a beach");
+        let side = std::fs::read_to_string(sidecar(&file)).unwrap();
+        assert_eq!(items_with_languages(&side, EXTENDED).len(), 2, "{side}");
+        std::fs::remove_file(sidecar(&file)).unwrap();
+        write_alt_text(&file, &only_text("")).unwrap();
+        let read = read_all(&file).2;
+        assert_eq!(read.text, "");
+        assert_eq!(read.extended_description, "A dog on a beach");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4179,6 +4235,7 @@ mod tests {
         let seed = set_alt_text(
             &set_keywords_and_comment(empty, &meta, false).unwrap(),
             &both(&alt_text),
+            None,
             false,
         )
         .unwrap();
@@ -4188,7 +4245,12 @@ mod tests {
             set_keywords_and_comment(&xmp, &meta, true);
             set_keywords_and_comment(&xmp, &KeywordsAndComment::default(), false);
             parse_alt_text(&xmp);
-            set_alt_text(&xmp, &both(&AltText::default()), true);
+            set_alt_text(&xmp, &both(&AltText::default()), None, true);
+            let only_text = AltTextChange {
+                text: Some("A cat".into()),
+                extended_description: None,
+            };
+            set_alt_text(empty, &only_text, Some(&xmp), false);
             set_keywords(&xmp, &meta, true);
         }
     }
