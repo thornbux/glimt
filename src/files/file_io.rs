@@ -92,6 +92,9 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // Makes a move by `put_file_until_stopped` on this thread a copy and an unlink, as a move
+    // to another disk is, so that a test needs no second disk.
+    pub(crate) static MOVES_CROSS_DEVICES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     // How many names `look` looked at on this thread, so that a test can see that a check that
     // can tell nothing does not wait for the disk.
     pub(crate) static LOOKS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -1189,7 +1192,8 @@ pub(crate) fn put_file_until_stopped(
 ) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-    let copy = || -> std::io::Result<()> {
+    // Returns the fingerprint of the file at `from` as it was when it was opened to be copied.
+    let copy = || -> std::io::Result<FileFingerprint> {
         if !is_surely_gone(to) {
             return Err(AlreadyExists.into());
         }
@@ -1209,11 +1213,18 @@ pub(crate) fn put_file_until_stopped(
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before it takes its name.
         let copied = crate::images::decode::open_regular(from)
-            .and_then(|mut f| copy_until_stopped(&mut f, &mut out, is_stopped))
-            .and_then(|_| {
+            .and_then(|mut f| {
+                // The mode and time are those of the file opened, not of whatever has the name
+                // after the copy. The name is looked at just after the open, so that a move
+                // can tell before it unlinks the name that it still holds the file copied.
+                let meta = f.metadata()?;
+                let at_open = fingerprint_or_error(from)?;
+                copy_until_stopped(&mut f, &mut out, is_stopped)?;
+                Ok((meta, at_open))
+            })
+            .and_then(|(meta, at_open)| {
                 // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID
                 // or sticky, which a copy owned by this user would carry for its owner.
-                let meta = std::fs::metadata(from)?;
                 let mode = std::fs::Permissions::from_mode(meta.mode() & 0o777);
                 // Through the open file, so that a link put at the part's name meanwhile is
                 // not followed to a file of the user's.
@@ -1222,9 +1233,9 @@ pub(crate) fn put_file_until_stopped(
                 out.set_modified(meta.modified()?)?;
                 // A copy leaves the ACL, as cp does without -p, and a move keeps it, as mv does.
                 copy_extended_attributes(from, &out, !is_copy);
-                out.sync_all()
+                out.sync_all().map(|()| at_open)
             })
-            .and_then(|_| rename_never_over(&part, to));
+            .and_then(|at_open| rename_never_over(&part, to).map(|()| at_open));
         #[allow(clippy::disallowed_methods)] // the copy's hidden part
         // Not told: a copy that failed is told by its own error, and a copy that took its name
         // has no part left to remove.
@@ -1232,16 +1243,42 @@ pub(crate) fn put_file_until_stopped(
         copied
     };
     if is_copy {
-        return copy();
+        return copy().map(|_| ());
     }
-    match rename_never_over(from, to) {
+    #[cfg(test)]
+    let moved = match MOVES_CROSS_DEVICES.get() {
+        true => Err(CrossesDevices.into()),
+        false => rename_never_over(from, to),
+    };
+    #[cfg(not(test))]
+    let moved = rename_never_over(from, to);
+    match moved {
         // The copy is on disk with its name before the source goes: a stick pulled out right
         // after must not lose both.
         Err(e) if e.kind() == CrossesDevices => (copy())
-            .and_then(|_| sync_folder_of(to))
-            .and_then(|_| unlink_linked(from, to)),
+            .and_then(|at_open| sync_folder_of(to).map(|()| at_open))
+            .and_then(|at_open| still_the_file_copied(from, to, at_open))
+            .and_then(|()| unlink_linked(from, to)),
         done => done,
     }
+}
+
+/// Looks, right before a move to another disk unlinks `from`, whether `from` still holds the
+/// file that was copied to `to`, whose fingerprint was `at_open` when it was opened. A copy
+/// takes minutes for a video, and a sync client or an editor may save a new version at the name
+/// meanwhile. Unlinking the name then would lose that version, so both names are kept, and the
+/// error says so. A look that fails keeps both names too.
+fn still_the_file_copied(from: &Path, to: &Path, at_open: FileFingerprint) -> std::io::Result<()> {
+    let Err(e) = is_still_the_file(from, KnownAs::fingerprint(at_open)) else {
+        return Ok(());
+    };
+    let (from, to) = (shown_path(from), shown_path(to));
+    Err(std::io::Error::other(crate::tf!(
+        "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}",
+        from,
+        to,
+        e
+    )))
 }
 
 /// Copies all of `from` to `to` in parts, and stops before the next part when `is_stopped`
@@ -2925,6 +2962,42 @@ mod tests {
         assert_eq!(asked.get(), 2, "not stopped inside the file");
         assert_eq!(std::fs::read_dir(dir.join("to")).unwrap().count(), 0);
         assert_eq!(std::fs::read(&a).unwrap().len(), 1 << 20);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A move to another disk whose source gets a new version while it is copied keeps that
+    /// version, and says so. Before, the name was unlinked after the copy, and the new version,
+    /// which a sync client had put there meanwhile, was gone.
+    #[test]
+    fn a_move_to_another_disk_keeps_a_source_changed_meanwhile() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-move-new-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let (a, newer) = (dir.join("a.mp4"), dir.join("newer.mp4"));
+        std::fs::write(&a, vec![1u8; 64 << 10]).unwrap();
+        let asked = std::cell::Cell::new(0);
+        // A new version is put at the name while the second part is copied.
+        let is_stopped = || {
+            asked.set(asked.get() + 1);
+            if asked.get() == 2 {
+                std::fs::write(&newer, "the new version").unwrap();
+                std::fs::rename(&newer, &a).unwrap();
+            }
+            false
+        };
+        super::MOVES_CROSS_DEVICES.set(true);
+        let moved = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), false, &is_stopped);
+        super::MOVES_CROSS_DEVICES.set(false);
+        let e = moved.unwrap_err().to_string();
+        assert!(e.contains("under both names"), "{e}");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "the new version");
+        assert_eq!(std::fs::read(dir.join("to/a.mp4")).unwrap().len(), 64 << 10);
+        // A source that stays as it was is moved.
+        std::fs::remove_file(dir.join("to/a.mp4")).unwrap();
+        super::MOVES_CROSS_DEVICES.set(true);
+        let moved = super::put_file(&a, &dir.join("to/a.mp4"), false);
+        super::MOVES_CROSS_DEVICES.set(false);
+        moved.unwrap();
+        assert!(super::is_surely_gone(&a));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

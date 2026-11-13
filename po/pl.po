@@ -3584,6 +3584,11 @@ msgstr "system plików w tym miejscu ({kind}) nie pozwala na tę zmianę nazwy, 
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "nie udało się usunąć {from} po umieszczeniu go w {to}, więc plik może mieć obie nazwy albo być tylko w {to}; sprawdź obie, zanim usuniesz którąkolwiek ({e})"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
+msgstr "{from} pozostawiono na miejscu po skopiowaniu do {to}, więc plik ma obie nazwy: {e}"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
