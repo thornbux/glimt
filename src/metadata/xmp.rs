@@ -206,6 +206,15 @@ pub struct AltText {
     pub extended_description: String,
 }
 
+/// An edit of the alt text and extended description, with each field that was edited, and
+/// `None` for one that stays as the file has it. Only what the user changed is written, as for
+/// the keywords (`KeywordChange`) and the comment.
+#[derive(Clone, Default, Debug)]
+pub struct AltTextChange {
+    pub text: Option<String>,
+    pub extended_description: Option<String>,
+}
+
 /// The namespaces one XMP packet declares, each as (prefix, URI), shared by its properties.
 pub(crate) type Namespaces = std::sync::Arc<Vec<(String, String)>>;
 
@@ -395,24 +404,34 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
     )
 }
 
-/// Writes the alt text and extended description of `path` to its sidecar, and everything else
-/// in it stays. Fields the image holds itself and that were cleared are written empty, as the
-/// comment is.
-pub fn write_alt_text(path: &Path, alt_text: &AltText) -> Result<(), String> {
+/// Writes the fields of `change` that were edited to the sidecar of `path`, and everything else
+/// in it stays, also the field that was not edited. So an extended description that another
+/// window saved after the panel read the file is not written over by an edit of the alt text.
+/// Fields the image holds itself and that were cleared are written empty, as the comment is.
+pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), String> {
     let _lock = lock_sidecar(path);
     let own = embedded(path).is_some_and(|x| parse_alt_text(&x) != AltText::default());
-    update(path, *alt_text == AltText::default() && !own, |x| {
-        set_alt_text(x, alt_text, own)
-    })
+    let fields = [&change.text, &change.extended_description];
+    let clears_only = fields
+        .iter()
+        .all(|f| f.as_deref().is_none_or(str::is_empty));
+    update(path, clears_only && !own, |x| set_alt_text(x, change, own))
 }
 
-/// `xmp` with the alt text and extended description of `alt_text`, each in place of the
-/// language shown, and their other languages kept (`language_alternative`). Returns `None` if
-/// `xmp` has no rdf:Description.
-fn set_alt_text(xmp: &str, alt_text: &AltText, say_empty: bool) -> Option<String> {
-    let add = language_alternative(xmp, ALT, &alt_text.text, say_empty)
-        + &language_alternative(xmp, EXTENDED, &alt_text.extended_description, say_empty);
-    let xmp = without_property(&without_property(xmp, ALT), EXTENDED);
+/// `xmp` with the fields of `change` that were edited, each in place of the language shown, and
+/// their other languages kept (`language_alternative`). A field that was not edited stays as
+/// `xmp` has it. Returns `None` if `xmp` has no rdf:Description.
+fn set_alt_text(xmp: &str, change: &AltTextChange, say_empty: bool) -> Option<String> {
+    let (mut add, mut xmp) = (String::new(), xmp.to_owned());
+    for (tag, edited) in [
+        (ALT, &change.text),
+        (EXTENDED, &change.extended_description),
+    ] {
+        if let Some(text) = edited {
+            add += &language_alternative(&xmp, tag, text, say_empty);
+            xmp = without_property(&xmp, tag);
+        }
+    }
     insert(
         xmp,
         &add,
@@ -2881,6 +2900,14 @@ mod tests {
         Some(KeywordChange::between(&[], keywords))
     }
 
+    /// The change that writes both fields of `alt_text`, as an edit of both sends it.
+    fn both(alt_text: &AltText) -> AltTextChange {
+        AltTextChange {
+            text: Some(alt_text.text.clone()),
+            extended_description: Some(alt_text.extended_description.clone()),
+        }
+    }
+
     /// Writes a JPEG at `path` with the XMP packet `packet` inside it.
     fn jpeg_with_xmp(path: &Path, packet: &str) {
         let mut base = Vec::new();
@@ -3078,7 +3105,7 @@ mod tests {
             text: "Ein Hund am Strand".into(),
             extended_description: String::new(),
         };
-        let written = set_alt_text(&written, &alt_text, false).unwrap();
+        let written = set_alt_text(&written, &both(&alt_text), false).unwrap();
         let languages = |tag| items_with_languages(&written, tag);
         let pair = |l: &str, t: &str| (l.to_owned(), t.to_owned());
         assert_eq!(
@@ -3461,7 +3488,7 @@ mod tests {
             text: "A dog <on> a beach".into(),
             extended_description: "Long & detailed".into(),
         };
-        let written = set_alt_text(&with_meta, &alt_text, false).unwrap();
+        let written = set_alt_text(&with_meta, &both(&alt_text), false).unwrap();
         assert_eq!(parse_alt_text(&written), alt_text);
         assert_eq!(parse(&written), meta);
         assert_eq!(written.matches("xmlns:Iptc4xmpCore=").count(), 1);
@@ -3469,16 +3496,16 @@ mod tests {
             text: "A cat".into(),
             extended_description: String::new(),
         };
-        let again = set_alt_text(&written, &other, false).unwrap();
+        let again = set_alt_text(&written, &both(&other), false).unwrap();
         assert_eq!(parse_alt_text(&again), other);
         assert_eq!(again.matches("AltTextAccessibility>").count(), 2);
-        let none = set_alt_text(&again, &AltText::default(), false).unwrap();
+        let none = set_alt_text(&again, &both(&AltText::default()), false).unwrap();
         assert_eq!(parse_alt_text(&none), AltText::default());
         assert_eq!(parse(&none), meta);
         // The image's own fields that are cleared are written empty, so they are not read from
         // the image again.
         assert!(
-            set_alt_text(&none, &AltText::default(), true)
+            set_alt_text(&none, &both(&AltText::default()), true)
                 .unwrap()
                 .contains("<rdf:Alt/>")
         );
@@ -3489,6 +3516,31 @@ mod tests {
             ),
             alt_text
         );
+    }
+
+    /// An edit of one of the alt text's two fields leaves the other as the sidecar has it. Before,
+    /// the panel sent both as it had read them, and an extended description that another
+    /// window saved meanwhile was cleared by an edit of the alt text.
+    #[test]
+    fn an_alt_text_edit_keeps_the_other_field_written_meanwhile() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-alt-both-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        let only = |text: Option<&str>, extended: Option<&str>| AltTextChange {
+            text: text.map(String::from),
+            extended_description: extended.map(String::from),
+        };
+        write_alt_text(&file, &only(None, Some("Two children on a pier"))).unwrap();
+        write_alt_text(&file, &only(Some("Pier"), None)).unwrap();
+        let expected = AltText {
+            text: "Pier".into(),
+            extended_description: "Two children on a pier".into(),
+        };
+        assert_eq!(read_all(&file).2, expected);
+        write_alt_text(&file, &only(None, Some(""))).unwrap();
+        assert_eq!(read_all(&file).2.text, "Pier");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Keyword tree paths from another program are added to an image in one write. Its own
@@ -3856,7 +3908,7 @@ mod tests {
         };
         let seed = set_alt_text(
             &set_keywords_and_comment(empty, &meta, false).unwrap(),
-            &alt_text,
+            &both(&alt_text),
             false,
         )
         .unwrap();
@@ -3866,7 +3918,7 @@ mod tests {
             set_keywords_and_comment(&xmp, &meta, true);
             set_keywords_and_comment(&xmp, &KeywordsAndComment::default(), false);
             parse_alt_text(&xmp);
-            set_alt_text(&xmp, &AltText::default(), true);
+            set_alt_text(&xmp, &both(&AltText::default()), true);
             set_keywords(&xmp, &meta, true);
             element(&xmp, "dc:subject");
         }

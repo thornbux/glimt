@@ -1730,9 +1730,9 @@ mod tests {
             (
                 "alt text",
                 |p| {
-                    let text = xmp::AltText {
-                        text: "A dog".into(),
-                        extended_description: String::new(),
+                    let text = xmp::AltTextChange {
+                        text: Some("A dog".into()),
+                        extended_description: None,
                     };
                     xmp::write_alt_text(p, &text)
                 },
