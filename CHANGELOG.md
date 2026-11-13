@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A setting whose value has a line break, such as the name of a downloaded theme file or of an
+  ICC profile picked as the screen or input profile, is saved as its default. Before, its
+  second line was read as another setting, so a file named so could turn off Delete to trash
+  and the question before a delete.
+
 ## [0.83.0] - 2026-11-13
 
 ### Added
