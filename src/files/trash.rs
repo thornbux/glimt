@@ -8,6 +8,11 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// The largest .trashinfo that is read. It holds a path, percent-encoded, and a date: at most
+/// about 12 KB for the longest path Linux allows. A trash on a stick from someone else may hold
+/// larger ones, which Undo would else read whole into memory, up to the 512 MB of an image.
+const MAX_TRASHINFO_BYTES: u64 = 64 << 10;
+
 #[cfg(test)]
 thread_local! {
     /// What a test does between the check of a trash folder and its first use by
@@ -739,7 +744,11 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<TrashEntry> {
             // not be UTF-8.
             let name = info.file_name()?.as_bytes().strip_suffix(b".trashinfo")?;
             let name = std::ffi::OsStr::from_bytes(name);
-            let text = crate::images::decode::read_text(&info).ok()?;
+            let text = crate::images::decode::read_head(&info, MAX_TRASHINFO_BYTES + 1).ok()?;
+            if text.len() as u64 > MAX_TRASHINFO_BYTES {
+                return None;
+            }
+            let text = String::from_utf8(text).ok()?;
             let (from, date) = read_trash_info(&text, top)?;
             Some(TrashEntry {
                 from,
@@ -1214,7 +1223,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A moved file, a file in a moved folder, and one not moved; no trailing slash.
+    /// A moved file, a file in a moved folder, and one not moved; no trailing slash. A
+    /// .trashinfo larger than `MAX_TRASHINFO_BYTES` is passed over.
     #[test]
     fn reads_the_trash() {
         let dir = std::env::temp_dir().join(format!("glimt-test-trash-{}", std::process::id()));
@@ -1230,6 +1240,11 @@ mod tests {
         );
         info("a.jpg", "p/a.jpg", "2026-10-21T11:00:00");
         std::fs::write(dir.join("info").join("stray"), "").unwrap();
+        // One larger than any .trashinfo, as a stick from someone else may hold, is not read.
+        let padding = "#".repeat(super::MAX_TRASHINFO_BYTES as usize);
+        let large =
+            format!("[Trash Info]\nPath=/p/large.jpg\nDeletionDate=2026-10-21T12:00:00\n{padding}");
+        std::fs::write(dir.join("info").join("large.jpg.trashinfo"), large).unwrap();
         let mut all = super::read_trash(&dir, std::path::Path::new("/mnt"));
         all.sort_by(|a, b| a.date.cmp(&b.date));
         let got: Vec<_> = all
