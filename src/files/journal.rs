@@ -54,6 +54,15 @@ const LISTS_LOCK: &str = ".lock";
 /// (`file_ops::rename_files`). No other file takes such a name, and the plan's own steps fill it.
 pub const HIDDEN_NAME: &str = ".glimt-rename-";
 
+// The files of the deletes' logs that `DeleteLog::note_aside` synced on this thread, so that a
+// test can see that a sidecar is noted on disk before it is put aside. A power cut cannot be
+// simulated in a test.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LOG_FILES_SYNCED: std::cell::RefCell<Vec<PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
 
@@ -224,6 +233,9 @@ pub struct DeleteLog {
     /// The first write of the log that failed, on a full disk say. The log takes no more names
     /// after it, and the delete goes on without them, as a Move does without its log.
     failure: Option<std::io::Error>,
+    /// Whether the log's names and its list of files are on disk as far as they are written,
+    /// with the folders that hold them (`note_aside`). A name noted since is not yet.
+    is_on_disk: bool,
     /// Whether the log, found at the start, names a file that the start could not tell went
     /// or stayed (`went_before_the_kill`). Such a log stays on disk for a later start.
     has_names_left: bool,
@@ -249,25 +261,38 @@ impl DeleteLog {
         self.failure = (known.write_all(lines.as_bytes()))
             .and_then(|_| self.file.write_all(&names))
             .err();
+        self.is_on_disk = false;
     }
 
-    /// Writes down, before it is done, that a delete for good puts the sidecar `side` of the
-    /// file `photo`, which the log names, aside under the hidden name `hidden`. Glimt killed
-    /// before the delete deleted it or took it back left it under that name, which nothing
-    /// else finds, and the photo, if still there, without its keywords, comment and alt text.
-    /// The next start puts it right (`sidecars_back_from_hiding`). Each is noted as three
-    /// names, each ending in a NUL byte, in a file of the log's own made at the first. It is not
-    /// synced and a write that fails is kept, as in `note`.
-    pub fn note_aside(&mut self, photo: &Path, side: &Path, hidden: &Path) {
-        if self.known.is_none() || self.failure.is_some() {
+    /// Writes down, before it is done, that a delete for good puts the sidecars of the file
+    /// `photo`, which the log names, aside under hidden names, given as pairs
+    /// `(sidecar, hidden)`. Glimt killed before the delete deleted them or took them back left
+    /// them under those names, which nothing else finds, and the photo, if still there, without
+    /// its keywords, comment and alt text. The next start puts them right
+    /// (`sidecars_back_from_hiding`). Each is noted as three names (the photo, the sidecar and
+    /// the hidden name), each ending in a NUL byte, in a file of the log's own made at the
+    /// first. A write that fails is kept, as in `note`.
+    ///
+    /// Unlike `note`, this note is synced, and so are the log's names and its list of files,
+    /// which the next start needs to tell whether the photo stayed. The rename that puts a
+    /// sidecar aside is made lasting before the photo goes, so a power cut could otherwise
+    /// leave the sidecar hidden with no note of it on disk. The cost is one sync for each photo
+    /// with a sidecar, beside the folder sync that its rename has already, and a delete of files
+    /// without sidecars has none.
+    pub fn note_aside(&mut self, photo: &Path, aside: &[(PathBuf, PathBuf)]) {
+        if self.known.is_none() || self.failure.is_some() || aside.is_empty() {
             return;
         }
         let mut names = Vec::new();
-        for p in [photo, side, hidden] {
-            names.extend(p.as_os_str().as_bytes());
-            names.push(0);
+        for (side, hidden) in aside {
+            for p in [photo, side, hidden] {
+                names.extend(p.as_os_str().as_bytes());
+                names.push(0);
+            }
         }
-        self.failure = self.write_aside(&names).err();
+        self.failure = (self.write_aside(&names))
+            .and_then(|()| self.put_on_disk())
+            .err();
     }
 
     /// Adds `names` to the file of the sidecars put aside, made when it is not there yet.
@@ -280,6 +305,28 @@ impl DeleteLog {
             self.aside = Some(made);
         }
         (self.aside.as_mut()).map_or(Ok(()), |aside| aside.write_all(names))
+    }
+
+    /// Syncs the file of the sidecars put aside to disk, with its folder. The log's names and
+    /// its list of files are synced too, with their folders, when a name was noted since they
+    /// last were, which is once for each chunk of the delete.
+    fn put_on_disk(&mut self) -> std::io::Result<()> {
+        use crate::files::file_io::sync_folder_of;
+        let synced = |file: &File, path: PathBuf| {
+            #[cfg(test)]
+            LOG_FILES_SYNCED.with_borrow_mut(|synced| synced.push(path.clone()));
+            file.sync_data().and_then(|()| sync_folder_of(&path))
+        };
+        if !self.is_on_disk {
+            if let Some(known) = &self.known {
+                synced(known, known_path(&self.path))?;
+            }
+            synced(&self.file, self.path.clone())?;
+            // The folder of the logs may have been made with this log, in the state folder.
+            sync_folder_of(self.path.parent().unwrap_or(Path::new("")))?;
+            self.is_on_disk = true;
+        }
+        (self.aside.as_ref()).map_or(Ok(()), |aside| synced(aside, aside_path(&self.path)))
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.
@@ -387,6 +434,7 @@ pub fn start_delete_log(dir: &Path, collection: Option<&Path>) -> std::io::Resul
         known: Some(known),
         aside: None,
         failure: None,
+        is_on_disk: false,
         has_names_left: false,
     })
 }
@@ -449,10 +497,10 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
 /// The logs in `dir` of deletes that Glimt was killed during, which are those no running window
 /// holds locked. Each comes with the files whose marks and stars are to be forgotten: those
 /// whose name is surely not there any more in a folder that surely is (`went_before_the_kill`).
-/// A file that had not gone yet is still at its name, and keeps them. A sidecar that a delete
-/// for good put aside under a hidden name comes back beside its file, or goes when its file
-/// went (`sidecars_back_from_hiding`). A file still there as the log's list knew it takes back
-/// its sidecars from the trash (`sidecars_back_from_the_trash`).
+/// A file that had not gone yet is still at its name, and keeps them. A file still there as the
+/// log's list knew it takes back its sidecars, from a hidden name that a delete for good put
+/// them aside under (`sidecars_back_from_hiding`) and from the trash
+/// (`sidecars_back_from_the_trash`). A sidecar put aside of a file that went goes too.
 /// Each log is held locked until it is removed, or until it is let go for a later start
 /// (`DeleteLog::has_names_left`).
 pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
@@ -472,7 +520,7 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
             }
             forget_in_the_collection_shown(&path, &gone);
             // Before the trash is looked in, where a sidecar put aside is not.
-            sidecars_back_from_hiding(&path);
+            sidecars_back_from_hiding(&path, &gone, &stayed);
             // The log was last written just before the last of its files went. A log whose time
             // cannot be read takes no sidecar back, as it cannot tell which went after it.
             let written = file.metadata().and_then(|m| m.modified());
@@ -483,6 +531,7 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
                 known: None,
                 aside: None,
                 failure: None,
+                is_on_disk: true,
                 has_names_left,
             };
             (log, gone)
@@ -544,17 +593,21 @@ fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
 
 /// Puts right each sidecar that a delete for good put aside under a hidden name, as the file of
 /// the log at `log` notes them (`DeleteLog::note_aside`), when Glimt was killed before the
-/// delete deleted it or took it back. It comes back beside its photo when something is at the
-/// photo's name, never over a file, as a file at a noted name keeps its marks too
-/// (`went_before_the_kill`). It is deleted when the photo surely went, as the delete would have
-/// done. One whose photo cannot be told about stays, and so does the log, as that photo is
-/// among its names. Only a hidden name that `file_io::tmp_path` gives, beside the photo, is
-/// touched. A failure is told.
-fn sidecars_back_from_hiding(log: &Path) {
+/// delete deleted it or took it back. It comes back beside its photo, never over a file, when
+/// the photo is among those that `stayed`: still there as the log's list knew it, by the same
+/// look that takes a sidecar back from the trash. It is deleted when the photo is among those
+/// `gone`, as the delete would have done. Any other stays hidden: a photo that cannot be told
+/// about yet, whose log stays too, and a different file that took the photo's name since,
+/// which must not get the keywords of the photo deleted. Only a hidden name that
+/// `file_io::tmp_path` gives, beside the photo, is touched. A failure is told.
+fn sidecars_back_from_hiding(log: &Path, gone: &[PathBuf], stayed: &[PathBuf]) {
     use crate::files::file_io::{TMP_PREFIX, rename_never_over, save_failed, sync_folder_of};
+    use std::collections::HashSet;
     let Ok(bytes) = crate::images::decode::read_limited(aside_path(log)) else {
         return;
     };
+    let (gone, stayed): (HashSet<&PathBuf>, HashSet<&PathBuf>) =
+        (gone.iter().collect(), stayed.iter().collect());
     let names = parse_names(&bytes);
     let noted = names.as_chunks::<3>().0;
     let photos: Vec<PathBuf> = noted.iter().map(|[photo, _, _]| photo.clone()).collect();
@@ -568,13 +621,15 @@ fn sidecars_back_from_hiding(log: &Path) {
         if !is_hidden_beside || !is_surely_there(hidden) {
             continue;
         }
-        let put_right = match went_before_the_kill(photo) {
-            // Glimt's own: the sidecar it put aside under its temporary name, given back. On
-            // disk before the log goes, which a power cut would else leave it hidden without.
-            Some(false) => rename_never_over(hidden, side).and_then(|()| sync_folder_of(side)),
+        let put_right = if stayed.contains(photo) {
+            // Glimt's own: the sidecar it put aside under its temporary name, given back. It is
+            // on disk before the log goes, as a power cut would otherwise leave it hidden.
+            rename_never_over(hidden, side).and_then(|()| sync_folder_of(side))
+        } else if gone.contains(photo) {
             #[allow(clippy::disallowed_methods)] // Glimt's own: put aside, of a photo deleted
-            Some(true) => std::fs::remove_file(hidden),
-            None => continue,
+            std::fs::remove_file(hidden)
+        } else {
+            continue;
         };
         if let Err(e) = put_right {
             save_failed(format!("{}: {e}", side.display()));

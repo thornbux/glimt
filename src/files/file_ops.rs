@@ -2938,11 +2938,18 @@ fn delete_for_good(
         leaving.insert(p);
         let mut aside = Vec::new();
         let mut all_aside = Ok(());
-        for (side, _) in xmp::sidecars_moving_with(p, p, &leaving, &mut names) {
-            let hidden = crate::files::file_io::tmp_path(&side);
-            if let Some(log) = log.as_deref_mut() {
-                log.note_aside(p, &side, &hidden);
-            }
+        let to_put_aside: Vec<(PathBuf, PathBuf)> =
+            (xmp::sidecars_moving_with(p, p, &leaving, &mut names).into_iter())
+                .map(|(side, _)| {
+                    let hidden = crate::files::file_io::tmp_path(&side);
+                    (side, hidden)
+                })
+                .collect();
+        // Noted on disk before the first rename, which the folder sync below makes lasting.
+        if let Some(log) = log.as_deref_mut() {
+            log.note_aside(p, &to_put_aside);
+        }
+        for (side, hidden) in to_put_aside {
             match rename_never_over(&side, &hidden) {
                 Ok(()) => aside.push((side, hidden)),
                 Err(e) => {
@@ -6198,6 +6205,112 @@ mod tests {
         crate::files::file_io::wait_for_queued_writes();
         let left = std::fs::read_dir(logs.join("aside")).unwrap().count();
         assert_eq!(left, 0, "the log's file of the sidecars put aside is left");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A photo deleted for good with Glimt killed before its hidden sidecar went, and another
+    /// photo copied to its name before the next start, as from a card whose numbering began
+    /// again. The next start put the sidecar of the photo deleted back beside the new one,
+    /// with its keywords, comment and alt text, as it took any file at the name for the photo.
+    /// It now asks what the trash take-back asks: the photo must be there as the log's list
+    /// knew it.
+    #[test]
+    fn a_killed_delete_for_good_gives_no_hidden_sidecar_to_a_new_photo_at_the_name() {
+        use crate::support::threads::{BREAKING_FILES, catch_panic};
+        let dir = contract_folder("killed-delete-new-photo");
+        let logs = dir.join("logs");
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let sides = [&a, &b].map(|p| crate::metadata::xmp::sidecar(p));
+        let both = [a.clone(), b.clone()];
+        let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(&both);
+        lock_even_if_poisoned(&BREAKING_FILES).extend(sides.clone());
+        let mut errors = Vec::new();
+        for p in &both {
+            let how = (false, Some(&mut log));
+            let photo = std::slice::from_ref(p);
+            let cut = catch_panic(|| super::delete_chunk(photo, &picked, how, &mut errors));
+            assert!(cut.is_none(), "the kill came");
+        }
+        lock_even_if_poisoned(&BREAKING_FILES).retain(|p| !sides.contains(p));
+        // b.png went, and another photo was copied to its name.
+        std::fs::remove_file(&b).unwrap();
+        std::fs::write(&b, b"another photo, of another size").unwrap();
+        drop(log);
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert_eq!(std::fs::read_to_string(&sides[0]).unwrap(), "a");
+        assert!(
+            !sides[1].exists(),
+            "the new b.png got the sidecar of the one deleted"
+        );
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A Delete for good makes the rename that puts a sidecar aside lasting before the photo
+    /// goes. Its note in the log's file of the sidecars put aside, and the log's names and list
+    /// of files that the next start reads with it, were not synced, so a power cut there could
+    /// leave the sidecar hidden for good with no note of it on disk. They are now on disk, with
+    /// their folders, by the time the sidecar is put aside: the test's kill comes after that.
+    /// A photo without a sidecar costs no sync of the log.
+    #[test]
+    fn a_delete_for_good_has_its_note_of_a_sidecar_on_disk_before_it_puts_it_aside() {
+        use super::journal::{LOG_FILES_SYNCED, aside_path, known_path};
+        use crate::files::file_io::FOLDERS_SYNCED;
+        use crate::support::threads::{BREAKING_FILES, catch_panic};
+        let dir = contract_folder("aside-note-on-disk");
+        let logs = dir.join("logs");
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        std::fs::remove_file(crate::metadata::xmp::sidecar(&b)).unwrap();
+        let side = crate::metadata::xmp::sidecar(&a);
+        let both = [a.clone(), b.clone()];
+        let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut errors = Vec::new();
+        LOG_FILES_SYNCED.take();
+        log.note(std::slice::from_ref(&b));
+        let how = (false, Some(&mut log));
+        let went = super::delete_chunk(std::slice::from_ref(&b), &picked, how, &mut errors);
+        assert_eq!(went.0, std::slice::from_ref(&b), "{errors:?}");
+        assert!(
+            LOG_FILES_SYNCED.take().is_empty(),
+            "synced without a sidecar"
+        );
+        log.note(std::slice::from_ref(&a));
+        FOLDERS_SYNCED.take();
+        lock_even_if_poisoned(&BREAKING_FILES).push(side.clone());
+        let how = (false, Some(&mut log));
+        let cut = catch_panic(|| {
+            super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors)
+        });
+        lock_even_if_poisoned(&BREAKING_FILES).retain(|p| *p != side);
+        assert!(cut.is_none(), "the kill came");
+        assert!(!side.exists(), "not put aside");
+        let log_path = (std::fs::read_dir(&logs).unwrap().flatten())
+            .map(|e| e.path())
+            .find(|p| p.is_file())
+            .unwrap();
+        let synced = LOG_FILES_SYNCED.take();
+        for file in [
+            known_path(&log_path),
+            log_path.clone(),
+            aside_path(&log_path),
+        ] {
+            assert!(
+                synced.contains(&file),
+                "{} not synced: {synced:?}",
+                file.display()
+            );
+        }
+        let folders = FOLDERS_SYNCED.take();
+        for folder in [logs.clone(), logs.join("files"), logs.join("aside")] {
+            assert!(folders.contains(&folder), "{} not synced", folder.display());
+        }
+        drop(log);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
