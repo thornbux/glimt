@@ -532,10 +532,12 @@ fn top_trash(top: &Path) -> std::io::Result<std::fs::File> {
 /// Moves `files` into the trash folder `trash` by hand, as freedesktop.org's trash spec says, each
 /// with the text for its .trashinfo's `Path`. The .trashinfo files are made first, each under a
 /// name not taken (name.1.ext …), and are put on disk, with their names, by one sync of the
-/// trash's file system. Then each file is renamed into files/. So a power cut never leaves a file
-/// in the trash that no trash view lists and Undo cannot find, and a hundred files cost one sync
-/// rather than a hundred. A move works only within one file system, and a file on another keeps
-/// its error. Returns the files that did not go, each with its error.
+/// trash's file system. Where that sync does not reach the disk (FUSE, a share, a type not
+/// known), each .trashinfo is synced on its own and then its folder. Then each file is renamed
+/// into files/. So a power cut never leaves a file in the trash that no trash view lists and
+/// Undo cannot find, and on a local disk a hundred files cost one sync rather than a hundred. A
+/// move works only within one file system, and a file on another keeps its error. Returns the
+/// files that did not go, each with its error.
 fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::io::Error)> {
     use std::io::ErrorKind::AlreadyExists;
     use std::os::unix::fs::DirBuilderExt;
@@ -563,6 +565,8 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
     let date = crate::support::format::local_time(secs.map_or(0, |d| d.as_secs()) as i64)
         .replacen(' ', "T", 1);
     let (mut made, mut failed) = (Vec::new(), Vec::new());
+    let one_sync = crate::files::file_ops::file_system_type_or_test(&info)
+        .is_some_and(|kind| crate::files::file_io::is_put_on_disk_by_one_sync(&kind));
     for &(path, ref path_in_trashinfo) in files {
         let text = format!("[Trash Info]\nPath={path_in_trashinfo}\nDeletionDate={date}\n");
         let name = path.file_name().unwrap_or_default();
@@ -577,13 +581,18 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
             trashinfo.push(".trashinfo");
             let trashinfo = info.join(trashinfo);
             // Made new, never over another's. It is put on disk below, with its name, by one
-            // sync for the whole batch.
-            written = crate::files::file_io::write_beside_without_sync(
-                &crate::files::file_io::tmp_path(&trashinfo),
-                &trashinfo,
-                |f| std::io::Write::write_all(f, text.as_bytes()),
-                |tmp| rename_never_over(tmp, &trashinfo),
-            )
+            // sync for the whole batch, or synced here where that sync does not reach the disk.
+            let tmp = crate::files::file_io::tmp_path(&trashinfo);
+            let write = |f: &mut std::fs::File| std::io::Write::write_all(f, text.as_bytes());
+            let give_name = |tmp: &Path| rename_never_over(tmp, &trashinfo);
+            written = match one_sync {
+                true => crate::files::file_io::write_beside_without_sync(
+                    &tmp, &trashinfo, write, give_name,
+                ),
+                false => crate::files::file_io::write_beside_without_folder_sync(
+                    &tmp, &trashinfo, write, give_name,
+                ),
+            }
             .map(|()| (taken, trashinfo));
             match &written {
                 Err(e) if e.kind() == AlreadyExists => continue,
@@ -600,7 +609,11 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         // Not told: the file's own failure is told, and a .trashinfo left lists no file.
         let _ = std::fs::remove_file(trashinfo);
     };
-    if let Err(e) = crate::files::file_io::sync_file_system_of(&info) {
+    let synced = match one_sync {
+        true => crate::files::file_io::sync_file_system_of(&info),
+        false => crate::files::file_io::sync_folder(&info),
+    };
+    if let Err(e) = synced {
         for (path, _, _, trashinfo) in made {
             remove(&trashinfo);
             failed.push((
@@ -1189,6 +1202,37 @@ mod tests {
             std::fs::remove_file(&t.file).unwrap();
             std::fs::remove_file(&t.info).unwrap();
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Files trashed by hand into a trash on FUSE or a share have each .trashinfo synced on its
+    /// own, and then its folder, before any file moves. A sync of the whole file system does not
+    /// reach the disk there, so a power cut could leave a file in the trash that no trash view
+    /// lists. In 0.84 before this, they were left to that sync alone.
+    #[test]
+    fn syncs_each_trashinfo_where_a_file_system_sync_does_not_reach_the_disk() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-fuse-sync-{}", std::process::id()));
+        let (pics, trash) = (dir.join("pics"), dir.join("Trash"));
+        std::fs::create_dir_all(&pics).unwrap();
+        let files: Vec<_> = (0..3).map(|n| pics.join(format!("{n}.png"))).collect();
+        for f in &files {
+            std::fs::write(f, "x").unwrap();
+        }
+        let with_uris: Vec<_> = (files.iter())
+            .map(|f| (f.as_path(), crate::images::thumbs::uri_path(f)))
+            .collect();
+        crate::files::file_ops::test_mount(&dir, Some("fuse.gocryptfs"));
+        crate::files::file_io::FOLDERS_SYNCED.take();
+        crate::files::file_io::FILES_SYNCED.take();
+        let failed = super::trash_by_hand(&trash, &with_uris);
+        crate::files::file_ops::test_mount(&dir, None);
+        assert!(failed.is_empty(), "{failed:?}");
+        assert_eq!(crate::files::file_io::FILES_SYNCED.take(), 3);
+        assert_eq!(
+            crate::files::file_io::FOLDERS_SYNCED.take(),
+            [trash.join("info")]
+        );
+        assert!(files.iter().all(|f| !f.exists()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

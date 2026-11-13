@@ -949,9 +949,21 @@ pub(crate) fn sync_folder(folder: &Path) -> std::io::Result<()> {
 /// Syncs the whole file system that holds `folder` to disk: every file written to it and every
 /// name given in it, `folder`'s among them. A batch of files is so put on disk with one sync,
 /// where a sync of each file would have the disk empty its cache once for each, which takes tens
-/// of milliseconds on a USB stick. Returns an error as `sync_folder` does.
+/// of milliseconds on a USB stick. This holds only on a file system that
+/// `is_put_on_disk_by_one_sync` names, which the caller asks first. Returns an error as
+/// `sync_folder` does.
 pub(crate) fn sync_file_system_of(folder: &Path) -> std::io::Result<()> {
     sync_folder_or_its_file_system(folder, true)
+}
+
+/// Returns whether one sync of a whole file system of type `kind` (from `file_system_type`) puts
+/// every file written to it on disk, as `sync_file_system_of` counts on. On FUSE it does not
+/// reach the program behind the mount (gocryptfs, encfs, rclone), and on SMB it asks the server
+/// for no flush, where a sync of each file does both. A disk's own FUSE mount (fuseblk, whose
+/// type is the disk's, such as exfat or ntfs) is synced through its device, and virtiofs passes
+/// the sync on.
+pub(crate) fn is_put_on_disk_by_one_sync(kind: &str) -> bool {
+    !is_remote(kind) && kind != "fuse"
 }
 
 /// Syncs `folder` as `sync_folder` does, or its whole file system when `whole_file_system` is
@@ -2644,6 +2656,9 @@ mod tests {
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
+        let one_sync = super::is_put_on_disk_by_one_sync;
+        assert!(one_sync("ext4") && one_sync("exfat") && one_sync("virtiofs"));
+        assert!(!one_sync("fuse") && !one_sync("fuse.gocryptfs") && !one_sync("smb3"));
     }
 
     /// In a chroot, the top mounts are those whose parents are outside it. One that alone
