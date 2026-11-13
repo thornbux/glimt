@@ -7,6 +7,7 @@
 //! list reads only the metadata of each file (`read_without_image_data`), not its image data, so
 //! thousands of photos are listed in seconds.
 
+use crate::files::config::fits_on_a_line;
 use crate::images::decode::{MAX_DECODE_BYTES, open_regular_with_metadata, read_head};
 use crate::images::save::{MAX_JPEG_EXIF, SharedMetadata, crc32, shared_metadata};
 use crate::metadata::xmp::Properties;
@@ -1112,11 +1113,13 @@ impl LeftOut {
     }
 
     /// The text of the choice's file, one word to a line: the keys of the groups left out
-    /// whole, then the names of the tags left out. The kept tags are not in it.
+    /// whole, then the names of the tags left out. The kept tags are not in it, nor is a name
+    /// with a line break, whose second line would be read as another word.
     pub(crate) fn text(&self) -> String {
         let groups = (Group::ALL.iter()).filter(|g| self.is_group_left_out(**g));
         let keys = groups.map(|g| g.key());
         (keys.chain(self.tags_left_out.iter().map(String::as_str)))
+            .filter(fits_on_a_line)
             .map(|word| format!("{word}\n"))
             .collect()
     }
@@ -2865,6 +2868,11 @@ mod tests {
         left_out.set_tag(name, true);
         assert_eq!(left_out.text().lines().count(), 2);
         assert!(super::LeftOut::parse(&left_out.text()).is_left_out("GPSLatitude"));
+        // The file's own writer leaves out a name with a line break that reached it some other
+        // way, so its second line adds no group.
+        let mut other = super::LeftOut::default();
+        other.set_tag("x\ngroup:keywords", true);
+        assert_eq!(other.text(), "");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

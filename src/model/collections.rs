@@ -915,6 +915,9 @@ mod tests {
             "{notice}"
         );
         assert_eq!(super::load(&file).unwrap(), [dir.join("c.png")]);
+        // The file's own writer leaves such a name out too.
+        let text = super::to_text(&[dir.join("a\n/b.png"), dir.join("c.png")], &[]);
+        assert_eq!(super::parse(&text), [dir.join("c.png")]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

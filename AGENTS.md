@@ -586,6 +586,11 @@ method.
   Every file, folder name, sidecar, collection, `.lrcat` and socket message is untrusted: what
   is read from it has a size cap, a path taken from it is checked to stay where it should, and a
   program is given it as an argument, never as part of a shell script's text (SECURITY.md).
+  A value or name written on a line of Glimt's own files is left out by its writer when
+  `config::fits_on_a_line` refuses it, as its second line would be read as another entry (a
+  theme file's name once set `delete_to_trash=false`). The settings write such a value as its
+  default. `config::tests::every_file_of_lines_keeps_line_breaks_out` fails on a file Glimt
+  owns until it names the test of its writer, or why no value of it can break a line.
 
   `clippy.toml` has the whole list, each call with the way to use instead. A place that must do
   otherwise gets `#[allow(clippy::disallowed_methods)]` on the narrowest statement or function,

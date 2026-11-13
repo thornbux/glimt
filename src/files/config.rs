@@ -47,12 +47,18 @@ macro_rules! config {
                 }
             }
 
+            /// The settings as the lines of the settings file. A value with a line break is
+            /// written as its default, because its second line would be read as another
+            /// setting: a theme file named so could set delete_to_trash=false.
             pub fn to_text(&self) -> String {
-                let mut text = String::new();
-                $(text += &format!(
+                let (mut text, default) = (String::new(), Config::default());
+                $(let value = Some(self.$name.to_string())
+                    .filter(fits_on_a_line)
+                    .unwrap_or_else(|| default.$name.to_string());
+                text += &format!(
                     "{}={}\n",
                     stringify!($name),
-                    by_name(stringify!($name), self.$name.to_string())
+                    by_name(stringify!($name), value)
                 );)*
                 text
             }
@@ -777,11 +783,12 @@ pub fn add_recent(recent: &[PathBuf], path: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The text of a recent file.
+/// The text of a recent file. A name with a line break cannot be kept on a line, so it is left
+/// out.
 pub fn recent_text(recent: &[PathBuf]) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
-    recent
-        .iter()
+    (recent.iter())
+        .filter(fits_on_a_line)
         .flat_map(|p| [p.as_os_str().as_bytes(), b"\n"].concat())
         .collect()
 }
@@ -846,10 +853,12 @@ pub fn test_home() -> PathBuf {
     std::env::temp_dir().join("glimt-test-home")
 }
 
-/// Whether `path` can be kept on a line of Glimt's own files. A name with a line break would be
-/// read back as two lines, the second of them perhaps taken for a key of its own.
-pub fn fits_on_a_line(path: &Path) -> bool {
-    !path.as_os_str().as_encoded_bytes().contains(&b'\n')
+/// Whether `text`, a path or a value, can be kept on a line of Glimt's own files. Text with a
+/// line break would be read back as two lines, the second of them perhaps taken for a key of
+/// its own. Every writer of a file of lines leaves such text out through this one check, and
+/// `every_file_of_lines_keeps_line_breaks_out` names the test of each file.
+pub fn fits_on_a_line(text: &(impl AsRef<std::ffi::OsStr> + ?Sized)) -> bool {
+    !text.as_ref().as_encoded_bytes().contains(&b'\n')
 }
 
 /// Takes out of `paths` those that do not fit on a line of Glimt's own files, so that a mark or
@@ -857,7 +866,7 @@ pub fn fits_on_a_line(path: &Path) -> bool {
 /// Returns the notice that says how many were left out, or `None` when every one fits.
 pub fn keep_those_that_fit_on_a_line(paths: &mut Vec<PathBuf>) -> Option<String> {
     let before = paths.len();
-    paths.retain(|p| fits_on_a_line(p));
+    paths.retain(fits_on_a_line);
     left_out_for_line_breaks(before - paths.len())
 }
 
@@ -1530,6 +1539,35 @@ mod tests {
         }
         assert_eq!(recent.len(), super::MAX_RECENT);
         assert_eq!(recent[0], p("/19"));
+        // The file's own writer leaves such a name out too, so no list reaches the file with it.
+        let text = super::recent_text(&[p("/a\n/etc"), p("/b")]);
+        assert_eq!(super::parse_recent(&text), [p("/b")]);
+    }
+
+    /// A setting whose value has a line break, such as a downloaded theme file's name or an ICC
+    /// profile's, is written as its default, and its second line sets nothing. Before, the
+    /// second line was read as a setting of its own, and the last line of a key wins, so it
+    /// turned delete_to_trash and confirm_delete off.
+    #[test]
+    fn a_line_break_in_a_setting_writes_no_other_setting() {
+        use super::Config;
+        let injected = "\ndelete_to_trash=false\nconfirm_delete=false\nsort=size";
+        let config = Config {
+            theme: format!("Ocean{injected}"),
+            screen_profile: format!("/p.icc{injected}"),
+            video_player: format!("mpv{injected}"),
+            window_title: format!("%name%{injected}"),
+            ..Config::default()
+        };
+        let text = config.to_text();
+        assert_eq!(
+            text.lines().count(),
+            Config::default().to_text().lines().count()
+        );
+        assert_eq!(Config::parse(&text), Config::default());
+        let saved = Config::default().to_text();
+        let merged = super::merged(&text, &saved, &saved);
+        assert_eq!(Config::parse(&merged), Config::default());
     }
 
     /// Config and window state files broken in thousands of ways are read without a panic.
@@ -1747,6 +1785,117 @@ mod tests {
             .filter(|path| !files.contains(path.split_once("glimt/").map_or(*path, |p| p.1)))
             .collect();
         assert!(missing.is_empty(), "docs/glimt.1's FILES lacks {missing:?}");
+    }
+
+    /// Each file and folder that Glimt owns, as src/frozen-1.0.txt pins them, keeps a value
+    /// with a line break from becoming a line of its own. A file of lines names the test that
+    /// shows its writer leaves such a value out (`fits_on_a_line`), and any other file says
+    /// why no value of it can break a line. A new file fails here until it says which, so it
+    /// is not written without the check. The settings had none, and a theme file's name with
+    /// a line break in it set delete_to_trash=false.
+    #[test]
+    fn every_file_of_lines_keeps_line_breaks_out() {
+        enum Lines {
+            /// The file holds lines of values, and the test of this name shows a line break
+            /// kept out.
+            CheckedBy(&'static str),
+            /// The file holds no line that a value could break, for this reason.
+            NoneToBreak(&'static str),
+        }
+        use Lines::{CheckedBy, NoneToBreak};
+        const LOCK: Lines = NoneToBreak("an empty lock file");
+        const READ_ONLY: Lines = NoneToBreak("Glimt only reads the files in it");
+        const NUL: Lines = NoneToBreak("paths end with a NUL byte, which no name holds");
+        const NUMBERS: Lines = NoneToBreak("each line holds numbers only");
+        let files = [
+            (
+                "$XDG_CONFIG_HOME/glimt/config",
+                CheckedBy("a_line_break_in_a_setting_writes_no_other_setting"),
+            ),
+            (
+                "$XDG_CONFIG_HOME/glimt/keywords",
+                CheckedBy("a_keyword_with_a_line_break_stays_out_of_the_tree"),
+            ),
+            (
+                "$XDG_CONFIG_HOME/glimt/sort-folders",
+                CheckedBy("changes_sort_folders_as_they_are"),
+            ),
+            (
+                "$XDG_CONFIG_HOME/glimt/themes",
+                NoneToBreak("Theme::file_from writes colours and numbers"),
+            ),
+            ("$XDG_STATE_HOME/glimt/state", CheckedBy("parses_config")),
+            (
+                "$XDG_STATE_HOME/glimt/recent",
+                CheckedBy("keeps_recent_folders"),
+            ),
+            (
+                "$XDG_STATE_HOME/glimt/sharing",
+                CheckedBy("a_line_break_in_a_name_adds_nothing_to_the_choice"),
+            ),
+            (
+                "$XDG_STATE_HOME/glimt/marks",
+                CheckedBy("a_name_with_a_line_break_is_refused_with_a_notice"),
+            ),
+            ("$XDG_STATE_HOME/glimt/renames", NUL),
+            (
+                "$XDG_DATA_HOME/glimt/collections",
+                CheckedBy("a_name_with_a_line_break_is_refused_at_the_add"),
+            ),
+            ("$XDG_DATA_HOME/glimt/tools", READ_ONLY),
+            ("$XDG_DATA_HOME/glimt/plugins", READ_ONLY),
+            ("$XDG_DATA_HOME/glimt/formats", READ_ONLY),
+            ("$XDG_DATA_HOME/glimt/decoders", READ_ONLY),
+            (
+                "/etc/glimt/lock-settings",
+                NoneToBreak("Glimt only asks whether it is there"),
+            ),
+            (
+                "$XDG_RUNTIME_DIR/glimt/glimt-NAME.sock",
+                NoneToBreak("a socket, not a file of text"),
+            ),
+            (
+                "$XDG_RUNTIME_DIR/glimt/focused",
+                NoneToBreak("one window's ID, read whole"),
+            ),
+            ("$XDG_STATE_HOME/glimt/moves", NUL),
+            ("$XDG_STATE_HOME/glimt/moves/files", NUMBERS),
+            ("$XDG_STATE_HOME/glimt/renames/files", NUMBERS),
+            ("$XDG_STATE_HOME/glimt/renames/files/.lock", LOCK),
+            ("$XDG_CONFIG_HOME/glimt/.config.lock", LOCK),
+            ("$XDG_CONFIG_HOME/glimt/.keywords.lock", LOCK),
+            ("$XDG_CONFIG_HOME/glimt/.sort-folders.lock", LOCK),
+            ("$XDG_STATE_HOME/glimt/.recent.lock", LOCK),
+            ("$XDG_STATE_HOME/glimt/.sharing.lock", LOCK),
+            ("$XDG_DATA_HOME/glimt/collections/.NAME.gqv.lock", LOCK),
+            ("$XDG_STATE_HOME/glimt/.marks.lock", LOCK),
+            ("$XDG_RUNTIME_DIR/glimt/glimt-NAME.lock", LOCK),
+            (
+                "$XDG_RUNTIME_DIR/glimt/sidecar-locks",
+                NoneToBreak("a folder of empty lock files"),
+            ),
+        ];
+        let owned: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
+            .filter_map(|l| l.strip_prefix("file "))
+            .collect();
+        let said: Vec<&str> = files.iter().map(|f| f.0).collect();
+        let unsaid: Vec<&&str> = owned.iter().filter(|f| !said.contains(f)).collect();
+        assert!(
+            unsaid.is_empty(),
+            "say how these keep line breaks out: {unsaid:?}"
+        );
+        let code: String = (crate::support::source_rules::rust_sources().into_iter())
+            .map(|(_, text)| text)
+            .collect();
+        for (file, lines) in &files {
+            match lines {
+                CheckedBy(test) => {
+                    let test = format!("#[test]\n    fn {test}()");
+                    assert!(code.contains(&test), "{file}: no {test}");
+                }
+                NoneToBreak(why) => assert!(!why.is_empty(), "{file} gives no reason"),
+            }
+        }
     }
 
     /// No old name in a table of old names is a setting, a window state key or a --remote
