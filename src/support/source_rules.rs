@@ -3003,6 +3003,29 @@ fn sidecars_are_written_through_write_sidecars() {
     );
 }
 
+/// A language alternative (the comment, the alt text, the extended description) is written
+/// only by `xmp::set_alt_text` and `xmp::comment_element`. Each takes the field's other
+/// languages from the packet its shown text was read from, which is the image when the sidecar
+/// lacks the field. Before, the comment took them from the sidecar alone, so the first sidecar
+/// of a photo whose comment had several languages kept only the one shown. A new writer of such
+/// a field goes through one of these, or chooses its packet as they do.
+#[test]
+fn language_fields_keep_the_languages_read() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[(
+        "language_alternative(",
+        &[
+            ("metadata/xmp.rs", "set_alt_text"),
+            ("metadata/xmp.rs", "comment_element"),
+        ],
+    )];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "a language alternative written outside set_alt_text and comment_element:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Only Glimt's own files are written with `file_io::replace_file` and the writers built on it
 /// (`write_atomic`, `edit_shared`). They write through a link to the file it points to, as a
 /// settings file kept in a repository is a link, and do not refuse a read-only file. A file of
