@@ -957,13 +957,27 @@ pub(crate) fn sync_file_system_of(folder: &Path) -> std::io::Result<()> {
 }
 
 /// Returns whether one sync of a whole file system of type `kind` (from `file_system_type`) puts
-/// every file written to it on disk, as `sync_file_system_of` counts on. On FUSE it does not
-/// reach the program behind the mount (gocryptfs, encfs, rclone), and on SMB it asks the server
-/// for no flush, where a sync of each file does both. A disk's own FUSE mount (fuseblk, whose
-/// type is the disk's, such as exfat or ntfs) is synced through its device, and virtiofs passes
-/// the sync on.
+/// every file written to it on disk, as `sync_file_system_of` counts on. Only the types named
+/// here count. Every other type, an unknown one among them, gets a sync of each file, which is
+/// slower but reaches the disk. Of those left out, eCryptfs and overlayfs are stacked on another
+/// file system: their sync of the whole writes their pages into the one below without syncing
+/// it, where a sync of a file syncs the file below. On FUSE the sync does not reach the program
+/// behind the mount (gocryptfs, encfs, rclone), SMB and NFS ask the server for no flush, and
+/// virtiofs passes it on only from Linux 5.15.
 pub(crate) fn is_put_on_disk_by_one_sync(kind: &str) -> bool {
-    !is_remote(kind) && kind != "fuse"
+    matches!(
+        kind,
+        // The disks' own file systems. Each one's sync of the whole writes its data and commits
+        // its journal or log (ext3, ext4, xfs, f2fs, bcachefs), its tree (btrfs, zfs), or writes
+        // its block device (ext2, FAT, exFAT, NTFS and HFS+, which keep no journal of data).
+        "ext2" | "ext3" | "ext4" | "btrfs" | "xfs" | "f2fs" | "bcachefs" | "zfs"
+            | "vfat" | "msdos" | "exfat" | "ntfs" | "ntfs3" | "hfsplus"
+            // A disk through FUSE (exfat-fuse, ntfs-3g) whose type udev does not name. Its
+            // mount holds the disk's device, which the sync of the whole writes.
+            | "fuseblk"
+            // In memory, with nothing to put on a disk.
+            | "tmpfs" | "ramfs"
+    )
 }
 
 /// Syncs `folder` as `sync_folder` does, or its whole file system when `whole_file_system` is
@@ -2656,9 +2670,34 @@ mod tests {
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
+    }
+
+    /// One sync of the whole file system is trusted only on a disk's own file system. A stacked
+    /// one (eCryptfs, overlayfs), FUSE, a share and a type not known get a sync of each file.
+    #[test]
+    fn only_a_disks_own_file_system_is_put_on_disk_by_one_sync() {
         let one_sync = super::is_put_on_disk_by_one_sync;
-        assert!(one_sync("ext4") && one_sync("exfat") && one_sync("virtiofs"));
-        assert!(!one_sync("fuse") && !one_sync("fuse.gocryptfs") && !one_sync("smb3"));
+        for kind in [
+            "ext4", "btrfs", "xfs", "vfat", "exfat", "ntfs3", "fuseblk", "tmpfs",
+        ] {
+            assert!(one_sync(kind), "{kind}");
+        }
+        for kind in [
+            "ecryptfs",
+            "overlay",
+            "virtiofs",
+            "fuse",
+            "fuse.gocryptfs",
+            "smb3",
+            "cifs",
+            "nfs4",
+            "9p",
+            "",
+            "?",
+            "a-file-system-not-made-yet",
+        ] {
+            assert!(!one_sync(kind), "{kind}");
+        }
     }
 
     /// In a chroot, the top mounts are those whose parents are outside it. One that alone
