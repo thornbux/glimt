@@ -92,6 +92,10 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // Makes a rename by `rename_never_over` from this name, or a delete for good of it, on this
+    // thread be done and then fail with EIO (`answer_lost_in_a_test`).
+    pub(crate) static ANSWER_LOST_AT: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
     // Makes a move by `put_file_until_stopped` on this thread a copy and an unlink, as a move
     // to another disk is, so that a test needs no second disk.
     pub(crate) static MOVES_CROSS_DEVICES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -734,7 +738,8 @@ fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
 /// old name unlinked; where links cannot be made either, a rename after looking first. The one
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
-/// a file back from the trash. `CrossesDevices` is the caller's to copy instead. The rename
+/// a file back from the trash. A rename that failed but was done all the same (`done_after_all`)
+/// counts as done. `CrossesDevices` is the caller's to copy instead. The rename
 /// is not synced to disk here. One rename alone is one step, so a power cut leaves the file
 /// under its old name or its new one. A caller whose next step counts on the new name being on
 /// disk (an unlink of the source, a plan removed) syncs the folder with `sync_folder_of` first.
@@ -749,11 +754,13 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         0 => rename_noreplace(from, to),
         _ => Err(Unsupported.into()),
     };
+    #[cfg(test)]
+    let one_step = answer_lost_in_a_test(from, one_step);
     let link = || match missing {
         0 | 1 => std::fs::hard_link(from, to),
         _ => Err(Unsupported.into()),
     };
-    match one_step {
+    let renamed = match one_step {
         Err(e) if e.kind() == Unsupported => match link() {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
@@ -765,7 +772,8 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
             Err(_) => std::fs::rename(from, to).map_err(|e| explain_rename_error(e, to)),
         },
         done => done,
-    }
+    };
+    done_after_all(renamed, from, Some(to))
 }
 
 /// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
@@ -875,6 +883,41 @@ fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<Strin
                     | ENOBUFS
             )
         )
+}
+
+/// Returns `result`, of a step that moved the file at `from` to `to`, or removed it when `to` is
+/// `None`, as done when the step failed in a way that may have been done (`may_have_been_done`)
+/// and the names show that it was: `from` is surely gone, and `to` is surely there. A share
+/// that did the step and lost its answer otherwise had the file counted as where it was, so its
+/// sidecars and marks stayed at the old name for the next file of that name. A look that fails
+/// leaves the error as it is.
+pub(crate) fn done_after_all(
+    result: std::io::Result<()>,
+    from: &Path,
+    to: Option<&Path>,
+) -> std::io::Result<()> {
+    match result {
+        Err(e) if may_have_been_done(&e, from) && is_surely_gone(from) => match to {
+            Some(to) if !is_surely_there(to) => Err(e),
+            _ => Ok(()),
+        },
+        result => result,
+    }
+}
+
+/// Returns `result` as a lost answer, EIO, when the step on `path` was done and `path` is the
+/// name in `ANSWER_LOST_AT`, as a share does that did the step and lost its answer.
+#[cfg(test)]
+pub(crate) fn answer_lost_in_a_test(
+    path: &Path,
+    result: std::io::Result<()>,
+) -> std::io::Result<()> {
+    match result {
+        Ok(()) if ANSWER_LOST_AT.with_borrow(|at| at.as_deref() == Some(path)) => {
+            Err(std::io::Error::from_raw_os_error(libc::EIO))
+        }
+        result => result,
+    }
 }
 
 /// Unlinks `path`, the old name of a file that `unlink_linked` has linked or copied.

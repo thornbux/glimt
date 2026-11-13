@@ -2792,6 +2792,10 @@ fn delete_for_good(
         let deleted = all_aside.map_err(|(at, e)| failed(&at, e)).is_ok() && {
             #[allow(clippy::disallowed_methods)] // Delete without the trash, the one place
             let removed = std::fs::remove_file(p);
+            #[cfg(test)]
+            let removed = crate::files::file_io::answer_lost_in_a_test(p, removed);
+            // A delete that a share did and lost the answer of is done, so its sidecars go too.
+            let removed = crate::files::file_io::done_after_all(removed, p, None);
             removed.map_err(|e| failed(p, e)).is_ok()
         };
         // A look that failed (a share that dropped for a moment) counts the file as there.
@@ -5964,6 +5968,61 @@ mod tests {
         for n in ["a.png", "a.png.xmp", "b.png", "b.png.xmp", "c.cr2"] {
             assert!(std::fs::symlink_metadata(p(n)).is_err(), "{n}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move, the Undo of a Move and a Delete for good whose step a share did and then lost the
+    /// answer of count the file as moved or deleted, so its sidecar goes with it. Before, the
+    /// file counted as where it was: its sidecar and marks stayed at the old name, where the
+    /// next file of that name took them.
+    #[test]
+    fn a_step_done_whose_answer_was_lost_counts_as_done() {
+        use crate::files::file_io::ANSWER_LOST_AT;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lost-answer-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(from.join("a.jpg"), "a").unwrap();
+        std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
+        let paths = [from.join("a.jpg")];
+        let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let job = super::Job::new("Moving", 1, false, Vec::new());
+        ANSWER_LOST_AT.set(Some(from.join("a.jpg")));
+        let (errors, put) = super::put_files(&paths, (&picked, &to), (false, None), &job);
+        ANSWER_LOST_AT.set(None);
+        assert_eq!(put, [(from.join("a.jpg"), to.join("a.jpg"))], "{errors:?}");
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            std::fs::read_to_string(to.join("a.jpg.xmp")).unwrap(),
+            "own"
+        );
+        // The Undo of the Move.
+        let now = crate::files::file_io::fingerprint(&to.join("a.jpg")).unwrap();
+        ANSWER_LOST_AT.set(Some(to.join("a.jpg")));
+        let (back, left, errors) =
+            super::move_back(vec![(from.join("a.jpg"), to.join("a.jpg"), now)]);
+        ANSWER_LOST_AT.set(None);
+        assert!(
+            back.len() == 1 && left.is_empty() && errors.is_empty(),
+            "{errors:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(from.join("a.jpg.xmp")).unwrap(),
+            "own"
+        );
+        // A Delete for good.
+        let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut errors = Vec::new();
+        ANSWER_LOST_AT.set(Some(from.join("a.jpg")));
+        let (went, _, _) = super::delete_chunk(&paths, &picked, false, &mut errors);
+        ANSWER_LOST_AT.set(None);
+        assert_eq!(went, paths, "{errors:?}");
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(std::fs::read_dir(&from).unwrap().count(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
