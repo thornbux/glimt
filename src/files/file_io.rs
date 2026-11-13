@@ -95,6 +95,9 @@ thread_local! {
     // How many names `look` looked at on this thread, so that a test can see that a check that
     // can tell nothing does not wait for the disk.
     pub(crate) static LOOKS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    // How many files `write_beside_without_folder_sync` synced on this thread, so that a test
+    // can see that files written in a batch are put on disk together, not one by one.
+    pub(crate) static FILES_SYNCED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     // How many times this thread parsed a mount table (`mounts_in`), so that a test can see
     // that a listing parses it once, not once for each folder.
     pub(crate) static MOUNT_TABLES_PARSED: std::cell::Cell<usize> =
@@ -894,6 +897,20 @@ pub(crate) fn sync_folder_of(path: &Path) -> std::io::Result<()> {
 /// bit) or a file system that cannot sync one (some shares) is passed over, as nothing more can
 /// be done there. Returns an error only when the disk says that the names did not get there.
 pub(crate) fn sync_folder(folder: &Path) -> std::io::Result<()> {
+    sync_folder_or_its_file_system(folder, false)
+}
+
+/// Syncs the whole file system that holds `folder` to disk: every file written to it and every
+/// name given in it, `folder`'s among them. A batch of files is so put on disk with one sync,
+/// where a sync of each file would have the disk empty its cache once for each, which takes tens
+/// of milliseconds on a USB stick. Returns an error as `sync_folder` does.
+pub(crate) fn sync_file_system_of(folder: &Path) -> std::io::Result<()> {
+    sync_folder_or_its_file_system(folder, true)
+}
+
+/// Syncs `folder` as `sync_folder` does, or its whole file system when `whole_file_system` is
+/// true, as `sync_file_system_of` does.
+fn sync_folder_or_its_file_system(folder: &Path, whole_file_system: bool) -> std::io::Result<()> {
     #[cfg(test)]
     FOLDERS_SYNCED.with_borrow_mut(|synced| synced.push(folder.to_owned()));
     #[cfg(test)]
@@ -903,7 +920,20 @@ pub(crate) fn sync_folder(folder: &Path) -> std::io::Result<()> {
         return Err(std::io::Error::from_raw_os_error(libc::EIO));
     }
     #[allow(clippy::disallowed_methods)] // a folder, opened only to sync it
-    let synced = std::fs::File::open(folder).and_then(|f| f.sync_all());
+    let synced = std::fs::File::open(folder).and_then(|f| match whole_file_system {
+        false => f.sync_all(),
+        true => {
+            use std::os::fd::AsRawFd;
+            #[allow(unsafe_code)]
+            // SAFETY: `f` keeps the descriptor open for the call, and syncfs only reads it.
+            // The standard library has no syncfs.
+            let r = unsafe { libc::syncfs(f.as_raw_fd()) };
+            match r {
+                0 => Ok(()),
+                _ => Err(std::io::Error::last_os_error()),
+            }
+        }
+    });
     match synced {
         Err(e)
             if matches!(
@@ -2114,8 +2144,26 @@ pub fn write_beside_without_folder_sync(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
+    let write_and_sync = |f: &mut std::fs::File| {
+        write(f)?;
+        #[cfg(test)]
+        FILES_SYNCED.set(FILES_SYNCED.get() + 1);
+        f.sync_all()
+    };
+    write_beside_without_sync(tmp, path, write_and_sync, give_name)
+}
+
+/// Writes a file as `write_beside` does, without syncing the file or its folder. This is for
+/// files written in a batch, which `sync_file_system_of` then puts on disk with one sync, before
+/// anything counts on them.
+pub fn write_beside_without_sync(
+    tmp: &Path,
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+    give_name: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     let result = create_temp_beside(tmp, path)
-        .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
+        .and_then(|mut f| write(&mut f))
         .and_then(|_| give_name(tmp));
     if result.is_err() {
         #[allow(clippy::disallowed_methods)] // the temporary file, not finished

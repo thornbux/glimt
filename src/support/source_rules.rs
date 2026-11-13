@@ -4574,7 +4574,12 @@ fn renames_in(text: &str) -> Vec<(String, bool)> {
             && ![", true)", ", true,"]
                 .iter()
                 .any(|copy| line.contains(copy));
-        let syncs = ["sync_folder_of(", "sync_folder(", "write_beside("];
+        let syncs = [
+            "sync_folder_of(",
+            "sync_folder(",
+            "sync_file_system_of(",
+            "write_beside(",
+        ];
         synced |= syncs.iter().any(|call| line.contains(call));
     }
     found
@@ -4792,13 +4797,15 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         "write_image(",
         "write_to(",
     ];
-    const WRITERS: [&str; 15] = [
+    const WRITERS: [&str; 17] = [
         // collections::edit and edit_open_collection, which write through replace_name.
         "edit(",
         "edit_open_collection(",
         "sync_folder_of(",
         "sync_folder(",
         "write_beside_without_folder_sync(",
+        "write_beside_without_sync(",
+        "sync_file_system_of(",
         "rename_never_over(",
         "put_file(",
         "edit_shared(",

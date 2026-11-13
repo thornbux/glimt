@@ -526,11 +526,11 @@ fn top_trash(top: &Path) -> std::io::Result<std::fs::File> {
 
 /// Moves `files` into the trash folder `trash` by hand, as freedesktop.org's trash spec says, each
 /// with the text for its .trashinfo's `Path`. The .trashinfo files are made first, each under a
-/// name not taken (name.1.ext …), and are put on disk with one sync of the info/ folder. Then
-/// each file is renamed into files/. So a power cut never leaves a file in the trash that no
-/// trash view lists and Undo cannot find, and a hundred files cost one folder sync rather than a
-/// hundred. A move works only within one file system, and a file on another keeps its error.
-/// Returns the files that did not go, each with its error.
+/// name not taken (name.1.ext …), and are put on disk, with their names, by one sync of the
+/// trash's file system. Then each file is renamed into files/. So a power cut never leaves a file
+/// in the trash that no trash view lists and Undo cannot find, and a hundred files cost one sync
+/// rather than a hundred. A move works only within one file system, and a file on another keeps
+/// its error. Returns the files that did not go, each with its error.
 fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::io::Error)> {
     use std::io::ErrorKind::AlreadyExists;
     use std::os::unix::fs::DirBuilderExt;
@@ -571,9 +571,9 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
             let mut trashinfo = taken.clone();
             trashinfo.push(".trashinfo");
             let trashinfo = info.join(trashinfo);
-            // Made new, never over another's, and on disk whole. Its name is synced below, once
-            // for the whole folder.
-            written = crate::files::file_io::write_beside_without_folder_sync(
+            // Made new, never over another's. It is put on disk below, with its name, by one
+            // sync for the whole batch.
+            written = crate::files::file_io::write_beside_without_sync(
                 &crate::files::file_io::tmp_path(&trashinfo),
                 &trashinfo,
                 |f| std::io::Write::write_all(f, text.as_bytes()),
@@ -595,7 +595,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         // Not told: the file's own failure is told, and a .trashinfo left lists no file.
         let _ = std::fs::remove_file(trashinfo);
     };
-    if let Err(e) = crate::files::file_io::sync_folder(&info) {
+    if let Err(e) = crate::files::file_io::sync_file_system_of(&info) {
         for (path, _, _, trashinfo) in made {
             remove(&trashinfo);
             failed.push((
@@ -1143,8 +1143,9 @@ mod tests {
     }
 
     /// Files trashed by hand together have their .trashinfo files put on disk with one sync of
-    /// the trash's info/ folder, not one for each file, before any of them moves. A sync takes
-    /// tens of milliseconds on a USB stick, so one for each file made a large delete take hours.
+    /// the trash's file system, not one for each file or its name, before any of them moves. A
+    /// sync takes tens of milliseconds on a USB stick, so one for each file made a large delete
+    /// take hours. Before 0.84, each .trashinfo was still synced on its own.
     #[test]
     fn syncs_the_trash_once_for_files_trashed_together() {
         let dir = std::env::temp_dir().join(format!("glimt-test-one-sync-{}", std::process::id()));
@@ -1165,9 +1166,11 @@ mod tests {
             return;
         }
         crate::files::file_io::FOLDERS_SYNCED.take();
+        crate::files::file_io::FILES_SYNCED.take();
         super::trash(&files).unwrap();
         let synced = crate::files::file_io::FOLDERS_SYNCED.take();
         assert_eq!(synced, [home.join("info")]);
+        assert_eq!(crate::files::file_io::FILES_SYNCED.take(), 0);
         assert!(files.iter().all(|f| !f.exists()));
         let entries = super::read_trash(&home, std::path::Path::new("/"));
         for t in entries.iter().filter(|t| t.from.starts_with(&dir)) {
