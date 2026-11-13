@@ -2962,23 +2962,38 @@ fn sidecars_are_written_through_write_sidecars() {
         ("metadata/xmp.rs", ""),
         ("ui/info_panel.rs", "save_metadata_edit"),
         ("ui/info_panel.rs", "set_keyword_on_files"),
-        ("ui/info_panel.rs", "add_keywords"),
+        ("ui/info_panel.rs", "add_keywords_to_selected"),
         ("ui/actions.rs", "apply_mark"),
         ("metadata/lightroom.rs", "write_imported"),
     ];
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("write_changed(", IN_WRITE_SIDECARS),
         ("write_alt_text(", IN_WRITE_SIDECARS),
-        ("xmp::add_keywords(", IN_WRITE_SIDECARS),
+        ("add_keywords(", IN_WRITE_SIDECARS),
         ("tag_file(", IN_WRITE_SIDECARS),
         ("add_tags(", IN_WRITE_SIDECARS),
         ("write_xmp(", IN_WRITE_SIDECARS),
         ("update_sidecar(", &[("metadata/marks.rs", "write_xmp")]),
         (
+            "update_locked_sidecar(",
+            &[
+                ("metadata/xmp.rs", ""),
+                ("images/save.rs", "derive_sidecar"),
+            ],
+        ),
+        (
             "sidecar_writer(",
             &[("files/file_ops.rs", "write_in_sidecar_thread")],
         ),
     ];
+    // A writer is found however its call is spelled: by its name after a `use`, and under a
+    // lock taken by hand. Before, `add_keywords(` was found only as `xmp::add_keywords(`, and
+    // `update_locked_sidecar(` not at all.
+    let around = "use crate::metadata::xmp::add_keywords;\nfn a(p: &Path) {\n    \
+        add_keywords(p, &k);\n    let lock = xmp::lock_sidecar(p);\n    \
+        xmp::update_locked_sidecar(&lock, p, true, |x| Some(x));\n}\n";
+    let found = outside_homes_in("ui/menus.rs", around, HOMES);
+    assert_eq!(found.len(), 2, "{found:?}");
     let wrong = outside_their_homes(HOMES);
     assert!(
         wrong.is_empty(),
@@ -4779,7 +4794,10 @@ fn finds_an_allow_without_its_reason() {
 /// the statement or in the comment lines just above it says why its failure is not told, with
 /// "Not told:". An encoder's failure dropped left a printed page blank without a word.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
-    const RAW_WRITES: [&str; 11] = [
+    // `create(` is any create, by its path or its receiver: `File::create`, and `DirBuilder`'s,
+    // which makes a folder as `create_dir_all` does.
+    const RAW_WRITES: [&str; 12] = [
+        "create(",
         "remove_file(",
         "remove_dir(",
         "remove_dir_all(",
@@ -5006,6 +5024,10 @@ fn finds_a_dropped_write() {
         let _ = replace_file(p, b);\n    #[allow(clippy::disallowed_methods)]\n    \
         // Not told: a folder of its own\n    let _ = std::fs::remove_dir_all(d);\n}\n";
     assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9, 10, 12]);
+    // A folder made with a DirBuilder, by its path or through a name, over several lines.
+    let builder = "fn a() {\n    let _ = std::fs::DirBuilder::new()\n        .recursive(true)\n        \
+        .create(d);\n    let b = DirBuilder::new();\n    b.create(d).ok();\n}\n";
+    assert_eq!(dropped_writes_in(builder), [2, 6]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare

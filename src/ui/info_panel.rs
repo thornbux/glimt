@@ -474,7 +474,7 @@ impl crate::App {
             .on_hover_text(tr("Each file keeps its own keywords and gets these too"))
             .clicked()
         {
-            self.add_keywords(ui.ctx(), add);
+            self.add_keywords_to_selected(ui.ctx(), add);
         }
         if [keywords, comment, alt, extended]
             .iter()
@@ -779,7 +779,7 @@ impl crate::App {
     }
 
     /// Add `keywords` to every selected file, in the background.
-    pub(crate) fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
+    pub(crate) fn add_keywords_to_selected(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
         // The shown image's own edit is saved first. The panel then shows the added keywords at
         // once, as `set_keyword_on_files` does. When it read them back from the file instead, it
         // could read the file before the writer reached it, and a later edit saved them away
@@ -1009,7 +1009,7 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        app.add_keywords(&ctx, vec!["beach".into()]);
+        app.add_keywords_to_selected(&ctx, vec!["beach".into()]);
         let shown = |app: &crate::App| {
             let edit = app.info_panel.metadata_edit.as_ref().unwrap();
             edit.saved.keywords == ["beach"] && edit.keywords.contains("beach")

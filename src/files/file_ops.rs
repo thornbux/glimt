@@ -4186,7 +4186,7 @@ mod tests {
         let idle = |app: &crate::App| {
             (app.file_operations.jobs.iter()).all(|job| std::sync::Arc::strong_count(job) == 1)
         };
-        keyword.add_keywords(&keyword_ctx, vec!["meant for the first photo".into()]);
+        keyword.add_keywords_to_selected(&keyword_ctx, vec!["meant for the first photo".into()]);
         assert!(run_background_until(&mut keyword, &keyword_ctx, |app| !app
             .file_operations
             .is_writing_sidecars()));

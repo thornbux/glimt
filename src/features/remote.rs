@@ -1681,6 +1681,7 @@ pub fn listen(
     {
         use std::os::unix::fs::DirBuilderExt;
         let dir = path.parent().unwrap_or(&path);
+        // Not told: `make_own_folder_private` below fails on a folder that is not there.
         let _ = std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
