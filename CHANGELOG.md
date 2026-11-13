@@ -19,6 +19,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   ICC profile picked as the screen or input profile, is saved as its default. Before, its
   second line was read as another setting, so a file named so could turn off Delete to trash
   and the question before a delete.
+- Glimt killed during a Delete or a Move to Trash (a logout that does not wait, a third close)
+  no longer leaves the stars and marks of the files already gone at their names: the next start
+  forgets them, also where a later photo of that name was copied in meanwhile. A Move to Trash
+  sends each photo's sidecar with it, so a kill no longer leaves the sidecar of a photo that went
+  at its name. Before, the next photo of that name showed the stars and keywords of the one
+  deleted.
+- A Rename Many that swaps names undoes the swap when the state disk is full at its middle step.
+  Before, a kill just after such a swap made the next start take it for one not begun, and
+  Finish swapped the photos back and put the marks on the other photo.
 
 ## [0.83.0] - 2026-11-13
 
