@@ -1390,7 +1390,9 @@ pub fn remove_shared(path: &Path) {
 pub fn remove_own(path: &Path) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // the one way Glimt's own files are removed
     let removed = match std::fs::symlink_metadata(path) {
+        // Glimt's own: a folder, such as the copy of a state folder in a backup.
         Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        // Glimt's own: a plan, a log or a state file.
         _ => std::fs::remove_file(path),
     };
     match removed {
@@ -2165,7 +2167,7 @@ pub fn write_beside_without_folder_sync(
         .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
         .and_then(|_| give_name(tmp));
     if result.is_err() {
-        #[allow(clippy::disallowed_methods)] // the temporary file, not finished
+        #[allow(clippy::disallowed_methods)] // Glimt's own: the temporary file, not finished
         // Not told: the write's own failure is returned, and a hidden name left takes no file's
         // place.
         let _ = std::fs::remove_file(tmp);
@@ -2181,6 +2183,7 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
         &tmp_path(path),
         path,
         |f| f.write_all(bytes.as_ref()),
+        // Glimt's own: the new file under its temporary name, given its name never over a file.
         |tmp| crate::files::file_io::rename_never_over(tmp, path),
     )
 }
@@ -2222,9 +2225,9 @@ pub fn instance_tag() -> &'static str {
 #[allow(clippy::disallowed_methods)] // the one way a new file is made, under its temporary name
 pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    // Made new, never opened: a link left or planted at `tmp` would be followed and the file
-    // it points to emptied. Not told: a name still at `tmp` makes `create_new` below fail, and
-    // that failure is returned.
+    // Glimt's own: the temporary name. The file is made new, never opened: a link left or
+    // planted at `tmp` would be followed and the file it points to emptied. Not told: a name
+    // still at `tmp` makes `create_new` below fail, and that failure is returned.
     let _ = std::fs::remove_file(tmp);
     let new = || {
         std::fs::OpenOptions::new()

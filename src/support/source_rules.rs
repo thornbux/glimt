@@ -4028,20 +4028,54 @@ fn finds_a_name_removed_after_a_cached_look() {
 /// function that finds them. A finder there excuses no act on the photo itself.
 /// What is no user's file is out of the rule by what it is: Glimt's own files are removed through
 /// `file_io::remove_own`, or by a raw removal or rename whose `#[allow]` or comment says
-/// "Glimt's own:"; a copy changes no file. The ways themselves are out of it too: the files that
-/// define them (`file_io.rs`, `trash.rs`, `journal.rs`), a function that is one of the acts
-/// (`rename_files`), whose callers check, and the tests.
+/// "Glimt's own:"; a copy changes no file. The ways themselves are out of it too: a function that
+/// is one of the acts (`rename_files`), whose callers check, each of `WAYS_OF_CHANGING_FILES`
+/// by its file and name, and the tests. Before, the files that define the ways were left out
+/// whole, so a removal after a long copy in one of them (a move to another disk) was never seen.
 #[test]
 fn destructive_acts_check_the_file_is_still_the_one_picked() {
+    /// The functions that are the ways a user's file is changed, each in its file, with why
+    /// it needs no check of its own. Every other function of their files is checked.
+    const WAYS_OF_CHANGING_FILES: [(&str, &str, &str); 8] = [
+        // A move or a copy, `put_file_until_stopped` with no stop; a call that moves is an act.
+        ("files/file_io.rs", "put_file", "its callers check"),
+        // The old name of a file just linked at its new one, or copied there and looked at
+        // (`still_the_file_copied`), and a new name it just made, taken back.
+        (
+            "files/file_io.rs",
+            "unlink_linked",
+            "it removes names it looked at or made",
+        ),
+        ("files/file_io.rs", "unlink", "the unlink of unlink_linked"),
+        // A document read and written again whole, a sidecar or a collection, not a file
+        // picked: `replace_name_with` with nothing to look at before.
+        ("files/file_io.rs", "replace_name", "it writes what it read"),
+        (
+            "files/trash.rs",
+            "trash_by_hand",
+            "the way `trash` takes a file there",
+        ),
+        // Undo's way out of the trash, to names that `rename_never_over` never goes over.
+        (
+            "files/trash.rs",
+            "put_back",
+            "it takes back what the trash holds",
+        ),
+        // Rename Many's steps, as its plan names them, settled after a cut or a lost answer.
+        ("files/journal.rs", "finish_step", "a step of a plan"),
+        ("files/journal.rs", "repair_step", "a step of a plan"),
+    ];
     let sources = rust_sources();
-    let (ways, tests) = (ways_of_changing_files(&sources), test_only_files(&sources));
+    let tests = test_only_files(&sources);
     let mut wrong = Vec::new();
     for (file, text) in &sources {
-        if ways.contains(file) || tests.contains(file) {
+        if tests.contains(file) {
             continue;
         }
         for (function, checks) in destructive_acts_in(text) {
-            if !checks {
+            let is_a_way = (WAYS_OF_CHANGING_FILES.iter())
+                .any(|&(f, name, _)| (f, name) == (file.as_str(), function.as_str()));
+            if !checks && !is_a_way {
                 wrong.push(format!("{file}: {function}"));
             }
         }
@@ -4052,27 +4086,6 @@ fn destructive_acts_check_the_file_is_still_the_one_picked() {
          picked (file_io::PickedFiles, is_still_the_file):\n{}",
         wrong.join("\n")
     );
-}
-
-/// Returns the files of `sources` that define the ways a user's file is trashed, moved,
-/// renamed or replaced (`trash`, `put_file`, `put_file_until_stopped`, `replace_name_with`,
-/// Rename Many's `rename_step`), whose own calls are those ways and not acts of an operation.
-fn ways_of_changing_files(sources: &[(String, String)]) -> Vec<String> {
-    let defines = |text: &str| {
-        let lines = code_lines(text);
-        let names = [
-            "trash",
-            "put_file",
-            "put_file_until_stopped",
-            "replace_name_with",
-            "rename_step",
-        ];
-        (lines.iter()).any(|l| function_name(l).is_some_and(|name| names.contains(&name)))
-    };
-    (sources.iter())
-        .filter(|(_, text)| defines(text))
-        .map(|(file, _)| file.clone())
-        .collect()
 }
 
 /// Returns the files of `sources` that are built only for the tests: a `mod` under
