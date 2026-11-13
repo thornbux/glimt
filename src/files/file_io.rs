@@ -959,25 +959,29 @@ pub(crate) fn sync_file_system_of(folder: &Path) -> std::io::Result<()> {
     sync_folder_or_its_file_system(folder, true)
 }
 
-/// Returns whether one sync of a whole file system of type `kind` (from `file_system_type`) puts
-/// every file written to it on disk, as `sync_file_system_of` counts on. Only the types named
-/// here count. Every other type, an unknown one among them, gets a sync of each file, which is
-/// slower but reaches the disk. Of those left out, eCryptfs and overlayfs are stacked on another
-/// file system: their sync of the whole writes their pages into the one below without syncing
-/// it, where a sync of a file syncs the file below. On FUSE the sync does not reach the program
-/// behind the mount (gocryptfs, encfs, rclone), SMB and NFS ask the server for no flush, and
-/// virtiofs passes it on only from Linux 5.15.
+/// Returns whether one sync of a whole file system of type `kind` puts every file written to it
+/// on disk as surely as a sync of each file, as `sync_file_system_of` counts on. `kind` is the
+/// type the mount itself has (`mounted_type`), so that a disk through FUSE is "fuseblk", never
+/// the type udev found on it: the sync of the whole does not reach the program behind a FUSE
+/// mount (ntfs-3g, exfat-fuse, fuse2fs, gocryptfs, rclone), which keeps its own state until a
+/// sync of a file asks for it. Only the types named here count. Every other type, an unknown one
+/// among them, gets a sync of each file, which is slower but reaches the disk. Of those left out:
+/// - eCryptfs and overlayfs are stacked on another file system. Their sync of the whole writes
+///   their pages into the one below without syncing it, where a sync of a file syncs the file
+///   below.
+/// - FAT (vfat, msdos) has no sync of the whole of its own, and ext2's and ntfs3's ask the disk
+///   to empty its cache nowhere, so the records could stay in the cache of an SSD while the
+///   files' moves reach it. A sync of a file does empty the cache there.
+/// - exFAT, HFS+ and ZFS may well empty it too, but that is not sure enough to count on.
+/// - SMB and NFS ask the server for no flush, and virtiofs passes it on only from Linux 5.15.
 pub(crate) fn is_put_on_disk_by_one_sync(kind: &str) -> bool {
     matches!(
         kind,
-        // The disks' own file systems. Each one's sync of the whole writes its data and commits
-        // its journal or log (ext3, ext4, xfs, f2fs, bcachefs), its tree (btrfs, zfs), or writes
-        // its block device (ext2, FAT, exFAT, NTFS and HFS+, which keep no journal of data).
-        "ext2" | "ext3" | "ext4" | "btrfs" | "xfs" | "f2fs" | "bcachefs" | "zfs"
-            | "vfat" | "msdos" | "exfat" | "ntfs" | "ntfs3" | "hfsplus"
-            // A disk through FUSE (exfat-fuse, ntfs-3g) whose type udev does not name. Its
-            // mount holds the disk's device, which the sync of the whole writes.
-            | "fuseblk"
+        // Their sync of the whole commits their journal or log (ext3, ext4, xfs, bcachefs), their
+        // checkpoint (f2fs) or their transaction (btrfs), each written behind a flush of the
+        // disk's cache, unless mounted with nobarrier, where a sync of a file does not flush it
+        // either. ext3 is mounted by the ext4 driver.
+        "ext3" | "ext4" | "xfs" | "btrfs" | "f2fs" | "bcachefs"
             // In memory, with nothing to put on a disk.
             | "tmpfs" | "ramfs"
     )
@@ -1059,6 +1063,20 @@ pub(crate) fn file_system_type(path: &Path) -> Option<String> {
         let udev = read_text(format!("/run/udev/data/b{}", String::from_utf8_lossy(dev))).ok()?;
         file_system_type_in_udev(&udev)
     })
+}
+
+/// Returns the type of the mount that holds `path`, as /proc/self/mountinfo names it, as
+/// `file_system_type` does, but a disk through FUSE as "fuseblk", not as the type udev found on
+/// the disk. That is the type of the driver that serves the mount, which decides what its sync
+/// does (`is_put_on_disk_by_one_sync`). Returns `None` when that cannot be read.
+pub(crate) fn mounted_type(path: &Path) -> Option<String> {
+    let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").ok()?;
+    mounted_type_in(&mounts, path)
+}
+
+/// Returns the type of the mount in `mountinfo` that holds `path`, as `mounted_type` does.
+fn mounted_type_in(mountinfo: &[u8], path: &Path) -> Option<String> {
+    file_system_type_in(mountinfo, path, |_| None)
 }
 
 /// Returns the file system's type in `udev`, a device's file in /run/udev/data, as blkid
@@ -2675,17 +2693,25 @@ mod tests {
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
     }
 
-    /// One sync of the whole file system is trusted only on a disk's own file system. A stacked
-    /// one (eCryptfs, overlayfs), FUSE, a share and a type not known get a sync of each file.
+    /// One sync of the whole file system is trusted only where its sync of the whole commits and
+    /// empties the disk's cache, decided by the type the mount itself has. A disk through FUSE
+    /// (whatever udev found on it), FAT, ext2, NTFS, a stacked file system, a share and a type
+    /// not known get a sync of each file.
     #[test]
-    fn only_a_disks_own_file_system_is_put_on_disk_by_one_sync() {
+    fn only_a_file_system_whose_sync_commits_is_put_on_disk_by_one_sync() {
         let one_sync = super::is_put_on_disk_by_one_sync;
         for kind in [
-            "ext4", "btrfs", "xfs", "vfat", "exfat", "ntfs3", "fuseblk", "tmpfs",
+            "ext3", "ext4", "xfs", "btrfs", "f2fs", "bcachefs", "tmpfs", "ramfs",
         ] {
             assert!(one_sync(kind), "{kind}");
         }
         for kind in [
+            "vfat",
+            "msdos",
+            "ext2",
+            "ntfs",
+            "ntfs3",
+            "fuseblk",
             "ecryptfs",
             "overlay",
             "virtiofs",
@@ -2701,6 +2727,31 @@ mod tests {
         ] {
             assert!(!one_sync(kind), "{kind}");
         }
+        // ntfs-3g, exfat-fuse and fuse2fs, which udev knows by the type on their disks.
+        let mounts = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+            2 1 8:17 / /media/me/NTFS rw - fuseblk /dev/sdb1 rw,user_id=0\n\
+            3 1 8:33 / /media/me/EXFAT rw - fuseblk /dev/sdc1 rw,user_id=0\n\
+            4 1 8:49 / /media/me/EXT4 rw - fuseblk /dev/sdd1 rw,user_id=0\n";
+        let udev = |dev: &[u8]| match dev {
+            b"8:17" => Some("ntfs".to_owned()),
+            b"8:33" => Some("exfat".to_owned()),
+            b"8:49" => Some("ext4".to_owned()),
+            _ => None,
+        };
+        for (folder, on_disk) in [
+            ("/media/me/NTFS/.Trash-1000/info", "ntfs"),
+            ("/media/me/EXFAT/.Trash-1000/info", "exfat"),
+            ("/media/me/EXT4/.Trash-1000/info", "ext4"),
+        ] {
+            let folder = std::path::Path::new(folder);
+            let kind = super::file_system_type_in(mounts, folder, udev);
+            assert_eq!(kind.as_deref(), Some(on_disk));
+            let mounted = super::mounted_type_in(mounts, folder);
+            assert_eq!(mounted.as_deref(), Some("fuseblk"));
+            assert!(!one_sync(&mounted.unwrap()), "{on_disk}");
+        }
+        let home = super::mounted_type_in(mounts, std::path::Path::new("/home/me"));
+        assert!(one_sync(&home.unwrap()));
     }
 
     /// In a chroot, the top mounts are those whose parents are outside it. One that alone
