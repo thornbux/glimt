@@ -5166,22 +5166,35 @@ section "Glimt killed (kill -9) during a Move to Trash and a Delete: no stars or
 # a later photo of such a name showed them. The gio of the chunk in flight is killed too, as a
 # logout or a power cut ends it. A photo still there keeps its stars and its sidecar: the stand-in
 # gio waits after each sidecar, so the kill comes between a sidecar and its photo, and the next
-# start must take the sidecar back (D-4). Delete for good has no program to slow it, so one
-# sidecar lock is held from outside, as by another window, and the delete stops at the chunk
-# that needs it, with the chunks before it gone and that chunk noted in its log.
+# start must take the sidecar back out of the trash (D-4). The stand-in trashes as gio does, into
+# the home trash with a .trashinfo written before each file moves, as that is where the next
+# start looks. Delete for good has no program to slow it, so one sidecar lock is held from
+# outside, as by another window, and the delete stops at the chunk that needs it, with the
+# chunks before it gone and that chunk noted in its log. A photo copied, before the next start,
+# to the name of one that went keeps the stars of the one that went, by design (A2: any file at
+# a noted name keeps its marks, as the next start cannot tell it from the photo the kill came
+# before), but never gets its sidecar.
 for v in new old; do
     for how in trash delete; do
         as_version $v
         mkdir -p $XDG_STATE_HOME/glimt
         # 1,000 photos, each with a sidecar and three stars. A stand-in gio trashes the files in
-        # the order it is given, as gio does, and waits 20 ms after each sidecar.
-        d=/tmp/killed-$how-$v trash=/tmp/killed-trash-$v
-        rm -rf $d $trash; mkdir -p $d $trash
+        # the order it is given, as gio does: into the home trash, each with its .trashinfo
+        # (its path and the local time) written before it moves. It waits 20 ms after each
+        # sidecar.
+        d=/tmp/killed-$how-$v trash=$XDG_DATA_HOME/Trash
+        rm -rf $d $trash; mkdir -p $d $trash/files $trash/info
         cat >/tmp/stub/gio <<STUB
 #!/bin/sh
 [ "\$1" = trash ] || exit 1
 shift 2
-for f; do mv "\$f" $trash/ || exit 1; case "\$f" in *.xmp) sleep 0.02;; esac; done
+for f; do
+    n=\$(basename "\$f")
+    printf '[Trash Info]\nPath=%s\nDeletionDate=%s\n' "\$f" "\$(date +%Y-%m-%dT%H:%M:%S)" \
+        >$trash/info/\$n.trashinfo || exit 1
+    mv "\$f" $trash/files/\$n || exit 1
+    case "\$f" in *.xmp) sleep 0.02;; esac
+done
 STUB
         chmod +x /tmp/stub/gio
         convert -size 32x32 xc:blue $d/0001.jpg
@@ -5237,9 +5250,10 @@ os.kill(pid, signal.SIGKILL)" $d $GPID $how)
         first=$(ls $d | grep 'jpg$' | comm -23 /tmp/killed-names - | head -1)
         [ -n "$first" ] && convert -size 64x64 xc:red $d/$first
         start $d; sleep 3; quit         # a new start, which may put things right
-        # Left: names of photos that went that still have stars or a sidecar. Later: the later
-        # photo's stars and sidecar. Bare: photos still there without their stars or without
-        # their sidecar beside them (in the trash, or under a hidden name of a delete for good).
+        # Left: names of photos that went that still have stars or a sidecar. Later: whether the
+        # later photo has stars, and whether it has a sidecar. Bare: photos still there without
+        # their stars or without their sidecar beside them (in the trash, or under a hidden name
+        # of a delete for good).
         got=$(python3 - $d $XDG_STATE_HOME/glimt/marks "$first" <<'PY'
 import os, sys
 d, marks, first = sys.argv[1:]
@@ -5257,14 +5271,20 @@ for name in open("/tmp/killed-names").read().split():
         bare += stars.get(p) != "3" or not os.path.isfile(p + ".xmp")
     else:
         left += p in stars or os.path.isfile(p + ".xmp")
-later = (f"{d}/{first}" in stars) + os.path.isfile(f"{d}/{first}.xmp") if first else "none"
+if first:
+    later = f"{int(f'{d}/{first}' in stars)} {int(os.path.isfile(f'{d}/{first}.xmp'))}"
+else:
+    later = "none"
 print(left, later, bare)
 PY
 )
         rm -rf $d $trash
         if [ $v = new ]; then
+            # 0: no name whose photo went has stars or a sidecar. 1 0: the later photo at such a
+            # name has the stars of the one that went (A2, by design) and no sidecar. 0: each
+            # photo still there has its stars and its sidecar beside it.
             expect "killed during a $how: no stars or sidecar left at a name whose photo went, each photo there with both" \
-                "$got" "0 0 0"
+                "$got" "0 1 0 0"
             # A delete that never started, or that ended before the kill, passes the line above.
             expect "killed in the middle of the $how" \
                 "$([ $gone -gt 0 ] && [ $gone -lt 1000 ] && echo yes)" yes
