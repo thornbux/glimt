@@ -532,8 +532,8 @@ fn top_trash(top: &Path) -> std::io::Result<std::fs::File> {
 /// Moves `files` into the trash folder `trash` by hand, as freedesktop.org's trash spec says, each
 /// with the text for its .trashinfo's `Path`. The .trashinfo files are made first, each under a
 /// name not taken (name.1.ext …), and are put on disk, with their names, by one sync of the
-/// trash's file system. Where that sync does not reach the disk (FUSE, a share, a type not
-/// known), each .trashinfo is synced on its own and then its folder. Then each file is renamed
+/// trash's file system. Where that sync does not reach the disk (eCryptfs, FUSE, a share, a type
+/// not known), each .trashinfo is synced on its own and then its folder. Then each file is renamed
 /// into files/. So a power cut never leaves a file in the trash that no trash view lists and
 /// Undo cannot find, and on a local disk a hundred files cost one sync rather than a hundred. A
 /// move works only within one file system, and a file on another keeps its error. Returns the
@@ -1190,9 +1190,14 @@ mod tests {
             std::fs::remove_dir_all(&dir).unwrap();
             return;
         }
+        // On a disk of its own, as the home folder in a container may be on overlayfs, where
+        // each .trashinfo is synced on its own.
+        crate::files::file_ops::test_mount(&home.join("info"), Some("ext4"));
         crate::files::file_io::FOLDERS_SYNCED.take();
         crate::files::file_io::FILES_SYNCED.take();
-        super::trash(&files).unwrap();
+        let trashed = super::trash(&files);
+        crate::files::file_ops::test_mount(&home.join("info"), None);
+        trashed.unwrap();
         let synced = crate::files::file_io::FOLDERS_SYNCED.take();
         assert_eq!(synced, [home.join("info")]);
         assert_eq!(crate::files::file_io::FILES_SYNCED.take(), 0);
