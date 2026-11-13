@@ -32,6 +32,11 @@ static QUEUED_EDITS: std::sync::Mutex<Vec<Edit>> = std::sync::Mutex::new(Vec::ne
 static UNWRITTEN_EDITS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Vec<Edit>>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
 
+/// The marks files that a test makes unreadable, while each keeps its inode and time. Reads
+/// are made in the writer's thread, so a thread-local of the test would not reach them.
+#[cfg(test)]
+static UNREADABLE_IN_TEST: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
 /// Mark bits (bit 0 = mark 1) and stars, by path.
 type MarksByPath = HashMap<PathBuf, (u8, u8)>;
 
@@ -327,10 +332,21 @@ fn read_marks_file(file: &Path) -> Option<HashMap<PathBuf, (u8, u8)>> {
     // The file is looked at before it is read, so a write in between makes it read again. It is
     // also looked at before the lock is taken, as in `read_file_again`.
     let stamp = file_stamp(file);
-    let text = match crate::images::decode::read_limited(file) {
+    let read = crate::images::decode::read_limited(file);
+    #[cfg(test)]
+    let read = match lock_even_if_poisoned(&UNREADABLE_IN_TEST).contains(&file.to_path_buf()) {
+        true => Err(std::io::Error::other("made unreadable by a test")),
+        false => read,
+    };
+    let text = match read {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => {
+            // The stamp of this window's last write is no longer known to be what the window
+            // holds, as the window may put back its changes now. Kept, it would make the next
+            // refresh take the file as held when the share answers again, unchanged, and never
+            // read it.
+            known_stamps().remove(file);
             crate::files::file_io::save_failed(crate::tf!(
                 "Could not read the marks file {name}: {e}",
                 name = file.display(),
@@ -906,6 +922,41 @@ mod tests {
         std::fs::write(&file, line.replace("0\t3", "0\t5")).unwrap();
         refreshed(&mut marks);
         assert_eq!(marks.get(&a), (0, 5), "the file is not read again");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A marks file that could not be read for a moment, and then answers again unchanged, is
+    /// read again. Before, the stamp of this window's own last write stayed known, so the
+    /// refresh took the file as held and never read it, and the window showed the changes it
+    /// had put back for the rest of the session.
+    #[test]
+    fn a_marks_file_that_answers_again_unchanged_is_read_again() {
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-marks-answers-again-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        let a = dir.join("a.png");
+        std::fs::write(&file, format!("0\t3\t{}\n", a.display())).unwrap();
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let mut marks = super::read_marks();
+        marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            4,
+        );
+        super::write(&file, super::SENT.with(|sent| sent.take()));
+        // The share stops answering: the read fails, and the rating, not yet confirmed by a
+        // read, is put back. The file keeps its inode and time.
+        lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).push(file.clone());
+        crate::files::file_io::take_saves_failed();
+        marks.read_again();
+        settled(&mut marks);
+        crate::files::file_io::take_saves_failed();
+        assert_eq!(marks.get(&a), (0, 3));
+        // The share answers again, and the file holds the rating.
+        lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).retain(|f| *f != file);
+        refreshed(&mut marks);
+        assert_eq!(marks.get(&a), (0, 4), "the file is not read again");
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
