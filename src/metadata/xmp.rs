@@ -410,11 +410,10 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
     let side = own_sidecar_text(path);
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
-    let has_alt_text = |x: &String| has_property(x, ALT) || has_property(x, EXTENDED);
     let source = (side.clone())
         .filter(|x| has_keywords_or_comment(x))
         .or_else(inside);
-    let alt_text = side.filter(has_alt_text).or_else(inside);
+    let alt_text = side.filter(|x| has_alt_text(x)).or_else(inside);
     (
         source
             .as_deref()
@@ -453,7 +452,7 @@ fn set_alt_text(
     inside: Option<&str>,
     say_empty: bool,
 ) -> Option<String> {
-    let from_image = !has_property(xmp, ALT) && !has_property(xmp, EXTENDED);
+    let from_image = !has_alt_text(xmp);
     let from = inside.filter(|_| from_image).unwrap_or(xmp);
     let fields = [
         (ALT, &change.text),
@@ -564,6 +563,13 @@ fn source(path: &Path) -> Option<String> {
 /// Whether `xmp` has keywords or a comment, as top-level elements (`has_property`).
 fn has_keywords_or_comment(xmp: &str) -> bool {
     has_property(xmp, "dc:subject") || has_property(xmp, "dc:description")
+}
+
+/// Whether `xmp` has alt text or an extended description, as top-level elements
+/// (`has_property`). The panel reads both from a sidecar that has either, and an edit takes
+/// them from the same packet.
+fn has_alt_text(xmp: &str) -> bool {
+    has_property(xmp, ALT) || has_property(xmp, EXTENDED)
 }
 
 /// Reads the sidecar of `path` as text for the panel and the search. Returns `None` when there
@@ -704,12 +710,12 @@ fn write_keywords(
         // A sidecar without dc:subject takes the keywords that were read, so that a new one
         // does not hide the image's.
         if edited == Edited::Comment && has_property(x, "dc:subject") {
-            return set_comment(x, &meta.comment, own);
+            return set_comment(x, from, &meta.comment, own);
         }
         let x = with_paths(x.to_owned(), paths)?;
         let x = match edited {
-            Edited::Keywords => set_keywords(&x, meta, own)?,
-            Edited::Comment | Edited::Both => set_keywords_and_comment(&x, meta, own)?,
+            Edited::Keywords => set_keywords(&x, from, meta, own)?,
+            Edited::Comment | Edited::Both => set_keywords_and_comment(&x, from, meta, own)?,
         };
         with_slashed_tree_lists(x, &lists_in_image)
     })?;
@@ -1348,20 +1354,23 @@ fn languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
     out
 }
 
-/// The element `tag` as a language alternative, to be put in place of the one in `xmp`, with
-/// `text` in place of the item shown (`shown_language`), or as x-default when there is none.
-/// The other languages stay as they were. An empty `text` clears every language, as the field
-/// shows no other. The element is written with the name `written_as`, `tag` with the prefix in
-/// force where it goes (`insert`). Returns an empty text for no element, or an empty rdf:Alt when
-/// `say_empty`.
+/// The element `tag` as a language alternative, to be put in place of the one in a sidecar,
+/// with `text` in place of the item shown (`shown_language`), or as x-default when there is
+/// none. The other languages are those of `read_from`, which must be the packet the text shown
+/// was read from: the sidecar, or the image when the panel read the field there. Only
+/// `set_alt_text` and `comment_element` call it, as they choose that packet
+/// (`source_rules::language_fields_keep_the_languages_read`). An empty `text` clears every
+/// language, as the field shows no other. The element is written with the name `written_as`,
+/// `tag` with the prefix in force where it goes (`insert`). Returns an empty text for no
+/// element, or an empty rdf:Alt when `say_empty`.
 fn language_alternative(
-    xmp: &str,
+    read_from: &str,
     tag: &str,
     text: &str,
     say_empty: bool,
     written_as: &str,
 ) -> String {
-    let mut items = languages(xmp, tag);
+    let mut items = languages(read_from, tag);
     match shown_language(&items) {
         _ if text.is_empty() => items.clear(),
         Some(i) => items[i].1 = text.to_owned(),
@@ -1475,11 +1484,16 @@ fn text_of(content: &str) -> String {
 }
 
 /// `set_keywords_and_comment` for a change of keywords only. A comment the sidecar has stays as
-/// it is, in all its languages. A comment only inside the image is copied into a new sidecar,
-/// which would hide it otherwise.
-fn set_keywords(xmp: &str, meta: &KeywordsAndComment, say_empty: bool) -> Option<String> {
+/// it is, in all its languages. A comment only inside the image is copied into a new sidecar in
+/// all its languages, because the sidecar would hide it otherwise.
+fn set_keywords(
+    xmp: &str,
+    read_from: &str,
+    meta: &KeywordsAndComment,
+    say_empty: bool,
+) -> Option<String> {
     if !has_property(xmp, "dc:description") {
-        return set_keywords_and_comment(xmp, meta, say_empty);
+        return set_keywords_and_comment(xmp, read_from, meta, say_empty);
     }
     with_keywords(xmp, &meta.keywords, |_| String::new(), say_empty)
 }
@@ -1492,20 +1506,35 @@ fn has_property(xmp: &str, tag: &str) -> bool {
 }
 
 /// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. The comment
-/// goes in place of the language shown, and its other languages stay (`language_alternative`).
-/// Empty ones are written as empty elements when `say_empty` is set. Returns `None` if `xmp`
-/// has no rdf:Description.
+/// goes in place of the language shown, and its other languages stay as `read_from` has them
+/// (`comment_element`). Empty ones are written as empty elements when `say_empty` is set.
+/// Returns `None` if `xmp` has no rdf:Description.
 fn set_keywords_and_comment(
     xmp: &str,
+    read_from: &str,
     meta: &KeywordsAndComment,
     say_empty: bool,
 ) -> Option<String> {
-    let description = |prefix: &str| {
-        let written_as = named(prefix, "dc:description");
-        language_alternative(xmp, "dc:description", &meta.comment, say_empty, &written_as)
-    };
+    let description = comment_element(read_from, &meta.comment, say_empty);
     let comment_out = without_property(xmp, "dc:description");
     with_keywords(&comment_out, &meta.keywords, description, say_empty)
+}
+
+/// Writes the dc:description element with `comment` in place of the language shown, given the
+/// prefix it is written with. Its other languages are those of `read_from`, the packet the
+/// comment was read from: the sidecar when it has keywords or a comment, and otherwise the
+/// image (`write_keywords`). Before, they were taken from the sidecar alone, so the first
+/// sidecar of an image whose comment had several languages kept only the one shown, and every
+/// program that reads the sidecar first lost the others.
+fn comment_element<'a>(
+    read_from: &'a str,
+    comment: &'a str,
+    say_empty: bool,
+) -> impl FnOnce(&str) -> String + 'a {
+    move |prefix| {
+        let written_as = named(prefix, "dc:description");
+        language_alternative(read_from, "dc:description", comment, say_empty, &written_as)
+    }
 }
 
 /// `xmp` with `keywords` in its first rdf:Description, followed by the elements of the same
@@ -1570,19 +1599,17 @@ fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
     out
 }
 
-/// `xmp` with `comment` in place of its comment's language shown, and its other languages kept
-/// (`language_alternative`). An empty one is written as an empty element when `say_empty` is
-/// set. Returns `None` if `xmp` has no rdf:Description.
-fn set_comment(xmp: &str, comment: &str, say_empty: bool) -> Option<String> {
+/// `xmp` with `comment` in place of its comment's language shown, and the other languages of
+/// `read_from` kept (`comment_element`). An empty one is written as an empty element when
+/// `say_empty` is set. Returns `None` if `xmp` has no rdf:Description.
+fn set_comment(xmp: &str, read_from: &str, comment: &str, say_empty: bool) -> Option<String> {
     let comment_out = without_property(xmp, "dc:description");
+    let description = comment_element(read_from, comment, say_empty);
     insert(
         comment_out,
         "dc",
         "http://purl.org/dc/elements/1.1/",
-        |prefix| {
-            let written_as = named(prefix, "dc:description");
-            language_alternative(xmp, "dc:description", comment, say_empty, &written_as)
-        },
+        description,
     )
 }
 
@@ -2601,7 +2628,7 @@ mod tests {
             keywords: vec!["new".into()],
             comment: String::new(),
         };
-        let edited = set_keywords_and_comment(&packet, &meta, false).unwrap();
+        let edited = set_keywords_and_comment(&packet, &packet, &meta, false).unwrap();
         assert!(edited.contains(pantry), "{edited}");
         assert_eq!(parse(&edited).keywords, ["new"]);
         assert!(without_property(&packet, "xmp:Rating").contains(pantry));
@@ -2694,7 +2721,7 @@ mod tests {
                 keywords: vec!["Oslo".into(), "Beach".into()],
                 comment: comment.into(),
             };
-            let edited = super::set_keywords(packet, &meta, false).unwrap();
+            let edited = super::set_keywords(packet, packet, &meta, false).unwrap();
             assert_eq!(parse(&edited), meta, "{edited}");
             for name in ["dc:subject", "dc:description", "xmp:Rating"] {
                 assert_eq!(count(&edited, name), 1, "{name} in {edited}");
@@ -2703,11 +2730,12 @@ mod tests {
                 count(&without_property(packet, "xmp:Rating"), "xmp:Rating"),
                 0
             );
-            let both = set_keywords_and_comment(packet, &meta, false).unwrap();
+            let both = set_keywords_and_comment(packet, packet, &meta, false).unwrap();
             assert_eq!(count(&both, "dc:subject"), 1, "{both}");
         }
         // The Description in darktable's comment is not the one the writers put a property in.
-        let added = set_keywords_and_comment(darktable, &KeywordsAndComment::default(), true);
+        let added =
+            set_keywords_and_comment(darktable, darktable, &KeywordsAndComment::default(), true);
         let added = added.unwrap();
         assert!(added.contains("<!-- <rdf:Description rdf:about='old' xmp:Rating='1'> -->"));
         assert_eq!(count(&added, "dc:subject"), 1, "{added}");
@@ -2741,7 +2769,7 @@ mod tests {
             keywords: vec!["Oslo".into()],
             comment: String::new(),
         };
-        let keyworded = set_keywords_and_comment(hidden, &meta, false).unwrap();
+        let keyworded = set_keywords_and_comment(hidden, hidden, &meta, false).unwrap();
         assert!(
             keyworded.contains("rdf:about=\"\" xmlns:dc="),
             "{keyworded}"
@@ -3264,7 +3292,7 @@ mod tests {
             keywords: Vec::new(),
             comment: "Hello".into(),
         };
-        let written = set_keywords_and_comment(xmp, &meta, false).unwrap();
+        let written = set_keywords_and_comment(xmp, xmp, &meta, false).unwrap();
         let alt_text = AltText {
             text: "Ein Hund am Strand".into(),
             extended_description: String::new(),
@@ -3294,7 +3322,7 @@ mod tests {
             keywords: vec!["beach".into()],
             comment: String::new(),
         };
-        let written = set_keywords_and_comment(xmp, &meta, false).unwrap();
+        let written = set_keywords_and_comment(xmp, xmp, &meta, false).unwrap();
         assert_eq!(written.matches("xmlns:dc").count(), 1, "{written}");
         assert!(written.contains(r#"photoshop:Headline="a>b""#), "{written}");
         assert_eq!(parse(&written).keywords, ["beach"]);
@@ -3312,7 +3340,8 @@ mod tests {
             keywords: vec![unescape("Oslo&#1;&#xFFFF;")],
             comment: "page\u{c}break\ttab\nline\u{fffe}".into(),
         };
-        let written = set_keywords_and_comment("<rdf:Description rdf:about=\"\">", &meta, false);
+        let empty = "<rdf:Description rdf:about=\"\">";
+        let written = set_keywords_and_comment(empty, empty, &meta, false);
         let written = written.unwrap();
         let allowed = |c: char| {
             (c >= ' ' || matches!(c, '\t' | '\n' | '\r')) && !matches!(c, '\u{fffe}' | '\u{ffff}')
@@ -3486,7 +3515,7 @@ mod tests {
             keywords: vec!["x".into()],
             comment: String::new(),
         };
-        let written = set_keywords_and_comment(exiftool, &meta, false).unwrap();
+        let written = set_keywords_and_comment(exiftool, exiftool, &meta, false).unwrap();
         let first = &written[..written.find("<dc:subject").unwrap()];
         assert_eq!(first.matches("xmlns:dc=").count(), 1, "{written}");
     }
@@ -3563,8 +3592,8 @@ mod tests {
             keywords: vec!["beach".into()],
             comment: String::new(),
         };
-        let xmp =
-            set_keywords_and_comment(r#"<rdf:Description rdf:about="">"#, &meta, false).unwrap();
+        let empty = r#"<rdf:Description rdf:about="">"#;
+        let xmp = set_keywords_and_comment(empty, empty, &meta, false).unwrap();
         assert_eq!(list_items(&xmp, "lr:hierarchicalSubject"), ["beach"]);
     }
 
@@ -3585,7 +3614,7 @@ mod tests {
         };
         let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
                      rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
-        let packet = set_keywords_and_comment(empty, &own, false).unwrap();
+        let packet = set_keywords_and_comment(empty, empty, &own, false).unwrap();
         let mut app1 = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
         app1.extend(packet.as_bytes());
         let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1];
@@ -3614,7 +3643,7 @@ mod tests {
         // it is.
         let dt = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
                   xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"3\"/></rdf:RDF></x:xmpmeta>";
-        let written = set_keywords_and_comment(dt, &meta, false).unwrap();
+        let written = set_keywords_and_comment(dt, dt, &meta, false).unwrap();
         assert!(written.contains("xmp:Rating=\"3\" xmlns:dc="));
         assert_eq!(parse(&written), meta);
         // Written again with other values, they are replaced, not added.
@@ -3622,12 +3651,13 @@ mod tests {
             keywords: vec!["snow".into()],
             comment: String::new(),
         };
-        let again = set_keywords_and_comment(&written, &other, false).unwrap();
+        let again = set_keywords_and_comment(&written, &written, &other, false).unwrap();
         assert_eq!(parse(&again), other);
         assert_eq!(again.matches("<dc:subject>").count(), 1);
         assert_eq!(again.matches("xmlns:dc=").count(), 1);
         // With everything removed, the sidecar is as it was, but for the name space.
-        let none = set_keywords_and_comment(&again, &KeywordsAndComment::default(), false).unwrap();
+        let none = set_keywords_and_comment(&again, &again, &KeywordsAndComment::default(), false)
+            .unwrap();
         assert_eq!(parse(&none), KeywordsAndComment::default());
         assert!(none.contains("xmp:Rating=\"3\""));
         assert_eq!(unescape("a&#x41;&#66;&bogus c&amp;"), "aAB&bogus c&");
@@ -3647,7 +3677,7 @@ mod tests {
         };
         let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
                      rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
-        let with_meta = set_keywords_and_comment(empty, &meta, false).unwrap();
+        let with_meta = set_keywords_and_comment(empty, empty, &meta, false).unwrap();
         let alt_text = AltText {
             text: "A dog <on> a beach".into(),
             extended_description: "Long & detailed".into(),
@@ -3676,7 +3706,13 @@ mod tests {
         // Keywords written after the alt text leave it.
         assert_eq!(
             parse_alt_text(
-                &set_keywords_and_comment(&written, &KeywordsAndComment::default(), false).unwrap()
+                &set_keywords_and_comment(
+                    &written,
+                    &written,
+                    &KeywordsAndComment::default(),
+                    false
+                )
+                .unwrap()
             ),
             alt_text
         );
@@ -3764,6 +3800,109 @@ mod tests {
         let read = read_all(&file).2;
         assert_eq!(read.text, "");
         assert_eq!(read.extended_description, "A dog on a beach");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Every writer of a sidecar keeps each language of the image's comment, alt text and
+    /// extended description in the first sidecar it makes, and replaces only the language shown
+    /// of the field it edits. A field is checked where the panel reads it: in the sidecar when
+    /// the sidecar has it or its sibling, and otherwise in the image. Before, a keyword added to
+    /// a photo whose comment had two languages wrote the shown one alone into the new sidecar,
+    /// and from then on every program that reads the sidecar first saw only that one.
+    #[test]
+    fn the_first_sidecar_keeps_every_language_of_the_image() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-languages-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        let two = |tag: &str, shown: &str, other: &str| {
+            format!(
+                "<{tag}><rdf:Alt><rdf:li xml:lang=\"x-default\">{shown}</rdf:li>\
+                 <rdf:li xml:lang=\"de\">{other}</rdf:li></rdf:Alt></{tag}>"
+            )
+        };
+        let packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+             xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+             rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+             xmlns:Iptc4xmpCore=\"http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/\">{}{}{}\
+             </rdf:Description></rdf:RDF></x:xmpmeta>",
+            two("dc:description", "Beach", "Am Strand"),
+            two(ALT, "Dog", "Hund"),
+            two(EXTENDED, "A dog", "Ein Hund"),
+        );
+        let oslo = || vec!["Oslo".to_owned()];
+        let alt = |text: Option<&str>, extended: Option<&str>| AltTextChange {
+            text: text.map(str::to_owned),
+            extended_description: extended.map(str::to_owned),
+        };
+        // Each writer with the field it edits and the text it writes there, if any.
+        type Writer = (
+            &'static str,
+            Option<(&'static str, &'static str)>,
+            Box<dyn Fn(&Path) -> Result<(), String>>,
+        );
+        let writers: Vec<Writer> = vec![
+            (
+                "add_keywords",
+                None,
+                Box::new(move |p| add_keywords(p, &oslo())),
+            ),
+            ("tag_file", None, Box::new(|p| tag_file(p, "Oslo", true))),
+            (
+                "add_tags",
+                None,
+                Box::new(|p| add_tags(p, &["Places|Oslo".into()])),
+            ),
+            (
+                "write_changed, keywords",
+                None,
+                Box::new(move |p| write_changed(p, adding(&oslo()), None).map(drop)),
+            ),
+            (
+                "write_changed, comment",
+                Some(("dc:description", "Shore")),
+                Box::new(|p| write_changed(p, None, Some("Shore".into())).map(drop)),
+            ),
+            (
+                "write_changed, both",
+                Some(("dc:description", "Shore")),
+                Box::new(move |p| {
+                    write_changed(p, adding(&oslo()), Some("Shore".into())).map(drop)
+                }),
+            ),
+            (
+                "write_alt_text, text",
+                Some((ALT, "Brown dog")),
+                Box::new(move |p| write_alt_text(p, &alt(Some("Brown dog"), None))),
+            ),
+            (
+                "write_alt_text, extended",
+                Some((EXTENDED, "A brown dog")),
+                Box::new(move |p| write_alt_text(p, &alt(None, Some("A brown dog")))),
+            ),
+        ];
+        let mut lost = Vec::new();
+        for (name, edited, write) in writers {
+            jpeg_with_xmp(&file, &packet);
+            write(&file).unwrap();
+            let side = std::fs::read_to_string(sidecar(&file)).unwrap();
+            for tag in ["dc:description", ALT, EXTENDED] {
+                let read_from = match tag {
+                    "dc:description" if has_keywords_or_comment(&side) => &side,
+                    ALT | EXTENDED if has_alt_text(&side) => &side,
+                    _ => &packet,
+                };
+                let mut expected = languages(&packet, tag);
+                if let Some((_, text)) = edited.filter(|(field, _)| *field == tag) {
+                    expected[0].1 = text.into();
+                }
+                if languages(read_from, tag) != expected {
+                    lost.push(format!("{name}: {tag} in\n{side}"));
+                }
+            }
+            std::fs::remove_file(sidecar(&file)).unwrap();
+        }
+        assert!(lost.is_empty(), "{}", lost.join("\n\n"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3862,7 +4001,7 @@ mod tests {
             keywords: vec!["Oslo".into()],
             comment: String::new(),
         };
-        let written = set_keywords_and_comment(other, &meta, false).unwrap();
+        let written = set_keywords_and_comment(other, other, &meta, false).unwrap();
         assert!(written.contains("<dc:subject>x</dc:subject>"), "{written}");
         assert!(written.contains("<dc1:subject>"), "{written}");
         assert_eq!(parse(&written).keywords, ["Oslo"]);
@@ -3926,7 +4065,7 @@ mod tests {
             keywords: vec!["b".into()],
             comment: "c".into(),
         };
-        let new = set_keywords_and_comment(xmp, &meta, false).unwrap();
+        let new = set_keywords_and_comment(xmp, xmp, &meta, false).unwrap();
         for tag in ["<dc:subject", "<dc:description", "<lr:hierarchicalSubject"] {
             assert_eq!(new.matches(tag).count(), 1, "{tag} in {new}");
         }
@@ -3949,7 +4088,7 @@ mod tests {
             keywords: vec!["Beach".into()],
             comment: String::new(),
         };
-        let new = set_keywords(xmp, &meta, false).unwrap();
+        let new = set_keywords(xmp, xmp, &meta, false).unwrap();
         assert_eq!(parse(&new), meta, "{new}");
     }
 
@@ -4233,7 +4372,7 @@ mod tests {
             extended_description: "On a beach".into(),
         };
         let seed = set_alt_text(
-            &set_keywords_and_comment(empty, &meta, false).unwrap(),
+            &set_keywords_and_comment(empty, empty, &meta, false).unwrap(),
             &both(&alt_text),
             None,
             false,
@@ -4242,8 +4381,8 @@ mod tests {
         for bytes in crate::support::test_support::broken(seed.as_bytes()) {
             let xmp = String::from_utf8_lossy(&bytes);
             parse(&xmp);
-            set_keywords_and_comment(&xmp, &meta, true);
-            set_keywords_and_comment(&xmp, &KeywordsAndComment::default(), false);
+            set_keywords_and_comment(&xmp, &xmp, &meta, true);
+            set_keywords_and_comment(&xmp, &xmp, &KeywordsAndComment::default(), false);
             parse_alt_text(&xmp);
             set_alt_text(&xmp, &both(&AltText::default()), None, true);
             let only_text = AltTextChange {
@@ -4251,7 +4390,7 @@ mod tests {
                 extended_description: None,
             };
             set_alt_text(empty, &only_text, Some(&xmp), false);
-            set_keywords(&xmp, &meta, true);
+            set_keywords(&xmp, &xmp, &meta, true);
         }
     }
 
