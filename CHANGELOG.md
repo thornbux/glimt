@@ -45,11 +45,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   readable by all), its tags from the file manager and its ACL.
 - Undo of a delete to the trash looks up the trash folders once for each folder, not once for
   each file and sidecar, and a delete to the trash without gio puts the trash's records of a
-  batch of files on a local disk with one sync, not one for each file. An encrypted home folder
-  (eCryptfs), FUSE, a share or a file system not known still has each record synced, as a
-  sync of the whole does not reach the disk there. Before, undoing
-  a delete of 500,000 files took more than ten million system calls, and a delete of 10,000
-  photos on a USB stick without gio took 10,000 syncs. A record in a trash on a stick is read
+  batch of files with one sync, not one for each file, on ext3, ext4, XFS, Btrfs, F2FS and
+  bcachefs. Any other file system still has each record synced, as a sync of the whole does not
+  reach the disk there or does not empty the disk's cache: FAT, ext2, NTFS, a disk through
+  FUSE (ntfs-3g, exfat-fuse), an encrypted home folder (eCryptfs), a share and a file system not
+  known. Before, undoing a delete of 500,000 files took more than ten million system calls, and
+  a delete of 10,000 photos on an ext4 disk without gio took 10,000 syncs. A record in a trash on a stick is read
   only up to 64 KB, so a large one planted there no longer fills memory at the Undo.
 - Glimt killed during a Delete or a Move to Trash (a logout that does not wait, a third close)
   no longer leaves the stars and marks of the files already gone at their names: the next start
