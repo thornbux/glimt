@@ -59,10 +59,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   each photo's sidecar with it, so a kill no longer leaves the sidecar of a photo that went at
   its name, and the next start takes back from the trash the sidecar of a photo the kill came
   before. Before, the next photo of that name showed the stars and keywords of the one deleted.
-- Glimt killed during a Delete without the trash, just after it put a photo's sidecar aside
-  under a hidden name, no longer leaves the sidecar hidden: the next start puts it back beside
-  the photo, or deletes it when the photo went. Before, the photo stayed without its keywords,
-  comment, alt text and stars, which only a look at the folder's hidden files could find.
+- Glimt killed, or the computer cut off by a power cut, during a Delete without the trash,
+  just after it put a photo's sidecar aside under a hidden name, no longer leaves the sidecar
+  hidden: the next start puts it back beside the photo, or deletes it when the photo went. A
+  different photo copied to that name meanwhile does not get it. Before, the photo stayed
+  without its keywords, comment, alt text and stars, which only a look at the folder's hidden
+  files could find.
 - A Rename Many that swaps names undoes the swap when the state disk is full at its middle step.
   Before, a kill just after such a swap made the next start take it for one not begun, and
   Finish swapped the photos back and put the marks on the other photo.
