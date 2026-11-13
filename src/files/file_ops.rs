@@ -2802,13 +2802,19 @@ fn delete_chunk(
     // Their sidecars go the same way, so that a new file with the same name does not get their
     // keywords. Each file's sidecars are named before it goes and go just before it, in the same
     // call, so that Glimt killed halfway never leaves a sidecar at the name of a photo that is
-    // gone. Adobe's sidecar of two RAW files of one name stem that go together goes before the
-    // first of them.
+    // gone. Adobe's sidecar of two RAW files of one name stem goes with the last of them, as in
+    // `put_files`, so that one of them that stays can take it back below.
     let leaving: HashSet<&PathBuf> = kept.iter().collect();
+    let none_leaving = HashSet::new();
+    let mut stems_to_come = raw_files_by_stem(kept.iter());
     let (mut names, mut named) = (xmp::AdobeNames::default(), HashSet::new());
     let sidecars_of_file: Vec<(PathBuf, Vec<PathBuf>)> = (kept.iter())
         .map(|p| {
-            let sides = xmp::sidecars_moving_with(p, p, &leaving, &mut names);
+            let leaving = match is_another_of_its_stem_to_come(p, &mut stems_to_come) {
+                true => &none_leaving,
+                false => &leaving,
+            };
+            let sides = xmp::sidecars_moving_with(p, p, leaving, &mut names);
             let sides = sides.into_iter().map(|(side, _)| side);
             let sides = sides.filter(|s| named.insert(s.clone())).collect();
             (p.clone(), sides)
@@ -2823,8 +2829,11 @@ fn delete_chunk(
         false => crate::files::trash::trash(&in_order),
     };
     // A look that failed (a share that dropped for a moment) counts the photo as there.
-    let (went_with, stayed): (Vec<_>, Vec<_>) = (sidecars_of_file.into_iter())
+    let (mut went_with, mut stayed): (Vec<_>, Vec<_>) = (sidecars_of_file.into_iter())
         .partition(|(p, _): &(PathBuf, Vec<PathBuf>)| is_surely_gone(p));
+    if trashed.is_err() {
+        give_adobe_sidecars_to_those_that_stayed(&mut went_with, &mut stayed);
+    }
     let mut went: Vec<PathBuf> = went_with.iter().map(|(p, _)| p.clone()).collect();
     let side: Vec<PathBuf> = (went_with.iter().flat_map(|(_, sides)| sides))
         .cloned()
@@ -2838,6 +2847,26 @@ fn delete_chunk(
         errors.push(e);
     }
     (went, side, left_alone)
+}
+
+/// Moves Adobe's sidecar of a name stem, which went to the trash with the last RAW file of the
+/// stem, from that file in `went_with` to a RAW file of the same stem in `stayed` that is surely
+/// still there. The sidecar is that file's alone now, and `take_back_sidecars` brings it back.
+fn give_adobe_sidecars_to_those_that_stayed(
+    went_with: &mut [(PathBuf, Vec<PathBuf>)],
+    stayed: &mut [(PathBuf, Vec<PathBuf>)],
+) {
+    for (p, sides) in stayed.iter_mut() {
+        let Some(stem) = xmp::adobe_stem(p).filter(|_| is_surely_there(p)) else {
+            continue;
+        };
+        for (_, went_sides) in went_with.iter_mut() {
+            let (theirs, own): (Vec<_>, Vec<_>) = (std::mem::take(went_sides).into_iter())
+                .partition(|side| xmp::adobe_stem(side).as_ref() == Some(&stem));
+            *went_sides = own;
+            sides.extend(theirs);
+        }
+    }
 }
 
 /// Takes the sidecars that went to the trash of the files of `stayed`, which did not go, back
@@ -4847,6 +4876,57 @@ mod tests {
         assert!(!errors.is_empty());
         assert_eq!(std::fs::read_to_string(&photo).unwrap(), "photo");
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "own", "{errors:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move to Trash of two RAW files of one name stem, of which one cannot go, leaves
+    /// Adobe's sidecar of the stem beside the one that stays, whichever of the two it is. It
+    /// goes with the last of them, as a Move and a delete for good give it, and comes back out
+    /// of the trash to the one that stayed. In 0.84 before this, it went with the first, and a
+    /// second that stayed lost it to the trash.
+    #[test]
+    fn adobe_sidecar_stays_with_the_raw_file_of_its_stem_that_stays_in_a_trash() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-trash-stem-stays-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (cr2, nef, side) = (
+            dir.join("IMG_1.CR2"),
+            dir.join("IMG_1.NEF"),
+            dir.join("IMG_1.XMP"),
+        );
+        let both = [cr2.clone(), nef.clone()];
+        for (stays, goes) in [(&nef, &cr2), (&cr2, &nef)] {
+            std::fs::write(&cr2, "cr2").unwrap();
+            std::fs::write(&nef, "nef").unwrap();
+            std::fs::write(&side, "adobe").unwrap();
+            let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
+            let (_, picked) = picked.wait_for_fingerprints();
+            RENAME_WAYS_MISSING.set(1);
+            UNLINK_FAILS.set(Some((stays.clone(), libc::EPERM)));
+            let mut errors = Vec::new();
+            let (went, _, _) = super::delete_chunk(&both, &picked, true, &mut errors);
+            UNLINK_FAILS.set(None);
+            RENAME_WAYS_MISSING.set(0);
+            assert_eq!(went, std::slice::from_ref(goes), "{errors:?}");
+            assert!(stays.exists() && !goes.exists());
+            let read = std::fs::read_to_string(&side);
+            assert_eq!(read.ok().as_deref(), Some("adobe"), "{stays:?} {errors:?}");
+            // The one that went comes back, so the next round and the trash start clean.
+            let trash_move = super::TrashMove {
+                files: vec![goes.clone()],
+                sidecars: Vec::new(),
+                sidecars_left: Vec::new(),
+                since: std::time::UNIX_EPOCH,
+                marks: Default::default(),
+                collection: None,
+            };
+            let (back, error) = super::restore(&trash_move, super::trash_dirs);
+            assert_eq!(back, std::slice::from_ref(goes), "{error:?}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
