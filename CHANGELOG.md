@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-11-13
+
 ### Fixed
 
 - A cropped copy saved with Save As keeps no EXIF thumbnail of the whole frame, also when the
@@ -4086,7 +4088,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.83.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.84.0...HEAD
+[0.84.0]: https://github.com/thornbux/glimt/compare/v0.83.0...v0.84.0
 [0.83.0]: https://github.com/thornbux/glimt/compare/v0.82.0...v0.83.0
 [0.82.0]: https://github.com/thornbux/glimt/compare/v0.81.1...v0.82.0
 [0.81.1]: https://github.com/thornbux/glimt/compare/v0.81.0...v0.81.1
