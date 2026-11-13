@@ -8,6 +8,11 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// The largest .trashinfo that is read. It holds a path, percent-encoded, and a date: at most
+/// about 12 KB for the longest path Linux allows. A trash on a stick from someone else may hold
+/// larger ones, which Undo would else read whole into memory, up to the 512 MB of an image.
+const MAX_TRASHINFO_BYTES: u64 = 64 << 10;
+
 #[cfg(test)]
 thread_local! {
     /// What a test does between the check of a trash folder and its first use by
@@ -121,21 +126,40 @@ pub(crate) fn restore(
     // path as it was given, but gio records one in a trash at the top of a file system by its
     // real path, from the real top: an entry of a collection spelled through a link to another
     // disk is there only by its real path. Found either way, it comes back as the list named it.
+    // Both spellings and their trash folders depend only on the file's folder, and take a dozen
+    // system calls or more, so they are looked up once for each folder, not for each file.
+    let mut real_of_folder: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut dirs_of_folder: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     let mut find = |path: &Path| {
         let mut first: Option<TrashEntry> = None;
-        let real = crate::model::listing::real_path(path);
+        let (folder, name) = (path.parent().unwrap_or(path), path.file_name());
+        let real_folder = (real_of_folder.entry(folder.to_path_buf()))
+            .or_insert_with(|| crate::model::listing::real_dir(folder));
+        let real = match name {
+            Some(name) => real_folder.join(name),
+            None => crate::model::listing::real_path(path),
+        };
         for at in [Some(path), Some(real.as_path()).filter(|r| *r != path)]
             .into_iter()
             .flatten()
         {
-            for (dir, top, opened) in dirs_of(at) {
-                let (_, all) = (trashes.entry(dir.clone())).or_insert_with(|| {
-                    let through = opened.as_ref().map(crate::files::file_io::path_through);
-                    let all = read_trash(through.as_ref().unwrap_or(&dir), &top).into_iter();
-                    let all = all.filter(|t| t.date >= since && t.date <= until);
-                    (opened, first_of_each(all, rank))
-                });
-                if let Some(t) = all.get(at)
+            let at_folder = at.parent().unwrap_or(at);
+            let dirs = (dirs_of_folder.entry(at_folder.to_path_buf())).or_insert_with(|| {
+                let mut dirs = Vec::new();
+                for (dir, top, opened) in dirs_of(at) {
+                    trashes.entry(dir.clone()).or_insert_with(|| {
+                        let through = opened.as_ref().map(crate::files::file_io::path_through);
+                        let all = read_trash(through.as_ref().unwrap_or(&dir), &top).into_iter();
+                        let all = all.filter(|t| t.date >= since && t.date <= until);
+                        (opened, first_of_each(all, rank))
+                    });
+                    dirs.push(dir);
+                }
+                dirs
+            });
+            for dir in dirs.iter() {
+                if let Some((_, all)) = trashes.get(dir)
+                    && let Some(t) = all.get(at)
                     && first.as_ref().is_none_or(|f| rank(t) < rank(f))
                 {
                     first = Some(TrashEntry {
@@ -507,11 +531,11 @@ fn top_trash(top: &Path) -> std::io::Result<std::fs::File> {
 
 /// Moves `files` into the trash folder `trash` by hand, as freedesktop.org's trash spec says, each
 /// with the text for its .trashinfo's `Path`. The .trashinfo files are made first, each under a
-/// name not taken (name.1.ext …), and are put on disk with one sync of the info/ folder. Then
-/// each file is renamed into files/. So a power cut never leaves a file in the trash that no
-/// trash view lists and Undo cannot find, and a hundred files cost one folder sync rather than a
-/// hundred. A move works only within one file system, and a file on another keeps its error.
-/// Returns the files that did not go, each with its error.
+/// name not taken (name.1.ext …), and are put on disk, with their names, by one sync of the
+/// trash's file system. Then each file is renamed into files/. So a power cut never leaves a file
+/// in the trash that no trash view lists and Undo cannot find, and a hundred files cost one sync
+/// rather than a hundred. A move works only within one file system, and a file on another keeps
+/// its error. Returns the files that did not go, each with its error.
 fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::io::Error)> {
     use std::io::ErrorKind::AlreadyExists;
     use std::os::unix::fs::DirBuilderExt;
@@ -552,9 +576,9 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
             let mut trashinfo = taken.clone();
             trashinfo.push(".trashinfo");
             let trashinfo = info.join(trashinfo);
-            // Made new, never over another's, and on disk whole. Its name is synced below, once
-            // for the whole folder.
-            written = crate::files::file_io::write_beside_without_folder_sync(
+            // Made new, never over another's. It is put on disk below, with its name, by one
+            // sync for the whole batch.
+            written = crate::files::file_io::write_beside_without_sync(
                 &crate::files::file_io::tmp_path(&trashinfo),
                 &trashinfo,
                 |f| std::io::Write::write_all(f, text.as_bytes()),
@@ -576,7 +600,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         // Not told: the file's own failure is told, and a .trashinfo left lists no file.
         let _ = std::fs::remove_file(trashinfo);
     };
-    if let Err(e) = crate::files::file_io::sync_folder(&info) {
+    if let Err(e) = crate::files::file_io::sync_file_system_of(&info) {
         for (path, _, _, trashinfo) in made {
             remove(&trashinfo);
             failed.push((
@@ -720,7 +744,11 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<TrashEntry> {
             // not be UTF-8.
             let name = info.file_name()?.as_bytes().strip_suffix(b".trashinfo")?;
             let name = std::ffi::OsStr::from_bytes(name);
-            let text = crate::images::decode::read_text(&info).ok()?;
+            let text = crate::images::decode::read_head(&info, MAX_TRASHINFO_BYTES + 1).ok()?;
+            if text.len() as u64 > MAX_TRASHINFO_BYTES {
+                return None;
+            }
+            let text = String::from_utf8(text).ok()?;
             let (from, date) = read_trash_info(&text, top)?;
             Some(TrashEntry {
                 from,
@@ -1124,8 +1152,9 @@ mod tests {
     }
 
     /// Files trashed by hand together have their .trashinfo files put on disk with one sync of
-    /// the trash's info/ folder, not one for each file, before any of them moves. A sync takes
-    /// tens of milliseconds on a USB stick, so one for each file made a large delete take hours.
+    /// the trash's file system, not one for each file or its name, before any of them moves. A
+    /// sync takes tens of milliseconds on a USB stick, so one for each file made a large delete
+    /// take hours. Before 0.84, each .trashinfo was still synced on its own.
     #[test]
     fn syncs_the_trash_once_for_files_trashed_together() {
         let dir = std::env::temp_dir().join(format!("glimt-test-one-sync-{}", std::process::id()));
@@ -1146,9 +1175,11 @@ mod tests {
             return;
         }
         crate::files::file_io::FOLDERS_SYNCED.take();
+        crate::files::file_io::FILES_SYNCED.take();
         super::trash(&files).unwrap();
         let synced = crate::files::file_io::FOLDERS_SYNCED.take();
         assert_eq!(synced, [home.join("info")]);
+        assert_eq!(crate::files::file_io::FILES_SYNCED.take(), 0);
         assert!(files.iter().all(|f| !f.exists()));
         let entries = super::read_trash(&home, std::path::Path::new("/"));
         for t in entries.iter().filter(|t| t.from.starts_with(&dir)) {
@@ -1192,7 +1223,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A moved file, a file in a moved folder, and one not moved; no trailing slash.
+    /// A moved file, a file in a moved folder, and one not moved; no trailing slash. A
+    /// .trashinfo larger than `MAX_TRASHINFO_BYTES` is passed over.
     #[test]
     fn reads_the_trash() {
         let dir = std::env::temp_dir().join(format!("glimt-test-trash-{}", std::process::id()));
@@ -1208,6 +1240,11 @@ mod tests {
         );
         info("a.jpg", "p/a.jpg", "2026-10-21T11:00:00");
         std::fs::write(dir.join("info").join("stray"), "").unwrap();
+        // One larger than any .trashinfo, as a stick from someone else may hold, is not read.
+        let padding = "#".repeat(super::MAX_TRASHINFO_BYTES as usize);
+        let large =
+            format!("[Trash Info]\nPath=/p/large.jpg\nDeletionDate=2026-10-21T12:00:00\n{padding}");
+        std::fs::write(dir.join("info").join("large.jpg.trashinfo"), large).unwrap();
         let mut all = super::read_trash(&dir, std::path::Path::new("/mnt"));
         all.sort_by(|a, b| a.date.cmp(&b.date));
         let got: Vec<_> = all
@@ -1490,6 +1527,63 @@ mod tests {
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
         assert!(x.join("a.jpg.xmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move to the trash looks up the trash folders once for each folder of the files,
+    /// not once for each file and sidecar. Each look-up takes a dozen system calls or more, so a
+    /// delete of 500,000 files took millions of them to undo.
+    #[test]
+    fn undo_looks_up_the_trash_folders_once_for_each_folder() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-back-once-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x) = (dir.join("trash"), dir.join("x"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        let names = [
+            "a.jpg",
+            "a.jpg.xmp",
+            "b.jpg",
+            "b.jpg.xmp",
+            "c.jpg",
+            "c.jpg.xmp",
+        ];
+        for kept in names {
+            crate::files::file_io::create_file(&trash.join("files").join(kept), kept).unwrap();
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                x.join(kept).display()
+            );
+            let info = trash.join("info").join(format!("{kept}.trashinfo"));
+            crate::files::file_io::create_file(&info, text).unwrap();
+        }
+        let (files, sidecars): (Vec<_>, Vec<_>) = names
+            .iter()
+            .map(|n| x.join(n))
+            .partition(|p| p.extension().is_some_and(|e| e == "jpg"));
+        let trash_move = super::TrashMove {
+            files,
+            sidecars,
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let looked_up = std::cell::Cell::new(0);
+        let dirs = |_: &std::path::Path| {
+            looked_up.set(looked_up.get() + 1);
+            vec![(trash.clone(), "/".into(), None)]
+        };
+        let (back, error) = super::restore(&trash_move, dirs);
+        assert_eq!(back.len(), 3, "{error:?}");
+        assert_eq!(std::fs::read_dir(&x).unwrap().count(), 6);
+        // Once for the folder as named, and once for its real path when that is another.
+        let spellings = 1 + usize::from(crate::model::listing::real_dir(&x) != x);
+        assert_eq!(looked_up.get(), spellings);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

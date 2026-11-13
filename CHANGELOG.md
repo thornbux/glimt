@@ -38,6 +38,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A sidecar or collection written again on a share that failed to answer for a moment is not
   written as a new file. Before, it could lose its permissions (a private sidecar became
   readable by all), its tags from the file manager and its ACL.
+- Undo of a delete to the trash looks up the trash folders once for each folder, not once for
+  each file and sidecar, and a delete to the trash without gio puts the trash's records of a
+  batch of files on disk with one sync, not one for each file. Before, undoing a delete of
+  500,000 files took more than ten million system calls, and a delete of 10,000 photos on a
+  USB stick without gio took 10,000 syncs. A record in a trash on a stick is read only up to
+  64 KB, so a large one planted there no longer fills memory at the Undo.
 
 ## [0.83.0] - 2026-11-13
 
