@@ -364,8 +364,10 @@ impl LeftBehind {
 /// A property at the top of an rdf:Description, an attribute of its start tag or an element
 /// just inside it (`top_level_properties`). Each range is a place in the packet.
 pub(crate) struct TopLevelProperty {
-    /// The name as written, such as "dc:subject".
-    pub(crate) name: std::ops::Range<usize>,
+    /// The name as written, such as "dc:subject". It is private, so that code elsewhere tells
+    /// a property by its namespace (`is_in`, `properties_named`), never by the prefix as
+    /// written, which another writer may have chosen otherwise.
+    name: std::ops::Range<usize>,
     /// The whole property: an attribute from its name to its closing quote, an element from its
     /// "<" to the end of its end tag or of its "/>".
     pub(crate) whole: std::ops::Range<usize>,
@@ -373,6 +375,20 @@ pub(crate) struct TopLevelProperty {
     /// and end tags, which is nothing for an empty element.
     pub(crate) value: std::ops::Range<usize>,
     pub(crate) is_attribute: bool,
+}
+
+impl TopLevelProperty {
+    /// Returns whether this property of the packet `xmp` is `local` in one of the namespaces
+    /// `uris`, by the prefixes that `declared` binds (`is_in_namespace`).
+    pub(crate) fn is_in(
+        &self,
+        xmp: &[u8],
+        declared: &std::collections::HashSet<(&str, &str)>,
+        uris: &[&str],
+        local: &str,
+    ) -> bool {
+        is_in_namespace(&xmp[self.name.clone()], declared, uris, local)
+    }
 }
 
 fn parse_alt_text(xmp: &str) -> AltText {
@@ -422,22 +438,23 @@ pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), String>
 /// their other languages kept (`language_alternative`). A field that was not edited stays as
 /// `xmp` has it. Returns `None` if `xmp` has no rdf:Description.
 fn set_alt_text(xmp: &str, change: &AltTextChange, say_empty: bool) -> Option<String> {
-    let (mut add, mut xmp) = (String::new(), xmp.to_owned());
-    for (tag, edited) in [
+    let fields = [
         (ALT, &change.text),
         (EXTENDED, &change.extended_description),
-    ] {
-        if let Some(text) = edited {
-            add += &language_alternative(&xmp, tag, text, say_empty);
-            xmp = without_property(&xmp, tag);
-        }
+    ];
+    let edited: Vec<(&str, &String)> = (fields.into_iter())
+        .filter_map(|(tag, text)| Some((tag, text.as_ref()?)))
+        .collect();
+    let mut edited_out = xmp.to_owned();
+    for (tag, _) in &edited {
+        edited_out = without_property(&edited_out, tag);
     }
-    insert(
-        xmp,
-        &add,
-        "Iptc4xmpCore",
-        "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
-    )
+    let uri = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+    insert(edited_out, "Iptc4xmpCore", uri, |prefix| {
+        (edited.iter())
+            .map(|(tag, text)| language_alternative(xmp, tag, text, say_empty, &named(prefix, tag)))
+            .collect()
+    })
 }
 
 /// Whether two keywords are the same one. Letter case does not count ("Oslo" and "oslo").
@@ -1277,8 +1294,16 @@ fn language_text(xmp: &str, tag: &str) -> String {
 /// The element `tag` as a language alternative, to be put in place of the one in `xmp`, with
 /// `text` in place of the item shown (`shown_language`), or as x-default when there is none.
 /// The other languages stay as they were. An empty `text` clears every language, as the field
-/// shows no other. Returns an empty text for no element, or an empty rdf:Alt when `say_empty`.
-fn language_alternative(xmp: &str, tag: &str, text: &str, say_empty: bool) -> String {
+/// shows no other. The element is written with the name `written_as`, `tag` with the prefix in
+/// force where it goes (`insert`). Returns an empty text for no element, or an empty rdf:Alt when
+/// `say_empty`.
+fn language_alternative(
+    xmp: &str,
+    tag: &str,
+    text: &str,
+    say_empty: bool,
+    written_as: &str,
+) -> String {
     let mut items = items_with_languages(xmp, tag);
     match shown_language(&items) {
         _ if text.is_empty() => items.clear(),
@@ -1287,11 +1312,11 @@ fn language_alternative(xmp: &str, tag: &str, text: &str, say_empty: bool) -> St
     }
     if items.is_empty() {
         return match say_empty {
-            true => format!("\n   <{tag}>\n    <rdf:Alt/>\n   </{tag}>"),
+            true => format!("\n   <{written_as}>\n    <rdf:Alt/>\n   </{written_as}>"),
             false => String::new(),
         };
     }
-    let mut out = format!("\n   <{tag}>\n    <rdf:Alt>\n");
+    let mut out = format!("\n   <{written_as}>\n    <rdf:Alt>\n");
     for (language, text) in items {
         let language = if language.is_empty() {
             "x-default".into()
@@ -1304,7 +1329,7 @@ fn language_alternative(xmp: &str, tag: &str, text: &str, say_empty: bool) -> St
             escape(&text)
         );
     }
-    out + &format!("    </rdf:Alt>\n   </{tag}>")
+    out + &format!("    </rdf:Alt>\n   </{written_as}>")
 }
 
 /// The rdf:li items of element `tag`, each as the language its start tag names (xml:lang, or
@@ -1375,31 +1400,10 @@ fn text_of(content: &str) -> String {
 /// it is, in all its languages. A comment only inside the image is copied into a new sidecar,
 /// which would hide it otherwise.
 fn set_keywords(xmp: &str, meta: &KeywordsAndComment, say_empty: bool) -> Option<String> {
-    let Some(original) = element(xmp, "dc:description") else {
+    if !has_element(xmp, "dc:description") {
         return set_keywords_and_comment(xmp, meta, say_empty);
-    };
-    let keep = KeywordsAndComment {
-        keywords: meta.keywords.clone(),
-        comment: language_text(xmp, "dc:description"),
-    };
-    let new = set_keywords_and_comment(xmp, &keep, say_empty)?;
-    // The description element as it was, every language of it.
-    Some(match element(&new, "dc:description") {
-        Some(made) => new.replacen(&made, &original, 1),
-        None => insert(
-            new,
-            &format!("\n   {original}"),
-            "dc",
-            "http://purl.org/dc/elements/1.1/",
-        )?,
-    })
-}
-
-/// The whole element `tag` in `xmp`, from its start tag to its end tag, or the empty element
-/// (`<tag/>`) alone.
-fn element(xmp: &str, tag: &str) -> Option<String> {
-    let (start, end) = element_span(xmp, tag)?;
-    Some(xmp[start..end].to_owned())
+    }
+    with_keywords(xmp, &meta.keywords, |_| String::new(), say_empty)
 }
 
 /// Whether `xmp` has the top-level element `tag` (`top_level_properties`). A search for its
@@ -1410,10 +1414,10 @@ fn has_element(xmp: &str, tag: &str) -> bool {
 }
 
 /// Returns where the first top-level element `tag` of `xmp` starts and where it ends
-/// (`top_level_properties`). Returns `None` when there is none, or when its end tag is missing.
+/// (`properties_named`). Returns `None` when there is none, or when its end tag is missing.
 fn element_span(xmp: &str, tag: &str) -> Option<(usize, usize)> {
-    (top_level_properties(xmp.as_bytes()).into_iter())
-        .find(|found| !found.is_attribute && xmp[found.name.clone()] == *tag)
+    (properties_named(xmp.as_bytes(), tag).into_iter())
+        .find(|found| !found.is_attribute)
         .map(|found| (found.whole.start, found.whole.end))
 }
 
@@ -1426,22 +1430,41 @@ fn set_keywords_and_comment(
     meta: &KeywordsAndComment,
     say_empty: bool,
 ) -> Option<String> {
-    let description = language_alternative(xmp, "dc:description", &meta.comment, say_empty);
-    let xmp = without_property(&without_property(xmp, "dc:subject"), "dc:description");
-    let mut add = String::new();
-    if meta.keywords.is_empty() && say_empty {
-        add += "\n   <dc:subject>\n    <rdf:Bag/>\n   </dc:subject>";
-    }
-    if !meta.keywords.is_empty() {
-        add += "\n   <dc:subject>\n    <rdf:Bag>\n";
-        for k in &meta.keywords {
-            add += &format!("     <rdf:li>{}</rdf:li>\n", escape(k));
+    let description = |prefix: &str| {
+        let written_as = named(prefix, "dc:description");
+        language_alternative(xmp, "dc:description", &meta.comment, say_empty, &written_as)
+    };
+    let comment_out = without_property(xmp, "dc:description");
+    with_keywords(&comment_out, &meta.keywords, description, say_empty)
+}
+
+/// `xmp` with `keywords` in its first rdf:Description, followed by the elements of the same
+/// namespace that `also` writes with the prefix it is given, and the keyword tree paths for
+/// them (`tree_paths_for`). No keywords are written as an empty element when `say_empty` is
+/// set. Returns `None` if `xmp` has no rdf:Description.
+fn with_keywords(
+    xmp: &str,
+    keywords: &[String],
+    also: impl FnOnce(&str) -> String,
+    say_empty: bool,
+) -> Option<String> {
+    let xmp = without_property(xmp, "dc:subject");
+    let xmp = insert(xmp, "dc", "http://purl.org/dc/elements/1.1/", |prefix| {
+        let subject = named(prefix, "dc:subject");
+        let mut add = String::new();
+        if keywords.is_empty() && say_empty {
+            add += &format!("\n   <{subject}>\n    <rdf:Bag/>\n   </{subject}>");
         }
-        add += "    </rdf:Bag>\n   </dc:subject>";
-    }
-    add += &description;
-    let xmp = insert(xmp, &add, "dc", "http://purl.org/dc/elements/1.1/")?;
-    let paths = tree_paths_for(&meta.keywords, list_items(&xmp, "lr:hierarchicalSubject"));
+        if !keywords.is_empty() {
+            add += &format!("\n   <{subject}>\n    <rdf:Bag>\n");
+            for k in keywords {
+                add += &format!("     <rdf:li>{}</rdf:li>\n", escape(k));
+            }
+            add += &format!("    </rdf:Bag>\n   </{subject}>");
+        }
+        add + &also(prefix)
+    })?;
+    let paths = tree_paths_for(keywords, list_items(&xmp, "lr:hierarchicalSubject"));
     with_paths(xmp, &paths)
 }
 
@@ -1481,9 +1504,16 @@ fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
 /// (`language_alternative`). An empty one is written as an empty element when `say_empty` is
 /// set. Returns `None` if `xmp` has no rdf:Description.
 fn set_comment(xmp: &str, comment: &str, say_empty: bool) -> Option<String> {
-    let description = language_alternative(xmp, "dc:description", comment, say_empty);
-    let xmp = without_property(xmp, "dc:description");
-    insert(xmp, &description, "dc", "http://purl.org/dc/elements/1.1/")
+    let comment_out = without_property(xmp, "dc:description");
+    insert(
+        comment_out,
+        "dc",
+        "http://purl.org/dc/elements/1.1/",
+        |prefix| {
+            let written_as = named(prefix, "dc:description");
+            language_alternative(xmp, "dc:description", comment, say_empty, &written_as)
+        },
+    )
 }
 
 /// `xmp` with each list of `SLASHED_TREE_LISTS` that it has, or that `lists_in_image` names,
@@ -1500,13 +1530,15 @@ fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<Strin
         if !has_element(&xmp, list) && !lists_in_image.contains(&list) {
             continue;
         }
-        let mut add = format!("\n   <{list}>\n    <rdf:{container}>\n");
-        for p in paths.iter().filter(|p| !p.contains('/')) {
-            add += &format!("     <rdf:li>{}</rdf:li>\n", escape(&p.replace('|', "/")));
-        }
-        add += &format!("    </rdf:{container}>\n   </{list}>");
         let prefix = list.split(':').next().unwrap_or(list);
-        xmp = insert(without_property(&xmp, list), &add, prefix, uri)?;
+        xmp = insert(without_property(&xmp, list), prefix, uri, |in_force| {
+            let name = named(in_force, list);
+            let mut add = format!("\n   <{name}>\n    <rdf:{container}>\n");
+            for p in paths.iter().filter(|p| !p.contains('/')) {
+                add += &format!("     <rdf:li>{}</rdf:li>\n", escape(&p.replace('|', "/")));
+            }
+            add + &format!("    </rdf:{container}>\n   </{name}>")
+        })?;
     }
     Some(xmp)
 }
@@ -1517,26 +1549,28 @@ fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
     if paths.is_empty() {
         return Some(xmp);
     }
-    let mut add = "\n   <lr:hierarchicalSubject>\n    <rdf:Bag>\n".to_owned();
-    for p in paths {
-        add += &format!("     <rdf:li>{}</rdf:li>\n", escape(p));
-    }
-    add += "    </rdf:Bag>\n   </lr:hierarchicalSubject>";
-    insert(xmp, &add, "lr", "http://ns.adobe.com/lightroom/1.0/")
+    insert(xmp, "lr", "http://ns.adobe.com/lightroom/1.0/", |prefix| {
+        let name = named(prefix, "lr:hierarchicalSubject");
+        let mut add = format!("\n   <{name}>\n    <rdf:Bag>\n");
+        for p in paths {
+            add += &format!("     <rdf:li>{}</rdf:li>\n", escape(p));
+        }
+        add + &format!("    </rdf:Bag>\n   </{name}>")
+    })
 }
 
-/// `xmp` with the elements `add` put in its first rdf:Description, and namespace `prefix`
-/// declared there unless it is already in force.
-fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
+/// `xmp` with the elements of the namespace `uri` that `add` writes put in its first
+/// rdf:Description. `add` is given the prefix to write them with, the one in force there for
+/// `uri` (`prefix_in_force`), which is `prefix` declared there when none is.
+fn insert(
+    xmp: String,
+    prefix: &str,
+    uri: &str,
+    add: impl FnOnce(&str) -> String,
+) -> Option<String> {
     let (end, declared) = first_description(&xmp)?;
-    // The prefix must be declared on this Description or above it. exiftool gives each
-    // namespace a Description of its own, and a prefix declared on a later one is not in force
-    // here.
-    let ns = if declared.iter().any(|(p, _)| *p == prefix) {
-        String::new()
-    } else {
-        format!(" xmlns:{prefix}=\"{uri}\"")
-    };
+    let (in_force, ns) = prefix_in_force(&declared, prefix, uri);
+    let add = add(&in_force);
     // A Description without content (<rdf:Description .../>) is opened to hold the elements.
     Some(match xmp[..end].strip_suffix('/') {
         Some(head) if !add.is_empty() => {
@@ -1545,6 +1579,38 @@ fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
         Some(_) => xmp,
         None => format!("{}{ns}>{add}{}", &xmp[..end], &xmp[end + 1..]),
     })
+}
+
+/// Returns `tag`, a name such as "dc:subject", with `prefix` in place of its own.
+fn named(prefix: &str, tag: &str) -> String {
+    let local = tag.split_once(':').map_or(tag, |(_, local)| local);
+    format!("{prefix}:{local}")
+}
+
+/// Returns the prefix that a property of the namespace `uri` is written with in a Description
+/// whose namespaces in force are `declared` (`first_description`), and the declaration to add
+/// to its start tag, which is empty when the prefix is declared already. It is the prefix that
+/// `declared` binds to `uri`, so that a property is written as the same one as the packet has
+/// (`ns1:subject`). When none is bound, it is `prefix`, or `prefix` with a number when that
+/// is bound to another namespace. exiftool gives each namespace a Description of its own, and
+/// a prefix declared on a later one is not in force in the first.
+pub(crate) fn prefix_in_force(
+    declared: &[(&str, &str)],
+    prefix: &str,
+    uri: &str,
+) -> (String, String) {
+    // A later declaration of a prefix is the one in force, as it is on an inner element.
+    let bound: std::collections::HashMap<&str, &str> = declared.iter().copied().collect();
+    if let Some((p, _)) = declared.iter().find(|(p, _)| bound.get(p) == Some(&uri)) {
+        return ((*p).to_owned(), String::new());
+    }
+    let (mut free, mut number) = (prefix.to_owned(), 0);
+    while bound.contains_key(free.as_str()) {
+        number += 1;
+        free = format!("{prefix}{number}");
+    }
+    let ns = format!(" xmlns:{free}=\"{uri}\"");
+    (free, ns)
 }
 
 /// Sets a keyword of the keyword tree, "Places|Norway|Oslo", on `path` or takes it off. Its
@@ -1575,7 +1641,7 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
 
 /// `xmp` without property `tag` in any form it is written in (`save::xmp_without_property`).
 pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
-    let out = crate::images::save::xmp_without_property(xmp.as_bytes(), tag.as_bytes());
+    let out = crate::images::save::xmp_without_property(xmp.as_bytes(), tag);
     // It cuts only at ASCII characters, so the text stays UTF-8.
     String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
 }
@@ -1636,6 +1702,36 @@ pub(crate) fn top_level_properties(xmp: &[u8]) -> Vec<TopLevelProperty> {
         }
     }
     out
+}
+
+/// Returns the top-level properties of `xmp` (`top_level_properties`) that are `tag`, a name
+/// with the prefix of its namespace in `KNOWN_NAMESPACES`, such as "dc:subject". A property
+/// counts when the packet binds its prefix to that namespace, whatever the prefix is, as a
+/// tool that writes `ns1:subject` binds it. It counts too when it is written as `tag` and the
+/// packet binds that prefix to nothing, as a broken packet may have it. A `tag` whose prefix
+/// is not in `KNOWN_NAMESPACES` is found as it is written. It is the one way the readers and
+/// editors find a property by its name. Before, they compared the prefix as written, so they
+/// read no keywords of a packet that wrote `ns1:subject` and wrote a second `dc:subject` beside
+/// it, which exiv2 refuses.
+pub(crate) fn properties_named(xmp: &[u8], tag: &str) -> Vec<TopLevelProperty> {
+    let text = String::from_utf8_lossy(xmp);
+    let declared: std::collections::HashSet<(&str, &str)> =
+        namespace_declarations_with_default(&text)
+            .into_iter()
+            .collect();
+    let (prefix, local) = tag.split_once(':').unwrap_or(("", tag));
+    let uris: Vec<&str> = (KNOWN_NAMESPACES.iter())
+        .filter(|(known, _)| *known == prefix)
+        .map(|(_, uri)| *uri)
+        .collect();
+    let is_bound = declared.iter().any(|(p, _)| *p == prefix);
+    let as_written = uris.is_empty() || !is_bound;
+    (top_level_properties(xmp).into_iter())
+        .filter(|found| {
+            (as_written && xmp[found.name.clone()] == *tag.as_bytes())
+                || found.is_in(xmp, &declared, &uris, local)
+        })
+        .collect()
 }
 
 /// Returns where the first rdf:Description of `xmp` at `from` or after it starts, at its '<'.
@@ -3543,6 +3639,42 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A sidecar that binds Dublin Core to another prefix, as a tool that makes up its prefixes
+    /// writes it, shows its keywords, and an edit changes that property rather than writing a
+    /// second `dc:subject` beside it, which exiv2 refuses. A prefix `dc` bound to another
+    /// namespace is not taken for Dublin Core's.
+    #[test]
+    fn properties_are_found_by_their_namespace() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-ns1-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        let packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                      rdf:about=\"\" xmlns:ns1=\"http://purl.org/dc/elements/1.1/\"><ns1:subject>\
+                      <rdf:Bag><rdf:li>Oslo</rdf:li></rdf:Bag></ns1:subject></rdf:Description>\
+                      </rdf:RDF></x:xmpmeta>";
+        std::fs::write(sidecar(&file), packet).unwrap();
+        assert_eq!(read(&file).keywords, ["Oslo"]);
+        add_keywords(&file, &["Beach".into()]).unwrap();
+        write_changed(&file, None, Some("Pier".into())).unwrap();
+        let written = std::fs::read_to_string(sidecar(&file)).unwrap();
+        assert_eq!(read(&file).keywords, ["Oslo", "Beach"]);
+        assert_eq!(read(&file).comment, "Pier");
+        assert_eq!(written.matches("subject>").count(), 2, "{written}");
+        assert!(!written.contains("dc:"), "{written}");
+        let other = "<rdf:Description xmlns:dc=\"urn:other\"><dc:subject>x</dc:subject>\
+                     </rdf:Description>";
+        let meta = KeywordsAndComment {
+            keywords: vec!["Oslo".into()],
+            comment: String::new(),
+        };
+        let written = set_keywords_and_comment(other, &meta, false).unwrap();
+        assert!(written.contains("<dc:subject>x</dc:subject>"), "{written}");
+        assert!(written.contains("<dc1:subject>"), "{written}");
+        assert_eq!(parse(&written).keywords, ["Oslo"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Keyword tree paths from another program are added to an image in one write. Its own
     /// keyword stays, each name and path is there once, and nothing is written when all are
     /// there.
@@ -3920,7 +4052,6 @@ mod tests {
             parse_alt_text(&xmp);
             set_alt_text(&xmp, &both(&AltText::default()), true);
             set_keywords(&xmp, &meta, true);
-            element(&xmp, "dc:subject");
         }
     }
 
