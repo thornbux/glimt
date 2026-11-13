@@ -3956,3 +3956,8 @@ msgstr "Einer Kopie einen neuen Namen geben, wenn ihr Name vergeben ist (NAME-2.
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; {files} umbenannt"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Konnte die Markierungsdatei {name} nicht lesen: {e}"

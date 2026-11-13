@@ -872,6 +872,7 @@ fn locks_in(runtime: Option<PathBuf>) -> Option<PathBuf> {
 /// Takes the lock file `number` in `dir`, the number that `sidecar_lock_number` gives a sidecar.
 fn lock_file(dir: &Path, number: u64) -> Option<std::fs::File> {
     use std::os::unix::fs::DirBuilderExt;
+    // Not told: `lock_or_tell` below tells a lock that cannot be made in a folder not there.
     let _ = std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)

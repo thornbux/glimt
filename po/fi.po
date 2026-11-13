@@ -3956,3 +3956,8 @@ msgstr "Anna kopiolle uusi nimi, kun sen nimi on varattu (NIMI-2.EXT)"
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; uusi nimi annettiin: {files}"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Merkintätiedostoa {name} ei voitu lukea: {e}"

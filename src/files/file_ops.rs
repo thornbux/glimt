@@ -4285,7 +4285,7 @@ mod tests {
         let idle = |app: &crate::App| {
             (app.file_operations.jobs.iter()).all(|job| std::sync::Arc::strong_count(job) == 1)
         };
-        keyword.add_keywords(&keyword_ctx, vec!["meant for the first photo".into()]);
+        keyword.add_keywords_to_selected(&keyword_ctx, vec!["meant for the first photo".into()]);
         assert!(run_background_until(&mut keyword, &keyword_ctx, |app| !app
             .file_operations
             .is_writing_sidecars()));
@@ -6463,7 +6463,7 @@ mod tests {
             // that name, as marks.rs has for its own file.
             let own_counter = file != "files/file_io.rs" && code.contains("static WRITING:");
             let mut function = String::new();
-            for line in code.lines() {
+            for line in crate::support::source_rules::code_lines(code) {
                 if let Some(at) = line.find("fn ") {
                     let rest = &line[at + 3..];
                     if let Some(end) = rest.find(|c: char| !(c.is_alphanumeric() || c == '_'))
@@ -6472,15 +6472,7 @@ mod tests {
                         function = rest[..end].to_owned();
                     }
                 }
-                let starts = [
-                    "self.start_job(",
-                    "self.start_job_of(",
-                    "self.run_in_background(",
-                    "self.hold_back_while_writing(",
-                ];
-                let starts =
-                    starts.iter().any(|s| line.contains(s)) || counts_as_writing(line, own_counter);
-                if starts && !line.trim_start().starts_with("//") {
+                if starts_an_operation(&line) || counts_as_writing(&line, own_counter) {
                     found.insert(function.clone());
                 }
             }
@@ -6517,6 +6509,46 @@ mod tests {
         }
         assert!(!counts_as_writing("Working::new(&WRITING);", true));
         assert!(!counts_as_writing("Working::new(&self.busy);", false));
+        // An operation is started however its receiver is spelled. Before, only `self.` was
+        // seen, so one started as `app.` in a closure that is given the App passed unseen.
+        for spelling in [
+            "app.start_job(ctx, x);",
+            "            .start_job_of(\"Moving\", 1, false, paths)",
+            "crate::App::run_in_background(app, ctx, held, work);",
+            "let held = window.hold_back_while_writing(paths)?;",
+            "paths.iter().map(App::run_in_background);",
+        ] {
+            assert!(starts_an_operation(spelling), "missed: {spelling}");
+        }
+        for other in [
+            "pub(crate) fn start_job(",
+            "fn run_in_background<W>(",
+            "restart_job(x);",
+            "let start_job_count = 1;",
+        ] {
+            assert!(!starts_an_operation(other), "taken: {other}");
+        }
+    }
+
+    /// Returns whether `line` starts a job or background work: a call of one of the functions
+    /// that do, with any receiver or path, or one of them given as a value. Its own definition
+    /// is not a start.
+    fn starts_an_operation(line: &str) -> bool {
+        const STARTS: [&str; 4] = [
+            "start_job",
+            "start_job_of",
+            "run_in_background",
+            "hold_back_while_writing",
+        ];
+        STARTS.iter().any(|name| {
+            line.match_indices(name).any(|(at, _)| {
+                let before = &line[..at];
+                let after = &line[at + name.len()..];
+                !before.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+                    && !before.trim_end().ends_with("fn")
+                    && (after.starts_with(['(', ')', ',']) || after.starts_with("::<"))
+            })
+        })
     }
 
     /// Returns whether `line` counts work as writing the user's files through file_io's

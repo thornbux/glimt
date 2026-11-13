@@ -3967,3 +3967,8 @@ msgstr "Nadaj kopii nową nazwę, gdy jej nazwa jest zajęta (NAZWA-2.EXT)"
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; nowe nazwy otrzymało: {files}"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Nie udało się odczytać pliku znaczników {name}: {e}"

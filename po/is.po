@@ -3956,3 +3956,8 @@ msgstr "Gefa afriti nýtt nafn þegar nafnið er frátekið (NAFN-2.EXT)"
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; nýtt nafn fengu: {files}"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Gat ekki lesið merkjaskrána {name}: {e}"

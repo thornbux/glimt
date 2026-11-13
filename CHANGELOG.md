@@ -53,6 +53,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A Rename Many that swaps names undoes the swap when the state disk is full at its middle step.
   Before, a kill just after such a swap made the next start take it for one not begun, and
   Finish swapped the photos back and put the marks on the other photo.
+- A marks file that cannot be read, as on a share that fails for a moment, is told, and read
+  again at the next refresh, while the window keeps the marks it showed. Before, it was taken
+  for a file without marks, so the window showed none until another window wrote the file, and
+  a Lightroom import that keeps Glimt's stars rated over the stars that the file held.
 
 ## [0.83.0] - 2026-11-13
 

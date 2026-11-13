@@ -3967,3 +3967,8 @@ msgstr "Gje ein kopi nytt namn når namnet er teke (NAMN-2.EXT)"
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; {files} fekk nye namn"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Kunne ikkje lesa merkefila {name}: {e}"
