@@ -410,7 +410,7 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
     let side = own_sidecar_text(path);
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
-    let has_alt_text = |x: &String| has_element(x, ALT) || has_element(x, EXTENDED);
+    let has_alt_text = |x: &String| has_property(x, ALT) || has_property(x, EXTENDED);
     let source = (side.clone())
         .filter(|x| has_keywords_or_comment(x))
         .or_else(inside);
@@ -541,9 +541,9 @@ fn source(path: &Path) -> Option<String> {
         .or_else(|| embedded(path))
 }
 
-/// Whether `xmp` has keywords or a comment, as top-level elements (`has_element`).
+/// Whether `xmp` has keywords or a comment, as top-level elements (`has_property`).
 fn has_keywords_or_comment(xmp: &str) -> bool {
-    has_element(xmp, "dc:subject") || has_element(xmp, "dc:description")
+    has_property(xmp, "dc:subject") || has_property(xmp, "dc:description")
 }
 
 /// Reads the sidecar of `path` as text for the panel and the search. Returns `None` when there
@@ -665,7 +665,7 @@ fn write_keywords(
     // The image's own lists are countered in the sidecar, as its dc:subject is.
     let lists_in_image: Vec<&str> = (SLASHED_TREE_LISTS.iter())
         .map(|(list, ..)| *list)
-        .filter(|list| inside.as_deref().is_some_and(|x| has_element(x, list)))
+        .filter(|list| inside.as_deref().is_some_and(|x| has_property(x, list)))
         .collect();
     let mut written = KeywordsAndComment::default();
     update(path, false, |x| {
@@ -683,7 +683,7 @@ fn write_keywords(
         let (meta, paths) = (&meta, &paths);
         // A sidecar without dc:subject takes the keywords that were read, so that a new one
         // does not hide the image's.
-        if edited == Edited::Comment && has_element(x, "dc:subject") {
+        if edited == Edited::Comment && has_property(x, "dc:subject") {
             return set_comment(x, &meta.comment, own);
         }
         let x = with_paths(x.to_owned(), paths)?;
@@ -1311,8 +1311,21 @@ fn shown_language(items: &[(String, String)]) -> Option<usize> {
 
 /// The text of the language alternative `tag` in `xmp` that the panel shows (`shown_language`).
 fn language_text(xmp: &str, tag: &str) -> String {
-    let mut items = items_with_languages(xmp, tag);
+    let mut items = languages(xmp, tag);
     shown_language(&items).map_or_else(String::new, |i| items.swap_remove(i).1)
+}
+
+/// The items of the language alternative `tag` in `xmp` (`items_with_languages`), one for each
+/// language. When it is written twice, the text of the first that has a language is the one
+/// read, edited and written.
+fn languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for item in items_with_languages(xmp, tag) {
+        if !out.iter().any(|(language, _)| *language == item.0) {
+            out.push(item);
+        }
+    }
+    out
 }
 
 /// The element `tag` as a language alternative, to be put in place of the one in `xmp`, with
@@ -1328,7 +1341,7 @@ fn language_alternative(
     say_empty: bool,
     written_as: &str,
 ) -> String {
-    let mut items = items_with_languages(xmp, tag);
+    let mut items = languages(xmp, tag);
     match shown_language(&items) {
         _ if text.is_empty() => items.clear(),
         Some(i) => items[i].1 = text.to_owned(),
@@ -1356,13 +1369,34 @@ fn language_alternative(
     out + &format!("    </rdf:Alt>\n   </{written_as}>")
 }
 
-/// The rdf:li items of element `tag`, each as the language its start tag names (xml:lang, or
-/// empty for none) and its text.
+/// The rdf:li items of property `tag`, each as the language its start tag names (xml:lang, or
+/// empty for none) and its text. They are those of every top-level property that is `tag`
+/// (`properties_named`), in the order they are written, as the editors take out every one of
+/// them (`without_property`) and write back what was read. An item that an earlier one of them
+/// has already is left out. A property written as an attribute is one item without a language.
+/// Before, only the first was read, and an edit of a sidecar that held `dc:subject` and
+/// `ns1:subject` both lost the keywords of the second for good.
 fn items_with_languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for found in properties_named(xmp.as_bytes(), tag) {
+        let items = match found.is_attribute {
+            true => vec![(String::new(), unescape(&xmp[found.value]))],
+            false => element_items(xmp, found.whole.start, found.whole.end),
+        };
+        let earlier = out.len();
+        for item in items {
+            if !out[..earlier].contains(&item) {
+                out.push(item);
+            }
+        }
+    }
+    out
+}
+
+/// The rdf:li items of the element of `xmp` from `start` to `end`, each as the language its
+/// start tag names (xml:lang, or empty for none) and its text.
+fn element_items(xmp: &str, start: usize, end: usize) -> Vec<(String, String)> {
     const ITEM: &[u8] = b"<rdf:li";
-    let Some((start, end)) = element_span(xmp, tag) else {
-        return Vec::new();
-    };
     let (bytes, mut from, mut out) = (&xmp.as_bytes()[..end], start, Vec::new());
     while let Some(found) = bytes[from..].iter().position(|&c| c == b'<') {
         let at = from + found;
@@ -1424,25 +1458,17 @@ fn text_of(content: &str) -> String {
 /// it is, in all its languages. A comment only inside the image is copied into a new sidecar,
 /// which would hide it otherwise.
 fn set_keywords(xmp: &str, meta: &KeywordsAndComment, say_empty: bool) -> Option<String> {
-    if !has_element(xmp, "dc:description") {
+    if !has_property(xmp, "dc:description") {
         return set_keywords_and_comment(xmp, meta, say_empty);
     }
     with_keywords(xmp, &meta.keywords, |_| String::new(), say_empty)
 }
 
-/// Whether `xmp` has the top-level element `tag` (`top_level_properties`). A search for its
-/// name would also find one inside another property, such as another document's in
-/// xmpMM:Pantry.
-fn has_element(xmp: &str, tag: &str) -> bool {
-    element_span(xmp, tag).is_some()
-}
-
-/// Returns where the first top-level element `tag` of `xmp` starts and where it ends
-/// (`properties_named`). Returns `None` when there is none, or when its end tag is missing.
-fn element_span(xmp: &str, tag: &str) -> Option<(usize, usize)> {
-    (properties_named(xmp.as_bytes(), tag).into_iter())
-        .find(|found| !found.is_attribute)
-        .map(|found| (found.whole.start, found.whole.end))
+/// Whether `xmp` has the top-level property `tag` (`properties_named`), as an element or an
+/// attribute, as the readers read both. A search for its name would also find one inside
+/// another property, such as another document's in xmpMM:Pantry.
+fn has_property(xmp: &str, tag: &str) -> bool {
+    !properties_named(xmp.as_bytes(), tag).is_empty()
 }
 
 /// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. The comment
@@ -1551,7 +1577,7 @@ fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<Strin
     let paths = list_items(&xmp, "lr:hierarchicalSubject");
     let mut xmp = xmp;
     for (list, container, uri) in SLASHED_TREE_LISTS {
-        if !has_element(&xmp, list) && !lists_in_image.contains(&list) {
+        if !has_property(&xmp, list) && !lists_in_image.contains(&list) {
             continue;
         }
         let prefix = list.split(':').next().unwrap_or(list);
@@ -3682,6 +3708,72 @@ mod tests {
         assert_eq!(read_all(&file).2, expected);
         write_alt_text(&file, &only(None, Some(""))).unwrap();
         assert_eq!(read_all(&file).2.text, "Pier");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A property written twice, under two prefixes bound to its namespace, is read whole, as
+    /// the editors take out both. Glimt 0.83 wrote a `dc:subject` beside a sidecar's
+    /// `ns1:subject`, and before, the next keyword edit read only the first and wrote it alone,
+    /// so the keywords of the second were lost.
+    #[test]
+    fn a_property_written_twice_is_read_and_kept_whole() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-prop-twice-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        let bag = |name: &str, item: &str| {
+            format!("<{name}><rdf:Bag><rdf:li>{item}</rdf:li></rdf:Bag></{name}>")
+        };
+        let alt = |name: &str, language: &str, text: &str| {
+            format!(
+                "<{name}><rdf:Alt><rdf:li xml:lang=\"{language}\">{text}</rdf:li></rdf:Alt>\
+                 </{name}>"
+            )
+        };
+        let packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+             xmlns:ns1=\"http://purl.org/dc/elements/1.1/\" \
+             xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\" \
+             xmlns:ns2=\"http://ns.adobe.com/lightroom/1.0/\" \
+             xmlns:Iptc4xmpCore=\"http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/\" \
+             xmlns:ns3=\"http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/\">\
+             {}{}{}{}{}{}{}{}</rdf:Description></rdf:RDF></x:xmpmeta>",
+            bag("dc:subject", "Beach"),
+            bag("ns1:subject", "Oslo"),
+            alt("dc:description", "x-default", "Pier"),
+            alt("ns1:description", "de", "Steg"),
+            bag("lr:hierarchicalSubject", "Beach"),
+            bag("ns2:hierarchicalSubject", "Places|Oslo"),
+            alt("Iptc4xmpCore:AltTextAccessibility", "x-default", "Dog"),
+            alt("ns3:AltTextAccessibility", "de", "Hund"),
+        );
+        std::fs::write(sidecar(&file), &packet).unwrap();
+        assert_eq!(read(&file).keywords, ["Beach", "Oslo"]);
+        add_keywords(&file, &["Sun".into()]).unwrap();
+        let alt_text = AltTextChange {
+            text: Some("Brown dog".into()),
+            extended_description: None,
+        };
+        write_alt_text(&file, &alt_text).unwrap();
+        let written = std::fs::read_to_string(sidecar(&file)).unwrap();
+        assert_eq!(read(&file).keywords, ["Beach", "Oslo", "Sun"], "{written}");
+        assert_eq!(read(&file).comment, "Pier");
+        let languages = |tag| items_with_languages(&written, tag);
+        assert_eq!(languages("dc:description").len(), 2, "{written}");
+        assert_eq!(languages(ALT).len(), 2, "{written}");
+        assert_eq!(
+            tree_paths(&file),
+            ["Beach", "Places|Oslo", "Sun"],
+            "{written}"
+        );
+        assert_eq!(written.matches("subject>").count(), 2, "{written}");
+        // A property written as an attribute is read too, as the editors take it out too.
+        let attribute = "<rdf:Description xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+                         dc:subject=\"Fjord &amp; sea\"/>";
+        assert_eq!(parse(attribute).keywords, ["Fjord & sea"]);
+        assert!(has_keywords_or_comment(attribute));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
