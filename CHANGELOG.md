@@ -46,10 +46,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   64 KB, so a large one planted there no longer fills memory at the Undo.
 - Glimt killed during a Delete or a Move to Trash (a logout that does not wait, a third close)
   no longer leaves the stars and marks of the files already gone at their names: the next start
-  forgets them, also where a later photo of that name was copied in meanwhile. A Move to Trash
-  sends each photo's sidecar with it, so a kill no longer leaves the sidecar of a photo that went
-  at its name. Before, the next photo of that name showed the stars and keywords of the one
-  deleted.
+  forgets them, and takes those files out of the collection that was shown. Only a name surely
+  gone from a folder that is there counts: a file at the name keeps its marks, and so does one
+  on a stick or share not back yet, whose log waits for a later start. A Move to Trash sends
+  each photo's sidecar with it, so a kill no longer leaves the sidecar of a photo that went at
+  its name, and the next start takes back from the trash the sidecar of a photo the kill came
+  before. Before, the next photo of that name showed the stars and keywords of the one deleted.
 - A Rename Many that swaps names undoes the swap when the state disk is full at its middle step.
   Before, a kill just after such a swap made the next start take it for one not begun, and
   Finish swapped the photos back and put the marks on the other photo.
