@@ -919,7 +919,8 @@ impl crate::App {
         self.run_in_background(ctx, Vec::new(), move || {
             let since = std::time::SystemTime::now();
             let (_, picked) = picked.wait_for_fingerprints();
-            let started = delete_log_dir.as_deref().map(journal::start_delete_log);
+            let started = (delete_log_dir.as_deref())
+                .map(|d| journal::start_delete_log(d, collection.as_deref()));
             let (mut delete_log, start_failure) = match started.transpose() {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
@@ -2634,10 +2635,10 @@ fn broke_here() -> String {
 
 /// Takes the files or folders `gone` for good out of the `collection` shown. This happens only
 /// once they are gone, in the thread that knows, so the file keeps its order and never lacks a
-/// file that is still there. It is the one place for Delete and Move Folder to Trash. A plain
-/// list is the user's own and is never written. Returns what it took out, each entry with its
-/// place, for Undo to put back.
-fn forget_in_collection(
+/// file that is still there. It is the one place for Delete and Move Folder to Trash, and for a
+/// delete that Glimt was killed during, at the next start. A plain list is the user's own and
+/// is never written. Returns what it took out, each entry with its place, for Undo to put back.
+pub(crate) fn forget_in_collection(
     collection: Option<&Path>,
     gone: &[PathBuf],
 ) -> Result<Vec<(usize, PathBuf)>, String> {
@@ -5986,26 +5987,30 @@ mod tests {
     }
 
     /// Glimt killed during a Delete leaves the delete's log, and the next start forgets the
-    /// marks of the files that went and of a name that a later photo has taken since, and only
-    /// those. Before, the marks were forgotten only in the delete's last report, so a kill (a
-    /// logout's SIGKILL, a third close) left the stars of every file already deleted at its name,
-    /// where the next photo of that name showed them. The kill here is the log dropped without a
-    /// report, with one file of three gone.
+    /// marks of the files that went, and only those. Before, the marks were forgotten only in
+    /// the delete's last report, so a kill (a logout's SIGKILL, a third close) left the stars of
+    /// every file already deleted at its name, where the next photo of that name showed them.
+    /// The kill here is the log dropped without a report, with one file of four gone. A file at
+    /// a logged name keeps its marks, also when it changed since, as it may be the file the kill
+    /// came before, written anew, or one marked after the kill. So does a file whose folder is
+    /// not there at the start, as on a stick not plugged in yet, and the log stays for a later
+    /// start.
     #[test]
     fn the_marks_of_the_files_a_killed_delete_deleted_are_forgotten() {
         let dir = contract_folder("killed-delete");
         let logs = dir.join("logs");
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        let stick = dir.join("stick");
+        let d = stick.join("d.png");
         std::fs::write(&c, b"c").unwrap();
         let (mut app, ctx) = app_on(&dir);
+        let all = [a.clone(), b.clone(), c.clone(), d.clone()];
         #[cfg(feature = "marks")]
-        app.marks.rate(
-            &crate::support::test_support::unlisted(&[a.clone(), b.clone(), c.clone()]),
-            3,
-        );
+        app.marks
+            .rate(&crate::support::test_support::unlisted(&all), 3);
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
-        let job = super::Job::new("Deleting", 3, false, Vec::new());
-        let mut log = super::journal::start_delete_log(&logs).unwrap();
+        let job = super::Job::new("Deleting", 4, false, Vec::new());
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let mut errors = Vec::new();
@@ -6013,34 +6018,100 @@ mod tests {
         let (gone, _, _) =
             super::delete_in_chunks(std::slice::from_ref(&a), &picked, how, &job, &mut errors);
         assert_eq!(gone, std::slice::from_ref(&a), "{errors:?}");
-        // b.png and c.png were written down, and the kill came before they went.
-        log.note(&[b.clone(), c.clone()]);
+        // b.png, c.png and the stick's d.png were written down, and the kill came before they
+        // went.
+        log.note(&all[1..]);
         drop(log);
-        // A later photo took the name c.png before the next start.
-        std::fs::remove_file(&c).unwrap();
-        std::fs::write(&c, b"a later photo").unwrap();
-        let found = super::journal::deletes_cut_short(&logs);
-        assert_eq!(found.len(), 1);
-        for (log, gone) in found {
-            assert_eq!(gone, [a.clone(), c.clone()]);
-            // Another window that starts meanwhile leaves the log alone.
-            assert!(super::journal::deletes_cut_short(&logs).is_empty());
-            let report = super::OperationReport {
-                gone,
-                delete_log: Some(log),
-                ..Default::default()
-            };
-            let _ = app.file_operations.report_sender().send(report);
+        // Another program wrote c.png anew before the next start, and the stick is not there.
+        std::fs::write(&c, b"written anew").unwrap();
+        let start = |app: &mut crate::App, expected: &[PathBuf]| {
+            let found = super::journal::deletes_cut_short(&logs);
+            assert_eq!(found.len(), 1);
+            for (log, gone) in found {
+                assert_eq!(gone, expected);
+                // Another window that starts meanwhile leaves the log alone.
+                assert!(super::journal::deletes_cut_short(&logs).is_empty());
+                let report = super::OperationReport {
+                    gone,
+                    delete_log: Some(log),
+                    ..Default::default()
+                };
+                let _ = app.file_operations.report_sender().send(report);
+            }
+            assert!(run_background_until(app, &ctx, |app| !app.working()));
+            crate::files::file_io::wait_for_queued_writes();
+        };
+        start(&mut app, std::slice::from_ref(&a));
+        assert_eq!(stars(&app, &a), 0);
+        for kept in &all[1..] {
+            assert_eq!(stars(&app, kept), marked, "{kept:?}");
         }
+        // At a later start the stick is back, without d.png, which went before the kill.
+        std::fs::create_dir(&stick).unwrap();
+        start(&mut app, &[a.clone(), d.clone()]);
         let no_log_left = |_: &crate::App| {
             let left = std::fs::read_dir(&logs).unwrap().flatten();
             left.filter(|e| e.path().is_file()).count() == 0
                 && std::fs::read_dir(logs.join("files")).unwrap().count() == 0
         };
         assert!(run_background_until(&mut app, &ctx, no_log_left));
-        assert_eq!(stars(&app, &a), 0);
-        assert_eq!(stars(&app, &c), 0);
+        assert_eq!(stars(&app, &d), 0);
         assert_eq!(stars(&app, &b), marked);
+        assert_eq!(stars(&app, &c), marked);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Glimt killed during a delete in a collection leaves the collection's entries of the files
+    /// that went, and the next start takes them out, as the delete would have at its end. Before,
+    /// they stayed, and a later photo of that name showed in the collection. The log's file of
+    /// the collection goes with the log.
+    #[test]
+    fn a_killed_delete_takes_the_files_that_went_out_of_the_collection() {
+        let dir = contract_folder("killed-delete-collection");
+        let (logs, gqv) = (dir.join("logs"), dir.join("col.gqv"));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let both = [a.clone(), b.clone()];
+        crate::model::collections::edit(&gqv, true, |all| *all = both.to_vec()).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, Some(&gqv)).unwrap();
+        log.note(&both);
+        // The kill came after a.png went, before b.png.
+        std::fs::remove_file(&a).unwrap();
+        drop(log);
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert_eq!(crate::model::collections::load(&gqv).unwrap(), [b]);
+        for (log, _) in found {
+            log.remove_once_forgotten();
+        }
+        // The log goes after the writes of both writer threads, one queued after the other.
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let left = std::fs::read_dir(logs.join("collections")).unwrap().count();
+        assert_eq!(left, 0, "the log's file of the collection is left");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Glimt killed during a Move to Trash between a photo's sidecar and the photo, which go to
+    /// the trash in that order, leaves the photo at its name and its sidecar in the trash. The
+    /// next start takes the sidecar back. Before, the photo's keywords, comment and alt text
+    /// stayed in the trash.
+    #[test]
+    fn a_killed_move_to_trash_takes_back_the_sidecar_of_a_photo_that_stayed() {
+        let dir = contract_folder("killed-trash-sidecar");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        // The sidecar went to the trash, and the kill came before the photo.
+        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        assert!(!side.exists());
+        drop(log);
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].1.is_empty(), "a.png did not go");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
+        drop(found);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

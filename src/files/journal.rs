@@ -6,9 +6,12 @@
 //! A Move keeps a log of the same kind (`MoveLog`), so that the marks and collections of the
 //! files that went before Glimt was killed follow them at the next start. A Delete and a Move to
 //! Trash keep one too (`DeleteLog`), so that the marks and stars of the files that went before a
-//! kill are forgotten at the next start.
+//! kill are forgotten at the next start. A name whose folder is not there at that start, as on a
+//! stick not plugged in yet, keeps its marks, and its log stays for a later start. The files
+//! that went also leave the collection that was shown during the delete, and a photo that
+//! stayed takes back its sidecars that the kill left in the trash.
 
-use crate::files::file_io::{FileFingerprint, is_surely_gone, is_surely_there};
+use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -30,6 +33,11 @@ const KNOWN_FOLDER: &str = "files";
 /// How old an empty Move log no window holds must be before it is taken for one whose Move
 /// never started, and removed. A log is locked a moment after it is made.
 const EMPTY_LOG_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The folder, in the folder of the deletes' logs, of the collection that was shown during each
+/// delete: one file for each log, of the same name, that holds the collection's path. It is a
+/// folder of its own, as `KNOWN_FOLDER` is, so that every file beside the logs is a log.
+const COLLECTION_FOLDER: &str = "collections";
 
 /// The lock file, in `KNOWN_FOLDER`, that every window holds while it changes a list there
 /// (`note_written_anew_in`). No plan has its name, as a plan's name starts with no dot.
@@ -207,6 +215,9 @@ pub struct DeleteLog {
     /// The first write of the log that failed, on a full disk say. The log takes no more names
     /// after it, and the delete goes on without them, as a Move does without its log.
     failure: Option<std::io::Error>,
+    /// Whether the log, found at the start, names a file that the start could not tell went
+    /// or stayed (`went_before_the_kill`). Such a log stays on disk for a later start.
+    has_names_left: bool,
 }
 
 impl DeleteLog {
@@ -238,9 +249,15 @@ impl DeleteLog {
 
     /// Removes the log once the marks and stars of its files that went are forgotten. The window
     /// sent their edit before, to the thread of Glimt's own files, and the log goes after it. A
-    /// log that is dropped instead stays on disk, and the next start forgets them.
+    /// log that is dropped instead stays on disk, and the next start forgets them. So does a log
+    /// that names a file the start could not tell about: a later start reads it again, and
+    /// forgets again only the marks of the names that are surely gone then.
     pub fn remove_once_forgotten(self) {
-        remove_after_the_writes(self.path, self.file);
+        if self.has_names_left {
+            crate::files::file_io::write_later(move || drop(self.file));
+        } else {
+            remove_after_the_writes(self.path, self.file);
+        }
     }
 }
 
@@ -249,6 +266,19 @@ impl DeleteLog {
 /// src/frozen-1.0.txt.
 pub(crate) fn lists_folder(dir: &Path) -> PathBuf {
     dir.join(KNOWN_FOLDER)
+}
+
+/// Returns the folder of the collections shown during the deletes (`COLLECTION_FOLDER`) in the
+/// folder of the deletes' logs `dir`. Its name is pinned in src/frozen-1.0.txt.
+pub(crate) fn collections_folder(dir: &Path) -> PathBuf {
+    dir.join(COLLECTION_FOLDER)
+}
+
+/// Returns the file that holds the path of the collection shown during the delete whose log is
+/// at `log`. Its name is pinned in src/frozen-1.0.txt.
+pub(crate) fn collection_path(log: &Path) -> PathBuf {
+    let name = log.file_name().unwrap_or_default();
+    collections_folder(log.parent().unwrap_or(Path::new(""))).join(name)
 }
 
 /// Returns the lock file of the lists in the folder of plans `dir` (`LISTS_LOCK`). Every Glimt
@@ -286,14 +316,24 @@ pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
     })
 }
 
-/// Makes a new log of a delete in `dir`, locked, with its list of the files it deletes.
-pub fn start_delete_log(dir: &Path) -> std::io::Result<DeleteLog> {
+/// Makes a new log of a delete in `dir`, locked, with its list of the files it deletes, and with
+/// the path of the `collection` shown, so that the next start can take the files that went out
+/// of it when Glimt is killed during the delete.
+pub fn start_delete_log(dir: &Path, collection: Option<&Path>) -> std::io::Result<DeleteLog> {
     let (path, file, known) = start_log(dir)?;
+    if let Some(collection) = collection {
+        std::fs::create_dir_all(collections_folder(dir))?;
+        #[allow(clippy::disallowed_methods)] // a file made new, in Glimt's own state folder
+        let mut held = (std::fs::OpenOptions::new().write(true).create_new(true))
+            .open(collection_path(&path))?;
+        held.write_all(collection.as_os_str().as_bytes())?;
+    }
     Ok(DeleteLog {
         path,
         file,
         known: Some(known),
         failure: None,
+        has_names_left: false,
     })
 }
 
@@ -354,22 +394,37 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
 
 /// The logs in `dir` of deletes that Glimt was killed during, which are those no running window
 /// holds locked. Each comes with the files whose marks and stars are to be forgotten: those
-/// whose name is surely not there any more, and those whose name another file has taken since
-/// (`is_gone_or_another`). A file that had not gone yet is still at its name, and keeps them.
-/// Each log is held locked until it is removed.
+/// whose name is surely not there any more in a folder that surely is (`went_before_the_kill`).
+/// A file that had not gone yet is still at its name, and keeps them. A file still there as the
+/// log's list knew it takes back its sidecars from the trash (`sidecars_back_from_the_trash`).
+/// Each log is held locked until it is removed, or until it is let go for a later start
+/// (`DeleteLog::has_names_left`).
 pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
     (logs_left_by_a_kill(dir).into_iter())
         .map(|(path, file, bytes)| {
             let known = read_move_known(&known_path(&path)).unwrap_or_default();
-            let gone = (parse_names(&bytes).into_iter().enumerate())
-                .filter(|(i, p)| is_gone_or_another(p, known.get(*i).copied().flatten()))
-                .map(|(_, p)| p)
-                .collect();
+            let (mut gone, mut stayed, mut has_names_left) = (Vec::new(), Vec::new(), false);
+            for (i, name) in parse_names(&bytes).into_iter().enumerate() {
+                match went_before_the_kill(&name) {
+                    Some(true) => gone.push(name),
+                    Some(false) if is_as_known(&name, known.get(i).copied().flatten()) => {
+                        stayed.push(name);
+                    }
+                    Some(false) => {}
+                    None => has_names_left = true,
+                }
+            }
+            forget_in_the_collection_shown(&path, &gone);
+            // The log was last written just before the last of its files went. A log whose time
+            // cannot be read takes no sidecar back, as it cannot tell which went after it.
+            let written = file.metadata().and_then(|m| m.modified());
+            (written.into_iter()).for_each(|since| sidecars_back_from_the_trash(&stayed, since));
             let log = DeleteLog {
                 path,
                 file,
                 known: None,
                 failure: None,
+                has_names_left,
             };
             (log, gone)
         })
@@ -410,27 +465,93 @@ fn logs_left_by_a_kill(dir: &Path) -> Vec<(PathBuf, File, Vec<u8>)> {
         .collect()
 }
 
-/// Returns whether the file that a delete's log names at `path`, with the fingerprint `known`
-/// it had before it went, is gone: its name is surely not there, or another file of another
-/// size or time has it now, such as a later photo of that name copied in before this start. The
-/// device is left out, as after a reboot. A look that failed (a share that dropped for a
-/// moment) says nothing, and the file keeps its marks.
-fn is_gone_or_another(path: &Path, known: Option<FileFingerprint>) -> bool {
-    match crate::files::file_io::fingerprint_or_error(path) {
-        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
-        Ok((_, size, time)) => {
-            known.is_some_and(|(_, was_size, was_time)| (size, time) != (was_size, was_time))
-        }
+/// Takes the files `gone` out of the collection that was shown during the delete whose log is
+/// at `log`, as the delete would have at its end. A log without one, or of a Glimt before this
+/// was written down, leaves the entries. So does a collection that is surely gone, as there is
+/// nothing to take them out of. A failure to write it is told.
+fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
+    let Ok(bytes) = crate::images::decode::read_limited(collection_path(log)) else {
+        return;
+    };
+    let collection = PathBuf::from(OsStr::from_bytes(&bytes));
+    if gone.is_empty() || is_surely_gone(&collection) {
+        return;
+    }
+    let forgotten = crate::files::file_ops::forget_in_collection(Some(&collection), gone);
+    if let Err(e) = forgotten {
+        crate::files::file_io::save_failed(e);
     }
 }
 
-/// Removes each list of files in the Move logs' folder `dir` whose log is gone, which no start
-/// would read: a kill between the removals of a log and its list, or a Glimt before 0.82 that
-/// put a 0.82 log's Move right and removed only the log. A Move makes its log before its list
-/// and removes it first, so a running Move's list always has its log.
+/// Returns whether the file at `path` has the size and time of the fingerprint `known`, which a
+/// delete's log took before the file was to go. The device is left out, as after a reboot.
+/// Returns false when there is no fingerprint or the look fails.
+fn is_as_known(path: &Path, known: Option<FileFingerprint>) -> bool {
+    let now = crate::files::file_io::fingerprint_or_error(path);
+    now.is_ok_and(|(_, size, time)| known.is_some_and(|(_, was, at)| (size, time) == (was, at)))
+}
+
+/// Takes back from the trash the sidecars of the files `stayed`, which a delete's log names and
+/// which are still there as they were, when they went to the trash after `since`. A Move to
+/// Trash sends each photo's sidecars just before the photo, so Glimt killed between the two
+/// left the photo without its keywords, comment and alt text. Only a sidecar whose name is
+/// surely free is looked for, and none comes back over a file (`trash::restore`). One that
+/// cannot come back is told.
+fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime) {
+    use crate::metadata::xmp;
+    // Adobe's sidecar has the RAW file's name stem, with the extension in either case.
+    let sidecars: Vec<PathBuf> = (stayed.iter())
+        .flat_map(|p| {
+            let adobe = xmp::adobe_stem(p).map(|_| ["xmp", "XMP"].map(|e| p.with_extension(e)));
+            std::iter::once(xmp::sidecar(p)).chain(adobe.into_iter().flatten())
+        })
+        .filter(|side| is_surely_gone(side))
+        .collect();
+    if sidecars.is_empty() {
+        return;
+    }
+    let _locks = xmp::lock_sidecars(stayed);
+    let trash_move = crate::files::trash::TrashMove {
+        files: Vec::new(),
+        sidecars,
+        sidecars_left: Vec::new(),
+        since,
+        marks: Default::default(),
+        collection: None,
+    };
+    let trash_dirs = crate::files::trash::trash_dirs;
+    if let (_, Some(error)) = crate::files::trash::restore(&trash_move, trash_dirs) {
+        crate::files::file_io::save_failed(error);
+    }
+}
+
+/// Returns whether the file that a delete's log names at `path` went before Glimt was killed.
+/// Returns `Some(true)` when its name is surely not there while its folder surely is, and
+/// `Some(false)` when something is at its name. Returns `None` when the looks cannot tell: the
+/// folder is not there, as on a stick or a share not back yet at this start, or a look failed.
+/// A file at the name keeps its marks also when it changed since. It may be the file the kill
+/// came before, written by another program since, or a file that another window marked after
+/// the kill. The marks of a deleted file then stay with a later photo that took its name, as
+/// they did before there was a log, which is the lesser harm.
+fn went_before_the_kill(path: &Path) -> Option<bool> {
+    // The folder is looked at first, so that a stick mounted between the two looks counts as
+    // not there yet.
+    let has_folder = path.parent().is_some_and(is_surely_dir);
+    if is_surely_there(path) {
+        return Some(false);
+    }
+    (has_folder && is_surely_gone(path)).then_some(true)
+}
+
+/// Removes each list of files in the Move or delete logs' folder `dir` whose log is gone, which
+/// no start would read, and each file of a delete's collection too: a kill between the removals
+/// of a log and its list, or a Glimt before 0.82 that put a 0.82 log's Move right and removed
+/// only the log. A job makes its log before its list and removes it first, so a running job's
+/// list always has its log.
 fn remove_orphan_lists(dir: &Path) {
-    let lists = std::fs::read_dir(lists_folder(dir))
+    let lists = [lists_folder(dir), collections_folder(dir)]
         .into_iter()
+        .flat_map(std::fs::read_dir)
         .flatten()
         .flatten();
     for entry in lists {
@@ -1206,6 +1327,11 @@ fn remove_plan(plan: &Path, names: &[PathBuf]) {
 fn remove_with_its_list(plan: &Path, remove: impl Fn(&Path) -> bool) {
     if remove(plan) {
         remove(&known_path(plan));
+        // Only a delete's log has a file of its collection, and only when one was shown.
+        let collection = collection_path(plan);
+        if !is_surely_gone(&collection) {
+            remove(&collection);
+        }
     }
 }
 
