@@ -698,9 +698,39 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
     }
     // Offsets count from the TIFF header, after any "Exif\0\0" before it.
     let head = block.len() - t.data.len();
-    // The EXIF thumbnail (IFD1) would show the old way up, and of a crop the whole frame: left
-    // out, as IFD0 is made the last, and its bytes cleared, as a tool that looks for a JPEG in
-    // the block would still find it.
+    let little = t.is_little_endian;
+    clear_thumbnail(block);
+    for (at, bytes) in sizes {
+        if let Some(field) = block.get_mut(head + at..head + at + bytes.len()) {
+            field.copy_from_slice(&bytes);
+        }
+    }
+    let Some(e) = found else {
+        return Ok(());
+    };
+    let at = head + e.value_offset;
+    let one = if little {
+        1u16.to_le_bytes()
+    } else {
+        1u16.to_be_bytes()
+    };
+    block
+        .get_mut(at..at + 2)
+        .ok_or("cut off")?
+        .copy_from_slice(&one);
+    Ok(())
+}
+
+/// Clears the EXIF thumbnail (IFD1) of `block`, which may start with "Exif\0\0": its bytes are
+/// zeroed and IFD0's pointer to it is cleared. The thumbnail would show the old way up, and of a
+/// crop the whole frame. Its bytes are cleared, not only unlinked, because a tool that looks for
+/// a JPEG in the block would still find them. A block without a TIFF header is left as it is.
+fn clear_thumbnail(block: &mut [u8]) {
+    let Some((t, _, _, _)) = ifds(block) else {
+        return;
+    };
+    // Offsets count from the TIFF header, after any "Exif\0\0" before it.
+    let head = block.len() - t.data.len();
     let next = t
         .u32(4)
         .and_then(|o| Some(o as usize + 2 + 12 * t.u16(o as usize)? as usize));
@@ -725,7 +755,6 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
         };
         [parts(0x0201, 0x0202), parts(0x0111, 0x0117)].concat()
     });
-    let little = t.is_little_endian;
     for (at, len) in thumbnail.into_iter().flatten() {
         let start = head + at as usize;
         if let Some(bytes) = block.get_mut(start..start.saturating_add(len as usize)) {
@@ -735,25 +764,6 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
     if let Some(n) = next.and_then(|n| block.get_mut(head + n..head + n + 4)) {
         n.fill(0);
     }
-    for (at, bytes) in sizes {
-        if let Some(field) = block.get_mut(head + at..head + at + bytes.len()) {
-            field.copy_from_slice(&bytes);
-        }
-    }
-    let Some(e) = found else {
-        return Ok(());
-    };
-    let at = head + e.value_offset;
-    let one = if little {
-        1u16.to_le_bytes()
-    } else {
-        1u16.to_be_bytes()
-    };
-    block
-        .get_mut(at..at + 2)
-        .ok_or("cut off")?
-        .copy_from_slice(&one);
-    Ok(())
 }
 
 /// Returns the segments of a JPEG before its image data, and whether the image data was
@@ -1030,6 +1040,10 @@ pub fn derived_of(raw: &[u8], how: crate::images::save::Derived) -> Option<Vec<u
 /// `None` for a block without a TIFF header.
 fn derived_block(raw: &[u8]) -> Option<Vec<u8>> {
     let mut data = ifds(raw)?.0.data.to_vec();
+    // The thumbnail is cleared before `drop_pixel_fields` clears the pointer that finds it.
+    // Where IFD1 and the thumbnail lie before the end of IFD0, as after `add_orientation`, the
+    // cut below keeps their bytes.
+    clear_thumbnail(&mut data);
     drop_pixel_fields(&mut data);
     let (t, ifd0, exif, gps) = ifds(&data)?;
     let offset = |ifd: &Ifd, tag| Some(t.int(find(ifd, tag)?)? as usize);
@@ -2378,6 +2392,40 @@ mod tests {
         d.extend(b"AAAABBBB");
         super::set_upright(&mut d, (1, 1)).unwrap();
         assert_eq!(&d[6 + 0x40..], [0; 8]);
+    }
+
+    /// A copy keeps no thumbnail where IFD0 comes after IFD1 and the thumbnail, as a turn saved
+    /// by `add_orientation` leaves it. The copy's steps run as `save::derived_metadata` runs
+    /// them. Before, `drop_pixel_fields` cleared IFD0's pointer to IFD1, so `set_upright` found no
+    /// thumbnail to clear, and the cut kept its bytes: a crop held the whole frame.
+    #[test]
+    fn a_copy_clears_a_thumbnail_before_ifd0() {
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, value: u32| {
+            d.extend(tag.to_le_bytes());
+            d.extend(kind.to_le_bytes());
+            d.extend(1u32.to_le_bytes());
+            d.extend(value.to_le_bytes());
+        };
+        // IFD1 at 8 with a JPEG thumbnail at 38, 6 bytes, then IFD0 at 44 with the width and
+        // the orientation, pointing at IFD1.
+        let mut d = b"Exif\0\0II*\0\x2c\0\0\0".to_vec();
+        d.extend(2u16.to_le_bytes());
+        entry(&mut d, 0x0201, 4, 38);
+        entry(&mut d, 0x0202, 4, 6);
+        d.extend(0u32.to_le_bytes());
+        d.extend(b"\xff\xd8\xaa\xbb\xff\xd9");
+        d.extend(2u16.to_le_bytes());
+        entry(&mut d, 0x0100, 4, 4000);
+        entry(&mut d, 0x0112, 3, 6);
+        d.extend(8u32.to_le_bytes());
+        let mut copy = super::derived_of(&d, crate::images::save::Derived::Copy).unwrap();
+        super::set_upright(&mut copy, (1, 1)).unwrap();
+        assert!(!copy.windows(2).any(|w| w == b"\xff\xd8"), "{copy:?}");
+        let (_, ifd0, _, _) = super::ifds(&copy).unwrap();
+        let tags: Vec<u16> = ifd0.iter().map(|f| f.0).collect();
+        assert_eq!(tags, [0x0112]);
+        let upright = image::metadata::Orientation::NoTransforms;
+        assert_eq!(super::orientation(&copy), Some(upright));
     }
 
     /// A copy's EXIF says its own pixel sizes, not the original's, in a SHORT or a LONG field.
