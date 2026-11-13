@@ -536,7 +536,8 @@ method.
     without waiting (a plan of Rename Many, a log of Move) with `open_if_unlocked`. Both open
     it for writing, which a flock on NFS needs, and never truncate it, follow a link or wait on
     a pipe planted in its place (`source_rules::files_are_locked_in_one_place`, which finds
-    any other lock);
+    any other lock by its name: `lock`, `try_lock` and their shared forms as a method or by a
+    type's path, such as `File::try_lock(&f)`, and `flock`, `lockf` and an `fcntl` lock);
   - work in a folder that other users can write (a trash at a disk's top) through the folder
     opened, with `file_io::open_folder_not_through_link` and `path_through`. Such a path,
     `/proc/self/fd/N/…`, is used only in file_io and the trash, which show every path with
@@ -572,11 +573,11 @@ method.
     `is_followed_to` for a file that a record says was moved there: only NotFound leaves its
     marks behind, and a failed look keeps them with it and is told), whether
     it is a file or a folder with `is_surely_file` or `is_surely_dir`, and whether it is a link
-    with `is_link`, never with `exists()`, `Path::is_file`, `Path::is_dir`, or
-    `metadata(…).is_err()`, `.is_ok()`, `let Ok(m) = metadata(…) else`,
-    `.is_ok_and(|m| m.is_dir())`, `.ok().filter(|m| m.is_file())` or
-    `.map_or((false, false), |m| (m.is_file(), m.is_dir()))`, which take a share that dropped
-    for a moment for a file that is gone. Only NotFound means gone. A metadata or file type that has been read is named `m`,
+    with `is_link`, never with `exists()`, `Path::is_file`, `Path::is_dir`,
+    `metadata(…).is_err()`, `.is_ok()`, `let Ok(m) = metadata(…) else`, or a look at the
+    metadata asked its kind without passing its error on with `?` (such as
+    `.is_ok_and(|m| m.is_dir())` or `matches!(metadata(p), Ok(m) if m.is_file())`), which take
+    a share that dropped for a moment for a file that is gone. Only NotFound means gone. A metadata or file type that has been read is named `m`,
     `meta` or `kind`, so the check tells it from a path
     (`source_rules::gone_means_not_found`);
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside

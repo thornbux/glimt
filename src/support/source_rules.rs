@@ -2785,7 +2785,8 @@ fn outside_homes_in(file: &str, text: &str, homes: &[(&str, &[(&str, &str)])]) -
 
 /// Returns whether `line` holds `text`. A call (`name(`) is also found as a function value
 /// (`.map(name)`, `f(name, x)`), and as renamed by a `use` (`use …::name as other;`), whose
-/// calls by the new name would not hold `text`.
+/// calls by the new name would not hold `text`. A rename is found on any line, so also inside a
+/// `use` whose braces span several lines.
 fn mentions(line: &str, text: &str) -> bool {
     let Some(name) = text.strip_suffix('(').filter(|n| n.ends_with(is_word_char)) else {
         return line.contains(text);
@@ -2796,10 +2797,7 @@ fn mentions(line: &str, text: &str) -> bool {
         || (line.match_indices(name)).any(|(at, _)| {
             let after = &line[at + name.len()..];
             is_whole(at)
-                && match is_use {
-                    true => after.starts_with(" as "),
-                    false => after.starts_with([')', ',']),
-                }
+                && (after.starts_with(" as ") || (!is_use && after.starts_with([')', ','])))
         })
 }
 
@@ -2808,20 +2806,22 @@ fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// A call is found also as a function value and as renamed by a `use`, but not in a `use` that
-/// keeps its name, nor in a longer name.
+/// A call is found also as a function value and as renamed by a `use`, also inside braces that
+/// span several lines, but not in a `use` that keeps its name, nor in a longer name. Before, a
+/// rename was found only on the line that starts with `use`.
 #[test]
 fn finds_a_call_by_another_spelling() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[("replace_file(", &[("a.rs", "home")])];
     let text = "use crate::files::file_io::replace_file as write_own;\n\
         use crate::files::file_io::{replace_file, write_atomic};\nfn a() {\n    \
         paths.iter().map(file_io::replace_file);\n    try_all(replace_file, &paths);\n    \
-        try_all(own_replace_file, &paths);\n    replace_files(p);\n}\n";
+        try_all(own_replace_file, &paths);\n    replace_files(p);\n}\n\
+        use crate::files::file_io::{\n    write_atomic,\n    replace_file as write_own,\n};\n";
     let wrong = outside_homes_in("a.rs", text, HOMES);
     let lines: Vec<&str> = (wrong.iter())
         .map(|w| w.split(' ').next().unwrap())
         .collect();
-    assert_eq!(lines, ["a.rs:1", "a.rs:4", "a.rs:5"]);
+    assert_eq!(lines, ["a.rs:1", "a.rs:4", "a.rs:5", "a.rs:11"]);
 }
 
 /// A home ends at the next top-level item. Before, a static or const after a home function
@@ -2986,14 +2986,15 @@ fn sidecars_are_written_through_write_sidecars() {
             &[("files/file_ops.rs", "write_in_sidecar_thread")],
         ),
     ];
-    // A writer is found however its call is spelled: by its name after a `use`, and under a
-    // lock taken by hand. Before, `add_keywords(` was found only as `xmp::add_keywords(`, and
-    // `update_locked_sidecar(` not at all.
+    // A writer is found however its call is spelled: by its name after a `use`, renamed in a
+    // `use` that spans several lines, and under a lock taken by hand. Before, `add_keywords(`
+    // was found only as `xmp::add_keywords(`, and `update_locked_sidecar(` not at all.
     let around = "use crate::metadata::xmp::add_keywords;\nfn a(p: &Path) {\n    \
         add_keywords(p, &k);\n    let lock = xmp::lock_sidecar(p);\n    \
-        xmp::update_locked_sidecar(&lock, p, true, |x| Some(x));\n}\n";
+        xmp::update_locked_sidecar(&lock, p, true, |x| Some(x));\n}\n\
+        use crate::metadata::xmp::{\n    add_keywords as tag,\n    read_sidecar,\n};\n";
     let found = outside_homes_in("ui/menus.rs", around, HOMES);
-    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(found.len(), 3, "{found:?}");
     let wrong = outside_their_homes(HOMES);
     assert!(
         wrong.is_empty(),
@@ -4356,7 +4357,8 @@ fn finds_the_files_built_only_for_tests() {
 /// `Path::exists`, `Path::is_file` and `is_dir`, and a look whose every error is taken as an
 /// answer (`metadata(…).is_err()`, `.is_ok()`, `let Ok(m) = metadata(…) else`,
 /// `.is_ok_and(|m| m.is_dir())`, `.ok().filter(|m| m.is_file())` or
-/// `.map_or((false, false), |m| (m.is_file(), m.is_dir()))`, also of `is_symlink`), take a share
+/// `.map_or((false, false), |m| (m.is_file(), m.is_dir()))`, also of `is_symlink`, and any
+/// other look that asks the kind without passing its error on with `?`), take a share
 /// that dropped for a moment for a name that is gone, or for one that is no file or folder.
 /// That way a sidecar was trashed while its photo stayed, a rename went over a file that it
 /// could not look at, and a backup left out the folders it could not look at. So a name is
@@ -4374,7 +4376,7 @@ fn gone_means_not_found() {
     assert!(
         wrong.is_empty(),
         "a name looked at with exists(), is_file(), is_dir() or metadata(…).is_err(), .is_ok(), \
-         let Ok(…) = …, .is_ok_and(…), .ok().filter(…) or .map_or(…) of its kind, which take any failed look for an answer; use \
+         let Ok(…) = …, or asked its kind without `?`, which take any failed look for an answer; use \
          file_io::is_surely_gone, is_surely_there, is_surely_file, is_surely_dir or is_link:\n{}",
         wrong.join("\n")
     );
@@ -4400,13 +4402,35 @@ fn looks_that_guess(text: &str) -> Vec<usize> {
                 && ([".is_err()", ".is_ok()", "let Ok("]
                     .iter()
                     .any(|c| call.contains(c))
-                    || ([".is_ok_and(", ".map_or(", ".ok().filter("]
-                        .iter()
-                        .any(|c| call.contains(c))
-                        && asks_kind)))
+                    || (asks_kind && !passes_each_error_on(&call))))
             || asks_a_path_its_kind(line)
     };
     (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
+}
+
+/// Returns whether each look at the metadata in `call` passes its error on to the caller, with
+/// `?` right after it. A look whose kind is asked in any other way gives an answer for a failed
+/// look too (`is_ok_and`, `map_or`, `.ok().is_some_and`, `unwrap_or`, a `matches!` of
+/// `Ok(m)`), however it is spelled.
+fn passes_each_error_on(call: &str) -> bool {
+    (call.match_indices("metadata(")).all(|(at, _)| {
+        let mut depth = 0;
+        let close = call[at + "metadata".len()..]
+            .char_indices()
+            .find(|&(_, c)| {
+                depth += match c {
+                    '(' => 1,
+                    ')' => -1,
+                    _ => 0,
+                };
+                depth == 0
+            });
+        let Some((close, _)) = close else {
+            return false;
+        };
+        let after = &call[at + "metadata".len() + close + 1..];
+        after.starts_with('?')
+    })
 }
 
 /// Returns whether `line` asks a path whether it is a file or a folder (`Path::is_file` or
@@ -4455,16 +4479,22 @@ fn finds_a_look_that_guesses() {
 }
 
 /// The check above finds a look whose failure is taken for "no link" or "neither a file nor a
-/// folder", also when its default comes first (`map_or`) or it is filtered (`.ok().filter`). It
-/// leaves a size whose look failed.
+/// folder", also when its default comes first (`map_or`) or it is filtered (`.ok().filter`),
+/// and in any other spelling that does not pass the error on (`.ok().is_some_and`, `unwrap_or`,
+/// `matches!`). It leaves a size whose look failed, and a look whose error goes to the caller.
+/// Before, only the listed spellings were found, and `matches!(metadata(p), Ok(m) if …)` passed.
 #[test]
 fn finds_a_failed_look_taken_for_its_kind() {
     let text = "fn a() {\n    let l = std::fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink());\n    \
         let (t, d) = std::fs::metadata(p).map_or((false, false), |m| (true, m.is_dir()));\n    \
         let size = std::fs::metadata(p).map_or(0, |m| m.len());\n    let l = is_link(p)?;\n    \
         let f = std::fs::metadata(p).ok().filter(|m| m.is_file());\n    \
-        let n = std::fs::metadata(p).ok().map(|m| m.len());\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3, 6]);
+        let n = std::fs::metadata(p).ok().map(|m| m.len());\n    \
+        let d = std::fs::metadata(p).ok().is_some_and(|m| m.is_dir());\n    \
+        let f = std::fs::metadata(p).ok().map(|m| m.is_file()).unwrap_or(false);\n    \
+        let f = matches!(std::fs::metadata(p), Ok(m) if m.is_file());\n    \
+        let d = std::fs::metadata(&p.join(q))?.is_dir();\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 6, 8, 9, 10]);
 }
 
 /// The check above finds a path asked whether it is a file or a folder, also as a function value
@@ -4508,16 +4538,20 @@ fn files_are_locked_in_one_place() {
     );
 }
 
-/// Returns the functions of `text` outside the tests that take a lock, of a file or a mutex.
+/// Returns the functions of `text` outside the tests that take a lock, of a file or a mutex. A
+/// lock is found by its name, whatever its arguments: called as a method (`f.lock()`), by the
+/// path of a type (`File::try_lock(&f)`, also as a value in `.map(File::lock)`), or as a lock
+/// of the C library (`flock`, `lockf`, an `fcntl` lock) by any path. A function of a module that
+/// only shares the name, such as `config::lock()`, takes no lock.
 fn functions_that_lock(text: &str) -> Vec<String> {
-    const LOCKS: [&str; 7] = [
-        ".lock()",
-        ".try_lock()",
-        ".lock_shared()",
-        ".try_lock_shared()",
+    const LOCKS: [&str; 4] = ["lock", "try_lock", "lock_shared", "try_lock_shared"];
+    const C_LOCKS: [&str; 6] = [
         "flock(",
+        "lockf(",
         "F_SETLK",
         "F_OFD_SETLK",
+        "F_LOCK",
+        "F_TLOCK",
     ];
     let lines = code_lines(text);
     let end = tests_start(&lines);
@@ -4527,7 +4561,21 @@ fn functions_that_lock(text: &str) -> Vec<String> {
         if let Some(name) = function_name(line) {
             function = name.to_owned();
         }
-        let locks = LOCKS.iter().any(|call| line.contains(call));
+        let takes = |at: usize, name: &str| {
+            let (before, after) = (&line[..at], &line[at + name.len()..]);
+            // The segment before `::`, which names a type when it starts with a capital.
+            let owner = before.strip_suffix("::");
+            let owner = owner.map(|b| &b[b.trim_end_matches(is_word_char).len()..]);
+            let is_by_type = owner.is_some_and(|o| o.starts_with(char::is_uppercase));
+            !before.ends_with(is_word_char)
+                && ((before.ends_with('.') && after.starts_with('('))
+                    || (is_by_type && after.starts_with(['(', ')', ','])))
+        };
+        let locks = (LOCKS.iter())
+            .any(|name| (line.match_indices(name)).any(|(at, _)| takes(at, name)))
+            || (C_LOCKS.iter()).any(|call| {
+                (line.match_indices(call)).any(|(at, _)| !line[..at].ends_with(is_word_char))
+            });
         if locks && found.last() != Some(&function) {
             found.push(function.clone());
         }
@@ -4535,15 +4583,24 @@ fn functions_that_lock(text: &str) -> Vec<String> {
     found
 }
 
-/// The check above finds a `try_lock`, a `flock` and a shared lock, and leaves a lock taken
-/// through `open_and_lock`.
+/// The check above finds a `try_lock`, a `flock` and a shared lock, a lock called by the path
+/// of its type or passed as a value, and `lockf`. It leaves a lock taken through
+/// `open_and_lock`, a function of a module that shares the name, and a longer name. Before, a
+/// lock was found only as a method, so `File::try_lock(&f)` and `libc::lockf` passed unseen.
 #[test]
 fn finds_a_lock_taken_by_hand() {
     let text = "fn a() {\n    let f = open_regular(p)?;\n    f.try_lock()?;\n}\n\
         fn b() {\n    let f = open_and_lock(p)?;\n}\n\
         fn c() {\n    libc::flock(fd, libc::LOCK_EX);\n}\n\
-        fn d() {\n    f.lock_shared()\n}\n";
-    assert_eq!(functions_that_lock(text), ["a", "c", "d"]);
+        fn d() {\n    f.lock_shared()\n}\n\
+        fn e() {\n    std::fs::File::try_lock(&f)?;\n}\n\
+        fn g() {\n    File::lock(&f)?;\n}\n\
+        fn h() {\n    files.iter().map(File::lock);\n}\n\
+        fn i() {\n    libc::lockf(fd, libc::F_LOCK, 0);\n}\n\
+        fn j() {\n    crate::files::config::lock();\n    xmp::lock_sidecar(p);\n    \
+        f.unlock()?;\n    update_locked_sidecar(&lock, p);\n}\n";
+    let found = functions_that_lock(text);
+    assert_eq!(found, ["a", "c", "d", "e", "g", "h", "i"]);
 }
 
 /// The functions of the C library are called through the `libc` crate, never declared by hand

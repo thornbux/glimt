@@ -5164,20 +5164,24 @@ section "Glimt killed (kill -9) during a Move to Trash and a Delete: no stars or
 # Trash sent a chunk's sidecars to the trash in a second gio call after its photos. A kill left
 # the stars, and the sidecars of the chunk in flight, at the names of photos that were gone, and
 # a later photo of such a name showed them. The gio of the chunk in flight is killed too, as a
-# logout or a power cut ends it.
+# logout or a power cut ends it. A photo still there keeps its stars and its sidecar: the stand-in
+# gio waits after each sidecar, so the kill comes between a sidecar and its photo, and the next
+# start must take the sidecar back (D-4). Delete for good has no program to slow it, so one
+# sidecar lock is held from outside, as by another window, and the delete stops at the chunk
+# that needs it, with the chunks before it gone and that chunk noted in its log.
 for v in new old; do
     for how in trash delete; do
         as_version $v
         mkdir -p $XDG_STATE_HOME/glimt
-        # 1,000 photos, each with a sidecar and three stars. A stand-in gio trashes one file
-        # every 20 ms, in the order it is given, as gio does.
+        # 1,000 photos, each with a sidecar and three stars. A stand-in gio trashes the files in
+        # the order it is given, as gio does, and waits 20 ms after each sidecar.
         d=/tmp/killed-$how-$v trash=/tmp/killed-trash-$v
         rm -rf $d $trash; mkdir -p $d $trash
         cat >/tmp/stub/gio <<STUB
 #!/bin/sh
 [ "\$1" = trash ] || exit 1
 shift 2
-for f; do mv "\$f" $trash/ || exit 1; sleep 0.02; done
+for f; do mv "\$f" $trash/ || exit 1; case "\$f" in *.xmp) sleep 0.02;; esac; done
 STUB
         chmod +x /tmp/stub/gio
         convert -size 32x32 xc:blue $d/0001.jpg
@@ -5186,21 +5190,47 @@ STUB
         for i in $(seq -w 1 1000); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$XDG_STATE_HOME/glimt/marks
         ls $d | grep 'jpg$' >/tmp/killed-names
         config confirm_trash=false confirm_delete=false
+        locker=
+        if [ $how = delete ]; then
+            # Sidecar lock 32 of 64 held from outside. The chunks go in the order of their
+            # locks, so about half of the photos go before the delete waits for it.
+            rm -f /tmp/locks-held
+            python3 -c "
+import fcntl, os, time
+d = os.environ['XDG_RUNTIME_DIR'] + '/glimt/sidecar-locks'
+os.makedirs(d, mode=0o700, exist_ok=True)
+held = open(f'{d}/32', 'w')
+fcntl.flock(held, fcntl.LOCK_EX)
+open('/tmp/locks-held', 'w').close()
+time.sleep(120)" &
+            locker=$!
+            until_file /tmp/locks-held
+        fi
         start $d
         sleep 2
         key ctrl+a
         if [ $how = trash ]; then key Delete; else key shift+Delete; fi
-        python3 -c "
+        # Killed once 30 photos went, while the gio of a chunk runs, or for the delete once
+        # the count has stood still for a second at the held lock.
+        stalled=$(python3 -c "
 import os, signal, sys, time
-d, pid = sys.argv[1], int(sys.argv[2])
-end = time.time() + 60
+d, pid, wait = sys.argv[1], int(sys.argv[2]), sys.argv[3] == 'delete'
+gone = lambda: 1000 - sum(n.endswith('.jpg') for n in os.listdir(d))
+end, last, still = time.time() + 60, -1, 0
 while time.time() < end:
-    if 1000 - sum(n.endswith('.jpg') for n in os.listdir(d)) >= 30:
+    now = gone()
+    if now >= 30 and not wait:
         break
-    time.sleep(0.01)
-os.kill(pid, signal.SIGKILL)" $d $GPID
+    still = still + 1 if now == last else 0
+    last = now
+    if now >= 30 and still >= 10:
+        break
+    time.sleep(0.1 if wait else 0.01)
+print('yes' if still >= 10 else 'no')
+os.kill(pid, signal.SIGKILL)" $d $GPID $how)
         wait $GPID 2>/dev/null
         pkill -9 -f /tmp/stub/gio
+        [ -n "$locker" ] && { kill $locker; wait $locker 2>/dev/null; }
         sleep 0.5
         gone=$((1000 - $(ls $d | grep -c 'jpg$')))
         # A later photo copied in, before the next start, at the name of the first that went.
@@ -5208,7 +5238,8 @@ os.kill(pid, signal.SIGKILL)" $d $GPID
         [ -n "$first" ] && convert -size 64x64 xc:red $d/$first
         start $d; sleep 3; quit         # a new start, which may put things right
         # Left: names of photos that went that still have stars or a sidecar. Later: the later
-        # photo's stars and sidecar. Unstarred: photos still there without their stars.
+        # photo's stars and sidecar. Bare: photos still there without their stars or without
+        # their sidecar beside them (in the trash, or under a hidden name of a delete for good).
         got=$(python3 - $d $XDG_STATE_HOME/glimt/marks "$first" <<'PY'
 import os, sys
 d, marks, first = sys.argv[1:]
@@ -5217,28 +5248,29 @@ for line in open(marks):
     fields = line.rstrip("\n").split("\t")
     if len(fields) == 3:
         stars[fields[2]] = fields[1]
-left = unstarred = 0
+left = bare = 0
 for name in open("/tmp/killed-names").read().split():
     p = f"{d}/{name}"
     if name == first:
         continue
     if os.path.isfile(p):
-        unstarred += stars.get(p) != "3"
+        bare += stars.get(p) != "3" or not os.path.isfile(p + ".xmp")
     else:
         left += p in stars or os.path.isfile(p + ".xmp")
 later = (f"{d}/{first}" in stars) + os.path.isfile(f"{d}/{first}.xmp") if first else "none"
-print(left, later, unstarred)
+print(left, later, bare)
 PY
 )
         rm -rf $d $trash
         if [ $v = new ]; then
-            expect "killed during a $how: no stars or sidecar left at a name whose photo went" \
+            expect "killed during a $how: no stars or sidecar left at a name whose photo went, each photo there with both" \
                 "$got" "0 0 0"
             # A delete that never started, or that ended before the kill, passes the line above.
             expect "killed in the middle of the $how" \
                 "$([ $gone -gt 0 ] && [ $gone -lt 1000 ] && echo yes)" yes
+            [ $how = delete ] && expect "the delete waited at the held lock when killed" "$stalled" yes
             note "new: $gone gone when killed"
-        else note "old: $how: left behind, later photo's, unstarred: $got ($gone gone when killed)"; fi
+        else note "old: $how: left behind, later photo's, bare: $got ($gone gone when killed)"; fi
     done
 done
 
