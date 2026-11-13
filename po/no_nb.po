@@ -3173,3 +3173,7 @@ msgstr "Gi en kopi nytt navn når navnet er tatt (NAVN-2.EXT)"
 #: src/features/copy_for_sharing.rs
 msgid "; {files} given new names"
 msgstr "; {files} fikk nye navn"
+
+#: src/metadata/marks.rs
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Kunne ikke lese merkefilen {name}: {e}"

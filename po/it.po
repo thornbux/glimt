@@ -3951,3 +3951,8 @@ msgstr "Dare un nuovo nome a una copia il cui nome è già usato (NOME-2.EXT)"
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; {files} rinominati"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Impossibile leggere il file dei contrassegni {name}: {e}"

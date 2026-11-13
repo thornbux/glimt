@@ -3183,3 +3183,7 @@ msgstr ""
 #: src/features/copy_for_sharing.rs
 msgid "; {files} given new names"
 msgstr ""
+
+#: src/metadata/marks.rs
+msgid "Could not read the marks file {name}: {e}"
+msgstr ""

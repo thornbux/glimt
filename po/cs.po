@@ -3973,3 +3973,8 @@ msgstr "Dát kopii nový název, když je její název obsazený (NÁZEV-2.EXT)"
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; nový název dostalo: {files}"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Soubor značek {name} nelze přečíst: {e}"

@@ -3951,3 +3951,8 @@ msgstr "Donner un nouveau nom à une copie dont le nom est pris (NOM-2.EXT)"
 #, fuzzy
 msgid "; {files} given new names"
 msgstr "; {files} renommés"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not read the marks file {name}: {e}"
+msgstr "Impossible de lire le fichier des marques {name} : {e}"
