@@ -33,9 +33,7 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
     let start = crate::cli::Start::default();
     // A new window sets the colour settings, which also empties the transforms a colour
     // test running beside it was looking at.
-    let held = crate::images::colour::COLOUR_TEST
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let held = crate::support::threads::lock_even_if_poisoned(&crate::images::colour::COLOUR_TEST);
     let read = crate::ReadAtStart {
         colour_error: crate::images::colour::set_up_colour(&config),
         config,

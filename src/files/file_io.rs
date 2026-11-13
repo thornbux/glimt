@@ -1548,24 +1548,61 @@ pub fn tell_unlocked(folder: PathBuf, name: &str, e: impl std::fmt::Display) {
 /// Opens the lock file `path`, making it when it is not there, and waits for its lock, which
 /// is held while the file stays open. A collection may come with a download, and so may a lock
 /// file beside it, and a link or a pipe may be planted in Glimt's own folders. So the lock file
-/// is never truncated and never opened through a link, and a planted link neither empties nor
-/// makes the file it points to. It is opened without waiting, so that a planted pipe does not
-/// hold the thread for good, and what was opened must be a regular file. This is the one way
-/// Glimt opens a lock file and waits for it (`source_rules::lock_files_are_opened_in_one_place`).
+/// is opened as `open_to_lock` says: never truncated, never through a link and never waited on.
+/// This and `open_if_unlocked` are the only ways Glimt locks a file
+/// (`source_rules::files_are_locked_in_one_place`).
 pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
+    let lock = open_to_lock(path, std::fs::OpenOptions::new().create(true))?;
+    lock.lock()?;
+    Ok(lock)
+}
+
+/// Opens `path` as `open_to_lock` says, and takes its lock if no other window holds it. A plan
+/// of Rename Many and a log of Move are each locked as the file itself this way. With `is_new`
+/// the file is made new, and the open fails when the name is there. A file made new that cannot
+/// be locked is removed again. Returns the file, whose lock is held while it stays open, or the
+/// error `WouldBlock` when another window holds the lock. The lock is tried for a moment,
+/// because a program that another thread starts holds a copy of the descriptor, and its lock,
+/// until it runs.
+pub fn open_if_unlocked(path: &Path, is_new: bool) -> std::io::Result<std::fs::File> {
+    let file = open_to_lock(path, std::fs::OpenOptions::new().create_new(is_new))?;
+    let mut tries = 1;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) if tries < 10 => tries += 1,
+            Err(e) => {
+                let e = std::io::Error::from(e);
+                if is_new && let Err(left) = remove_own(path) {
+                    return Err(std::io::Error::other(format!("{e}, and {left}")));
+                }
+                return Err(e);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// Opens `path` with `options` to be locked, for reading and for writing. The Linux NFS client
+/// takes a flock as a lock of the whole file, and it gives that only to a file open for
+/// writing. Opened to be read only, every plan and log on an NFS home looked held by another
+/// window, so none was put right after a kill. The file is never truncated and never opened
+/// through a link, so a planted link neither empties nor makes the file it points to. It is
+/// opened without waiting, so that a planted pipe does not hold the thread for good, and what
+/// was opened must be a regular file.
+fn open_to_lock(path: &Path, options: &mut std::fs::OpenOptions) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    #[allow(clippy::disallowed_methods)] // a lock file, never truncated and never a link
-    let lock = (std::fs::OpenOptions::new().create(true).append(true))
+    #[allow(clippy::disallowed_methods)] // a file to lock, never truncated and never a link
+    let file = (options.read(true).append(true))
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
-    if !lock.metadata()?.is_file() {
+    if !file.metadata()?.is_file() {
         return Err(std::io::Error::other(format!(
             "{}: not a regular file",
             shown_path(path)
         )));
     }
-    lock.lock()?;
-    Ok(lock)
+    Ok(file)
 }
 
 /// Opens the folder `dir` without following a link at its name. What is then checked through
@@ -3375,6 +3412,28 @@ mod tests {
             "waited on the pipe or locked through the link"
         );
         assert!(!target.exists(), "the link's target was made");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A plan or log is locked open for writing, which the Linux NFS client needs for a flock.
+    /// Before, it was opened to be read only, and on an NFS home every plan and log looked held
+    /// by another window. A length set needs a file open for writing. The file is not changed,
+    /// a second open finds it held, and a name that is not there is not made.
+    #[test]
+    fn a_file_is_locked_open_for_writing() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-locked-rw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let plan = dir.join("plan");
+        std::fs::write(&plan, "steps").unwrap();
+        let held = super::open_if_unlocked(&plan, false).unwrap();
+        held.set_len(5).expect("the file is not open for writing");
+        assert_eq!(std::fs::read(&plan).unwrap(), b"steps");
+        let again = super::open_if_unlocked(&plan, false).map(|_| ());
+        assert_eq!(again.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        let gone = super::open_if_unlocked(&dir.join("gone"), false).map(|_| ());
+        assert_eq!(gone.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert!(!dir.join("gone").exists());
+        drop(held);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

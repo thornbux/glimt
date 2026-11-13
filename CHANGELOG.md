@@ -11,6 +11,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   done again when it could not start: the card refused the name, other work on the files was
   still running, or the look at the card did not answer. Before, the Undo was lost, and the
   next Ctrl+Z said that there was nothing to undo.
+- With the home folder on NFS, a Rename Many cut short by a crash is offered to be put right at
+  the next start, and the marks and stars follow the files of a Move that was killed. Before,
+  every plan and log was opened to be read only and so could not be locked on NFS, and each
+  looked held by another window, without a word.
 
 ## [0.83.0] - 2026-11-13
 

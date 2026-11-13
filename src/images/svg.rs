@@ -427,11 +427,8 @@ pub fn draw_for_parent(path: &std::ffi::OsStr) -> i32 {
     // parent never waits to write it while this waits to write the picture.
     let mut fonts = Vec::new();
     #[allow(clippy::disallowed_methods)] // bounded by take
-    let _ = std::io::stdin()
-        .lock()
-        .take(64 << 20)
-        .read_to_end(&mut fonts);
-    let mut out = std::io::stdout().lock();
+    let _ = std::io::stdin().take(64 << 20).read_to_end(&mut fonts);
+    let mut out = std::io::stdout();
     let written = match draw(Path::new(path), max, &fonts) {
         Ok((img, own)) => {
             let [own_w, own_h] = own.map_or([0, 0], |[w, h]| [w as u32, h as u32]);

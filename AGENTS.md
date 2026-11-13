@@ -532,9 +532,11 @@ method.
       where these are used);
     - a file that several windows share with `file_io::edit_shared`, which locks, reads,
       changes and writes it as one step (clippy refuses `file_lock` elsewhere);
-  - open a lock file and wait for its lock with `file_io::open_and_lock`, which never
-    truncates it, follows a link or waits on a pipe planted in its place
-    (`source_rules::lock_files_are_opened_in_one_place`);
+  - open a lock file and wait for its lock with `file_io::open_and_lock`, and lock a file
+    without waiting (a plan of Rename Many, a log of Move) with `open_if_unlocked`. Both open
+    it for writing, which a flock on NFS needs, and never truncate it, follow a link or wait on
+    a pipe planted in its place (`source_rules::files_are_locked_in_one_place`, which finds
+    any other lock);
   - work in a folder that other users can write (a trash at a disk's top) through the folder
     opened, with `file_io::open_folder_not_through_link` and `path_through`. Such a path,
     `/proc/self/fd/N/…`, is used only in file_io and the trash, which show every path with

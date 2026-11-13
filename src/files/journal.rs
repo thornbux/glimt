@@ -226,16 +226,11 @@ pub fn move_log_dir() -> Option<PathBuf> {
 pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
     std::fs::create_dir_all(lists_folder(dir))?;
     let path = dir.join(new_name());
-    #[allow(clippy::disallowed_methods)] // a log made new, in Glimt's own state folder
-    let open_new = |path: &Path| {
-        std::fs::OpenOptions::new()
-            .append(true)
-            .create_new(true)
-            .open(path)
-    };
-    let file = open_new(&path)?;
-    file.try_lock().map_err(std::io::Error::from)?;
-    let known = Some(open_new(&known_path(&path))?);
+    let file = crate::files::file_io::open_if_unlocked(&path, true)?;
+    #[allow(clippy::disallowed_methods)] // a list made new, in Glimt's own state folder
+    let known =
+        (std::fs::OpenOptions::new().append(true).create_new(true)).open(known_path(&path))?;
+    let known = Some(known);
     Ok(MoveLog {
         path,
         file,
@@ -259,9 +254,8 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
         .filter_map(|e| {
             // A pipe or a link planted in the state folder is no log.
             e.file_type().ok().filter(|kind| kind.is_file())?;
-            let file = crate::images::decode::open_regular(e.path())
+            let file = crate::files::file_io::open_if_unlocked(&e.path(), false)
                 .ok()
-                .filter(take_lock_if_free)
                 .filter(is_linked)?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
@@ -413,11 +407,7 @@ fn parse_move_log(bytes: &[u8]) -> Moves {
 pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join(new_name());
-    #[allow(clippy::disallowed_methods)] // a plan made new, in Glimt's own state folder
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
+    let file = crate::files::file_io::open_if_unlocked(&path, true)?;
     // The plan is removed when dropped, also when what follows fails (a full disk). A plan left
     // half written would be offered at the next start, and finishing it would undo renames done
     // without it.
@@ -427,7 +417,6 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Resul
         file,
         one_name_per_folder,
     };
-    plan.file.try_lock().map_err(std::io::Error::from)?;
     // The files the steps move are written down before the plan, so that a plan on disk always
     // has them. Its folder is synced with the plans' folder below.
     std::fs::create_dir_all(known_path(&plan.path).parent().unwrap_or(dir))?;
@@ -611,20 +600,6 @@ fn new_name() -> String {
     format!("{}-{nanos}", crate::features::remote::instance_id())
 }
 
-/// Takes `file`'s lock if no other window holds it, and returns whether it got it. The lock is
-/// kept for as long as `file` stays open, which is what keeps a second window from working on
-/// the same plan, so a caller keeps `file` open while it works. It is tried for a moment,
-/// because a program that another thread starts holds a copy of the descriptor, and its lock,
-/// until it runs.
-fn take_lock_if_free(file: &File) -> bool {
-    (0..10).any(|k| {
-        if k > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        file.try_lock().is_ok()
-    })
-}
-
 /// The plans in `dir` of renames that were cut short, which are those no running window holds
 /// locked.
 pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
@@ -636,9 +611,8 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
             e.file_type().ok().filter(|kind| kind.is_file())?;
             // A plan another window was finishing is skipped. That window deletes the plan
             // before it lets go of the lock, so a file opened just before then is no longer linked.
-            let file = crate::images::decode::open_regular(e.path())
+            let file = crate::files::file_io::open_if_unlocked(&e.path(), false)
                 .ok()
-                .filter(take_lock_if_free)
                 .filter(is_linked)?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
@@ -797,9 +771,8 @@ pub fn repair_cut_short(
     // that asked about it too would do the same steps again, on files already put right. That
     // also holds for one that opened it just before the first deleted it, and got the lock once
     // that one let go.
-    let _held = crate::images::decode::open_regular(plan)
+    let _held = crate::files::file_io::open_if_unlocked(plan, false)
         .ok()
-        .filter(take_lock_if_free)
         .filter(is_linked)?;
     let done = done.map(|d| done_by_names(moves, d));
     // A step whose photo's name another file has taken since the plan was made (while the
@@ -896,12 +869,14 @@ pub fn leave_names(
     done: Option<usize>,
 ) -> Result<Vec<(PathBuf, PathBuf)>, Option<std::io::Error>> {
     // Only one window at a time, and only while the plan is there, as `repair_cut_short`.
-    let held = crate::images::decode::open_regular(plan)
-        .map_err(|e| (e.kind() != std::io::ErrorKind::NotFound).then_some(e))?;
-    if !take_lock_if_free(&held) {
-        let why = crate::support::lang::tr("another window has them open");
-        return Err(Some(std::io::Error::other(why)));
-    }
+    let held =
+        crate::files::file_io::open_if_unlocked(plan, false).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => None,
+            std::io::ErrorKind::WouldBlock => Some(std::io::Error::other(
+                crate::support::lang::tr("another window has them open"),
+            )),
+            _ => Some(e),
+        })?;
     if !is_linked(&held) {
         return Err(None);
     }
