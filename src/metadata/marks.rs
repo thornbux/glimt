@@ -32,6 +32,11 @@ static QUEUED_EDITS: std::sync::Mutex<Vec<Edit>> = std::sync::Mutex::new(Vec::ne
 static UNWRITTEN_EDITS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Vec<Edit>>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
 
+/// The marks files that a test makes unreadable, while each keeps its inode and time. Reads
+/// are made in the writer's thread, so a thread-local of the test would not reach them.
+#[cfg(test)]
+static UNREADABLE_IN_TEST: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
 /// Mark bits (bit 0 = mark 1) and stars, by path.
 type MarksByPath = HashMap<PathBuf, (u8, u8)>;
 
@@ -45,10 +50,12 @@ pub struct Marks {
     /// The marks file read again in the writer's thread (`refresh`), with `edits_made` when it
     /// was asked for.
     read_again: crate::support::threads::Receiving<(u64, ReadAgain)>,
-    /// The marks and stars that this window's changes replaced, in the order changed, since the
-    /// marks file last showed that it holds what this window holds. A change whose write failed
-    /// is not kept, so when the file cannot be read to show which did, they are all put back.
-    not_confirmed: Vec<(PathBuf, (u8, u8))>,
+    /// The marks and stars that this window's changes replaced, by path, since the marks file
+    /// last showed that it holds what this window holds. Each path keeps the value of its first
+    /// change. A change whose write failed is not kept, so when the file cannot be read to show
+    /// which did, they are all put back. They follow a move and go with a delete, as `by_path`
+    /// does, so that a file that later takes the name does not get them.
+    not_confirmed: MarksByPath,
     /// The window's context, asked for a frame when the file has been read again, so that
     /// marks another window set show at once, not at the next input.
     repaint: eframe::egui::Context,
@@ -126,7 +133,7 @@ impl Marks {
                 self.not_confirmed.clear();
             }
             ReadAgain::Unreadable if is_up_to_date => {
-                for (path, value) in self.not_confirmed.drain(..).rev() {
+                for (path, value) in self.not_confirmed.drain() {
                     match value {
                         (0, 0) => drop(self.by_path.remove(&path)),
                         value => drop(self.by_path.insert(path, value)),
@@ -240,10 +247,19 @@ impl Marks {
         for edit in refuse_names_with_line_breaks(edit, &self.by_path) {
             // Only a change of a mark or stars is left out when its write fails. The other
             // edits follow the disk, and are made again at the next write.
-            if let Edit::Change(files, _) = &edit {
-                for file in files {
-                    let value = self.by_path.get(file.path()).copied().unwrap_or_default();
-                    self.not_confirmed.push((file.path().to_path_buf(), value));
+            match &edit {
+                Edit::Change(files, _) => {
+                    for file in files {
+                        let value = self.by_path.get(file.path()).copied().unwrap_or_default();
+                        self.not_confirmed
+                            .entry(file.path().to_path_buf())
+                            .or_insert(value);
+                    }
+                }
+                // The values to put back follow the files, so that they are put back on the
+                // file they were about, not on another file that takes its name later.
+                Edit::Follow(..) | Edit::FollowFolder(..) | Edit::Forget(..) => {
+                    apply_edit(&mut self.not_confirmed, &edit, &[])
                 }
             }
             apply_edit(&mut self.by_path, &edit, &[]);
@@ -327,10 +343,21 @@ fn read_marks_file(file: &Path) -> Option<HashMap<PathBuf, (u8, u8)>> {
     // The file is looked at before it is read, so a write in between makes it read again. It is
     // also looked at before the lock is taken, as in `read_file_again`.
     let stamp = file_stamp(file);
-    let text = match crate::images::decode::read_limited(file) {
+    let read = crate::images::decode::read_limited(file);
+    #[cfg(test)]
+    let read = match lock_even_if_poisoned(&UNREADABLE_IN_TEST).contains(&file.to_path_buf()) {
+        true => Err(std::io::Error::other("made unreadable by a test")),
+        false => read,
+    };
+    let text = match read {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => {
+            // The stamp of this window's last write is no longer known to be what the window
+            // holds, as the window may put back its changes now. Kept, it would make the next
+            // refresh take the file as held when the share answers again, unchanged, and never
+            // read it.
+            known_stamps().remove(file);
             crate::files::file_io::save_failed(crate::tf!(
                 "Could not read the marks file {name}: {e}",
                 name = file.display(),
@@ -906,6 +933,80 @@ mod tests {
         std::fs::write(&file, line.replace("0\t3", "0\t5")).unwrap();
         refreshed(&mut marks);
         assert_eq!(marks.get(&a), (0, 5), "the file is not read again");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A marks file that could not be read for a moment, and then answers again unchanged, is
+    /// read again. Before, the stamp of this window's own last write stayed known, so the
+    /// refresh took the file as held and never read it, and the window showed the changes it
+    /// had put back for the rest of the session.
+    #[test]
+    fn a_marks_file_that_answers_again_unchanged_is_read_again() {
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-marks-answers-again-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        let a = dir.join("a.png");
+        std::fs::write(&file, format!("0\t3\t{}\n", a.display())).unwrap();
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let mut marks = super::read_marks();
+        marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            4,
+        );
+        super::write(&file, super::SENT.with(|sent| sent.take()));
+        // The share stops answering: the read fails, and the rating, not yet confirmed by a
+        // read, is put back. The file keeps its inode and time.
+        lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).push(file.clone());
+        crate::files::file_io::take_saves_failed();
+        marks.read_again();
+        settled(&mut marks);
+        crate::files::file_io::take_saves_failed();
+        assert_eq!(marks.get(&a), (0, 3));
+        // The share answers again, and the file holds the rating.
+        lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).retain(|f| *f != file);
+        refreshed(&mut marks);
+        assert_eq!(marks.get(&a), (0, 4), "the file is not read again");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The changes put back when the marks file cannot be read follow the files that a delete
+    /// or a move changed since, so each is put back on the file it was about. Before, they were
+    /// put back by name: a file renamed to the name of a deleted one got that one's stars, and a
+    /// file moved kept stars that its write may not have saved.
+    #[test]
+    fn changes_put_back_follow_their_files() {
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-marks-put-back-follow-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        let [a, b, c, d] = ["a.png", "b.png", "c.png", "d.png"].map(|n| dir.join(n));
+        let text = format!("0\t2\t{}\n0\t1\t{}\n", a.display(), c.display());
+        std::fs::write(&file, text).unwrap();
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let mut marks = super::read_marks();
+        let unlisted = crate::support::test_support::unlisted;
+        // a.png is rated, deleted, and b.png, without stars, is renamed to its name.
+        marks.rate(&unlisted(std::slice::from_ref(&a)), 3);
+        marks.forget(std::slice::from_ref(&a), None);
+        marks.follow_files(vec![(b.clone(), a.clone())], false, false);
+        // c.png is rated and moved to d.png.
+        marks.rate(&unlisted(std::slice::from_ref(&c)), 4);
+        marks.follow_files(vec![(c.clone(), d.clone())], false, false);
+        // None of it is written, and the file cannot be read. The reads that the moves asked
+        // for are taken first, as the read below would otherwise wait for them.
+        super::SENT.with(|sent| sent.take());
+        settled(&mut marks);
+        lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).push(file.clone());
+        crate::files::file_io::take_saves_failed();
+        marks.read_again();
+        settled(&mut marks);
+        crate::files::file_io::take_saves_failed();
+        lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).retain(|f| *f != file);
+        let shown = [&a, &c, &d].map(|p| marks.get(p));
+        assert_eq!(shown, [(0, 0), (0, 0), (0, 1)], "put back on other files");
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
