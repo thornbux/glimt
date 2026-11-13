@@ -26,6 +26,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   it, and the other way round, also when only the image holds them. Before, the panel wrote
   back both as it had read them, so a description that another window or digiKam saved
   meanwhile was cleared.
+- The first sidecar of a photo whose comment is in several languages keeps them all, also when
+  it is made by adding a keyword or a tag. Before, it kept only the language shown, so darktable,
+  digiKam and Lightroom, which read the sidecar first, lost the others.
 - Keywords, the comment, the alt text, the stars and the orientation are found in an XMP
   packet by their namespace, whatever prefix it binds them to (`ns1:subject`). Before, such a
   sidecar showed no keywords, and an edit wrote a second keyword list beside its own, which
