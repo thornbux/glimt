@@ -19,6 +19,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   ICC profile picked as the screen or input profile, is saved as its default. Before, its
   second line was read as another setting, so a file named so could turn off Delete to trash
   and the question before a delete.
+- A marks file that cannot be read, as on a share that fails for a moment, is told, and read
+  again at the next refresh, while the window keeps the marks it showed. Before, it was taken
+  for a file without marks, so the window showed none until another window wrote the file, and
+  a Lightroom import that keeps Glimt's stars rated over the stars that the file held.
 
 ## [0.83.0] - 2026-11-13
 
