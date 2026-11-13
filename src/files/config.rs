@@ -1862,6 +1862,10 @@ mod tests {
             ("$XDG_STATE_HOME/glimt/moves/files", NUMBERS),
             ("$XDG_STATE_HOME/glimt/deletes", NUL),
             ("$XDG_STATE_HOME/glimt/deletes/files", NUMBERS),
+            (
+                "$XDG_STATE_HOME/glimt/deletes/collections",
+                NoneToBreak("each file holds one path, read whole"),
+            ),
             ("$XDG_STATE_HOME/glimt/renames/files", NUMBERS),
             ("$XDG_STATE_HOME/glimt/renames/files/.lock", LOCK),
             ("$XDG_CONFIG_HOME/glimt/.config.lock", LOCK),
@@ -2130,6 +2134,10 @@ mod tests {
                     .map(|d| crate::files::journal::lists_folder(&d)),
             ),
             shown(crate::model::collections::collections_dir()),
+            shown(
+                (crate::files::journal::delete_log_dir())
+                    .map(|d| crate::files::journal::collections_folder(&d)),
+            ),
         ];
         #[cfg(feature = "marks")]
         files.push(shown(crate::metadata::marks::marks_file()));
@@ -2237,6 +2245,9 @@ mod tests {
             let list = state(known_path(&plan));
             lines.push(format!("list of {} is {list}", state(plan)));
         }
+        let log = delete_log_dir().unwrap().join("NAME");
+        let collection = state(crate::files::journal::collection_path(&log));
+        lines.push(format!("collection of {} is {collection}", state(log)));
         // A folder for each call, as two tests ask for the names at once.
         static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -2282,7 +2293,7 @@ mod tests {
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
         lines.push(format!("lock_kind move log {}", kind(&path)));
         drop(log);
-        let log = crate::files::journal::start_delete_log(&dir.join("deletes")).unwrap();
+        let log = crate::files::journal::start_delete_log(&dir.join("deletes"), None).unwrap();
         let path = std::fs::read_dir(dir.join("deletes")).unwrap().flatten();
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
         lines.push(format!("lock_kind delete log {}", kind(&path)));

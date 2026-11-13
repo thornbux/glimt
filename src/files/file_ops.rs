@@ -919,7 +919,8 @@ impl crate::App {
         self.run_in_background(ctx, Vec::new(), move || {
             let since = std::time::SystemTime::now();
             let (_, picked) = picked.wait_for_fingerprints();
-            let started = delete_log_dir.as_deref().map(journal::start_delete_log);
+            let started = (delete_log_dir.as_deref())
+                .map(|d| journal::start_delete_log(d, collection.as_deref()));
             let (mut delete_log, start_failure) = match started.transpose() {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
@@ -2634,10 +2635,10 @@ fn broke_here() -> String {
 
 /// Takes the files or folders `gone` for good out of the `collection` shown. This happens only
 /// once they are gone, in the thread that knows, so the file keeps its order and never lacks a
-/// file that is still there. It is the one place for Delete and Move Folder to Trash. A plain
-/// list is the user's own and is never written. Returns what it took out, each entry with its
-/// place, for Undo to put back.
-fn forget_in_collection(
+/// file that is still there. It is the one place for Delete and Move Folder to Trash, and for a
+/// delete that Glimt was killed during, at the next start. A plain list is the user's own and
+/// is never written. Returns what it took out, each entry with its place, for Undo to put back.
+pub(crate) fn forget_in_collection(
     collection: Option<&Path>,
     gone: &[PathBuf],
 ) -> Result<Vec<(usize, PathBuf)>, String> {
@@ -5929,7 +5930,7 @@ mod tests {
             .rate(&crate::support::test_support::unlisted(&all), 3);
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Deleting", 4, false, Vec::new());
-        let mut log = super::journal::start_delete_log(&logs).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let mut errors = Vec::new();
@@ -5977,6 +5978,36 @@ mod tests {
         assert_eq!(stars(&app, &d), 0);
         assert_eq!(stars(&app, &b), marked);
         assert_eq!(stars(&app, &c), marked);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Glimt killed during a delete in a collection leaves the collection's entries of the files
+    /// that went, and the next start takes them out, as the delete would have at its end. Before,
+    /// they stayed, and a later photo of that name showed in the collection. The log's file of
+    /// the collection goes with the log.
+    #[test]
+    fn a_killed_delete_takes_the_files_that_went_out_of_the_collection() {
+        let dir = contract_folder("killed-delete-collection");
+        let (logs, gqv) = (dir.join("logs"), dir.join("col.gqv"));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let both = [a.clone(), b.clone()];
+        crate::model::collections::edit(&gqv, true, |all| *all = both.to_vec()).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, Some(&gqv)).unwrap();
+        log.note(&both);
+        // The kill came after a.png went, before b.png.
+        std::fs::remove_file(&a).unwrap();
+        drop(log);
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert_eq!(crate::model::collections::load(&gqv).unwrap(), [b]);
+        for (log, _) in found {
+            log.remove_once_forgotten();
+        }
+        // The log goes after the writes of both writer threads, one queued after the other.
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let left = std::fs::read_dir(logs.join("collections")).unwrap().count();
+        assert_eq!(left, 0, "the log's file of the collection is left");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

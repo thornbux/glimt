@@ -614,6 +614,10 @@ keeps them too, and the log stays for a later start.
 Its folder
 .I deletes/files
 holds, for each log, the fingerprint (device, inode, size and time) of each file to delete.
+Its folder
+.I deletes/collections
+holds, for each log of a delete in a collection, the path of that collection, so that the next
+start takes the files that went out of it.
 .TP
 .IR .config.lock ", " .keywords.lock ", " .sort\-folders.lock ", " .recent.lock ", " .sharing.lock ", " .marks.lock
 The locks beside the files of the same name above, which every window holds while it reads and

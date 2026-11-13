@@ -7,7 +7,8 @@
 //! files that went before Glimt was killed follow them at the next start. A Delete and a Move to
 //! Trash keep one too (`DeleteLog`), so that the marks and stars of the files that went before a
 //! kill are forgotten at the next start. A name whose folder is not there at that start, as on a
-//! stick not plugged in yet, keeps its marks, and its log stays for a later start.
+//! stick not plugged in yet, keeps its marks, and its log stays for a later start. The files
+//! that went also leave the collection that was shown during the delete.
 
 use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
 use crate::images::save::{same_file, same_file_by_opening};
@@ -31,6 +32,11 @@ const KNOWN_FOLDER: &str = "files";
 /// How old an empty Move log no window holds must be before it is taken for one whose Move
 /// never started, and removed. A log is locked a moment after it is made.
 const EMPTY_LOG_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The folder, in the folder of the deletes' logs, of the collection that was shown during each
+/// delete: one file for each log, of the same name, that holds the collection's path. It is a
+/// folder of its own, as `KNOWN_FOLDER` is, so that every file beside the logs is a log.
+const COLLECTION_FOLDER: &str = "collections";
 
 /// The lock file, in `KNOWN_FOLDER`, that every window holds while it changes a list there
 /// (`note_written_anew_in`). No plan has its name, as a plan's name starts with no dot.
@@ -261,6 +267,19 @@ pub(crate) fn lists_folder(dir: &Path) -> PathBuf {
     dir.join(KNOWN_FOLDER)
 }
 
+/// Returns the folder of the collections shown during the deletes (`COLLECTION_FOLDER`) in the
+/// folder of the deletes' logs `dir`. Its name is pinned in src/frozen-1.0.txt.
+pub(crate) fn collections_folder(dir: &Path) -> PathBuf {
+    dir.join(COLLECTION_FOLDER)
+}
+
+/// Returns the file that holds the path of the collection shown during the delete whose log is
+/// at `log`. Its name is pinned in src/frozen-1.0.txt.
+pub(crate) fn collection_path(log: &Path) -> PathBuf {
+    let name = log.file_name().unwrap_or_default();
+    collections_folder(log.parent().unwrap_or(Path::new(""))).join(name)
+}
+
 /// Returns the lock file of the lists in the folder of plans `dir` (`LISTS_LOCK`). Every Glimt
 /// from 0.82 on takes this one, so its name is pinned in src/frozen-1.0.txt.
 pub(crate) fn lists_lock(dir: &Path) -> PathBuf {
@@ -296,9 +315,18 @@ pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
     })
 }
 
-/// Makes a new log of a delete in `dir`, locked, with its list of the files it deletes.
-pub fn start_delete_log(dir: &Path) -> std::io::Result<DeleteLog> {
+/// Makes a new log of a delete in `dir`, locked, with its list of the files it deletes, and with
+/// the path of the `collection` shown, so that the next start can take the files that went out
+/// of it when Glimt is killed during the delete.
+pub fn start_delete_log(dir: &Path, collection: Option<&Path>) -> std::io::Result<DeleteLog> {
     let (path, file, known) = start_log(dir)?;
+    if let Some(collection) = collection {
+        std::fs::create_dir_all(collections_folder(dir))?;
+        #[allow(clippy::disallowed_methods)] // a file made new, in Glimt's own state folder
+        let mut held = (std::fs::OpenOptions::new().write(true).create_new(true))
+            .open(collection_path(&path))?;
+        held.write_all(collection.as_os_str().as_bytes())?;
+    }
     Ok(DeleteLog {
         path,
         file,
@@ -379,6 +407,7 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
                     None => has_names_left = true,
                 }
             }
+            forget_in_the_collection_shown(&path, &gone);
             let log = DeleteLog {
                 path,
                 file,
@@ -425,6 +454,24 @@ fn logs_left_by_a_kill(dir: &Path) -> Vec<(PathBuf, File, Vec<u8>)> {
         .collect()
 }
 
+/// Takes the files `gone` out of the collection that was shown during the delete whose log is
+/// at `log`, as the delete would have at its end. A log without one, or of a Glimt before this
+/// was written down, leaves the entries. So does a collection that is surely gone, as there is
+/// nothing to take them out of. A failure to write it is told.
+fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
+    let Ok(bytes) = crate::images::decode::read_limited(collection_path(log)) else {
+        return;
+    };
+    let collection = PathBuf::from(OsStr::from_bytes(&bytes));
+    if gone.is_empty() || is_surely_gone(&collection) {
+        return;
+    }
+    let forgotten = crate::files::file_ops::forget_in_collection(Some(&collection), gone);
+    if let Err(e) = forgotten {
+        crate::files::file_io::save_failed(e);
+    }
+}
+
 /// Returns whether the file that a delete's log names at `path` went before Glimt was killed.
 /// Returns `Some(true)` when its name is surely not there while its folder surely is, and
 /// `Some(false)` when something is at its name. Returns `None` when the looks cannot tell: the
@@ -443,13 +490,15 @@ fn went_before_the_kill(path: &Path) -> Option<bool> {
     (has_folder && is_surely_gone(path)).then_some(true)
 }
 
-/// Removes each list of files in the Move logs' folder `dir` whose log is gone, which no start
-/// would read: a kill between the removals of a log and its list, or a Glimt before 0.82 that
-/// put a 0.82 log's Move right and removed only the log. A Move makes its log before its list
-/// and removes it first, so a running Move's list always has its log.
+/// Removes each list of files in the Move or delete logs' folder `dir` whose log is gone, which
+/// no start would read, and each file of a delete's collection too: a kill between the removals
+/// of a log and its list, or a Glimt before 0.82 that put a 0.82 log's Move right and removed
+/// only the log. A job makes its log before its list and removes it first, so a running job's
+/// list always has its log.
 fn remove_orphan_lists(dir: &Path) {
-    let lists = std::fs::read_dir(lists_folder(dir))
+    let lists = [lists_folder(dir), collections_folder(dir)]
         .into_iter()
+        .flat_map(std::fs::read_dir)
         .flatten()
         .flatten();
     for entry in lists {
@@ -1225,6 +1274,11 @@ fn remove_plan(plan: &Path, names: &[PathBuf]) {
 fn remove_with_its_list(plan: &Path, remove: impl Fn(&Path) -> bool) {
     if remove(plan) {
         remove(&known_path(plan));
+        // Only a delete's log has a file of its collection, and only when one was shown.
+        let collection = collection_path(plan);
+        if !is_surely_gone(&collection) {
+            remove(&collection);
+        }
     }
 }
 
