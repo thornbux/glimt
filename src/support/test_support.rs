@@ -106,7 +106,9 @@ pub(crate) fn open_now(
 }
 
 /// Runs the window's background work until `done` holds, for at most five seconds. Returns
-/// whether it held.
+/// whether it held. Once it holds, what the work told is taken once more, as work tells before
+/// it stops counting as work, and the window takes what was told after it looks whether work
+/// runs (`answer_awaited_outcomes`).
 pub(crate) fn run_background_until(
     app: &mut crate::App,
     ctx: &eframe::egui::Context,
@@ -115,8 +117,9 @@ pub(crate) fn run_background_until(
     (0..250).any(|_| {
         app.poll_background(ctx);
         let now = done(app);
-        if !now {
-            std::thread::sleep(std::time::Duration::from_millis(20));
+        match now {
+            true => app.poll_background(ctx),
+            false => std::thread::sleep(std::time::Duration::from_millis(20)),
         }
         now
     })
@@ -277,6 +280,35 @@ mod tests {
         let (app, _) = super::app_on(&dir);
         assert_eq!(crate::support::lang::tr("Open Folder"), "Open Folder");
         assert_eq!(app.config.language, "en");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// What background work told just before it ended is taken before `run_background_until`
+    /// returns. Before, work that ended between the last poll and the look at `done` left its
+    /// notice in the channel, and New Collection's test now and then read the notice before it.
+    #[test]
+    fn what_work_told_before_it_ended_is_taken() {
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-told-before-end-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = super::app_on(&dir);
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        assert!(app.run_in_background(&ctx, Vec::new(), move || {
+            wait.recv().unwrap();
+            Some(crate::support::threads::Told::Notice(
+                "told at the end".into(),
+            ))
+        }));
+        // The work ends after the poll and before `done` looks, as it may in any run.
+        let ended = super::run_background_until(&mut app, &ctx, |app| {
+            go.send(()).unwrap_or_default();
+            (0..500).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                !app.working_besides_image()
+            })
+        });
+        assert!(ended);
+        assert_eq!(app.notice.text(), Some("told at the end"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
