@@ -5371,7 +5371,8 @@ else
                 d=$disk/trash-$v trash=$disk/.Trash-$(id -u)
                 rm -rf $trash /tmp/stub/gio; mkdir -p -m 700 $trash/files $trash/info
             else
-                # gio that trashes the others and fails on stuck-*, as on a file it cannot move.
+                # gio that trashes the others and fails on the photo stuck-b.jpg, as on a file it
+                # cannot move. Its sidecar goes, as with the real gio, so Glimt must take it back.
                 d=$H/trash-$v
                 cat >/tmp/stub/gio <<'STUB'
 #!/bin/sh
@@ -5380,7 +5381,7 @@ shift; [ "$1" = -- ] && shift
 status=0
 for f; do
     case ${f##*/} in
-        stuck-*) echo "gio: $f: Permission denied" >&2; echo "$f" >>/tmp/gio-refused; status=2 ;;
+        stuck-*.jpg) echo "gio: $f: Permission denied" >&2; echo "$f" >>/tmp/gio-refused; status=2 ;;
         *) /usr/bin/gio trash -- "$f" || status=2 ;;
     esac
 done
@@ -5436,7 +5437,9 @@ STUB
             undone="$back,$([ "$(sort $XDG_STATE_HOME/glimt/marks)" = "$marks" ] && echo "stars kept")"
             if [ $v = new ]; then
                 if [ $fault = gio ]; then
-                    expect "gio failed on stuck-b.jpg (the control)" "$(grep -c stuck-b.jpg /tmp/gio-refused 2>/dev/null)" 1
+                    expect "gio failed on stuck-b.jpg (the control)" "$(grep -c '/stuck-b\.jpg$' /tmp/gio-refused 2>/dev/null)" 1
+                    expect "trash, gio: the sidecar of the photo gio refused is back beside it" \
+                        "$(echo "$places" | grep -o 'stuck-b\.jpg\.xmp:[a-z]*')" stuck-b.jpg.xmp:here
                 fi
                 expect "trash, $fault: each photo and sidecar in place or in the trash, whole, told" \
                     "$got" "none lost,partway,whole,told"
