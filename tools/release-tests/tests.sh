@@ -5159,7 +5159,7 @@ PY
     else note "old: named, renamed, hidden, starred, plans: $got $plans ($cut hidden when killed)"; fi
 done
 
-section "Glimt killed (kill -9) during a Move to Trash and a Delete: no stars or sidecar at the name of a photo that went"
+section "Glimt killed (kill -9) during a Move to Trash and a Delete: no sidecar at the name of a photo that went, and stars only on a later photo there"
 # F1-3. A delete forgot the marks of the files that went only in its last report, and a Move to
 # Trash sent a chunk's sidecars to the trash in a second gio call after its photos. A kill left
 # the stars, and the sidecars of the chunk in flight, at the names of photos that were gone, and
@@ -5283,7 +5283,7 @@ PY
             # 0: no name whose photo went has stars or a sidecar. 1 0: the later photo at such a
             # name has the stars of the one that went (A2, by design) and no sidecar. 0: each
             # photo still there has its stars and its sidecar beside it.
-            expect "killed during a $how: no stars or sidecar left at a name whose photo went, each photo there with both" \
+            expect "killed during a $how: no stars or sidecar at a name whose photo went, a later photo there with its stars and no sidecar, each photo there with both" \
                 "$got" "0 1 0 0"
             # A delete that never started, or that ended before the kill, passes the line above.
             expect "killed in the middle of the $how" \
