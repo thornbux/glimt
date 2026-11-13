@@ -729,24 +729,20 @@ pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
 /// `xmp` with its rating set to `stars`, as an attribute of its first rdf:Description. Returns
 /// `None` if it has no rdf:Description to put it in.
 fn set_rating(xmp: &str, stars: u8) -> Option<String> {
-    use crate::metadata::xmp::{first_description, first_description_start, without_property};
-    const XMP: &str = "http://ns.adobe.com/xap/1.0/";
-    // The rating is written with the prefix that the sidecar binds to XMP's namespace, such as
-    // an old packet's xap, so it is the same property as the rating there.
-    let (_, declared) = first_description(xmp)?;
-    let prefix = (declared.iter().find(|(_, uri)| *uri == XMP)).map_or("xmp", |(p, _)| *p);
-    let rating = format!("{prefix}:Rating");
-    // The rating it has goes first, in whatever form and quotes it was written, so the sidecar
-    // never holds two, which darktable and digiKam refuse as broken XML.
-    let xmp = &without_property(&without_property(xmp, "xmp:Rating"), &rating);
-    let (_, declared) = first_description(xmp)?;
-    let ns = match declared.iter().any(|(p, _)| *p == prefix) {
-        true => String::new(),
-        false => format!(" xmlns:xmp=\"{XMP}\""),
+    use crate::metadata::xmp::{
+        first_description, first_description_start, prefix_in_force, without_property,
     };
+    // The rating it has goes first, under any prefix bound to XMP's namespace and in whatever
+    // form and quotes it was written, so the sidecar never holds two, which darktable and
+    // digiKam refuse as broken XML.
+    let xmp = &without_property(xmp, "xmp:Rating");
+    // It is written with the prefix that the sidecar binds to XMP's namespace, such as an old
+    // packet's xap, so it is the same property as the rating there.
+    let (_, declared) = first_description(xmp)?;
+    let (prefix, ns) = prefix_in_force(&declared, "xmp", "http://ns.adobe.com/xap/1.0/");
     let at = first_description_start(xmp)? + "<rdf:Description".len();
     Some(format!(
-        "{}{ns} {rating}=\"{stars}\"{}",
+        "{}{ns} {prefix}:Rating=\"{stars}\"{}",
         &xmp[..at],
         &xmp[at..]
     ))
@@ -1600,6 +1596,16 @@ mod tests {
             1
         );
         assert_eq!(super::set_rating("nothing", 1), None);
+        // A rating under another prefix in a later Description, as exiftool writes one
+        // Description for each namespace, is replaced, not left beside the new one.
+        let later = r#"<rdf:Description rdf:about=""/><rdf:Description rdf:about="" xmlns:ns2="http://ns.adobe.com/xap/1.0/" ns2:Rating="2"/>"#;
+        assert_eq!(
+            super::set_rating(later, 4)
+                .unwrap()
+                .matches("Rating=")
+                .count(),
+            1
+        );
         // A Description in a comment is not the one the rating goes into, and a CDATA section
         // with a quote does not hide the rating after it. Before, the rating went into the
         // comment, and the one after the CDATA section stayed beside it.
@@ -1737,9 +1743,9 @@ mod tests {
             (
                 "alt text",
                 |p| {
-                    let text = xmp::AltText {
-                        text: "A dog".into(),
-                        extended_description: String::new(),
+                    let text = xmp::AltTextChange {
+                        text: Some("A dog".into()),
+                        extended_description: None,
                     };
                     xmp::write_alt_text(p, &text)
                 },

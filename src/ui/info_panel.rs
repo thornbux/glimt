@@ -687,18 +687,25 @@ impl crate::App {
         let Some(edit) = &mut self.info_panel.metadata_edit else {
             return;
         };
-        let alt_text = xmp::AltText {
-            text: edit.alt_text.trim().to_owned(),
-            extended_description: edit.extended_description.trim().to_owned(),
+        // Saved only when edited, as the keywords: browsing writes nothing. Only the field that
+        // was edited is sent, so that the other stays as the file has it, also when another
+        // window or program wrote it after the panel read the file.
+        let edited = |typed: &mut String, saved: &mut String| {
+            let trimmed = typed.trim().to_owned();
+            if *typed == *saved || trimmed == *saved {
+                return None;
+            }
+            (*typed, *saved) = (trimmed.clone(), trimmed.clone());
+            Some(trimmed)
         };
-        // Saved only when edited, as the keywords: browsing writes nothing.
-        if (edit.alt_text != edit.saved_alt_text.text
-            || edit.extended_description != edit.saved_alt_text.extended_description)
-            && alt_text != edit.saved_alt_text
-        {
-            (edit.alt_text, edit.extended_description) =
-                (alt_text.text.clone(), alt_text.extended_description.clone());
-            edit.saved_alt_text = alt_text.clone();
+        let alt_text = xmp::AltTextChange {
+            text: edited(&mut edit.alt_text, &mut edit.saved_alt_text.text),
+            extended_description: edited(
+                &mut edit.extended_description,
+                &mut edit.saved_alt_text.extended_description,
+            ),
+        };
+        if alt_text.text.is_some() || alt_text.extended_description.is_some() {
             let file = ListedFile::new(edit.path.clone(), edit.identity, self.folder.list_is_old());
             // A sidecar job like the keywords': Move, Rename and Delete wait for it.
             self.write_sidecars(
@@ -1381,6 +1388,34 @@ mod tests {
             crate::metadata::xmp::read(&file).keywords,
             ["Oslo", "beach"]
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An extended description written to the shown file behind the panel's back, as another
+    /// window or digiKam saves it, stays when the user then edits the alt text. Before, the
+    /// panel sent both fields as it had read them, and the empty one cleared it.
+    #[test]
+    fn an_alt_text_edit_in_the_panel_keeps_a_description_written_meanwhile() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-alt-behind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        let elsewhere = crate::metadata::xmp::AltTextChange {
+            text: None,
+            extended_description: Some("Two children on a pier".into()),
+        };
+        crate::metadata::xmp::write_alt_text(&file, &elsewhere).unwrap();
+        app.info_panel.metadata_edit.as_mut().unwrap().alt_text = "Pier".into();
+        app.save_metadata_edit(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| {
+            !a.file_operations.is_writing_sidecars()
+        }));
+        let alt_text = crate::metadata::xmp::read_all(&file).2;
+        assert_eq!(alt_text.text, "Pier");
+        assert_eq!(alt_text.extended_description, "Two children on a pier");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

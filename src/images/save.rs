@@ -427,9 +427,12 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
         // A directory in each packet describes the same bytes, as two in one packet do.
         items_length = appended_items_length(xmp, &properties, &declared).max(items_length);
         let found = properties.iter().find(|found| {
-            let name = &xmp.as_bytes()[found.name.clone()];
-            let camera = [GOOGLE_CAMERA];
-            crate::metadata::xmp::is_in_namespace(name, &declared, &camera, "MicroVideoOffset")
+            found.is_in(
+                xmp.as_bytes(),
+                &declared,
+                &[GOOGLE_CAMERA],
+                "MicroVideoOffset",
+            )
         });
         offset = offset.or(found.and_then(|found| leading_number(&xmp[found.value.clone()])));
     }
@@ -468,10 +471,9 @@ fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
     let declared = crate::metadata::xmp::namespace_declarations_with_default(&main);
     let declared = declared.into_iter().collect();
     let properties = crate::metadata::xmp::top_level_properties(main.as_bytes());
-    let guid = properties.iter().find(|found| {
-        let name = &main.as_bytes()[found.name.clone()];
-        crate::metadata::xmp::is_in_namespace(name, &declared, &[XMP_NOTE], "HasExtendedXMP")
-    });
+    let guid = properties
+        .iter()
+        .find(|found| found.is_in(main.as_bytes(), &declared, &[XMP_NOTE], "HasExtendedXMP"));
     let Some(guid) = guid.map(|found| main[found.value.clone()].trim().to_owned()) else {
         return [main, String::new()];
     };
@@ -505,25 +507,22 @@ fn appended_items_length(
     properties: &[crate::metadata::xmp::TopLevelProperty],
     declared: &std::collections::HashSet<(&str, &str)>,
 ) -> u64 {
-    let is = |name: &[u8], uris: &[&str], local: &str| {
-        crate::metadata::xmp::is_in_namespace(name, declared, uris, local)
+    let is = |found: &crate::metadata::xmp::TopLevelProperty, uris: &[&str], local: &str| {
+        found.is_in(xmp.as_bytes(), declared, uris, local)
     };
-    let name_of =
-        |found: &crate::metadata::xmp::TopLevelProperty| &xmp.as_bytes()[found.name.clone()];
     let directories = properties.iter().filter(|found| {
-        let name = name_of(found);
         !found.is_attribute
-            && (is(name, &CONTAINERS, "Directory") || is(name, &[DEPTH_DEVICE], "Container"))
+            && (is(found, &CONTAINERS, "Directory") || is(found, &[DEPTH_DEVICE], "Container"))
     });
     let field = |fields: &[crate::metadata::xmp::TopLevelProperty], local: &str| {
-        let found = fields
-            .iter()
-            .find(|found| is(name_of(found), &ITEMS, local));
+        let found = fields.iter().find(|found| is(found, &ITEMS, local));
         found.and_then(|found| leading_number(&xmp[found.value.clone()]))
     };
     let mut longest = 0;
     for directory in directories {
-        let is_item = |name: &[u8]| is(name, &CONTAINERS, "Item");
+        let is_item = |name: &[u8]| {
+            crate::metadata::xmp::is_in_namespace(name, declared, &CONTAINERS, "Item")
+        };
         let items =
             crate::metadata::xmp::structure_items(xmp.as_bytes(), directory.value.clone(), is_item);
         // The items are read in every form XMP writes them in, also as the elements that
@@ -1037,7 +1036,7 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
             exif::set_xmp_orientation(&mut out, 1);
             let copy = (how == Derived::Copy).then_some(&DROPPED_FROM_COPIES[..]);
             for name in DROPPED_XMP.iter().chain(copy.unwrap_or_default()) {
-                out = xmp_without_property(&out, name.as_bytes());
+                out = xmp_without_property(&out, name);
             }
         }
         // A copy for sharing writes a new packet of the properties kept instead
@@ -1111,12 +1110,9 @@ fn derive_sidecar(
 /// spelling misses the others (`xmp:Rating='3'`) and leaves the property twice. A property with
 /// a comment or a CDATA section inside it goes whole too, as the walk reads its end past them.
 /// Before, one with a comment was left, and the editor then wrote the property a second time.
-pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
+pub(crate) fn xmp_without_property(xmp: &[u8], name: &str) -> Vec<u8> {
     let (mut out, mut copied) = (Vec::with_capacity(xmp.len()), 0);
-    for found in crate::metadata::xmp::top_level_properties(xmp) {
-        if xmp[found.name] != *name {
-            continue;
-        }
+    for found in crate::metadata::xmp::properties_named(xmp, name) {
         let start = found.whole.start;
         let start = match found.is_attribute {
             true if start > copied && xmp[start - 1].is_ascii_whitespace() => start - 1,
@@ -3394,7 +3390,7 @@ mod tests {
         // Each text is the rest of a Description's start tag and what it holds.
         let without_thumbnails = |x: &str| {
             let packet = format!("<rdf:Description{x}</rdf:Description>");
-            let out = super::xmp_without_property(packet.as_bytes(), b"xmp:Thumbnails");
+            let out = super::xmp_without_property(packet.as_bytes(), "xmp:Thumbnails");
             let out = String::from_utf8(out).unwrap();
             let inside = out.strip_prefix("<rdf:Description").unwrap();
             inside

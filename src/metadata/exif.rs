@@ -651,12 +651,10 @@ fn oriented(
 
 /// Sets the XMP's `tiff:Orientation` to `value` (1–8), as an attribute or an element. The
 /// length stays, as a value is one digit. Only the photo's own orientation changes, a top-level
-/// property (`xmp::top_level_properties`), and not that of another document in xmpMM:Pantry.
+/// property (`xmp::properties_named`), and not that of another document in xmpMM:Pantry. It is
+/// found by its namespace, whatever prefix the packet binds to it.
 pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
-    for found in crate::metadata::xmp::top_level_properties(xmp) {
-        if xmp[found.name] != *b"tiff:Orientation" {
-            continue;
-        }
+    for found in crate::metadata::xmp::properties_named(xmp, "tiff:Orientation") {
         let text = &xmp[found.value.clone()];
         let blanks = text.iter().take_while(|c| c.is_ascii_whitespace()).count();
         if let [digit] = text.trim_ascii()
@@ -1865,6 +1863,12 @@ mod tests {
             xmp,
             br#"<rdf:Description tiff:Orientation="1" a="6"><tiff:Orientation>1</tiff:Orientation></rdf:Description>"#
         );
+        // The orientation under another prefix bound to TIFF's namespace is set too.
+        let mut other =
+            br#"<rdf:Description xmlns:ns1="http://ns.adobe.com/tiff/1.0/" ns1:Orientation="6"/>"#
+                .to_vec();
+        super::set_xmp_orientation(&mut other, 1);
+        assert!(other.ends_with(br#"ns1:Orientation="1"/>"#));
         let mut odd =
             b"<rdf:Description tiff:Orientation='12' x:y='1'><tiff:Orientation/>".to_vec();
         let before = odd.clone();

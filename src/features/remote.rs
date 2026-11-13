@@ -4122,9 +4122,9 @@ mod tests {
         };
         let comment = "line one\nline\ttwo".to_owned();
         xmp::write_changed(&file, Some(keywords), Some(comment)).unwrap();
-        let alt_text = xmp::AltText {
-            text: "A red \\ square".into(),
-            extended_description: String::new(),
+        let alt_text = xmp::AltTextChange {
+            text: Some("A red \\ square".into()),
+            extended_description: None,
         };
         xmp::write_alt_text(&file, &alt_text).unwrap();
         let meta = std::fs::metadata(&file).unwrap();
