@@ -1866,6 +1866,7 @@ mod tests {
                 "$XDG_STATE_HOME/glimt/deletes/collections",
                 NoneToBreak("each file holds one path, read whole"),
             ),
+            ("$XDG_STATE_HOME/glimt/deletes/aside", NUL),
             ("$XDG_STATE_HOME/glimt/renames/files", NUMBERS),
             ("$XDG_STATE_HOME/glimt/renames/files/.lock", LOCK),
             ("$XDG_CONFIG_HOME/glimt/.config.lock", LOCK),
@@ -2138,6 +2139,10 @@ mod tests {
                 (crate::files::journal::delete_log_dir())
                     .map(|d| crate::files::journal::collections_folder(&d)),
             ),
+            shown(
+                (crate::files::journal::delete_log_dir())
+                    .map(|d| crate::files::journal::asides_folder(&d)),
+            ),
         ];
         #[cfg(feature = "marks")]
         files.push(shown(crate::metadata::marks::marks_file()));
@@ -2247,7 +2252,12 @@ mod tests {
         }
         let log = delete_log_dir().unwrap().join("NAME");
         let collection = state(crate::files::journal::collection_path(&log));
-        lines.push(format!("collection of {} is {collection}", state(log)));
+        lines.push(format!(
+            "collection of {} is {collection}",
+            state(log.clone())
+        ));
+        let aside = state(crate::files::journal::aside_path(&log));
+        lines.push(format!("aside of {} is {aside}", state(log)));
         // A folder for each call, as two tests ask for the names at once.
         static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
