@@ -5906,25 +5906,29 @@ mod tests {
     }
 
     /// Glimt killed during a Delete leaves the delete's log, and the next start forgets the
-    /// marks of the files that went and of a name that a later photo has taken since, and only
-    /// those. Before, the marks were forgotten only in the delete's last report, so a kill (a
-    /// logout's SIGKILL, a third close) left the stars of every file already deleted at its name,
-    /// where the next photo of that name showed them. The kill here is the log dropped without a
-    /// report, with one file of three gone.
+    /// marks of the files that went, and only those. Before, the marks were forgotten only in
+    /// the delete's last report, so a kill (a logout's SIGKILL, a third close) left the stars of
+    /// every file already deleted at its name, where the next photo of that name showed them.
+    /// The kill here is the log dropped without a report, with one file of four gone. A file at
+    /// a logged name keeps its marks, also when it changed since, as it may be the file the kill
+    /// came before, written anew, or one marked after the kill. So does a file whose folder is
+    /// not there at the start, as on a stick not plugged in yet, and the log stays for a later
+    /// start.
     #[test]
     fn the_marks_of_the_files_a_killed_delete_deleted_are_forgotten() {
         let dir = contract_folder("killed-delete");
         let logs = dir.join("logs");
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        let stick = dir.join("stick");
+        let d = stick.join("d.png");
         std::fs::write(&c, b"c").unwrap();
         let (mut app, ctx) = app_on(&dir);
+        let all = [a.clone(), b.clone(), c.clone(), d.clone()];
         #[cfg(feature = "marks")]
-        app.marks.rate(
-            &crate::support::test_support::unlisted(&[a.clone(), b.clone(), c.clone()]),
-            3,
-        );
+        app.marks
+            .rate(&crate::support::test_support::unlisted(&all), 3);
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
-        let job = super::Job::new("Deleting", 3, false, Vec::new());
+        let job = super::Job::new("Deleting", 4, false, Vec::new());
         let mut log = super::journal::start_delete_log(&logs).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
@@ -5933,34 +5937,46 @@ mod tests {
         let (gone, _, _) =
             super::delete_in_chunks(std::slice::from_ref(&a), &picked, how, &job, &mut errors);
         assert_eq!(gone, std::slice::from_ref(&a), "{errors:?}");
-        // b.png and c.png were written down, and the kill came before they went.
-        log.note(&[b.clone(), c.clone()]);
+        // b.png, c.png and the stick's d.png were written down, and the kill came before they
+        // went.
+        log.note(&all[1..]);
         drop(log);
-        // A later photo took the name c.png before the next start.
-        std::fs::remove_file(&c).unwrap();
-        std::fs::write(&c, b"a later photo").unwrap();
-        let found = super::journal::deletes_cut_short(&logs);
-        assert_eq!(found.len(), 1);
-        for (log, gone) in found {
-            assert_eq!(gone, [a.clone(), c.clone()]);
-            // Another window that starts meanwhile leaves the log alone.
-            assert!(super::journal::deletes_cut_short(&logs).is_empty());
-            let report = super::OperationReport {
-                gone,
-                delete_log: Some(log),
-                ..Default::default()
-            };
-            let _ = app.file_operations.report_sender().send(report);
+        // Another program wrote c.png anew before the next start, and the stick is not there.
+        std::fs::write(&c, b"written anew").unwrap();
+        let start = |app: &mut crate::App, expected: &[PathBuf]| {
+            let found = super::journal::deletes_cut_short(&logs);
+            assert_eq!(found.len(), 1);
+            for (log, gone) in found {
+                assert_eq!(gone, expected);
+                // Another window that starts meanwhile leaves the log alone.
+                assert!(super::journal::deletes_cut_short(&logs).is_empty());
+                let report = super::OperationReport {
+                    gone,
+                    delete_log: Some(log),
+                    ..Default::default()
+                };
+                let _ = app.file_operations.report_sender().send(report);
+            }
+            assert!(run_background_until(app, &ctx, |app| !app.working()));
+            crate::files::file_io::wait_for_queued_writes();
+        };
+        start(&mut app, std::slice::from_ref(&a));
+        assert_eq!(stars(&app, &a), 0);
+        for kept in &all[1..] {
+            assert_eq!(stars(&app, kept), marked, "{kept:?}");
         }
+        // At a later start the stick is back, without d.png, which went before the kill.
+        std::fs::create_dir(&stick).unwrap();
+        start(&mut app, &[a.clone(), d.clone()]);
         let no_log_left = |_: &crate::App| {
             let left = std::fs::read_dir(&logs).unwrap().flatten();
             left.filter(|e| e.path().is_file()).count() == 0
                 && std::fs::read_dir(logs.join("files")).unwrap().count() == 0
         };
         assert!(run_background_until(&mut app, &ctx, no_log_left));
-        assert_eq!(stars(&app, &a), 0);
-        assert_eq!(stars(&app, &c), 0);
+        assert_eq!(stars(&app, &d), 0);
         assert_eq!(stars(&app, &b), marked);
+        assert_eq!(stars(&app, &c), marked);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -608,11 +608,12 @@ which size and time are compared, so that they follow only a file that is still 
 A Delete or a Move to Trash while it runs, so that the marks and stars of the files deleted
 before Glimt was killed are forgotten at the next start, and a later file of the same name does
 not get them.
+Only a name that is surely gone from a folder that is there counts as deleted: a file at the
+name keeps its marks, and a name whose folder is not there, as on a stick not plugged in yet,
+keeps them too, and the log stays for a later start.
 Its folder
 .I deletes/files
-holds, for each log, the fingerprint (device, inode, size and time) of each file to delete, of
-which size and time are compared, so that the marks left at a name that a later file has taken
-are forgotten too, and those of a file the delete had not reached yet are kept.
+holds, for each log, the fingerprint (device, inode, size and time) of each file to delete.
 .TP
 .IR .config.lock ", " .keywords.lock ", " .sort\-folders.lock ", " .recent.lock ", " .sharing.lock ", " .marks.lock
 The locks beside the files of the same name above, which every window holds while it reads and

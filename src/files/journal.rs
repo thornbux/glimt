@@ -6,9 +6,10 @@
 //! A Move keeps a log of the same kind (`MoveLog`), so that the marks and collections of the
 //! files that went before Glimt was killed follow them at the next start. A Delete and a Move to
 //! Trash keep one too (`DeleteLog`), so that the marks and stars of the files that went before a
-//! kill are forgotten at the next start.
+//! kill are forgotten at the next start. A name whose folder is not there at that start, as on a
+//! stick not plugged in yet, keeps its marks, and its log stays for a later start.
 
-use crate::files::file_io::{FileFingerprint, is_surely_gone, is_surely_there};
+use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -207,6 +208,9 @@ pub struct DeleteLog {
     /// The first write of the log that failed, on a full disk say. The log takes no more names
     /// after it, and the delete goes on without them, as a Move does without its log.
     failure: Option<std::io::Error>,
+    /// Whether the log, found at the start, names a file that the start could not tell went
+    /// or stayed (`went_before_the_kill`). Such a log stays on disk for a later start.
+    has_names_left: bool,
 }
 
 impl DeleteLog {
@@ -238,9 +242,15 @@ impl DeleteLog {
 
     /// Removes the log once the marks and stars of its files that went are forgotten. The window
     /// sent their edit before, to the thread of Glimt's own files, and the log goes after it. A
-    /// log that is dropped instead stays on disk, and the next start forgets them.
+    /// log that is dropped instead stays on disk, and the next start forgets them. So does a log
+    /// that names a file the start could not tell about: a later start reads it again, and
+    /// forgets again only the marks of the names that are surely gone then.
     pub fn remove_once_forgotten(self) {
-        remove_after_the_writes(self.path, self.file);
+        if self.has_names_left {
+            crate::files::file_io::write_later(move || drop(self.file));
+        } else {
+            remove_after_the_writes(self.path, self.file);
+        }
     }
 }
 
@@ -294,6 +304,7 @@ pub fn start_delete_log(dir: &Path) -> std::io::Result<DeleteLog> {
         file,
         known: Some(known),
         failure: None,
+        has_names_left: false,
     })
 }
 
@@ -354,22 +365,26 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
 
 /// The logs in `dir` of deletes that Glimt was killed during, which are those no running window
 /// holds locked. Each comes with the files whose marks and stars are to be forgotten: those
-/// whose name is surely not there any more, and those whose name another file has taken since
-/// (`is_gone_or_another`). A file that had not gone yet is still at its name, and keeps them.
-/// Each log is held locked until it is removed.
+/// whose name is surely not there any more in a folder that surely is (`went_before_the_kill`).
+/// A file that had not gone yet is still at its name, and keeps them. Each log is held locked
+/// until it is removed, or until it is let go for a later start (`DeleteLog::has_names_left`).
 pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
     (logs_left_by_a_kill(dir).into_iter())
         .map(|(path, file, bytes)| {
-            let known = read_move_known(&known_path(&path)).unwrap_or_default();
-            let gone = (parse_names(&bytes).into_iter().enumerate())
-                .filter(|(i, p)| is_gone_or_another(p, known.get(*i).copied().flatten()))
-                .map(|(_, p)| p)
-                .collect();
+            let (mut gone, mut has_names_left) = (Vec::new(), false);
+            for name in parse_names(&bytes) {
+                match went_before_the_kill(&name) {
+                    Some(true) => gone.push(name),
+                    Some(false) => {}
+                    None => has_names_left = true,
+                }
+            }
             let log = DeleteLog {
                 path,
                 file,
                 known: None,
                 failure: None,
+                has_names_left,
             };
             (log, gone)
         })
@@ -410,18 +425,22 @@ fn logs_left_by_a_kill(dir: &Path) -> Vec<(PathBuf, File, Vec<u8>)> {
         .collect()
 }
 
-/// Returns whether the file that a delete's log names at `path`, with the fingerprint `known`
-/// it had before it went, is gone: its name is surely not there, or another file of another
-/// size or time has it now, such as a later photo of that name copied in before this start. The
-/// device is left out, as after a reboot. A look that failed (a share that dropped for a
-/// moment) says nothing, and the file keeps its marks.
-fn is_gone_or_another(path: &Path, known: Option<FileFingerprint>) -> bool {
-    match crate::files::file_io::fingerprint_or_error(path) {
-        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
-        Ok((_, size, time)) => {
-            known.is_some_and(|(_, was_size, was_time)| (size, time) != (was_size, was_time))
-        }
+/// Returns whether the file that a delete's log names at `path` went before Glimt was killed.
+/// Returns `Some(true)` when its name is surely not there while its folder surely is, and
+/// `Some(false)` when something is at its name. Returns `None` when the looks cannot tell: the
+/// folder is not there, as on a stick or a share not back yet at this start, or a look failed.
+/// A file at the name keeps its marks also when it changed since. It may be the file the kill
+/// came before, written by another program since, or a file that another window marked after
+/// the kill. The marks of a deleted file then stay with a later photo that took its name, as
+/// they did before there was a log, which is the lesser harm.
+fn went_before_the_kill(path: &Path) -> Option<bool> {
+    // The folder is looked at first, so that a stick mounted between the two looks counts as
+    // not there yet.
+    let has_folder = path.parent().is_some_and(is_surely_dir);
+    if is_surely_there(path) {
+        return Some(false);
     }
+    (has_folder && is_surely_gone(path)).then_some(true)
 }
 
 /// Removes each list of files in the Move logs' folder `dir` whose log is gone, which no start
