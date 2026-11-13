@@ -1032,7 +1032,11 @@ mod tests {
             "{:?}",
             app.notice.text()
         );
-        assert!(b.exists() && !app.working());
+        // The look's thread holds the busy pointer until it has ended, a moment after the
+        // notice is shown, so the test waits for that too. Before, it asked at once, and under
+        // the load of the whole test run it failed now and then.
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert!(b.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
