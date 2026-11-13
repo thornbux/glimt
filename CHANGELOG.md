@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An edit of the alt text in the info panel leaves the extended description as the sidecar has
+  it, and the other way round. Before, the panel wrote back both as it had read them, so a
+  description that another window or digiKam saved meanwhile was cleared.
+- Keywords, the comment, the alt text, the stars and the orientation are found in an XMP
+  packet by their namespace, whatever prefix it binds them to (`ns1:subject`). Before, such a
+  sidecar showed no keywords, and an edit wrote a second keyword list beside its own, which
+  exiv2, darktable and digiKam refuse.
+
 ## [0.83.0] - 2026-11-13
 
 ### Added
