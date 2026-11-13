@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With the home folder on NFS, a Rename Many cut short by a crash is offered to be put right at
+  the next start, and the marks and stars follow the files of a Move that was killed. Before,
+  every plan and log was opened to be read only and so could not be locked on NFS, and each
+  looked held by another window, without a word.
+
 ## [0.83.0] - 2026-11-13
 
 ### Added
