@@ -307,7 +307,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/trash.rs` | The trash, and putting a file back for Undo |
 | `src/files/external.rs` | Starting programs (`command`, `host_command`), and ffmpeg, gio and Open With |
 | `src/files/portal.rs` | The desktop portals through zbus (feature `portals`) |
-| `src/files/journal.rs` | Rename Many's steps on disk, put right at the next start after a crash, and a Move's log, by which the marks and collections follow the files moved before a kill |
+| `src/files/journal.rs` | Rename Many's steps on disk, put right at the next start after a crash, a Move's log, by which the marks and collections follow the files moved before a kill, and a delete's log, by which the marks of the files deleted before a kill are forgotten |
 | `src/support.rs` | **The support/ folder:** what the rest is built on |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget was drawn (`noted`) |
 | `src/support/test_support.rs` | What tests start from: `app_on`, `contract_folder`, `broken` |

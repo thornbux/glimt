@@ -541,3 +541,7 @@ list of $XDG_STATE_HOME/glimt/moves/NAME is $XDG_STATE_HOME/glimt/moves/files/NA
 lock_kind lock file flock
 lock_kind plan flock
 lock_kind move log flock
+file $XDG_STATE_HOME/glimt/deletes
+file $XDG_STATE_HOME/glimt/deletes/files
+list of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/files/NAME
+lock_kind delete log flock

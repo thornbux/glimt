@@ -44,6 +44,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   500,000 files took more than ten million system calls, and a delete of 10,000 photos on a
   USB stick without gio took 10,000 syncs. A record in a trash on a stick is read only up to
   64 KB, so a large one planted there no longer fills memory at the Undo.
+- Glimt killed during a Delete or a Move to Trash (a logout that does not wait, a third close)
+  no longer leaves the stars and marks of the files already gone at their names: the next start
+  forgets them, also where a later photo of that name was copied in meanwhile. A Move to Trash
+  sends each photo's sidecar with it, so a kill no longer leaves the sidecar of a photo that went
+  at its name. Before, the next photo of that name showed the stars and keywords of the one
+  deleted.
+- A Rename Many that swaps names undoes the swap when the state disk is full at its middle step.
+  Before, a kill just after such a swap made the next start take it for one not begun, and
+  Finish swapped the photos back and put the marks on the other photo.
 
 ## [0.83.0] - 2026-11-13
 

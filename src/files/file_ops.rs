@@ -186,6 +186,9 @@ pub(crate) struct OperationReport {
     /// The log of a Move, removed once the marks and collections have followed `moved`. One
     /// found at the start comes with the files that went before Glimt was killed.
     pub(crate) move_log: Option<journal::MoveLog>,
+    /// The log of a delete, removed once the marks and stars of `gone` are forgotten. One found
+    /// at the start comes with the files that went before Glimt was killed.
+    pub(crate) delete_log: Option<journal::DeleteLog>,
     /// The plans of Rename Many cut short that a repair could not put right, with the list of
     /// their files not under the names they were to get (`journal::names_left`). They are asked
     /// about again at once, with the way out of leaving the names as they are.
@@ -907,47 +910,27 @@ impl crate::App {
         let (repaint, report_tx) = (ctx.clone(), self.file_operations.report_sender());
         let collection = self.folder.collection().map(Path::to_path_buf);
         let undo_on_the_way = trash.then(|| self.file_operations.undo_on_the_way());
+        // The tests share one state folder, and a test's delete would leave its log there when
+        // the test does not take the report. They test the log on folders of their own.
+        #[cfg(not(test))]
+        let delete_log_dir = journal::delete_log_dir();
+        #[cfg(test)]
+        let delete_log_dir: Option<PathBuf> = None;
         self.run_in_background(ctx, Vec::new(), move || {
             let since = std::time::SystemTime::now();
             let (_, picked) = picked.wait_for_fingerprints();
+            let started = delete_log_dir.as_deref().map(journal::start_delete_log);
+            let (mut delete_log, start_failure) = match started.transpose() {
+                Ok(log) => (log, None),
+                Err(e) => (None, Some(e)),
+            };
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
             repaint.request_repaint();
             let mut errors = Vec::new();
-            // Of the files gone, the sidecars that went with them.
-            let (mut gone, mut sides) = (Vec::new(), Vec::new());
-            // The files left alone, as no longer the ones picked.
-            let mut changed: HashSet<PathBuf> = HashSet::new();
-            // Each gio call (and each taking of the locks) handles many files, so thousands of
-            // files do not become thousands of processes. The chunks are small enough that Stop
-            // and the count in the status bar keep up, and each holds only a few of the sidecar
-            // locks, which a gio call that hangs on a share would hold for good.
-            for chunk in xmp::chunks_by_sidecar_lock(&paths, 100) {
-                let chunk = &chunk[..];
-                if job.is_stopped() {
-                    break;
-                }
-                // A file that breaks the work costs its chunk, not the report of the chunks
-                // before it, which the Undo and the marks need. What of the chunk went is
-                // still reported.
-                let (went, side, left_alone) =
-                    catch_panic(|| delete_chunk(chunk, &picked, trash, &mut errors))
-                        .unwrap_or_else(|| {
-                            errors.push(format!("{}: {}", chunk[0].display(), broke_here()));
-                            let went: Vec<PathBuf> = chunk
-                                .iter()
-                                .filter(|p| is_surely_gone(p))
-                                .cloned()
-                                .collect();
-                            let side = xmp::sidecars_of(&went);
-                            (went, side, Vec::new())
-                        });
-                gone.extend(went);
-                sides.extend(side);
-                changed.extend(left_alone);
-                job.count_done(chunk.len());
-            }
-            let mut told = match errors.first() {
+            let how = (trash, delete_log.as_mut());
+            let (gone, sides, changed) = delete_in_chunks(&paths, &picked, how, &job, &mut errors);
+            let told = match errors.first() {
                 Some(first) => Some(Told::FailedWrite(tf!(
                     "Delete failed ({count}): {first}",
                     count = count(errors.len(), "error"),
@@ -963,6 +946,10 @@ impl crate::App {
                     })
                     .map(Told::Notice),
             };
+            // The log's warning goes with the delete's own text, so that neither hides the other.
+            let log_failure = start_failure.or_else(|| delete_log.as_mut()?.take_failure());
+            let warning = delete_log_dir.zip(log_failure).map(log_not_saved);
+            let mut told = with_warning(told, warning);
             let forgotten = catch_panic(|| forget_in_collection(collection.as_deref(), &gone));
             let removed = (forgotten.unwrap_or_else(|| Err(broke_here()))).unwrap_or_else(|e| {
                 told = Some(Told::FailedWrite(match told.take() {
@@ -1000,6 +987,7 @@ impl crate::App {
                 gone,
                 any_failed: !errors.is_empty() || job.is_stopped(),
                 undo,
+                delete_log,
                 ..Default::default()
             });
             drop((undo_on_the_way, job));
@@ -1030,6 +1018,7 @@ impl crate::App {
                 folder_made,
                 untrashable,
                 move_log,
+                delete_log,
                 cut_short_left,
                 is_moved_from_a_record,
             },
@@ -1082,6 +1071,10 @@ impl crate::App {
             }
             #[cfg(not(feature = "marks"))]
             drop(restored_marks);
+            // The log of a delete goes once the marks of its files that went are forgotten.
+            if let Some(log) = delete_log {
+                log.remove_once_forgotten();
+            }
             if undo.is_some() && !(is_undo_remainder && self.file_operations.undo.is_some()) {
                 self.file_operations.undo = undo;
             }
@@ -1475,9 +1468,7 @@ impl crate::App {
             let how = (is_copy, move_log.as_mut());
             let (errors, put) = put_files(&paths, (&picked, &dest), how, &job);
             let log_failure = start_failure.or_else(|| move_log.as_mut()?.take_failure());
-            let log_warning = move_log_dir
-                .zip(log_failure)
-                .map(|(d, e)| move_log_warning(&d, e));
+            let log_warning = move_log_dir.zip(log_failure).map(log_not_saved);
             let gone: Vec<PathBuf> = match is_copy {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
@@ -2714,6 +2705,65 @@ fn left_by_trash_as_picked(
     Some((kind, left.into_iter().filter_map(as_picked).collect()))
 }
 
+/// Deletes `paths` for `delete_now`'s thread, to the trash or for good as `how` says, in chunks
+/// until `job` is stopped. Each chunk is written down in the delete's log, when there is one,
+/// before its files go, so that the next start forgets the marks of those that went when Glimt
+/// is killed before the report. Each failure is added to `errors`. Returns the files gone, the
+/// sidecars that went with them, and the files left alone because they are no longer the ones
+/// `picked`.
+fn delete_in_chunks(
+    paths: &[PathBuf],
+    picked: &PickedFingerprints,
+    (trash, mut delete_log): (bool, Option<&mut journal::DeleteLog>),
+    job: &Job,
+    errors: &mut Vec<String>,
+) -> (Vec<PathBuf>, Vec<PathBuf>, HashSet<PathBuf>) {
+    let (mut gone, mut sides, mut changed) = (Vec::new(), Vec::new(), HashSet::new());
+    // Each gio call (and each taking of the locks) handles many files, so thousands of files do
+    // not become thousands of processes. The chunks are small enough that Stop and the count in
+    // the status bar keep up, and each holds only a few of the sidecar locks, which a gio call
+    // that hangs on a share would hold for good.
+    for chunk in xmp::chunks_by_sidecar_lock(paths, 100) {
+        let chunk = &chunk[..];
+        if job.is_stopped() {
+            break;
+        }
+        if let Some(log) = delete_log.as_deref_mut() {
+            log.note(chunk);
+        }
+        // A file that breaks the work costs its chunk, not the report of the chunks before it,
+        // which the Undo and the marks need. What of the chunk went is still reported.
+        let (went, side, left_alone) = catch_panic(|| delete_chunk(chunk, picked, trash, errors))
+            .unwrap_or_else(|| {
+                errors.push(format!("{}: {}", chunk[0].display(), broke_here()));
+                let went: Vec<PathBuf> = (chunk.iter())
+                    .filter(|p| is_surely_gone(p))
+                    .cloned()
+                    .collect();
+                let side = xmp::sidecars_of(&went);
+                (went, side, Vec::new())
+            });
+        gone.extend(went);
+        sides.extend(side);
+        changed.extend(left_alone);
+        job.count_done(chunk.len());
+    }
+    (gone, sides, changed)
+}
+
+/// Returns what a job tells, `told`, with the `warning` added on a line of its own. The warning
+/// alone is a notice.
+fn with_warning(told: Option<Told>, warning: Option<String>) -> Option<Told> {
+    let Some(warning) = warning else {
+        return told;
+    };
+    Some(match told {
+        Some(Told::FailedWrite(text)) => Told::FailedWrite(format!("{text}\n{warning}")),
+        Some(Told::Notice(text)) => Told::Notice(format!("{text}\n{warning}")),
+        None => Told::Notice(warning),
+    })
+}
+
 /// Deletes the files of `chunk` that are still the ones `picked`, to the trash when `trash` or
 /// for good, and then their sidecars, for `delete_now`'s thread. Each failure is added to
 /// `errors`. Returns the files gone, their sidecars, and the files left alone because they are
@@ -2749,40 +2799,76 @@ fn delete_chunk(
             }
         }
     }
-    if !kept.is_empty()
-        && let Err(e) = crate::files::trash::trash(&kept)
-    {
-        errors.push(e);
-    }
     // Their sidecars go the same way, so that a new file with the same name does not get their
-    // keywords. A look that failed (a share that dropped for a moment) keeps the sidecar, as the
-    // photo may still be there.
-    let is_gone = |p: &&PathBuf| is_surely_gone(p);
-    let mut went: Vec<PathBuf> = kept.iter().filter(is_gone).cloned().collect();
-    // Each file's sidecars are named before they go, so that a file whose sidecar stays out of
-    // the trash can be taken back with those that went.
-    let mut names = xmp::AdobeNames::default();
-    let sidecars_of_file: Vec<(PathBuf, Vec<PathBuf>)> = (went.iter())
+    // keywords. Each file's sidecars are named before it goes and go just before it, in the same
+    // call, so that Glimt killed halfway never leaves a sidecar at the name of a photo that is
+    // gone. Adobe's sidecar of two RAW files of one name stem that go together goes before the
+    // first of them.
+    let leaving: HashSet<&PathBuf> = kept.iter().collect();
+    let (mut names, mut named) = (xmp::AdobeNames::default(), HashSet::new());
+    let sidecars_of_file: Vec<(PathBuf, Vec<PathBuf>)> = (kept.iter())
         .map(|p| {
-            let sides = xmp::sidecars_moving_with(p, p, &HashSet::new(), &mut names);
-            (p.clone(), sides.into_iter().map(|(side, _)| side).collect())
+            let sides = xmp::sidecars_moving_with(p, p, &leaving, &mut names);
+            let sides = sides.into_iter().map(|(side, _)| side);
+            let sides = sides.filter(|s| named.insert(s.clone())).collect();
+            (p.clone(), sides)
         })
         .collect();
-    let side: Vec<PathBuf> = (sidecars_of_file.iter().flat_map(|(_, sides)| sides))
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
+    let in_order: Vec<PathBuf> = (sidecars_of_file.iter())
+        .flat_map(|(p, sides)| sides.iter().chain([p]))
+        .cloned()
+        .collect();
+    let trashed = match in_order.is_empty() {
+        true => Ok(()),
+        false => crate::files::trash::trash(&in_order),
+    };
+    // A look that failed (a share that dropped for a moment) counts the photo as there.
+    let (went_with, stayed): (Vec<_>, Vec<_>) = (sidecars_of_file.into_iter())
+        .partition(|(p, _): &(PathBuf, Vec<PathBuf>)| is_surely_gone(p));
+    let mut went: Vec<PathBuf> = went_with.iter().map(|(p, _)| p.clone()).collect();
+    let side: Vec<PathBuf> = (went_with.iter().flat_map(|(_, sides)| sides))
         .cloned()
         .collect();
     // A sidecar that stays is told, as the photo's own errors are, because the next file of that
     // name would show its keywords.
-    if !side.is_empty()
-        && let Err(e) = crate::files::trash::trash(&side)
-    {
-        let back = take_back_from_the_trash(sidecars_of_file, since, errors);
+    if let Err(e) = trashed {
+        take_back_sidecars(stayed, since, errors);
+        let back = take_back_from_the_trash(went_with, since, errors);
         went.retain(|p| !back.contains(p));
         errors.push(e);
     }
     (went, side, left_alone)
+}
+
+/// Takes the sidecars that went to the trash of the files of `stayed`, which did not go, back
+/// out of it, so that each photo keeps its keywords. Only a photo surely there takes them back:
+/// one that could not be looked at may be gone, and its sidecar would then wait at its name for
+/// the next file of that name. The move to the trash began at `since`. A sidecar that cannot
+/// come back is told in `errors`.
+fn take_back_sidecars(
+    stayed: Vec<(PathBuf, Vec<PathBuf>)>,
+    since: std::time::SystemTime,
+    errors: &mut Vec<String>,
+) {
+    let sidecars: Vec<PathBuf> = (stayed.into_iter())
+        .filter(|(p, _)| is_surely_there(p))
+        .flat_map(|(_, sides)| sides)
+        .filter(|side| is_surely_gone(side))
+        .collect();
+    if sidecars.is_empty() {
+        return;
+    }
+    let trash_move = TrashMove {
+        files: Vec::new(),
+        sidecars,
+        sidecars_left: Vec::new(),
+        since,
+        marks: Default::default(),
+        collection: None,
+    };
+    if let (_, Some(error)) = restore(&trash_move, trash_dirs) {
+        errors.push(error);
+    }
 }
 
 /// Deletes each of `chunk` that is still the one `picked` for good, with its sidecars, as
@@ -3247,9 +3333,9 @@ fn names_left_for_the_next_start(
     }
 }
 
-/// Sends to the window, through `report_tx`, the Moves that Glimt was killed during, found at
-/// the start. The marks and collections then follow the files that went, as the Moves' reports
-/// would have made them.
+/// Sends to the window, through `report_tx`, the Moves and deletes that Glimt was killed during,
+/// found at the start. The marks and collections then follow the files that went, and the
+/// marks and stars of the files deleted are forgotten, as the jobs' reports would have done.
 #[cfg(not(test))]
 fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     let logs = journal::move_log_dir().map(|d| journal::moves_cut_short(&d));
@@ -3260,13 +3346,22 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
             ..Default::default()
         });
     }
+    let logs = journal::delete_log_dir().map(|d| journal::deletes_cut_short(&d));
+    for (log, gone) in logs.into_iter().flatten() {
+        let _ = report_tx.send(OperationReport {
+            gone,
+            delete_log: Some(log),
+            ..Default::default()
+        });
+    }
 }
 
-/// Words the warning that the log of a Move in `dir` could not be made or written, `failure`,
-/// and prints it. The Move goes on without the log, as in Glimt 0.80.0: a Move is how a full
-/// disk is cleared, and a kill halfway then only leaves the marks of the files that went
-/// behind. It is no failed write, because the Move itself works, so a close does not wait.
-fn move_log_warning(dir: &Path, failure: std::io::Error) -> String {
+/// Words the warning that the log of a Move or a delete in `dir` could not be made or written,
+/// `failure`, and prints it. The job goes on without the log, as in Glimt 0.80.0: a Move or a
+/// delete is how a full disk is cleared, and a kill halfway then only leaves the marks of the
+/// files that went behind. It is no failed write, because the job itself works, so a close does
+/// not wait.
+fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> String {
     let warning = tf!(
         "Could not save {name}: {e}",
         name = dir.display(),
@@ -4695,6 +4790,66 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Glimt killed during a Move to Trash never leaves a sidecar at the name of a photo that
+    /// went. Before, a chunk's photos went to the trash in one call and their sidecars in a
+    /// second, and a kill between the two left each sidecar for the next file of its photo's
+    /// name. The kill here is a panic when the sidecar's turn to go comes.
+    #[test]
+    fn a_kill_during_a_move_to_trash_leaves_no_sidecar_without_its_photo() {
+        use crate::support::threads::{BREAKING_FILES, catch_panic};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-trash-killed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (photo, side) = (dir.join("a.jpg"), dir.join("a.jpg.xmp"));
+        std::fs::write(&photo, "photo").unwrap();
+        std::fs::write(&side, "own").unwrap();
+        let picked = crate::files::file_io::PickedFiles::new(vec![photo.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        lock_even_if_poisoned(&BREAKING_FILES).push(side.clone());
+        let mut errors = Vec::new();
+        let photos = std::slice::from_ref(&photo);
+        let cut = catch_panic(|| super::delete_chunk(photos, &picked, true, &mut errors));
+        lock_even_if_poisoned(&BREAKING_FILES).retain(|p| *p != side);
+        assert!(cut.is_none(), "the kill came");
+        assert!(
+            photo.exists() || !side.exists(),
+            "the sidecar is left at the name of a photo that went"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move to Trash that takes a photo's sidecar but not the photo takes the sidecar back
+    /// out of the trash, so that the photo keeps its keywords.
+    #[test]
+    fn a_sidecar_comes_back_out_of_the_trash_when_its_photo_stays() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-trash-photo-stays-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (photo, side) = (dir.join("a.jpg"), dir.join("a.jpg.xmp"));
+        std::fs::write(&photo, "photo").unwrap();
+        std::fs::write(&side, "own").unwrap();
+        let picked = crate::files::file_io::PickedFiles::new(vec![photo.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        // The photo's name cannot be unlinked, so the photo cannot be moved into the trash.
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((photo.clone(), libc::EPERM)));
+        let mut errors = Vec::new();
+        let (went, _, _) =
+            super::delete_chunk(std::slice::from_ref(&photo), &picked, true, &mut errors);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert!(went.is_empty(), "{errors:?}");
+        assert!(!errors.is_empty());
+        assert_eq!(std::fs::read_to_string(&photo).unwrap(), "photo");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "own", "{errors:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A rename whose plan cannot be written renames nothing and says so. Before, Rename Many
     /// ran without its plan, and on a full state folder the marks file could not follow the
     /// swapped names either, so most photos showed another photo's stars (issue #90).
@@ -5748,6 +5903,65 @@ mod tests {
             assert!(stayed, "{order:?}: r.xmp went back with r.cr2");
             std::fs::remove_dir_all(&d).unwrap();
         }
+    }
+
+    /// Glimt killed during a Delete leaves the delete's log, and the next start forgets the
+    /// marks of the files that went and of a name that a later photo has taken since, and only
+    /// those. Before, the marks were forgotten only in the delete's last report, so a kill (a
+    /// logout's SIGKILL, a third close) left the stars of every file already deleted at its name,
+    /// where the next photo of that name showed them. The kill here is the log dropped without a
+    /// report, with one file of three gone.
+    #[test]
+    fn the_marks_of_the_files_a_killed_delete_deleted_are_forgotten() {
+        let dir = contract_folder("killed-delete");
+        let logs = dir.join("logs");
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        std::fs::write(&c, b"c").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        #[cfg(feature = "marks")]
+        app.marks.rate(
+            &crate::support::test_support::unlisted(&[a.clone(), b.clone(), c.clone()]),
+            3,
+        );
+        let marked = if cfg!(feature = "marks") { 3 } else { 0 };
+        let job = super::Job::new("Deleting", 3, false, Vec::new());
+        let mut log = super::journal::start_delete_log(&logs).unwrap();
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut errors = Vec::new();
+        let how = (false, Some(&mut log));
+        let (gone, _, _) =
+            super::delete_in_chunks(std::slice::from_ref(&a), &picked, how, &job, &mut errors);
+        assert_eq!(gone, std::slice::from_ref(&a), "{errors:?}");
+        // b.png and c.png were written down, and the kill came before they went.
+        log.note(&[b.clone(), c.clone()]);
+        drop(log);
+        // A later photo took the name c.png before the next start.
+        std::fs::remove_file(&c).unwrap();
+        std::fs::write(&c, b"a later photo").unwrap();
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        for (log, gone) in found {
+            assert_eq!(gone, [a.clone(), c.clone()]);
+            // Another window that starts meanwhile leaves the log alone.
+            assert!(super::journal::deletes_cut_short(&logs).is_empty());
+            let report = super::OperationReport {
+                gone,
+                delete_log: Some(log),
+                ..Default::default()
+            };
+            let _ = app.file_operations.report_sender().send(report);
+        }
+        let no_log_left = |_: &crate::App| {
+            let left = std::fs::read_dir(&logs).unwrap().flatten();
+            left.filter(|e| e.path().is_file()).count() == 0
+                && std::fs::read_dir(logs.join("files")).unwrap().count() == 0
+        };
+        assert!(run_background_until(&mut app, &ctx, no_log_left));
+        assert_eq!(stars(&app, &a), 0);
+        assert_eq!(stars(&app, &c), 0);
+        assert_eq!(stars(&app, &b), marked);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Glimt killed during a Move leaves the Move's log, and the next start makes the marks

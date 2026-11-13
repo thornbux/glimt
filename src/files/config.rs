@@ -1860,6 +1860,8 @@ mod tests {
             ),
             ("$XDG_STATE_HOME/glimt/moves", NUL),
             ("$XDG_STATE_HOME/glimt/moves/files", NUMBERS),
+            ("$XDG_STATE_HOME/glimt/deletes", NUL),
+            ("$XDG_STATE_HOME/glimt/deletes/files", NUMBERS),
             ("$XDG_STATE_HOME/glimt/renames/files", NUMBERS),
             ("$XDG_STATE_HOME/glimt/renames/files/.lock", LOCK),
             ("$XDG_CONFIG_HOME/glimt/.config.lock", LOCK),
@@ -2122,6 +2124,11 @@ mod tests {
                 (crate::files::journal::move_log_dir())
                     .map(|d| crate::files::journal::lists_folder(&d)),
             ),
+            shown(crate::files::journal::delete_log_dir()),
+            shown(
+                (crate::files::journal::delete_log_dir())
+                    .map(|d| crate::files::journal::lists_folder(&d)),
+            ),
             shown(crate::model::collections::collections_dir()),
         ];
         #[cfg(feature = "marks")]
@@ -2207,13 +2214,13 @@ mod tests {
         crate::features::remote::glimt_folder_in("$XDG_RUNTIME_DIR".as_ref())
     }
 
-    /// Returns a "list" line for where a plan of Rename Many and a log of Move have the list of
-    /// the files they move (`journal::known_path`), and a "lock_kind" line for each way Glimt
-    /// takes a lock. Two versions that took locks of different kinds (flock and fcntl) would
-    /// keep every name and exclude nothing. A lock's kind is read from /proc/locks while the
-    /// code's lock is held.
+    /// Returns a "list" line for where a plan of Rename Many, a log of Move and a log of a
+    /// delete have the list of their files (`journal::known_path`), and a "lock_kind" line for
+    /// each way Glimt takes a lock. Two versions that took locks of different kinds (flock and
+    /// fcntl) would keep every name and exclude nothing. A lock's kind is read from /proc/locks
+    /// while the code's lock is held.
     fn lists_and_kinds_of_locks() -> Vec<String> {
-        use crate::files::journal::{journal_dir, known_path, move_log_dir};
+        use crate::files::journal::{delete_log_dir, journal_dir, known_path, move_log_dir};
         let state = |p: std::path::PathBuf| {
             let rest = p
                 .strip_prefix(super::test_home().join(".local/state"))
@@ -2221,7 +2228,11 @@ mod tests {
             format!("$XDG_STATE_HOME/{}", rest.display())
         };
         let mut lines = Vec::new();
-        for dir in [journal_dir().unwrap(), move_log_dir().unwrap()] {
+        for dir in [
+            journal_dir().unwrap(),
+            move_log_dir().unwrap(),
+            delete_log_dir().unwrap(),
+        ] {
             let plan = dir.join("NAME");
             let list = state(known_path(&plan));
             lines.push(format!("list of {} is {list}", state(plan)));
@@ -2270,6 +2281,11 @@ mod tests {
         let path = std::fs::read_dir(dir.join("logs")).unwrap().flatten();
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
         lines.push(format!("lock_kind move log {}", kind(&path)));
+        drop(log);
+        let log = crate::files::journal::start_delete_log(&dir.join("deletes")).unwrap();
+        let path = std::fs::read_dir(dir.join("deletes")).unwrap().flatten();
+        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
+        lines.push(format!("lock_kind delete log {}", kind(&path)));
         drop(log);
         std::fs::remove_dir_all(dir).unwrap();
         lines

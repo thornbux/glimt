@@ -5159,6 +5159,89 @@ PY
     else note "old: named, renamed, hidden, starred, plans: $got $plans ($cut hidden when killed)"; fi
 done
 
+section "Glimt killed (kill -9) during a Move to Trash and a Delete: no stars or sidecar at the name of a photo that went"
+# F1-3. A delete forgot the marks of the files that went only in its last report, and a Move to
+# Trash sent a chunk's sidecars to the trash in a second gio call after its photos. A kill left
+# the stars, and the sidecars of the chunk in flight, at the names of photos that were gone, and
+# a later photo of such a name showed them. The gio of the chunk in flight is killed too, as a
+# logout or a power cut ends it.
+for v in new old; do
+    for how in trash delete; do
+        as_version $v
+        mkdir -p $XDG_STATE_HOME/glimt
+        # 1,000 photos, each with a sidecar and three stars. A stand-in gio trashes one file
+        # every 20 ms, in the order it is given, as gio does.
+        d=/tmp/killed-$how-$v trash=/tmp/killed-trash-$v
+        rm -rf $d $trash; mkdir -p $d $trash
+        cat >/tmp/stub/gio <<STUB
+#!/bin/sh
+[ "\$1" = trash ] || exit 1
+shift 2
+for f; do mv "\$f" $trash/ || exit 1; sleep 0.02; done
+STUB
+        chmod +x /tmp/stub/gio
+        convert -size 32x32 xc:blue $d/0001.jpg
+        for i in $(seq -w 2 1000); do ln $d/0001.jpg $d/$i.jpg; done
+        for i in $(seq -w 1 1000); do echo "sidecar $i" >$d/$i.jpg.xmp; done
+        for i in $(seq -w 1 1000); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$XDG_STATE_HOME/glimt/marks
+        ls $d | grep 'jpg$' >/tmp/killed-names
+        config confirm_trash=false confirm_delete=false
+        start $d
+        sleep 2
+        key ctrl+a
+        if [ $how = trash ]; then key Delete; else key shift+Delete; fi
+        python3 -c "
+import os, signal, sys, time
+d, pid = sys.argv[1], int(sys.argv[2])
+end = time.time() + 60
+while time.time() < end:
+    if 1000 - sum(n.endswith('.jpg') for n in os.listdir(d)) >= 30:
+        break
+    time.sleep(0.01)
+os.kill(pid, signal.SIGKILL)" $d $GPID
+        wait $GPID 2>/dev/null
+        pkill -9 -f /tmp/stub/gio
+        sleep 0.5
+        gone=$((1000 - $(ls $d | grep -c 'jpg$')))
+        # A later photo copied in, before the next start, at the name of the first that went.
+        first=$(ls $d | grep 'jpg$' | comm -23 /tmp/killed-names - | head -1)
+        [ -n "$first" ] && convert -size 64x64 xc:red $d/$first
+        start $d; sleep 3; quit         # a new start, which may put things right
+        # Left: names of photos that went that still have stars or a sidecar. Later: the later
+        # photo's stars and sidecar. Unstarred: photos still there without their stars.
+        got=$(python3 - $d $XDG_STATE_HOME/glimt/marks "$first" <<'PY'
+import os, sys
+d, marks, first = sys.argv[1:]
+stars = {}
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3:
+        stars[fields[2]] = fields[1]
+left = unstarred = 0
+for name in open("/tmp/killed-names").read().split():
+    p = f"{d}/{name}"
+    if name == first:
+        continue
+    if os.path.isfile(p):
+        unstarred += stars.get(p) != "3"
+    else:
+        left += p in stars or os.path.isfile(p + ".xmp")
+later = (f"{d}/{first}" in stars) + os.path.isfile(f"{d}/{first}.xmp") if first else "none"
+print(left, later, unstarred)
+PY
+)
+        rm -rf $d $trash
+        if [ $v = new ]; then
+            expect "killed during a $how: no stars or sidecar left at a name whose photo went" \
+                "$got" "0 0 0"
+            # A delete that never started, or that ended before the kill, passes the line above.
+            expect "killed in the middle of the $how" \
+                "$([ $gone -gt 0 ] && [ $gone -lt 1000 ] && echo yes)" yes
+            note "new: $gone gone when killed"
+        else note "old: $how: left behind, later photo's, unstarred: $got ($gone gone when killed)"; fi
+    done
+done
+
 section "a keyword save that fails, then Ctrl+Q at once: the failure shown, the window stays open"
 # EDGES-1. Closing waits for the sidecar write, and the write then fails: in a read-only folder,
 # and on a read-only sidecar. Every sidecar lock is held from outside for a moment, as by another
