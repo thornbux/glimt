@@ -899,6 +899,13 @@ mod tests {
         assert!(lost.iter().all(|p| marks.get(p) == (0, 0)));
         let told = crate::files::file_io::take_saves_failed();
         assert_eq!(told.len(), 3, "{told:?}");
+        // The file's own writer leaves such a name out too.
+        let kept =
+            std::collections::HashMap::from([(odd.join("d.png"), (0, 3)), (a.clone(), (0, 1))]);
+        assert_eq!(
+            super::to_text(&kept),
+            format!("0\t1\t{}\n", a.display()).into_bytes()
+        );
         super::SENT.with(|sent| sent.borrow_mut().clear());
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();

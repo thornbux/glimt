@@ -15,6 +15,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the next start, and the marks and stars follow the files of a Move that was killed. Before,
   every plan and log was opened to be read only and so could not be locked on NFS, and each
   looked held by another window, without a word.
+- A setting whose value has a line break, such as the name of a downloaded theme file or of an
+  ICC profile picked as the screen or input profile, is saved as its default. Before, its
+  second line was read as another setting, so a file named so could turn off Delete to trash
+  and the question before a delete.
 
 ## [0.83.0] - 2026-11-13
 
