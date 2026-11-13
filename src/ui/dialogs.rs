@@ -822,7 +822,11 @@ impl crate::App {
                 return;
             };
             match prompt {
-                Prompt::Rename => self.show_file(ctx, found[0]),
+                // Rename asks about the one file it names (`start_rename`).
+                Prompt::Rename => match found[..] {
+                    [i] => self.show_file(ctx, i),
+                    _ => return,
+                },
                 _ if !self.select_for_action(ctx, found.into_iter().collect()) => return,
                 _ => {}
             }

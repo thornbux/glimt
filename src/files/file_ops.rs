@@ -222,6 +222,35 @@ pub(crate) enum Undo {
     Rename(Vec<Moved>),
 }
 
+/// An Undo taken out of `FileOperations::undo` for a job that has not started yet. When it is
+/// dropped before `started` is called, because the job was refused or the look before it was
+/// given up, it goes back as a remainder. So Ctrl+Z can try it again, and does not say that
+/// there is nothing to undo.
+struct UndoUntilStarted {
+    undo: Option<Undo>,
+    report_tx: AnswerSender<OperationReport>,
+}
+
+impl UndoUntilStarted {
+    /// Lets the Undo go, because the job that does it has started.
+    fn started(mut self) {
+        self.undo = None;
+    }
+}
+
+impl Drop for UndoUntilStarted {
+    fn drop(&mut self) {
+        if let Some(undo) = self.undo.take() {
+            // The send fails only when the window has closed, and the Undo goes with it.
+            let _ = self.report_tx.send(OperationReport {
+                undo: Some(undo),
+                is_undo_remainder: true,
+                ..Default::default()
+            });
+        }
+    }
+}
+
 /// Files held back for work that is not a job (`App::hold_back_while_writing`). Other
 /// operations on them wait while it lives. The work moves it into its thread, so the files are
 /// let go when the work ends, also when the thread panics.
@@ -697,15 +726,21 @@ impl crate::App {
         seen: Option<&HashMap<PathBuf, FileFingerprint>>,
     ) -> Option<Asked> {
         let targets = self.targets()?;
+        Some(self.ask_about_files(&targets, seen))
+    }
+
+    /// The files at `targets` for a dialog about them, as `ask_about_targets_as_seen` takes
+    /// them. A dialog about one file of the selection (Rename) asks about that one file alone,
+    /// so that its answer can act on no other.
+    fn ask_about_files(
+        &mut self,
+        targets: &[usize],
+        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+    ) -> Asked {
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
-        let picked = self.picked_targets(&targets, seen);
+        let picked = self.picked_targets(targets, seen);
         let left_out = self.hidden_selection_notice();
-        Some(Asked::new(
-            self.opened_folder_hash(),
-            names.collect(),
-            left_out,
-            picked,
-        ))
+        Asked::new(self.opened_folder_hash(), names.collect(), left_out, picked)
     }
 
     /// The places now of the files the dialog asked about that are still in the list, and the
@@ -1551,18 +1586,19 @@ impl crate::App {
         to: Vec<PathBuf>,
         picked: PickedFiles,
     ) {
-        self.rename_files_of(ctx, (from, to), picked, false);
+        self.rename_files_of(ctx, (from, to), picked, None);
     }
 
     /// Renames `from` to `to` in the background, as `rename_in_background` says. Each file at
     /// `from` that is no longer the one `picked` is left alone. An Undo (`undoing`) gives the
-    /// fingerprints the files had after the rename it undoes.
+    /// fingerprints the files had after the rename it undoes, and is put back when its job
+    /// does not start.
     fn rename_files_of(
         &mut self,
         ctx: &egui::Context,
         (listed, to): (Vec<ListedFile>, Vec<PathBuf>),
         picked: PickedFiles,
-        undoing: bool,
+        undoing: Option<UndoUntilStarted>,
     ) {
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error. Only a
@@ -1608,7 +1644,7 @@ impl crate::App {
         ctx: &egui::Context,
         (listed, to): (Vec<ListedFile>, Vec<PathBuf>),
         picked: PickedFiles,
-        undoing: bool,
+        undoing: Option<UndoUntilStarted>,
     ) {
         let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
         // It is a job like every other writer. Closing waits for it, the status bar counts it,
@@ -1617,6 +1653,7 @@ impl crate::App {
         let Some(steps) = self.start_job(tr("Renaming"), from.len(), held_back_files) else {
             return;
         };
+        let undoing = undoing.map(UndoUntilStarted::started).is_some();
         let shown = from.iter().position(|f| self.is_file(self.list.shown(), f));
         let job = RenameJob {
             folder: folder_of_all(&from),
@@ -2061,7 +2098,7 @@ impl crate::App {
         match undo {
             Undo::Rename(pairs) => {
                 let (mut recorded, mut before) = (Vec::new(), Vec::new());
-                for (from, to, fingerprint) in pairs {
+                for (from, to, fingerprint) in pairs.clone() {
                     before.push(from);
                     recorded.push((to, fingerprint));
                 }
@@ -2069,7 +2106,11 @@ impl crate::App {
                     .map(|(to, _)| ListedFile::not_from_the_list(to.clone()))
                     .collect();
                 let picked = PickedFiles::recorded(recorded);
-                self.rename_files_of(ctx, (now, before), picked, true);
+                let undo = UndoUntilStarted {
+                    undo: Some(Undo::Rename(pairs)),
+                    report_tx,
+                };
+                self.rename_files_of(ctx, (now, before), picked, Some(undo));
             }
             Undo::Move(pairs) => drop(self.run_in_background(ctx, undone, move || {
                 let (back, left, errors) = move_back(pairs);
@@ -2545,8 +2586,11 @@ impl crate::App {
             .get(self.list.shown())
             .and_then(|f| Path::new(f).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            && let Some(asked) = self.ask_about_targets()
+            && self.targets().is_some()
         {
+            // The file named, alone. The answer renames it wherever the list has put it since,
+            // or nothing, never another selected file that came first meanwhile.
+            let asked = self.ask_about_files(&[self.list.shown()], None);
             self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
@@ -4007,6 +4051,75 @@ mod tests {
         rename(&mut app);
         super::test_mount(&d, None);
         assert!(!d.join("a.png").exists() && d.join("12:30.png").exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// An Undo of a rename whose job does not start stays to be done again. Its old name has a
+    /// character that FAT refuses, so its folder's file system is looked at first, and the job
+    /// is refused after that look: by the file system, or by a turn being saved meanwhile.
+    /// Before, the Undo was taken before the look and lost, and Ctrl+Z then said "Nothing to
+    /// undo".
+    #[test]
+    fn an_undo_of_a_rename_that_does_not_start_is_kept() {
+        let d = std::env::temp_dir().join(format!("glimt-test-undo-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let (old, new) = (d.join("12:30.png"), d.join("a.png"));
+        image::RgbImage::new(2, 2).save(&old).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .files()
+            .len()
+            == 1));
+        let picked = crate::files::file_io::PickedFiles::new(vec![old.clone()]);
+        let listed = vec![app.listed_file(0)];
+        app.rename_in_background(&ctx, listed, vec![new.clone()], picked);
+        let kept = |a: &crate::App| !a.working() && a.file_operations.undo.is_some();
+        assert!(run_background_until(&mut app, &ctx, kept));
+        // The card refuses the old name.
+        super::test_mount(&d, Some("vfat"));
+        app.undo(&ctx);
+        let kept_after_refusal = run_background_until(&mut app, &ctx, kept);
+        super::test_mount(&d, None);
+        assert!(kept_after_refusal, "{:?}", app.notice.text());
+        // A turn of the file is saved while the look runs.
+        app.undo(&ctx);
+        app.file_operations.saving.insert(new.clone());
+        assert!(run_background_until(&mut app, &ctx, kept));
+        assert!(app.notice.text().is_some_and(|t| t.contains("rotation")));
+        app.file_operations.saving.clear();
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
+        assert!(old.exists() && !new.exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Rename asks about the one file it names, not every selected file. Before, its answer
+    /// renamed the first of them still in the list, so another selected file got the typed
+    /// name when the one named left the list while the dialog was open.
+    #[test]
+    fn rename_acts_only_on_the_file_it_names() {
+        let d = std::env::temp_dir().join(format!("glimt-test-rename-one-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(d.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .files()
+            .len()
+            == 2));
+        app.run(&ctx, crate::ui::actions::Action::SelectAll);
+        app.start_rename(&ctx);
+        assert_eq!(app.dialogs.asked_names(), ["a.png"]);
+        // Another program deletes a.png, and the list follows.
+        std::fs::remove_file(d.join("a.png")).unwrap();
+        app.remove_indices(&ctx, &[0]);
+        let rename = crate::ui::dialogs::Prompt::Rename;
+        app.act_on_prompt_answer(&ctx, rename, "holiday.png");
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
+        assert!(d.join("b.png").exists() && !d.join("holiday.png").exists());
         std::fs::remove_dir_all(d).unwrap();
     }
 
