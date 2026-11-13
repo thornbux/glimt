@@ -497,10 +497,10 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
 /// The logs in `dir` of deletes that Glimt was killed during, which are those no running window
 /// holds locked. Each comes with the files whose marks and stars are to be forgotten: those
 /// whose name is surely not there any more in a folder that surely is (`went_before_the_kill`).
-/// A file that had not gone yet is still at its name, and keeps them. A sidecar that a delete
-/// for good put aside under a hidden name comes back beside its file, or goes when its file
-/// went (`sidecars_back_from_hiding`). A file still there as the log's list knew it takes back
-/// its sidecars from the trash (`sidecars_back_from_the_trash`).
+/// A file that had not gone yet is still at its name, and keeps them. A file still there as the
+/// log's list knew it takes back its sidecars, from a hidden name that a delete for good put
+/// them aside under (`sidecars_back_from_hiding`) and from the trash
+/// (`sidecars_back_from_the_trash`). A sidecar put aside of a file that went goes too.
 /// Each log is held locked until it is removed, or until it is let go for a later start
 /// (`DeleteLog::has_names_left`).
 pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
@@ -520,7 +520,7 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
             }
             forget_in_the_collection_shown(&path, &gone);
             // Before the trash is looked in, where a sidecar put aside is not.
-            sidecars_back_from_hiding(&path);
+            sidecars_back_from_hiding(&path, &gone, &stayed);
             // The log was last written just before the last of its files went. A log whose time
             // cannot be read takes no sidecar back, as it cannot tell which went after it.
             let written = file.metadata().and_then(|m| m.modified());
@@ -593,17 +593,21 @@ fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
 
 /// Puts right each sidecar that a delete for good put aside under a hidden name, as the file of
 /// the log at `log` notes them (`DeleteLog::note_aside`), when Glimt was killed before the
-/// delete deleted it or took it back. It comes back beside its photo when something is at the
-/// photo's name, never over a file, as a file at a noted name keeps its marks too
-/// (`went_before_the_kill`). It is deleted when the photo surely went, as the delete would have
-/// done. One whose photo cannot be told about stays, and so does the log, as that photo is
-/// among its names. Only a hidden name that `file_io::tmp_path` gives, beside the photo, is
-/// touched. A failure is told.
-fn sidecars_back_from_hiding(log: &Path) {
+/// delete deleted it or took it back. It comes back beside its photo, never over a file, when
+/// the photo is among those that `stayed`: still there as the log's list knew it, by the same
+/// look that takes a sidecar back from the trash. It is deleted when the photo is among those
+/// `gone`, as the delete would have done. Any other stays hidden: a photo that cannot be told
+/// about yet, whose log stays too, and a different file that took the photo's name since,
+/// which must not get the keywords of the photo deleted. Only a hidden name that
+/// `file_io::tmp_path` gives, beside the photo, is touched. A failure is told.
+fn sidecars_back_from_hiding(log: &Path, gone: &[PathBuf], stayed: &[PathBuf]) {
     use crate::files::file_io::{TMP_PREFIX, rename_never_over, save_failed, sync_folder_of};
+    use std::collections::HashSet;
     let Ok(bytes) = crate::images::decode::read_limited(aside_path(log)) else {
         return;
     };
+    let (gone, stayed): (HashSet<&PathBuf>, HashSet<&PathBuf>) =
+        (gone.iter().collect(), stayed.iter().collect());
     let names = parse_names(&bytes);
     let noted = names.as_chunks::<3>().0;
     let photos: Vec<PathBuf> = noted.iter().map(|[photo, _, _]| photo.clone()).collect();
@@ -617,13 +621,15 @@ fn sidecars_back_from_hiding(log: &Path) {
         if !is_hidden_beside || !is_surely_there(hidden) {
             continue;
         }
-        let put_right = match went_before_the_kill(photo) {
-            // Glimt's own: the sidecar it put aside under its temporary name, given back. On
-            // disk before the log goes, which a power cut would else leave it hidden without.
-            Some(false) => rename_never_over(hidden, side).and_then(|()| sync_folder_of(side)),
+        let put_right = if stayed.contains(photo) {
+            // Glimt's own: the sidecar it put aside under its temporary name, given back. It is
+            // on disk before the log goes, as a power cut would otherwise leave it hidden.
+            rename_never_over(hidden, side).and_then(|()| sync_folder_of(side))
+        } else if gone.contains(photo) {
             #[allow(clippy::disallowed_methods)] // Glimt's own: put aside, of a photo deleted
-            Some(true) => std::fs::remove_file(hidden),
-            None => continue,
+            std::fs::remove_file(hidden)
+        } else {
+            continue;
         };
         if let Err(e) = put_right {
             save_failed(format!("{}: {e}", side.display()));

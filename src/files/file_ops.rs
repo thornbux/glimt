@@ -6194,6 +6194,48 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A photo deleted for good with Glimt killed before its hidden sidecar went, and another
+    /// photo copied to its name before the next start, as from a card whose numbering began
+    /// again. The next start put the sidecar of the photo deleted back beside the new one,
+    /// with its keywords, comment and alt text, as it took any file at the name for the photo.
+    /// It now asks what the trash take-back asks: the photo must be there as the log's list
+    /// knew it.
+    #[test]
+    fn a_killed_delete_for_good_gives_no_hidden_sidecar_to_a_new_photo_at_the_name() {
+        use crate::support::threads::{BREAKING_FILES, catch_panic};
+        let dir = contract_folder("killed-delete-new-photo");
+        let logs = dir.join("logs");
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let sides = [&a, &b].map(|p| crate::metadata::xmp::sidecar(p));
+        let both = [a.clone(), b.clone()];
+        let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(&both);
+        lock_even_if_poisoned(&BREAKING_FILES).extend(sides.clone());
+        let mut errors = Vec::new();
+        for p in &both {
+            let how = (false, Some(&mut log));
+            let photo = std::slice::from_ref(p);
+            let cut = catch_panic(|| super::delete_chunk(photo, &picked, how, &mut errors));
+            assert!(cut.is_none(), "the kill came");
+        }
+        lock_even_if_poisoned(&BREAKING_FILES).retain(|p| !sides.contains(p));
+        // b.png went, and another photo was copied to its name.
+        std::fs::remove_file(&b).unwrap();
+        std::fs::write(&b, b"another photo, of another size").unwrap();
+        drop(log);
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert_eq!(std::fs::read_to_string(&sides[0]).unwrap(), "a");
+        assert!(
+            !sides[1].exists(),
+            "the new b.png got the sidecar of the one deleted"
+        );
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A Delete for good makes the rename that puts a sidecar aside lasting before the photo
     /// goes. Its note in the log's file of the sidecars put aside, and the log's names and list
     /// of files that the next start reads with it, were not synced, so a power cut there could
