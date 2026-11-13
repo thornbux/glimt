@@ -123,6 +123,10 @@ thread_local! {
     /// 500,000 files of one folder read the mount table once, not once for each file.
     static FOLDERS_LOCKED: std::cell::RefCell<FoldersLocked> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+    /// How many times this thread read a sidecar (`own_sidecar`), for the test that a writer
+    /// reads it once.
+    #[cfg(test)]
+    static SIDECAR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -506,15 +510,11 @@ pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, o
 
 /// The keyword tree paths (lr:hierarchicalSubject) of `path`, from where `read` takes the
 /// keywords: the sidecar, or else the XMP inside the image. The writers read them with the
-/// keywords (`read_with_tree_paths`), and the panel with everything else (`read_all`).
+/// keywords from the sidecar they write (`write_keywords`), and the panel with everything else
+/// (`read_all`).
 #[cfg(test)]
 fn tree_paths(path: &Path) -> Vec<String> {
-    read_with_tree_paths(path).1
-}
-
-/// `read` and `tree_paths` of `path`, from one reading of its sidecar or image.
-fn read_with_tree_paths(path: &Path) -> (KeywordsAndComment, Vec<String>) {
-    source(path).map_or_else(Default::default, |x| (parse(&x), tree_paths_in(&x)))
+    source(path).map_or_else(Vec::new, |x| tree_paths_in(&x))
 }
 
 /// The keyword tree paths that the XMP packet `xmp` holds: those of lr:hierarchicalSubject and
@@ -559,6 +559,8 @@ fn own_sidecar_text(path: &Path) -> Option<String> {
 /// whose contents would then show for this photo or be copied with it. The link is refused by
 /// the open itself, so one swapped in after a look at the name is not read through either.
 pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    #[cfg(test)]
+    SIDECAR_READS.set(SIDECAR_READS.get() + 1);
     match crate::images::decode::read_unlinked(&sidecar(path)) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -606,20 +608,19 @@ pub fn write_changed(
     comment: Option<String>,
 ) -> Result<KeywordsAndComment, String> {
     let _lock = lock_sidecar(path);
-    let (mut meta, paths) = read_with_tree_paths(path);
     let edited = match (&keywords, &comment) {
         (_, None) => Edited::Keywords,
         (None, Some(_)) => Edited::Comment,
         (Some(_), Some(_)) => Edited::Both,
     };
-    if let Some(change) = keywords {
-        change.apply(&mut meta.keywords);
-    }
-    if let Some(c) = comment {
-        meta.comment = c;
-    }
-    write_keywords(path, &meta, &paths, edited)?;
-    Ok(meta)
+    write_keywords(path, edited, |meta, _| {
+        if let Some(change) = keywords {
+            change.apply(&mut meta.keywords);
+        }
+        if let Some(c) = comment {
+            meta.comment = c;
+        }
+    })
 }
 
 /// Adds each of `keywords` that `have` lacks to it, at its end.
@@ -634,24 +635,29 @@ pub fn add_to(have: &mut Vec<String>, keywords: &[String]) {
 /// Add `keywords` to those `path` has, read and written as one change.
 pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let (mut meta, paths) = read_with_tree_paths(path);
-    add_to(&mut meta.keywords, keywords);
-    write_keywords(path, &meta, &paths, Edited::Keywords)
+    let added = write_keywords(path, Edited::Keywords, |meta, _| {
+        add_to(&mut meta.keywords, keywords)
+    });
+    added.map(drop)
 }
 
-/// Writes the fields of `meta` that were `edited`, and the keyword tree `paths`, to the sidecar
-/// of `path`, with its lock held by the caller. It is the one way keywords are written. An edit
-/// of the comment alone leaves every keyword list as the sidecar has it. Every writer starts
-/// from the paths of `read_with_tree_paths`, which come from where the keywords come from, so a
-/// hierarchy that only the image holds is not flattened when its first sidecar is made. Keywords
-/// or a comment that the image holds itself and that were cleared are written as empty elements,
-/// because if they were left out, the image's own would be read again.
+/// Changes the keywords, comment and keyword tree paths of `path` with `edit`, and writes the
+/// fields that were `edited` and the paths to its sidecar, with its lock held by the caller.
+/// Returns the keywords and comment as written. It is the one way keywords are written. `edit`
+/// is given them as read from the sidecar that is written, when that has keywords or a comment,
+/// and otherwise from the image, so the sidecar is read once. Before, the writers read the
+/// keywords first and the sidecar again to write it, and a first read that failed on a share
+/// while the second did not wrote the image's keywords over the sidecar's own. The paths come
+/// from where the keywords come from, so a hierarchy that only the image holds is not flattened
+/// when its first sidecar is made. An edit of the comment alone leaves every keyword list as the
+/// sidecar has it. Keywords or a comment that the image holds itself and that were cleared are
+/// written as empty elements, because if they were left out, the image's own would be read
+/// again. Nothing is written when `edit` changes nothing.
 fn write_keywords(
     path: &Path,
-    meta: &KeywordsAndComment,
-    paths: &[String],
     edited: Edited,
-) -> Result<(), String> {
+    edit: impl FnOnce(&mut KeywordsAndComment, &mut Vec<String>),
+) -> Result<KeywordsAndComment, String> {
     let inside = embedded(path);
     let own = inside
         .as_deref()
@@ -661,8 +667,20 @@ fn write_keywords(
         .map(|(list, ..)| *list)
         .filter(|list| inside.as_deref().is_some_and(|x| has_element(x, list)))
         .collect();
-    let only_if_there = *meta == KeywordsAndComment::default() && !own;
-    update(path, only_if_there, |x| {
+    let mut written = KeywordsAndComment::default();
+    update(path, false, |x| {
+        let from = match has_keywords_or_comment(x) {
+            true => x,
+            false => inside.as_deref().unwrap_or_default(),
+        };
+        let (mut meta, mut paths) = (parse(from), tree_paths_in(from));
+        let read = (meta.clone(), paths.clone());
+        edit(&mut meta, &mut paths);
+        written = meta.clone();
+        if (&meta, &paths) == (&read.0, &read.1) {
+            return Some(x.to_owned());
+        }
+        let (meta, paths) = (&meta, &paths);
         // A sidecar without dc:subject takes the keywords that were read, so that a new one
         // does not hide the image's.
         if edited == Edited::Comment && has_element(x, "dc:subject") {
@@ -674,7 +692,8 @@ fn write_keywords(
             Edited::Comment | Edited::Both => set_keywords_and_comment(&x, meta, own)?,
         };
         with_slashed_tree_lists(x, &lists_in_image)
-    })
+    })?;
+    Ok(written)
 }
 
 /// Runs `write`, a sidecar write of `file`, which has `file` checked to be the file the list
@@ -1042,6 +1061,10 @@ fn update(
             .to_owned(),
     };
     let text = change(&old).ok_or("unreadable XMP sidecar")?;
+    // A change that changes nothing is not written, and makes no sidecar where there is none.
+    if text == old {
+        return Ok(());
+    }
     // A link put there since the look above is replaced, and the file it points to is left
     // alone.
     let named = |e: std::io::Error| format!("{}: {e}", side.display());
@@ -1618,9 +1641,10 @@ pub(crate) fn prefix_in_force(
 /// darktable, digiKam and Lightroom keep the tree's place of a keyword.
 pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let (mut meta, mut paths) = read_with_tree_paths(path);
-    set_tag(&mut meta.keywords, &mut paths, tag, on);
-    write_keywords(path, &meta, &paths, Edited::Keywords)
+    let tagged = write_keywords(path, Edited::Keywords, |meta, paths| {
+        set_tag(&mut meta.keywords, paths, tag, on)
+    });
+    tagged.map(drop)
 }
 
 /// Sets the keyword tree paths `tags` on `path` in one write, as `tag` sets one. Each name goes
@@ -1628,15 +1652,12 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
 /// Nothing is written when it has them all.
 pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let (mut meta, mut paths) = read_with_tree_paths(path);
-    let (keywords, known) = (meta.keywords.clone(), paths.clone());
-    for t in tags {
-        set_tag(&mut meta.keywords, &mut paths, t, true);
-    }
-    if meta.keywords == keywords && paths == known {
-        return Ok(());
-    }
-    write_keywords(path, &meta, &paths, Edited::Keywords)
+    let tagged = write_keywords(path, Edited::Keywords, |meta, paths| {
+        for t in tags {
+            set_tag(&mut meta.keywords, paths, t, true);
+        }
+    });
+    tagged.map(drop)
 }
 
 /// `xmp` without property `tag` in any form it is written in (`save::xmp_without_property`).
@@ -3612,6 +3633,30 @@ mod tests {
             ),
             alt_text
         );
+    }
+
+    /// Each keyword writer reads the sidecar once, under its lock. Before, each read the keywords
+    /// and then the sidecar again to write it, and a first read that failed on a share while the
+    /// second did not wrote the image's keywords over the sidecar's own.
+    #[test]
+    fn keyword_writers_read_the_sidecar_once() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-read-once-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        write_changed(&file, adding(&["x".into()]), None).unwrap();
+        let reads = |write: &dyn Fn() -> Result<(), String>| {
+            SIDECAR_READS.set(0);
+            write().unwrap();
+            SIDECAR_READS.get()
+        };
+        assert_eq!(reads(&|| add_keywords(&file, &["Oslo".into()])), 1);
+        assert_eq!(reads(&|| tag_file(&file, "Places|Bergen", true)), 1);
+        assert_eq!(reads(&|| add_tags(&file, &["Places|Bergen".into()])), 1);
+        let comment = || write_changed(&file, None, Some("Pier".into())).map(drop);
+        assert_eq!(reads(&comment), 1);
+        assert_eq!(read(&file).keywords, ["x", "Oslo", "Bergen"]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// An edit of one of the alt text's two fields leaves the other as the sidecar has it. Before,
