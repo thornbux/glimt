@@ -23,12 +23,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   second line was read as another setting, so a file named so could turn off Delete to trash
   and the question before a delete.
 - An edit of the alt text in the info panel leaves the extended description as the sidecar has
-  it, and the other way round. Before, the panel wrote back both as it had read them, so a
-  description that another window or digiKam saved meanwhile was cleared.
+  it, and the other way round, also when only the image holds them. Before, the panel wrote
+  back both as it had read them, so a description that another window or digiKam saved
+  meanwhile was cleared.
 - Keywords, the comment, the alt text, the stars and the orientation are found in an XMP
   packet by their namespace, whatever prefix it binds them to (`ns1:subject`). Before, such a
   sidecar showed no keywords, and an edit wrote a second keyword list beside its own, which
-  exiv2, darktable and digiKam refuse.
+  exiv2, darktable and digiKam refuse. A sidecar that Glimt 0.83 wrote such a second list in
+  shows the keywords of both, and an edit keeps them all in one list.
 - A Move to another disk leaves the file where it was, and says so, when a new version of it
   was saved at its name while it was copied (by a sync client or an editor). Before, the name
   was removed after the copy, and the new version with it.
