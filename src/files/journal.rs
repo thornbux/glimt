@@ -72,13 +72,14 @@ impl Journal {
     /// again, and the plan could not tell a power cut after the swap from one before it. The
     /// names reach the disk before the count does, so a count of half is never there without
     /// them, and a count below half tells a swap not begun (`done_by_names`). Returns an error,
-    /// with nothing counted, when the disk says that the names did not get there, so that the
-    /// caller undoes the swap (a USB stick pulled out during the sync).
+    /// so that the caller undoes the swap, when the disk says that the names did not get there
+    /// (a USB stick pulled out during the sync), and also when the count itself did not (a full
+    /// state disk). A swap left done without its count would be read at the next start after a
+    /// kill as one not begun, and finishing it would swap the photos back.
     pub fn count_middle_of_swap_done(&mut self) -> std::io::Result<()> {
         sync_folders(&self.one_name_per_folder).map_err(|(_, e)| e)?;
-        self.count_step_done();
-        self.sync();
-        Ok(())
+        self.file.write_all(&[0])?;
+        self.file.sync_data()
     }
 
     /// Counts one more rename done, through `count_middle_of_swap_done` when `is_middle_of_swap`
@@ -90,19 +91,15 @@ impl Journal {
         self.count_step_done();
         Ok(())
     }
-
-    /// The steps done and counted so far on the disk, past a power cut: the renames' folders
-    /// first, so that the count never says more than the names on disk show.
-    pub fn sync(&mut self) {
-        if sync_folders(&self.one_name_per_folder).is_ok() {
-            // A count that does not reach the disk costs nothing: `repair_cut_short` finds the
-            // steps done by the names (`done_by_names`).
-            let _ = self.file.sync_data();
-        }
-    }
 }
 
 impl Journal {
+    /// Makes every later write of the plan fail, as on a full disk.
+    #[cfg(test)]
+    pub fn refuse_writes(&mut self) {
+        self.file = File::open(&self.path).unwrap();
+    }
+
     /// Leaves the plan on disk, because the renames could not all be undone, so the next start
     /// offers to put the files right. Its lock goes with this Glimt.
     pub fn keep_on_disk(mut self) {
@@ -2277,6 +2274,22 @@ mod tests {
         assert!(counted.is_err());
         plan.keep_on_disk();
         assert_eq!(super::cut_short_plans(&dir)[0].2, Some(0));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The middle of a swap whose count cannot be written (a full state disk) is not taken as
+    /// counted, so that the caller undoes the swap. Before, the failure was dropped, and a kill
+    /// just after the swap left a plan that the next start read as a swap not begun, whose
+    /// Finish swapped the photos back and put the marks on the other photo.
+    #[test]
+    fn the_middle_of_a_swap_is_not_counted_when_its_count_did_not_reach_the_disk() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-middle-count-{}", std::process::id()));
+        let moves = vec![(dir.join("a"), dir.join("b"))];
+        let mut plan = super::start_journal(&dir, &moves).unwrap();
+        plan.refuse_writes();
+        assert!(plan.count_middle_of_swap_done().is_err());
+        drop(plan);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
