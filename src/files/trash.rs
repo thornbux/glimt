@@ -588,6 +588,9 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
     }
     let mut taken_meanwhile = Vec::new();
     for (path, path_in_trashinfo, taken, trashinfo) in made {
+        // A test's kill comes here, between one file and the next.
+        #[cfg(test)]
+        crate::support::threads::panic_in_a_test_at(path);
         if let Err(e) = rename_never_over(path, &files_folder.join(&taken)) {
             // A move that may have been done keeps its .trashinfo, without which no trash view
             // lists the file and Undo cannot find it.
