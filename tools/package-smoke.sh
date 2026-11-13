@@ -52,13 +52,22 @@ for _ in range(180):
     if use_xwd:
         subprocess.run(["xwd", "-root", "-silent", "-out", path], check=False)
     data = open(path, "rb").read()
+    seen = 0
+    # Xvfb makes the file before it writes the header, so a read just after it started can
+    # find it short or with no colour masks yet. The screen is then read again, rather than
+    # shifted by -1.
+    if len(data) < 100:
+        time.sleep(0.5)
+        continue
     header = struct.unpack(">25I", data[:100])
     size, width, height, order, bits, line = header[0], header[4], header[5], header[7], header[11], header[12]
     masks, colours = header[14:17], header[19]
     start = size + 12 * colours
     form = "<I" if order == 0 else ">I"
     shifts = [(m & -m).bit_length() - 1 for m in masks]
-    seen = 0
+    if 0 in masks:
+        time.sleep(0.5)
+        continue
     if bits == 32:
         # Every fourth pixel of every fourth row, each counted for 16.
         for y in range(0, height, 4):
