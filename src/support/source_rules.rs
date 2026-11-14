@@ -35,7 +35,7 @@ const RETIRED_NAMES: &[&str] = &[
     "full_ok",       // full_resolution_count
     "set_rotate",    // set_auto_rotate
     "one_at_a_time", // changes_one_pane_at_a_time
-    "paint_other",   // paint_compared
+    "paint_other",   // paint_panes
     "compare_other", // compared_image
     "files_gen",     // version, list_version
     // The slideshow, Save As and pan view (viewer/).

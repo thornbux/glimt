@@ -528,16 +528,13 @@ impl crate::App {
             self.decoding.preload.load(Ordering::Relaxed) as isize,
         );
         let mut window = vec![shown];
-        // The compared image comes second, because it may be loaded at full resolution too.
-        let other = self.compared_image().filter(|&i| i != shown);
-        window.extend(other);
-        // The other panes, which may be zoomed too, and the images a slideshow shows in them next.
-        window.extend(
-            self.list
-                .panes()
-                .iter()
-                .filter(|&&i| i != shown && Some(i) != other),
-        );
+        // The compared image or the other panes come next, because they zoom with the shown one
+        // and may be loaded at full resolution too.
+        for i in self.images_in_other_panes() {
+            if !window.contains(&i) {
+                window.push(i);
+            }
+        }
         let full = window.len();
         self.decoding
             .full_resolution_count
@@ -597,8 +594,7 @@ impl crate::App {
                 // one and the panes of a layout, which zoom together.
                 && (!full
                     || idx == self.list.shown()
-                    || Some(idx) == self.compared_image()
-                    || self.list.panes().contains(&idx));
+                    || self.images_in_other_panes().contains(&idx));
             match d.result {
                 Some(Ok((frames, orig, hist, pages))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
@@ -748,6 +744,27 @@ impl crate::App {
         match (self.list.selected().len(), two.next(), two.next()) {
             (2, Some(a), Some(b)) => Some(if a == self.list.shown() { b } else { a }),
             _ => self.step(1, false).filter(|&i| i != self.list.shown()),
+        }
+    }
+
+    /// The images in the panes after the first, in the order of the grid. While comparing, it is
+    /// the compared image in the right half. Painting, a click, Alt+arrow and decoding all ask
+    /// this one function, so that each names the image the pane shows.
+    pub(crate) fn images_in_other_panes(&self) -> Vec<usize> {
+        if self.is_comparing {
+            self.compared_image().into_iter().collect()
+        } else {
+            self.list.panes().to_vec()
+        }
+    }
+
+    /// The columns and rows of panes on screen. Comparing is two side by side in the one pane
+    /// of its layout.
+    pub(crate) fn pane_grid(&self) -> [usize; 2] {
+        if self.is_comparing {
+            [2, 1]
+        } else {
+            layout_grid(&self.config.layout)
         }
     }
 
@@ -902,25 +919,6 @@ impl crate::App {
         }
         p.image(loaded.texture.id(), at, uv, alpha(shown));
         Some(scale)
-    }
-
-    /// Paints the compared image in `rect`, with its name above. Returns which image it is and
-    /// its scale.
-    pub(crate) fn paint_compared(
-        &mut self,
-        ui: &egui::Ui,
-        rect: egui::Rect,
-        zoom: Option<f32>,
-    ) -> Option<(usize, Option<f32>)> {
-        ui.painter().vline(
-            rect.left() - 1.0,
-            rect.y_range(),
-            egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
-        );
-        let other = self.compared_image()?;
-        let scale = self.paint_pane(ui, rect, other, zoom, None);
-        self.paint_name(ui, rect, other);
-        Some((other, scale))
     }
 
     /// The name of image `i` in the top left corner of `rect`.
@@ -1384,18 +1382,25 @@ impl crate::App {
         let mut clicked_pane = None;
         // What each pane shows, for the status bar, which tells the one under the pointer.
         let mut shown = vec![(self.list.shown(), Some(self.zoom.last_scale))];
-        if let Some(right) = right {
-            shown.extend(self.paint_compared(ui, right, self.zoom.level));
-        }
-        for (k, (rect, i)) in panes[1..]
-            .iter()
-            .zip(self.list.panes().to_vec())
-            .enumerate()
-        {
-            shown.push((
-                i,
-                self.paint_pane(ui, *rect, i, self.zoom.level, Some(k + 1)),
-            ));
+        // The compared half is the one other pane while comparing. It has a line between the
+        // halves and always its name, and a slideshow does not fade it.
+        let others = match right {
+            Some(right) => {
+                ui.painter().vline(
+                    right.left() - 1.0,
+                    right.y_range(),
+                    egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
+                );
+                vec![right]
+            }
+            None => panes[1..].to_vec(),
+        };
+        for (k, (rect, i)) in others.iter().zip(self.images_in_other_panes()).enumerate() {
+            let fading = right.is_none().then_some(k + 1);
+            shown.push((i, self.paint_pane(ui, *rect, i, self.zoom.level, fading)));
+            if right.is_some() {
+                self.paint_name(ui, *rect, i);
+            }
             // A click makes it the shown image, in the first pane.
             let pane = ui.interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click());
             let name = self.name(i);
@@ -1426,7 +1431,7 @@ impl crate::App {
         };
         self.status_bar.panes_shown(pane, grid, shown);
         if panes.len() > 1 && self.config.layout_names && !self.list.files().is_empty() {
-            let shown = std::iter::once(self.list.shown()).chain(self.list.panes().iter().copied());
+            let shown = std::iter::once(self.list.shown()).chain(self.images_in_other_panes());
             for (rect, i) in panes.iter().zip(shown) {
                 self.paint_name(ui, *rect, i);
             }
@@ -1736,7 +1741,7 @@ impl crate::App {
     /// Alt+arrow. As with a click on that pane, its image becomes the shown one, in the first
     /// pane.
     pub(crate) fn go_to_pane(&mut self, ctx: &egui::Context, action: Action) {
-        let [cols, rows] = layout_grid(&self.config.layout);
+        let [cols, rows] = self.pane_grid();
         // In one column there is no pane to the side, and in one row none above or below. The
         // key does nothing there, rather than what another arrow does.
         let across = matches!(action, Action::PaneLeft | Action::PaneRight);
@@ -1753,9 +1758,9 @@ impl crate::App {
         // Forward, the panes say which image is there, because a slideshow may change them one
         // at a time. Back, the list says it.
         let pane = (step > 0)
-            .then(|| self.list.panes().get(step as usize - 1))
+            .then(|| self.images_in_other_panes().get(step as usize - 1).copied())
             .flatten();
-        if let Some(i) = pane.copied().or_else(|| self.step(step, false)) {
+        if let Some(i) = pane.or_else(|| self.step(step, false)) {
             self.show_file(ctx, i);
         }
     }
@@ -2271,6 +2276,30 @@ mod tests {
             app.go_to_pane(&ctx, live);
             assert_eq!(app.list.shown(), 1, "{layout}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// In Compare with two files selected, Alt+Right shows the compared one, the other selected
+    /// file, and not the next in the list. Up and Down do nothing, as in two side by side.
+    #[test]
+    fn a_pane_key_in_compare_shows_the_compared_image() {
+        use crate::ui::actions::Action;
+        let name = format!("glimt-test-compare-key-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png", "e.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.config.save_orientation = false;
+        app.show_file(&ctx, 0);
+        app.list.select([0, 4].into());
+        app.toggle_compare();
+        assert_eq!(app.images_in_other_panes(), [4]);
+        app.go_to_pane(&ctx, Action::PaneDown);
+        assert_eq!(app.list.shown(), 0);
+        app.go_to_pane(&ctx, Action::PaneRight);
+        assert_eq!((app.list.shown(), app.compared_image()), (4, Some(0)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

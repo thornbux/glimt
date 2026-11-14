@@ -3395,6 +3395,23 @@ expect "Y: one image" "$one" "red red red red"
 expect "U: two above each other" "$up" "other other red blue"
 expect "Alt+Right shows the right pane's image" "$pane" "b.png"
 
+section "Compare (E): a click on the right half shows the compared image there"
+d=/tmp/compare-click
+mkdir -p $d
+convert -size 400x300 xc:red $d/a.png
+convert -size 400x300 xc:blue $d/b.png
+for v in new old; do
+    as_version $v
+    config
+    start $d/a.png; sleep 2
+    key e; sleep 1
+    click 1020 300                                      # the right half, which shows b
+    got=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    if [ $v = new ]; then expect "the click shows the compared b.png" "$got" "b.png"
+    else note "old: a click on the compared half shows $got"; fi
+done
+
 section "Preferences → Keyboard shortcuts: Change gives the action the next key"
 d=/tmp/key-capture
 mkdir -p $d
