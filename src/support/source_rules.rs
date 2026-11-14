@@ -3127,8 +3127,9 @@ fn keys_answer_through_one_place() {
     // such as by a new view's own arrows, would be taken while a dialog is open or a text field
     // has the focus, or after the shortcut that has it.
     const PRESSED: &[(&str, &str)] = &[
-        // The keys read before the shortcuts: Enter in the grid, a zoomed image's arrows, and
-        // ↑ and ↓ for the icon grid's rows (`set_row_step`).
+        // The keys read before the shortcuts: Enter in the grid, a zoomed image's arrows, the
+        // keys that extend the selection with Shift (`set_extends_selection`), and ↑ and ↓ for
+        // the icon grid's rows (`set_row_step`).
         ("ui/actions.rs", "read_keys"),
         // Tab, which only shows where the focus went, and takes no key from anyone.
         ("ui/actions.rs", "focus_ring"),

@@ -208,6 +208,10 @@ pub(crate) struct Panel {
     /// How far Previous and Next move this frame. It is a row of the icon grid for ↑ and ↓, and
     /// otherwise 1.
     row_step: isize,
+    /// Whether Previous and Next extend the selection in this frame, as they do with Shift held
+    /// on one of `RANGE_KEYS`. It is set by the keys read and cleared when the frame's action
+    /// has run, so a menu, the wheel or `--remote` never extends it.
+    extends_selection: bool,
     /// Scroll the file list to the current image on the next frame.
     scroll_to_shown: bool,
     /// The scroll asked for before this frame, which every list drawn in it makes: the side
@@ -235,6 +239,7 @@ impl Default for Panel {
             is_hidden: false,
             grid_columns: 1,
             row_step: 1,
+            extends_selection: false,
             scroll_to_shown: true,
             scroll_now: false,
             area_grid: AreaGrid::Off,
@@ -269,6 +274,7 @@ impl Panel {
     /// image shown when it comes back.
     pub(crate) fn start_frame(&mut self, lists: bool) {
         self.grid_columns = 1;
+        self.extends_selection = false;
         self.scroll_now = lists && std::mem::take(&mut self.scroll_to_shown);
     }
 
@@ -291,6 +297,15 @@ impl Panel {
 
     pub(crate) fn row_step(&self) -> isize {
         self.row_step
+    }
+
+    /// Sets whether Previous and Next extend the selection in this frame.
+    pub(crate) fn set_extends_selection(&mut self, extends: bool) {
+        self.extends_selection = extends;
+    }
+
+    pub(crate) fn extends_selection(&self) -> bool {
+        self.extends_selection
     }
 
     /// View → Thumbnails in Image Area. It shows the grid, and hides it again, but from an image
