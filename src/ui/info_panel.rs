@@ -7,7 +7,7 @@ use crate::files::file_io::{Identity, ListedFile, is_another_file};
 use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
-use crate::metadata::xmp::{KeywordChange, KeywordsAndComment};
+use crate::metadata::xmp::KeywordChange;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
@@ -69,6 +69,17 @@ pub(crate) struct MetadataEdit {
     alt_text: String,
     extended_description: String,
     pub(crate) saved_alt_text: xmp::AltText,
+}
+
+impl MetadataEdit {
+    /// Returns the keywords that the keywords field means: the saved keywords with the field's
+    /// change applied. A saved keyword that holds a comma ("Smith, John") stays one keyword
+    /// while the field still holds it, where a split of the text at commas makes two.
+    fn keywords_meant(&self) -> Vec<String> {
+        let mut keywords = self.saved.keywords.clone();
+        KeywordChange::made_by_field(&self.saved.keywords, &self.keywords).apply(&mut keywords);
+        keywords
+    }
 }
 
 /// A keyword of the keyword tree, by its whole path, and the keywords below it by name. The
@@ -463,10 +474,10 @@ impl crate::App {
                 .desired_rows(2)
                 .desired_width(f32::INFINITY),
         );
-        let add = KeywordsAndComment::parse_keywords(&edit.keywords);
+        let has_keywords = !edit.keywords_meant().is_empty();
         let n = self.list.selected().len();
         if n > 1
-            && !add.is_empty()
+            && has_keywords
             && crate::ui::menus::button(
                 ui,
                 &tf!("Add the keywords to the {n} selected", n = thousands(n)),
@@ -474,7 +485,7 @@ impl crate::App {
             .on_hover_text(tr("Each file keeps its own keywords and gets these too"))
             .clicked()
         {
-            self.add_keywords_to_selected(ui.ctx(), add);
+            self.add_field_keywords_to_selected(ui.ctx());
         }
         if [keywords, comment, alt, extended]
             .iter()
@@ -732,12 +743,8 @@ impl crate::App {
         // a background job set since the panel read it stay. The change is made from the saved
         // keywords themselves, so one that holds a comma ("Smith, John") stays whole when it was
         // not touched, and is taken out whole when it was.
-        let keywords = (edit.keywords != edit.saved.keywords_text()).then(|| {
-            KeywordChange::between(
-                &edit.saved.keywords,
-                &KeywordsAndComment::parse_keywords(&edit.keywords),
-            )
-        });
+        let keywords = (edit.keywords != edit.saved.keywords_text())
+            .then(|| KeywordChange::made_by_field(&edit.saved.keywords, &edit.keywords));
         let comment = (edit.comment != edit.saved.comment).then(|| edit.comment.trim().to_owned());
         if let Some(change) = &keywords {
             change.apply(&mut edit.saved.keywords);
@@ -783,6 +790,18 @@ impl crate::App {
         self.info_panel.exif = None;
         self.info_panel.exif_asked = None;
         self.info_panel.reread_after_write = None;
+    }
+
+    /// Adds the keywords that the info panel's keywords field means to every selected file, in
+    /// the background ("Add the keywords to the selected").
+    fn add_field_keywords_to_selected(&mut self, ctx: &egui::Context) {
+        let Some(edit) = &self.info_panel.metadata_edit else {
+            return;
+        };
+        let keywords = edit.keywords_meant();
+        if !keywords.is_empty() {
+            self.add_keywords_to_selected(ctx, keywords);
+        }
     }
 
     /// Add `keywords` to every selected file, in the background.
@@ -1027,6 +1046,49 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, written));
         assert!(shown(&app));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// "Add the keywords to the selected" adds a keyword that holds a comma ("Smith, John", as
+    /// Lightroom and digiKam write a person's name) whole, as the field's save keeps it. It was
+    /// split at the comma, and every selected file got "Smith" and "John".
+    #[test]
+    fn keywords_added_to_the_selected_keep_a_keyword_with_a_comma_whole() {
+        use crate::metadata::xmp;
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-add-comma-kw-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let name = vec!["Smith, John".to_owned()];
+        let change = xmp::KeywordChange::between(&[], &name);
+        xmp::write_changed(&dir.join("a.png"), Some(change), None).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        for _ in 0..500 {
+            app.request_and_take_exif(&ctx);
+            if app.info_panel.metadata_edit.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(
+            app.info_panel.metadata_edit.as_ref().unwrap().keywords,
+            "Smith, John"
+        );
+        app.select_range(0, 2);
+        app.add_field_keywords_to_selected(&ctx);
+        let has_the_name = |file: &str| xmp::read(&dir.join(file)).keywords == name;
+        let written = |_: &crate::App| ["a.png", "b.png", "c.png"].iter().all(|f| has_the_name(f));
+        let all_written = run_background_until(&mut app, &ctx, written);
+        let edit = app.info_panel.metadata_edit.as_ref().unwrap();
+        let shown_keywords = (edit.saved.keywords.clone(), edit.keywords.clone());
+        let on_disk: Vec<_> = ["a.png", "b.png", "c.png"]
+            .iter()
+            .map(|f| xmp::read(&dir.join(f)).keywords)
+            .collect();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(all_written, "the files have {on_disk:?}");
+        assert_eq!(shown_keywords, (name, "Smith, John".to_owned()));
     }
 
     /// A keyword tree of thousands of keywords, as a Lightroom import makes, is laid out only
