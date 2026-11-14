@@ -41,6 +41,10 @@ const LOOK: &[&str] = &[
     "size of the menus, lists and text",
 ];
 
+/// The choice of the language box that follows the system's language, found by the search in
+/// English and as shown (`language_names`).
+const AUTOMATIC_LANGUAGE: &str = "Automatic (system language)";
+
 const KEYBOARD: &[&str] = &[
     "Keyboard",
     "Change",
@@ -1151,10 +1155,16 @@ fn language_codes() -> impl Iterator<Item = &'static str> {
 /// itself, so one can find the way back from a language one does not read. Returns `code`
 /// itself for a code that no language has.
 fn language_name(code: &str) -> &str {
+    language_names(code)[1]
+}
+
+/// Returns the name of the language `code` in English and as Preferences shows it, the same
+/// for a language named in itself. The search finds the choice by either.
+fn language_names(code: &str) -> [&str; 2] {
     match code {
-        "" => tr("Automatic (system language)"),
-        lang::ENGLISH => "English",
-        code => (lang::LANGUAGES.iter().find(|l| l.0 == code)).map_or(code, |l| l.1),
+        "" => [AUTOMATIC_LANGUAGE, tr(AUTOMATIC_LANGUAGE)],
+        lang::ENGLISH => ["English"; 2],
+        code => [(lang::LANGUAGES.iter().find(|l| l.0 == code)).map_or(code, |l| l.1); 2],
     }
 }
 
@@ -1169,7 +1179,7 @@ fn sections_shown(query: &str, theme_names: &[String]) -> [bool; 10] {
     // English name.
     let look: Vec<String> = (theme_names.iter())
         .flat_map(|n| [n.clone(), theme::shown_name(n).to_owned()])
-        .chain(language_codes().map(|code| language_name(code).to_owned()))
+        .chain(language_codes().flat_map(language_names).map(str::to_owned))
         .collect();
     let look: Vec<&str> = look.iter().map(String::as_str).collect();
     let slideshow: Vec<&str> = FADES.iter().flat_map(|f| both(f.1)).collect();
@@ -1427,24 +1437,32 @@ mod tests {
     }
 
     /// A search finds a choice drawn from a table, in English and as shown: a rendering
-    /// intent, a profile, a fade, a theme and a language. Each once found nothing.
+    /// intent, a profile, a fade, a theme and a language. Each once found nothing. The English
+    /// words find them in every language the window is shown in. Before, a search for
+    /// "automatic" found the language's choice only in an English window.
     #[test]
     fn the_search_finds_the_choices_of_tables() {
         let themes = ["Nord".to_owned()];
-        for (query, section) in [
-            ("perceptual", 6),
-            ("colorimetric", 6),
-            ("adobe", 6),
-            ("p3", 6),
-            ("long", 3),
-            ("short", 3),
-            ("nord", 0),
-            ("english", 0),
-            ("deutsch", 0),
-            ("rgb", 2),
-        ] {
-            assert!(super::sections_shown(query, &themes)[section], "{query}");
+        for language in language_codes() {
+            lang::set_language_of_this_test(language);
+            for (query, section) in [
+                ("perceptual", 6),
+                ("colorimetric", 6),
+                ("adobe", 6),
+                ("p3", 6),
+                ("long", 3),
+                ("short", 3),
+                ("nord", 0),
+                ("automatic", 0),
+                ("english", 0),
+                ("deutsch", 0),
+                ("rgb", 2),
+            ] {
+                let found = super::sections_shown(query, &themes)[section];
+                assert!(found, "{query} in the language {language:?}");
+            }
         }
+        lang::set_language_of_this_test(lang::ENGLISH);
     }
 
     #[test]
