@@ -387,9 +387,9 @@ impl crate::App {
         let Some(to) = self.step(delta, false) else {
             return;
         };
-        // With Shift the selection runs from where it started to the new image, as in
-        // a file manager; moving without Shift clears it.
-        let shift = ctx.input(|i| i.modifiers.shift);
+        // With Shift held on an arrow, Page Up/Down, Home or End, the selection runs from where
+        // it started to the new image, as in a file manager. Moving in any other way clears it.
+        let shift = self.panel.extends_selection();
         if shift {
             let anchor = self.list.anchor_or_shown();
             if !self.move_range_end(anchor, self.list.shown(), to) {

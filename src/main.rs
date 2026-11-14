@@ -352,6 +352,9 @@ impl App {
         // read it. The scroll to the shown image waits while no list is drawn.
         self.panel
             .start_frame(!bare || self.panel.is_area_grid_shown());
+        // The status bar tells about the panes that the image area drew in the frame before, and
+        // about the shown image when the grid took the image area's place.
+        self.status_bar.start_frame();
         // A drag's drop target is set again by the row under the pointer, in whichever list,
         // so a drag let go elsewhere ends where it is.
         if let Some(to) = self.list.drag_target_mut() {

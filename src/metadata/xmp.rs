@@ -141,8 +141,10 @@ impl KeywordsAndComment {
         self.keywords.join(", ")
     }
 
-    /// Keywords from text separated by commas, without empty or repeated ones.
-    pub fn parse_keywords(text: &str) -> Vec<String> {
+    /// Keywords from text separated by commas, without empty or repeated ones. It is private,
+    /// because such a split breaks a keyword that holds a comma ("Smith, John"): the keywords
+    /// field is read through `KeywordChange::made_by_field`, which keeps such a keyword whole.
+    fn parse_keywords(text: &str) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         for k in text.split(',').map(str::trim).filter(|k| !k.is_empty()) {
             if !out.iter().any(|o| o == k) {
@@ -189,6 +191,13 @@ impl KeywordChange {
                 .collect(),
             removed,
         }
+    }
+
+    /// The change that the keywords field makes when it holds the text `field` and the file's
+    /// keywords as read or saved are `saved`. This is the one way the field's text is read, by
+    /// the save and by "Add the keywords to the selected" alike.
+    pub fn made_by_field(saved: &[String], field: &str) -> Self {
+        Self::between(saved, &KeywordsAndComment::parse_keywords(field))
     }
 
     /// Takes the removed keywords out of `keywords` and adds the added ones at its end. A removed

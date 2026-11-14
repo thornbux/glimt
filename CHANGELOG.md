@@ -5,6 +5,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- "Add the keywords to the selected" in the info panel keeps a keyword that holds a comma
+  ("Smith, John", as Lightroom and digiKam write a person's name) whole. Before, every selected
+  file got "Smith" and "John" instead, and the shown one got them beside its "Smith, John".
+- With the grid in the image area (G), the status bar tells about the image shown now. Before,
+  it told about the image shown before G, or about a file of another folder.
+- Shift+Space and Shift+Backspace browse as Space and Backspace, as the help says, and no
+  longer select a range that the next Delete acts on. Shift selects a range only with the
+  arrows, Page Up/Down, Home and End, not with a menu item clicked or the wheel.
+
 ## [0.84.0] - 2026-11-13
 
 ### Fixed

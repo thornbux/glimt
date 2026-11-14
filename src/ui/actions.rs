@@ -348,6 +348,19 @@ pub static USER_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)
 
 /// The actions a kiosk allows: showing and browsing, not changing files, settings or the
 /// window.
+/// The keys that select a range with Shift held, as "Selecting and file operations" in the help
+/// says: the arrows, Page Up/Down, Home and End.
+const RANGE_KEYS: [egui::Key; 8] = [
+    egui::Key::ArrowLeft,
+    egui::Key::ArrowRight,
+    egui::Key::ArrowUp,
+    egui::Key::ArrowDown,
+    egui::Key::PageUp,
+    egui::Key::PageDown,
+    egui::Key::Home,
+    egui::Key::End,
+];
+
 pub(crate) const KIOSK_ACTIONS: &[Action] = &[
     Action::Next,
     Action::Previous,
@@ -1662,6 +1675,12 @@ impl crate::App {
         {
             self.panel.open_from_grid();
         }
+        // Shift extends the selection only with the keys that the help names. egui matches a
+        // plain key also with Shift held, so Shift+Space and Shift+Backspace run Next and
+        // Previous, and they browse as Space and Backspace do.
+        let extends =
+            ctx.input(|i| i.modifiers.shift && RANGE_KEYS.iter().any(|&key| i.key_pressed(key)));
+        self.panel.set_extends_selection(extends);
         // In the icon grid ↑ and ↓ move a row; read before the shortcut takes the key.
         let vertical =
             ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
@@ -2609,6 +2628,51 @@ mod tests {
         // Alone, the arrow moves the image and browses no further.
         assert_eq!(press(super::NONE), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Shift extends the selection only with the keys the help names (the arrows, Page Up/Down,
+    /// Home and End). Shift+Space and Shift+Backspace browse as Space and Backspace, as the help
+    /// says. They selected a range too, which the next Delete then acted on.
+    #[test]
+    fn only_the_range_keys_extend_the_selection_with_shift() {
+        use eframe::egui;
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-shift-space-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let listed = |a: &crate::App| a.list.files().len() == 4;
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
+        let mut press = |key: egui::Key| {
+            let event = egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: super::SHIFT,
+            };
+            ctx.begin_pass(egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(super::SHIFT), event],
+                ..Default::default()
+            });
+            if let Some(action) = app.read_keys(&ctx) {
+                app.run(&ctx, action);
+            }
+            app.panel.start_frame(true);
+            let _ = ctx.end_pass();
+            (app.list.shown(), app.list.selected().len())
+        };
+        let space = press(egui::Key::Space);
+        let backspace = press(egui::Key::Backspace);
+        let arrow = press(egui::Key::ArrowRight);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(space, (1, 0), "Shift+Space selected a range");
+        assert_eq!(backspace, (0, 0), "Shift+Backspace selected a range");
+        assert_eq!(arrow, (1, 2), "Shift+→ selected no range");
     }
 
     /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no
