@@ -78,7 +78,7 @@ impl crate::App {
         self.receive_desktop(ctx);
         self.receive_window_name(ctx);
         #[cfg(feature = "marks")]
-        self.marks.receive();
+        self.receive_marks(ctx);
         self.folder.receive_sort_folders();
         self.info_panel.receive_keyword_tree();
         self.receive_decoded(ctx);
@@ -96,6 +96,18 @@ impl crate::App {
         self.receive_renames(ctx);
         self.receive_picked(ctx);
         self.receive_saved_theme(ctx);
+    }
+
+    /// Takes the marks file read again, and runs a search by marks or stars again when the
+    /// marks changed, by this window or another. This is the one place a search follows them,
+    /// so a term anywhere in the query (`sunset stars:3`, `-mark:1`) and every way of changing
+    /// marks (a key, a Lightroom import, another window) show the new matches.
+    #[cfg(feature = "marks")]
+    fn receive_marks(&mut self, ctx: &egui::Context) {
+        self.marks.receive();
+        if self.marks.take_changed() && self.search.is_about_marks() {
+            self.update_search(ctx);
+        }
     }
 
     /// The desktop's look and screen profile, once read, and the colour profiles set.

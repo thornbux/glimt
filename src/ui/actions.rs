@@ -1532,10 +1532,6 @@ impl crate::App {
                 );
             }
         }
-        // A "mark:" or "stars:" search shows the new state.
-        if self.search.is_about_marks() {
-            self.update_search(ctx);
-        }
     }
 
     /// Window → New Window (Ctrl+N): another Glimt at this place.
