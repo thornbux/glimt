@@ -3763,8 +3763,9 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
 /// the list needs what each of them has, which the grid of 0.65.0 missed through five audit
 /// rounds, so a third caller of `App::file_list` fails here until it is added with them. The
 /// functions that `file_list` draws a row or a cell with are watched too, because a new view
-/// could call them directly. Only the Pan view does, for the cells of a day's images and their
-/// clicks, which select as the list's own do.
+/// could call them directly. Only the Pan view does, for the cells of a day's images. A cell
+/// takes the clicks of a view with an order of its own itself (`file_cell`), and the list's
+/// click is private to its module, so a view elsewhere selects only through these.
 #[test]
 fn the_list_is_drawn_by_known_views() {
     const VIEWS: &[(&str, &[(&str, &str)])] = &[
@@ -3785,13 +3786,7 @@ fn the_list_is_drawn_by_known_views() {
                 ("viewer/pan.rs", "pan_timeline"),
             ],
         ),
-        (
-            "row_clicked(",
-            &[
-                ("ui/file_list.rs", "file_list"),
-                ("viewer/pan.rs", "pan_timeline"),
-            ],
-        ),
+        ("row_clicked(", &[("ui/file_list.rs", "file_list")]),
     ];
     let wrong = outside_their_homes(VIEWS);
     assert!(

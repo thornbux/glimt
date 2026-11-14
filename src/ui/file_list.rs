@@ -855,14 +855,23 @@ impl crate::App {
     /// fit, unless the names are turned off. The name is still read to a screen reader and shown
     /// when the pointer rests on the cell. The cell is marked as every view of the list marks a
     /// file (`is_marked`), so no view can mark only the shown one.
+    ///
+    /// A view that shows the files in an order of its own (the Pan view) gives that `order`, and
+    /// the cell then takes its clicks as the list's rows take theirs, with a Shift range taken
+    /// in that order, never in the list's. A right-click there changes nothing, because such a
+    /// view has no menu of the selection. Returns the file that a plain click shows. Without
+    /// `order`, the caller takes the clicks, as the list does for its rows.
     pub(crate) fn file_cell(
         &mut self,
         ui: &mut egui::Ui,
         i: usize,
         rect: egui::Rect,
-    ) -> egui::Response {
+        order: Option<&dyn Fn() -> Vec<usize>>,
+    ) -> (egui::Response, Option<usize>) {
         let marked = self.is_marked(i);
         let response = ui.interact(rect, ui.scope_id().with(("cell", i)), egui::Sense::click());
+        let go_to =
+            order.and_then(|order| self.select_on_click(ui.ctx(), &response, i, Some(order)));
         let name = self.name(i).into_owned();
         speak_item(&response, marked, &name);
         let visuals = ui.visuals();
@@ -913,10 +922,11 @@ impl crate::App {
             p.rect_filled(at.expand(2.0), 3.0, egui::Color32::from_black_alpha(170));
             p.galley(at.min, galley, gold);
         }
-        response.on_hover_text_at_pointer(match self.folder.collection() {
+        let response = response.on_hover_text_at_pointer(match self.folder.collection() {
             Some(_) => self.path(i).display().to_string(),
             None => self.name(i).into_owned(),
-        })
+        });
+        (response, go_to)
     }
 
     /// Thumbnail `i` fitted into `frame`, or a request for it.
@@ -1587,7 +1597,7 @@ impl crate::App {
                     let cell =
                         egui::Rect::from_min_size(line.min + egui::vec2(x, 0.0), self.cell());
                     cells.push((i, cell));
-                    self.file_cell(ui, i, cell)
+                    self.file_cell(ui, i, cell, None).0
                 } else if thumbs || self.config.file_details {
                     self.file_row(ui, i, row_h, marked, thumbs)
                 } else {
@@ -1834,13 +1844,36 @@ impl crate::App {
         i == self.list.shown() || self.list.selected().contains(&i)
     }
 
-    /// A click on row `i`. Ctrl and Shift change the selection, and a plain click gives the
-    /// image to show. A right-click outside the selection selects just that row.
-    pub(crate) fn row_clicked(
+    /// A click on row `i` of the list. Ctrl and Shift change the selection, with a Shift range
+    /// in the list's order, and a plain click gives the image to show. A right-click outside the
+    /// selection selects just that row, because the row's menu acts on the selection.
+    fn row_clicked(
         &mut self,
         ctx: &egui::Context,
         row: &egui::Response,
         i: usize,
+    ) -> Option<usize> {
+        let go_to = self.select_on_click(ctx, row, i, None);
+        // A right-click on a file outside the selection selects just that file, as in a file
+        // manager, and the menu acts on the selection.
+        if row.secondary_clicked() && self.list.select_on_right_click(i) {
+            self.selection_changed(ctx);
+        }
+        go_to
+    }
+
+    /// A click on file `i` in a view that shows the files in `order`, or in the list's order
+    /// without it. Ctrl adds the file to the selection or takes it out, Shift selects the files
+    /// between where the selection started and this one in that order, and a plain click
+    /// clears the selection. Returns the file that a plain click shows. The function is private
+    /// to this module, so a view reaches it only through `row_clicked` or `file_cell`, which
+    /// `source_rules::the_list_is_drawn_by_known_views` watches.
+    fn select_on_click(
+        &mut self,
+        ctx: &egui::Context,
+        row: &egui::Response,
+        i: usize,
+        order: Option<&dyn Fn() -> Vec<usize>>,
     ) -> Option<usize> {
         let mut go_to = None;
         if row.clicked() {
@@ -1857,18 +1890,16 @@ impl crate::App {
                 // Shift+click selects the rows from where the selection started.
                 let anchor = self.list.anchor_or_shown();
                 self.list.clear_selection();
-                self.select_range(anchor, i);
+                match order {
+                    Some(order) => self.select_range_in(&order(), anchor, i),
+                    None => self.select_range(anchor, i),
+                }
                 self.selection_changed(ctx);
             } else {
                 self.list.set_anchor(None);
                 self.set_selection(ctx, Default::default());
                 go_to = Some(i);
             }
-        }
-        // A right-click on a file outside the selection selects just that file, as in a file
-        // manager, and the menu acts on the selection.
-        if row.secondary_clicked() && self.list.select_on_right_click(i) {
-            self.selection_changed(ctx);
         }
         go_to
     }

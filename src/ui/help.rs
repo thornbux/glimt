@@ -457,7 +457,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          timeline, as Geeqie's pan view does: thumbnails under a heading for each day, oldest \
          first, by the file date or, with EXIF date ticked, the date the photo was taken.\n\n\
          A large folder shows the days read so far while the rest is read. A click shows the \
-         image, a double click also closes the view, as Escape does.\n\n\
+         image, a double click also closes the view, as Escape does. Ctrl+click adds an image \
+         to the selection, and Shift+click selects the images between, in the order the view \
+         shows them.\n\n\
          Calendar shows the months that have images, a week to a row, each day with its first \
          image and how many it has; a click on a day shows it in the timeline. With Include \
          Subfolders it covers the whole tree.",

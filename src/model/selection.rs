@@ -206,14 +206,22 @@ impl crate::App {
     /// Select the list rows from file `a` to file `b`, in the order the list shows them (the
     /// search matches while searching).
     pub(crate) fn select_range(&mut self, a: usize, b: usize) {
-        let m = self.list.matches();
-        let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
-        match (row(a), row(b), m) {
-            (Some(ra), Some(rb), Some(m)) => {
-                let rows = m[ra.min(rb)..=ra.max(rb)].to_vec();
-                self.list.add_to_selection(rows);
+        match self.list.matches().map(<[usize]>::to_vec) {
+            Some(rows) => self.select_range_in(&rows, a, b),
+            None => self.list.add_to_selection(a.min(b)..=a.max(b)),
+        }
+    }
+
+    /// Selects the files from file `a` to file `b` in `order`, the order that a view shows them
+    /// in, such as the list's rows or the Pan view's days. When either file is not in `order`,
+    /// only `b` is selected.
+    pub(crate) fn select_range_in(&mut self, order: &[usize], a: usize, b: usize) {
+        let position = |i| order.iter().position(|&x| x == i);
+        match (position(a), position(b)) {
+            (Some(pa), Some(pb)) => {
+                self.list
+                    .add_to_selection(order[pa.min(pb)..=pa.max(pb)].iter().copied());
             }
-            (Some(ra), Some(rb), None) => self.list.add_to_selection(ra.min(rb)..=ra.max(rb)),
             _ => self.list.add_to_selection([b]),
         }
     }
