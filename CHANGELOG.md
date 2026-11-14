@@ -28,8 +28,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   window or another page. Before, it was replaced by "Could not open …: image too large" until
   another image was shown.
 - Pan view draws the selected files as the file list does, and a click there selects as in the
-  list: Ctrl adds a file, Shift a range, and a plain click shows the file alone. Before, a click
-  kept the selection that Pan view did not show, and an action on the selection acted on it.
+  list: Ctrl adds a file, Shift the images between in the order Pan view shows them, by day, and
+  a plain click shows the file alone. A right-click there leaves the selection as it is. Before,
+  a click kept the selection that Pan view did not show, and an action on the selection acted on
+  it.
 - A refresh does not select again a name that another file has taken since, as after another
   window's Rename Many or a swap by another program. Before, it selected the photo that now
   had the name, and Delete, Move or stars then acted on a file the user never picked.
