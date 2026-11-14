@@ -559,7 +559,7 @@ impl Listing {
         if saved.is_some() {
             crate::files::file_io::wait_for_queued_writes();
         }
-        let paths = match saved.map(|f| collections::load(&f)) {
+        let paths = match saved.map(|f| collections::load_with_window_changes(&f)) {
             Some(Ok(paths)) => paths,
             _ => files.iter().map(|f| self.dir.join(f)).collect(),
         };
@@ -1219,9 +1219,9 @@ impl crate::App {
             .is_some()
             .then(|| self.list.files().to_vec());
         // Every move writes a collection's file at once, so reading it again gives what moved
-        // after the list was copied. A plain list is never written, so the list as shown is
-        // used.
-        let saved = (self.folder.collection.clone()).filter(|f| !collections::is_list(f));
+        // after the list was copied. A plain list is never written, and is read with this
+        // window's own changes laid over it (`collections::load_with_window_changes`).
+        let saved = self.folder.collection.clone();
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.folder.sort_collection;
         let folders = self.folder.folders.clone();
@@ -1826,8 +1826,14 @@ fn look_up(paths: &[PathBuf]) -> Found {
         // written until then, an entry through a link was another name to the listing: the
         // image gone to and the selection were lost, and the view went back to the first image.
         let entries = collections::load(&file).map(|paths| {
-            (collections::by_real_path(&paths).into_iter())
-                .filter_map(|(p, _)| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
+            let real: Vec<PathBuf> = (collections::by_real_path(&paths).into_iter())
+                .map(|(p, _)| p)
+                .collect();
+            // A plain list opened again shows what its file says, without the changes this
+            // window made when it showed it before.
+            collections::start_window_list(&file, &real);
+            (real.iter())
+                .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
                 .collect()
         });
         return Found::Collection { file, entries };

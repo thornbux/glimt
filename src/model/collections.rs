@@ -5,7 +5,7 @@
 use crate::files::config::fits_on_a_line;
 use crate::model::listing::real_dir;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took};
+use crate::support::threads::{Receiving, Took, lock_even_if_poisoned};
 use crate::ui::actions::Action;
 use crate::ui::menus::{icon_button, menu_item, scroll_menu, submenu, with_icon};
 use crate::{tf, ui::theme};
@@ -18,6 +18,14 @@ use std::path::{Path, PathBuf};
 /// Plain lists of images, as a script or a music player writes them: one path on each line,
 /// relative to the list or absolute, `#` for comments. Opened as a collection, never written.
 const LIST_EXTS: &[&str] = &["txt", "m3u", "m3u8"];
+
+/// This window's own changes to each plain list it has shown, by the list's file. Glimt never
+/// writes a list, so what the window took out, moved or renamed in it is kept here, and laid
+/// over what the file says each time it is read (`load_with_window_changes`). The changes are
+/// made here by `edit_open_collection`, the one way every operation edits the open collection,
+/// as they are made to a `.gqv` file.
+static WINDOW_LISTS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, WindowList>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// The saved collections as the File menu lists them, read in the background while it is open,
 /// because the window's thread does not wait for the disk.
@@ -58,6 +66,40 @@ impl SavedCollections {
 pub(crate) enum CollectionAddedTo {
     Saved(PathBuf),
     New(String),
+}
+
+/// A plain list as this window has it, apart from its file, which Glimt never writes. Every
+/// entry is named by its real path, as the list and the edits of a collection name it.
+struct WindowList {
+    /// The entries as the list's file gave them when it was last read.
+    read: Vec<PathBuf>,
+    /// The entries as this window has them: those read, with the window's own changes made.
+    ours: Vec<PathBuf>,
+}
+
+impl WindowList {
+    /// Returns the entries as this window has them, after the file was read again and gave
+    /// `now`. An entry that the file took out since it was last read goes, and one it added
+    /// comes after the window's entries. An entry that the window took out stays out, and the
+    /// window's order and renames stay. When the window changed nothing, the file's own order
+    /// is taken as it is.
+    fn read_again(&mut self, now: Vec<PathBuf>) -> Vec<PathBuf> {
+        if self.ours == self.read {
+            self.ours = now.clone();
+        } else {
+            let before: HashSet<&PathBuf> = self.read.iter().collect();
+            let there: HashSet<&PathBuf> = now.iter().collect();
+            let ours: HashSet<PathBuf> = self.ours.iter().cloned().collect();
+            self.ours
+                .retain(|p| !before.contains(p) || there.contains(p));
+            let added = now
+                .iter()
+                .filter(|p| !before.contains(p) && !ours.contains(*p));
+            self.ours.extend(added.cloned());
+        }
+        self.read = now;
+        self.ours.clone()
+    }
 }
 
 impl crate::App {
@@ -442,6 +484,68 @@ pub fn rename(
     }
 }
 
+/// Makes `change` to the plain list `file` as this window has it. A list the window has not
+/// read yet is read first. Returns the error of that read.
+fn edit_window_list(file: &Path, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
+    let is_known = lock_even_if_poisoned(&WINDOW_LISTS).contains_key(file);
+    // The file is read without the lock, which is never held while the disk is waited for.
+    let read = match is_known {
+        true => None,
+        false => Some(entries_by_real_path(file)?),
+    };
+    let mut lists = lock_even_if_poisoned(&WINDOW_LISTS);
+    let list = lists.entry(file.to_path_buf()).or_insert_with(|| {
+        let read = read.unwrap_or_default();
+        WindowList {
+            ours: read.clone(),
+            read,
+        }
+    });
+    change(&mut list.ours);
+    Ok(())
+}
+
+/// Returns the entries of a collection for a listing. A `.gqv` is read as its file says, as
+/// every change the window makes is written to it. A plain list is read as its file says now,
+/// with this window's own changes laid over it (`WindowList::read_again`), by real path. So
+/// F5 and Auto Refresh show what a script or a music player wrote to the list since, and an
+/// entry the window took out stays out. Before, a list was never read again after it opened.
+pub fn load_with_window_changes(file: &Path) -> std::io::Result<Vec<PathBuf>> {
+    if !is_list(file) {
+        return load(file);
+    }
+    let now = entries_by_real_path(file)?;
+    let mut lists = lock_even_if_poisoned(&WINDOW_LISTS);
+    let list = lists
+        .entry(file.to_path_buf())
+        .or_insert_with(|| WindowList {
+            read: now.clone(),
+            ours: now.clone(),
+        });
+    Ok(list.read_again(now))
+}
+
+/// Starts this window's own changes to the plain list `file` anew from its `entries` as just
+/// read, because it is opened again: the changes made when it was shown before are dropped, as
+/// File → Open shows the list as its file has it. Nothing happens for a `.gqv`.
+pub fn start_window_list(file: &Path, entries: &[PathBuf]) {
+    if is_list(file) {
+        let list = WindowList {
+            read: entries.to_vec(),
+            ours: entries.to_vec(),
+        };
+        lock_even_if_poisoned(&WINDOW_LISTS).insert(file.to_path_buf(), list);
+    }
+}
+
+/// Returns the entries of the collection in `file`, each by its real path (`by_real_path`).
+fn entries_by_real_path(file: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let entries = load(file)?;
+    Ok((by_real_path(&entries).into_iter())
+        .map(|(real, _)| real)
+        .collect())
+}
+
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
     let text = crate::images::decode::read_limited(file)?;
     // A list's entries relative to it start from its folder as an absolute path: `glimt
@@ -517,15 +621,17 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
 }
 
 /// Makes `change` to the open collection in `file`, and words what went wrong for the user. A
-/// plain list (.m3u, .txt) is the user's own and is never written, so nothing happens. A file
-/// renamed or moved to the trash in another window since it was opened is not made again under
-/// its old name. This is the one way an operation edits the open collection.
+/// plain list (.m3u, .txt) is the user's own and is never written, so the change is made to
+/// the list as this window has it (`WINDOW_LISTS`), which each listing lays over the file. A
+/// file renamed or moved to the trash in another window since it was opened is not made again
+/// under its old name. This is the one way an operation edits the open collection.
 pub(crate) fn edit_open_collection(
     file: &Path,
     change: impl FnOnce(&mut Vec<PathBuf>),
 ) -> Result<(), String> {
     if is_list(file) {
-        return Ok(());
+        return edit_window_list(file, change)
+            .map_err(|e| tf!("Could not save the collection: {e}", e));
     }
     edit(file, false, change).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => tf!(
@@ -1345,6 +1451,58 @@ mod tests {
         for text in crate::support::test_support::broken(&super::to_text(&paths, &[])) {
             super::parse(&text);
         }
+    }
+
+    /// F5 reads a plain list's file again: an entry a script added since shows, and one it took
+    /// out goes, while an entry the window took out stays out and the window's order stays.
+    /// Before, a list was listed from the window's own list and never read again, so neither
+    /// F5 nor Auto Refresh showed the script's change, and Delete acted on a file the list no
+    /// longer named.
+    #[test]
+    fn a_plain_list_read_again_shows_its_files_change_and_keeps_the_windows() {
+        use crate::support::test_support::{app_on, run_background_until};
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-m3u-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let list = dir.join("show.m3u");
+        std::fs::write(&list, "a.png\nb.png\nc.png\n").unwrap();
+        let (mut app, ctx) = app_on(&list);
+        let names = |app: &crate::App| -> Vec<String> {
+            (0..app.list.files().len())
+                .map(|i| {
+                    app.path(i)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        };
+        let refresh = |app: &mut crate::App| {
+            app.run(&ctx, Action::Refresh);
+            assert!(run_background_until(app, &ctx, |a| !a.folder.is_listing()));
+        };
+        assert_eq!(names(&app), ["a.png", "b.png", "c.png"]);
+        // The window takes b out, and moves c first.
+        app.list.select([1].into());
+        app.run(&ctx, Action::RemoveFromCollection);
+        app.list.select([1].into());
+        app.run(&ctx, Action::MoveFirst);
+        assert_eq!(names(&app), ["c.png", "a.png"]);
+        // A script appends d and takes a out.
+        crate::files::file_io::wait_for_queued_writes();
+        std::fs::write(&list, "b.png\nc.png\nd.png\n").unwrap();
+        refresh(&mut app);
+        assert_eq!(names(&app), ["c.png", "d.png"]);
+        // The list is never written.
+        assert_eq!(
+            std::fs::read_to_string(&list).unwrap(),
+            "b.png\nc.png\nd.png\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Move Earlier under a search moves the image one row as the rows show it, past the image
