@@ -300,15 +300,18 @@ impl crate::App {
         // shown, are written now, so closing waits for them. The image is never left on the way
         // out, which is where a turn is saved otherwise. A turn is tried once. A save that
         // failed would otherwise start again at the Close sent when it ends, and count as the
-        // user's second close.
+        // user's second close. A save refused before it started (while other work changes the
+        // file) is no try, so the close sent when that work ends tries it.
         self.save_metadata_edit(ctx);
         let shown = Some((
             self.viewing.turned_file().to_path_buf(),
             self.viewing.turn(),
         ));
-        if self.config.save_orientation && self.window.turn_tried_at_close != shown {
+        if self.config.save_orientation
+            && self.window.turn_tried_at_close != shown
+            && self.save_orientation(ctx)
+        {
             self.window.turn_tried_at_close = shown;
-            self.save_orientation(ctx);
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
@@ -853,6 +856,41 @@ mod tests {
         app.viewing.set_turn((2, false), a.clone());
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
+        assert!(run_background_until(&mut app, &ctx, over));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn whose save at closing is refused, because other work still changes the file, is
+    /// saved by the close sent when that work ends, and the refusal is not hidden by the close's
+    /// own notice. Before, the refusal counted as the one try, so the window closed without the
+    /// turn and without a word, and the close's notice took the refusal's place at once.
+    #[test]
+    fn a_turn_refused_at_closing_is_saved_when_the_work_ends() {
+        let dir = contract_folder("close-turn-refused");
+        let a = dir.join("a.png");
+        let (mut app, ctx) = app_on(&dir);
+        app.config.save_orientation = true;
+        app.viewing.set_turn((1, false), a.clone());
+        // Other work changes a.png, and files are written meanwhile.
+        let held = app.hold_back_while_writing(vec![a.clone()]).unwrap();
+        let writing = crate::support::threads::Working::new(&crate::files::file_io::WRITING);
+        assert!(!close_pass(&mut app, &ctx, true));
+        assert!(!app.file_operations.is_saving(&a));
+        let shown = app.notice.text().unwrap_or_default().to_owned();
+        assert!(shown.contains("The rotation was not saved"), "{shown}");
+        assert!(shown.contains("Glimt closes when"), "{shown}");
+        // The work ends, and the close that waited is sent again.
+        drop((held, writing));
+        let start = std::time::Instant::now();
+        while !close_pass(&mut app, &ctx, false) {
+            assert!(
+                start.elapsed().as_secs() < 5,
+                "the close was not sent again"
+            );
+        }
+        assert!(!close_pass(&mut app, &ctx, true));
+        assert!(app.file_operations.is_saving(&a), "the turn was not saved");
+        let over = |app: &crate::App| !app.file_operations.is_saving(&a);
         assert!(run_background_until(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }

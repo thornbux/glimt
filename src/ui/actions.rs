@@ -1328,7 +1328,9 @@ impl crate::App {
                 self.viewing.stop_crop();
                 self.panel.toggle_area_grid();
             }
-            Action::SaveOrientation => self.save_orientation(ctx),
+            Action::SaveOrientation => {
+                self.save_orientation(ctx);
+            }
             Action::Crop => self.start_crop(),
             Action::SaveAs => self.start_save_as(ctx),
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),

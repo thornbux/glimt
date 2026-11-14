@@ -1766,27 +1766,31 @@ impl crate::App {
     /// Writes the view's rotation into the shown file in the background, and then shows the
     /// file as it is. A JPEG keeps its pixels and gets an orientation field. PNG and WebP are
     /// turned, which takes seconds for a large one. Both read and write the whole file, which
-    /// is slow on a share.
-    pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
+    /// is slow on a share. Returns whether a save of the file is under way, started now or
+    /// before, and `false` when there is no turn to save or the save was refused.
+    pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) -> bool {
         let (turns, mirrored) = self.viewing.turn();
         if self.list.files().is_empty() || (turns, mirrored) == (0, false) {
-            return;
+            return false;
         }
         let path = self.viewing.turned_file().to_path_buf();
         // When the file is already being saved with this rotation, the rotate keys wait for
         // the save.
         if self.file_operations.saving.contains(&path) {
-            return;
+            return true;
         }
         // The turn is not saved while other work changes the file. Rename Many may give its
         // name to another photo, and the turn would then be saved over that photo. A move may
         // take the file away.
-        // It is told as not saved, so the turn goes with the image when the image is left.
+        // It is told as not saved, so the turn goes with the image when the image is left. The
+        // notice is kept until a frame draws it, because a close gives its own notice in the
+        // same frame, and that one would hide it.
         if self.file_operations.renaming.is_some()
             || self.is_changed_by_running_work(std::slice::from_ref(&path))
         {
             let held = tr("The rotation was not saved: other work is still changing the file");
-            return self.notice.give(held.into());
+            self.notice.keep_until_drawn(held.into());
+            return false;
         }
         let jpeg = crate::model::listing::is_jpeg(&path);
         // The turn is meant for the picture decoded and shown. A file that has taken its name
@@ -1817,6 +1821,7 @@ impl crate::App {
             let _ = saved.send((path, result));
             told
         });
+        true
     }
 
     /// Reads again what is shown of `paths`, because they have other contents now (saved
