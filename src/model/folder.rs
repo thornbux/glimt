@@ -41,9 +41,16 @@ const REST_AFTER_LISTING: u32 = 4;
 /// How long a look-up of a place to open runs before a notice says that it is still opening.
 const STILL_OPENING_AFTER: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// How many `Folder`s were made, which numbers each one. A window has one, and tests make many
+/// in one process.
+static FOLDERS_MADE: AtomicUsize = AtomicUsize::new(0);
+
 /// What is open (a folder, a collection or several folders), its listing in the background, the way
 /// back and forward, and the folders sorted into.
 pub(crate) struct Folder {
+    /// The number of this window's folder in the process, which its changes to a plain list
+    /// are kept by (`collections::keep_window_list_of`).
+    number: usize,
     dir: PathBuf,
     subdirs: Vec<PathBuf>,
     /// The folder path in the toolbar, as typed.
@@ -155,6 +162,7 @@ impl Folder {
     ) -> Self {
         let (changed_tx, changed_rx) = mpsc::channel();
         Folder {
+            number: FOLDERS_MADE.fetch_add(1, Ordering::Relaxed),
             dir: PathBuf::new(),
             subdirs: Vec::new(),
             path_text: String::new(),
@@ -1147,6 +1155,7 @@ impl crate::App {
         self.folder.recursive = false;
         self.folder.dir = root.to_path_buf();
         self.remember_recent(&file);
+        collections::start_window_list(self.folder.number, &file);
         self.folder.collection = Some(file);
         self.folder.folders.clear();
         let first = files.first().cloned();
@@ -1282,8 +1291,10 @@ impl crate::App {
             .then(|| self.list.files().to_vec());
         // Every move writes a collection's file at once, so reading it again gives what moved
         // after the list was copied. A plain list is never written, and is read with this
-        // window's own changes laid over it (`collections::load_with_window_changes`).
+        // window's own changes laid over it (`collections::load_with_window_changes`). The
+        // window's changes to a list it showed before go.
         let saved = self.folder.collection.clone();
+        collections::keep_window_list_of(self.folder.number, saved.as_deref());
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.folder.sort_collection;
         let folders = self.folder.folders.clone();
@@ -1970,9 +1981,6 @@ fn look_up(paths: &[PathBuf]) -> Found {
             let real: Vec<PathBuf> = (collections::by_real_path(&paths).into_iter())
                 .map(|(p, _)| p)
                 .collect();
-            // A plain list opened again shows what its file says, without the changes this
-            // window made when it showed it before.
-            collections::start_window_list(&file, &real);
             (real.iter())
                 .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
                 .collect()
