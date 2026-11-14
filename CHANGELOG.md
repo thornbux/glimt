@@ -19,8 +19,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - With the grid in the image area (G), the status bar tells about the image shown now. Before,
   it told about the image shown before G, or about a file of another folder.
 - Shift+Space and Shift+Backspace browse as Space and Backspace, as the help says, and no
-  longer select a range that the next Delete acts on. Shift selects a range only with the
-  arrows, Page Up/Down, Home and End, not with a menu item clicked or the wheel.
+  longer select a range that the next Delete acts on. Of the keys, only the arrows, Page
+  Up/Down, Home and End select a range with Shift, and a menu item or the wheel never does. A
+  click with Shift still selects a range.
 - In Compare (E), Alt+Right and a click on the right half show the compared image in the first
   pane. Before, with two files selected, Alt+Right showed the next image in the list, which
   neither half showed, and a click on the right half did nothing.
