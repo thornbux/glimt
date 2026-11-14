@@ -2139,6 +2139,33 @@ same() { md5sum </t/out/$1.png; }
 differ "the pan view opened" "$(same pan-esc-before)" "$(same pan-esc-open)"
 expect "closed by Escape" "$(same pan-esc-after)" "$(same pan-esc-before)"
 
+section "pan view: a click selects as in the list"
+for v in new old; do
+    as_version $v
+    d=/tmp/pan-select-$v
+    mkdir -p $d
+    n=1
+    for c in red lime blue; do
+        convert -size 300x200 xc:$c $d/$c.jpg
+        touch -d "2024-01-0$n 12:00" $d/$c.jpg
+        n=$((n + 1))
+    done
+    config
+    start $d/red.jpg
+    key ctrl+j; sleep 2
+    # A day to a row: red, then lime, then blue. Ctrl+click on lime adds it to the shown red.
+    xdotool mousemove 80 297 keydown ctrl click 1 keyup ctrl 2>/dev/null; sleep 1
+    picked=$(remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
+    click 80 421                                       # a plain click on blue shows it alone
+    alone=$(remote selection 2>/dev/null | tr -d '\0')
+    shown=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    if [ $v = new ]; then
+        expect "Ctrl+click in pan view selects lime beside the shown red" "$picked" "lime.jpg red.jpg "
+        expect "a plain click there shows blue alone" "$alone|$shown" "|blue.jpg"
+    else note "old: selection after Ctrl+click: $picked; then $alone|$shown"; fi
+done
+
 section "a video that is a playlist: ffmpeg opens no file it names"
 for v in new old; do
     as_version $v

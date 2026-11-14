@@ -822,14 +822,15 @@ impl crate::App {
 
     /// A cell of the thumbnail grid. It shows the thumbnail with the name below, cut off to
     /// fit, unless the names are turned off. The name is still read to a screen reader and shown
-    /// when the pointer rests on the cell.
+    /// when the pointer rests on the cell. The cell is marked as every view of the list marks a
+    /// file (`is_marked`), so no view can mark only the shown one.
     pub(crate) fn file_cell(
         &mut self,
         ui: &mut egui::Ui,
         i: usize,
         rect: egui::Rect,
-        marked: bool,
     ) -> egui::Response {
+        let marked = self.is_marked(i);
         let response = ui.interact(rect, ui.scope_id().with(("cell", i)), egui::Sense::click());
         let name = self.name(i).into_owned();
         speak_item(&response, marked, &name);
@@ -1543,7 +1544,7 @@ impl crate::App {
             }
             let mut cells = Vec::new();
             for (k, i) in shown.into_iter().enumerate() {
-                let marked = i == self.list.shown() || self.list.selected().contains(&i);
+                let marked = self.is_marked(i);
                 let row = if icons {
                     if k % cols == 0 {
                         let size = egui::vec2(ui.available_width(), self.cell().y);
@@ -1553,7 +1554,7 @@ impl crate::App {
                     let cell =
                         egui::Rect::from_min_size(line.min + egui::vec2(x, 0.0), self.cell());
                     cells.push((i, cell));
-                    self.file_cell(ui, i, cell, marked)
+                    self.file_cell(ui, i, cell)
                 } else if thumbs || self.config.file_details {
                     self.file_row(ui, i, row_h, marked, thumbs)
                 } else {
@@ -1792,6 +1793,12 @@ impl crate::App {
             (false, true) => p.hline(r.x_range(), r.top(), accent),
             (false, false) => p.hline(r.x_range(), r.bottom(), accent),
         };
+    }
+
+    /// Returns whether the file at `i` is drawn marked in a view of the list: the shown one and
+    /// the selected ones, which an action on the selection acts on.
+    pub(crate) fn is_marked(&self, i: usize) -> bool {
+        i == self.list.shown() || self.list.selected().contains(&i)
     }
 
     /// A click on row `i`. Ctrl and Shift change the selection, and a plain click gives the
