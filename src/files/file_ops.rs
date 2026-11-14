@@ -2566,23 +2566,24 @@ impl crate::App {
     /// the list, say), not the image shown beside it. Only its name is asked for, without the
     /// folders that a list with subfolders gives it.
     pub(crate) fn start_rename(&mut self, ctx: &egui::Context) {
-        // The one file selected, as Delete and Move take it (right-clicked in the list,
-        // say), not the image shown beside it.
-        if let Some(&i) = self.list.selected().first() {
-            self.show_file(ctx, i);
-        }
+        // The first of the targets, as Delete and Move take them: the file selected
+        // (right-clicked in the list, say), not the image shown beside it, which is renamed
+        // only when nothing is selected. It is shown, so the user sees what is renamed.
+        let Some(targets) = self.targets() else {
+            return;
+        };
+        let Some(&i) = targets.first() else {
+            return;
+        };
+        self.show_file(ctx, i);
         // Only the name, because in the list with subfolders the entry has its folders too.
-        if let Some(name) = self
-            .list
-            .files()
-            .get(self.list.shown())
+        if let Some(name) = (self.list.files().get(i))
             .and_then(|f| Path::new(f).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            && self.targets().is_some()
         {
             // The file named, alone. The answer renames it wherever the list has put it since,
             // or nothing, never another selected file that came first meanwhile.
-            let asked = self.ask_about_files(&[self.list.shown()], None);
+            let asked = self.ask_about_files(&[i], None);
             self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
