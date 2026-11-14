@@ -843,6 +843,17 @@ impl crate::App {
                 IfGone::OpenCurrentFolder => return self.open(ctx, ".".into()),
             }
         }
+        // A collection that could not be read opens nothing, so it is told and the history
+        // stays as it is. Stepped, Back went to the place still shown and Forward was lost.
+        if let Found::Collection {
+            file,
+            entries: Err(e),
+        } = &found
+        {
+            return self
+                .notice
+                .give(format!("{display}: {e}", display = file.display()));
+        }
         self.step_history(opening.history);
         match found {
             Found::Folder {
@@ -851,7 +862,14 @@ impl crate::App {
                 file_type,
                 ..
             } => self.open_folder_found(ctx, dir, file, file_type),
-            Found::Collection { file, entries } => self.open_collection(ctx, file, entries),
+            Found::Collection {
+                file,
+                entries: Ok(files),
+            } => self.open_collection(ctx, file, files),
+            // Told above.
+            Found::Collection {
+                entries: Err(_), ..
+            } => {}
             Found::Folders(folders) => self.open_folders_found(ctx, folders),
         }
     }
@@ -1049,22 +1067,9 @@ impl crate::App {
         self.list.set_unchecked_entries(false);
     }
 
-    /// Shows the collection in `file` as the list, with the `entries` that `look_up` read from
-    /// it, or tells why it could not be read.
-    fn open_collection(
-        &mut self,
-        ctx: &egui::Context,
-        file: PathBuf,
-        entries: std::io::Result<Vec<OsString>>,
-    ) {
-        let files = match entries {
-            Ok(files) => files,
-            Err(e) => {
-                return self
-                    .notice
-                    .give(format!("{display}: {e}", display = file.display()));
-            }
-        };
+    /// Shows the collection in `file` as the list, with the entries `files` that `look_up` read
+    /// from it.
+    fn open_collection(&mut self, ctx: &egui::Context, file: PathBuf, files: Vec<OsString>) {
         self.leave_image(ctx);
         let root = Path::new("/");
         // When the same collection is read again (F5), a delete still running keeps its names,
@@ -3107,6 +3112,38 @@ mod tests {
             (config::recent_text(&all), ())
         })
         .unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection that cannot be read is told, opens nothing, and leaves Go → Back and
+    /// Forward as they were. Before, the place shown went onto Back and Forward was emptied, so
+    /// Back went to the place still shown.
+    #[test]
+    fn a_collection_that_cannot_be_read_leaves_the_history() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-unread-collection-{}",
+            std::process::id()
+        ));
+        // A collection larger than any file Glimt reads cannot be read, also by root, who
+        // reads a file of mode 000. It is sparse, so it takes no room on the disk.
+        let unreadable = dir.join("bad.gqv");
+        std::fs::create_dir_all(&dir).unwrap();
+        (std::fs::File::create(&unreadable).unwrap())
+            .set_len(crate::images::decode::MAX_DECODE_BYTES + 1)
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let ahead = dir.join("ahead");
+        app.folder.forward = vec![ahead.clone()];
+        app.visit(&ctx, unreadable.clone());
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(
+            told.starts_with(&unreadable.display().to_string()),
+            "{told}"
+        );
+        assert!(app.folder.back.is_empty(), "{:?}", app.folder.back);
+        assert_eq!(app.folder.forward, [ahead]);
+        assert!(app.folder.collection().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
