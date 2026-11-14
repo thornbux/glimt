@@ -328,6 +328,11 @@ impl DesktopSettings {
 /// file is cut to its icons, as the full one also has letters:
 /// `pyftsubset Phosphor.ttf --unicodes=U+E000-F8FF --layout-features='' --output-file=...`
 pub fn fonts(ctx: &egui::Context) {
+    ctx.set_fonts(font_definitions());
+}
+
+/// The fonts that `fonts` gives the window, in the order of each family.
+pub fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
     let mut add = |name: &str, bytes: &'static [u8]| {
         let data = egui::FontData::from_static(bytes);
@@ -347,7 +352,7 @@ pub fn fonts(ctx: &egui::Context) {
     proportional.insert(1, "Inter".to_owned());
     let monospace = families.entry(egui::FontFamily::Monospace).or_default();
     monospace.push("Phosphor".to_owned());
-    ctx.set_fonts(fonts);
+    fonts
 }
 
 /// Where more themes go: `$XDG_CONFIG_HOME/glimt/themes`, one `name.theme` file each.

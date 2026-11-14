@@ -2695,22 +2695,93 @@ fn a_setting_is_seen_written_however_it_is_written() {
             ("b", 13, "h")
         ]
     );
+    // The spellings that slipped through before: a tuple of places, a part of a setting, a
+    // method that changes it, also on a chain that rustfmt broke over lines, and a pattern
+    // bound to the settings. A read through a part or a method is no write.
+    let code = "fn c(&mut self) {\n    (self.config.i, self.config.j) = (1, 2);\n    \
+         self.config.k.0 = 3;\n    self.config.l[0] = 4;\n    self.config.m.push(5);\n    \
+         self.config\n        .n\n        .0\n        .retain(|x| x > 0);\n    \
+         self.config.o.clone_from(&p);\n    let Config { q, ref mut r, .. } = &mut self.config;\n    \
+         let s = self.config.s.0.len();\n    if self.config.t.contains(&u) {}\n    \
+         (a, b) = (self.config.v, 1);\n}\n";
+    let found = config_writes(code);
+    let found: Vec<_> = found
+        .iter()
+        .map(|(f, l, s)| (f.as_str(), *l, s.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("c", 2, "i"),
+            ("c", 2, "j"),
+            ("c", 3, "k"),
+            ("c", 4, "l"),
+            ("c", 5, "m"),
+            ("c", 6, "n"),
+            ("c", 10, "o"),
+            ("c", 11, "q"),
+            ("c", 11, "r"),
+        ]
+    );
 }
 
 /// Returns each place outside the tests in `text` where a setting is written, as the function,
 /// the line's number and the setting. A setting is written when it is assigned (`=`, `+=` and
-/// the like) or taken as `&mut`, as `self.config.X` or through a name that the function bound
-/// to `&mut self.config`.
+/// the like), also in a tuple of places, when one of its parts is (`.0 =`, `[i] =`), when a
+/// method that changes it is called on it or on a part (`.push(`, `.retain(`, `.clone_from(`),
+/// or when it is taken as `&mut`. It is found as `self.config.X`, through a name that the
+/// function bound to `&mut self.config`, and as a field of a pattern bound to it. A line that
+/// starts with `.` is read with the line before it, as rustfmt breaks a long chain of calls.
 fn config_writes(text: &str) -> Vec<(String, usize, String)> {
     let ident = |c: char| c.is_alphanumeric() || c == '_';
-    const ASSIGN: &[&str] = &[
-        "=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<<=", ">>=",
+    // The methods of the standard library's types that change their value (`&mut self`).
+    const CHANGING: &[&str] = &[
+        "append",
+        "as_mut",
+        "clear",
+        "clone_from",
+        "dedup",
+        "drain",
+        "entry",
+        "extend",
+        "extend_from_slice",
+        "fill",
+        "get_mut",
+        "get_or_insert",
+        "get_or_insert_with",
+        "insert",
+        "insert_str",
+        "iter_mut",
+        "pop",
+        "push",
+        "push_str",
+        "remove",
+        "replace",
+        "resize",
+        "retain",
+        "retain_mut",
+        "sort",
+        "sort_by",
+        "sort_by_key",
+        "sort_unstable",
+        "split_off",
+        "swap",
+        "take",
+        "truncate",
     ];
     let lines = code_lines(text);
+    // Each line, with the lines that go on its chain of calls joined to it.
+    let mut joined: Vec<(usize, String)> = Vec::new();
+    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+        match joined.last_mut() {
+            Some((_, last)) if line.trim_start().starts_with('.') => last.push_str(line.trim()),
+            _ => joined.push((i, line.clone())),
+        }
+    }
     let mut function = String::new();
     let mut prefixes = Vec::new();
     let mut writes = Vec::new();
-    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+    for (i, line) in &joined {
         // A top-level line starts a new item, so its bindings end there.
         if line.starts_with(|c: char| c.is_alphabetic()) {
             function.clear();
@@ -2721,10 +2792,25 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
             prefixes = vec!["self.config.".to_owned()];
         }
         let bound = line.trim().strip_prefix("let ");
-        if let Some(rest) = bound.filter(|r| r.ends_with("= &mut self.config;")) {
+        if let Some(rest) = bound.and_then(|r| r.strip_suffix("= &mut self.config;")) {
             let rest = rest.strip_prefix("mut ").unwrap_or(rest);
-            let name: String = rest.chars().take_while(|&c| ident(c)).collect();
-            prefixes.push(format!("{name}."));
+            match rest.split_once('{') {
+                // A pattern, as `Config { thumbnails, .. }`, writes each field it binds.
+                Some((_, fields)) => {
+                    for field in fields.split([',', '}']) {
+                        let field = field.trim().trim_start_matches("ref ");
+                        let field = field.trim_start_matches("mut ");
+                        let name: String = field.chars().take_while(|&c| ident(c)).collect();
+                        if !name.is_empty() {
+                            writes.push((function.clone(), i + 1, name));
+                        }
+                    }
+                }
+                None => {
+                    let name: String = rest.chars().take_while(|&c| ident(c)).collect();
+                    prefixes.push(format!("{name}."));
+                }
+            }
         }
         for prefix in &prefixes {
             for (at, _) in line.match_indices(prefix.as_str()) {
@@ -2733,17 +2819,76 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
                 }
                 let rest = &line[at + prefix.len()..];
                 let name: String = rest.chars().take_while(|&c| ident(c)).collect();
-                let after = rest[name.len()..].trim_start();
-                let assigned = ASSIGN.iter().any(|op| after.starts_with(op))
-                    && !after.starts_with("==")
-                    && !after.starts_with("=>");
-                if !name.is_empty() && (assigned || line[..at].ends_with("&mut ")) {
+                let after = parts_passed_over(&rest[name.len()..]).trim_start();
+                let method: String = (after.strip_prefix('.').unwrap_or_default().chars())
+                    .take_while(|&c| ident(c))
+                    .collect();
+                let changes = CHANGING.contains(&method.as_str())
+                    && after[1 + method.len()..].starts_with('(');
+                let written = is_assignment(after)
+                    || changes
+                    || line[..at].ends_with("&mut ")
+                    || in_assigned_tuple(line, at);
+                if !name.is_empty() && written {
                     writes.push((function.clone(), i + 1, name));
                 }
             }
         }
     }
     writes
+}
+
+/// Passes over the fields and indexes at the start of `code` (`.0`, `.name`, `[i]`), which name
+/// a part of the value before them. Returns the code after them, from a call or anything else.
+fn parts_passed_over(mut code: &str) -> &str {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    loop {
+        let trimmed = code.trim_start();
+        if let Some(rest) = trimmed.strip_prefix('.') {
+            let field = rest.len() - rest.trim_start_matches(ident).len();
+            if field == 0 || rest[field..].starts_with('(') {
+                return code;
+            }
+            code = &rest[field..];
+        } else if let Some(close) = trimmed.strip_prefix('[').and_then(|r| r.find(']')) {
+            code = &trimmed[close + 2..];
+        } else {
+            return code;
+        }
+    }
+}
+
+/// Whether `code` starts with an assignment (`=`, `+=` and the like), not with a comparison or
+/// the arrow of a match's arm.
+fn is_assignment(code: &str) -> bool {
+    const ASSIGN: &[&str] = &[
+        "=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<<=", ">>=",
+    ];
+    ASSIGN.iter().any(|op| code.starts_with(op))
+        && !code.starts_with("==")
+        && !code.starts_with("=>")
+}
+
+/// Whether the place at `at` in `line` is inside a tuple of places that the line assigns to, as
+/// in `(self.config.a, self.config.b) = (1, 2);`.
+fn in_assigned_tuple(line: &str, at: usize) -> bool {
+    let start = line.len() - line.trim_start().len();
+    if !line[start..].starts_with('(') {
+        return false;
+    }
+    let mut depth = 0;
+    for (i, c) in line[start..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 {
+            let close = start + i;
+            return at < close && is_assignment(line[close + 1..].trim_start());
+        }
+    }
+    false
 }
 
 /// Returns each place outside the tests where a text of `homes` is written in code outside the

@@ -1766,27 +1766,31 @@ impl crate::App {
     /// Writes the view's rotation into the shown file in the background, and then shows the
     /// file as it is. A JPEG keeps its pixels and gets an orientation field. PNG and WebP are
     /// turned, which takes seconds for a large one. Both read and write the whole file, which
-    /// is slow on a share.
-    pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
+    /// is slow on a share. Returns whether a save of the file is under way, started now or
+    /// before, and `false` when there is no turn to save or the save was refused.
+    pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) -> bool {
         let (turns, mirrored) = self.viewing.turn();
         if self.list.files().is_empty() || (turns, mirrored) == (0, false) {
-            return;
+            return false;
         }
         let path = self.viewing.turned_file().to_path_buf();
         // When the file is already being saved with this rotation, the rotate keys wait for
         // the save.
         if self.file_operations.saving.contains(&path) {
-            return;
+            return true;
         }
         // The turn is not saved while other work changes the file. Rename Many may give its
         // name to another photo, and the turn would then be saved over that photo. A move may
         // take the file away.
-        // It is told as not saved, so the turn goes with the image when the image is left.
+        // It is told as not saved, so the turn goes with the image when the image is left. The
+        // notice is kept until a frame draws it, because a close gives its own notice in the
+        // same frame, and that one would hide it.
         if self.file_operations.renaming.is_some()
             || self.is_changed_by_running_work(std::slice::from_ref(&path))
         {
             let held = tr("The rotation was not saved: other work is still changing the file");
-            return self.notice.give(held.into());
+            self.notice.keep_until_drawn(held.into());
+            return false;
         }
         let jpeg = crate::model::listing::is_jpeg(&path);
         // The turn is meant for the picture decoded and shown. A file that has taken its name
@@ -1817,6 +1821,7 @@ impl crate::App {
             let _ = saved.send((path, result));
             told
         });
+        true
     }
 
     /// Reads again what is shown of `paths`, because they have other contents now (saved
@@ -2572,23 +2577,24 @@ impl crate::App {
     /// the list, say), not the image shown beside it. Only its name is asked for, without the
     /// folders that a list with subfolders gives it.
     pub(crate) fn start_rename(&mut self, ctx: &egui::Context) {
-        // The one file selected, as Delete and Move take it (right-clicked in the list,
-        // say), not the image shown beside it.
-        if let Some(&i) = self.list.selected().first() {
-            self.show_file(ctx, i);
-        }
+        // The first of the targets, as Delete and Move take them: the file selected
+        // (right-clicked in the list, say), not the image shown beside it, which is renamed
+        // only when nothing is selected. It is shown, so the user sees what is renamed.
+        let Some(targets) = self.targets() else {
+            return;
+        };
+        let Some(&i) = targets.first() else {
+            return;
+        };
+        self.show_file(ctx, i);
         // Only the name, because in the list with subfolders the entry has its folders too.
-        if let Some(name) = self
-            .list
-            .files()
-            .get(self.list.shown())
+        if let Some(name) = (self.list.files().get(i))
             .and_then(|f| Path::new(f).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            && self.targets().is_some()
         {
             // The file named, alone. The answer renames it wherever the list has put it since,
             // or nothing, never another selected file that came first meanwhile.
-            let asked = self.ask_about_files(&[self.list.shown()], None);
+            let asked = self.ask_about_files(&[i], None);
             self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }

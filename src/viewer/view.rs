@@ -1025,7 +1025,7 @@ impl crate::App {
     pub(crate) fn projector_window(&mut self, ctx: &egui::Context) {
         let id = egui::ViewportId::from_hash_of("glimt projector");
         let builder = egui::ViewportBuilder::default()
-            .with_title("Glimt Projector")
+            .with_title(tr("Glimt Projector"))
             .with_app_id(app_id())
             .with_inner_size([960.0, 600.0]);
         let mut chosen = None;

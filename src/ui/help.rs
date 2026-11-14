@@ -1190,7 +1190,6 @@ const CREDITS: &[(&str, &str, &str)] = &[
     ),
     ("Phosphor Icons", "Phosphor Icons", "MIT"),
     ("Ubuntu font", "Dalton Maag", "Ubuntu Font Licence 1.0"),
-    ("Noto Emoji", "Google", "SIL Open Font License 1.1"),
     ("emoji-icon-font, Hack", "Font authors", "MIT"),
     (
         "ffmpeg (optional, run as a program)",
@@ -1506,6 +1505,44 @@ fn decode_logo(ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
+    /// The credits name each font that the window is given, and no font that it is not given.
+    /// The fonts are read from the definitions the window gets, with egui's own as the features
+    /// built in choose them. The credits once named Noto Emoji, which egui 0.37 bundles only with
+    /// a feature that Glimt does not build.
+    #[test]
+    fn the_credits_name_the_fonts_that_ship() {
+        // Each font by its name in the definitions, and the credit that names it.
+        const CREDITED_AS: &[(&str, &str)] = &[
+            ("Inter", "Inter"),
+            ("Phosphor", "Phosphor Icons"),
+            ("Ubuntu-Light", "Ubuntu font"),
+            ("Hack", "Hack"),
+            // A subset of emoji-icon-font, which egui bundles always.
+            ("egui-icons", "emoji-icon-font"),
+            ("emoji-icon-font", "emoji-icon-font"),
+            ("NotoEmoji-Regular", "Noto Emoji"),
+        ];
+        let loaded = crate::ui::theme::font_definitions().font_data;
+        let credits: Vec<&str> = (super::CREDITS.iter())
+            .flat_map(|c| c.0.split(", "))
+            .collect();
+        for name in loaded.keys() {
+            let credit = CREDITED_AS.iter().find(|c| c.0 == name.as_str());
+            let credit = credit.unwrap_or_else(|| panic!("{name} has no line in CREDITED_AS"));
+            assert!(credits.contains(&credit.1), "{name} is not credited");
+        }
+        let shipped =
+            |credit: &str| (CREDITED_AS.iter()).any(|c| c.1 == credit && loaded.contains_key(c.0));
+        for (_, credit) in CREDITED_AS {
+            if !shipped(credit) {
+                assert!(
+                    !credits.contains(credit),
+                    "{credit} is credited, not shipped"
+                );
+            }
+        }
+    }
+
     /// The Language row of DIFFERENCES names as many languages besides English as Glimt has, so
     /// the row keeps up when a translation is added.
     #[test]
