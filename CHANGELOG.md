@@ -5,6 +5,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A search by marks or stars shows the new matches after a change of them, wherever its term
+  stands (`sunset stars:3`, `-mark:1`, in a group), and whichever way the marks changed: a key,
+  a Lightroom import or another window. Before, only a search that began with `mark:` or
+  `stars:` followed, and only a key, so a photo given one star kept its row, and Select All
+  took it in.
+- A move in a collection, or a Sort, keeps every entry that the window does not list in its
+  place, such as one on a disk that is not mounted. Before, such an entry went to the end of
+  the collection, and stayed there after the disk came back.
+- Move Earlier and Move Later under a search move an image one row as the rows show it, and an
+  image the search hides keeps its place. Before, the image passed the hidden one, and a first
+  press showed no change. A search that shows the images in another order than the
+  collection's, such as a fuzzy search, now refuses a move or a drag with a notice, as it would
+  land elsewhere than it shows.
+- F5 and Auto Refresh read a plain list (.txt, .m3u) again: an image a script added shows, and
+  one it took out goes, while what the window took out or moved stays. Before, the list was
+  never read again after it opened, and Delete could act on a file it no longer named.
+
 ## [0.84.0] - 2026-11-13
 
 ### Fixed
