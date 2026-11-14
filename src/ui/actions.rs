@@ -346,8 +346,6 @@ pub const ALL: &[Action] = &[
 pub static USER_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
-/// The actions a kiosk allows: showing and browsing, not changing files, settings or the
-/// window.
 /// The keys that select a range with Shift held, as "Selecting and file operations" in the help
 /// says: the arrows, Page Up/Down, Home and End.
 const RANGE_KEYS: [egui::Key; 8] = [
@@ -361,6 +359,8 @@ const RANGE_KEYS: [egui::Key; 8] = [
     egui::Key::End,
 ];
 
+/// The actions a kiosk allows: showing and browsing, not changing files, settings or the
+/// window.
 pub(crate) const KIOSK_ACTIONS: &[Action] = &[
     Action::Next,
     Action::Previous,
