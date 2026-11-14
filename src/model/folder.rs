@@ -1499,9 +1499,7 @@ impl crate::App {
         let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
         // picked. The selected files that the search hides stay selected too.
-        let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
-            .filter_map(|&i| self.list.files().get(i).cloned())
-            .collect();
+        let picked = (self.list).names_with_identities(&self.list.selected_with_hidden());
         let read = after_a_part.then(|| self.list.take_sizes_and_dates());
         self.replace_files(ctx, files, shown);
         if let Some(read) = read {
@@ -1558,13 +1556,21 @@ impl crate::App {
     }
 
     /// Selects again by name, after the list was read again or put in another order, so a
-    /// Delete or Move after it still acts on what was picked.
-    pub(crate) fn reselect(&mut self, ctx: &egui::Context, names: &HashSet<OsString>) {
+    /// Delete or Move after it still acts on what was picked. A name that another file has
+    /// taken since is not selected, because the user picked the file it held, not the one
+    /// that holds it now (another window's Rename Many gave the name to the next photo).
+    pub(crate) fn reselect(
+        &mut self,
+        ctx: &egui::Context,
+        names: &HashMap<OsString, crate::files::file_io::Identity>,
+    ) {
         if names.is_empty() {
             return;
         }
         let places = (self.list.files().iter().enumerate())
-            .filter(|(_, f)| names.contains(*f))
+            .filter(|&(i, f)| {
+                (names.get(f)).is_some_and(|&old| !is_another_file(old, self.list.identity(i)))
+            })
             .map(|(i, _)| i)
             .collect();
         self.set_selection(ctx, places);
@@ -1985,6 +1991,49 @@ mod tests {
         app.replace_files(&ctx, listing(&["a.png", "c.png", "b.png"]), None);
         assert!(app.search.reads_exif_again("a.png") && app.search.reads_exif_again("c.png"));
         assert!(!app.search.reads_exif_again("b.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A refresh selects again the files that were selected, but not a name that another file
+    /// has taken since. Before, it selected the name, and a Delete after it trashed the photo
+    /// that another window's Rename Many had given that name, which the user never picked.
+    /// The selected files that the search hides go the same way.
+    #[test]
+    fn a_name_another_file_took_is_not_selected_again() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-taken-not-reselected-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png"] {
+            std::fs::write(dir.join(name), name).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let listing = |names: &[&str]| -> Vec<crate::model::listing::ListedName> {
+            let id = |n: &str| crate::files::file_io::identity_of(&dir.join(n));
+            names.iter().map(|n| (n.into(), id(n))).collect()
+        };
+        app.take_listed_files(&ctx, listing(&["a.png", "b.png", "c.png", "d.png"]), true);
+        // a.png and b.png are selected, and so is d.png, which the search hides.
+        app.list.set_matches(Some(vec![0, 1, 2]));
+        app.list.select([0, 1, 3].into());
+        assert_eq!(app.list.hidden_selected(), &[3].into());
+        // Another window gives a.png's name to c.png, c.png's to d.png and d.png's to a.png.
+        for (from, to) in [("a", "t"), ("c", "a"), ("d", "c"), ("t", "d")] {
+            std::fs::rename(
+                dir.join(format!("{from}.png")),
+                dir.join(format!("{to}.png")),
+            )
+            .unwrap();
+        }
+        app.take_listed_files(&ctx, listing(&["a.png", "b.png", "c.png", "d.png"]), true);
+        let selected: Vec<_> = (app.list.selected_with_hidden().iter())
+            .map(|&i| app.list.files()[i].clone())
+            .collect();
+        assert_eq!(selected, ["b.png"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

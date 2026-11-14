@@ -11,7 +11,7 @@ use crate::ui::menus::{icon_button, menu_item, scroll_menu, submenu, with_icon};
 use crate::{tf, ui::theme};
 use eframe::egui;
 use std::collections::HashSet;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -132,9 +132,7 @@ impl crate::App {
         let replaced = any && !picked.iter().all(|i| selected.contains(i));
         let moved = picked.iter().filter(|_| !selected.is_empty() || replaced);
         let hidden = self.list.hidden_selected().iter().filter(|_| !replaced);
-        let names: HashSet<OsString> = (moved.chain(hidden))
-            .map(|&i| self.list.files()[i].clone())
-            .collect();
+        let names = self.list.names_with_identities(moved.chain(hidden));
         let files = order
             .iter()
             .map(|&i| (self.list.files()[i].clone(), self.list.identity(i)))
