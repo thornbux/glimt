@@ -614,14 +614,22 @@ pub fn add(all: &mut Vec<PathBuf>, paths: &[PathBuf]) -> usize {
     all.len() - before
 }
 
-/// `all` in the order of `ours`, a window's list put in order; those it lacks (added elsewhere
-/// since) after them, and those only in `ours` (taken out elsewhere) left out.
-pub fn reorder(all: &mut Vec<PathBuf>, ours: &[PathBuf]) {
-    let there: HashSet<&PathBuf> = all.iter().collect();
+/// Puts the entries of `all` that `ours`, a window's list, holds in the order of `ours`, in the
+/// places those entries had. An entry the window does not list keeps its place: one on a disk
+/// that is not mounted, a file gone for a moment, or one added elsewhere since. Before, each
+/// such entry was put after all the others, so a move of one image sent an entry the user
+/// placed first, and never moved, to the end of the file. An entry only in `ours` (taken out
+/// elsewhere) is left out.
+pub fn reorder(all: &mut [PathBuf], ours: &[PathBuf]) {
     let placed: HashSet<&PathBuf> = ours.iter().collect();
-    let mut ordered: Vec<PathBuf> = ours.iter().filter(|p| there.contains(p)).cloned().collect();
-    ordered.extend(all.iter().filter(|p| !placed.contains(p)).cloned());
-    *all = ordered;
+    let there: HashSet<&PathBuf> = all.iter().filter(|p| placed.contains(p)).collect();
+    let in_order: Vec<PathBuf> = ours.iter().filter(|p| there.contains(p)).cloned().collect();
+    let mut in_order = in_order.into_iter();
+    for slot in all.iter_mut().filter(|p| placed.contains(&**p)) {
+        if let Some(path) = in_order.next() {
+            *slot = path;
+        }
+    }
 }
 
 /// `files` in the order of `saved`, a collection's file: shuffled ones put back, those it lacks
@@ -1058,6 +1066,20 @@ mod tests {
         let mut all = p(&["/a", "/b", "/c", "/new"]);
         super::reorder(&mut all, &p(&["/c", "/gone", "/a", "/b"]));
         assert_eq!(all, p(&["/c", "/a", "/b", "/new"]));
+    }
+
+    /// An entry the window does not list (on a disk not mounted) keeps its place in the file
+    /// when another is moved first, or the list is sorted. Before, it went to the end, and each
+    /// later move kept it there, also after the disk came back.
+    #[test]
+    fn entries_the_window_does_not_list_keep_their_place() {
+        let p = |names: &[&str]| -> Vec<PathBuf> { names.iter().map(PathBuf::from).collect() };
+        let mut all = p(&["/usb/a", "/b", "/c", "/d"]);
+        super::reorder(&mut all, &p(&["/d", "/b", "/c"]));
+        assert_eq!(all, p(&["/usb/a", "/d", "/b", "/c"]));
+        let mut all = p(&["/c", "/usb/a", "/b"]);
+        super::reorder(&mut all, &p(&["/b", "/c"]));
+        assert_eq!(all, p(&["/b", "/usb/a", "/c"]));
     }
 
     /// Shuffled files back in the saved order; one added since goes last.
