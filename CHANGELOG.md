@@ -5,6 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With Save Orientation on, a turn whose save was refused at closing, because Rename Many or
+  other work was still changing the file, is saved when that work ends, before the window
+  closes. Before, the window closed without the turn, and the notice that it was not saved was
+  hidden at once by the notice that Glimt closes when the file operations are done.
+- The search in Preferences finds the choices that the sections offer from their lists: the
+  rendering intents and profiles of colour management, the slideshow's fades, the themes, the
+  languages and the histogram's RGB. Before, a search for "perceptual", "long", "Nord" or
+  "Deutsch" said that no setting has these words.
+- The projector's window title is in the language of the interface.
+- About → Credits no longer names Noto Emoji, which Glimt does not ship.
+
 ## [0.84.0] - 2026-11-13
 
 ### Fixed
