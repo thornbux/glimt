@@ -59,6 +59,10 @@ pub struct Marks {
     /// The window's context, asked for a frame when the file has been read again, so that
     /// marks another window set show at once, not at the next input.
     repaint: eframe::egui::Context,
+    /// Whether the marks this window holds changed since `take_changed` was last asked. Every
+    /// change goes through `edit` or `receive`, so a search by marks or stars learns of each
+    /// one in one place: a key, an import, a crop, Undo, or another window's marks read again.
+    changed: bool,
 }
 
 impl Marks {
@@ -129,10 +133,12 @@ impl Marks {
             ReadAgain::AsHeld if is_up_to_date => self.not_confirmed.clear(),
             ReadAgain::AsHeld => {}
             ReadAgain::Read(by_path) if is_up_to_date => {
+                self.changed |= self.by_path != by_path;
                 self.by_path = by_path;
                 self.not_confirmed.clear();
             }
             ReadAgain::Unreadable if is_up_to_date => {
+                self.changed |= !self.not_confirmed.is_empty();
                 for (path, value) in self.not_confirmed.drain() {
                     match value {
                         (0, 0) => drop(self.by_path.remove(&path)),
@@ -142,6 +148,12 @@ impl Marks {
             }
             ReadAgain::Read(_) | ReadAgain::Unreadable => self.read_file_again(true),
         }
+    }
+
+    /// Returns whether the marks or stars this window holds changed since this was last asked,
+    /// so that a search by them is run again.
+    pub fn take_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
     }
 
     /// Every file with a mark or stars, and them.
@@ -244,6 +256,9 @@ impl Marks {
     /// the marks as they are there, so the two agree on what it did.
     fn edit(&mut self, edit: Edit) {
         self.edits_made += 1;
+        // The next frame runs a search by marks again (`take_changed`).
+        self.changed = true;
+        self.repaint.request_repaint();
         for edit in refuse_names_with_line_breaks(edit, &self.by_path) {
             // Only a change of a mark or stars is left out when its write fails. The other
             // edits follow the disk, and are made again at the next write.

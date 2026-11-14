@@ -5,7 +5,7 @@
 use crate::files::config::fits_on_a_line;
 use crate::model::listing::real_dir;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took};
+use crate::support::threads::{Receiving, Took, lock_even_if_poisoned};
 use crate::ui::actions::Action;
 use crate::ui::menus::{icon_button, menu_item, scroll_menu, submenu, with_icon};
 use crate::{tf, ui::theme};
@@ -18,6 +18,14 @@ use std::path::{Path, PathBuf};
 /// Plain lists of images, as a script or a music player writes them: one path on each line,
 /// relative to the list or absolute, `#` for comments. Opened as a collection, never written.
 const LIST_EXTS: &[&str] = &["txt", "m3u", "m3u8"];
+
+/// This window's own changes to each plain list it has shown, by the list's file. Glimt never
+/// writes a list, so what the window took out, moved or renamed in it is kept here, and laid
+/// over what the file says each time it is read (`load_with_window_changes`). The changes are
+/// made here by `edit_open_collection`, the one way every operation edits the open collection,
+/// as they are made to a `.gqv` file.
+static WINDOW_LISTS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, WindowList>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// The saved collections as the File menu lists them, read in the background while it is open,
 /// because the window's thread does not wait for the disk.
@@ -58,6 +66,40 @@ impl SavedCollections {
 pub(crate) enum CollectionAddedTo {
     Saved(PathBuf),
     New(String),
+}
+
+/// A plain list as this window has it, apart from its file, which Glimt never writes. Every
+/// entry is named by its real path, as the list and the edits of a collection name it.
+struct WindowList {
+    /// The entries as the list's file gave them when it was last read.
+    read: Vec<PathBuf>,
+    /// The entries as this window has them: those read, with the window's own changes made.
+    ours: Vec<PathBuf>,
+}
+
+impl WindowList {
+    /// Returns the entries as this window has them, after the file was read again and gave
+    /// `now`. An entry that the file took out since it was last read goes, and one it added
+    /// comes after the window's entries. An entry that the window took out stays out, and the
+    /// window's order and renames stay. When the window changed nothing, the file's own order
+    /// is taken as it is.
+    fn read_again(&mut self, now: Vec<PathBuf>) -> Vec<PathBuf> {
+        if self.ours == self.read {
+            self.ours = now.clone();
+        } else {
+            let before: HashSet<&PathBuf> = self.read.iter().collect();
+            let there: HashSet<&PathBuf> = now.iter().collect();
+            let ours: HashSet<PathBuf> = self.ours.iter().cloned().collect();
+            self.ours
+                .retain(|p| !before.contains(p) || there.contains(p));
+            let added = now
+                .iter()
+                .filter(|p| !before.contains(p) && !ours.contains(*p));
+            self.ours.extend(added.cloned());
+        }
+        self.read = now;
+        self.ours.clone()
+    }
 }
 
 impl crate::App {
@@ -121,6 +163,16 @@ impl crate::App {
                 .give(tr("Random order is on: R turns it off to move images").into());
             return;
         }
+        // A fuzzy search shows the best matches first, and terms joined by "|" show each term's
+        // matches in turn. The rows are then in another order than the collection's, so a move
+        // or a line drawn between two rows would land somewhere else in the collection than it
+        // shows. This is the one place that keys and drags both reach.
+        if !self.search_rows_are_in_list_order() {
+            self.notice.give(
+                tr("The search shows the images in another order: clear it to move them").into(),
+            );
+            return;
+        }
         let shown = self.list.files().get(self.list.shown()).cloned();
         // The images moved stay selected when they were, and so do the selected images that the
         // search hides. A row dragged from outside the selection takes the selection's place, as a
@@ -140,6 +192,12 @@ impl crate::App {
         self.replace_files(ctx, files, shown);
         self.reselect(ctx, &names);
         self.save_collection_order();
+    }
+
+    /// Returns whether the rows shown are in the order of the list: with no search, or with a
+    /// search whose matches keep the list's order (`re:`, `exif:`, `stars:`).
+    fn search_rows_are_in_list_order(&self) -> bool {
+        (self.list.matches()).is_none_or(|m| m.windows(2).all(|w| w[0] < w[1]))
     }
 
     /// Moves the collection's file `picked` to the trash, in the background, while it is still
@@ -424,6 +482,68 @@ pub fn rename(
     }
 }
 
+/// Makes `change` to the plain list `file` as this window has it. A list the window has not
+/// read yet is read first. Returns the error of that read.
+fn edit_window_list(file: &Path, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
+    let is_known = lock_even_if_poisoned(&WINDOW_LISTS).contains_key(file);
+    // The file is read without the lock, which is never held while the disk is waited for.
+    let read = match is_known {
+        true => None,
+        false => Some(entries_by_real_path(file)?),
+    };
+    let mut lists = lock_even_if_poisoned(&WINDOW_LISTS);
+    let list = lists.entry(file.to_path_buf()).or_insert_with(|| {
+        let read = read.unwrap_or_default();
+        WindowList {
+            ours: read.clone(),
+            read,
+        }
+    });
+    change(&mut list.ours);
+    Ok(())
+}
+
+/// Returns the entries of a collection for a listing. A `.gqv` is read as its file says, as
+/// every change the window makes is written to it. A plain list is read as its file says now,
+/// with this window's own changes laid over it (`WindowList::read_again`), by real path. So
+/// F5 and Auto Refresh show what a script or a music player wrote to the list since, and an
+/// entry the window took out stays out. Before, a list was never read again after it opened.
+pub fn load_with_window_changes(file: &Path) -> std::io::Result<Vec<PathBuf>> {
+    if !is_list(file) {
+        return load(file);
+    }
+    let now = entries_by_real_path(file)?;
+    let mut lists = lock_even_if_poisoned(&WINDOW_LISTS);
+    let list = lists
+        .entry(file.to_path_buf())
+        .or_insert_with(|| WindowList {
+            read: now.clone(),
+            ours: now.clone(),
+        });
+    Ok(list.read_again(now))
+}
+
+/// Starts this window's own changes to the plain list `file` anew from its `entries` as just
+/// read, because it is opened again: the changes made when it was shown before are dropped, as
+/// File → Open shows the list as its file has it. Nothing happens for a `.gqv`.
+pub fn start_window_list(file: &Path, entries: &[PathBuf]) {
+    if is_list(file) {
+        let list = WindowList {
+            read: entries.to_vec(),
+            ours: entries.to_vec(),
+        };
+        lock_even_if_poisoned(&WINDOW_LISTS).insert(file.to_path_buf(), list);
+    }
+}
+
+/// Returns the entries of the collection in `file`, each by its real path (`by_real_path`).
+fn entries_by_real_path(file: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let entries = load(file)?;
+    Ok((by_real_path(&entries).into_iter())
+        .map(|(real, _)| real)
+        .collect())
+}
+
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
     let text = crate::images::decode::read_limited(file)?;
     // A list's entries relative to it start from its folder as an absolute path: `glimt
@@ -499,15 +619,17 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
 }
 
 /// Makes `change` to the open collection in `file`, and words what went wrong for the user. A
-/// plain list (.m3u, .txt) is the user's own and is never written, so nothing happens. A file
-/// renamed or moved to the trash in another window since it was opened is not made again under
-/// its old name. This is the one way an operation edits the open collection.
+/// plain list (.m3u, .txt) is the user's own and is never written, so the change is made to
+/// the list as this window has it (`WINDOW_LISTS`), which each listing lays over the file. A
+/// file renamed or moved to the trash in another window since it was opened is not made again
+/// under its old name. This is the one way an operation edits the open collection.
 pub(crate) fn edit_open_collection(
     file: &Path,
     change: impl FnOnce(&mut Vec<PathBuf>),
 ) -> Result<(), String> {
     if is_list(file) {
-        return Ok(());
+        return edit_window_list(file, change)
+            .map_err(|e| tf!("Could not save the collection: {e}", e));
     }
     edit(file, false, change).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => tf!(
@@ -612,14 +734,22 @@ pub fn add(all: &mut Vec<PathBuf>, paths: &[PathBuf]) -> usize {
     all.len() - before
 }
 
-/// `all` in the order of `ours`, a window's list put in order; those it lacks (added elsewhere
-/// since) after them, and those only in `ours` (taken out elsewhere) left out.
-pub fn reorder(all: &mut Vec<PathBuf>, ours: &[PathBuf]) {
-    let there: HashSet<&PathBuf> = all.iter().collect();
+/// Puts the entries of `all` that `ours`, a window's list, holds in the order of `ours`, in the
+/// places those entries had. An entry the window does not list keeps its place: one on a disk
+/// that is not mounted, a file gone for a moment, or one added elsewhere since. Before, each
+/// such entry was put after all the others, so a move of one image sent an entry the user
+/// placed first, and never moved, to the end of the file. An entry only in `ours` (taken out
+/// elsewhere) is left out.
+pub fn reorder(all: &mut [PathBuf], ours: &[PathBuf]) {
     let placed: HashSet<&PathBuf> = ours.iter().collect();
-    let mut ordered: Vec<PathBuf> = ours.iter().filter(|p| there.contains(p)).cloned().collect();
-    ordered.extend(all.iter().filter(|p| !placed.contains(p)).cloned());
-    *all = ordered;
+    let there: HashSet<&PathBuf> = all.iter().filter(|p| placed.contains(p)).collect();
+    let in_order: Vec<PathBuf> = ours.iter().filter(|p| there.contains(p)).cloned().collect();
+    let mut in_order = in_order.into_iter();
+    for slot in all.iter_mut().filter(|p| placed.contains(&**p)) {
+        if let Some(path) = in_order.next() {
+            *slot = path;
+        }
+    }
 }
 
 /// `files` in the order of `saved`, a collection's file: shuffled ones put back, those it lacks
@@ -683,30 +813,45 @@ fn to_text(paths: &[PathBuf], other: &[&[u8]]) -> Vec<u8> {
     text
 }
 
-/// The new order of a list of `n` after `action` moves the `picked` places: one earlier or later
-/// (each picked passes one that is not, never one another), or all to the start or end, among
-/// themselves in the order they had.
-pub(crate) fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..n).collect();
-    let (first, rest): (Vec<usize>, Vec<usize>) = order.iter().partition(|i| picked.contains(i));
+/// Returns the new order of a list of `n` after `action` moves the `picked` places among the
+/// `shown` ones, the rows as the user sees them, in list order. Each picked image moves one row
+/// earlier or later, passing one shown image that is not picked and never another picked one,
+/// or all go to the start or end of the rows, among themselves in the order they had. Before,
+/// the moves were worked out over the whole list, so under a search an image passed one the
+/// search hid, and a key press showed no change.
+pub(crate) fn moved(
+    n: usize,
+    shown: &[usize],
+    picked: &HashSet<usize>,
+    action: Action,
+) -> Vec<usize> {
+    let mut rows = shown.to_vec();
+    let (first, rest): (Vec<usize>, Vec<usize>) = rows.iter().partition(|i| picked.contains(i));
+    let count = rows.len();
     match action {
-        Action::MoveFirst => order = [first, rest].concat(),
-        Action::MoveLast => order = [rest, first].concat(),
+        Action::MoveFirst => rows = [first, rest].concat(),
+        Action::MoveLast => rows = [rest, first].concat(),
         Action::MoveEarlier => {
-            for at in 1..n {
-                if picked.contains(&order[at]) && !picked.contains(&order[at - 1]) {
-                    order.swap(at - 1, at);
+            for at in 1..count {
+                if picked.contains(&rows[at]) && !picked.contains(&rows[at - 1]) {
+                    rows.swap(at - 1, at);
                 }
             }
         }
         Action::MoveLater => {
-            for at in (0..n.saturating_sub(1)).rev() {
-                if picked.contains(&order[at]) && !picked.contains(&order[at + 1]) {
-                    order.swap(at, at + 1);
+            for at in (0..count.saturating_sub(1)).rev() {
+                if picked.contains(&rows[at]) && !picked.contains(&rows[at + 1]) {
+                    rows.swap(at, at + 1);
                 }
             }
         }
         _ => {}
+    }
+    // The shown images take the places that shown images had, in their new order. An image the
+    // search hides stays where it is.
+    let mut order: Vec<usize> = (0..n).collect();
+    for (&slot, file) in shown.iter().zip(rows) {
+        order[slot] = file;
     }
     order
 }
@@ -1058,6 +1203,20 @@ mod tests {
         assert_eq!(all, p(&["/c", "/a", "/b", "/new"]));
     }
 
+    /// An entry the window does not list (on a disk not mounted) keeps its place in the file
+    /// when another is moved first, or the list is sorted. Before, it went to the end, and each
+    /// later move kept it there, also after the disk came back.
+    #[test]
+    fn entries_the_window_does_not_list_keep_their_place() {
+        let p = |names: &[&str]| -> Vec<PathBuf> { names.iter().map(PathBuf::from).collect() };
+        let mut all = p(&["/usb/a", "/b", "/c", "/d"]);
+        super::reorder(&mut all, &p(&["/d", "/b", "/c"]));
+        assert_eq!(all, p(&["/usb/a", "/d", "/b", "/c"]));
+        let mut all = p(&["/c", "/usb/a", "/b"]);
+        super::reorder(&mut all, &p(&["/b", "/c"]));
+        assert_eq!(all, p(&["/b", "/usb/a", "/c"]));
+    }
+
     /// Shuffled files back in the saved order; one added since goes last.
     #[test]
     fn puts_back_the_saved_order() {
@@ -1292,6 +1451,109 @@ mod tests {
         }
     }
 
+    /// F5 reads a plain list's file again: an entry a script added since shows, and one it took
+    /// out goes, while an entry the window took out stays out and the window's order stays.
+    /// Before, a list was listed from the window's own list and never read again, so neither
+    /// F5 nor Auto Refresh showed the script's change, and Delete acted on a file the list no
+    /// longer named.
+    #[test]
+    fn a_plain_list_read_again_shows_its_files_change_and_keeps_the_windows() {
+        use crate::support::test_support::{app_on, run_background_until};
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-m3u-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let list = dir.join("show.m3u");
+        std::fs::write(&list, "a.png\nb.png\nc.png\n").unwrap();
+        let (mut app, ctx) = app_on(&list);
+        let names = |app: &crate::App| -> Vec<String> {
+            (0..app.list.files().len())
+                .map(|i| {
+                    app.path(i)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        };
+        let refresh = |app: &mut crate::App| {
+            app.run(&ctx, Action::Refresh);
+            assert!(run_background_until(app, &ctx, |a| !a.folder.is_listing()));
+        };
+        assert_eq!(names(&app), ["a.png", "b.png", "c.png"]);
+        // The window takes b out, and moves c first.
+        app.list.select([1].into());
+        app.run(&ctx, Action::RemoveFromCollection);
+        app.list.select([1].into());
+        app.run(&ctx, Action::MoveFirst);
+        assert_eq!(names(&app), ["c.png", "a.png"]);
+        // A script appends d and takes a out.
+        crate::files::file_io::wait_for_queued_writes();
+        std::fs::write(&list, "b.png\nc.png\nd.png\n").unwrap();
+        refresh(&mut app);
+        assert_eq!(names(&app), ["c.png", "d.png"]);
+        // The list is never written.
+        assert_eq!(
+            std::fs::read_to_string(&list).unwrap(),
+            "b.png\nc.png\nd.png\n"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Move Earlier under a search moves the image one row as the rows show it, past the image
+    /// shown before it, and an image the search hides keeps its place. A search that shows
+    /// another order than the collection's refuses the move, and says so. Before, the image
+    /// passed the hidden one, and the rows showed no change until a second press.
+    #[test]
+    fn a_move_under_a_search_moves_a_row_as_shown() {
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-move-rows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = ["a1.png", "x.png", "a2.png"];
+        let mut gqv = String::from("#GQview collection\n");
+        for name in names {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            gqv += &format!("\"{}\"\n", dir.join(name).display());
+        }
+        std::fs::write(dir.join("rows.gqv"), gqv).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir.join("rows.gqv"));
+        let order = |app: &crate::App| -> Vec<String> {
+            (0..app.list.files().len())
+                .map(|i| {
+                    app.path(i)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        };
+        assert_eq!(order(&app), names);
+        app.search.set_query(r"re:/a\d\.png$");
+        app.update_search(&ctx);
+        app.list.select([2].into());
+        app.run(&ctx, Action::MoveEarlier);
+        assert_eq!(order(&app), ["a2.png", "x.png", "a1.png"]);
+        // Fuzzy, a2 ranks before a1 here: the rows are not in the collection's order.
+        app.search.set_query("a1");
+        app.update_search(&ctx);
+        app.list.set_matches(Some(vec![2, 0]));
+        app.list.select([0].into());
+        app.run(&ctx, Action::MoveEarlier);
+        assert_eq!(order(&app), ["a2.png", "x.png", "a1.png"]);
+        assert!(
+            app.notice
+                .text()
+                .unwrap_or_default()
+                .contains("another order")
+        );
+        crate::files::file_io::wait_for_queued_writes();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Images of a collection that are moved go one place each, never past another moved one,
     /// and to the start or the end in their own order.
     #[test]
@@ -1300,13 +1562,41 @@ mod tests {
         let set = |v: &[usize]| v.iter().copied().collect();
         // 0 1 2 3 4 5 with 1, 2 and 5 picked.
         let picked = set(&[1, 2, 5]);
-        assert_eq!(moved(6, &picked, Action::MoveEarlier), [1, 2, 0, 3, 5, 4]);
-        assert_eq!(moved(6, &picked, Action::MoveLater), [0, 3, 1, 2, 4, 5]);
-        assert_eq!(moved(6, &picked, Action::MoveFirst), [1, 2, 5, 0, 3, 4]);
-        assert_eq!(moved(6, &picked, Action::MoveLast), [0, 3, 4, 1, 2, 5]);
+        let all = [0, 1, 2, 3, 4, 5];
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveEarlier),
+            [1, 2, 0, 3, 5, 4]
+        );
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveLater),
+            [0, 3, 1, 2, 4, 5]
+        );
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveFirst),
+            [1, 2, 5, 0, 3, 4]
+        );
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveLast),
+            [0, 3, 4, 1, 2, 5]
+        );
         // At the edge already: where it was.
-        assert_eq!(moved(3, &set(&[0]), Action::MoveEarlier), [0, 1, 2]);
-        assert_eq!(moved(0, &set(&[]), Action::MoveLater), Vec::<usize>::new());
+        assert_eq!(
+            moved(3, &[0, 1, 2], &set(&[0]), Action::MoveEarlier),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            moved(0, &[], &set(&[]), Action::MoveLater),
+            Vec::<usize>::new()
+        );
+        // [a1, x, a2] under a search that shows a1 and a2: a2 passes a1, the row before it, and
+        // x, which the search hides, keeps its place. Before, a2 passed x alone, and the rows
+        // still read a1, a2.
+        assert_eq!(
+            moved(3, &[0, 2], &set(&[2]), Action::MoveEarlier),
+            [2, 1, 0]
+        );
+        assert_eq!(moved(3, &[0, 2], &set(&[0]), Action::MoveLater), [2, 1, 0]);
+        assert_eq!(moved(3, &[0, 2], &set(&[2]), Action::MoveFirst), [2, 1, 0]);
         // Dragged before 4, before 0, to the end, and onto a place of their own.
         use super::dropped;
         assert_eq!(dropped(6, &picked, 4), [0, 3, 1, 2, 5, 4]);

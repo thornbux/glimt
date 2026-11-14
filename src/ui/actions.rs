@@ -1269,7 +1269,8 @@ impl crate::App {
             Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
                 if let Some(picked) = self.targets() {
                     let picked: HashSet<usize> = picked.into_iter().collect();
-                    let order = collections::moved(self.list.files().len(), &picked, action);
+                    let (n, shown) = (self.list.files().len(), self.shown_files());
+                    let order = collections::moved(n, &shown, &picked, action);
                     self.move_in_collection(ctx, picked, order)
                 }
             }
@@ -1546,10 +1547,6 @@ impl crate::App {
                     },
                 );
             }
-        }
-        // A "mark:" or "stars:" search shows the new state.
-        if self.search.is_about_marks() {
-            self.update_search(ctx);
         }
     }
 

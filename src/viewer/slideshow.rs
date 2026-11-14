@@ -162,11 +162,14 @@ impl crate::App {
                     // A move in the collection may still wait in the writer thread.
                     crate::files::file_io::wait_for_queued_writes();
                     // The saved entries by their real paths, the names the list has.
-                    let saved = collections::load(&file).ok().map(|saved| {
-                        (collections::by_real_path(&saved).into_iter())
-                            .map(|(real, _)| real)
-                            .collect()
-                    });
+                    // A plain list's order is the one this window gave it, laid over its file.
+                    let saved = collections::load_with_window_changes(&file)
+                        .ok()
+                        .map(|saved| {
+                            (collections::by_real_path(&saved).into_iter())
+                                .map(|(real, _)| real)
+                                .collect()
+                        });
                     let _ = tx.send(saved);
                     drop(pointer);
                     ctx.request_repaint();

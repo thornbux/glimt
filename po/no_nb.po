@@ -1256,6 +1256,10 @@ msgstr "Sett de gamle navnene tilbake"
 msgid "Random order is on: R turns it off to move images"
 msgstr "Tilfeldig rekkefølge er på: R slår den av så du kan flytte bilder"
 
+#: src/model/collections.rs
+msgid "The search shows the images in another order: clear it to move them"
+msgstr "Søket viser bildene i en annen rekkefølge: tøm det for å flytte dem"
+
 #: src/main.rs
 msgid "Reading folder…"
 msgstr "Leser mappen …"

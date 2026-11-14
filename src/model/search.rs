@@ -37,6 +37,19 @@ pub enum Query {
     Or(Vec<Query>),
 }
 
+impl Query {
+    /// Whether a term anywhere in the query starts with one of `prefixes`, also inside a group
+    /// or after a "not". What a search depends on is read from its tree, as the search reads
+    /// it, never from the text typed.
+    pub fn has_term_with(&self, prefixes: &[&str]) -> bool {
+        match self {
+            Query::Term(text) => prefixes.iter().any(|p| text.starts_with(p)),
+            Query::Not(inner) => inner.has_term_with(prefixes),
+            Query::And(parts) | Query::Or(parts) => parts.iter().any(|p| p.has_term_with(prefixes)),
+        }
+    }
+}
+
 /// The search field. It holds the query, the matches, and the EXIF index that exif: terms look
 /// in.
 #[derive(Default)]
@@ -70,7 +83,13 @@ impl Search {
     /// Whether the search looks at marks or stars, so a change of them changes the matches.
     #[cfg(feature = "marks")]
     pub(crate) fn is_about_marks(&self) -> bool {
-        self.query.starts_with("mark:") || self.query.starts_with("stars:")
+        self.has_term_with(&["mark:", "stars:"])
+    }
+
+    /// Whether a term of the search starts with one of `prefixes`, as `Query::has_term_with`
+    /// says.
+    fn has_term_with(&self, prefixes: &[&str]) -> bool {
+        parse(&self.query).is_some_and(|q| q.has_term_with(prefixes))
     }
 
     /// The search field emptied, so the whole list shows.
@@ -86,7 +105,7 @@ impl Search {
 
     /// Whether an "exif:" search waits for files whose keywords are still being written.
     pub(crate) fn exif_search_waits_for_writes(&self) -> bool {
-        !self.exif_to_read_again.is_empty() && self.query.contains("exif:")
+        !self.exif_to_read_again.is_empty() && self.has_term_with(&["exif:"])
     }
 
     /// Drops the EXIF index of the folder and stops its reading, because another folder opens.
@@ -874,6 +893,63 @@ mod tests {
             &mut app, &ctx, read
         ));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A search by marks or stars shows the new matches after a change of them, wherever its
+    /// term stands in the query, and whichever way the marks changed. Before, only a query that
+    /// began with `mark:` or `stars:` was run again, and only after a mark key, so a photo given
+    /// one star kept its row under `sunset stars:3`, and Select All then took it in.
+    #[cfg(feature = "marks")]
+    #[test]
+    fn a_search_by_marks_follows_their_change_wherever_its_term_stands() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-bymarks-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = ["sunset1.jpg", "sunset2.jpg", "other.jpg"];
+        let paths: Vec<_> = names.iter().map(|n| dir.join(n)).collect();
+        use crate::support::test_support::unlisted;
+        let cases = [
+            ("sunset stars:3", Action::Rate1),
+            (" stars:3", Action::Rate1),
+            ("( stars:3 | re:^nothing$ )", Action::Rate1),
+            ("-mark:1", Action::Mark1),
+        ];
+        for (query, action) in cases {
+            let (mut app, ctx) = app_on(&dir);
+            app.list.set_files(names.iter().map(Into::into).collect());
+            app.marks.rate(&unlisted(&paths), 3);
+            app.search.set_query(query);
+            app.update_search(&ctx);
+            let shown = |app: &crate::App| app.list.matches().unwrap().contains(&0);
+            assert!(shown(&app), "{query}");
+            app.list.select([0].into());
+            app.run(&ctx, action);
+            app.receive_answers(&ctx);
+            assert!(!shown(&app), "{query} after {action:?}");
+            // Stars given another way than a key, such as a Lightroom import, count too.
+            app.marks.rate(&unlisted(&paths[1..2]), 1);
+            app.receive_answers(&ctx);
+            assert!(!app.list.matches().unwrap().contains(&1) || query == "-mark:1");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// What a search depends on is read from its tree, as `parse` reads it, and never by a
+    /// second look at the text typed, which missed a term that did not stand first.
+    #[test]
+    fn what_a_search_depends_on_is_read_from_its_tree() {
+        let source = include_str!("search.rs");
+        for look in [
+            "starts_with(",
+            "contains(",
+            "ends_with(",
+            "strip_prefix(",
+            "find(",
+        ] {
+            let bypass = format!("self.query.{look}");
+            assert!(!source.contains(&bypass), "{bypass}: use has_term_with");
+        }
+        let uses = |q: &str| super::parse(q).is_some_and(|q| q.has_term_with(&["stars:"]));
+        assert!(uses("a ( b | -stars:2 )") && uses(" stars:1") && !uses("a astars:1"));
     }
 
     #[test]

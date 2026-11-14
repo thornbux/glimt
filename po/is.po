@@ -1398,6 +1398,11 @@ msgstr "Setja gömlu heitin aftur"
 msgid "Random order is on: R turns it off to move images"
 msgstr "Slembiröð er virk: R slekkur á henni til að færa myndir"
 
+#: src/model/collections.rs
+#, fuzzy
+msgid "The search shows the images in another order: clear it to move them"
+msgstr "Leitin sýnir myndirnar í annarri röð: hreinsaðu hana til að færa þær"
+
 #: src/main.rs
 #, fuzzy
 msgid "Reading folder…"

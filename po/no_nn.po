@@ -1568,6 +1568,11 @@ msgstr "Set dei gamle namna tilbake"
 msgid "Random order is on: R turns it off to move images"
 msgstr "Tilfeldig rekkjefølgje er på: R slår ho av, så du kan flytta bilete"
 
+#: src/model/collections.rs
+#, fuzzy
+msgid "The search shows the images in another order: clear it to move them"
+msgstr "Søket viser bileta i ei anna rekkjefølgje: tøm det for å flytta dei"
+
 #: src/main.rs
 #, fuzzy
 msgid "Reading folder…"
