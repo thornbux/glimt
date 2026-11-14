@@ -476,7 +476,8 @@ impl crate::App {
     // ---- Decoding and painting the image ----
 
     /// Ask the decoders for file `idx` at the size shown, or at full resolution, unless it is
-    /// there, failed or asked for already.
+    /// there, failed or asked for already. A failure at full resolution does not stop the size
+    /// shown, which is decoded another way (scaled JPEG decoding) and smaller.
     pub(crate) fn request_decode(&mut self, idx: usize, full: bool) {
         let have = self
             .list
@@ -485,6 +486,7 @@ impl crate::App {
             .is_some_and(|s| s.is_full_resolution || !full);
         if !have
             && !self.list.decode_errors().contains_key(&idx)
+            && !(full && self.list.has_full_resolution_failed(idx))
             && !self.list.decodes_pending().contains_key(&(idx, full))
         {
             self.decoding.last_request_number += 1;
@@ -653,9 +655,8 @@ impl crate::App {
                         eprintln!("first image: {} ms", t.elapsed().as_millis());
                     }
                 }
-                Some(Err(e)) if wanted => {
-                    self.list.decode_failed(idx, e);
-                }
+                Some(Err(e)) if wanted && full => self.list.full_resolution_failed(idx, e),
+                Some(Err(e)) if wanted => self.list.decode_failed(idx, e),
                 // A worker skipped the image, because it was not among the images kept when the
                 // worker took the job. The user went away from it and came back before the job
                 // was taken, so it is kept again now. Nothing else asks for it while this job is
@@ -1734,6 +1735,8 @@ impl crate::App {
             self.viewing.page = page;
             self.list.forget_loaded_image(self.list.shown());
             self.list.forget_decodes_of(self.list.shown());
+            // A page that failed says nothing about the next one, which is tried.
+            self.list.forget_decode_error(self.list.shown());
             self.refill_preload();
         }
     }
@@ -2249,6 +2252,40 @@ mod tests {
         let largest = app.decoding.max_side;
         let asked = app.list.decodes_pending().get(&(0, true)).map(|job| job.2);
         assert_eq!(asked, Some([largest; 2]));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A full-resolution decode that fails (here because the file is away for a moment) leaves
+    /// the screen-size decode of the same file free, as when it is decoded again for a larger
+    /// window. Full resolution is not asked for again.
+    #[test]
+    fn a_failed_full_resolution_decode_leaves_the_size_shown() {
+        let name = format!("glimt-test-full-failed-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(8, 8).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let loaded = |a: &crate::App| a.list.loaded_images().contains_key(&0);
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, loaded
+        ));
+        std::fs::rename(dir.join("a.png"), dir.join("a.away")).unwrap();
+        app.request_decode(0, true);
+        let answered = |a: &crate::App| !a.list.decodes_pending().contains_key(&(0, true));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, answered
+        ));
+        std::fs::rename(dir.join("a.away"), dir.join("a.png")).unwrap();
+        app.request_decode(0, true);
+        assert!(!app.list.decodes_pending().contains_key(&(0, true)));
+        app.list.forget_loaded_image(0);
+        app.request_decode(0, false);
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, loaded
+        ));
+        assert!(!app.list.decode_errors().contains_key(&0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -103,6 +103,10 @@ pub(crate) struct List {
     panes: Vec<usize>,
     loaded_images: HashMap<usize, LoadedImage>,
     decode_errors: HashMap<usize, String>,
+    /// Why the full-resolution decode of images failed, by their places in the list. It is kept
+    /// apart from `decode_errors`, because the screen-size version of such an image is still
+    /// shown and decoded again. Only full resolution is not asked for again.
+    full_resolution_errors: HashMap<usize, String>,
     /// The decodes asked for, each with the number of its job and the box it was asked for in.
     /// Only the result of that job is taken, so one asked for before the page, the look or the
     /// file changed is dropped. A new list carries them by name, as the decoded images.
@@ -363,6 +367,8 @@ impl List {
         });
         self.loaded_images = without_indices(std::mem::take(&mut self.loaded_images), removed);
         self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
+        self.full_resolution_errors =
+            without_indices(std::mem::take(&mut self.full_resolution_errors), removed);
         self.panes.clear();
         // The cells pan view drew are named again in its next frame. Before, they were kept, and
         // pan view read a place past the end of the shorter list, and the window crashed.
@@ -518,6 +524,7 @@ impl List {
         self.loaded_images.clear();
         self.decodes_pending.clear();
         self.decode_errors.clear();
+        self.full_resolution_errors.clear();
     }
 
     /// Notes that decode `key` was asked for, as `job`.
@@ -546,9 +553,21 @@ impl List {
         self.decode_errors.insert(i, why);
     }
 
-    /// Forgets why the image at place `i` could not be decoded, so it is tried again.
+    /// Notes why the image at place `i` could not be decoded at full resolution.
+    pub(crate) fn full_resolution_failed(&mut self, i: usize, why: String) {
+        self.full_resolution_errors.insert(i, why);
+    }
+
+    /// Returns whether the full-resolution decode of the image at place `i` failed.
+    pub(crate) fn has_full_resolution_failed(&self, i: usize) -> bool {
+        self.full_resolution_errors.contains_key(&i)
+    }
+
+    /// Forgets why the image at place `i` could not be decoded, at the size shown and at full
+    /// resolution, so it is tried again.
     pub(crate) fn forget_decode_error(&mut self, i: usize) {
         self.decode_errors.remove(&i);
+        self.full_resolution_errors.remove(&i);
     }
 
     /// Sets the search matches, or `None` when there is no search. The selected files that the
@@ -702,6 +721,7 @@ mod tests {
             ("panes", "carried by name"),
             ("loaded_images", "carried by name"),
             ("decode_errors", "reset: decoded again"),
+            ("full_resolution_errors", "reset: decoded again"),
             ("decodes_pending", "carried by name"),
             ("matches", "worked out again: update_search"),
             ("is_match", "worked out again with the matches"),
@@ -754,6 +774,7 @@ mod tests {
             ("panes", "remove"),
             ("loaded_images", "remove"),
             ("decode_errors", "remove"),
+            ("full_resolution_errors", "remove"),
             ("decodes_pending", "forget_places"),
             ("matches", "worked out again: update_search"),
             ("is_match", "worked out again: update_search"),
