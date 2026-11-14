@@ -397,10 +397,14 @@ pub(crate) struct StatusBar {
     /// when the question was dropped.
     sizes_and_dates_found: Receiving<SizeAndDate>,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
-    /// one under the pointer, else the first) and the panes as [columns, rows].
+    /// one under the pointer, else the first) and the panes as [columns, rows]. They are empty
+    /// when the last frame did not draw the image area, as with the grid in its place (G).
     pane_images: Vec<(usize, Option<f32>)>,
     pane: usize,
     pane_layout: [usize; 2],
+    /// What the image area drew in this frame, which `start_frame` makes the panes above. The
+    /// status bar is drawn before the image area, so it tells about the frame before.
+    panes_drawn: Option<PanesDrawn>,
     /// The position "[n/m]" of an image in another pane than the first, by image and list length.
     position_text: Option<(usize, usize, String)>,
     /// Total size of the images in the folder, summed in the background after listing.
@@ -423,6 +427,10 @@ pub(crate) struct StatusBar {
 /// about it was dropped (`SIZES_AND_DATES_WAITING`).
 pub(crate) type SizeAndDate = (OsString, PathBuf, Option<(u64, i64)>);
 
+/// The pane the status bar tells about, the panes as [columns, rows], and each pane's image and
+/// scale, as the image area drew them.
+type PanesDrawn = (usize, [usize; 2], Vec<(usize, Option<f32>)>);
+
 /// Whether the selection's size is to be worked out now.
 pub(crate) enum SizeDue {
     /// The size is not asked for, because nothing is selected, or it is known.
@@ -443,6 +451,7 @@ impl StatusBar {
             pane_images: Vec::new(),
             pane: 0,
             pane_layout: [1, 1],
+            panes_drawn: None,
             position_text: None,
             total_size: 0,
             folder_sums: Receiving::none(),
@@ -588,9 +597,16 @@ impl StatusBar {
         pane_layout: [usize; 2],
         panes: Vec<(usize, Option<f32>)>,
     ) {
-        self.pane = pane;
-        self.pane_layout = pane_layout;
-        self.pane_images = panes;
+        self.panes_drawn = Some((pane, pane_layout, panes));
+    }
+
+    /// Takes the panes that the image area drew in the frame before, for the status bar to tell
+    /// about in this frame. A frame that did not draw the image area leaves none, so the status
+    /// bar tells about the shown image and not about the panes of an earlier frame, which may
+    /// have shown another image or a file of another folder.
+    pub(crate) fn start_frame(&mut self) {
+        let drawn = self.panes_drawn.take();
+        (self.pane, self.pane_layout, self.pane_images) = drawn.unwrap_or((0, [1, 1], Vec::new()));
     }
 }
 
@@ -1910,13 +1926,7 @@ impl crate::App {
         }
         // As in Geeqie, "( 4000 x 3000 ) 2,345,678 bytes [3/16]" comes first, then
         // the zoom. With several panes, it tells about the one under the pointer.
-        let (idx, scale) = (self
-            .status_bar
-            .pane_images
-            .get(self.status_bar.pane)
-            .copied())
-        .filter(|p| p.0 < n)
-        .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())));
+        let (idx, scale) = self.image_in_status_bar(n);
         // The size is looked at in the background, as for the list's rows, and left out until
         // it is known.
         let bytes = self.file_details(idx).map(|(bytes, _)| bytes);
@@ -1966,6 +1976,18 @@ impl crate::App {
         if self.status_bar.pane_layout != [1, 1] {
             pane_map(ui, self.status_bar.pane_layout, self.status_bar.pane);
         }
+    }
+
+    /// Returns the image the status bar tells about, in a list of `n` files, and its scale: the
+    /// one in the pane under the pointer in the frame before, else the shown image.
+    fn image_in_status_bar(&self, n: usize) -> (usize, Option<f32>) {
+        (self
+            .status_bar
+            .pane_images
+            .get(self.status_bar.pane)
+            .copied())
+        .filter(|p| p.0 < n)
+        .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())))
     }
 }
 
@@ -2131,6 +2153,46 @@ mod tests {
         app.run(&ctx, ThumbnailGrid);
         assert!(!app.panel.is_area_grid_on());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// With the grid in the image area (G) the status bar tells about the image shown now, and
+    /// not about the panes of the last frame that drew the image area. It told about the image
+    /// shown before G while the arrows moved on in the grid.
+    #[test]
+    fn the_status_bar_tells_about_the_shown_image_under_the_grid() {
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-status-grid-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let listed = |a: &crate::App| a.list.files().len() == 4;
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
+        let frame = |app: &mut crate::App| {
+            drop(ctx.run_ui(Default::default(), |ui| app.frame_ui(ui)));
+        };
+        app.show_file(&ctx, 1);
+        frame(&mut app);
+        frame(&mut app);
+        assert!(
+            !app.status_bar.pane_images.is_empty(),
+            "the image area drew no panes"
+        );
+        assert_eq!(app.image_in_status_bar(4).0, 1);
+        app.run(&ctx, crate::ui::actions::Action::ThumbnailGrid);
+        assert!(app.panel.is_area_grid_shown());
+        app.show_file(&ctx, 3);
+        frame(&mut app);
+        frame(&mut app);
+        let told = app.image_in_status_bar(4);
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(
+            told.0, 3,
+            "the status bar tells about another image than the shown one"
+        );
     }
 
     /// Without file names a cell of the grid is as wide, and shorter by the name's line, so more
