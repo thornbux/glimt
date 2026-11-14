@@ -2429,6 +2429,12 @@ impl crate::App {
                 let e = tr("choose another name: the image itself is not changed");
                 return Some(Told::FailedWrite(tf!("Could not save the image: {e}", e)));
             }
+            // The chooser waited, and another file may have taken the name meanwhile. Its
+            // frames are not saved as the ones shown.
+            if let Err(e) = how.is_still_the_file_shown(&path) {
+                let e = format!("{}: {e}", path.display());
+                return Some(Told::FailedWrite(tf!("Could not save the frames: {e}", e)));
+            }
             // The name's own bytes, also when they are not UTF-8.
             let named = |more: &str| crate::images::save::stem_with_suffix(&path, more);
             // The frames go into a folder made new for them. A name that is taken, also by a
@@ -5337,7 +5343,12 @@ mod tests {
             (
                 "save frame over b",
                 |app, ctx, d| {
-                    let how = app.shown_copy();
+                    // The frames are of g.gif, which is not the image shown, so the copy carries
+                    // no fingerprint of a picture shown.
+                    let how = crate::images::save::CopyAs {
+                        read: None,
+                        ..app.shown_copy()
+                    };
                     let b = d.join("b.png");
                     let at_pick = crate::files::file_io::fingerprint(&b);
                     app.export_frames(ctx, d.join("g.gif"), Some(0), (b, at_pick), how)

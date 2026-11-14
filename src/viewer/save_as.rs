@@ -128,7 +128,8 @@ impl crate::App {
     /// The shown image as a copy saves it: turned as it is shown (by hand, and by its EXIF with
     /// Auto Rotate), the page shown, at the qualities in Preferences; whole, in its own format,
     /// with its metadata. Crop and Save As start from it, so neither can leave out a part of how
-    /// the image is shown, as the page was.
+    /// the image is shown, as the page was. It carries the fingerprint of the file the picture
+    /// was decoded from, so that every copy is made of that file and of no other.
     pub(crate) fn shown_copy(&self) -> CopyAs {
         let (turns, mirrored) = self.viewing.turn();
         CopyAs {
@@ -142,6 +143,7 @@ impl crate::App {
             jpeg_quality: self.config.jpeg_quality,
             webp_quality: self.config.webp_quality,
             strip: false,
+            read: (self.list.loaded_images().get(&self.list.shown())).and_then(|l| l.read),
         }
     }
 

@@ -1731,6 +1731,7 @@ mod tests {
         assert_ne!(exported, Some([50, 200, 50]));
         // A copy of the page keeps the profile.
         let how = crate::images::save::CopyAs {
+            read: None,
             page: 1,
             rotate: true,
             turns: 0,
