@@ -15,6 +15,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Shift+Space and Shift+Backspace browse as Space and Backspace, as the help says, and no
   longer select a range that the next Delete acts on. Shift selects a range only with the
   arrows, Page Up/Down, Home and End, not with a menu item clicked or the wheel.
+- In Compare (E), Alt+Right and a click on the right half show the compared image in the first
+  pane. Before, with two files selected, Alt+Right showed the next image in the list, which
+  neither half showed, and a click on the right half did nothing.
+- A slideshow without Repeat, started on an image that the search hides, shows every match once
+  before it stops. Before, it stopped at once and showed none.
+- Crop, Save As, Copy Image, Save This Frame and Export Frames copy only the file whose picture
+  was shown. Before, a file that had taken its name since, through a sync tool or another
+  window's Rename Many, was copied in its place, cropped with the other picture's part, and
+  given its marks and stars.
+- An image too large to decode at full resolution stays on screen after a zoom and a larger
+  window or another page. Before, it was replaced by "Could not open …: image too large" until
+  another image was shown.
+- Pan view draws the selected files as the file list does, and a click there selects as in the
+  list: Ctrl adds a file, Shift a range, and a plain click shows the file alone. Before, a click
+  kept the selection that Pan view did not show, and an action on the selection acted on it.
 
 ## [0.84.0] - 2026-11-13
 

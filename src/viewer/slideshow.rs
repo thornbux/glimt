@@ -653,6 +653,16 @@ mod tests {
                 }
                 if !repeat && shown > 0 {
                     assert!(stopped, "never stopped: {len} files, {m:?}, step {delta}");
+                    // It stops at the first step that would show no row it has not shown. The
+                    // start is before the first row when the search hides it.
+                    let start = m.map_or(Some(0), |m| m.iter().position(|&i| i == 0));
+                    let start = start.map_or(-1, |r| r as isize);
+                    let rounds = (0..).find(|k| start + (k + 1) * delta as isize >= shown as isize);
+                    assert_eq!(
+                        Some(steps),
+                        rounds,
+                        "stopped early or late: {len} files, {m:?}, step {delta}"
+                    );
                 }
             }
         }
@@ -675,6 +685,10 @@ mod tests {
         assert!(crate::model::selection::round_ends(Some(9), 3, 10));
         assert!(crate::model::selection::round_ends(Some(8), 3, 10));
         assert!(crate::model::selection::round_ends(Some(0), 1, 1));
-        assert!(crate::model::selection::round_ends(None, 1, 5));
+        // A hidden shown file is before the first row, so the round goes on to the last.
+        assert!(!crate::model::selection::round_ends(None, 1, 5));
+        assert!(!crate::model::selection::round_ends(None, 5, 5));
+        assert!(crate::model::selection::round_ends(None, 6, 5));
+        assert!(crate::model::selection::round_ends(None, 1, 0));
     }
 }

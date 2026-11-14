@@ -425,11 +425,12 @@ pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -
     Some(r as usize)
 }
 
-/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top:
-/// also when the shown file is not in the list (hidden by a search). Several panes step by
-/// their number, so the round may end past the last row, not on the first.
+/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top.
+/// Several panes step by their number, so the round may end past the last row, not on the first.
+/// A shown file that the search hides (`None`) counts as before the first row, as in
+/// `next_row`, so the round from there shows every row before it ends.
 pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
-    row.is_none_or(|r| r + delta >= len)
+    row.map_or(-1, |r| r as isize) + delta as isize >= len as isize
 }
 
 #[cfg(test)]

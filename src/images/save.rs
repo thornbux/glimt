@@ -117,6 +117,22 @@ pub struct CopyAs {
     pub webp_quality: u8,
     /// Without the EXIF block (camera, date, place), the XMP and the sidecar.
     pub strip: bool,
+    /// The fingerprint of the file whose picture the view decoded and showed, or `None` when it
+    /// is not known. A copy is made only while the file under the name is still that one, so a
+    /// file that has taken the name since is not copied in its place.
+    pub(crate) read: Option<FileFingerprint>,
+}
+
+impl CopyAs {
+    /// Looks whether the file at `path` is still the one whose picture was shown. Returns the
+    /// error to tell when another file has taken its name or it was written since.
+    pub fn is_still_the_file_shown(&self, path: &Path) -> Result<(), String> {
+        let Some(read) = self.read else {
+            return Ok(());
+        };
+        let known = crate::files::file_io::KnownAs::fingerprint(read);
+        crate::files::file_io::is_still_the_file(path, known).map_err(|e| e.to_string())
+    }
 }
 
 /// A format a copy is saved in.
@@ -613,6 +629,9 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
 /// whether it is saved or put on the clipboard.
 fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
     let (img, icc) = crate::images::decode::load_page(path, how.page, how.rotate)?;
+    // The file is looked at after it was read, so a file that took the name before the read or
+    // during it is refused alike.
+    how.is_still_the_file_shown(path)?;
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
         if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
@@ -1552,6 +1571,42 @@ pub fn webp_with_chunk(
 
 #[cfg(test)]
 mod tests {
+    /// A copy of the shown image is made only of the file whose picture was shown. A file that
+    /// has taken its name since (a sync tool, another window's Rename Many) is not copied,
+    /// cropped or saved with the part and the marks meant for the other.
+    #[test]
+    fn a_copy_is_made_only_of_the_file_shown() {
+        let name = format!("glimt-test-copy-shown-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&path).unwrap();
+        let how = super::CopyAs {
+            page: 0,
+            rotate: true,
+            turns: 0,
+            mirrored: false,
+            crop: None,
+            long_side: None,
+            format: None,
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip: false,
+            read: crate::files::file_io::fingerprint(&path),
+        };
+        assert!(super::shown_image(&path, &how).is_ok());
+        image::RgbImage::new(6, 3).save(dir.join("b.png")).unwrap();
+        std::fs::rename(dir.join("b.png"), &path).unwrap();
+        assert!(super::shown_image(&path, &how).is_err());
+        let part = super::CopyAs {
+            crop: Some([0, 0, 2, 2]),
+            ..how.clone()
+        };
+        assert!(super::save_cropped(&path, &part).is_err());
+        assert!(!dir.join("a-cropped.png").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// An XMP packet too long for one APP1 segment is left out of a JPEG, not a failed save.
     #[test]
     fn a_jpeg_without_an_xmp_too_long() {
@@ -1763,6 +1818,7 @@ mod tests {
         };
         let swapped = [0, 0, 0, 98, 0, 0, 0, 204, 1];
         let how = |turns| super::CopyAs {
+            read: None,
             page: 0,
             rotate: true,
             turns,
@@ -2390,6 +2446,7 @@ mod tests {
             (img.dimensions(), p[0] > 200 && p[2] < 60)
         };
         let how = |turns, part| super::CopyAs {
+            read: None,
             page: 0,
             rotate: true,
             turns,
@@ -2448,6 +2505,7 @@ mod tests {
         kept(&file);
         png_with_raw_profile(&file, "tEXt", "Raw profile type APP1", CANON_EXIF);
         let how = super::CopyAs {
+            read: None,
             page: 0,
             rotate: true,
             turns: 0,
@@ -2546,6 +2604,7 @@ mod tests {
         image::RgbImage::new(4, 4).write_with_encoder(enc).unwrap();
         for format in [super::Format::Jpeg, super::Format::Png] {
             let how = super::CopyAs {
+                read: None,
                 page: 0,
                 rotate: true,
                 turns: 0,
@@ -2589,6 +2648,7 @@ mod tests {
             .write_with_encoder(enc)
             .unwrap();
         let how = |format, strip| super::CopyAs {
+            read: None,
             page: 0,
             rotate: true,
             turns: 0,
@@ -2662,6 +2722,7 @@ mod tests {
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
         image::RgbImage::new(4, 4).save(&a).unwrap();
         let how = super::CopyAs {
+            read: None,
             page: 0,
             rotate: true,
             turns: 0,
@@ -2699,6 +2760,7 @@ mod tests {
             .save_with_format(&file, image::ImageFormat::Png)
             .unwrap();
         let how = super::CopyAs {
+            read: None,
             page: 0,
             rotate: true,
             turns: 0,
@@ -2746,6 +2808,7 @@ mod tests {
         std::fs::write(&file, &png).unwrap();
         std::fs::write(crate::metadata::xmp::sidecar(&file), BRIDGE_XMP).unwrap();
         let how = super::CopyAs {
+            read: None,
             page: 0,
             rotate: false,
             turns: 0,
@@ -3460,6 +3523,7 @@ mod tests {
         let text = |p: &std::path::Path| std::fs::read_to_string(side(p)).ok();
         std::fs::write(side(&a), "a's").unwrap();
         let how = |page, strip| super::CopyAs {
+            read: None,
             page,
             rotate: true,
             turns: 0,

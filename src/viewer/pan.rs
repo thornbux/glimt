@@ -397,9 +397,11 @@ impl crate::App {
                             let at = top + egui::vec2(j as f32 * cell.x, y);
                             let rect = egui::Rect::from_min_size(at, cell);
                             self.list.note_pan_thumb(i);
-                            let r = self.file_cell(ui, i, rect, i == self.list.shown());
-                            if r.clicked() {
-                                show = Some(i);
+                            let r = self.file_cell(ui, i, rect);
+                            // A click selects as in the list: Ctrl adds the file, Shift a range,
+                            // and a plain click shows it alone.
+                            if let Some(go_to) = self.row_clicked(ui.ctx(), &r, i) {
+                                show = Some(go_to);
                             }
                             if r.double_clicked() {
                                 (show, close) = (Some(i), true);
