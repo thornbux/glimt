@@ -8,8 +8,8 @@ use crate::files::external::{Login, gio_mount};
 use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
-    FoldersRead, ListedName, Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle,
-    sort_files, walk,
+    FoldersRead, ListedName, Types, Unread, is_listed, list_folder, list_tree, merge_shuffled,
+    shuffle, sort_files, walk,
 };
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
@@ -481,8 +481,13 @@ impl Folder {
 
 /// What a listing thread sends when it has read the folder: its subfolders, its files, the
 /// folders it read with their modification times, and how long the reading took in that
-/// thread.
-type Listed = (Vec<PathBuf>, Vec<ListedName>, FoldersRead, Duration);
+/// thread. The files are an error, with what could not be read, when the listing failed.
+type Listed = (
+    Vec<PathBuf>,
+    Result<Vec<ListedName>, Unread>,
+    FoldersRead,
+    Duration,
+);
 
 /// What a listing thread reads with, and where it sends the list and then the sizes.
 struct Listing {
@@ -506,28 +511,35 @@ struct Listing {
 }
 
 impl Listing {
-    /// Lists several folders, each folder (with its subfolders) after the other.
+    /// Lists several folders, each folder (with its subfolders) after the other. A folder that
+    /// cannot be read fails the listing, which says which one.
     fn folders(self, folders: &[PathBuf]) {
-        let rel = |dir: &Path, names: Vec<ListedName>| -> Vec<ListedName> {
-            let at = dir.strip_prefix("/").unwrap_or(dir).to_path_buf();
-            (names.into_iter())
-                .map(|(n, id)| (at.join(n).into_os_string(), id))
-                .collect()
-        };
         let mut read = Vec::new();
-        let mut files: Vec<ListedName> = (folders.iter())
-            .flat_map(|d| match self.recursive {
-                true => {
-                    let (_, files, tree) = list_tree(d, self.types, &self.stop, |_| {}, |_| {});
-                    read.extend(tree);
-                    rel(d, files)
-                }
+        let mut files: Vec<ListedName> = Vec::new();
+        for d in folders {
+            let listed = match self.recursive {
+                true => list_tree(d, self.types, &self.stop, |_| {}, |_| {})
+                    .map(|(_, files, tree)| (files, tree)),
                 false => {
-                    read.push((d.clone(), modified(d)));
-                    rel(d, list_folder(d, self.types).1)
+                    let tree = vec![(d.clone(), modified(d))];
+                    (list_folder(d, self.types).map(|(_, files)| (files, tree)))
+                        .map_err(|e| (d.clone(), e))
                 }
-            })
-            .collect();
+            };
+            match listed {
+                Ok((names, tree)) => {
+                    read.extend(tree);
+                    let at = d.strip_prefix("/").unwrap_or(d).to_path_buf();
+                    files.extend(
+                        (names.into_iter()).map(|(n, id)| (at.join(n).into_os_string(), id)),
+                    );
+                }
+                Err(unread) => {
+                    read.push((d.clone(), modified(d)));
+                    return self.send_unread(unread, read);
+                }
+            }
+        }
         // A folder inside another one given has its images listed once.
         let mut seen = HashSet::new();
         files.retain(|f| seen.insert(f.0.clone()));
@@ -540,7 +552,7 @@ impl Listing {
         let paths: Vec<PathBuf> = files.iter().map(|f| self.dir.join(&f.0)).collect();
         if self
             .tx
-            .send((Vec::new(), files, read, self.started.elapsed()))
+            .send((Vec::new(), Ok(files), read, self.started.elapsed()))
             .is_ok()
         {
             self.ctx.request_repaint();
@@ -548,6 +560,16 @@ impl Listing {
                 .into_iter()
                 .filter_map(|p| Some(p.metadata().ok()?.len()));
             send_sizes(sizes, self.size_tx, &self.ctx);
+        }
+    }
+
+    /// Sends that the listing failed on `unread`, with the folders `read` for the folder
+    /// watcher, the one that failed among them. The window keeps the list it shows, and a
+    /// change that the watcher sees lists the folder again.
+    fn send_unread(self, unread: Unread, read: FoldersRead) {
+        let failed = (Vec::new(), Err(unread), read, self.started.elapsed());
+        if self.tx.send(failed).is_ok() {
+            self.ctx.request_repaint();
         }
     }
 
@@ -573,17 +595,26 @@ impl Listing {
         // in a downloaded list was kept, shown as broken, and Delete sent the whole folder to
         // the trash. Until this listing has come, `are_free_to_change` holds every file operation
         // back. Each file's identity is that of its own name, a link's and not its target's, as
-        // a folder entry gives it.
+        // a folder entry gives it. An entry that is gone, or that this user may not read, is
+        // left out. One that could not be looked at for another reason (a share that failed
+        // for a moment) fails the listing, so the list shown keeps it and its selection.
+        let mut unread: Option<Unread> = None;
         let sizes = keep_files_with_size(&mut files, |(f, identity)| {
+            if unread.is_some() {
+                return None;
+            }
             let path = self.dir.join(f);
-            let own = std::fs::symlink_metadata(&path).ok()?;
+            let own = looked_at(std::fs::symlink_metadata(&path), &path, &mut unread)?;
             *identity = crate::files::file_io::identity_from_metadata(&path, &own);
             let meta = match own.is_symlink() {
-                true => path.metadata().ok()?,
+                true => looked_at(path.metadata(), &path, &mut unread)?,
                 false => own,
             };
             meta.is_file().then_some(meta.len())
         });
+        if let Some(unread) = unread {
+            return self.send_unread(unread, Vec::new());
+        }
         if sort {
             // Sorted by name with Case on, sort_files keeps the order as listed. For a folder
             // that is name order, but a collection has its own, so it is put in name order here.
@@ -599,7 +630,7 @@ impl Listing {
         forget_passing_identities(&self.dir, &mut files);
         if self
             .tx
-            .send((Vec::new(), files, Vec::new(), self.started.elapsed()))
+            .send((Vec::new(), Ok(files), Vec::new(), self.started.elapsed()))
             .is_ok()
         {
             self.ctx.request_repaint();
@@ -622,7 +653,7 @@ impl Listing {
         // for comes with the whole tree.) The first images are sent at once, and after them at
         // most four times a second, because each part is a copy of the list.
         let mut sent: Option<(Instant, std::time::Duration)> = None;
-        let (dirs, mut files, read) = match self.recursive {
+        let listed = match self.recursive {
             true => list_tree(
                 &self.dir,
                 self.types,
@@ -657,14 +688,21 @@ impl Listing {
                 // The time is taken before the folder is read, so a change made while it is
                 // read is seen too.
                 let read = vec![(self.dir.clone(), modified(&self.dir))];
-                let (dirs, files) = list_folder(&self.dir, self.types);
-                (dirs, files, read)
+                (list_folder(&self.dir, self.types).map(|(dirs, files)| (dirs, files, read)))
+                    .map_err(|e| (self.dir.clone(), e))
             }
         };
         // It stops when another folder is listed.
         if self.stop.load(Ordering::Relaxed) {
             return;
         }
+        let (dirs, mut files, read) = match listed {
+            Ok(listed) => listed,
+            Err(unread) => {
+                let read = vec![(self.dir.clone(), modified(&self.dir))];
+                return self.send_unread(unread, read);
+            }
+        };
         match before.and_then(|before| listing::kept_order(before, &files)) {
             Some(kept) => files = kept,
             None => sort_files(&self.dir, &mut files, self.by, self.ascending, self.case),
@@ -676,7 +714,7 @@ impl Listing {
         // The receiver is gone if another folder was opened meanwhile; then we stop.
         if self
             .tx
-            .send((dirs, files, read, self.started.elapsed()))
+            .send((dirs, Ok(files), read, self.started.elapsed()))
             .is_err()
         {
             return;
@@ -686,11 +724,13 @@ impl Listing {
         // entries in chunks, so the status bar fills in gradually without a copy of the whole
         // list in memory. A tree is read a folder at a time, unsorted.
         if self.recursive {
-            let sizes = walk(&self.dir, self.types).flat_map(|(rel, _, files, _)| {
-                let folder = self.dir.join(rel);
-                (files.into_iter())
-                    .filter_map(move |f| Some(folder.join(f.0).metadata().ok()?.len()))
-            });
+            let sizes = walk(&self.dir, self.types)
+                .flatten()
+                .flat_map(|(rel, _, files, _)| {
+                    let folder = self.dir.join(rel);
+                    (files.into_iter())
+                        .filter_map(move |f| Some(folder.join(f.0).metadata().ok()?.len()))
+                });
             return send_sizes(sizes, self.size_tx, &self.ctx);
         }
         let images = std::fs::read_dir(&self.dir)
@@ -838,11 +878,21 @@ impl crate::App {
                 // leaves Open Recent too.
                 IfGone::Tell(gone) => {
                     self.notice.give(gone(path));
-                    self.folder.recent.retain(|p| p != path);
-                    return;
+                    return self.forget_recent(path);
                 }
                 IfGone::OpenCurrentFolder => return self.open(ctx, ".".into()),
             }
+        }
+        // A collection that could not be read opens nothing, so it is told and the history
+        // stays as it is. Stepped, Back went to the place still shown and Forward was lost.
+        if let Found::Collection {
+            file,
+            entries: Err(e),
+        } = &found
+        {
+            return self
+                .notice
+                .give(format!("{display}: {e}", display = file.display()));
         }
         self.step_history(opening.history);
         match found {
@@ -852,7 +902,14 @@ impl crate::App {
                 file_type,
                 ..
             } => self.open_folder_found(ctx, dir, file, file_type),
-            Found::Collection { file, entries } => self.open_collection(ctx, file, entries),
+            Found::Collection {
+                file,
+                entries: Ok(files),
+            } => self.open_collection(ctx, file, files),
+            // Told above.
+            Found::Collection {
+                entries: Err(_), ..
+            } => {}
             Found::Folders(folders) => self.open_folders_found(ctx, folders),
         }
     }
@@ -961,23 +1018,18 @@ impl crate::App {
         }
         self.folder.recent = config::add_recent(&self.folder.recent, path);
         let path = path.to_path_buf();
-        crate::files::file_io::write_later(move || {
-            let Some(file) = config::recent_path() else {
-                return;
-            };
-            // This works as for every file the windows share. Two windows opening at once keep
-            // both paths, and a file that cannot be read is not written over.
-            let add = |old: &[u8]| {
-                let all = config::add_recent(&config::parse_recent(old), &path);
-                (config::recent_text(&all), ())
-            };
-            if let Err(e) = crate::files::file_io::edit_shared(&file, add) {
-                crate::files::file_io::save_failed(tf!(
-                    "Could not save {name}: {e}",
-                    name = file.display(),
-                    e
-                ));
-            }
+        edit_recent(move |all| config::add_recent(&all, &path));
+    }
+
+    /// Takes `path` out of Open Recent, in its file too, so other windows and the next start
+    /// do not list it either. It is taken out also when Open Recent is not kept, because an
+    /// entry from before that setting would otherwise stay in the file.
+    pub(crate) fn forget_recent(&mut self, path: &Path) {
+        self.folder.recent.retain(|p| p != path);
+        let path = path.to_path_buf();
+        edit_recent(move |mut all| {
+            all.retain(|p| *p != path);
+            all
         });
     }
 
@@ -1055,22 +1107,9 @@ impl crate::App {
         self.list.set_unchecked_entries(false);
     }
 
-    /// Shows the collection in `file` as the list, with the `entries` that `look_up` read from
-    /// it, or tells why it could not be read.
-    fn open_collection(
-        &mut self,
-        ctx: &egui::Context,
-        file: PathBuf,
-        entries: std::io::Result<Vec<OsString>>,
-    ) {
-        let files = match entries {
-            Ok(files) => files,
-            Err(e) => {
-                return self
-                    .notice
-                    .give(format!("{display}: {e}", display = file.display()));
-            }
-        };
+    /// Shows the collection in `file` as the list, with the entries `files` that `look_up` read
+    /// from it.
+    fn open_collection(&mut self, ctx: &egui::Context, file: PathBuf, files: Vec<OsString>) {
         self.leave_image(ctx);
         let root = Path::new("/");
         // When the same collection is read again (F5), a delete still running keeps its names,
@@ -1405,6 +1444,21 @@ impl crate::App {
         }
         self.folder.subdirs_rx.clear();
         self.folder.part_rx.clear();
+        // A folder that could not be read is told, and the list shown stays with its selection.
+        // Taken as empty, a share that failed for a moment emptied the list, and the files came
+        // back unselected with the next listing. The folder stays watched, so a change lists it
+        // again.
+        let files = match files {
+            Ok(files) => files,
+            Err((path, e)) => {
+                self.notice
+                    .give(tf!("Could not open {name}:\n{e}", name = path.display(), e));
+                if !read.is_empty() {
+                    self.watch_folders_read(ctx, read, false);
+                }
+                return;
+            }
+        };
         self.folder.whole_listings += 1;
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
@@ -1499,9 +1553,7 @@ impl crate::App {
         let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
         // picked. The selected files that the search hides stay selected too.
-        let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
-            .filter_map(|&i| self.list.files().get(i).cloned())
-            .collect();
+        let picked = (self.list).names_with_identities(&self.list.selected_with_hidden());
         let read = after_a_part.then(|| self.list.take_sizes_and_dates());
         self.replace_files(ctx, files, shown);
         if let Some(read) = read {
@@ -1558,13 +1610,21 @@ impl crate::App {
     }
 
     /// Selects again by name, after the list was read again or put in another order, so a
-    /// Delete or Move after it still acts on what was picked.
-    pub(crate) fn reselect(&mut self, ctx: &egui::Context, names: &HashSet<OsString>) {
+    /// Delete or Move after it still acts on what was picked. A name that another file has
+    /// taken since is not selected, because the user picked the file it held, not the one
+    /// that holds it now (another window's Rename Many gave the name to the next photo).
+    pub(crate) fn reselect(
+        &mut self,
+        ctx: &egui::Context,
+        names: &HashMap<OsString, crate::files::file_io::Identity>,
+    ) {
         if names.is_empty() {
             return;
         }
         let places = (self.list.files().iter().enumerate())
-            .filter(|(_, f)| names.contains(*f))
+            .filter(|&(i, f)| {
+                (names.get(f)).is_some_and(|&old| !is_another_file(old, self.list.identity(i)))
+            })
             .map(|(i, _)| i)
             .collect();
         self.set_selection(ctx, places);
@@ -1854,6 +1914,26 @@ fn look_up(paths: &[PathBuf]) -> Found {
     }
 }
 
+/// Changes the recent file, which every window reads when it starts, in the writer thread:
+/// `change` gets its paths as they are now and gives back the new ones. This works as for
+/// every file the windows share. Two windows that change it at once keep both changes, and a
+/// file that cannot be read is not written over.
+fn edit_recent(change: impl FnOnce(Vec<PathBuf>) -> Vec<PathBuf> + Send + 'static) {
+    crate::files::file_io::write_later(move || {
+        let Some(file) = config::recent_path() else {
+            return;
+        };
+        let changed = |old: &[u8]| (config::recent_text(&change(config::parse_recent(old))), ());
+        if let Err(e) = crate::files::file_io::edit_shared(&file, changed) {
+            crate::files::file_io::save_failed(tf!(
+                "Could not save {name}: {e}",
+                name = file.display(),
+                e
+            ));
+        }
+    });
+}
+
 /// Returns whether `path` is a folder, through a link, and `None` when it is surely not there.
 /// A path that could not be looked at (a share that dropped for a moment) counts as a folder
 /// that is there. Opened, its failure to be read is told. Counted as gone, it was taken out of
@@ -1876,6 +1956,24 @@ fn keep_files_with_size(
     let mut sizes = Vec::new();
     files.retain_mut(|f| size(f).map(|n| sizes.push(n)).is_some());
     sizes
+}
+
+/// Returns the metadata that a look at `path` gave, or `None` when the look failed. A failure
+/// that does not leave the file out of the list (`is_left_out`) is kept in `unread`, the first
+/// one only.
+fn looked_at(
+    look: std::io::Result<std::fs::Metadata>,
+    path: &Path,
+    unread: &mut Option<Unread>,
+) -> Option<std::fs::Metadata> {
+    match look {
+        Ok(meta) => Some(meta),
+        Err(e) if listing::is_left_out(&e) => None,
+        Err(e) => {
+            unread.get_or_insert((path.to_path_buf(), e));
+            None
+        }
+    }
 }
 
 /// Returns the modification time of `path`, or `None` when it cannot be read.
@@ -1985,6 +2083,49 @@ mod tests {
         app.replace_files(&ctx, listing(&["a.png", "c.png", "b.png"]), None);
         assert!(app.search.reads_exif_again("a.png") && app.search.reads_exif_again("c.png"));
         assert!(!app.search.reads_exif_again("b.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A refresh selects again the files that were selected, but not a name that another file
+    /// has taken since. Before, it selected the name, and a Delete after it trashed the photo
+    /// that another window's Rename Many had given that name, which the user never picked.
+    /// The selected files that the search hides go the same way.
+    #[test]
+    fn a_name_another_file_took_is_not_selected_again() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-taken-not-reselected-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png"] {
+            std::fs::write(dir.join(name), name).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let listing = |names: &[&str]| -> Vec<crate::model::listing::ListedName> {
+            let id = |n: &str| crate::files::file_io::identity_of(&dir.join(n));
+            names.iter().map(|n| (n.into(), id(n))).collect()
+        };
+        app.take_listed_files(&ctx, listing(&["a.png", "b.png", "c.png", "d.png"]), true);
+        // a.png and b.png are selected, and so is d.png, which the search hides.
+        app.list.set_matches(Some(vec![0, 1, 2]));
+        app.list.select([0, 1, 3].into());
+        assert_eq!(app.list.hidden_selected(), &[3].into());
+        // Another window gives a.png's name to c.png, c.png's to d.png and d.png's to a.png.
+        for (from, to) in [("a", "t"), ("c", "a"), ("d", "c"), ("t", "d")] {
+            std::fs::rename(
+                dir.join(format!("{from}.png")),
+                dir.join(format!("{to}.png")),
+            )
+            .unwrap();
+        }
+        app.take_listed_files(&ctx, listing(&["a.png", "b.png", "c.png", "d.png"]), true);
+        let selected: Vec<_> = (app.list.selected_with_hidden().iter())
+            .map(|&i| app.list.files()[i].clone())
+            .collect();
+        assert_eq!(selected, ["b.png"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2186,6 +2327,49 @@ mod tests {
         std::fs::create_dir_all(&other).unwrap();
         let found = super::look_up(&[unseen, other]);
         assert!(matches!(found, super::Found::Folders(f) if f.len() == 2));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder that cannot be read is told, and a listing that fails leaves the list shown and
+    /// its selection as they were. Before, the folder was listed as empty without a word, and
+    /// a refresh on a share that failed for a moment emptied the list, so the files came back
+    /// unselected with the next listing.
+    #[test]
+    fn a_folder_that_cannot_be_read_is_told_and_the_list_stays() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-unread-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            std::fs::write(dir.join(name), name).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        // A link to itself cannot be read through, also by root.
+        std::os::unix::fs::symlink(dir.join("loop"), dir.join("loop")).unwrap();
+        let unread = dir.join("loop").join("photos");
+        app.open(&ctx, unread.clone());
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        let start = format!("Could not open {}:\n", unread.display());
+        assert!(told.starts_with(&start), "{told}");
+        // A refresh that fails keeps the list and the selection.
+        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        app.set_selection(&ctx, [0, 1].into());
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.folder.hold_listing(rx);
+        let failed = Err((dir.clone(), std::io::Error::other("the share failed")));
+        let no_time = std::time::Duration::ZERO;
+        tx.send((Vec::new(), failed, Vec::new(), no_time)).unwrap();
+        app.receive_listing(&ctx, no_time);
+        assert_eq!(app.list.files(), ["a.png", "b.png"]);
+        assert_eq!(app.list.selected(), &[0, 1].into());
+        let told = app.notice.text().unwrap_or_default();
+        assert!(told.ends_with("the share failed"), "{told}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3007,12 +3191,22 @@ mod tests {
 
     /// A path chosen from Open Recent or typed in the path field that is gone is told, and
     /// leaves Open Recent, without opening anything. It is looked at in the background too.
+    /// It leaves the recent file as well, which other windows and the next start read. Before,
+    /// it left only this window's menu, and came back after a restart.
     #[test]
     fn a_path_gone_is_told_and_leaves_open_recent() {
+        use crate::files::config;
         let dir = std::env::temp_dir().join(format!("glimt-test-path-gone-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let gone = dir.join("gone");
+        let kept = dir.join("kept");
+        let recent_file = config::recent_path().unwrap();
+        crate::files::file_io::edit_shared(&recent_file, |old| {
+            let all = config::add_recent(&config::parse_recent(old), &kept);
+            (config::recent_text(&config::add_recent(&all, &gone)), ())
+        })
+        .unwrap();
         app.folder.recent = vec![gone.clone()];
         app.visit_if_there(&ctx, gone.clone(), |p| format!("{} is gone", p.display()));
         assert!(app.notice.text().is_none());
@@ -3024,6 +3218,48 @@ mod tests {
         assert_eq!(app.notice.text(), Some(told.as_str()));
         assert!(app.folder.recent.is_empty() && app.folder.back.is_empty());
         assert_eq!(app.folder.dir(), dir.canonicalize().unwrap());
+        crate::files::file_io::wait_for_queued_writes();
+        let read = config::parse_recent(&std::fs::read(&recent_file).unwrap());
+        assert!(!read.contains(&gone) && read.contains(&kept), "{read:?}");
+        // The test's own entry is taken out of the file again.
+        crate::files::file_io::edit_shared(&recent_file, |old| {
+            let mut all = config::parse_recent(old);
+            all.retain(|p| *p != kept);
+            (config::recent_text(&all), ())
+        })
+        .unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection that cannot be read is told, opens nothing, and leaves Go → Back and
+    /// Forward as they were. Before, the place shown went onto Back and Forward was emptied, so
+    /// Back went to the place still shown.
+    #[test]
+    fn a_collection_that_cannot_be_read_leaves_the_history() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-unread-collection-{}",
+            std::process::id()
+        ));
+        // A collection larger than any file Glimt reads cannot be read, also by root, who
+        // reads a file of mode 000. It is sparse, so it takes no room on the disk.
+        let unreadable = dir.join("bad.gqv");
+        std::fs::create_dir_all(&dir).unwrap();
+        (std::fs::File::create(&unreadable).unwrap())
+            .set_len(crate::images::decode::MAX_DECODE_BYTES + 1)
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let ahead = dir.join("ahead");
+        app.folder.forward = vec![ahead.clone()];
+        app.visit(&ctx, unreadable.clone());
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(
+            told.starts_with(&unreadable.display().to_string()),
+            "{told}"
+        );
+        assert!(app.folder.back.is_empty(), "{:?}", app.folder.back);
+        assert_eq!(app.folder.forward, [ahead]);
+        assert!(app.folder.collection().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -30,6 +30,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Pan view draws the selected files as the file list does, and a click there selects as in the
   list: Ctrl adds a file, Shift a range, and a plain click shows the file alone. Before, a click
   kept the selection that Pan view did not show, and an action on the selection acted on it.
+- A refresh does not select again a name that another file has taken since, as after another
+  window's Rename Many or a swap by another program. Before, it selected the photo that now
+  had the name, and Delete, Move or stars then acted on a file the user never picked.
+- A folder that cannot be read (one the user may not open, or a share that failed for a
+  moment) is told, and the list shown stays with its selection. Before, it was listed as
+  empty without a word, and a refresh that failed emptied the list, so the files came back
+  unselected.
+- A path chosen from Open Recent that is gone leaves the recent file too. Before, it left only
+  the menu of that window, and came back in other windows and after a restart.
+- A collection that cannot be read leaves Go → Back and Forward as they were. Before, the
+  place shown went onto Back and Forward was emptied, though nothing opened.
 
 ## [0.84.0] - 2026-11-13
 

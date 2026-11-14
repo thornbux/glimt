@@ -182,7 +182,7 @@ mod tests {
             videos: false,
             hidden: false,
         };
-        let (_, listed) = crate::model::listing::list_folder(&dir, types);
+        let (_, listed) = crate::model::listing::list_folder(&dir, types).unwrap();
         let listed: Vec<_> = listed.into_iter().map(|f| f.0).collect();
         assert_eq!(
             listed,

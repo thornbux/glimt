@@ -76,6 +76,10 @@ pub type WalkedFolder = (
     Option<std::time::SystemTime>,
 );
 
+/// A folder or file that a listing could not read, with why. The listing then fails, and the
+/// window tells it and keeps the list it shows.
+pub type Unread = (PathBuf, std::io::Error);
+
 /// An image's name in the list, with the identity its folder entry gave it when it was read.
 /// The list keeps both, so that a write can tell when another file has taken the name since.
 pub type ListedName = (OsString, Identity);
@@ -245,7 +249,11 @@ pub fn built_in_format(path: &Path) -> bool {
 /// folder it leads to is inside `dir`'s real path. A downloaded folder with `up -> ../..`,
 /// `pics -> ~/Pictures` or `root -> /` would else list the user's own photos or the whole disk,
 /// for Select All and Delete to act on.
-pub fn walk(dir: &Path, types: Types) -> impl Iterator<Item = WalkedFolder> {
+///
+/// It gives an error for a folder that it could not read, and stops after it. A folder below
+/// `dir` that is gone or that this user may not read is walked as empty instead
+/// (`is_left_out`), so the rest of the tree is still listed.
+pub fn walk(dir: &Path, types: Types) -> impl Iterator<Item = Result<WalkedFolder, Unread>> {
     walk_by(
         dir,
         types,
@@ -264,24 +272,37 @@ fn walk_by(
     types: Types,
     file_id: impl Fn(&Path) -> Option<FileId>,
     canonical: impl Fn(&Path) -> std::io::Result<PathBuf>,
-    list: impl Fn(&Path, Types) -> (Vec<PathBuf>, Vec<ListedName>),
-) -> impl Iterator<Item = WalkedFolder> {
+    list: impl Fn(&Path, Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)>,
+) -> impl Iterator<Item = Result<WalkedFolder, Unread>> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
+    let mut failed = false;
     let mut seen: HashSet<FileId> = HashSet::new();
     let folder_id = move |full: &Path| file_id(full).unwrap_or_else(|| Err(real_dir(full)));
     let real = real_dir(&dir);
     std::iter::from_fn(move || {
         loop {
+            if failed {
+                return None;
+            }
             let mut rel = todo.pop()?;
             let full = dir.join(&rel);
+            let is_top = rel.as_os_str().is_empty();
             // A followed link's folder is named by its real path in the tree, so every file has
             // one name, the one `--remote select`'s client gives and marks and stars are kept
             // by. Named through the link, the file was another name than its own. A folder that
             // could not be looked at may be a link, so its real path is worked out too.
+            // The top folder whose real path cannot be worked out is not read, and that is
+            // told, as when it cannot be read.
             if crate::files::file_io::is_link(&full).unwrap_or(true) {
-                match inside(canonical(&full), &real) {
-                    Some(real_rel) => rel = real_rel,
-                    None => continue,
+                match canonical(&full) {
+                    Err(e) if is_top => {
+                        failed = true;
+                        return Some(Err((full, e)));
+                    }
+                    real_path => match inside(real_path, &real) {
+                        Some(real_rel) => rel = real_rel,
+                        None => continue,
+                    },
                 }
             }
             if !seen.insert(folder_id(&full)) {
@@ -290,7 +311,14 @@ fn walk_by(
             // The time is taken before the folder is read, so the folder watcher sees a file
             // made while it is read, which the read itself may have missed.
             let modified = std::fs::metadata(&full).and_then(|m| m.modified()).ok();
-            let (dirs, files) = list(&full, types);
+            let (dirs, files) = match list(&full, types) {
+                Ok(listed) => listed,
+                Err(e) if !is_top && is_left_out(&e) => Default::default(),
+                Err(e) => {
+                    failed = true;
+                    return Some(Err((full, e)));
+                }
+            };
             // Last in, first out: pushed backwards, the folders are read in name order.
             todo.extend(
                 dirs.iter()
@@ -298,7 +326,7 @@ fn walk_by(
                     .filter_map(|d| d.file_name())
                     .map(|n| rel.join(n)),
             );
-            return Some((rel, dirs, files, modified));
+            return Some(Ok((rel, dirs, files, modified)));
         }
     })
 }
@@ -318,17 +346,19 @@ fn inside(real: std::io::Result<PathBuf>, top: &Path) -> Option<PathBuf> {
 /// had some, to show them as the tree is read: a large tree takes long to read whole. Cut short
 /// when `stop` is set: another folder was opened, and the tree would be read for nothing.
 /// Returns, third, every folder of the tree that was read, `dir` first, for the folder watcher.
+/// Returns an error when a folder could not be read, as `walk` gives it.
 pub fn list_tree(
     dir: &Path,
     types: Types,
     stop: &std::sync::atomic::AtomicBool,
     top: impl FnOnce(&[PathBuf]),
     mut part: impl FnMut(&[ListedName]),
-) -> (Vec<PathBuf>, Vec<ListedName>, FoldersRead) {
+) -> Result<(Vec<PathBuf>, Vec<ListedName>, FoldersRead), Unread> {
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
     let mut read = Vec::new();
-    for (rel, dirs, files, modified) in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
+    for walked in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
+        let (rel, dirs, files, modified) = walked?;
         read.push((dir.join(&rel), modified));
         if rel.as_os_str().is_empty() {
             if let Some(top) = top.take() {
@@ -343,7 +373,7 @@ pub fn list_tree(
     }
     // In name order, as list_folder gives a single folder; sort_files builds on that.
     out.sort_unstable();
-    (own, out, read)
+    Ok((own, out, read))
 }
 
 /// Returns `dir` in the form Glimt keeps and compares folders by: its real path, with its links
@@ -402,11 +432,20 @@ pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
 
 /// One pass over the folder: (subfolders, image file names with their identities), both sorted
 /// by name. The file type and the inode come from the directory entry, so there is no `stat`
-/// per file (only symlinks are resolved).
-pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<ListedName>) {
+/// per file (only symlinks are resolved). A folder that is gone has nothing in it.
+///
+/// Returns an error when the folder could not be opened or its reading failed partway. Taken
+/// as empty, or as the part read, a folder on a share that failed for a moment emptied the
+/// list, and the selection with it.
+pub fn list_folder(dir: &Path, types: Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)> {
     use crate::images::save::identity_of_entry;
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+    let entries = match std::fs::read_dir(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((dirs, images)),
+        entries => entries?,
+    };
+    for entry in entries {
+        let entry = entry?;
         let path = entry.path();
         let (file, folder) = kind(&entry);
         if file && is_listed(&path, types) {
@@ -421,7 +460,16 @@ pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<ListedName>) 
     // ~9× faster than Path::cmp, which re-parses the path in every comparison.
     dirs.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
     images.sort_unstable(); // byte-wise on Unix
-    (dirs, images)
+    Ok((dirs, images))
+}
+
+/// Returns whether a folder below the one listed, or an entry of a collection, that could not
+/// be read because of `e` is left out of the list: it is gone, or this user may not read it,
+/// which stays so. Any other error (a share that failed for a moment) fails the listing, so the
+/// list shown stays with its selection.
+pub fn is_left_out(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind::{NotFound, PermissionDenied};
+    matches!(e.kind(), NotFound | PermissionDenied)
 }
 
 /// Sort file names in `dir`; `case`: case-sensitive names ("B" before "a"). Everything but name
@@ -593,7 +641,8 @@ mod tests {
             &AtomicBool::new(false),
             |_| {},
             |p| parts.push(p.iter().map(|f| f.0.clone()).collect()),
-        );
+        )
+        .unwrap();
         assert_eq!(all.len(), 4);
         assert_eq!(parts.len(), 4);
         assert_eq!(parts[0], [std::ffi::OsString::from("a/2.jpg")]);
@@ -635,7 +684,7 @@ mod tests {
         // Also when the tree is named through a link, as its real path is what counts.
         symlink(&tree, base.join("named")).unwrap();
         for top in [tree.clone(), base.join("named")] {
-            let (_, files, _) = super::list_tree(&top, types, &stop, |_| {}, |_| {});
+            let (_, files, _) = super::list_tree(&top, types, &stop, |_| {}, |_| {}).unwrap();
             let files: Vec<_> = files.into_iter().map(|f| f.0).collect();
             // The hidden folder is not listed itself, so its image is seen only through the link,
             // and it is named by its real path in the tree.
@@ -661,7 +710,7 @@ mod tests {
             hidden: false,
         };
         let stop = std::sync::atomic::AtomicBool::new(false);
-        let (_, files, _) = super::list_tree(&dir, types, &stop, |_| {}, |_| {});
+        let (_, files, _) = super::list_tree(&dir, types, &stop, |_| {}, |_| {}).unwrap();
         assert_eq!(files[0].0, "real/x.jpg");
         assert_eq!(files.len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
@@ -689,6 +738,7 @@ mod tests {
         let real = |p: &std::path::Path| std::fs::canonicalize(p);
         let mut files: Vec<std::path::PathBuf> =
             super::walk_by(&dir, types, file_id, real, super::list_folder)
+                .map(Result::unwrap)
                 .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f.0)))
                 .collect();
         files.sort();
@@ -696,6 +746,60 @@ mod tests {
             files,
             ["1.jpg", "a/2.jpg", "a/deep/3.jpg"].map(std::path::PathBuf::from)
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder that cannot be read is an error of the walk, which stops there, so the listing
+    /// fails and the list shown stays. Before, it was walked as empty, and a share that failed
+    /// for a moment emptied the list and its selection. A folder below the top that is gone or
+    /// that this user may not read is walked as empty, so the rest of the tree is listed. A
+    /// folder that is gone has nothing in it.
+    #[test]
+    fn a_folder_that_cannot_be_read_fails_the_walk() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-walk-unread-{}", std::process::id()));
+        for sub in ["a", "b", "c"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            std::fs::write(dir.join(sub).join("1.jpg"), "x").unwrap();
+        }
+        let types = super::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        let real = |p: &std::path::Path| std::fs::canonicalize(p);
+        let walked = |failing: std::path::PathBuf, kind: std::io::ErrorKind| {
+            let list = move |folder: &std::path::Path, types| match folder == failing {
+                true => Err(std::io::Error::from(kind)),
+                false => super::list_folder(folder, types),
+            };
+            let found: Vec<_> =
+                super::walk_by(&dir, types, crate::images::save::file_id, real, list)
+                    .map(|w| w.map(|(rel, _, files, _)| (rel, files.len())))
+                    .map(|w| w.map_err(|(path, e)| (path, e.kind())))
+                    .collect();
+            found
+        };
+        let top = walked(dir.clone(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            top,
+            [Err((dir.clone(), std::io::ErrorKind::PermissionDenied))]
+        );
+        let broken = walked(dir.join("b"), std::io::ErrorKind::Other);
+        assert_eq!(
+            broken.last(),
+            Some(&Err((dir.join("b"), std::io::ErrorKind::Other)))
+        );
+        assert_eq!(broken.len(), 3, "{broken:?}");
+        let locked = walked(dir.join("b"), std::io::ErrorKind::PermissionDenied);
+        let rels: Vec<_> = locked.into_iter().map(Result::unwrap).collect();
+        assert_eq!(
+            rels,
+            [("", 0), ("a", 1), ("b", 0), ("c", 1)].map(|(r, n)| (r.into(), n))
+        );
+        let gone = super::list_folder(&dir.join("gone"), types).unwrap();
+        assert_eq!(gone, (Vec::new(), Vec::new()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -730,6 +834,7 @@ mod tests {
             real,
             super::list_folder,
         )
+        .map(Result::unwrap)
         .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f.0)))
         .collect();
         assert_eq!(files, [std::path::PathBuf::from("a.jpg")]);
@@ -791,6 +896,7 @@ mod tests {
         let real = |p: &std::path::Path| std::fs::canonicalize(p);
         for (rel, _, files, modified) in
             super::walk_by(&dir, types, crate::images::save::file_id, real, list)
+                .map(Result::unwrap)
         {
             assert!(files.is_empty());
             let now = std::fs::metadata(dir.join(&rel))
@@ -816,11 +922,13 @@ mod tests {
         };
         assert_eq!(
             super::list_tree(&dir, types, &AtomicBool::new(false), |_| {}, |_| {})
+                .unwrap()
                 .1
                 .len(),
             1
         );
-        let stopped = super::list_tree(&dir, types, &AtomicBool::new(true), |_| {}, |_| {});
+        let stopped =
+            super::list_tree(&dir, types, &AtomicBool::new(true), |_| {}, |_| {}).unwrap();
         assert_eq!(stopped, (Vec::new(), Vec::new(), Vec::new()));
         // The top folder's own folders are told before any folder below is read: stopped
         // there, nothing of sub is listed.
@@ -835,7 +943,8 @@ mod tests {
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
             },
             |_| {},
-        );
+        )
+        .unwrap();
         assert_eq!(told, [dir.join("sub")]);
         assert!(files.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
@@ -862,7 +971,7 @@ mod tests {
             videos: false,
             hidden: false,
         };
-        let (dirs, images) = super::list_folder(&dir, types);
+        let (dirs, images) = super::list_folder(&dir, types).unwrap();
         let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, ["a.jpg", "b.jpg"]);
         assert_eq!(dirs, [dir.join("2019.jpg")]);

@@ -485,7 +485,8 @@ method.
 - **State indexed into the file list** (a `usize` or a set of them that means "this file")
   goes into `List` (list.rs), never into `App`. A new list is a new `List`, so such state
   cannot outlive the list it was made for. What should follow a file to the new list is carried
-  over by the file's name in `replace_files`.
+  over by the file's name and identity in `replace_files` (the selection in `reselect`), so a
+  name that another file has taken since keeps nothing of the file it held.
 - **A command-line option or `--remote` command** (asked for first, as it is frozen): its line
   in `START_OPTIONS` or `COMMANDS`, its reading in `Start::parse` or `remote_command`, its name
   at the end of `src/frozen-1.0.txt`, the man page `docs/glimt.1`, and the help.

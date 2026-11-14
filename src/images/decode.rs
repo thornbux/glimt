@@ -2065,7 +2065,7 @@ mod tests {
             videos: false,
             hidden: false,
         };
-        let (_, images) = crate::model::listing::list_folder(&dir, types);
+        let (_, images) = crate::model::listing::list_folder(&dir, types).unwrap();
         let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, ["a.gel", "b.lsm"].map(std::ffi::OsString::from));
         for name in images {
@@ -2120,7 +2120,7 @@ mod tests {
             videos: false,
             hidden: false,
         };
-        let (_, images) = crate::model::listing::list_folder(&dir, types);
+        let (_, images) = crate::model::listing::list_folder(&dir, types).unwrap();
         let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(
             images,
@@ -2190,13 +2190,13 @@ mod tests {
             videos: true,
             hidden: false,
         };
-        let (dirs, images) = crate::model::listing::list_folder(&dir, all);
+        let (dirs, images) = crate::model::listing::list_folder(&dir, all).unwrap();
         let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
         // Hidden files and folders, when shown.
         all.hidden = true;
-        let (dirs, images) = crate::model::listing::list_folder(&dir, all);
+        let (dirs, images) = crate::model::listing::list_folder(&dir, all).unwrap();
         let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, [".b.png", "a.png"].map(std::ffi::OsString::from));
         assert_eq!(dirs, vec![dir.join(".hidden"), dir.join("sub")]);
@@ -2237,7 +2237,8 @@ mod tests {
             hidden: false,
         };
         let (own, files, _) =
-            crate::model::listing::list_tree(&dir, types, &Default::default(), |_| {}, |_| {});
+            crate::model::listing::list_tree(&dir, types, &Default::default(), |_| {}, |_| {})
+                .unwrap();
         let files: Vec<std::ffi::OsString> = files.into_iter().map(|f| f.0).collect();
         assert_eq!(
             (own, files),

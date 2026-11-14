@@ -235,6 +235,17 @@ impl List {
             .collect()
     }
 
+    /// Returns the files at `places` by name, each with the identity it was listed with, for a
+    /// new list to select them again (`App::reselect`). A place past the end is left out.
+    pub(crate) fn names_with_identities<'a>(
+        &self,
+        places: impl IntoIterator<Item = &'a usize>,
+    ) -> HashMap<OsString, Identity> {
+        (places.into_iter())
+            .filter_map(|&i| Some((self.files.get(i)?.clone(), self.identity(i))))
+            .collect()
+    }
+
     /// Where the Shift selection made by the keys last ended.
     pub(crate) fn range_end(&self) -> Option<usize> {
         self.range_end

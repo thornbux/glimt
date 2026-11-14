@@ -1140,7 +1140,9 @@ impl crate::App {
             // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
             // when it comes.
             std::thread::spawn(move || {
-                let subdirs = list_folder(&dir, folders).0;
+                // Not told: the tree shows no subfolders of a folder it could not read, and opening
+                // that folder tells why.
+                let subdirs = list_folder(&dir, folders).map(|l| l.0).unwrap_or_default();
                 let _ = tx.send((dir, subdirs));
                 ctx.request_repaint();
             });
