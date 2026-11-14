@@ -3972,3 +3972,8 @@ msgstr "; {files} com novo nome"
 #, fuzzy
 msgid "Could not read the marks file {name}: {e}"
 msgstr "Não foi possível ler o arquivo de marcas {name}: {e}"
+
+#: src/viewer/view.rs
+#, fuzzy
+msgid "Glimt Projector"
+msgstr "Projetor do Glimt"

@@ -3961,3 +3961,8 @@ msgstr "; nýtt nafn fengu: {files}"
 #, fuzzy
 msgid "Could not read the marks file {name}: {e}"
 msgstr "Gat ekki lesið merkjaskrána {name}: {e}"
+
+#: src/viewer/view.rs
+#, fuzzy
+msgid "Glimt Projector"
+msgstr "Glimt-skjávarpi"

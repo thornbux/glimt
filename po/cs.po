@@ -3983,3 +3983,8 @@ msgstr "; nový název dostalo: {files}"
 #, fuzzy
 msgid "Could not read the marks file {name}: {e}"
 msgstr "Soubor značek {name} nelze přečíst: {e}"
+
+#: src/viewer/view.rs
+#, fuzzy
+msgid "Glimt Projector"
+msgstr "Projektor Glimt"

@@ -855,11 +855,6 @@ msgstr[1] "bilder"
                 "PDF operators",
             ),
             (
-                "viewer/view.rs",
-                &["Glimt Projector"],
-                "the window title the release tests look for",
-            ),
-            (
                 "ui/window.rs",
                 &["Glimt full screen"],
                 "the reason given to the screen saver",
@@ -897,6 +892,8 @@ msgstr[1] "bilder"
             "radio_choice(",
             "RichText::new(",
             "ProgressBar::new(",
+            // A window's title, which the taskbar, the window list and a screen reader show.
+            ".with_title(",
         ];
         // Words, not a {value} or a %field% of a template.
         let words = |t: &str| {
@@ -1005,8 +1002,10 @@ msgstr[1] "bilder"
                 while call.ends_with("format!(") {
                     call = enclosing(code, call.len() - "format!(".len());
                 }
+                // The main window's title, the app's name alone, is the same in every language.
+                let is_app_title = text == "Glimt" && called(call, &[".with_title("]);
                 let shown = (text.starts_with(char::is_uppercase) && words(&text) >= 2)
-                    || (called(call, &shown_by) && words(&text) >= 1);
+                    || (called(call, &shown_by) && words(&text) >= 1 && !is_app_title);
                 let table = tables.iter().any(|r| r.contains(&at)) && msgid(&text);
                 let terminal = called(
                     before,
@@ -1042,6 +1041,10 @@ msgstr[1] "bilder"
             (
                 "images/svg.rs",
                 "fn f() {\n    ui.label(\"SVG files need svg\");\n}\n",
+            ),
+            (
+                "x.rs",
+                "fn f() {\n    let b = ViewportBuilder::default().with_title(\"Projector\");\n}\n",
             ),
         ];
         for (file, text) in samples {

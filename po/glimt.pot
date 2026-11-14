@@ -3191,3 +3191,7 @@ msgstr ""
 #: src/metadata/marks.rs
 msgid "Could not read the marks file {name}: {e}"
 msgstr ""
+
+#: src/viewer/view.rs
+msgid "Glimt Projector"
+msgstr ""

@@ -3972,3 +3972,8 @@ msgstr "; nowe nazwy otrzymało: {files}"
 #, fuzzy
 msgid "Could not read the marks file {name}: {e}"
 msgstr "Nie udało się odczytać pliku znaczników {name}: {e}"
+
+#: src/viewer/view.rs
+#, fuzzy
+msgid "Glimt Projector"
+msgstr "Projektor Glimt"

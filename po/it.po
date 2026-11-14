@@ -3961,3 +3961,8 @@ msgstr "; {files} rinominati"
 #, fuzzy
 msgid "Could not read the marks file {name}: {e}"
 msgstr "Impossibile leggere il file dei contrassegni {name}: {e}"
+
+#: src/viewer/view.rs
+#, fuzzy
+msgid "Glimt Projector"
+msgstr "Proiettore Glimt"
