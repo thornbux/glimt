@@ -3051,7 +3051,7 @@ fn only_glimts_own_files_are_written_through_links() {
                 ("features/copy_for_sharing.rs", "save_choice"),
                 ("files/config.rs", "write_settings"),
                 ("metadata/marks.rs", "write"),
-                ("model/folder.rs", "remember_recent"),
+                ("model/folder.rs", "edit_recent"),
                 ("ui/file_list.rs", "change_sort_folders"),
                 ("ui/info_panel.rs", "change_keyword_tree"),
             ],

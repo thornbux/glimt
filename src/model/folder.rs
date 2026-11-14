@@ -838,8 +838,7 @@ impl crate::App {
                 // leaves Open Recent too.
                 IfGone::Tell(gone) => {
                     self.notice.give(gone(path));
-                    self.folder.recent.retain(|p| p != path);
-                    return;
+                    return self.forget_recent(path);
                 }
                 IfGone::OpenCurrentFolder => return self.open(ctx, ".".into()),
             }
@@ -961,23 +960,18 @@ impl crate::App {
         }
         self.folder.recent = config::add_recent(&self.folder.recent, path);
         let path = path.to_path_buf();
-        crate::files::file_io::write_later(move || {
-            let Some(file) = config::recent_path() else {
-                return;
-            };
-            // This works as for every file the windows share. Two windows opening at once keep
-            // both paths, and a file that cannot be read is not written over.
-            let add = |old: &[u8]| {
-                let all = config::add_recent(&config::parse_recent(old), &path);
-                (config::recent_text(&all), ())
-            };
-            if let Err(e) = crate::files::file_io::edit_shared(&file, add) {
-                crate::files::file_io::save_failed(tf!(
-                    "Could not save {name}: {e}",
-                    name = file.display(),
-                    e
-                ));
-            }
+        edit_recent(move |all| config::add_recent(&all, &path));
+    }
+
+    /// Takes `path` out of Open Recent, in its file too, so other windows and the next start
+    /// do not list it either. It is taken out also when Open Recent is not kept, because an
+    /// entry from before that setting would otherwise stay in the file.
+    pub(crate) fn forget_recent(&mut self, path: &Path) {
+        self.folder.recent.retain(|p| p != path);
+        let path = path.to_path_buf();
+        edit_recent(move |mut all| {
+            all.retain(|p| *p != path);
+            all
         });
     }
 
@@ -1858,6 +1852,26 @@ fn look_up(paths: &[PathBuf]) -> Found {
         file,
         is_there,
     }
+}
+
+/// Changes the recent file, which every window reads when it starts, in the writer thread:
+/// `change` gets its paths as they are now and gives back the new ones. This works as for
+/// every file the windows share. Two windows that change it at once keep both changes, and a
+/// file that cannot be read is not written over.
+fn edit_recent(change: impl FnOnce(Vec<PathBuf>) -> Vec<PathBuf> + Send + 'static) {
+    crate::files::file_io::write_later(move || {
+        let Some(file) = config::recent_path() else {
+            return;
+        };
+        let changed = |old: &[u8]| (config::recent_text(&change(config::parse_recent(old))), ());
+        if let Err(e) = crate::files::file_io::edit_shared(&file, changed) {
+            crate::files::file_io::save_failed(tf!(
+                "Could not save {name}: {e}",
+                name = file.display(),
+                e
+            ));
+        }
+    });
 }
 
 /// Returns whether `path` is a folder, through a link, and `None` when it is surely not there.
@@ -3056,12 +3070,22 @@ mod tests {
 
     /// A path chosen from Open Recent or typed in the path field that is gone is told, and
     /// leaves Open Recent, without opening anything. It is looked at in the background too.
+    /// It leaves the recent file as well, which other windows and the next start read. Before,
+    /// it left only this window's menu, and came back after a restart.
     #[test]
     fn a_path_gone_is_told_and_leaves_open_recent() {
+        use crate::files::config;
         let dir = std::env::temp_dir().join(format!("glimt-test-path-gone-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let gone = dir.join("gone");
+        let kept = dir.join("kept");
+        let recent_file = config::recent_path().unwrap();
+        crate::files::file_io::edit_shared(&recent_file, |old| {
+            let all = config::add_recent(&config::parse_recent(old), &kept);
+            (config::recent_text(&config::add_recent(&all, &gone)), ())
+        })
+        .unwrap();
         app.folder.recent = vec![gone.clone()];
         app.visit_if_there(&ctx, gone.clone(), |p| format!("{} is gone", p.display()));
         assert!(app.notice.text().is_none());
@@ -3073,6 +3097,16 @@ mod tests {
         assert_eq!(app.notice.text(), Some(told.as_str()));
         assert!(app.folder.recent.is_empty() && app.folder.back.is_empty());
         assert_eq!(app.folder.dir(), dir.canonicalize().unwrap());
+        crate::files::file_io::wait_for_queued_writes();
+        let read = config::parse_recent(&std::fs::read(&recent_file).unwrap());
+        assert!(!read.contains(&gone) && read.contains(&kept), "{read:?}");
+        // The test's own entry is taken out of the file again.
+        crate::files::file_io::edit_shared(&recent_file, |old| {
+            let mut all = config::parse_recent(old);
+            all.retain(|p| *p != kept);
+            (config::recent_text(&all), ())
+        })
+        .unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 
