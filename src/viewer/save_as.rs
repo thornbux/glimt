@@ -342,6 +342,29 @@ fn format_name(f: Format) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    /// The copy of the image as shown carries the fingerprint of the file the shown picture was
+    /// decoded from, so that Crop, Copy Image, Save As and the frames refuse a file that has
+    /// taken its name since. Before, nothing checked this wiring: with no fingerprint, every
+    /// copy was made of whatever file had the name.
+    #[test]
+    fn the_shown_copy_is_made_only_of_the_file_shown() {
+        use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        let dir = contract_folder("shown-copy-fingerprint");
+        let (mut app, ctx) = app_on(&dir);
+        app.refill_preload();
+        let shown = app.list.shown();
+        let decoded = |app: &crate::App| app.list.loaded_images().contains_key(&shown);
+        assert!(run_background_until(&mut app, &ctx, decoded));
+        let path = app.path(shown);
+        assert!(crate::images::save::shown_image(&path, &app.shown_copy()).is_ok());
+        // Another picture takes the name of the one shown.
+        let other = dir.join("other.png");
+        image::RgbImage::new(6, 3).save(&other).unwrap();
+        std::fs::rename(&other, &path).unwrap();
+        assert!(crate::images::save::shown_image(&path, &app.shown_copy()).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Save As does not save a copy of a photo that took the name of the image shown while its
     /// dialog and the chooser were open, and tells why.
     #[test]
