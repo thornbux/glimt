@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The search in Preferences finds "Automatic (system language)" by its English words also when
+  the window is in another language. Before, it found it only in English.
 - A close that waits for file operations, with Save Orientation on and a turn whose save was
   refused while they ran, saves the turn when they end and waits for it. Before, that counted
   as a second close: it stopped the file operations, and the next close ended without waiting
