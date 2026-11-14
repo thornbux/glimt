@@ -16,10 +16,11 @@ use eframe::egui;
 use std::path::Path;
 
 // The texts of each section that the search field looks in, its title first. The test
-// `the_search_knows_every_text` keeps them the same as the texts the section shows.
+// `the_search_knows_every_text` keeps them the same as the texts the section shows. The
+// choices that a section draws from a table are found through the same table
+// (`sections_shown`).
 const LOOK: &[&str] = &[
     "Look",
-    "Automatic (system language)",
     "Background behind the image",
     "Black",
     "Checkerboard behind transparent images",
@@ -63,6 +64,7 @@ const IMAGE: &[&str] = &[
     "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
     "Off",
     "Play animated GIF and WebP (A)",
+    "RGB",
     "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)",
     "Show image info in full screen (I)",
     "quality of a cropped JPEG (Edit → Crop)",
@@ -238,7 +240,7 @@ impl crate::App {
                     self.preferences.search_takes_focus = !search.has_focus();
                 }
                 let query = self.preferences.query.to_lowercase();
-                let shown = sections_shown(&query);
+                let shown = sections_shown(&query, &self.desktop_settings.theme_names(ctx));
                 if !shown.contains(&true) {
                     ui.weak(tr("No setting has these words"));
                 }
@@ -344,29 +346,15 @@ impl crate::App {
             }
         });
         ui.horizontal(|ui| self.theme_buttons(ui));
-        // Each language by its own name, so one can find the way back from a
-        // language one does not read.
         ui.horizontal(|ui| {
-            let name = |code: &str| -> String {
-                match code {
-                    "" => tr("Automatic (system language)").to_owned(),
-                    lang::ENGLISH => "English".to_owned(),
-                    code => (lang::LANGUAGES.iter().find(|l| l.0 == code))
-                        .map_or(code, |l| l.1)
-                        .to_owned(),
-                }
-            };
             let mut chosen = false;
-            let codes = ["", lang::ENGLISH]
-                .into_iter()
-                .chain(lang::LANGUAGES.iter().map(|l| l.0));
             egui::ComboBox::from_id_salt("language")
-                .selected_text(name(&self.config.language))
+                .selected_text(language_name(&self.config.language))
                 .show_ui(ui, |ui| {
-                    for code in codes {
+                    for code in language_codes() {
                         let c = &mut self.config.language;
-                        chosen |=
-                            crate::ui::menus::choice(ui, c, code.to_owned(), &name(code)).clicked();
+                        let name = language_name(code);
+                        chosen |= crate::ui::menus::choice(ui, c, code.to_owned(), name).clicked();
                     }
                 });
             ui.label(tr("Language"));
@@ -1151,16 +1139,47 @@ fn is_text_field(ctx: &egui::Context, id: egui::Id) -> bool {
     egui::TextEdit::load_state(ctx, id).is_some()
 }
 
+/// The codes of the languages that Preferences offers: "" for the system's language, then
+/// English and each translation.
+fn language_codes() -> impl Iterator<Item = &'static str> {
+    ["", lang::ENGLISH]
+        .into_iter()
+        .chain(lang::LANGUAGES.iter().map(|l| l.0))
+}
+
+/// Returns the name that Preferences shows for the language `code`. Each language is named in
+/// itself, so one can find the way back from a language one does not read. Returns `code`
+/// itself for a code that no language has.
+fn language_name(code: &str) -> &str {
+    match code {
+        "" => tr("Automatic (system language)"),
+        lang::ENGLISH => "English",
+        code => (lang::LANGUAGES.iter().find(|l| l.0 == code)).map_or(code, |l| l.1),
+    }
+}
+
 /// Which sections of Preferences have a text the search `query` (lower case) finds, in the
 /// order they show: the look, keys, image, slideshow, file list, deleting, colour, memory,
-/// video and start.
-fn sections_shown(query: &str) -> [bool; 10] {
+/// video and start. `theme_names` are the themes that the look offers.
+fn sections_shown(query: &str, theme_names: &[String]) -> [bool; 10] {
     let shows = |texts: &[&'static str], more: &[&str]| section_matches(query, texts, more);
-    // The search finds a level by its English name and by the name shown.
+    // The search finds a choice of a table by its English name and by the name shown.
+    let both = |t: &'static str| [t, tr(t)];
+    // The themes and the languages by the names their boxes show, a built-in theme also by its
+    // English name.
+    let look: Vec<String> = (theme_names.iter())
+        .flat_map(|n| [n.clone(), theme::shown_name(n).to_owned()])
+        .chain(language_codes().map(|code| language_name(code).to_owned()))
+        .collect();
+    let look: Vec<&str> = look.iter().map(String::as_str).collect();
+    let slideshow: Vec<&str> = FADES.iter().flat_map(|f| both(f.1)).collect();
+    let colour: Vec<&str> = (INPUT_PROFILES.iter().flat_map(|p| both(p.1)))
+        .chain(INTENTS.iter().flat_map(|i| both(i.1)))
+        .collect();
     let levels = |l: &config::MemoryLevel| [l.name, l.tooltip];
     let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
         .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
-        .flat_map(|t| [t, tr(t)])
+        .flat_map(both)
         .collect();
     // These are only the actions the section lists. A search for one that is not built in
     // would find none of its rows, and the section would then show every action.
@@ -1168,13 +1187,13 @@ fn sections_shown(query: &str) -> [bool; 10] {
         .flat_map(|a| [a.english(), a.label()])
         .collect();
     [
-        shows(LOOK, &[]),
+        shows(LOOK, &look),
         shows(KEYBOARD, &actions),
         shows(IMAGE, &[]),
-        shows(SLIDESHOW, &[]),
+        shows(SLIDESHOW, &slideshow),
         shows(FILE_LIST, &[]),
         shows(DELETING, &[]),
-        shows(COLOUR, &[]),
+        shows(COLOUR, &colour),
         shows(MEMORY, &levels),
         cfg!(feature = "video") && shows(VIDEO, &[]),
         shows(START, &[]),
@@ -1187,11 +1206,25 @@ mod tests {
 
     use super::*;
 
-    /// The `tr("…")` texts of `code`, and of the settings methods it calls (theirs, not
-    /// what those do: `self.list` is not a setting).
-    fn texts(code: &str, out: &mut Vec<String>) {
+    /// What a piece of code shows, for the search to find.
+    #[derive(Default)]
+    struct Drawn {
+        /// The texts of its `tr("…")` and `tf!("…")` calls, and the literals of the arrays its
+        /// `for` loops draw.
+        texts: Vec<String>,
+        /// The tables, or the functions that give them, that its other `for` loops draw.
+        tables: Vec<String>,
+        /// The arguments of `tr` and `tf!` that are no literal, no section's title and no item
+        /// of a `for` loop, so that no table is known to hold their texts.
+        unknown: Vec<String>,
+    }
+
+    /// Finds what `code` shows, and what the settings methods it calls show (theirs, not what
+    /// those do: `self.list` is not a setting).
+    fn texts(code: &str, out: &mut Drawn) {
         let sources = [include_str!("preferences.rs"), include_str!("menus.rs")];
         let literals = crate::support::source_rules::literals(code);
+        let loops = for_loops(code);
         // tf!'s templates too: the search matches their words, not the values put in. Not the
         // notices a setting's button sends, which are not on the window.
         for call in ["tr(", "tf!("] {
@@ -1205,8 +1238,31 @@ mod tests {
                 let after = at + call.len();
                 let quote = code.len() - code[after..].trim_start().len();
                 if let Some((_, text)) = literals.iter().find(|l| l.0 == quote) {
-                    out.push(text.clone());
+                    out.texts.push(text.clone());
+                    continue;
                 }
+                // A text that a loop's item gives is found through the loop's table.
+                let argument = code[quote..].split([')', ',']).next().unwrap_or_default();
+                let item = argument.split('.').next().unwrap_or_default();
+                let is_item = loops
+                    .iter()
+                    .any(|(names, _)| names.iter().any(|n| n == item));
+                if !argument.ends_with("[0]") && !is_item {
+                    out.unknown.push(argument.to_owned());
+                }
+            }
+        }
+        for (_, source) in &loops {
+            match source.strip_prefix('[') {
+                // The array's own texts that are not given to tr, as "RGB".
+                Some(array) => {
+                    for (at, text) in crate::support::source_rules::literals(array) {
+                        if !array[..at].trim_end().ends_with("tr(") {
+                            out.texts.push(text);
+                        }
+                    }
+                }
+                None => out.tables.push(table_of(source, code)),
             }
         }
         for (at, _) in code.match_indices("self.") {
@@ -1230,17 +1286,89 @@ mod tests {
         }
     }
 
+    /// The `for` loops of `code`, each as the names its pattern binds and the code that it
+    /// takes its items from, with a leading `&` left out.
+    fn for_loops(code: &str) -> Vec<(Vec<String>, String)> {
+        let mut loops = Vec::new();
+        for (at, _) in code.match_indices("for ") {
+            let line_start = code[..at].rfind('\n').map_or(0, |n| n + 1);
+            if !code[line_start..at].trim().is_empty() {
+                continue;
+            }
+            let rest = &code[at + 4..];
+            let (Some(in_at), Some(body)) = (rest.find(" in "), rest.find(" {\n")) else {
+                continue;
+            };
+            if in_at > body {
+                continue;
+            }
+            let names = (rest[..in_at].split(|c: char| !c.is_alphanumeric() && c != '_'))
+                .filter(|n| !n.is_empty() && *n != "mut" && *n != "ref")
+                .map(str::to_owned)
+                .collect();
+            let source = rest[in_at + 4..body].trim().trim_start_matches('&');
+            loops.push((names, source.to_owned()));
+        }
+        loops
+    }
+
+    /// Returns the name of the table that `source`, the items of a loop in `code`, comes from:
+    /// a constant (`FADES.iter()` is FADES), or the function that gives it (`key_actions()`),
+    /// also through a name bound to one (`let names = self.theme_names(ctx);`).
+    fn table_of(source: &str, code: &str) -> String {
+        let path: String = (source.chars())
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
+            .collect();
+        let name = path.rsplit("::").next().unwrap_or_default();
+        if name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        {
+            return name.to_owned();
+        }
+        let bound = [format!("let {name} = "), format!("let mut {name} = ")];
+        let source = (bound.iter().find_map(|b| code.split_once(b.as_str())))
+            .map_or(source, |(_, value)| {
+                value.split(';').next().unwrap_or_default()
+            });
+        let called = source.split('(').next().unwrap_or_default();
+        called
+            .rsplit(['.', ':'])
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    }
+
     /// The texts a piece of code shows: after `return` too, not a longer name's or a notice's.
+    /// A loop's texts are found through its table, and a text given to tr that no table holds
+    /// is told.
     #[test]
     fn texts_finds_the_calls_shown() {
         let code = r#"if a { return tr("A"); } ui.label(tr("B")); ui.weak(tf!("C {x}", x));
-            let _ = tx.send(tf!("D")); self.notice.give(tf!("E")); attr("F");"#;
-        let mut out = Vec::new();
+            let _ = tx.send(tf!("D")); self.notice.give(tf!("E")); attr("F");
+        for (n, name) in [(0, tr("G")), (1, "H")] {
+            ui.label(tr(name));
+        }
+        let mut found = self.desktop_settings.theme_names(ctx);
+        for name in found {
+            ui.label(name);
+        }
+        for (k, (_, label, _)) in config::FADES.iter().enumerate() {
+            ui.label(tr(label));
+        }
+        ui.label(tr(text));"#;
+        let mut out = Drawn::default();
         texts(code, &mut out);
-        assert_eq!(out, ["A", "B", "C {x}"]);
+        assert_eq!(out.texts, ["A", "B", "G", "C {x}", "H"]);
+        assert_eq!(out.tables, ["theme_names", "FADES"]);
+        assert_eq!(out.unknown, ["text"]);
     }
 
-    /// Each section's list has every text the section shows, and no other.
+    /// Each section's list has every text the section shows, and no other, and each table
+    /// that the section draws its choices from is among the words that `sections_shown` finds
+    /// it by. Before, the choices drawn from tables (the fades, the rendering intents, the
+    /// profiles, the themes and the languages) were in no list, and a search for one found
+    /// nothing.
     #[test]
     fn the_search_knows_every_text() {
         let src = include_str!("preferences.rs");
@@ -1254,17 +1382,41 @@ mod tests {
         let sections = [
             LOOK, KEYBOARD, IMAGE, SLIDESHOW, FILE_LIST, DELETING, COLOUR, MEMORY, VIDEO, START,
         ];
+        // The code of the words that `sections_shown` gives each section besides its list:
+        // every statement that binds the name the section's `shows` is given.
+        let start = src.find("fn sections_shown(").unwrap();
+        let shown_fn = &src[start..start + src[start..].find("\n}\n").unwrap()];
+        let arms: Vec<&str> = (shown_fn.lines())
+            .filter(|l| l.contains("shows(") && l.trim_end().ends_with("),"))
+            .collect();
+        assert_eq!(arms.len(), sections.len(), "{arms:#?}");
+        let words_of = |arm: &str| -> String {
+            let name = arm.split_once(", &").unwrap().1.trim_end_matches("),");
+            (shown_fn.split(&format!("let {name}")).skip(1))
+                .map(|s| s.split(";\n").next().unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         let mut parts = body.split("section(ui,").skip(1);
         let mut wrong = Vec::new();
-        for list in sections {
-            let mut shown = Vec::new();
+        for (list, arm) in sections.into_iter().zip(arms) {
+            let mut shown = Drawn::default();
             texts(parts.next().unwrap(), &mut shown);
-            shown.sort();
-            shown.dedup();
+            shown.texts.sort();
+            shown.texts.dedup();
             let mut listed: Vec<String> = list[1..].iter().map(|t| t.to_string()).collect();
             listed.sort();
-            if shown != listed {
-                wrong.push(format!("{}: {shown:#?}", list[0]));
+            if shown.texts != listed {
+                wrong.push(format!("{}: {:#?}", list[0], shown.texts));
+            }
+            let words = words_of(arm);
+            for table in &shown.tables {
+                if !words.contains(table.as_str()) {
+                    wrong.push(format!("{}: its words do not take {table}", list[0]));
+                }
+            }
+            for argument in &shown.unknown {
+                wrong.push(format!("{}: tr({argument}) is in no table", list[0]));
             }
             // The titles go through tr from the lists, which the translation test cannot see.
             if !include_str!("../../po/no_nb.po").contains(&format!("msgid \"{}\"\n", list[0])) {
@@ -1272,6 +1424,27 @@ mod tests {
             }
         }
         assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    /// A search finds a choice drawn from a table, in English and as shown: a rendering
+    /// intent, a profile, a fade, a theme and a language. Each once found nothing.
+    #[test]
+    fn the_search_finds_the_choices_of_tables() {
+        let themes = ["Nord".to_owned()];
+        for (query, section) in [
+            ("perceptual", 6),
+            ("colorimetric", 6),
+            ("adobe", 6),
+            ("p3", 6),
+            ("long", 3),
+            ("short", 3),
+            ("nord", 0),
+            ("english", 0),
+            ("deutsch", 0),
+            ("rgb", 2),
+        ] {
+            assert!(super::sections_shown(query, &themes)[section], "{query}");
+        }
     }
 
     #[test]
@@ -1406,7 +1579,7 @@ mod tests {
         let listed = super::key_actions();
         for s in SHORTCUTS.iter().filter(|s| !listed.contains(&s.0)) {
             let query = s.0.english().to_lowercase();
-            assert!(!super::sections_shown(&query)[1], "{query}");
+            assert!(!super::sections_shown(&query, &[])[1], "{query}");
         }
     }
 
