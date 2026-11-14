@@ -1568,6 +1568,11 @@ msgstr "Vrátit původní jména"
 msgid "Random order is on: R turns it off to move images"
 msgstr "Je zapnuto náhodné pořadí: R ho vypne, aby šlo obrázky přesouvat"
 
+#: src/model/collections.rs
+#, fuzzy
+msgid "The search shows the images in another order: clear it to move them"
+msgstr "Hledání ukazuje obrázky v jiném pořadí: vymažte ho, abyste je mohli přesouvat"
+
 #: src/main.rs
 #, fuzzy
 msgid "Reading folder…"

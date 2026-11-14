@@ -1398,6 +1398,11 @@ msgstr "Remettre les anciens noms"
 msgid "Random order is on: R turns it off to move images"
 msgstr "L'ordre aléatoire est activé : R le désactive pour déplacer des images"
 
+#: src/model/collections.rs
+#, fuzzy
+msgid "The search shows the images in another order: clear it to move them"
+msgstr "La recherche affiche les images dans un autre ordre : effacez-la pour les déplacer"
+
 #: src/main.rs
 #, fuzzy
 msgid "Reading folder…"

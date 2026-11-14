@@ -121,6 +121,16 @@ impl crate::App {
                 .give(tr("Random order is on: R turns it off to move images").into());
             return;
         }
+        // A fuzzy search shows the best matches first, and terms joined by "|" show each term's
+        // matches in turn. The rows are then in another order than the collection's, so a move
+        // or a line drawn between two rows would land somewhere else in the collection than it
+        // shows. This is the one place that keys and drags both reach.
+        if !self.search_rows_are_in_list_order() {
+            self.notice.give(
+                tr("The search shows the images in another order: clear it to move them").into(),
+            );
+            return;
+        }
         let shown = self.list.files().get(self.list.shown()).cloned();
         // The images moved stay selected when they were, and so do the selected images that the
         // search hides. A row dragged from outside the selection takes the selection's place, as a
@@ -142,6 +152,12 @@ impl crate::App {
         self.replace_files(ctx, files, shown);
         self.reselect(ctx, &names);
         self.save_collection_order();
+    }
+
+    /// Returns whether the rows shown are in the order of the list: with no search, or with a
+    /// search whose matches keep the list's order (`re:`, `exif:`, `stars:`).
+    fn search_rows_are_in_list_order(&self) -> bool {
+        (self.list.matches()).is_none_or(|m| m.windows(2).all(|w| w[0] < w[1]))
     }
 
     /// Moves the collection's file `picked` to the trash, in the background, while it is still
@@ -693,30 +709,45 @@ fn to_text(paths: &[PathBuf], other: &[&[u8]]) -> Vec<u8> {
     text
 }
 
-/// The new order of a list of `n` after `action` moves the `picked` places: one earlier or later
-/// (each picked passes one that is not, never one another), or all to the start or end, among
-/// themselves in the order they had.
-pub(crate) fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..n).collect();
-    let (first, rest): (Vec<usize>, Vec<usize>) = order.iter().partition(|i| picked.contains(i));
+/// Returns the new order of a list of `n` after `action` moves the `picked` places among the
+/// `shown` ones, the rows as the user sees them, in list order. Each picked image moves one row
+/// earlier or later, passing one shown image that is not picked and never another picked one,
+/// or all go to the start or end of the rows, among themselves in the order they had. Before,
+/// the moves were worked out over the whole list, so under a search an image passed one the
+/// search hid, and a key press showed no change.
+pub(crate) fn moved(
+    n: usize,
+    shown: &[usize],
+    picked: &HashSet<usize>,
+    action: Action,
+) -> Vec<usize> {
+    let mut rows = shown.to_vec();
+    let (first, rest): (Vec<usize>, Vec<usize>) = rows.iter().partition(|i| picked.contains(i));
+    let count = rows.len();
     match action {
-        Action::MoveFirst => order = [first, rest].concat(),
-        Action::MoveLast => order = [rest, first].concat(),
+        Action::MoveFirst => rows = [first, rest].concat(),
+        Action::MoveLast => rows = [rest, first].concat(),
         Action::MoveEarlier => {
-            for at in 1..n {
-                if picked.contains(&order[at]) && !picked.contains(&order[at - 1]) {
-                    order.swap(at - 1, at);
+            for at in 1..count {
+                if picked.contains(&rows[at]) && !picked.contains(&rows[at - 1]) {
+                    rows.swap(at - 1, at);
                 }
             }
         }
         Action::MoveLater => {
-            for at in (0..n.saturating_sub(1)).rev() {
-                if picked.contains(&order[at]) && !picked.contains(&order[at + 1]) {
-                    order.swap(at, at + 1);
+            for at in (0..count.saturating_sub(1)).rev() {
+                if picked.contains(&rows[at]) && !picked.contains(&rows[at + 1]) {
+                    rows.swap(at, at + 1);
                 }
             }
         }
         _ => {}
+    }
+    // The shown images take the places that shown images had, in their new order. An image the
+    // search hides stays where it is.
+    let mut order: Vec<usize> = (0..n).collect();
+    for (&slot, file) in shown.iter().zip(rows) {
+        order[slot] = file;
     }
     order
 }
@@ -1316,6 +1347,57 @@ mod tests {
         }
     }
 
+    /// Move Earlier under a search moves the image one row as the rows show it, past the image
+    /// shown before it, and an image the search hides keeps its place. A search that shows
+    /// another order than the collection's refuses the move, and says so. Before, the image
+    /// passed the hidden one, and the rows showed no change until a second press.
+    #[test]
+    fn a_move_under_a_search_moves_a_row_as_shown() {
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-move-rows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = ["a1.png", "x.png", "a2.png"];
+        let mut gqv = String::from("#GQview collection\n");
+        for name in names {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            gqv += &format!("\"{}\"\n", dir.join(name).display());
+        }
+        std::fs::write(dir.join("rows.gqv"), gqv).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir.join("rows.gqv"));
+        let order = |app: &crate::App| -> Vec<String> {
+            (0..app.list.files().len())
+                .map(|i| {
+                    app.path(i)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        };
+        assert_eq!(order(&app), names);
+        app.search.set_query(r"re:/a\d\.png$");
+        app.update_search(&ctx);
+        app.list.select([2].into());
+        app.run(&ctx, Action::MoveEarlier);
+        assert_eq!(order(&app), ["a2.png", "x.png", "a1.png"]);
+        // Fuzzy, a2 ranks before a1 here: the rows are not in the collection's order.
+        app.search.set_query("a1");
+        app.update_search(&ctx);
+        app.list.set_matches(Some(vec![2, 0]));
+        app.list.select([0].into());
+        app.run(&ctx, Action::MoveEarlier);
+        assert_eq!(order(&app), ["a2.png", "x.png", "a1.png"]);
+        assert!(
+            app.notice
+                .text()
+                .unwrap_or_default()
+                .contains("another order")
+        );
+        crate::files::file_io::wait_for_queued_writes();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Images of a collection that are moved go one place each, never past another moved one,
     /// and to the start or the end in their own order.
     #[test]
@@ -1324,13 +1406,41 @@ mod tests {
         let set = |v: &[usize]| v.iter().copied().collect();
         // 0 1 2 3 4 5 with 1, 2 and 5 picked.
         let picked = set(&[1, 2, 5]);
-        assert_eq!(moved(6, &picked, Action::MoveEarlier), [1, 2, 0, 3, 5, 4]);
-        assert_eq!(moved(6, &picked, Action::MoveLater), [0, 3, 1, 2, 4, 5]);
-        assert_eq!(moved(6, &picked, Action::MoveFirst), [1, 2, 5, 0, 3, 4]);
-        assert_eq!(moved(6, &picked, Action::MoveLast), [0, 3, 4, 1, 2, 5]);
+        let all = [0, 1, 2, 3, 4, 5];
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveEarlier),
+            [1, 2, 0, 3, 5, 4]
+        );
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveLater),
+            [0, 3, 1, 2, 4, 5]
+        );
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveFirst),
+            [1, 2, 5, 0, 3, 4]
+        );
+        assert_eq!(
+            moved(6, &all, &picked, Action::MoveLast),
+            [0, 3, 4, 1, 2, 5]
+        );
         // At the edge already: where it was.
-        assert_eq!(moved(3, &set(&[0]), Action::MoveEarlier), [0, 1, 2]);
-        assert_eq!(moved(0, &set(&[]), Action::MoveLater), Vec::<usize>::new());
+        assert_eq!(
+            moved(3, &[0, 1, 2], &set(&[0]), Action::MoveEarlier),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            moved(0, &[], &set(&[]), Action::MoveLater),
+            Vec::<usize>::new()
+        );
+        // [a1, x, a2] under a search that shows a1 and a2: a2 passes a1, the row before it, and
+        // x, which the search hides, keeps its place. Before, a2 passed x alone, and the rows
+        // still read a1, a2.
+        assert_eq!(
+            moved(3, &[0, 2], &set(&[2]), Action::MoveEarlier),
+            [2, 1, 0]
+        );
+        assert_eq!(moved(3, &[0, 2], &set(&[0]), Action::MoveLater), [2, 1, 0]);
+        assert_eq!(moved(3, &[0, 2], &set(&[2]), Action::MoveFirst), [2, 1, 0]);
         // Dragged before 4, before 0, to the end, and onto a place of their own.
         use super::dropped;
         assert_eq!(dropped(6, &picked, 4), [0, 3, 1, 2, 5, 4]);
