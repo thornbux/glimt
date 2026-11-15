@@ -223,6 +223,16 @@ impl crate::App {
             );
             return;
         }
+        // An image that the search hides has no row to move. A move of one, such as the shown
+        // image with nothing selected, changed nothing and said nothing. The rows are in the
+        // list's order here, so the matches are sorted.
+        if let Some(rows) = self.list.matches()
+            && picked.iter().any(|i| rows.binary_search(i).is_err())
+        {
+            self.notice
+                .give(tr("The search hides files this would act on: clear it first").into());
+            return;
+        }
         let shown = self.list.files().get(self.list.shown()).cloned();
         // The images moved stay selected when they were, and so do the selected images that the
         // search hides. A row dragged from outside the selection takes the selection's place, as a
@@ -1591,6 +1601,45 @@ mod tests {
             .is_listing()));
         crate::files::file_io::wait_for_queued_writes();
         assert!(!super::lock_even_if_poisoned(&super::WINDOW_LISTS).contains_key(&list));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A move of an image that the search hides, here the shown image with nothing selected,
+    /// is refused, and says so. Before, Move First did nothing and said nothing.
+    #[test]
+    fn a_move_of_an_image_the_search_hides_is_refused() {
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-move-hid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = ["a.png", "b.png", "c.png"];
+        let mut gqv = String::from("#GQview collection\n");
+        for name in names {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            gqv += &format!("\"{}\"\n", dir.join(name).display());
+        }
+        std::fs::write(dir.join("hid.gqv"), gqv).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir.join("hid.gqv"));
+        let order = |app: &crate::App| -> Vec<String> {
+            (0..app.list.files().len())
+                .map(|i| {
+                    app.path(i)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        };
+        app.show_file(&ctx, 2);
+        app.list.clear_selection();
+        app.search.set_query(r"re:/a\.png$");
+        app.update_search(&ctx);
+        app.notice.clear();
+        app.run(&ctx, Action::MoveFirst);
+        assert_eq!(order(&app), names);
+        let hides =
+            crate::support::lang::tr("The search hides files this would act on: clear it first");
+        assert_eq!(app.notice.text(), Some(hides));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
