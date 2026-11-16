@@ -84,6 +84,14 @@ impl AddedFormat {
             true => program,
             false => local,
         };
+        // The image it writes stays in memory while its pixels are decoded, so the most it may
+        // write is taken from the decodes' budget before it starts.
+        // shortcut: the program writes the whole picture also for a thumbnail, so each decode
+        // takes the most; tell it the size shown (a new %-code or variable, which freezes) if
+        // a folder of an added format makes thumbnails wait for each other.
+        let max = crate::images::decode::MAX_DECODE_BYTES + 64;
+        let input = crate::images::decode::DecodeInput::reserve(max)
+            .map_err(|e| format!("{}: {e}", self.name))?;
         // The shell sets the memory limit and then becomes the program, which inherits it, as
         // does what the program starts. The limit, the program and the file are arguments,
         // never part of the script's text. In a Flatpak the shell runs on the host through
@@ -94,7 +102,6 @@ impl AddedFormat {
             .args(&args[1..])
             .spawn()
             .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
-        let max = crate::images::decode::MAX_DECODE_BYTES + 64;
         let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
@@ -111,6 +118,7 @@ impl AddedFormat {
             }
             return Err(format!("{}: {error}", self.name));
         }
+        let image = input.holding(image)?;
         crate::images::decode::from_memory(&image).map_err(|e| format!("{}: {e}", self.name))
     }
 
@@ -226,8 +234,14 @@ mod tests {
                 && !nifti.handles_name(".nii")
                 && !nifti.handles_name("a.niigz")
         );
+        let job = crate::images::decode::start_decode_job();
         let img = cat.decode(&file).unwrap();
         assert_eq!((img.width(), img.height()), (6, 3));
+        // The most it may write was taken from the decodes' budget before it ran, as that stays
+        // in memory beside the pixels. Before, only the pixels were.
+        let held = crate::images::decode::held_by_this_job().unwrap();
+        assert!(held > crate::images::decode::MAX_DECODE_BYTES);
+        drop(job);
         // Nothing written: an error that names the format.
         let empty = super::parse("Name=Empty\nExtensions=xyz\nExec=true %f", &dir).unwrap();
         assert!(empty.decode(&file).unwrap_err().starts_with("Empty"));

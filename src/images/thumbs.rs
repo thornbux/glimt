@@ -109,8 +109,8 @@ fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
 /// A thumbnail larger than `max_side` on a side is not used: one of 8000×8000 that another
 /// program wrote in the shared cache would take 256 MB for each cell of the list.
 fn read_cached(file: &Path, (mtime, size): (u64, u64), max_side: u32) -> Option<image::RgbaImage> {
-    let bytes = crate::images::decode::read_limited(file).ok()?;
-    let reader = png::Decoder::new(std::io::Cursor::new(&bytes))
+    let bytes = crate::images::decode::DecodeInput::read(file).ok()?;
+    let reader = png::Decoder::new(std::io::Cursor::new(&bytes[..]))
         .read_info()
         .ok()?;
     let info = reader.info();

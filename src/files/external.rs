@@ -117,8 +117,8 @@ pub fn ffmpeg_frame(
     max: Option<[u32; 2]>,
 ) -> Result<image::DynamicImage, String> {
     match ffmpeg_scale_filter(max) {
-        Some(scale) => ffmpeg_ppm(path, &["-ss", at], &["-vf", &scale]),
-        None => ffmpeg_ppm(path, &["-ss", at], &[]),
+        Some(scale) => ffmpeg_ppm(path, &["-ss", at], &["-vf", &scale], max),
+        None => ffmpeg_ppm(path, &["-ss", at], &[], max),
     }
 }
 
@@ -156,7 +156,8 @@ pub fn decode_heif(
                 Some(scale) => filter.replace("[out]", &format!(",{scale}[out]")),
                 None => filter,
             };
-            let img = ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"])?;
+            let args = ["-filter_complex", &filter, "-map", "[out]"];
+            let img = ffmpeg_ppm(path, &[], &args, max)?;
             Ok((img, max.and_then(|_| heif_size(&probe))))
         }
         None => Ok((
@@ -440,15 +441,24 @@ pub(crate) fn last_line(err: &str, fallback: &str) -> String {
         .to_owned()
 }
 
-/// One frame of `path` as decoded by ffmpeg, with options before and after the input.
+/// One frame of `path` as decoded by ffmpeg, with options before and after the input. `max` is
+/// the box that the options scale the frame to fit, if they do.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 pub fn ffmpeg_ppm(
     path: &Path,
     before: &[&str],
     after: &[&str],
+    max: Option<[u32; 2]>,
 ) -> Result<image::DynamicImage, String> {
+    use crate::images::decode::{DecodeInput, MAX_DECODE_BYTES};
     // The frame is no larger than Glimt decodes and comes within `PROGRAM_TIME_LIMIT`, because a
-    // crafted file could otherwise keep ffmpeg busy for good, or hand over gigabytes.
+    // crafted file could otherwise keep ffmpeg busy for good, or hand over gigabytes. A frame
+    // scaled to a box is a PPM of at most 6 bytes a pixel of the box (16 bits a channel), and
+    // its header. That much is taken from the decodes' budget before ffmpeg starts, because the
+    // frame stays in memory while its pixels are decoded.
+    let in_box = |[w, h]: [u32; 2]| (u64::from(w) + 1) * (u64::from(h) + 1) * 6;
+    let limit = max.map_or(MAX_DECODE_BYTES, in_box).min(MAX_DECODE_BYTES) + 64;
+    let input = DecodeInput::reserve(limit)?;
     let mut child = stoppable_command("ffmpeg")
         .args(["-v", "error"])
         .args(before)
@@ -459,13 +469,12 @@ pub fn ffmpeg_ppm(
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .spawn()
         .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e))?;
-    let limit = crate::images::decode::MAX_DECODE_BYTES + 64;
     let (frame, err, ok) = output_of(&mut child, limit, PROGRAM_TIME_LIMIT);
     let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {
         return Err(last_line(&err, "no frame"));
     }
-    crate::images::decode::from_memory(&frame)
+    crate::images::decode::from_memory(&input.holding(frame)?)
 }
 
 #[cfg(feature = "video")]
