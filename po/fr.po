@@ -3971,3 +3971,8 @@ msgstr "Impossible de lire le fichier des marques {name} : {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Projecteur Glimt"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "son fichier annexe n'a pas été remis en place : {e}"

@@ -3971,3 +3971,8 @@ msgstr "Kunde inte läsa markeringsfilen {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "sidofilen lades inte tillbaka: {e}"

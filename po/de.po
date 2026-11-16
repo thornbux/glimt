@@ -3971,3 +3971,8 @@ msgstr "Konnte die Markierungsdatei {name} nicht lesen: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-Projektor"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "die Begleitdatei wurde nicht zurückgelegt: {e}"

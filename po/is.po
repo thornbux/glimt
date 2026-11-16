@@ -3971,3 +3971,8 @@ msgstr "Gat ekki lesið merkjaskrána {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-skjávarpi"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "hliðarskránni var ekki skilað aftur: {e}"

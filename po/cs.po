@@ -3993,3 +3993,8 @@ msgstr "Soubor značek {name} nelze přečíst: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Projektor Glimt"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "doprovodný soubor nebyl vrácen zpět: {e}"

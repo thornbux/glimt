@@ -3982,3 +3982,8 @@ msgstr "Kunne ikkje lesa merkefila {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "sidefila vart ikkje lagd tilbake: {e}"

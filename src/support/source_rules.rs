@@ -3186,9 +3186,11 @@ fn derived_files_take_metadata_in_one_place() {
 }
 
 /// An image written again and its sidecar change together, through `save::replace_with_sidecar`,
-/// which changes the sidecar only once the image's own write can no longer fail. Before, a turn
-/// saved changed the sidecar first, so a read-only image kept its pixels while its sidecar said
-/// it was turned.
+/// which changes the sidecar only once the image is found writable and is written whole beside
+/// its name, and writes the sidecar's old text back when the rename after it fails. Before, a
+/// turn saved changed the sidecar first, so a read-only image kept its pixels while its sidecar
+/// said it was turned, and later a rename that failed (a file held open on a share) did the
+/// same.
 #[test]
 fn an_image_and_its_sidecar_change_together() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[

@@ -116,6 +116,11 @@ thread_local! {
     // name stays, as a share does that lost its answer.
     pub(crate) static UNLINK_FAILS: std::cell::RefCell<Option<(PathBuf, i32)>> =
         const { std::cell::RefCell::new(None) };
+    // Makes the rename by which `replace` or `replace_name_with` on this thread gives a new
+    // version this name fail with this error number, as a share does whose file is held open
+    // elsewhere (EBUSY), or a folder with the sticky bit for another user's file (EPERM).
+    pub(crate) static REPLACE_FAILS: std::cell::RefCell<Option<(PathBuf, i32)>> =
+        const { std::cell::RefCell::new(None) };
     // Makes `fingerprint` on this thread fail at this name once it has been looked at this many
     // times, as a share does that stopped answering for a moment.
     pub(crate) static LOOK_FAILS: std::cell::RefCell<Option<(PathBuf, usize)>> =
@@ -1816,7 +1821,7 @@ pub(crate) fn shown_path(path: &Path) -> String {
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
 pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
-    replace(path, bytes, None, || Ok(()))
+    replace(path, bytes, None, || Ok(nothing_to_undo))
 }
 
 /// `replace_file` for a file of the user's that must still be there: a turned image, whose
@@ -1825,15 +1830,17 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 /// every operation, whether or not it asked `are_free_to_change` first. The step `before` runs
 /// after the file is found writable and still there and the new version is written whole, just
 /// before the rename. The image's sidecar is changed there, so a write that fails (a read-only
-/// file, a full disk) leaves the file and its sidecar as they were. `read` is the fingerprint of
-/// the file that `bytes` were made from, taken before it was read (`fingerprint_before_reading`).
-/// A file that changed since (a copy still being written into it, another file given its name)
-/// is not written over.
-pub fn replace_existing(
+/// file, a full disk) leaves the file and its sidecar as they were. The rename can still fail
+/// after the step (a file held open on a share, a folder with the sticky bit), so the step
+/// returns how to take itself back, which runs when the rename surely was not done
+/// (`taken_back`). `read` is the fingerprint of the file that `bytes` were made from, taken
+/// before it was read (`fingerprint_before_reading`). A file that changed since (a copy still
+/// being written into it, another file given its name) is not written over.
+pub fn replace_existing<Undo: FnOnce() -> std::io::Result<()>>(
     path: &Path,
     bytes: impl AsRef<[u8]>,
     read: FileFingerprint,
-    before: impl FnOnce() -> std::io::Result<()>,
+    before: impl FnOnce() -> std::io::Result<Undo>,
 ) -> std::io::Result<()> {
     replace(path, bytes, Some(read), before)
 }
@@ -1844,23 +1851,33 @@ pub fn replace_existing(
 /// saved over a file there (Save As) and a sidecar are written this way.
 pub fn replace_name(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
-    replace_name_with(path, |f| f.write_all(bytes.as_ref()), || Ok(()))
+    replace_name_with(
+        path,
+        |f| f.write_all(bytes.as_ref()),
+        || Ok(nothing_to_undo),
+    )
 }
 
 /// Replaces the file named `path` as `replace_name` does, with the contents written by `write`
 /// (a PDF streamed page by page). The step `before` runs after the new file is written whole and
-/// before it takes the name. Save As removes the replaced file's sidecar there, so a write that
-/// fails (a full disk) leaves the file and its sidecar as they were, and a sidecar that cannot be
-/// removed leaves the file.
-pub fn replace_name_with(
+/// before it takes the name. Save As sets the replaced file's sidecar aside there, so a write
+/// that fails (a full disk) leaves the file and its sidecar as they were, and a sidecar that
+/// cannot be set aside leaves the file. The step returns how to take itself back, which runs
+/// when the rename after it surely was not done (`taken_back`).
+pub fn replace_name_with<Undo: FnOnce() -> std::io::Result<()>>(
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
-    before: impl FnOnce() -> std::io::Result<()>,
+    before: impl FnOnce() -> std::io::Result<Undo>,
 ) -> std::io::Result<()> {
     let has_other_names = check_writable(path)?;
-    #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
     let give_name = |tmp: &Path| {
-        before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
+        let undo = before()?;
+        #[allow(clippy::disallowed_methods)]
+        // replaces on purpose, the name and never a link's target
+        let renamed = rename_failed_in_a_test(path)
+            .and_then(|()| std::fs::rename(tmp, path))
+            .map_err(|e| explain_rename_error(e, path));
+        renamed.map_err(|e| taken_back(e, true, tmp, undo))
     };
     write_beside(&tmp_path(path), path, write, give_name)?;
     tell_other_names(path, has_other_names);
@@ -1879,7 +1896,7 @@ pub fn write_picked_name(
     match at_pick {
         Some(picked) => {
             replace_name_with(path, write, || {
-                is_still_the_file(path, KnownAs::fingerprint(picked))
+                is_still_the_file(path, KnownAs::fingerprint(picked)).map(|()| nothing_to_undo)
             })?;
             crate::files::journal::note_written_anew(path, picked);
             Ok(())
@@ -1893,11 +1910,11 @@ pub fn write_picked_name(
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
 /// Glimt's own files and a turned image are written so. A name the user chose for a new file,
 /// and a collection's file, go through `replace_name`, which never follows a link.
-fn replace(
+fn replace<Undo: FnOnce() -> std::io::Result<()>>(
     path: &Path,
     bytes: impl AsRef<[u8]>,
     existing: Option<FileFingerprint>,
-    before: impl FnOnce() -> std::io::Result<()>,
+    before: impl FnOnce() -> std::io::Result<Undo>,
 ) -> std::io::Result<()> {
     use std::io::Write;
     let write = |f: &mut std::fs::File| f.write_all(bytes.as_ref());
@@ -1912,17 +1929,64 @@ fn replace(
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
     let has_other_names = existing.is_some() && check_writable(path)?;
-    #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
+        there()?;
+        let undo = before()?;
         // `before` may take a while (a sidecar written under its lock), so the file is looked
         // at again after it: one deleted meanwhile must not come back under its old name.
-        there()
-            .and_then(|_| before())
-            .and_then(|_| there())
-            .and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
+        if let Err(e) = there() {
+            return Err(taken_back(e, false, tmp, undo));
+        }
+        #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
+        let renamed = rename_failed_in_a_test(path)
+            .and_then(|()| std::fs::rename(tmp, path))
+            .map_err(|e| explain_rename_error(e, path));
+        renamed.map_err(|e| taken_back(e, true, tmp, undo))
     })?;
     tell_other_names(path, has_other_names);
     Ok(())
+}
+
+/// The undo of a step before a replace's rename that has nothing to take back.
+pub(crate) fn nothing_to_undo() -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Returns the error that a test gives the rename by which `replace` or `replace_name_with`
+/// gives a new version the name `path` (`REPLACE_FAILS`). Returns `Ok` for every other name, and
+/// always outside the tests.
+fn rename_failed_in_a_test(path: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if let Some((_, errno)) = REPLACE_FAILS
+        .with_borrow(|f| f.clone())
+        .filter(|(p, _)| p == path)
+    {
+        return Err(std::io::Error::from_raw_os_error(errno));
+    }
+    #[cfg(not(test))]
+    let _ = path;
+    Ok(())
+}
+
+/// Takes back the step before a replace's rename with `undo`, after the replace failed with
+/// `e`, unless the rename may have been done all the same (`may_have_been_done`, of the new
+/// version `tmp`). `tried_rename` says whether the rename was tried, as a look that failed
+/// before it renamed nothing. Before, a Save As whose rename failed (a file held open on a
+/// share) had already removed the replaced file's sidecar, and a turn left a sidecar that said
+/// the image was turned. Returns the error to tell, with the undo's own failure after it.
+fn taken_back(
+    e: std::io::Error,
+    tried_rename: bool,
+    tmp: &Path,
+    undo: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Error {
+    if tried_rename && may_have_been_done(&e, tmp) {
+        return e;
+    }
+    match undo() {
+        Ok(()) => e,
+        Err(not_undone) => std::io::Error::new(e.kind(), format!("{e}; {not_undone}")),
+    }
 }
 
 /// Returns the fingerprint of the file at `path`, taken before a save reads it, for
@@ -2786,12 +2850,13 @@ mod tests {
         let mut ran = false;
         let step = || {
             ran = true;
-            Ok(())
+            Ok(super::nothing_to_undo)
         };
         assert!(super::replace_name_with(&file, |_| full(), step).is_err());
         assert!(!ran);
         use std::io::Write;
-        assert!(super::replace_name_with(&file, |f| f.write_all(b"new"), full).is_err());
+        let fails = || full().map(|()| super::nothing_to_undo);
+        assert!(super::replace_name_with(&file, |f| f.write_all(b"new"), fails).is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         std::fs::remove_dir_all(dir).unwrap();
@@ -3506,7 +3571,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.png");
         std::fs::write(&file, b"old").unwrap();
-        let gone = || std::fs::remove_file(&file);
+        let gone = || std::fs::remove_file(&file).map(|()| super::nothing_to_undo);
         let read = super::fingerprint(&file).unwrap();
         assert!(super::replace_existing(&file, b"new", read, gone).is_err());
         assert!(!file.exists());
@@ -3531,7 +3596,7 @@ mod tests {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
         let read = super::fingerprint(&file).unwrap();
         for result in [
-            super::replace_existing(&file, "new", read, || Ok(())),
+            super::replace_existing(&file, "new", read, || Ok(super::nothing_to_undo)),
             super::replace_name(&file, "new"),
         ] {
             let refused = result.unwrap_err().kind();
@@ -3559,11 +3624,12 @@ mod tests {
         let file = dir.join("a.png");
         std::fs::write(&file, "old").unwrap();
         let read = super::fingerprint(&file).unwrap();
-        assert!(super::replace_existing(&file, "new", read, || Ok(())).is_ok());
+        let nothing = || Ok(super::nothing_to_undo);
+        assert!(super::replace_existing(&file, "new", read, nothing).is_ok());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
         let read = super::fingerprint(&file).unwrap();
         std::fs::remove_file(&file).unwrap();
-        let late = super::replace_existing(&file, "late", read, || Ok(()));
+        let late = super::replace_existing(&file, "late", read, nothing);
         assert_eq!(late.unwrap_err().kind(), std::io::ErrorKind::NotFound);
         assert_eq!(
             std::fs::read_dir(&dir).unwrap().count(),
@@ -3589,13 +3655,14 @@ mod tests {
         let read = super::fingerprint(&file).unwrap();
         let grows = || {
             let mut copier = std::fs::OpenOptions::new().append(true).open(&file)?;
-            copier.write_all(b" and the rest")
+            copier.write_all(b" and the rest")?;
+            Ok(super::nothing_to_undo)
         };
         let refused = super::replace_existing(&file, "turned", read, grows).unwrap_err();
         assert!(refused.to_string().contains("changed"), "{refused}");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "part and the rest");
         let read = super::fingerprint(&file).unwrap();
-        let swapped = || std::fs::rename(&other, &file);
+        let swapped = || std::fs::rename(&other, &file).map(|()| super::nothing_to_undo);
         assert!(super::replace_existing(&file, "turned", read, swapped).is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "else");
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no tmp left");

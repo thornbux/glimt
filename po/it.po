@@ -3971,3 +3971,8 @@ msgstr "Impossibile leggere il file dei contrassegni {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Proiettore Glimt"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "il suo file sidecar non è stato rimesso a posto: {e}"

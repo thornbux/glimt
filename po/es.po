@@ -3971,3 +3971,8 @@ msgstr "No se pudo leer el archivo de marcas {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Proyector de Glimt"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "su archivo complementario no se restauró: {e}"

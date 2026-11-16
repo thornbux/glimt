@@ -3982,3 +3982,8 @@ msgstr "Nie udało się odczytać pliku znaczników {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Projektor Glimt"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "plik poboczny nie został przywrócony: {e}"
