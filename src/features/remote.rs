@@ -3265,7 +3265,9 @@ mod tests {
         // run it may not be done, and the `open` would then wait behind it and not be answered
         // before the close. So the test waits for it, as a window rests before a script runs.
         let listed = |app: &crate::App| !app.folder.is_listing();
-        assert!(crate::support::test_support::run_background_until(&mut app, &ctx, listed));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
         let (reply, answer) = std::sync::mpsc::channel();
         let open = format!("wait open {}", other.display());
         app.remote.tx.send((open, Some(reply), later())).unwrap();
