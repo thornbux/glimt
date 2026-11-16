@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Find Duplicates' Move to Trash keeps the checked files of a group, and says so, also when the
+  group's unchecked file could not be looked at during the search, or is a link whose target
+  was edited since. Before, such a file was taken as unchanged, and a copy that the edit had
+  made the last of the original went to the trash.
+
 ## [0.85.0] - 2026-11-16
 
 ### Fixed
