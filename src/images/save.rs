@@ -710,8 +710,8 @@ pub(crate) fn stem_with_suffix(path: &Path, more: &str) -> std::ffi::OsString {
 }
 
 /// Saves the part `how.crop` of the image as a new file beside it, "NAME-cropped.EXT" or
-/// "NAME-cropped-2.EXT" …, never over another file. Its sidecar is copied too. Returns the new
-/// file.
+/// "NAME-cropped-2.EXT" …, never over another file, nor at a name whose sidecar is there. Its
+/// sidecar is copied too. Returns the new file.
 pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, String> {
     let (out, format) = copy_bytes(path, how)?;
     // The original's own spelling (.jpeg, .JPG) where the format is the same.
@@ -740,12 +740,13 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
 /// Saves a copy of `path`, encoded as `out`, as `new`. It goes over a file there only when
 /// `replace` is that file's fingerprint, taken when the file dialog asked about it, and only
 /// while the file there is still that one. The copy gets `path`'s sidecar, or none when
-/// `strip` or when `path` has none. A sidecar at `new`'s name belongs to the replaced file, or
-/// was left without its image, and its keywords and comment are not the copy's. So it goes and
-/// the copy's is made new, never written through a link there, which a downloaded folder may
-/// have pointed at any file of the user's (~/.bashrc). The replaced file's sidecar is set aside
-/// before the copy takes the name, put back when the rename fails, and removed after it. This is
-/// the one way a copy is saved, for Crop, Save As and Save This Frame.
+/// `strip` or when `path` has none. A sidecar at `new`'s name belongs to the replaced file, and
+/// its keywords and comment are not the copy's. So it is set aside before the copy takes the
+/// name, put back when the rename fails, and removed after it. The copy's is made new, never
+/// written through a link there, which a downloaded folder may have pointed at any file of the
+/// user's (~/.bashrc). A name without a file but with a sidecar is not free: that sidecar was
+/// left without its image, and may be the only copy of its keywords. This is the one way a copy
+/// is saved, for Crop, Save As and Save This Frame.
 pub(crate) fn save_copy_with_sidecar(
     path: &Path,
     new: &Path,
@@ -770,12 +771,6 @@ pub(crate) fn save_copy_with_sidecar(
     let side = crate::metadata::xmp::sidecar(new);
     let named =
         |e: std::io::Error| std::io::Error::new(e.kind(), format!("{}: {e}", side.display()));
-    // A link goes, not what it points to, and `create_file` never follows one.
-    #[allow(clippy::disallowed_methods)] // a sidecar left without its image
-    let remove_side = || match std::fs::remove_file(&side) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(named(e)),
-        _ => Ok(()),
-    };
     match replace {
         // The replaced file's sidecar is set aside after the image is written beside it and
         // before the image takes the name, and put back when the rename fails (a file held open
@@ -827,7 +822,8 @@ pub(crate) fn save_copy_with_sidecar(
             // place, and the copy is saved.
             let _ = std::fs::remove_file(&aside);
         }
-        // A file of that name is not touched, nor its sidecar, because the copy is refused first.
+        // A file of that name is not touched, nor a sidecar there, because the copy is refused
+        // first.
         None => {
             use std::io::Write;
             let tmp = crate::files::file_io::tmp_path(new);
@@ -837,10 +833,10 @@ pub(crate) fn save_copy_with_sidecar(
                 |f| f.write_all(out),
                 |tmp| {
                     lock = Some(crate::metadata::xmp::lock_sidecar(new));
+                    crate::files::file_io::check_free(&side).map_err(named)?;
                     crate::files::file_io::rename_never_over(tmp, new)
                 },
             )?;
-            remove_side()?;
         }
     }
     match source {
@@ -3701,29 +3697,35 @@ mod tests {
         );
         assert_eq!(std::fs::read(&b).unwrap(), before);
         std::fs::remove_dir(side(&b)).unwrap();
-        // A sidecar left at the crop's name is not the crop's.
+        // A sidecar left at the crop's name without its image keeps the name taken, as it may
+        // be the only copy of an earlier crop's keywords. Before, the crop took the name and
+        // removed that sidecar.
         let cropped = dir.join("a-cropped.png");
         std::fs::write(side(&cropped), "left").unwrap();
         let part = super::CopyAs {
             crop: Some([0, 0, 4, 4]),
             ..how(0, false)
         };
-        assert_eq!(super::save_cropped(&a, &part).unwrap(), cropped);
-        assert_eq!(text(&cropped).as_deref(), Some("a's"));
-        // A link left at the next crop's sidecar name, to a file of the user's, goes, and the
+        let second = dir.join("a-cropped-2.png");
+        assert_eq!(super::save_cropped(&a, &part).unwrap(), second);
+        assert_eq!(text(&cropped).as_deref(), Some("left"));
+        assert!(!cropped.exists());
+        assert_eq!(text(&second).as_deref(), Some("a's"));
+        // So does a link left at the next crop's sidecar name, to a file of the user's, and the
         // file keeps what it had.
         let victim = dir.join("victim");
         std::fs::write(&victim, "keep").unwrap();
-        let second = dir.join("a-cropped-2.png");
-        std::os::unix::fs::symlink(&victim, side(&second)).unwrap();
-        assert_eq!(super::save_cropped(&a, &part).unwrap(), second);
+        let third = dir.join("a-cropped-3.png");
+        std::os::unix::fs::symlink(&victim, side(&third)).unwrap();
+        let fourth = dir.join("a-cropped-4.png");
+        assert_eq!(super::save_cropped(&a, &part).unwrap(), fourth);
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         assert!(
-            !std::fs::symlink_metadata(side(&second))
+            std::fs::symlink_metadata(side(&third))
                 .unwrap()
                 .is_symlink()
         );
-        assert_eq!(text(&second).as_deref(), Some("a's"));
+        assert_eq!(text(&fourth).as_deref(), Some("a's"));
         // A copy saved over a link replaces the link, not the file it points to.
         let linked = dir.join("linked.png");
         std::os::unix::fs::symlink(&victim, &linked).unwrap();
@@ -3740,7 +3742,7 @@ mod tests {
         std::fs::remove_file(side(&a)).unwrap();
         std::fs::create_dir(side(&a)).unwrap();
         assert!(super::save_cropped(&a, &part).is_err());
-        assert!(!dir.join("a-cropped-3.png").exists());
+        assert!(!dir.join("a-cropped-5.png").exists());
         std::fs::remove_dir(side(&a)).unwrap();
         // Page 2 of a TIFF is blue, 6 by 2, not the red first page.
         let tif = dir.join("t.tif");

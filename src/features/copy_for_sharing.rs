@@ -171,11 +171,16 @@ impl SharingOutcome {
     /// Copies `path` into `folder` with the tags `kept`, and counts what came of it. A name
     /// the folder has is never written over, also when the folder is the image's own. The copy
     /// is left out then, or with `renames` it gets the first free name of "NAME-2.EXT",
-    /// "NAME-3.EXT" ….
+    /// "NAME-3.EXT" …. A name whose sidecar is there counts as taken, as that sidecar's keywords
+    /// would show on the copy.
     fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>, renames: bool) {
         let name = path.file_name().unwrap_or_default();
+        let is_free = |target: &Path| {
+            crate::files::file_io::is_surely_gone(target)
+                && crate::metadata::xmp::has_no_sidecar(target)
+        };
         // A name whose look failed counts as taken too.
-        if !renames && !crate::files::file_io::is_surely_gone(&folder.join(name)) {
+        if !renames && !is_free(&folder.join(name)) {
             self.names_taken += 1;
             return;
         }
@@ -192,7 +197,7 @@ impl SharingOutcome {
                 1 => name.to_owned(),
                 _ => numbered(path, n),
             });
-            if n > 1 && !crate::files::file_io::is_surely_gone(&target) {
+            if !is_free(&target) {
                 continue;
             }
             match create_file(&target, &bytes) {
@@ -507,6 +512,11 @@ mod tests {
             (5, 5)
         );
         assert!(renamed.text(&out, None).contains("1 file given new names"));
+        // A sidecar left at the next name without its image keeps that name taken, so its
+        // keywords never show on the copy.
+        std::fs::write(out.join("x-3.png.xmp"), "left").unwrap();
+        renamed.copy_into(&b, &out, &kept, true);
+        assert!(out.join("x-4.png").exists() && !out.join("x-3.png").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

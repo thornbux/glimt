@@ -604,6 +604,17 @@ pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     }
 }
 
+/// Returns whether no sidecar is at the sidecar name of `path`, so that a new image that Glimt
+/// names may take `path`: nothing is there, or nothing can be, as the name is too long. A
+/// sidecar left there without its image holds keywords that are not the new image's, and may be
+/// their only copy. A look that failed counts as a sidecar there.
+pub(crate) fn has_no_sidecar(path: &Path) -> bool {
+    match crate::files::file_io::check_free(&sidecar(path)) {
+        Ok(()) => true,
+        Err(e) => e.raw_os_error() == Some(libc::ENAMETOOLONG),
+    }
+}
+
 /// `<file>.xmp`, next to the file.
 pub fn sidecar(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_owned();

@@ -667,11 +667,23 @@ impl std::error::Error for MayBeUnderBothNames {}
 /// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
 /// permission, says nothing, so the name counts as there. A step that removes, renames over or
 /// counts a file as deleted is then not taken on a look that failed. A link counts by its own
-/// name, not by its target. This, `is_surely_there`, `is_surely_file`, `is_surely_dir` and
-/// `is_link` are the one way Glimt asks whether a name is there, and what it is
+/// name, not by its target. This, `check_free`, `is_surely_there`, `is_surely_file`,
+/// `is_surely_dir` and `is_link` are the one way Glimt asks whether a name is there, and what it is
 /// (`source_rules::gone_means_not_found`).
 pub(crate) fn is_surely_gone(path: &Path) -> bool {
     look(path, false).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// Looks whether a new file may take the name `path`: nothing is there (NotFound). Returns
+/// `AlreadyExists` when something is there, a link too, and the look's own error when it failed,
+/// which says nothing either way. A name longer than its file system takes fails with
+/// ENAMETOOLONG, as no file can be there, which the caller tells from a name taken.
+pub(crate) fn check_free(path: &Path) -> std::io::Result<()> {
+    match look(path, false) {
+        Ok(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// Returns whether something is surely at `path`: the look at its name answered. A failed look
