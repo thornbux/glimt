@@ -7,12 +7,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- The search in Preferences finds "Automatic (system language)" by its English words also when
-  the window is in another language. Before, it found it only in English.
-- A close that waits for file operations, with Save Orientation on and a turn whose save was
-  refused while they ran, saves the turn when they end and waits for it. Before, that counted
-  as a second close: it stopped the file operations, and the next close ended without waiting
-  for the turn's save.
 - "Add the keywords to the selected" in the info panel keeps a keyword that holds a comma
   ("Smith, John", as Lightroom and digiKam write a person's name) whole. Before, every selected
   file got "Smith" and "John" instead, and the shown one got them beside its "Smith, John".
