@@ -109,8 +109,8 @@ fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
 /// A thumbnail larger than `max_side` on a side is not used: one of 8000×8000 that another
 /// program wrote in the shared cache would take 256 MB for each cell of the list.
 fn read_cached(file: &Path, (mtime, size): (u64, u64), max_side: u32) -> Option<image::RgbaImage> {
-    let bytes = crate::images::decode::read_limited(file).ok()?;
-    let reader = png::Decoder::new(std::io::Cursor::new(&bytes))
+    let bytes = crate::images::decode::DecodeInput::read(file).ok()?;
+    let reader = png::Decoder::new(std::io::Cursor::new(&bytes[..]))
         .read_info()
         .ok()?;
     let info = reader.info();
@@ -317,36 +317,18 @@ fn md5(data: &[u8]) -> [u8; 16] {
 /// A file whose program was ended by the time limit is marked the second time only, because the
 /// first time may have been a share that woke slowly. A file made to stall the program would
 /// otherwise cost a worker the whole limit at every visit.
+/// What a failure says about the file is told by `decode::failure_of`, the rule that Check
+/// Images follows too. A file larger than Glimt decodes is marked, as it fails again.
 fn should_mark_failed(path: &Path, error: &str) -> bool {
-    if error.contains(crate::files::external::TIMED_OUT) {
-        let mut timed_out = lock_even_if_poisoned(&TIMED_OUT_ONCE);
-        return !timed_out.insert(path.to_path_buf());
+    use crate::images::decode::DecodeFailure;
+    match crate::images::decode::failure_of(path, error) {
+        DecodeFailure::OfTheFile | DecodeFailure::TooLarge => true,
+        DecodeFailure::TimedOut => {
+            let mut timed_out = lock_even_if_poisoned(&TIMED_OUT_ONCE);
+            !timed_out.insert(path.to_path_buf())
+        }
+        DecodeFailure::NotOfTheFile => false,
     }
-    let away = [
-        "Input/output error",
-        "Transport endpoint is not connected",
-        "Host is down",
-    ];
-    !(needs_program(path) && program_missing(error))
-        && !error.contains("(os error")
-        && !away.iter().any(|m| error.contains(m))
-}
-
-/// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or an added format.
-fn needs_program(path: &Path) -> bool {
-    crate::files::external::ffmpeg_decodes(path)
-        || crate::images::added_formats::for_path(path).is_some()
-}
-
-/// Whether `error` says the program was not found (or may not run), not that the file is bad.
-fn program_missing(error: &str) -> bool {
-    [
-        "No such file or directory",
-        "command not found",
-        "Permission denied",
-    ]
-    .iter()
-    .any(|m| error.contains(m))
 }
 
 #[cfg(test)]
@@ -398,11 +380,6 @@ mod tests {
     /// ffmpeg not installed is no reason to give up on a file; ffmpeg failing on it is.
     #[test]
     fn tells_a_missing_program_from_a_bad_file() {
-        let missing = "video, HEIC and AVIF need ffmpeg: No such file or directory (os error 2)";
-        assert!(super::program_missing(missing));
-        assert!(!super::program_missing(
-            "Invalid data found when processing input"
-        ));
         // A photo whose share went away for a moment is tried again; a broken one is not.
         let jpg = std::path::Path::new("/a.jpg");
         let away = std::io::Error::from_raw_os_error(5).to_string();

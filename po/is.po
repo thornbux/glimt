@@ -3720,6 +3720,16 @@ msgstr "Alltaf haldið: stefnunni, svo myndin birtist ekki á hlið, litasniðin
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Skráarheiti"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "Afrit heldur heiti skrárinnar, sem getur geymt dagsetninguna, nema hakað sé við Skráarheiti: þá heita afritin image-1, image-2 og svo framvegis."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Fela"
 
@@ -3971,6 +3981,20 @@ msgstr "Gat ekki lesið merkjaskrána {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-skjávarpi"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "ekki talið í netmöppu"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: ekki var hægt að athuga: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Ekki var hægt að athuga {n}:"
 
 #: src/images/save.rs
 #, fuzzy

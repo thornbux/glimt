@@ -225,13 +225,15 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          starts with what you left out last time, but a tag you untick under a ticked group is \
          kept for this copy only: the next time the group leaves out all of it again. Copy… \
          asks for the folder. A copy has \
-         the original's file name, which can hold the date (IMG_20231004_…), also when Date and \
-         time is left out.\n\n\
+         the original's file name, which can hold the date (IMG_20231004_…), unless the box File \
+         name, under date and photographer, is ticked: then the copies are named image-1.jpg, \
+         image-2.jpg and so on, numbered past every name in the folder and every sidecar left \
+         there. Remove All ticks it too.\n\n\
          Glimt's sidecar is not copied, but what it says goes into the copy's own XMP, so alt \
          text written in Glimt reaches the published copy; its tags are in the dialog like the \
          others. IPTC keywords, caption, creator and place go into the copy's XMP too. Other \
-         formats are not copied, and a file whose name the folder already has is skipped; the \
-         notice at the end counts both. The originals are never changed.",
+         formats are not copied, and a file whose own name the folder already has is skipped, \
+         or given the name NAME-2.EXT when you tick that; the notice at the end counts them. The originals are never changed.",
     ),
     (
         "Slideshow",
@@ -522,6 +524,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          - files that are no image under an image's name.\n\n\
          They get an orange mark in the file list too, in the grid of thumbnails as well, until \
          another folder is shown.\n\n\
+         A file that could not be checked for a reason that says nothing about it is listed \
+         after them, without a mark: ffmpeg not installed, a share away for a moment, a program \
+         that ran out of time, or a picture larger than Glimt decodes.\n\n\
          A click on one shows it, Select Them selects them all, to move or delete; Stop or \
          Escape ends a long check. A folder of 100,000 photos takes some minutes.",
     ),

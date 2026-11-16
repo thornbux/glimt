@@ -2988,6 +2988,14 @@ msgid "Always kept: the orientation, so the image is not shown on its side, the 
 msgstr "Alltid med: retningen, så bildet ikke vises på siden, fargeprofilen, så fargene ikke endres, og et HDR-bildes forsterkningskart, så en HDR-skjerm fortsatt gjør det lysere. For en iPhones blir også to lysstyrkeverdier i produsentens notat med."
 
 #: src/features/copy_for_sharing.rs
+msgid "File name"
+msgstr "Filnavn"
+
+#: src/features/copy_for_sharing.rs
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "En kopi beholder filnavnet, som kan inneholde datoen, med mindre Filnavn er avkrysset: da får kopiene navnene image-1, image-2 og så videre."
+
+#: src/features/copy_for_sharing.rs
 msgid "Hide"
 msgstr "Skjul"
 
@@ -3189,6 +3197,17 @@ msgstr "Kunne ikke lese merkefilen {name}: {e}"
 #: src/viewer/view.rs
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/support/format.rs
+msgid "not counted on a network folder"
+msgstr "ikke talt opp i en nettverksmappe"
+#: src/features/check.rs
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: kunne ikke sjekkes: {why}"
+
+#: src/features/check.rs
+msgid "{n} could not be checked:"
+msgstr "{n} kunne ikke sjekkes:"
 
 #: src/images/save.rs
 msgid "Saved {file}, but not its sidecar: {e}"

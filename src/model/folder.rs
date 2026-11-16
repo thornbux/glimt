@@ -11,6 +11,7 @@ use crate::model::listing::{
     FoldersRead, ListedName, Types, Unread, is_listed, list_folder, list_tree, merge_shuffled,
     shuffle, sort_files, walk,
 };
+use crate::support::format::NOT_COUNTED_ON_A_SHARE;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
@@ -225,6 +226,15 @@ impl Folder {
     /// to it.
     pub(crate) fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Returns the folders whose files the list shows: the folders shown together, or else the
+    /// folder (`dir`), which for a collection is "/".
+    pub(crate) fn places(&self) -> Vec<PathBuf> {
+        match self.folders.is_empty() {
+            true => vec![self.dir.clone()],
+            false => self.folders.clone(),
+        }
     }
 
     /// Returns the place that Remember Last Folder keeps: the collection or the one folder
@@ -581,7 +591,7 @@ impl Listing {
             let sizes = paths
                 .into_iter()
                 .filter_map(|p| Some(p.metadata().ok()?.len()));
-            send_sizes(sizes, self.size_tx, &self.ctx);
+            send_sizes_unless_on_a_share(folders, sizes, self.size_tx, &self.ctx);
         }
     }
 
@@ -752,7 +762,9 @@ impl Listing {
         self.ctx.request_repaint();
         // The sizes come afterwards. The folder is read once more and summed from the directory
         // entries in chunks, so the status bar fills in gradually without a copy of the whole
-        // list in memory. A tree is read a folder at a time, unsorted.
+        // list in memory. A tree is read a folder at a time, unsorted. On a share they are not
+        // summed, as that is a look at each file and the tree read again.
+        let places = [self.dir.clone()];
         if self.recursive {
             let sizes = walk(&self.dir, self.types)
                 .flatten()
@@ -761,7 +773,7 @@ impl Listing {
                     (files.into_iter())
                         .filter_map(move |f| Some(folder.join(f.0).metadata().ok()?.len()))
                 });
-            return send_sizes(sizes, self.size_tx, &self.ctx);
+            return send_sizes_unless_on_a_share(&places, sizes, self.size_tx, &self.ctx);
         }
         let images = std::fs::read_dir(&self.dir)
             .into_iter()
@@ -770,7 +782,7 @@ impl Listing {
             .filter(|e| listing::kind(e).0 && is_listed(&e.path(), self.types));
         // Through a link, the size of the file it points to, as the list shows that.
         let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
-        send_sizes(sizes, self.size_tx, &self.ctx);
+        send_sizes_unless_on_a_share(&places, sizes, self.size_tx, &self.ctx);
     }
 }
 
@@ -1413,6 +1425,7 @@ impl crate::App {
                 read.iter_mut()
                     .for_each(|(path, time)| *time = modified(path));
             }
+            let on_a_share = is_any_on_a_share(&open_paths);
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
@@ -1421,6 +1434,10 @@ impl crate::App {
             let mut next = 0;
             while watcher_generation.load(Ordering::Relaxed) == generation {
                 std::thread::sleep(std::time::Duration::from_secs(1));
+                // A program started on a file of the share reads its start first.
+                if on_a_share && listing::a_program_is_starting() {
+                    continue;
+                }
                 let mut changed = false;
                 for i in folders_this_second(open, read.len(), next) {
                     let now = modified(&read[i].0);
@@ -2133,11 +2150,44 @@ pub(crate) fn send_sizes(
     ctx.request_repaint();
 }
 
+/// Sends the sizes that `sizes` looks up a file at a time, as `send_sizes` does, unless a folder
+/// of `places` is on a share. Then it sends `NOT_COUNTED_ON_A_SHARE` alone and looks at no file,
+/// because each look is a round trip over the network, which a program the user started on the
+/// share, such as a video player, would wait behind.
+pub(crate) fn send_sizes_unless_on_a_share(
+    places: &[PathBuf],
+    sizes: impl Iterator<Item = u64>,
+    tx: mpsc::Sender<u64>,
+    ctx: &egui::Context,
+) {
+    match is_any_on_a_share(places) {
+        true => send_sizes(std::iter::once(NOT_COUNTED_ON_A_SHARE), tx, ctx),
+        false => send_sizes(sizes, tx, ctx),
+    }
+}
+
+/// Returns the sum of the sizes of `paths`, as `total_size` does, or `NOT_COUNTED_ON_A_SHARE`
+/// without a look at any file when a folder of `places` is on a share.
+pub(crate) fn total_size_unless_on_a_share(places: &[PathBuf], paths: &[PathBuf]) -> u64 {
+    match is_any_on_a_share(places) {
+        true => NOT_COUNTED_ON_A_SHARE,
+        false => total_size(paths),
+    }
+}
+
+/// Returns whether a folder of `places` is on a share, where the status bar sums no sizes.
+// shortcut: a collection's list is under "/", so the sizes of its files on a share are still
+// summed; look at the folders of its entries if large collections on shares come up.
+fn is_any_on_a_share(places: &[PathBuf]) -> bool {
+    places.iter().any(|place| listing::is_on_a_share(place))
+}
+
 /// Adds the partial sums from `send_sizes` that have arrived. `rx` becomes `None` when the sum
 /// is done.
 pub(crate) fn add_sent_sizes(rx: &mut Receiving<u64>, total: &mut u64) {
     while let Took::Answer(sum) = rx.next() {
-        *total += sum;
+        // A sum not counted on a share stays as it is.
+        *total = total.saturating_add(sum);
     }
 }
 
@@ -3547,6 +3597,55 @@ mod tests {
         visit(&mut app, dir.join("b/x.png"));
         assert!(app.folder.dir().ends_with("b"));
         assert!(app.zoom.is_fitted(), "another folder's x.png opens fitted");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// On a share the status bar sums no sizes, of the folder, its tree, the selection or the
+    /// search's matches, and looks at no file for them. Each sum was a look at every file over
+    /// the network, and a tree's was the tree read again after every listing, so a video player
+    /// started on the share waited behind 500,000 round trips that nobody waited for.
+    #[test]
+    fn sizes_on_a_share_are_not_summed() {
+        use crate::files::file_ops::test_mount;
+        use crate::support::format::{NOT_COUNTED_ON_A_SHARE, size_text};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-share-sizes-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for name in ["a.png", "sub/b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let dir = crate::model::listing::real_dir(&dir);
+        test_mount(&dir, Some("cifs"));
+        let (mut app, ctx) = app_on(&dir);
+        app.config.show_subfolders = true;
+        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()
+            && a.status_bar.folder_total().is_some()));
+        assert_eq!(app.list.files(), ["a.png", "sub/b.png"]);
+        assert_eq!(app.status_bar.folder_total(), Some(NOT_COUNTED_ON_A_SHARE));
+        assert_eq!(
+            size_text(Some(NOT_COUNTED_ON_A_SHARE)),
+            "not counted on a network folder"
+        );
+        // The sums of the selection and of the matches look at no file either.
+        let looked = std::cell::Cell::new(0);
+        let sizes = std::iter::repeat_with(|| {
+            looked.set(looked.get() + 1);
+            1
+        })
+        .take(3);
+        let (tx, rx) = std::sync::mpsc::channel();
+        super::send_sizes_unless_on_a_share(&app.folder.places(), sizes, tx, &ctx);
+        assert_eq!(rx.iter().collect::<Vec<_>>(), [NOT_COUNTED_ON_A_SHARE]);
+        assert_eq!(looked.get(), 0);
+        let paths = [dir.join("a.png")];
+        let total = super::total_size_unless_on_a_share(&app.folder.places(), &paths);
+        assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
+        // On a disk of its own they are summed.
+        test_mount(&dir, None);
+        assert!(super::total_size_unless_on_a_share(&app.folder.places(), &paths) > 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

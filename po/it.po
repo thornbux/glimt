@@ -3720,6 +3720,16 @@ msgstr "Sempre conservati: l'orientamento, perché l'immagine non appaia di lato
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Nome del file"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "Una copia mantiene il nome del file, che può contenere la data, a meno che Nome del file non sia spuntato: allora le copie si chiamano image-1, image-2 e così via."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Nascondi"
 
@@ -3971,6 +3981,20 @@ msgstr "Impossibile leggere il file dei contrassegni {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Proiettore Glimt"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "non calcolato in una cartella di rete"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: impossibile controllare: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Impossibile controllare {n}:"
 
 #: src/images/save.rs
 #, fuzzy

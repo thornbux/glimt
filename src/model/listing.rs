@@ -62,6 +62,15 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
     (Sort::Extension, "extension", "Sort by extension"),
 ];
 
+/// How long Glimt's own reading of a share waits after a program was started on a file
+/// (`program_started`). A video player on a share reads the start of its file then, and the
+/// share serves Glimt's look at each file of a tree between the player's reads.
+const PROGRAM_STARTS_FOR: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// When a program was last started on a file, by Play Video or Open With.
+static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
+
 /// The folders a listing read, each with the modification time it had when it was read, so the
 /// folder watcher sees a change made after the reading. The time is `None` when it could not be
 /// read.
@@ -341,6 +350,43 @@ fn walk_by(
     })
 }
 
+/// Notes that a program was just started on a file, so that the reading of a share that nobody
+/// waits for waits a moment for it (`wait_while_a_program_starts`).
+pub(crate) fn program_started() {
+    *crate::support::threads::lock_even_if_poisoned(&PROGRAM_STARTED_AT) =
+        Some(std::time::Instant::now());
+}
+
+/// Returns whether a program was started on a file in the last `PROGRAM_STARTS_FOR`, as the
+/// time `started` that `program_started` noted says at `now`.
+fn is_starting(started: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    started.is_some_and(|at| now.saturating_duration_since(at) < PROGRAM_STARTS_FOR)
+}
+
+/// Returns whether a program started on a file may still be reading its start
+/// (`program_started`).
+pub(crate) fn a_program_is_starting() -> bool {
+    let started = *crate::support::threads::lock_even_if_poisoned(&PROGRAM_STARTED_AT);
+    is_starting(started, std::time::Instant::now())
+}
+
+/// Waits while a program started on a file may still be reading its start, or until `stop` is
+/// set. The reading of a tree on a share calls it between folders, so that a video player
+/// started on the same share is not queued behind a look at each file of the tree.
+fn wait_while_a_program_starts(stop: &std::sync::atomic::AtomicBool) {
+    while a_program_is_starting() && !stop.load(std::sync::atomic::Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// Returns whether `dir` is on a share or another FUSE mount (`file_io::is_remote`), where
+/// each look at a file is a round trip over the network. A mount whose type cannot be read
+/// counts as none.
+pub(crate) fn is_on_a_share(dir: &Path) -> bool {
+    crate::files::file_ops::file_system_type_or_test(dir)
+        .is_some_and(|kind| crate::files::file_io::is_remote(&kind))
+}
+
 /// Returns the path relative to the tree whose real path is `top` of a link's folder whose real
 /// path is `real`, which the walk follows. Returns `None` when the walk does not follow it: the
 /// folder is outside the tree, or its real path cannot be worked out. Made absolute instead, as
@@ -368,6 +414,7 @@ pub fn list_tree(
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
     let (mut read, mut left_out) = (Vec::new(), Vec::new());
+    let on_a_share = is_on_a_share(dir);
     for walked in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
         let (rel, dirs, files, modified) = match walked {
             Ok(walked) => walked,
@@ -393,6 +440,9 @@ pub fn list_tree(
         if !files.is_empty() {
             out.extend((files.into_iter()).map(|(f, id)| (rel.join(f).into_os_string(), id)));
             part(&out);
+        }
+        if on_a_share {
+            wait_while_a_program_starts(stop);
         }
     }
     // In name order, as list_folder gives a single folder; sort_files builds on that.
@@ -627,6 +677,44 @@ pub fn shuffle<T>(v: &mut [T]) {
 
 #[cfg(test)]
 mod tests {
+    /// A tree on a share is read on only once a program started on a file (Play Video, Open
+    /// With) has had a moment to read the start of its file. Before, the player's reads waited
+    /// behind a look at each file of the tree. A tree on a disk of its own does not wait.
+    #[test]
+    fn a_tree_on_a_share_waits_while_a_program_starts() {
+        use super::{PROGRAM_STARTS_FOR, is_starting};
+        use std::sync::atomic::AtomicBool;
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        assert!(is_starting(Some(now), now) && !is_starting(None, now));
+        assert!(!is_starting(Some(now), now + PROGRAM_STARTS_FOR));
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-share-gives-way-{}", std::process::id()));
+        for sub in ["a", "b"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            std::fs::write(dir.join(sub).join("1.jpg"), "x").unwrap();
+        }
+        let list = || {
+            let began = Instant::now();
+            let types = super::Types {
+                images: true,
+                raw: false,
+                videos: false,
+                hidden: false,
+            };
+            super::list_tree(&dir, types, &AtomicBool::new(false), |_| {}, |_| {}).unwrap();
+            began.elapsed()
+        };
+        // The program was started long enough ago that 400 ms of its time are left.
+        let started = Instant::now().checked_sub(PROGRAM_STARTS_FOR - Duration::from_millis(400));
+        *crate::support::threads::lock_even_if_poisoned(&super::PROGRAM_STARTED_AT) = started;
+        assert!(list() < Duration::from_millis(300), "a disk of its own");
+        crate::files::file_ops::test_mount(&dir, Some("fuse.gvfsd-fuse"));
+        assert!(list() >= Duration::from_millis(200), "a share");
+        crate::files::file_ops::test_mount(&dir, None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The images of a tree told after each folder with images, read in name order: the
     /// first told are a's own, before any of b.
     #[test]

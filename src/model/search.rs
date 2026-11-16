@@ -3,7 +3,7 @@
 //! together, at the start of a word or early in the name, rank first. Here is also the EXIF
 //! index that `exif:` terms search, with each file's fields and keywords as one line.
 
-use crate::model::folder::{add_sent_sizes, send_sizes};
+use crate::model::folder::{add_sent_sizes, send_sizes_unless_on_a_share};
 use crate::model::list::FileRow;
 use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
@@ -283,14 +283,18 @@ impl crate::App {
         };
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files()[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
-        let (dir, ctx) = (self.folder.dir().to_path_buf(), ctx.clone());
+        let (dir, places, ctx) = (
+            self.folder.dir().to_path_buf(),
+            self.folder.places(),
+            ctx.clone(),
+        );
         // No busy pointer: the matches' size in the status bar, a look-up nobody waits for, shown
         // when it comes.
         std::thread::spawn(move || {
             let sizes = names
                 .iter()
                 .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
-            send_sizes(sizes, tx, &ctx);
+            send_sizes_unless_on_a_share(&places, sizes, tx, &ctx);
         });
         self.search.match_size_rx = Receiving::of(rx);
     }

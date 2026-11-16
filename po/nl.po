@@ -3720,6 +3720,16 @@ msgstr "Altijd behouden: de richting, zodat de afbeelding niet op zijn kant staa
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Bestandsnaam"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "Een kopie houdt de naam van het bestand, die de datum kan bevatten, tenzij Bestandsnaam is aangevinkt: dan heten de kopieën image-1, image-2 enzovoort."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Verbergen"
 
@@ -3971,6 +3981,20 @@ msgstr "Kon het markeringenbestand {name} niet lezen: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projector"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "niet geteld in een netwerkmap"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: kon niet worden gecontroleerd: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "{n} konden niet worden gecontroleerd:"
 
 #: src/images/save.rs
 #, fuzzy

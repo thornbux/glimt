@@ -3720,6 +3720,16 @@ msgstr "Immer behalten: die Ausrichtung, damit das Bild nicht auf der Seite lieg
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Dateiname"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "Eine Kopie behält den Namen der Datei, der das Datum enthalten kann, außer wenn Dateiname angekreuzt ist: Dann heißen die Kopien image-1, image-2 und so weiter."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Ausblenden"
 
@@ -3971,6 +3981,20 @@ msgstr "Konnte die Markierungsdatei {name} nicht lesen: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-Projektor"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "in einem Netzwerkordner nicht gezählt"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: konnte nicht geprüft werden: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "{n} konnten nicht geprüft werden:"
 
 #: src/images/save.rs
 #, fuzzy

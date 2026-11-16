@@ -5,6 +5,50 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Copy for Sharing has a box of its own for the file name, under Date and time and Photographer
+  and copyright. Ticked, the copies are named image-1.jpg, image-2.jpg and so on, numbered past
+  every file and leftover sidecar in the folder, and Remove All ticks it too. Before, a copy
+  always kept the original's name, such as PXL_20231004_142355.jpg, and the date and time in it,
+  also when the user left the date out.
+### Fixed
+
+- On a network folder (SMB, NFS, a gvfs share), the status bar no longer sums the sizes of the
+  folder, its subfolders, the selection or the search's matches, and says "not counted on a
+  network folder" instead. Each sum looked at every file over the network, and a tree's read
+  the whole tree again after each listing. For a few seconds after Play Video or Open With
+  starts a program, the reading of the share's subfolders and the watch for its changes wait,
+  so the program reads the start of its file first. Before, a video started while Include
+  Subfolders still read a large tree on a share took long to start.
+### Fixed
+
+- Find Duplicates' Move to Trash keeps the checked files of a group, and says so, also when the
+  group's unchecked file could not be looked at during the search, or is a link whose target
+  was edited since. Before, such a file was taken as unchanged, and a copy that the edit had
+  made the last of the original went to the trash.
+### Fixed
+
+- A `--remote` command that waits (for a folder being opened or read, or behind a Delete or
+  Rename question) is never done once its client has stopped waiting: it is answered "not
+  done" before then. Before, the client was told "no answer", and the command was done later,
+  so a script that tried again moved two images, or its select replaced the user's selection.
+- `--remote open`, `select` and `info` keep a carriage return at the end of a path, and the
+  client refuses to send a path with one (exit 2), as an older window takes it off. Before,
+  `open "/pics/Trip\r"` opened /pics/Trip.
+- A build without the release tests' hooks answers `--remote where` as a command it does not
+  know. Before, it answered with the selected files' paths.
+### Fixed
+
+- Check Images lists a file that could not be checked apart from the broken ones, without a
+  mark in the list, and Select Them leaves it out: ffmpeg not installed, a share away for a
+  moment, a program that ran out of time, or a picture larger than Glimt decodes. Before, they
+  were all called broken, and a user who trusted that could delete good photos.
+- The view, the thumbnails and Check Images count the file they read, and the picture from
+  ffmpeg or an added format, in the memory that decodes share. Before, only the pixels counted,
+  and a downloaded folder of small JPEGs that each end in 500 MB of zeros took gigabytes, up to
+  12 GB with CPU use "full" on 16 cores, until the system ended Glimt.
+
 ### Fixed
 
 - Save As over a file, and a turn saved, keep the file's sidecar as it was when the file cannot
