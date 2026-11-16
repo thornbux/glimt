@@ -5,6 +5,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Check Images lists a file that could not be checked apart from the broken ones, without a
+  mark in the list, and Select Them leaves it out: ffmpeg not installed, a share away for a
+  moment, a program that ran out of time, or a picture larger than Glimt decodes. Before, they
+  were all called broken, and a user who trusted that could delete good photos.
+- The view, the thumbnails and Check Images count the file they read, and the picture from
+  ffmpeg or an added format, in the memory that decodes share. Before, only the pixels counted,
+  and a downloaded folder of small JPEGs that each end in 500 MB of zeros took gigabytes, up to
+  12 GB with CPU use "full" on 16 cores, until the system ended Glimt.
+
 ## [0.85.0] - 2026-11-16
 
 ### Fixed
