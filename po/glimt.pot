@@ -3199,3 +3199,11 @@ msgstr ""
 #: src/viewer/view.rs
 msgid "Glimt Projector"
 msgstr ""
+
+#: src/features/check.rs
+msgid "{name}: could not be checked: {why}"
+msgstr ""
+
+#: src/features/check.rs
+msgid "{n} could not be checked:"
+msgstr ""

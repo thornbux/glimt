@@ -3971,3 +3971,13 @@ msgstr "No se pudo leer el archivo de marcas {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Proyector de Glimt"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: no se pudo comprobar: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "No se pudieron comprobar {n}:"

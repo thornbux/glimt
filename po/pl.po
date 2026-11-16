@@ -3982,3 +3982,13 @@ msgstr "Nie udało się odczytać pliku znaczników {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Projektor Glimt"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: nie udało się sprawdzić: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Nie udało się sprawdzić ({n}):"

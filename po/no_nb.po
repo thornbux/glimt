@@ -3189,3 +3189,11 @@ msgstr "Kunne ikke lese merkefilen {name}: {e}"
 #: src/viewer/view.rs
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/features/check.rs
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: kunne ikke sjekkes: {why}"
+
+#: src/features/check.rs
+msgid "{n} could not be checked:"
+msgstr "{n} kunne ikke sjekkes:"

@@ -3971,3 +3971,13 @@ msgstr "Kunde inte läsa markeringsfilen {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: kunde inte kontrolleras: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "{n} kunde inte kontrolleras:"

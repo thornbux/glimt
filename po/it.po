@@ -3971,3 +3971,13 @@ msgstr "Impossibile leggere il file dei contrassegni {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Proiettore Glimt"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: impossibile controllare: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Impossibile controllare {n}:"

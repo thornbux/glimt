@@ -3982,3 +3982,13 @@ msgstr "Kunne ikkje lesa merkefila {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: kunne ikkje sjekkast: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "{n} kunne ikkje sjekkast:"

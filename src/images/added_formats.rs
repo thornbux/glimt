@@ -158,7 +158,7 @@ pub fn set_memory_limit(mb: usize) {
 /// Returns whether the error output `err` of a program that failed says that it ran out of
 /// memory: an allocation that failed (C's "Cannot allocate memory", Python's MemoryError, C++'s
 /// bad_alloc), or Java or a loader that could not reserve or map its space under the limit.
-fn ran_out_of_memory(err: &str) -> bool {
+pub(crate) fn ran_out_of_memory(err: &str) -> bool {
     let err = err.to_lowercase();
     ["memory", "alloc", "reserve", "failed to map"]
         .iter()

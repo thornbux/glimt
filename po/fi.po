@@ -3971,3 +3971,13 @@ msgstr "Merkintätiedostoa {name} ei voitu lukea: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projektori"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: ei voitu tarkistaa: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Ei voitu tarkistaa ({n}):"

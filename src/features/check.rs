@@ -1,5 +1,7 @@
-//! File → Check Images: every image of the list decoded in the background, the broken ones listed.
+//! File → Check Images: every image of the list decoded in the background, the broken ones listed,
+//! and those that could not be checked.
 
+use crate::images::decode::DecodeFailure;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, background_threads};
@@ -18,9 +20,14 @@ pub(crate) struct ImageCheck {
     working: Arc<AtomicUsize>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     total: usize,
-    found_rx: Receiving<(OsString, String)>,
+    /// Each file that failed: its name in the list, why, and whether that is the file's fault.
+    found_rx: Receiving<(OsString, String, bool)>,
     /// The broken ones found: (name in the list, why).
     broken: Vec<(OsString, String)>,
+    /// The files that could not be checked, for a reason that says nothing about the file,
+    /// such as ffmpeg not installed or a share away for a moment: (name in the list, why).
+    /// They are not marked broken, as a user who trusts the mark may delete them.
+    unchecked: Vec<(OsString, String)>,
 }
 
 impl ImageCheck {
@@ -40,10 +47,7 @@ impl crate::App {
             return;
         };
         if let Some(c) = &mut check {
-            while let Took::Answer((name, why)) = c.found_rx.next() {
-                self.broken_files.insert(name.clone());
-                c.broken.push((name, why));
-            }
+            self.take_found(c);
         }
         let (mut open, mut start, mut show, mut select) = (true, false, None, false);
         egui::Window::new(tr("Check Images"))
@@ -83,19 +87,34 @@ impl crate::App {
                         ctx.request_repaint_after(std::time::Duration::from_millis(200));
                     }
                 });
-                ui.label(summary(c.broken.len(), working, done, c.total));
+                let found = [c.broken.len(), c.unchecked.len()];
+                ui.label(summary(found, working, done, c.total));
                 if !c.broken.is_empty() && crate::ui::menus::button(ui, tr("Select Them")).clicked()
                 {
                     select = true;
                 }
                 let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+                let rows = c.broken.len() + c.unchecked.len();
                 egui::ScrollArea::vertical().auto_shrink(false).show_rows(
                     ui,
                     row,
-                    c.broken.len(),
+                    rows,
                     |ui, rows| {
-                        for (name, why) in &c.broken[rows] {
-                            let text = format!("{}: {why}", name.to_string_lossy());
+                        for i in rows {
+                            let (name, text) = match c.broken.get(i) {
+                                Some((name, why)) => {
+                                    (name, format!("{}: {why}", name.to_string_lossy()))
+                                }
+                                None => {
+                                    let (name, why) = &c.unchecked[i - c.broken.len()];
+                                    let text = tf!(
+                                        "{name}: could not be checked: {why}",
+                                        name = name.to_string_lossy(),
+                                        why
+                                    );
+                                    (name, text)
+                                }
+                            };
                             if crate::ui::menus::selectable(ui, false, &text).clicked() {
                                 show = Some(name.clone());
                             }
@@ -145,6 +164,7 @@ impl crate::App {
             total: files.len(),
             found_rx: Receiving::of(found),
             broken: Vec::new(),
+            unchecked: Vec::new(),
         };
         for _ in 0..threads {
             let (files, tx, next, ctx) = (files.clone(), tx.clone(), next.clone(), ctx.clone());
@@ -158,7 +178,8 @@ impl crate::App {
                         break;
                     };
                     if let Err(why) = decode::check_decodes(path) {
-                        let _ = tx.send((name.clone(), why));
+                        let is_broken = decode::failure_of(path, &why) == DecodeFailure::OfTheFile;
+                        let _ = tx.send((name.clone(), why, is_broken));
                     }
                     done.fetch_add(1, Ordering::Relaxed);
                 }
@@ -169,42 +190,108 @@ impl crate::App {
         }
         check
     }
+
+    /// Takes the failures that the check's threads found: a broken file is listed and marked
+    /// in the file list, and one that could not be checked is only listed.
+    fn take_found(&mut self, check: &mut ImageCheck) {
+        while let Took::Answer((name, why, is_broken)) = check.found_rx.next() {
+            match is_broken {
+                true => {
+                    self.broken_files.insert(name.clone());
+                    check.broken.push((name, why));
+                }
+                false => check.unchecked.push((name, why)),
+            }
+        }
+    }
 }
 
-/// Says what the check found: `broken` files, with `working` threads still at work after `done`
-/// of `total` files. A check that stopped early says so, and never "None broken.", as Find
-/// Duplicates gives no result when it was stopped.
-fn summary(broken: usize, working: usize, done: usize, total: usize) -> String {
-    let found = match (broken, working) {
-        (0, 0) => tr("None broken.").to_owned(),
-        (n, _) => tf!("{n} broken:", n = thousands(n)),
-    };
-    if working > 0 || done >= total {
-        return found;
+/// Says what the check found: the files `broken` and those that could not be checked, with
+/// `working` threads still at work after `done` of `total` files. A check that stopped early
+/// says so, and never "None broken.", as Find Duplicates gives no result when it was stopped.
+fn summary([broken, unchecked]: [usize; 2], working: usize, done: usize, total: usize) -> String {
+    let stopped = working == 0 && done < total;
+    let mut lines = Vec::new();
+    if stopped {
+        lines.push(tf!(
+            "Stopped: {done} of {total}",
+            done = thousands(done),
+            total = thousands(total)
+        ));
     }
-    let stopped = tf!(
-        "Stopped: {done} of {total}",
-        done = thousands(done),
-        total = thousands(total)
-    );
-    match broken {
-        0 => stopped,
-        _ => format!("{stopped}\n{found}"),
+    match (broken, working) {
+        (0, 0) if !stopped => lines.push(tr("None broken.").to_owned()),
+        (0, 0) => {}
+        (n, _) => lines.push(tf!("{n} broken:", n = thousands(n))),
     }
+    if unchecked > 0 {
+        let n = thousands(unchecked);
+        lines.push(tf!("{n} could not be checked:", n));
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::support::threads::lock_even_if_poisoned;
+
+    /// A file that could not be read, here because the look at it failed as on a share that
+    /// dropped for a moment, is listed as not checked, and neither marked broken nor selected
+    /// by Select Them. A file that is no picture is broken. Before, both were broken, and a
+    /// user who trusted the mark could delete good photos.
+    #[test]
+    fn a_file_that_could_not_be_read_is_not_called_broken() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-unchecked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(dir.join("away.png"))
+            .unwrap();
+        std::fs::write(dir.join("text.png"), b"not a picture").unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let names: Vec<_> = app.list.files().to_vec();
+        let away = names.iter().position(|n| n == "away.png").unwrap();
+        let unread = app.path(away);
+        let looks_fail = &crate::files::file_io::LOOKS_FAIL;
+        lock_even_if_poisoned(looks_fail).push(unread.clone());
+        let mut check = app.start_check(&ctx);
+        let start = std::time::Instant::now();
+        while check.working.load(super::Ordering::Relaxed) > 0 {
+            assert!(start.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        lock_even_if_poisoned(looks_fail).retain(|p| *p != unread);
+        app.take_found(&mut check);
+        let unchecked: Vec<_> = check.unchecked.iter().map(|(name, _)| name).collect();
+        assert_eq!(unchecked, ["away.png"]);
+        let broken: Vec<_> = check.broken.iter().map(|(name, _)| name).collect();
+        assert_eq!(broken, ["text.png"]);
+        assert_eq!(app.broken_files.len(), 1);
+        assert!(app.broken_files.contains(std::ffi::OsStr::new("text.png")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A check stopped after 300 of 5,000 files says it stopped, not "None broken.", which it
     /// once said although most files were never checked.
     #[test]
     fn a_stopped_check_says_it_stopped() {
-        assert_eq!(super::summary(0, 0, 5_000, 5_000), "None broken.");
-        assert_eq!(super::summary(0, 0, 300, 5_000), "Stopped: 300 of 5,000");
+        assert_eq!(super::summary([0, 0], 0, 5_000, 5_000), "None broken.");
         assert_eq!(
-            super::summary(2, 0, 300, 5_000),
+            super::summary([0, 0], 0, 300, 5_000),
+            "Stopped: 300 of 5,000"
+        );
+        assert_eq!(
+            super::summary([2, 0], 0, 300, 5_000),
             "Stopped: 300 of 5,000\n2 broken:"
         );
-        assert_eq!(super::summary(0, 3, 300, 5_000), "0 broken:");
+        assert_eq!(super::summary([0, 0], 3, 300, 5_000), "0 broken:");
+        // Files that could not be checked are counted apart from the broken ones.
+        assert_eq!(
+            super::summary([0, 2], 0, 5_000, 5_000),
+            "None broken.\n2 could not be checked:"
+        );
+        assert_eq!(
+            super::summary([0, 2], 0, 300, 5_000),
+            "Stopped: 300 of 5,000\n2 could not be checked:"
+        );
     }
 }

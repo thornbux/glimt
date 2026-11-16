@@ -3971,3 +3971,13 @@ msgstr "Gat ekki lesið merkjaskrána {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-skjávarpi"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: ekki var hægt að athuga: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Ekki var hægt að athuga {n}:"

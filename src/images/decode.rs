@@ -36,6 +36,13 @@ pub const MAX_DECODE_BYTES: u64 = 512 << 20;
 /// each claim nearly the limit would otherwise take gigabytes together.
 pub const DECODE_BUDGET: u64 = 4 * MAX_DECODE_BYTES;
 
+/// The error of a decode whose file could not be looked at, such as one on a share that
+/// dropped for a moment. It says nothing about the file (`failure_of`).
+const NOT_LOOKED_AT: &str = "the file could not be looked at";
+
+/// The error of a decode whose file changed while it was read (`DecodeInput::holding`).
+const CHANGED_WHILE_READ: &str = "the file changed while it was read";
+
 /// The shared budget that every decode takes its bytes from (`reserve_from_budget`).
 static BUDGET: DecodeBudget = DecodeBudget::new(DECODE_BUDGET);
 
@@ -104,6 +111,22 @@ type Unturned = (
 
 /// An animation's frames, decoded as they are taken, and its size, or why it is not decoded.
 type Animated = Result<(image::Frames<'static>, (u32, u32)), String>;
+
+/// What a failed decode says about its file, told by its error (`failure_of`).
+#[derive(Debug, PartialEq)]
+pub enum DecodeFailure {
+    /// The file is broken, or it is no image that Glimt reads.
+    OfTheFile,
+    /// The file is larger than Glimt decodes, or needs more memory than a decode may take. It
+    /// may be a good image, such as a large panorama.
+    TooLarge,
+    /// The program that reads it did not end in time. A busy computer or a share that woke
+    /// slowly causes that too.
+    TimedOut,
+    /// Nothing about the file: the program that reads it is not there, or the file could not
+    /// be looked at or read.
+    NotOfTheFile,
+}
 
 /// Bytes that decodes take from a shared total before they allocate, and give back after.
 pub struct DecodeBudget {
@@ -237,7 +260,7 @@ impl DecodeInput {
     /// reserved, such as a file that grew while it was read.
     pub fn holding(mut self, bytes: Vec<u8>) -> Result<DecodeInput, String> {
         if bytes.len() as u64 > self.reserved {
-            return Err("the file changed while it was read".into());
+            return Err(CHANGED_WHILE_READ.into());
         }
         self.bytes = bytes;
         Ok(self)
@@ -381,7 +404,10 @@ pub fn decode(
     let _job = start_decode_job();
     // Also for a file from a collection or the command line, which the listing did not see.
     if !crate::files::file_io::is_surely_file(path) {
-        return Err("not a regular file".into());
+        return Err(match crate::files::file_io::is_surely_there(path) {
+            true => "not a regular file".into(),
+            false => NOT_LOOKED_AT.into(),
+        });
     }
     if let Some((frames, orig)) = animation(path, max) {
         return Ok((frames, orig, 1));
@@ -1146,6 +1172,60 @@ pub fn check_decodes(path: &Path) -> Result<(), String> {
         return Err("cut off: the JPEG has no end".into());
     }
     Ok(())
+}
+
+/// Returns what the failure of a decode of `path` with `error` says about the file. This is the
+/// one rule for it, which Check Images and the thumbnails' failure marks follow. A program
+/// that is not there may be installed later. A file that could not be read says so in the
+/// system's words, "(os error N)", which a file that is no picture never gives, and a program
+/// that read from a share that failed says it in its own words.
+pub fn failure_of(path: &Path, error: &str) -> DecodeFailure {
+    if error.contains(crate::files::external::TIMED_OUT) {
+        return DecodeFailure::TimedOut;
+    }
+    let away = [
+        "Input/output error",
+        "Transport endpoint is not connected",
+        "Host is down",
+        NOT_LOOKED_AT,
+        CHANGED_WHILE_READ,
+    ];
+    if (needs_program(path) && program_missing(error))
+        || error.contains("(os error")
+        || away.iter().any(|m| error.contains(m))
+    {
+        return DecodeFailure::NotOfTheFile;
+    }
+    // An added format's error that it ran out of memory is told in the user's language, with
+    // the program's own words after it.
+    let added_format = crate::images::added_formats::for_path(path).is_some();
+    let too_large = ["too large", "too much memory"]
+        .iter()
+        .any(|m| error.contains(m))
+        || (added_format && crate::images::added_formats::ran_out_of_memory(error));
+    match too_large {
+        true => DecodeFailure::TooLarge,
+        false => DecodeFailure::OfTheFile,
+    }
+}
+
+/// Returns whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or an added
+/// format.
+fn needs_program(path: &Path) -> bool {
+    crate::files::external::ffmpeg_decodes(path)
+        || crate::images::added_formats::for_path(path).is_some()
+}
+
+/// Returns whether `error` says that the program was not found or may not run, not that the
+/// file is bad.
+fn program_missing(error: &str) -> bool {
+    [
+        "No such file or directory",
+        "command not found",
+        "Permission denied",
+    ]
+    .iter()
+    .any(|m| error.contains(m))
 }
 
 /// Returns whether a JPEG file's image data reaches its end marker (FF D9), which the data itself
@@ -2308,6 +2388,47 @@ mod tests {
         for broken in ["cut.jpg", "text.png", "empty.webp"] {
             assert!(super::check_decodes(&dir.join(broken)).is_err(), "{broken}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A failure says what it says about the file: ffmpeg not installed, a share away, a time
+    /// limit and Glimt's own size limit are not the file's fault, and a decoder's error is.
+    /// Check Images and the thumbnails' failure marks both follow this one rule.
+    #[test]
+    fn tells_what_a_failure_says_about_the_file() {
+        use super::DecodeFailure::{NotOfTheFile, OfTheFile, TimedOut, TooLarge};
+        use std::path::Path;
+        let (heic, jpg) = (Path::new("/a.heic"), Path::new("/a.jpg"));
+        let missing = "video, HEIC and AVIF need ffmpeg: No such file or directory (os error 2)";
+        assert_eq!(super::failure_of(heic, missing), NotOfTheFile);
+        let away = std::io::Error::from_raw_os_error(5).to_string();
+        assert_eq!(super::failure_of(jpg, &away), NotOfTheFile);
+        assert_eq!(super::failure_of(jpg, super::NOT_LOOKED_AT), NotOfTheFile);
+        let slow = format!("ffmpeg {}", crate::files::external::TIMED_OUT);
+        assert_eq!(super::failure_of(heic, &slow), TimedOut);
+        assert_eq!(super::failure_of(jpg, "image too large (1.1 GB)"), TooLarge);
+        let bad = "Format error decoding Jpeg: invalid marker";
+        assert_eq!(super::failure_of(jpg, bad), OfTheFile);
+        let invalid = "Invalid data found when processing input";
+        assert_eq!(super::failure_of(heic, invalid), OfTheFile);
+    }
+
+    /// A file whose look failed, as on a share that dropped for a moment, fails to decode with
+    /// an error that is not the file's fault. Before, it was "not a regular file", and Check
+    /// Images listed it as broken.
+    #[test]
+    fn a_file_that_could_not_be_looked_at_is_not_the_files_fault() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-look-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("away.png");
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        let looks_fail = &crate::files::file_io::LOOKS_FAIL;
+        lock_even_if_poisoned(looks_fail).push(file.clone());
+        let why = super::check_decodes(&file).unwrap_err();
+        lock_even_if_poisoned(looks_fail).retain(|p| *p != file);
+        let failure = super::failure_of(&file, &why);
+        assert_eq!(failure, super::DecodeFailure::NotOfTheFile);
+        assert_eq!(super::check_decodes(&file), Ok(()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
