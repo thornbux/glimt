@@ -2092,6 +2092,18 @@ pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
 /// Returns the fingerprint of the file or link at `path`, or the error of the look: NotFound
 /// when nothing is there.
 pub(crate) fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerprint> {
+    fingerprint_looked(path, false)
+}
+
+/// Returns the fingerprint of the file whose bytes are read at `path`: through a link, the file
+/// the link points to. Returns `None` when nothing is there or the look failed.
+pub(crate) fn fingerprint_of_file_read(path: &Path) -> Option<FileFingerprint> {
+    fingerprint_looked(path, true).ok()
+}
+
+/// Returns the fingerprint of the name `path`, of the file a link points to when `follow`, or
+/// the error of the look.
+fn fingerprint_looked(path: &Path, follow: bool) -> std::io::Result<FileFingerprint> {
     use std::os::unix::fs::MetadataExt;
     #[cfg(test)]
     if LOOK_FAILS.with_borrow_mut(|fails| match fails {
@@ -2104,7 +2116,7 @@ pub(crate) fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerpri
     }) {
         return Err(std::io::Error::from_raw_os_error(libc::EIO));
     }
-    let m = look(path, false)?;
+    let m = look(path, follow)?;
     let key = crate::images::save::file_id_from_metadata(path, &m).ok();
     Ok((key, m.len(), (m.mtime(), m.mtime_nsec())))
 }
