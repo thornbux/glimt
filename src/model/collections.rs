@@ -546,8 +546,9 @@ pub fn rename(
 /// window shows any more has nothing to change, as it is read anew when it is opened again.
 /// Returns the error of reading the file, unless the file is gone, which the listing shows.
 // shortcut: the list's file is read again for each edit, in the writer thread, so that the
-// window keeps no copy of its entries; keep one with the changes if edits of lists of 500,000
-// entries grow slow.
+// window keeps no copy of its entries until it makes an order of its own (a move, a rename or
+// an entry put back), and then one copy until another place is listed; keep the copy from the
+// start if edits of lists of 500,000 entries grow slow.
 fn edit_window_list(file: &Path, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
     // The file is read without the lock, which is never held while the disk is waited for.
     let now = match entries_by_real_path(file) {

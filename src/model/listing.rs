@@ -771,7 +771,7 @@ mod tests {
     /// rest of the tree. Before, any error but two stopped the walk, and a damaged subfolder
     /// left the whole tree unlisted at every listing. A folder that is gone has nothing in it.
     #[test]
-    fn a_folder_that_cannot_be_read_fails_the_walk() {
+    fn only_the_top_folder_that_cannot_be_read_fails_the_walk() {
         let dir =
             std::env::temp_dir().join(format!("glimt-test-walk-unread-{}", std::process::id()));
         for sub in ["a", "b", "c"] {
