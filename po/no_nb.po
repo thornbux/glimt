@@ -3197,3 +3197,7 @@ msgstr "Kunne ikke lese merkefilen {name}: {e}"
 #: src/viewer/view.rs
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/support/format.rs
+msgid "not counted on a network folder"
+msgstr "ikke talt opp i en nettverksmappe"

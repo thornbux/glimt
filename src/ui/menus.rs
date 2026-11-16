@@ -780,6 +780,9 @@ impl crate::App {
         let words: Vec<String> = (tools::command_words(command_line).into_iter())
             .map(|word| word.text)
             .collect();
+        // The reading of a share that nobody waits for gives way while the program reads the
+        // start of its file.
+        crate::model::listing::program_started();
         // No busy pointer: each program may stay open for hours, and nothing waits for it.
         std::thread::spawn(move || {
             for path in files {

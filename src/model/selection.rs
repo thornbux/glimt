@@ -1,6 +1,6 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
-use crate::model::folder::total_size;
+use crate::model::folder::total_size_unless_on_a_share;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::tf;
@@ -316,17 +316,21 @@ impl crate::App {
             .iter()
             .map(|&i| self.list.files()[i].clone())
             .collect();
-        let (dir, (tx, rx), ctx) = (
+        let (dir, places, ctx) = (
             self.folder.dir().to_path_buf(),
-            mpsc::channel(),
+            self.folder.places(),
             ctx.clone(),
         );
+        let (tx, rx) = mpsc::channel();
         // No busy pointer: the selection's size in the status bar, a look-up nobody waits for,
         // shown when it comes.
         std::thread::spawn(move || {
             let paths: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
             // The receiver is gone if the selection changed again; then the answer is dropped.
-            if tx.send(total_size(&paths)).is_ok() {
+            if tx
+                .send(total_size_unless_on_a_share(&places, &paths))
+                .is_ok()
+            {
                 ctx.request_repaint();
             }
         });

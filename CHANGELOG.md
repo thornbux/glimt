@@ -12,6 +12,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   every file and leftover sidecar in the folder, and Remove All ticks it too. Before, a copy
   always kept the original's name, such as PXL_20231004_142355.jpg, and the date and time in it,
   also when the user left the date out.
+### Fixed
+
+- On a network folder (SMB, NFS, a gvfs share), the status bar no longer sums the sizes of the
+  folder, its subfolders, the selection or the search's matches, and says "not counted on a
+  network folder" instead. Each sum looked at every file over the network, and a tree's read
+  the whole tree again after each listing. For a few seconds after Play Video or Open With
+  starts a program, the reading of the share's subfolders and the watch for its changes wait,
+  so the program reads the start of its file first. Before, a video started while Include
+  Subfolders still read a large tree on a share took long to start.
 
 ## [0.85.0] - 2026-11-16
 

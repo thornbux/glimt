@@ -3992,3 +3992,8 @@ msgstr "Kunne ikkje lesa merkefila {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projektor"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "ikkje talt opp i ei nettverksmappe"

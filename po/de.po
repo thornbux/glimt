@@ -3981,3 +3981,8 @@ msgstr "Konnte die Markierungsdatei {name} nicht lesen: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-Projektor"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "in einem Netzwerkordner nicht gezählt"

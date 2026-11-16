@@ -3207,3 +3207,7 @@ msgstr ""
 #: src/viewer/view.rs
 msgid "Glimt Projector"
 msgstr ""
+
+#: src/support/format.rs
+msgid "not counted on a network folder"
+msgstr ""
