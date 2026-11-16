@@ -1121,10 +1121,9 @@ fn open_regular_with_flags(
     flags: i32,
 ) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::unix::fs::OpenOptionsExt;
-    const O_NONBLOCK: i32 = 0o4000;
     #[allow(clippy::disallowed_methods)] // the one opening of a file to read it whole
     let file = (std::fs::OpenOptions::new().read(true))
-        .custom_flags(O_NONBLOCK | flags)
+        .custom_flags(libc::O_NONBLOCK | flags)
         .open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() {

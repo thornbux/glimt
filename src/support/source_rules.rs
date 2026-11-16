@@ -4930,6 +4930,46 @@ fn finds_a_foreign_declaration() {
     assert_eq!(foreign_declarations(text), [1]);
 }
 
+/// The flags of the C library's calls come from libc too, because their values differ between
+/// processors. `O_NONBLOCK` written as 0o4000 is another flag on mips, sparc, alpha and parisc,
+/// where a pipe named x.jpg would then block the thread that opens it for good.
+#[test]
+fn c_flags_come_from_libc() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = flags_written_by_hand(&text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a flag of the C library written by hand; take it from libc:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that define a constant named as the C
+/// library's open flags are (`O_…`).
+fn flags_written_by_hand(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let defines_flag = |line: &String| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        (words.windows(2)).any(|w| w[0] == "const" && w[1].starts_with("O_"))
+    };
+    (0..end)
+        .filter(|&i| defines_flag(&lines[i]))
+        .map(|i| i + 1)
+        .collect()
+}
+
+/// The check above finds a flag defined by hand, and leaves one taken from libc.
+#[test]
+fn finds_a_flag_written_by_hand() {
+    let text =
+        "fn open() {\n    const O_NONBLOCK: i32 = 0o4000;\n    let f = libc::O_NONBLOCK;\n}\n";
+    assert_eq!(flags_written_by_hand(text), [2]);
+}
+
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
 /// `put_file`, each with whether it syncs the folder, itself or through `write_beside`.
 // shortcut: a function counts as synced when it syncs anywhere, so a branch that renames
