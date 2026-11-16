@@ -2282,16 +2282,25 @@ mod tests {
             let major = ((dev >> 8) & 0xfff) | ((dev >> 32) & !0xfff);
             let minor = (dev & 0xff) | ((dev >> 12) & !0xff);
             let file = format!("{major:02x}:{minor:02x}:{}", meta.ino());
-            let locks = std::fs::read_to_string("/proc/locks").unwrap();
-            let line = locks
-                .lines()
-                .map(|l| l.split_whitespace().collect::<Vec<_>>());
-            let mut kinds = line.filter(|w| w.get(5) == Some(&file.as_str()));
-            match kinds.next().as_deref() {
-                Some([_, "FLOCK", ..]) => "flock".to_string(),
-                Some([_, kind, ..]) => kind.to_lowercase(),
-                _ => "not locked".to_string(),
-            }
+            // The kernel writes /proc/locks in pieces, and a lock that another test takes or
+            // drops between two pieces can make a line be skipped. So the file is read again
+            // until the lock's line is there. Before, under the load of the whole test run,
+            // the line was now and then missed and the lock read as "not locked".
+            let kind_once = || {
+                let locks = std::fs::read_to_string("/proc/locks").unwrap();
+                let line = locks
+                    .lines()
+                    .map(|l| l.split_whitespace().map(str::to_owned).collect::<Vec<_>>());
+                let mut kinds = line.filter(|w| w.get(5) == Some(&file));
+                match kinds.next().as_deref() {
+                    Some([_, kind, ..]) if kind == "FLOCK" => Some("flock".to_string()),
+                    Some([_, kind, ..]) => Some(kind.to_lowercase()),
+                    _ => None,
+                }
+            };
+            (0..100)
+                .find_map(|_| kind_once())
+                .unwrap_or_else(|| "not locked".to_string())
         };
         let lock = dir.join("lock");
         let held = crate::files::file_io::open_and_lock(&lock).unwrap();
