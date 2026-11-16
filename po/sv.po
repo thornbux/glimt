@@ -3720,6 +3720,16 @@ msgstr "Alltid kvar: orienteringen, så att bilden inte visas på sidan, färgpr
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Filnamn"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "En kopia behåller filens namn, som kan innehålla datumet, om inte Filnamn är markerat: då får kopiorna namnen image-1, image-2 och så vidare."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Dölj"
 

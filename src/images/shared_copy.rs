@@ -956,6 +956,12 @@ const IIM_NAMESPACES: [(&str, &str); 3] = [
     ),
 ];
 
+/// The word kept in the choice's file (`LeftOut::text`) when the copies' file names are left
+/// out. The name is not a tag, so it has a box of its own beside the groups, and an older file
+/// without the word keeps the names, as Glimt did before. The word is frozen in 1.x like the
+/// groups' (`Group::key`).
+pub(crate) const FILE_NAME_KEY: &str = "group:filename";
+
 /// A group of tags, which the dialog shows with a checkbox for all of them and a list of each.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Group {
@@ -1081,6 +1087,9 @@ pub(crate) struct LeftOut {
     /// whole. A block (`BLOCKS`) goes with any group it can hold that has. It is counted again
     /// after every change of the tags or groups left out.
     has_left_out: [bool; 8],
+    /// Whether the copies are given neutral names instead of the originals' file names, which
+    /// can hold the date (`PXL_20231004_142355.jpg`).
+    is_file_name_left_out: bool,
 }
 
 impl LeftOut {
@@ -1090,6 +1099,10 @@ impl LeftOut {
     pub(crate) fn parse(text: &str) -> LeftOut {
         let mut left_out = LeftOut::default();
         for word in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            if word == FILE_NAME_KEY {
+                left_out.is_file_name_left_out = true;
+                continue;
+            }
             match Group::of_key(word) {
                 Some(group) => left_out.groups_left_out[group as usize] = true,
                 None => {
@@ -1113,11 +1126,13 @@ impl LeftOut {
     }
 
     /// The text of the choice's file, one word to a line: the keys of the groups left out
-    /// whole, then the names of the tags left out. The kept tags are not in it, nor is a name
-    /// with a line break, whose second line would be read as another word.
+    /// whole and `FILE_NAME_KEY` when the file names are, then the names of the tags left out.
+    /// The kept tags are not in it, nor is a name with a line break, whose second line would be
+    /// read as another word.
     pub(crate) fn text(&self) -> String {
         let groups = (Group::ALL.iter()).filter(|g| self.is_group_left_out(**g));
-        let keys = groups.map(|g| g.key());
+        let name = self.is_file_name_left_out.then_some(FILE_NAME_KEY);
+        let keys = groups.map(|g| g.key()).chain(name);
         (keys.chain(self.tags_left_out.iter().map(String::as_str)))
             .filter(fits_on_a_line)
             .map(|word| format!("{word}\n"))
@@ -1167,11 +1182,22 @@ impl LeftOut {
         self.count_groups();
     }
 
-    /// Leaves every tag out. The orientation, the colour profile and an HDR photo's gain map are
-    /// still kept, as they are not tags of the choice. An iPhone's gain map also keeps the HDR
-    /// headroom and gain of the maker note (`exif::apple_hdr_maker_note`).
+    /// Whether the copies are given neutral names instead of the originals' file names.
+    pub(crate) fn is_file_name_left_out(&self) -> bool {
+        self.is_file_name_left_out
+    }
+
+    /// Gives the copies neutral names, or keeps the originals' file names.
+    pub(crate) fn set_file_name(&mut self, left_out: bool) {
+        self.is_file_name_left_out = left_out;
+    }
+
+    /// Leaves every tag and the file names out. The orientation, the colour profile and an HDR
+    /// photo's gain map are still kept, as they are not tags of the choice. An iPhone's gain map
+    /// also keeps the HDR headroom and gain of the maker note (`exif::apple_hdr_maker_note`).
     pub(crate) fn remove_all(&mut self) {
         Group::ALL.iter().for_each(|g| self.set_group(*g, true));
+        self.is_file_name_left_out = true;
     }
 
     /// Returns the tags of `found` that a copy keeps: those not left out. A tag that is not in
@@ -2291,6 +2317,24 @@ mod tests {
         assert!(left_out.is_left_out("Exif 0x+abc"));
         let saved = left_out.text();
         assert!(saved.contains("DateTimeOriginal\n") && !saved.contains("Exif 0x9003"));
+    }
+
+    /// The file names are a choice of their own: kept by an older sharing file without the
+    /// word, saved and read back when left out, and left out by Remove All. Before, a copy
+    /// always had the original's name, which can hold the date, also after Remove All.
+    #[test]
+    fn the_file_name_is_a_choice_saved_with_the_groups() {
+        let older = super::LeftOut::parse("group:date\ngroup:photographer\n");
+        assert!(!older.is_file_name_left_out());
+        let mut left_out = super::LeftOut::default();
+        left_out.set_file_name(true);
+        let saved = super::LeftOut::parse(&left_out.text());
+        assert!(saved.is_file_name_left_out() && !saved.is_left_out("Make"));
+        assert_eq!(left_out.text(), format!("{}\n", super::FILE_NAME_KEY));
+        let mut all = super::LeftOut::default();
+        all.remove_all();
+        assert!(all.is_file_name_left_out());
+        assert!(super::LeftOut::parse(&all.text()).is_file_name_left_out());
     }
 
     /// The EXIF block of the tests, big-endian: Make "Canon", orientation 6, a body serial

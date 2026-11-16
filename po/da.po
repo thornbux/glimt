@@ -3720,6 +3720,16 @@ msgstr "Altid med: retningen, så billedet ikke vises på siden, farveprofilen, 
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Filnavn"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "En kopi beholder filens navn, som kan indeholde datoen, medmindre Filnavn er markeret: så får kopierne navnene image-1, image-2 og så videre."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Skjul"
 

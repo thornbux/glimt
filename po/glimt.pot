@@ -2998,6 +2998,14 @@ msgid "Always kept: the orientation, so the image is not shown on its side, the 
 msgstr ""
 
 #: src/features/copy_for_sharing.rs
+msgid "File name"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
 msgid "Hide"
 msgstr ""
 

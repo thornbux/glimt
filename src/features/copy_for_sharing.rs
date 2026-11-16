@@ -1,9 +1,11 @@
 //! File → Copy for Sharing…: copies of the selected images in a folder the user chooses, without
 //! the metadata the user leaves out (`images::shared_copy`). The dialog lists the tags the images
 //! have, in groups, and starts with what was left out last time. The originals are never
-//! changed, and a name already in the folder is never written over. A copy whose name is taken,
-//! such as two photos of one name from two folders listed with subfolders, is left out or, when
-//! the user ticks it, gets a new name, "NAME-2.EXT".
+//! changed, and a name already in the folder is never written over. A copy keeps the original's
+//! file name, unless the user leaves the name out: then the copies are named "image-1.EXT",
+//! "image-2.EXT" …. A copy whose own name is taken, such as two photos of one name from two
+//! folders listed with subfolders, is left out or, when the user ticks it, gets a new name,
+//! "NAME-2.EXT".
 
 use crate::files::config::sharing_path;
 use crate::files::file_io::{PickedFiles, create_file, edit_shared, save_failed, write_later};
@@ -21,6 +23,17 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// How the copies are named.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Naming {
+    /// The original's file name. A copy whose name is taken is left out.
+    Own,
+    /// The original's file name, or "NAME-2.EXT", "NAME-3.EXT" … when it is taken.
+    OwnOrNumbered,
+    /// "image-1.EXT", "image-2.EXT" …, without the original's name, which can hold the date.
+    Neutral,
+}
 
 /// The Copy for Sharing dialog while it is open, for the images `picked`, whose fingerprints are
 /// taken while it is open.
@@ -44,6 +57,15 @@ pub(crate) struct SharingDialog {
 }
 
 impl SharingDialog {
+    /// Returns how the copies are named, as the dialog's boxes say.
+    fn naming(&self) -> Naming {
+        match (self.left_out.is_file_name_left_out(), self.renames) {
+            (true, _) => Naming::Neutral,
+            (false, true) => Naming::OwnOrNumbered,
+            (false, false) => Naming::Own,
+        }
+    }
+
     /// Takes what the background read, when it is done.
     fn receive_tags(&mut self) -> Took<()> {
         match self.reading.take() {
@@ -89,29 +111,46 @@ impl SharingDialog {
             .show(ui, |ui| {
                 for (i, group) in Group::ALL.into_iter().enumerate() {
                     self.draw_group(ui, i, group, &found);
+                    // The name can hold the date and the photographer's name, so its box is
+                    // under theirs.
+                    if group == Group::Photographer {
+                        let mut is_left_out = self.left_out.is_file_name_left_out();
+                        if checkbox(ui, &mut is_left_out, tr("File name")).changed() {
+                            self.left_out.set_file_name(is_left_out);
+                        }
+                    }
                 }
             });
-        ui.weak(tr(
+        let always_kept = tr(
             "Always kept: the orientation, so the image is not shown on its side, the colour \
              profile, so its colours do not change, and an HDR photo's gain map, so an HDR \
              screen still brightens it. An iPhone's gain map also keeps two brightness values \
              of the maker note.",
-        ));
-        if self.clashes > 0 {
-            let images = count(self.clashes, "image");
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                tf!(
-                    "Same name as another image picked, from another folder: {images}",
-                    images
-                ),
+        );
+        let name = tr(
+            "A copy keeps the file's name, which can hold the date, unless File name is ticked: \
+             then the copies are named image-1, image-2 and so on.",
+        );
+        ui.weak(format!("{always_kept} {name}"));
+        // Neutral names are never taken, so the clashes of the files' own names matter only
+        // while those are kept.
+        if !self.left_out.is_file_name_left_out() {
+            if self.clashes > 0 {
+                let images = count(self.clashes, "image");
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    tf!(
+                        "Same name as another image picked, from another folder: {images}",
+                        images
+                    ),
+                );
+            }
+            checkbox(
+                ui,
+                &mut self.renames,
+                tr("Give a copy whose name is taken a new name (NAME-2.EXT)"),
             );
         }
-        checkbox(
-            ui,
-            &mut self.renames,
-            tr("Give a copy whose name is taken a new name (NAME-2.EXT)"),
-        );
         let mut go = false;
         ui.horizontal(|ui| {
             go = button(ui, tr("Copy…")).clicked();
@@ -165,17 +204,23 @@ struct SharingOutcome {
     /// Files whose name was taken, copied under a new name.
     renamed: usize,
     errors: Vec<String>,
+    /// The number of the last neutral name tried (`Naming::Neutral`), so that each copy of a
+    /// job looks on from there.
+    last_neutral_number: usize,
 }
 
 impl SharingOutcome {
-    /// Copies `path` into `folder` with the tags `kept`, and counts what came of it. A name
-    /// the folder has is never written over, also when the folder is the image's own. The copy
-    /// is left out then, or with `renames` it gets the first free name of "NAME-2.EXT",
-    /// "NAME-3.EXT" ….
-    fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>, renames: bool) {
+    /// Copies `path` into `folder` with the tags `kept`, named as `naming` says, and counts
+    /// what came of it. A name the folder has is never written over, also when the folder is
+    /// the image's own. With `Naming::Own` the copy is left out then, and with
+    /// `OwnOrNumbered` it gets the first free name of "NAME-2.EXT", "NAME-3.EXT" …. A name
+    /// Glimt makes up is free only when no sidecar of that name is left there either, which
+    /// would give the copy a stranger's keywords and comment.
+    fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>, naming: Naming) {
+        use crate::files::file_io::is_surely_gone;
         let name = path.file_name().unwrap_or_default();
         // A name whose look failed counts as taken too.
-        if !renames && !crate::files::file_io::is_surely_gone(&folder.join(name)) {
+        if naming == Naming::Own && !is_surely_gone(&folder.join(name)) {
             self.names_taken += 1;
             return;
         }
@@ -186,19 +231,25 @@ impl SharingOutcome {
             Err(e) => return self.errors.push(format!("{}: {e}", path.display())),
         };
         // A bound, so a folder whose names cannot be looked at does not keep it trying.
-        let tries = if renames { 1000 } else { 1 };
+        let tries = if naming == Naming::Own { 1 } else { 1000 };
         for n in 1..=tries {
-            let target = folder.join(match n {
-                1 => name.to_owned(),
+            let is_made_up = naming == Naming::Neutral || n > 1;
+            let target = folder.join(match naming {
+                Naming::Neutral => {
+                    self.last_neutral_number += 1;
+                    neutral_name(path, self.last_neutral_number)
+                }
+                _ if n == 1 => name.to_owned(),
                 _ => numbered(path, n),
             });
-            if n > 1 && !crate::files::file_io::is_surely_gone(&target) {
+            let sidecar = crate::metadata::xmp::sidecar(&target);
+            if is_made_up && !(is_surely_gone(&target) && is_surely_gone(&sidecar)) {
                 continue;
             }
             match create_file(&target, &bytes) {
                 Ok(()) => {
                     self.copied += 1;
-                    self.renamed += usize::from(n > 1);
+                    self.renamed += usize::from(naming == Naming::OwnOrNumbered && n > 1);
                     return;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -306,23 +357,20 @@ impl crate::App {
             go = dialog.draw(ui);
         });
         if go {
+            let naming = dialog.naming();
             let found = dialog.found.unwrap_or_default();
             let kept = dialog.left_out.kept(&found);
             save_choice(dialog.left_out.text());
             let picked = dialog.picked;
-            self.pick(
-                ctx,
-                true,
-                Pick::CopyForSharing(picked, kept, dialog.renames),
-            );
+            self.pick(ctx, true, Pick::CopyForSharing(picked, kept, naming));
         } else if !modal.should_close() {
             self.dialogs.show_sharing(dialog);
         }
     }
 
     /// Copies the images `picked` into `folder` in the background, each keeping the tags `kept`
-    /// and what every copy keeps (`shared_copy::copy`), and a new name when its own is taken and
-    /// `renames`, as a job with progress and Stop. The
+    /// and what every copy keeps (`shared_copy::copy`), named as `naming` says, as a job with
+    /// progress and Stop. The
     /// originals are held back while it runs, as a copy holds them (`transfer`): a Rename Many
     /// meanwhile could hand one photo another photo's sidecar. An image that is no longer the
     /// one picked is not copied, and is told.
@@ -331,12 +379,12 @@ impl crate::App {
         picked: PickedFiles,
         folder: PathBuf,
         kept: HashSet<String>,
-        renames: bool,
+        naming: Naming,
     ) {
         // The folder by its real path, looked up in the background as for a copy (`transfer`).
         let paths = picked.paths().to_vec();
         self.with_real_folder(folder, (paths, false), move |app, ctx, folder, _| {
-            app.copy_for_sharing_into_real_folder(ctx, picked, folder, (kept, renames))
+            app.copy_for_sharing_into_real_folder(ctx, picked, folder, (kept, naming))
         });
     }
 
@@ -346,7 +394,7 @@ impl crate::App {
         ctx: &egui::Context,
         picked: PickedFiles,
         folder: PathBuf,
-        (kept, renames): (HashSet<String>, bool),
+        (kept, naming): (HashSet<String>, Naming),
     ) {
         let paths = picked.paths().to_vec();
         let Some(job) = self.start_job(tr("Copying"), paths.len(), paths.clone()) else {
@@ -366,7 +414,7 @@ impl crate::App {
                 }
                 // Another window or program may have given the name to another photo meanwhile.
                 match picked.still_the_one_picked(path) {
-                    Ok(()) => outcome.copy_into(path, &folder, &kept, renames),
+                    Ok(()) => outcome.copy_into(path, &folder, &kept, naming),
                     Err(e) => outcome.errors.push(format!("{}: {e}", path.display())),
                 }
                 job.count_done(1);
@@ -393,6 +441,17 @@ impl crate::App {
 /// Returns the name "NAME-n.EXT" of `path`, or "NAME-n" when it has no extension.
 fn numbered(path: &Path, n: usize) -> std::ffi::OsString {
     let mut name = crate::images::save::stem_with_suffix(path, &format!("-{n}"));
+    if let Some(ext) = path.extension() {
+        name.push(".");
+        name.push(ext);
+    }
+    name
+}
+
+/// Returns the neutral name "image-n.EXT" for a copy of `path`, or "image-n" when it has no
+/// extension. The extension stays, as it says the format and nothing about the photo.
+fn neutral_name(path: &Path, n: usize) -> std::ffi::OsString {
+    let mut name = std::ffi::OsString::from(format!("image-{n}"));
     if let Some(ext) = path.extension() {
         name.push(".");
         name.push(ext);
@@ -433,7 +492,12 @@ mod tests {
         std::fs::remove_file(&a).unwrap();
         image::RgbImage::new(3, 3).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.copy_for_sharing(picked, dir.join("sub"), Default::default(), false);
+        app.copy_for_sharing(
+            picked,
+            dir.join("sub"),
+            Default::default(),
+            super::Naming::Own,
+        );
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()
             && app.notice.text().is_some()));
         assert!(!dir.join("sub/a.png").exists());
@@ -451,6 +515,7 @@ mod tests {
             names_taken: 3,
             renamed: 0,
             errors: Vec::new(),
+            last_neutral_number: 0,
         };
         let text = outcome.text(std::path::Path::new("/out"), None);
         assert!(text.starts_with("2 files copied to /out"), "{text}");
@@ -470,7 +535,7 @@ mod tests {
         let folder = dir.join("no such folder");
         let kept = Default::default();
         let picked = crate::files::file_io::PickedFiles::new(vec![png]);
-        app.copy_for_sharing_into_real_folder(&ctx, picked, folder, (kept, false));
+        app.copy_for_sharing_into_real_folder(&ctx, picked, folder, (kept, super::Naming::Own));
         let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
         assert!(matches!(told, Ok(super::Told::FailedWrite(_))), "{told:?}");
         std::fs::remove_dir_all(dir).unwrap();
@@ -491,13 +556,13 @@ mod tests {
         assert_eq!(super::name_clashes(&[a.clone(), b.clone()]), 1);
         let kept = Default::default();
         let mut skipped = super::SharingOutcome::default();
-        skipped.copy_into(&a, &out, &kept, false);
-        skipped.copy_into(&b, &out, &kept, false);
+        skipped.copy_into(&a, &out, &kept, super::Naming::Own);
+        skipped.copy_into(&b, &out, &kept, super::Naming::Own);
         assert_eq!((skipped.copied, skipped.names_taken), (1, 1));
         std::fs::remove_file(out.join("x.png")).unwrap();
         let mut renamed = super::SharingOutcome::default();
-        renamed.copy_into(&a, &out, &kept, true);
-        renamed.copy_into(&b, &out, &kept, true);
+        renamed.copy_into(&a, &out, &kept, super::Naming::OwnOrNumbered);
+        renamed.copy_into(&b, &out, &kept, super::Naming::OwnOrNumbered);
         assert_eq!(
             (renamed.copied, renamed.renamed, renamed.names_taken),
             (2, 1, 0)
@@ -507,6 +572,45 @@ mod tests {
             (5, 5)
         );
         assert!(renamed.text(&out, None).contains("1 file given new names"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// With the file name left out, the copies are named "image-1.EXT", "image-2.EXT" …,
+    /// numbered past every name in the folder and every leftover sidecar's name, and never
+    /// over a file. Before, a copy of PXL_20231004_142355.png kept that name, and the date in
+    /// it, whatever the user left out.
+    #[test]
+    fn copies_without_their_file_names_get_neutral_names() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-sharing-neutral-{}", std::process::id()));
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let (a, b) = (dir.join("PXL_20231004_142355.png"), dir.join("b.png"));
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        image::RgbImage::new(5, 5).save(&b).unwrap();
+        std::fs::write(out.join("image-1.png"), b"someone else's").unwrap();
+        std::fs::write(out.join("image-2.png.xmp"), b"a leftover sidecar").unwrap();
+        let mut outcome = super::SharingOutcome::default();
+        outcome.copy_into(&a, &out, &Default::default(), super::Naming::Neutral);
+        outcome.copy_into(&b, &out, &Default::default(), super::Naming::Neutral);
+        assert_eq!(
+            (outcome.copied, outcome.renamed, outcome.names_taken),
+            (2, 0, 0)
+        );
+        assert_eq!(
+            std::fs::read(out.join("image-1.png")).unwrap(),
+            b"someone else's"
+        );
+        assert!(!out.join("image-2.png").exists());
+        assert_eq!(
+            image::image_dimensions(out.join("image-3.png")).unwrap(),
+            (4, 4)
+        );
+        assert_eq!(
+            image::image_dimensions(out.join("image-4.png")).unwrap(),
+            (5, 5)
+        );
+        assert!(!out.join("PXL_20231004_142355.png").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

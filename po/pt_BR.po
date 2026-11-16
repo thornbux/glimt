@@ -3731,6 +3731,16 @@ msgstr "Sempre mantidos: a orientação, para que a imagem não apareça de lado
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Nome do arquivo"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "Uma cópia mantém o nome do arquivo, que pode conter a data, a menos que Nome do arquivo esteja marcado: então as cópias se chamam image-1, image-2 e assim por diante."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Ocultar"
 
