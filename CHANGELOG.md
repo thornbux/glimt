@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `--remote` command that waits (for a folder being opened or read, or behind a Delete or
+  Rename question) is never done once its client has stopped waiting: it is answered "not
+  done" before then. Before, the client was told "no answer", and the command was done later,
+  so a script that tried again moved two images, or its select replaced the user's selection.
+- `--remote open`, `select` and `info` keep a carriage return at the end of a path, and the
+  client refuses to send a path with one (exit 2), as an older window takes it off. Before,
+  `open "/pics/Trip\r"` opened /pics/Trip.
+- A build without the release tests' hooks answers `--remote where` as a command it does not
+  know. Before, it answered with the selected files' paths.
+
 ## [0.85.0] - 2026-11-16
 
 ### Fixed
