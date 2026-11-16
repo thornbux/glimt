@@ -194,6 +194,15 @@ const TOO_MANY_WAITING: &str = "too many commands wait for their work";
 /// as long as its files take, while no one file takes longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long before its client stops waiting the window gives up a command that still waits
+/// (behind a look-up, a listing or a dialog), so that the answer "not done" reaches the client
+/// in time. A command done after its client was told "no answer" would be done twice when the
+/// script tries again.
+const TIME_TO_ANSWER: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Why a command that waited is not done when its client's time has run out.
+const TIME_RAN_OUT: &str = "its time ran out while it waited";
+
 /// How long a look for a running Glimt on a socket waits for the connection (`answers`). A Glimt
 /// that runs takes it at once, unless it hangs.
 const PROBE_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
@@ -242,6 +251,11 @@ static UNFINISHED_ANSWERS: std::sync::atomic::AtomicUsize = std::sync::atomic::A
 /// Where the window sends a query's answer. It is paths, each ending in a NUL byte, as
 /// `find -print0` writes them, because a file name can hold a line break.
 pub type Reply = mpsc::Sender<Vec<u8>>;
+
+/// A command from a client, as the listener passes it to the window: its line, where its
+/// answer goes, and the time after which the window no longer does it, because its client has
+/// stopped waiting for the answer (`serve` sets it, a moment before the client's time ends).
+pub type Sent = (String, Option<Reply>, std::time::Instant);
 
 /// Who asked for a new window name, whom its answer goes back to.
 pub(crate) enum NameAskedBy {
@@ -365,14 +379,14 @@ struct AwaitedOutcome {
 /// window's ID shows.
 pub(crate) struct Listener {
     /// Commands from `glimt --remote`.
-    rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
+    rx: mpsc::Receiver<Sent>,
     /// The sender of `rx`, for a window that starts to listen when it is given a name.
-    tx: mpsc::Sender<(String, Option<remote::Reply>)>,
+    tx: mpsc::Sender<Sent>,
     /// The commands that came while the place to open was looked up, a `--remote select` that
     /// came while the folder was read or while Delete or Rename asked, and the commands after
     /// it that may open another folder or come after one that may. They are done in the order
-    /// they came (`must_wait`).
-    waiting_commands: Vec<(String, Option<remote::Reply>)>,
+    /// they came (`must_wait`), unless their time runs out first.
+    waiting_commands: Vec<Sent>,
     /// The time until which `--remote identify` shows the window's ID over the image.
     identify_until: Option<std::time::Instant>,
     /// The window listens for `--remote` also without a name (`listens`).
@@ -406,9 +420,7 @@ impl Listener {
         busy: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
         listens_without_name: bool,
         start_listening: Option<
-            impl FnOnce(mpsc::Sender<(String, Option<Reply>)>, egui::Context) -> Result<(), String>
-            + Send
-            + 'static,
+            impl FnOnce(mpsc::Sender<Sent>, egui::Context) -> Result<(), String> + Send + 'static,
         >,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
@@ -464,15 +476,28 @@ impl crate::App {
         // them too. A waiting command and a `--wait` answer wait for them: the place looked up,
         // the mount, the listing, a report, the window's name.
         self.receive_answers(ctx);
+        // A command whose client has stopped waiting is never done, so that a script that
+        // tries again does not get it twice.
+        let now = std::time::Instant::now();
+        let (late, waiting): (Vec<Sent>, _) = std::mem::take(&mut self.remote.waiting_commands)
+            .into_iter()
+            .partition(|(_, _, until)| *until <= now);
+        self.remote.waiting_commands = waiting;
+        answer_not_done(late, TIME_RAN_OUT);
         // The waiting ones are done in the order they came, until one (an `open`) makes them
         // wait again. Each gets its own answer, from the list as it was when it was sent.
-        while let Some((command, reply)) = self.remote.waiting_commands.first()
+        while let Some((command, reply, _)) = self.remote.waiting_commands.first()
             && !self.must_wait(command, reply.is_some())
         {
-            let (command, reply) = self.remote.waiting_commands.remove(0);
+            let (command, reply, _) = self.remote.waiting_commands.remove(0);
             self.handle_remote(ctx, &command, reply);
         }
-        while let Ok((command, reply)) = self.remote.rx.try_recv() {
+        while let Ok((command, reply, until)) = self.remote.rx.try_recv() {
+            // Taken late, as by a window that was held up.
+            if until <= std::time::Instant::now() {
+                answer_not_done(vec![(command, reply, until)], TIME_RAN_OUT);
+                continue;
+            }
             let (command, reply) = self.await_outcome(ctx, command, reply);
             // An `open` replaces a look-up that has not answered, as a click in the folder tree
             // does, so that a script can leave a share that stopped answering. The commands that
@@ -484,7 +509,7 @@ impl crate::App {
             // A command behind a waiting one that may open another folder waits its turn,
             // because it would otherwise act on the list from before that folder.
             let behind_an_open =
-                (self.remote.waiting_commands.iter()).any(|(waiting, _)| may_relist(waiting));
+                (self.remote.waiting_commands.iter()).any(|(waiting, ..)| may_relist(waiting));
             // A quit is done at once, ahead of the queue, because it does not read the list, and
             // a look-up on a share that stopped answering would otherwise hold it for ever.
             let wait = command.trim() != "quit"
@@ -494,10 +519,15 @@ impl crate::App {
             if !wait {
                 self.handle_remote(ctx, &command, reply);
             } else if self.remote.waiting_commands.len() < 64 {
-                self.remote.waiting_commands.push((command, reply));
+                self.remote.waiting_commands.push((command, reply, until));
             }
             // When more than that are waiting, the answer is dropped, and the client is told
             // "no answer" (serve), so the script tries again.
+        }
+        // A hidden window draws no frame of its own, so it looks again when a waiting
+        // command's time runs out.
+        if let Some(first) = self.remote.waiting_commands.iter().map(|c| c.2).min() {
+            ctx.request_repaint_after(first.saturating_duration_since(std::time::Instant::now()));
         }
         self.answer_awaited_outcomes(ctx, false);
     }
@@ -619,7 +649,7 @@ impl crate::App {
         let sent: Vec<_> = self.remote.rx.try_iter().collect();
         let waiting = std::mem::take(&mut self.remote.waiting_commands);
         let ctx = self.ctx.clone();
-        for (command, reply) in waiting.into_iter().chain(sent) {
+        for (command, reply, _) in waiting.into_iter().chain(sent) {
             let Some(reply) = reply else { continue };
             // A query other than a select is answered as at any other time (`where` too, in the
             // release tests' build). Any other command is not done as the window closes.
@@ -635,11 +665,7 @@ impl crate::App {
     /// Answers each waiting command that it was not done, for the reason `why`, and forgets
     /// them all.
     fn cancel_waiting_commands(&mut self, why: &str) {
-        for (command, reply) in std::mem::take(&mut self.remote.waiting_commands) {
-            if let Some(reply) = reply {
-                let _ = reply.send(not_done_reply(&command, why));
-            }
-        }
+        answer_not_done(std::mem::take(&mut self.remote.waiting_commands), why);
     }
 
     /// One command from `glimt --remote`, with where to send its answer. A query is answered
@@ -939,6 +965,15 @@ impl crate::App {
 /// Returns the window's answer to a command it did not do, with the reason `why`.
 fn not_done_answer(why: &str) -> Vec<u8> {
     format!("{NOT_DONE_ANSWER}{why}\n").into_bytes()
+}
+
+/// Answers each command of `commands` that it was not done, for the reason `why`.
+fn answer_not_done(commands: Vec<Sent>, why: &str) {
+    for (command, reply, _) in commands {
+        if let Some(reply) = reply {
+            let _ = reply.send(not_done_reply(&command, why));
+        }
+    }
 }
 
 /// Returns the answer to `command` when it was not done, for the reason `why`. A select is answered
@@ -1684,10 +1719,7 @@ fn open_path_sent(path: &str) -> String {
 
 /// Listens for commands in the background and passes each line to `tx`, with where to answer
 /// for a query. Returns the reason when the window cannot listen.
-pub fn listen(
-    tx: mpsc::Sender<(String, Option<Reply>)>,
-    ctx: eframe::egui::Context,
-) -> Result<(), String> {
+pub fn listen(tx: mpsc::Sender<Sent>, ctx: eframe::egui::Context) -> Result<(), String> {
     let Some(path) = socket(&socket_id()) else {
         return Err(
             match runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR")) {
@@ -1753,7 +1785,7 @@ fn name_asked(command: &str) -> Option<&str> {
 fn name_this_window(
     name: Option<&str>,
     listens_without_name: bool,
-    commands: mpsc::Sender<(String, Option<Reply>)>,
+    commands: mpsc::Sender<Sent>,
     ctx: &egui::Context,
 ) -> Result<(), Option<String>> {
     if name.is_some_and(|n| !can_be_window_name(n)) {
@@ -1844,7 +1876,7 @@ fn serve_clients(
 fn serve(
     stream: UnixStream,
     place: ClientPlace,
-    tx: &mpsc::Sender<(String, Option<Reply>)>,
+    tx: &mpsc::Sender<Sent>,
     ctx: &eframe::egui::Context,
     wait: std::time::Duration,
     waiting_places: &WaitingPlaces,
@@ -1862,7 +1894,8 @@ fn serve(
     let mut reader = std::io::BufReader::new(stream);
     loop {
         // Each command has `wait` from when its reading starts to its end.
-        reader.get_mut().get_mut().until = std::time::Instant::now() + wait;
+        let read_started = std::time::Instant::now();
+        reader.get_mut().get_mut().until = read_started + wait;
         let Some(line) = read_command(&mut reader) else {
             return;
         };
@@ -1898,17 +1931,21 @@ fn serve(
         let answering = UnfinishedAnswer::new();
         let comes_in_parts = is_info(&line);
         // A command sent with `--wait` is answered when its work has ended, so it has longer.
-        let limit = match line.starts_with(WAIT_WORD) {
+        let client_waits = match line.starts_with(WAIT_WORD) {
             true => OUTCOME_WAIT,
             false => wait,
-        } + std::time::Duration::from_secs(1);
-        if tx.send((line, Some(reply))).is_err() {
+        };
+        let limit = client_waits + std::time::Duration::from_secs(1);
+        // The client waits from when it has sent the line, which is after its reading started.
+        let time_to_do = read_started + client_waits.saturating_sub(TIME_TO_ANSWER);
+        if tx.send((line, Some(reply), time_to_do)).is_err() {
             return;
         }
         ctx.request_repaint();
         // The client gives up after `wait`, so a command that waits longer for a look-up that
-        // does not answer lets its thread and its place among `MOST_CLIENTS` go. The command
-        // may still be done later, and its answer then goes nowhere.
+        // does not answer lets its thread and its place among `MOST_CLIENTS` go. The window
+        // has answered "not done" before then, and never does the command after
+        // `time_to_do`.
         match answer.recv_timeout(limit) {
             Ok(bytes) => {
                 // `info` sends each file's record as it is read, until it has sent them all.
@@ -2896,7 +2933,7 @@ mod tests {
         let server = std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
         for (_, new) in super::RENAMED_COMMANDS {
             for _ in 0..2 {
-                let (line, reply) = rx.recv().unwrap();
+                let (line, reply, _) = rx.recv().unwrap();
                 assert_eq!(line, new.to_string());
                 let _ = reply.unwrap().send(Vec::new());
             }
@@ -3041,7 +3078,7 @@ mod tests {
         std::thread::spawn(move || serve_alone(window, &tx, &eframe::egui::Context::default()));
         writeln!(client, "nxet").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
-        let (line, reply) = rx.recv().unwrap();
+        let (line, reply, _) = rx.recv().unwrap();
         app.handle_remote(&ctx, &line, reply);
         let mut got = Vec::new();
         client.read_to_end(&mut got).unwrap();
@@ -3065,7 +3102,7 @@ mod tests {
             let (reply, answer) = std::sync::mpsc::channel();
             app.remote
                 .tx
-                .send((command.to_owned(), Some(reply)))
+                .send((command.to_owned(), Some(reply), later()))
                 .unwrap();
             answer
         };
@@ -3145,7 +3182,7 @@ mod tests {
         let (reply, answer) = std::sync::mpsc::channel();
         app.remote
             .tx
-            .send(("wait next".to_owned(), Some(reply)))
+            .send(("wait next".to_owned(), Some(reply), later()))
             .unwrap();
         app.receive_remote(&ctx);
         let marks = dir.join("marks");
@@ -3186,7 +3223,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         let (reply, answer) = std::sync::mpsc::channel();
         let open = format!("wait open {}", other.display());
-        app.remote.tx.send((open, Some(reply))).unwrap();
+        app.remote.tx.send((open, Some(reply), later())).unwrap();
         let start = std::time::Instant::now();
         let got = loop {
             app.receive_remote(&ctx);
@@ -3226,7 +3263,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         let (reply, answer) = std::sync::mpsc::channel();
         let open = format!("wait open {}", other.display());
-        app.remote.tx.send((open, Some(reply))).unwrap();
+        app.remote.tx.send((open, Some(reply), later())).unwrap();
         app.receive_remote(&ctx);
         // As on a share that stopped answering, the place is never found.
         let _held = app.folder.hold_look_up();
@@ -3254,7 +3291,7 @@ mod tests {
         let (reply, answer) = std::sync::mpsc::channel();
         app.remote
             .tx
-            .send(("wait next".to_owned(), Some(reply)))
+            .send(("wait next".to_owned(), Some(reply), later()))
             .unwrap();
         let start = std::time::Instant::now();
         let got = loop {
@@ -3494,7 +3531,7 @@ mod tests {
         let mut waits = connect();
         writeln!(waits, "wait next").unwrap();
         // The window holds the answer, as while the command's work runs.
-        let (_, waiting_reply) = rx.recv_timeout(five_seconds).unwrap();
+        let (_, waiting_reply, _) = rx.recv_timeout(five_seconds).unwrap();
         let mut query = connect();
         writeln!(query, "current").unwrap();
         query.shutdown(std::net::Shutdown::Write).unwrap();
@@ -3503,7 +3540,7 @@ mod tests {
             query_taken.is_ok(),
             "a query was kept out by a command that waits"
         );
-        let (_, query_reply) = query_taken.unwrap();
+        let (_, query_reply, _) = query_taken.unwrap();
         query_reply.unwrap().send(b"/a.jpg\0".to_vec()).unwrap();
         let mut got = Vec::new();
         query.read_to_end(&mut got).unwrap();
@@ -3565,7 +3602,7 @@ mod tests {
         });
         writeln!(client, "info /a.png\0/b.png").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
-        let (command, reply) = commands.recv().unwrap();
+        let (command, reply, _) = commands.recv().unwrap();
         // The second record never comes, while the window keeps the reply.
         let reply = reply.unwrap();
         reply.send(b"path\t/a.png\n\n".to_vec()).unwrap();
@@ -3589,7 +3626,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || serve_alone(server, &tx, &eframe::egui::Context::default()));
         writeln!(client, "select /a.jpg\0").unwrap();
-        let (_, reply) = rx.recv().unwrap();
+        let (_, reply, _) = rx.recv().unwrap();
         drop(reply);
         client
             .set_read_timeout(Some(std::time::Duration::from_millis(300)))
@@ -3669,7 +3706,7 @@ mod tests {
             };
             std::thread::spawn(move || super::serve_clients(listener, 1, serve));
             std::thread::spawn(move || {
-                let (_, reply): (String, Option<super::Reply>) = commands.recv().unwrap();
+                let (_, reply, _): super::Sent = commands.recv().unwrap();
                 let _ = before.recv();
                 let _ = reply.unwrap().send(answer);
             });
@@ -3896,7 +3933,7 @@ mod tests {
         for name in ["a.png", "none.png"] {
             let (reply, answer) = std::sync::mpsc::channel();
             let command = format!("select {}\0", dir.join(name).display());
-            tx.send((command, Some(reply))).unwrap();
+            tx.send((command, Some(reply), later())).unwrap();
             answers.push(answer);
         }
         app.receive_remote(&ctx);
@@ -3927,20 +3964,22 @@ mod tests {
         app.folder.hold_listing(listing);
         let (reply, answer) = std::sync::mpsc::channel();
         let select = format!("select {}\0", dir.join("a.png").display());
-        tx.send((select.clone(), Some(reply))).unwrap();
+        tx.send((select.clone(), Some(reply), later())).unwrap();
         // A query is answered at once, also behind a waiting select.
         let (reply, current) = std::sync::mpsc::channel();
-        tx.send(("current".to_owned(), Some(reply))).unwrap();
-        tx.send((format!("open {}", other.display()), None))
+        tx.send(("current".to_owned(), Some(reply), later()))
+            .unwrap();
+        tx.send((format!("open {}", other.display()), None, later()))
             .unwrap();
         // Behind a waiting open, it waits its turn, so it answers about the place opened.
         let (reply, current_after_open) = std::sync::mpsc::channel();
-        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        tx.send(("current".to_owned(), Some(reply), later()))
+            .unwrap();
         // At most 64 wait, so the last of these are dropped.
         let mut more = Vec::new();
         for _ in 0..63 {
             let (reply, answer) = std::sync::mpsc::channel();
-            tx.send((select.clone(), Some(reply))).unwrap();
+            tx.send((select.clone(), Some(reply), later())).unwrap();
             more.push(answer);
         }
         app.receive_remote(&ctx);
@@ -3968,33 +4007,61 @@ mod tests {
         let (reply, closing) = std::sync::mpsc::channel();
         app.remote
             .waiting_commands
-            .push((select.clone(), Some(reply)));
+            .push((select.clone(), Some(reply), later()));
         let (reply, late) = std::sync::mpsc::channel();
-        tx.send((select.clone(), Some(reply))).unwrap();
+        tx.send((select.clone(), Some(reply), later())).unwrap();
         app.answer_waiting_selects();
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// `where` is a query only in the release tests' build. Any other build answers it as a
-    /// command it does not know, as the frozen answer is. Before, it answered with the paths
-    /// of the selected files, and the client exited with 0.
+    /// Returns a time by which a command sent in a test must be done, far enough off for any
+    /// test.
+    fn later() -> std::time::Instant {
+        std::time::Instant::now() + super::OUTCOME_WAIT
+    }
+
+    /// A command that waits, here behind a look-up that has not answered, is never done once
+    /// its client's time has run out: it is answered "not done", so a script that tries again
+    /// does it once. A command that the window takes only after its time is not done either.
+    /// Before, it stayed in the queue and was done when the look-up ended, after its client
+    /// had been told "no answer".
     #[test]
-    fn only_the_release_tests_build_knows_where() {
-        assert_eq!(super::is_query("where Next"), cfg!(feature = "test-hooks"));
-        #[cfg(not(feature = "test-hooks"))]
-        {
-            let dir = std::env::temp_dir().join(format!("glimt-test-where-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
-            let (mut app, ctx) = app_on(&dir);
-            app.list.set_files(["a.png"].map(Into::into).to_vec());
-            let (reply, answer) = std::sync::mpsc::channel();
-            app.handle_remote(&ctx, "where Next", Some(reply));
-            let why = super::not_done_reason(&answer.try_recv().unwrap());
-            assert!(why.is_some_and(|w| w.contains("where Next")));
-            std::fs::remove_dir_all(dir).unwrap();
+    fn a_command_is_not_done_after_its_clients_time_runs_out() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-time-ran-out-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        let unanswered_look_up = app.folder.hold_look_up();
+        let soon = std::time::Instant::now() + std::time::Duration::from_millis(50);
+        let (reply, answer) = std::sync::mpsc::channel();
+        app.remote
+            .tx
+            .send(("next".to_owned(), Some(reply), soon))
+            .unwrap();
+        app.receive_remote(&ctx);
+        assert!(answer.try_recv().is_err(), "next waits for the look-up");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        app.receive_remote(&ctx);
+        let why = super::not_done_reason(&answer.try_recv().unwrap());
+        assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
+        let (reply, late) = std::sync::mpsc::channel();
+        let now = std::time::Instant::now();
+        app.remote
+            .tx
+            .send(("next".to_owned(), Some(reply), now))
+            .unwrap();
+        drop(unanswered_look_up);
+        for _ in 0..3 {
+            app.receive_remote(&ctx);
         }
+        let why = super::not_done_reason(&late.try_recv().unwrap());
+        assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
+        assert_eq!(app.list.shown(), 0, "a next was done after its time");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A "\r" at the end of a path is part of the file's name, and reaches the window with the
@@ -4019,10 +4086,30 @@ mod tests {
         assert!(!super::can_be_sent("/pics/a\nquit"));
     }
 
+    /// `where` is a query only in the release tests' build. Any other build answers it as a
+    /// command it does not know, as the frozen answer is. Before, it answered with the paths
+    /// of the selected files, and the client exited with 0.
+    #[test]
+    fn only_the_release_tests_build_knows_where() {
+        assert_eq!(super::is_query("where Next"), cfg!(feature = "test-hooks"));
+        #[cfg(not(feature = "test-hooks"))]
+        {
+            let dir = std::env::temp_dir().join(format!("glimt-test-where-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let (mut app, ctx) = app_on(&dir);
+            app.list.set_files(["a.png"].map(Into::into).to_vec());
+            let (reply, answer) = std::sync::mpsc::channel();
+            app.handle_remote(&ctx, "where Next", Some(reply));
+            let why = super::not_done_reason(&answer.try_recv().unwrap());
+            assert!(why.is_some_and(|w| w.contains("where Next")));
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
     /// Serves the one client at `stream`, as the listener does, with a place of its own.
     fn serve_alone(
         stream: super::UnixStream,
-        tx: &std::sync::mpsc::Sender<(String, Option<super::Reply>)>,
+        tx: &std::sync::mpsc::Sender<super::Sent>,
         ctx: &eframe::egui::Context,
     ) {
         let place = super::ClientPlace(std::sync::mpsc::channel().0);
@@ -4064,9 +4151,12 @@ mod tests {
         app.remote.rx = rx;
         let b = other.join("b.png");
         let (reply, current) = std::sync::mpsc::channel();
-        tx.send((format!("open {}", b.display()), None)).unwrap();
-        tx.send(("current".to_owned(), Some(reply))).unwrap();
-        tx.send(("run ParentFolder".to_owned(), None)).unwrap();
+        tx.send((format!("open {}", b.display()), None, later()))
+            .unwrap();
+        tx.send(("current".to_owned(), Some(reply), later()))
+            .unwrap();
+        tx.send(("run ParentFolder".to_owned(), None, later()))
+            .unwrap();
         let mut answer = None;
         assert!(receive_remote_until(&mut app, &ctx, |_| {
             answer = current.try_recv().ok();
@@ -4098,9 +4188,9 @@ mod tests {
         app.config.slideshow_random = true;
         let (tx, rx) = std::sync::mpsc::channel();
         app.remote.rx = rx;
-        tx.send((format!("open {}", other.display()), None))
+        tx.send((format!("open {}", other.display()), None, later()))
             .unwrap();
-        tx.send(("slideshow on".to_owned(), None)).unwrap();
+        tx.send(("slideshow on".to_owned(), None, later())).unwrap();
         let shown = receive_remote_until(&mut app, &ctx, |app| app.slideshow.is_running());
         assert!(shown && app.folder.dir() == other);
         assert!(app.slideshow.is_shuffled());
@@ -4118,8 +4208,8 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         app.remote.rx = rx;
         let _held = app.folder.hold_look_up();
-        tx.send(("next".to_owned(), None)).unwrap();
-        tx.send(("quit".to_owned(), None)).unwrap();
+        tx.send(("next".to_owned(), None, later())).unwrap();
+        tx.send(("quit".to_owned(), None, later())).unwrap();
         let out = ctx.run_logic(&RawInput::default(), |ctx| app.receive_remote(ctx));
         let commands = out.viewport_commands.get(&ViewportId::ROOT);
         assert!(commands.is_some_and(|c| c.contains(&ViewportCommand::Close)));
@@ -4143,15 +4233,17 @@ mod tests {
         app.remote.rx = rx;
         let _held = app.folder.hold_look_up();
         let (reply, parked) = std::sync::mpsc::channel();
-        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        tx.send(("current".to_owned(), Some(reply), later()))
+            .unwrap();
         app.receive_remote(&ctx);
         assert_eq!(app.remote.waiting_commands.len(), 1, "current waits");
         let b = other.join("b.png");
         let (reply, opened) = std::sync::mpsc::channel();
-        tx.send((format!("open {}", b.display()), Some(reply)))
+        tx.send((format!("open {}", b.display()), Some(reply), later()))
             .unwrap();
         let (reply, current) = std::sync::mpsc::channel();
-        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        tx.send(("current".to_owned(), Some(reply), later()))
+            .unwrap();
         let mut answer = None;
         assert!(receive_remote_until(&mut app, &ctx, |_| {
             answer = current.try_recv().ok();
@@ -4302,7 +4394,7 @@ mod tests {
         std::thread::spawn(move || serve_alone(window, &tx, &ctx));
         writeln!(client, "info /a.png\0/b.png").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
-        let (command, reply) = rx.recv().unwrap();
+        let (command, reply, _) = rx.recv().unwrap();
         let reply = reply.unwrap();
         reply.send(b"path\t/a.png\n\n".to_vec()).unwrap();
         let mut first = [0; 13];
@@ -4355,7 +4447,7 @@ mod tests {
         writeln!(client, "info {named}").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         for _ in 0..2 {
-            let (line, reply) = rx.recv().unwrap();
+            let (line, reply, _) = rx.recv().unwrap();
             app.handle_remote(&ctx, &line, reply);
         }
         let mut got = Vec::new();

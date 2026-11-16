@@ -186,7 +186,9 @@ and with 3 when the window did not do it: a
 refused while a dialog asks the user or a text field has the focus, or by a kiosk (as is
 .BR fullscreen ),
 or with no
-image to act on, or a command that window does not know, as an older Glimt; the reason is printed on standard error. A Glimt older than
+image to act on, a command that waited (for a folder being opened or read, or a dialog) until
+its time ran out, which is then never done, or a command that window does not know, as an
+older Glimt; the reason is printed on standard error. A Glimt older than
 0.76.0 answers nothing to a command, which counts as done.
 .TP
 .BI \-\-remote\-all " COMMAND"
