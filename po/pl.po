@@ -4006,3 +4006,13 @@ msgstr "{name}: nie udało się sprawdzić: {why}"
 #, fuzzy
 msgid "{n} could not be checked:"
 msgstr "Nie udało się sprawdzić ({n}):"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Zapisano {file}, ale bez pliku pobocznego: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "plik poboczny nie został przywrócony: {e}"

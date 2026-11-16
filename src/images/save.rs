@@ -95,6 +95,11 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// What writes a sidecar's old text back under its lock, after a step that changed it
+/// (`derive_sidecar`), when the image's rename after the step fails.
+type SidecarUndo<'a> =
+    Box<dyn FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<(), String> + 'a>;
+
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
 /// as a part of it, smaller, and in a format. `App::shown_copy` makes it from the view, for
@@ -320,12 +325,13 @@ pub fn save_rotated(
 }
 
 /// Replaces the image at `real` with `out` and makes the sidecar of `named`, the name the list
-/// shows, say what the new image does (`how`). The sidecar is changed only once the image's own
-/// write can no longer fail: the file is writable and still there and `out` is on disk beside
-/// it. Before, the sidecar was changed first, so a read-only image or a full disk left a
-/// sidecar that said the image was turned. This is the one way an image and its sidecar are
-/// written again together, for a JPEG's orientation and a PNG or WebP turned. `read` is the
-/// fingerprint of the image that `out` was made from (`file_io::replace_existing`).
+/// shows, say what the new image does (`how`). The sidecar is changed only once the file is
+/// writable and still there and `out` is on disk beside it. Before, the sidecar was changed
+/// first, so a read-only image or a full disk left a sidecar that said the image was turned.
+/// The rename after it can still fail (a file held open on a share), and then the sidecar's old
+/// text is written back. This is the one way an image and its sidecar are written again
+/// together, for a JPEG's orientation and a PNG or WebP turned. `read` is the fingerprint of
+/// the image that `out` was made from (`file_io::replace_existing`).
 pub(crate) fn replace_with_sidecar(
     real: &Path,
     named: &Path,
@@ -570,18 +576,24 @@ fn leading_number(value: &str) -> Option<u64> {
 /// move in another window holds the same lock, so it moves the image and its sidecar together, both
 /// before the step or both after the image is replaced. Before, the lock was let go after the step,
 /// and a rename in that moment took the changed sidecar to the new name while the image, found
-/// gone, was left as it was.
-fn replace_with_sidecar_locked(
+/// gone, was left as it was. `step` returns how to write the sidecar's old text back, which runs
+/// when the image's rename surely was not done.
+fn replace_with_sidecar_locked<'a>(
     real: &Path,
-    named: &Path,
+    named: &'a Path,
     read: FileFingerprint,
     out: Vec<u8>,
-    step: impl FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<(), String>,
+    step: impl FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<SidecarUndo<'a>, String>,
 ) -> Result<(), String> {
     let lock = std::cell::OnceCell::new();
     let before = || {
         let lock = lock.get_or_init(|| crate::metadata::xmp::lock_sidecar(named));
-        step(lock).map_err(std::io::Error::other)
+        let undo = step(lock).map_err(std::io::Error::other)?;
+        Ok(move || {
+            undo(lock).map_err(|e| {
+                std::io::Error::other(crate::tf!("its sidecar was not put back: {e}", e))
+            })
+        })
     };
     crate::files::file_io::replace_existing(real, out, read, before).map_err(|e| e.to_string())?;
     crate::files::journal::note_written_anew(named, read);
@@ -698,9 +710,13 @@ pub(crate) fn stem_with_suffix(path: &Path, more: &str) -> std::ffi::OsString {
 }
 
 /// Saves the part `how.crop` of the image as a new file beside it, "NAME-cropped.EXT" or
-/// "NAME-cropped-2.EXT" …, never over another file. Its sidecar is copied too. Returns the new
-/// file.
-pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, String> {
+/// "NAME-cropped-2.EXT" …, never over another file, nor at a name whose sidecar is there. Its
+/// sidecar is copied too. Returns the new file, and when its sidecar could not be written, why
+/// (`save_copy_with_sidecar`).
+pub fn save_cropped(
+    path: &Path,
+    how: &CopyAs,
+) -> Result<(std::path::PathBuf, Option<String>), String> {
     let (out, format) = copy_bytes(path, how)?;
     // The original's own spelling (.jpeg, .JPG) where the format is the same.
     let ext = match path.extension().and_then(|e| e.to_str()) {
@@ -719,7 +735,7 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
         match save_copy_with_sidecar(path, &new, &out, None, how.strip) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e.to_string()),
-            Ok(()) => return Ok(new),
+            Ok(sidecar_failed) => return Ok((new, sidecar_failed)),
         }
     }
     unreachable!()
@@ -728,18 +744,23 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
 /// Saves a copy of `path`, encoded as `out`, as `new`. It goes over a file there only when
 /// `replace` is that file's fingerprint, taken when the file dialog asked about it, and only
 /// while the file there is still that one. The copy gets `path`'s sidecar, or none when
-/// `strip` or when `path` has none. A sidecar at `new`'s name belongs to the replaced file, or
-/// was left without its image, and its keywords and comment are not the copy's. So it is
-/// removed and the copy's is made new, never written through a link there, which a downloaded
-/// folder may have pointed at any file of the user's (~/.bashrc). This is the one way a copy is
-/// saved, for Crop, Save As and Save This Frame.
+/// `strip` or when `path` has none. A sidecar at `new`'s name belongs to the replaced file, and
+/// its keywords and comment are not the copy's. So it is set aside before the copy takes the
+/// name, put back when the rename fails, and removed after it. The copy's is made new, never
+/// written through a link there, which a downloaded folder may have pointed at any file of the
+/// user's (~/.bashrc). A name without a file but with a sidecar is not free: that sidecar was
+/// left without its image, and may be the only copy of its keywords. A copy whose sidecar is to
+/// be written is refused before it takes its name when the sidecar's name is too long. This is
+/// the one way a copy is saved, for Crop, Save As and Save This Frame. Returns, when the copy
+/// was saved but its sidecar could not be written, why, as the copy is there all the same.
 pub(crate) fn save_copy_with_sidecar(
     path: &Path,
     new: &Path,
     out: &[u8],
     replace: Option<crate::files::file_io::FileFingerprint>,
     strip: bool,
-) -> std::io::Result<()> {
+) -> std::io::Result<Option<String>> {
+    use std::io::Write;
     // The lock of the copy's sidecar is held, as every writer of a sidecar holds it. A keyword
     // written to the replaced file from another window then waits, rather than landing between
     // the old sidecar's removal and the new one's creation. The image is written beside its name
@@ -757,20 +778,19 @@ pub(crate) fn save_copy_with_sidecar(
     let side = crate::metadata::xmp::sidecar(new);
     let named =
         |e: std::io::Error| std::io::Error::new(e.kind(), format!("{}: {e}", side.display()));
-    // A link goes, not what it points to, and `create_file` never follows one.
-    #[allow(clippy::disallowed_methods)] // the replaced file's sidecar
-    let remove_side = || match std::fs::remove_file(&side) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(named(e)),
-        _ => Ok(()),
-    };
+    // No sidecar can be at a name too long for its file system, and a copy without one needs
+    // none. A copy that needs one is refused before it takes its name.
+    let needs_no_sidecar_there =
+        |e: &std::io::Error| e.raw_os_error() == Some(libc::ENAMETOOLONG) && source.is_none();
     match replace {
-        // The replaced file's sidecar goes after the image is written beside it and before the
-        // image takes the name. A failed write then leaves the file and its sidecar, and a
-        // sidecar that cannot be removed leaves the file, never with the copy's pixels under its
-        // own keywords and stars. A link there is replaced, not the file it points to. Another
-        // file put at the name since the dialog asked is left alone.
+        // The replaced file's sidecar is set aside after the image is written beside it and
+        // before the image takes the name, and put back when the rename fails (a file held open
+        // on a share). A failed write leaves the file and its sidecar, and a sidecar that cannot
+        // be set aside leaves the file, never with the copy's pixels under its own keywords and
+        // stars. A link there is set aside itself, not the file it points to. Another file put
+        // at the name since the dialog asked is left alone.
         Some(asked_about) => {
-            use std::io::Write;
+            let aside = crate::files::file_io::tmp_path(&side);
             crate::files::file_io::replace_name_with(
                 new,
                 |f| f.write_all(out),
@@ -780,14 +800,42 @@ pub(crate) fn save_copy_with_sidecar(
                         crate::files::file_io::KnownAs::fingerprint(asked_about),
                     )?;
                     lock = Some(crate::metadata::xmp::lock_sidecar(new));
-                    remove_side()
+                    // A folder at the sidecar's name is not the replaced file's sidecar.
+                    if crate::files::file_io::is_surely_dir(&side) {
+                        return Err(named(std::io::Error::from_raw_os_error(libc::EISDIR)));
+                    }
+                    let is_set_aside = match crate::files::file_io::rename_never_over(&side, &aside)
+                    {
+                        Ok(()) => true,
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                        Err(e) if needs_no_sidecar_there(&e) => false,
+                        Err(e) => return Err(named(e)),
+                    };
+                    let (aside, side) = (&aside, &side);
+                    // The sidecar is put back, never over one another program wrote meanwhile.
+                    Ok(move || match is_set_aside {
+                        true => {
+                            crate::files::file_io::rename_never_over(aside, side).map_err(|e| {
+                                let e = format!("{}: {e}", aside.display());
+                                std::io::Error::other(crate::tf!(
+                                    "its sidecar was not put back: {e}",
+                                    e
+                                ))
+                            })
+                        }
+                        false => Ok(()),
+                    })
                 },
             )?;
             crate::files::journal::note_written_anew(new, asked_about);
+            #[allow(clippy::disallowed_methods)] // the replaced file's sidecar, set aside
+            // Not told: the replaced file's sidecar left under a hidden name takes no file's
+            // place, and the copy is saved.
+            let _ = std::fs::remove_file(&aside);
         }
-        // A file of that name is not touched, nor its sidecar, because the copy is refused first.
+        // A file of that name is not touched, nor a sidecar there, because the copy is refused
+        // first.
         None => {
-            use std::io::Write;
             let tmp = crate::files::file_io::tmp_path(new);
             crate::files::file_io::write_beside(
                 &tmp,
@@ -795,16 +843,37 @@ pub(crate) fn save_copy_with_sidecar(
                 |f| f.write_all(out),
                 |tmp| {
                     lock = Some(crate::metadata::xmp::lock_sidecar(new));
-                    crate::files::file_io::rename_never_over(tmp, new)
+                    match crate::files::file_io::check_free(&side) {
+                        Err(e) if !needs_no_sidecar_there(&e) => Err(named(e)),
+                        _ => crate::files::file_io::rename_never_over(tmp, new),
+                    }
                 },
             )?;
-            remove_side()?;
         }
     }
-    match source {
-        Some(xmp) => crate::files::file_io::create_file(&side, derived_xmp(&xmp, Derived::Copy))
-            .map_err(named),
-        None => Ok(()),
+    let Some(xmp) = source else {
+        return Ok(None);
+    };
+    // The copy has its name now, so a sidecar that fails is told with the copy saved.
+    let written = crate::files::file_io::create_file(&side, derived_xmp(&xmp, Derived::Copy));
+    Ok(written.err().map(|e| named(e).to_string()))
+}
+
+/// Returns what the window tells of the copy `new` saved: that it was saved, or, when its
+/// sidecar `sidecar_failed` could not be written, a failed write that names the copy too, as
+/// it is there all the same.
+pub(crate) fn told_saved(
+    new: &Path,
+    sidecar_failed: Option<String>,
+) -> crate::support::threads::Told {
+    let file = new.display();
+    match sidecar_failed {
+        None => crate::support::threads::Told::Notice(crate::tf!("Saved {file}", file)),
+        Some(e) => crate::support::threads::Told::FailedWrite(crate::tf!(
+            "Saved {file}, but not its sidecar: {e}",
+            file,
+            e
+        )),
     }
 }
 
@@ -948,13 +1017,13 @@ pub(crate) fn file_id_from_inode(path: &Path, id: (u64, u64)) -> FileId {
 /// File → Save As. It saves the copy `how` asks for as `to`, which the file dialog let replace
 /// the file there whose fingerprint was `at_pick`. When the extension is made the format's, it
 /// is never saved over a file the dialog did not ask about, and never over the image itself.
-/// Returns the file saved.
+/// Returns the file saved, and when its sidecar could not be written, why.
 pub fn save_as(
     path: &Path,
     how: &CopyAs,
     to: &Path,
     at_pick: Option<crate::files::file_io::FileFingerprint>,
-) -> Result<std::path::PathBuf, String> {
+) -> Result<(std::path::PathBuf, Option<String>), String> {
     let format = how.format.unwrap_or_else(|| Format::of(path));
     let ext = to.extension().and_then(|e| e.to_str()).unwrap_or("");
     let matches = match format {
@@ -974,9 +1043,10 @@ pub fn save_as(
         return Err(tr("choose another name: the image itself is not changed").into());
     }
     let (out, _) = copy_bytes(path, how)?;
-    save_copy_with_sidecar(path, &to, &out, at_pick.filter(|_| matches), how.strip)
-        .map_err(|e| format!("{}: {e}", to.display()))?;
-    Ok(to)
+    let sidecar_failed =
+        save_copy_with_sidecar(path, &to, &out, at_pick.filter(|_| matches), how.strip)
+            .map_err(|e| format!("{}: {e}", to.display()))?;
+    Ok((to, sidecar_failed))
 }
 
 /// Whether `path` is animated. An animation is refused, because only the first frame would be
@@ -1105,19 +1175,25 @@ pub(crate) fn shared_metadata(
 /// readable as text and with something to change, is written, under its lock `lock`. A link or
 /// one that cannot be read is left alone, as the panel leaves it. The sidecar is the one of the
 /// name the list shows, which is the one Glimt's panel reads, also for a link to a photo.
-fn derive_sidecar(
+/// Returns what writes the sidecar's old text back, for when the image's rename fails.
+fn derive_sidecar<'a>(
     lock: &crate::metadata::xmp::SidecarLock,
-    path: &Path,
+    path: &'a Path,
     how: Derived,
-) -> Result<(), String> {
+) -> Result<SidecarUndo<'a>, String> {
+    use crate::metadata::xmp::update_locked_sidecar;
     let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
-    let text = old.filter(|x| std::str::from_utf8(x).is_ok());
-    if text.is_none_or(|x| derived_xmp(&x, how) == x) {
-        return Ok(());
+    let changed = (old.and_then(|x| String::from_utf8(x).ok()))
+        .filter(|x| derived_xmp(x.as_bytes(), how) != x.as_bytes());
+    if changed.is_some() {
+        update_locked_sidecar(lock, path, true, |x| {
+            String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
+        })?;
     }
-    crate::metadata::xmp::update_locked_sidecar(lock, path, true, |x| {
-        String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
-    })
+    Ok(Box::new(move |lock| match changed {
+        Some(old) => update_locked_sidecar(lock, path, true, |_| Some(old)),
+        None => Ok(()),
+    }))
 }
 
 /// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"` or with single
@@ -1837,7 +1913,8 @@ mod tests {
             &dir.join("b.png"),
             crate::files::file_io::fingerprint(&dir.join("b.png")),
         )
-        .unwrap();
+        .unwrap()
+        .0;
         assert_eq!(dpi(&copy), swapped);
         let copy = super::save_as(
             &file,
@@ -1845,7 +1922,8 @@ mod tests {
             &dir.join("c.png"),
             crate::files::file_io::fingerprint(&dir.join("c.png")),
         )
-        .unwrap();
+        .unwrap()
+        .0;
         assert_eq!(dpi(&copy), [0, 0, 0, 204, 0, 0, 0, 98, 1]);
         super::save_rotated(&file, true, 1, false, 90).unwrap();
         assert_eq!(dpi(&file), swapped);
@@ -2459,7 +2537,7 @@ mod tests {
             strip: false,
         };
         // The right half is blue.
-        let new = super::save_cropped(&file, &how(0, [8, 0, 8, 8])).unwrap();
+        let new = super::save_cropped(&file, &how(0, [8, 0, 8, 8])).unwrap().0;
         assert_eq!(new, dir.join("a-cropped.jpg"));
         assert_eq!(colour(&new), ((8, 8), false));
         let mut dec = image::ImageReader::open(&new)
@@ -2468,7 +2546,7 @@ mod tests {
             .unwrap();
         assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
         // Turned a quarter clockwise, the left (red) half is on top.
-        let new = super::save_cropped(&file, &how(1, [0, 0, 8, 8])).unwrap();
+        let new = super::save_cropped(&file, &how(1, [0, 0, 8, 8])).unwrap().0;
         assert_eq!(new, dir.join("a-cropped-2.jpg"));
         assert_eq!(colour(&new), ((8, 8), true));
         assert_eq!(std::fs::read(&file).unwrap(), before);
@@ -2517,7 +2595,7 @@ mod tests {
             webp_quality: 90,
             strip: false,
         };
-        kept(&super::save_cropped(&file, &how).unwrap());
+        kept(&super::save_cropped(&file, &how).unwrap().0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2622,7 +2700,8 @@ mod tests {
                 &dir.join("b"),
                 crate::files::file_io::fingerprint(&dir.join("b")),
             )
-            .unwrap();
+            .unwrap()
+            .0;
             let mut dec = image::ImageReader::open(&to)
                 .unwrap()
                 .into_decoder()
@@ -2667,7 +2746,7 @@ mod tests {
             &dir.join("b"),
             crate::files::file_io::fingerprint(&dir.join("b")),
         );
-        let to = to.unwrap();
+        let to = to.unwrap().0;
         assert_eq!(to, dir.join("b.jpg"));
         let mut dec = image::ImageReader::open(&to)
             .unwrap()
@@ -2681,7 +2760,7 @@ mod tests {
             &dir.join("c.webp"),
             crate::files::file_io::fingerprint(&dir.join("c.webp")),
         );
-        let mut dec = image::ImageReader::open(to.unwrap())
+        let mut dec = image::ImageReader::open(to.unwrap().0)
             .unwrap()
             .into_decoder()
             .unwrap();
@@ -2772,7 +2851,7 @@ mod tests {
             webp_quality: 90,
             strip: false,
         };
-        let new = super::save_cropped(&file, &how).unwrap();
+        let new = super::save_cropped(&file, &how).unwrap().0;
         assert_eq!(
             new.file_name().unwrap().to_owned().into_vec(),
             b"caf\xe9-cropped.png"
@@ -2820,7 +2899,7 @@ mod tests {
             webp_quality: 90,
             strip: false,
         };
-        let new = super::save_cropped(&file, &how).unwrap();
+        let new = super::save_cropped(&file, &how).unwrap().0;
         let has =
             |bytes: &[u8], what: &str| bytes.windows(what.len()).any(|w| w == what.as_bytes());
         let copy = std::fs::read(&new).unwrap();
@@ -2889,6 +2968,157 @@ mod tests {
             assert_eq!(now, side, "{}", file.display());
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn saved whose rename fails after its sidecar was set (a file held open on a share,
+    /// EBUSY) leaves the image and its sidecar byte for byte as they were. Before, the JPEG's
+    /// sidecar said it was turned while the JPEG was not, and the PNG's lost its thumbnail.
+    #[test]
+    fn a_turn_whose_rename_fails_leaves_its_sidecar() {
+        use crate::files::file_io::REPLACE_FAILS;
+        let dir = std::env::temp_dir().join(format!("glimt-turn-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let (jpeg, png) = (dir.join("a.jpg"), dir.join("b.png"));
+        image::RgbImage::new(8, 4).save(&jpeg).unwrap();
+        std::fs::write(&png, black_png(8, 4)).unwrap();
+        let side = BRIDGE_XMP.replace("Orientation=\"6\"", "Orientation=\"1\"");
+        for file in [&jpeg, &png] {
+            std::fs::write(crate::metadata::xmp::sidecar(file), &side).unwrap();
+            let image = std::fs::read(file).unwrap();
+            REPLACE_FAILS.set(Some((file.clone(), libc::EBUSY)));
+            let turned = match file == &jpeg {
+                true => crate::metadata::exif::write_orientation(file, 1, false, true),
+                false => super::save_rotated(file, true, 1, false, 90),
+            };
+            REPLACE_FAILS.set(None);
+            assert!(turned.is_err(), "{}", file.display());
+            assert_eq!(std::fs::read(file).unwrap(), image);
+            let now = std::fs::read_to_string(crate::metadata::xmp::sidecar(file)).unwrap();
+            assert_eq!(now, side, "{}", file.display());
+        }
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            4,
+            "a temporary file was left"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Save As over a file whose rename fails (a file held open on a share, EBUSY, or another
+    /// user's file in a folder with the sticky bit, EPERM) leaves that file and its sidecar as
+    /// they were, with nothing hidden left beside them. Before, the sidecar was removed before
+    /// the rename, and lost for good.
+    #[test]
+    fn a_save_as_whose_rename_fails_keeps_the_sidecar() {
+        use crate::files::file_io::{REPLACE_FAILS, fingerprint};
+        let dir = std::env::temp_dir().join(format!("glimt-save-as-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(8, 8).save(&a).unwrap();
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let side = |p: &std::path::Path| crate::metadata::xmp::sidecar(p);
+        std::fs::write(side(&a), "a's").unwrap();
+        std::fs::write(side(&b), "b's").unwrap();
+        let image = std::fs::read(&b).unwrap();
+        for errno in [libc::EBUSY, libc::EPERM] {
+            REPLACE_FAILS.set(Some((b.clone(), errno)));
+            let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
+            REPLACE_FAILS.set(None);
+            assert!(saved.is_err(), "{saved:?}");
+            assert_eq!(std::fs::read(&b).unwrap(), image);
+            assert_eq!(std::fs::read_to_string(side(&b)).unwrap(), "b's");
+            assert_eq!(
+                std::fs::read_dir(&dir).unwrap().count(),
+                4,
+                "a file was left"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy whose sidecar cannot be made after the copy took its name (here a look at the
+    /// sidecar's name fails, as on a share that dropped for a moment) is saved all the same, and
+    /// told as saved without its sidecar. Before, it was told as not saved, so the folder was not
+    /// read again and the copy did not get the original's marks.
+    #[test]
+    fn a_copy_saved_without_its_sidecar_is_told_as_saved() {
+        use crate::files::file_io::{LOOKS_FAIL, fingerprint};
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = std::env::temp_dir().join(format!("glimt-copy-no-side-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(8, 8).save(&a).unwrap();
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let side = crate::metadata::xmp::sidecar(&b);
+        std::fs::write(crate::metadata::xmp::sidecar(&a), "a's").unwrap();
+        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
+        let (to, sidecar_failed) = saved.unwrap();
+        assert_eq!(image::image_dimensions(&to).unwrap(), (8, 8));
+        assert!(sidecar_failed.is_some());
+        let told = super::told_saved(&to, sidecar_failed);
+        assert!(matches!(
+            told,
+            crate::support::threads::Told::FailedWrite(_)
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy whose own name fits but whose sidecar's name is too long (ENAMETOOLONG) is
+    /// refused before it takes its name when it would have a sidecar, and saved without one
+    /// when stripped. A photo whose own sidecar's name is too long has none, and its copy is
+    /// saved. Before, the crop was told as failed while it was saved without its sidecar, a new
+    /// copy on each try, and a copy of such a photo was refused.
+    #[test]
+    fn a_copy_near_the_name_length_limit_is_whole_or_not_made() {
+        let dir = std::env::temp_dir().join(format!("glimt-copy-long-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // The photo's name is 245 bytes, its crop's 253, and the crop's sidecar's 257.
+        let photo = dir.join(format!("{}.png", "a".repeat(241)));
+        image::RgbImage::new(8, 8).save(&photo).unwrap();
+        std::fs::write(crate::metadata::xmp::sidecar(&photo), "a's").unwrap();
+        let part = |strip| super::CopyAs {
+            crop: Some([0, 0, 4, 4]),
+            ..copy_as(None, strip)
+        };
+        assert!(super::save_cropped(&photo, &part(false)).is_err());
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            2,
+            "a copy was left"
+        );
+        let (crop, sidecar_failed) = super::save_cropped(&photo, &part(true)).unwrap();
+        assert_eq!(crop, dir.join(format!("{}-cropped.png", "a".repeat(241))));
+        assert_eq!(sidecar_failed, None);
+        // The photo's name is 253 bytes, and its sidecar's 257.
+        let long = dir.join(format!("{}.png", "b".repeat(249)));
+        image::RgbImage::new(8, 8).save(&long).unwrap();
+        let to = dir.join("c.png");
+        let saved = super::save_as(&long, &copy_as(None, false), &to, None).unwrap();
+        assert_eq!(saved, (to, None));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 5);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The copy of the whole image in `format` (`None` for the original's), with its metadata
+    /// unless `strip`.
+    fn copy_as(format: Option<super::Format>, strip: bool) -> super::CopyAs {
+        super::CopyAs {
+            read: None,
+            page: 0,
+            rotate: true,
+            turns: 0,
+            mirrored: false,
+            crop: None,
+            long_side: None,
+            format,
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip,
+        }
     }
 
     /// A JPEG, PNG or WebP whose end is not there yet, as one still being copied in, is not
@@ -3553,7 +3783,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(text(&b), None);
-        // A sidecar that cannot be removed (a folder in its place) leaves b as it was.
+        // A folder at the sidecar's name leaves b as it was.
         std::fs::create_dir(side(&b)).unwrap();
         let before = std::fs::read(&b).unwrap();
         assert!(
@@ -3567,29 +3797,35 @@ mod tests {
         );
         assert_eq!(std::fs::read(&b).unwrap(), before);
         std::fs::remove_dir(side(&b)).unwrap();
-        // A sidecar left at the crop's name is not the crop's.
+        // A sidecar left at the crop's name without its image keeps the name taken, as it may
+        // be the only copy of an earlier crop's keywords. Before, the crop took the name and
+        // removed that sidecar.
         let cropped = dir.join("a-cropped.png");
         std::fs::write(side(&cropped), "left").unwrap();
         let part = super::CopyAs {
             crop: Some([0, 0, 4, 4]),
             ..how(0, false)
         };
-        assert_eq!(super::save_cropped(&a, &part).unwrap(), cropped);
-        assert_eq!(text(&cropped).as_deref(), Some("a's"));
-        // A link left at the next crop's sidecar name, to a file of the user's, goes, and the
+        let second = dir.join("a-cropped-2.png");
+        assert_eq!(super::save_cropped(&a, &part).unwrap().0, second);
+        assert_eq!(text(&cropped).as_deref(), Some("left"));
+        assert!(!cropped.exists());
+        assert_eq!(text(&second).as_deref(), Some("a's"));
+        // So does a link left at the next crop's sidecar name, to a file of the user's, and the
         // file keeps what it had.
         let victim = dir.join("victim");
         std::fs::write(&victim, "keep").unwrap();
-        let second = dir.join("a-cropped-2.png");
-        std::os::unix::fs::symlink(&victim, side(&second)).unwrap();
-        assert_eq!(super::save_cropped(&a, &part).unwrap(), second);
+        let third = dir.join("a-cropped-3.png");
+        std::os::unix::fs::symlink(&victim, side(&third)).unwrap();
+        let fourth = dir.join("a-cropped-4.png");
+        assert_eq!(super::save_cropped(&a, &part).unwrap().0, fourth);
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         assert!(
-            !std::fs::symlink_metadata(side(&second))
+            std::fs::symlink_metadata(side(&third))
                 .unwrap()
                 .is_symlink()
         );
-        assert_eq!(text(&second).as_deref(), Some("a's"));
+        assert_eq!(text(&fourth).as_deref(), Some("a's"));
         // A copy saved over a link replaces the link, not the file it points to.
         let linked = dir.join("linked.png");
         std::os::unix::fs::symlink(&victim, &linked).unwrap();
@@ -3606,7 +3842,7 @@ mod tests {
         std::fs::remove_file(side(&a)).unwrap();
         std::fs::create_dir(side(&a)).unwrap();
         assert!(super::save_cropped(&a, &part).is_err());
-        assert!(!dir.join("a-cropped-3.png").exists());
+        assert!(!dir.join("a-cropped-5.png").exists());
         std::fs::remove_dir(side(&a)).unwrap();
         // Page 2 of a TIFF is blue, 6 by 2, not the red first page.
         let tif = dir.join("t.tif");
@@ -3622,7 +3858,8 @@ mod tests {
             &dir.join("p.png"),
             crate::files::file_io::fingerprint(&dir.join("p.png")),
         )
-        .unwrap();
+        .unwrap()
+        .0;
         let img = image::open(&page).unwrap().into_rgb8();
         assert_eq!(
             (img.dimensions(), img.get_pixel(0, 0).0),
@@ -3798,7 +4035,7 @@ mod tests {
             go.send(()).unwrap();
             // A move that is not held back lands now, before the image is looked at again.
             let _ = moved.recv_timeout(std::time::Duration::from_millis(200));
-            Ok(())
+            Ok(Box::new(|_: &_| Ok(())) as super::SidecarUndo)
         };
         let read = crate::files::file_io::fingerprint(&a).unwrap();
         let replaced = super::replace_with_sidecar_locked(&a, &a, read, b"new".to_vec(), step);

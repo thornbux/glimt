@@ -3995,3 +3995,13 @@ msgstr "{name}: no se pudo comprobar: {why}"
 #, fuzzy
 msgid "{n} could not be checked:"
 msgstr "No se pudieron comprobar {n}:"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Se guardó {file}, pero no su archivo complementario: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "su archivo complementario no se restauró: {e}"

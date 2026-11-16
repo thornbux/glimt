@@ -3995,3 +3995,13 @@ msgstr "{name}: konnte nicht geprüft werden: {why}"
 #, fuzzy
 msgid "{n} could not be checked:"
 msgstr "{n} konnten nicht geprüft werden:"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "{file} gespeichert, aber nicht seine Begleitdatei: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "die Begleitdatei wurde nicht zurückgelegt: {e}"

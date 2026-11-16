@@ -3995,3 +3995,13 @@ msgstr "{name}: impossibile controllare: {why}"
 #, fuzzy
 msgid "{n} could not be checked:"
 msgstr "Impossibile controllare {n}:"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "{file} salvato, ma non il suo file sidecar: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "il suo file sidecar non è stato rimesso a posto: {e}"

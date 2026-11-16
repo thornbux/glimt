@@ -3995,3 +3995,13 @@ msgstr "{name}: kunne ikke kontrolleres: {why}"
 #, fuzzy
 msgid "{n} could not be checked:"
 msgstr "{n} kunne ikke kontrolleres:"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Gemte {file}, men ikke dens sidefil: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "sidefilen blev ikke lagt tilbage: {e}"

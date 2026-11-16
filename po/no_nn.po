@@ -4006,3 +4006,13 @@ msgstr "{name}: kunne ikkje sjekkast: {why}"
 #, fuzzy
 msgid "{n} could not be checked:"
 msgstr "{n} kunne ikkje sjekkast:"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Lagra {file}, men ikkje sidefila: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "sidefila vart ikkje lagd tilbake: {e}"

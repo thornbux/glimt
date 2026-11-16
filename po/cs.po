@@ -4017,3 +4017,13 @@ msgstr "{name}: nelze zkontrolovat: {why}"
 #, fuzzy
 msgid "{n} could not be checked:"
 msgstr "Nelze zkontrolovat ({n}):"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Uloženo {file}, ale bez doprovodného souboru: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "its sidecar was not put back: {e}"
+msgstr "doprovodný soubor nebyl vrácen zpět: {e}"

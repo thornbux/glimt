@@ -213,14 +213,17 @@ impl SharingOutcome {
     /// Copies `path` into `folder` with the tags `kept`, named as `naming` says, and counts
     /// what came of it. A name the folder has is never written over, also when the folder is
     /// the image's own. With `Naming::Own` the copy is left out then, and with
-    /// `OwnOrNumbered` it gets the first free name of "NAME-2.EXT", "NAME-3.EXT" …. A name
-    /// Glimt makes up is free only when no sidecar of that name is left there either, which
-    /// would give the copy a stranger's keywords and comment.
+    /// `OwnOrNumbered` it gets the first free name of "NAME-2.EXT", "NAME-3.EXT" …. Every name,
+    /// its own too, is free only when no sidecar of that name is left there either, which would
+    /// give the copy a stranger's keywords and comment.
     fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>, naming: Naming) {
-        use crate::files::file_io::is_surely_gone;
         let name = path.file_name().unwrap_or_default();
+        let is_free = |target: &Path| {
+            crate::files::file_io::is_surely_gone(target)
+                && crate::metadata::xmp::has_no_sidecar(target)
+        };
         // A name whose look failed counts as taken too.
-        if naming == Naming::Own && !is_surely_gone(&folder.join(name)) {
+        if naming == Naming::Own && !is_free(&folder.join(name)) {
             self.names_taken += 1;
             return;
         }
@@ -233,7 +236,6 @@ impl SharingOutcome {
         // A bound, so a folder whose names cannot be looked at does not keep it trying.
         let tries = if naming == Naming::Own { 1 } else { 1000 };
         for n in 1..=tries {
-            let is_made_up = naming == Naming::Neutral || n > 1;
             let target = folder.join(match naming {
                 Naming::Neutral => {
                     self.last_neutral_number += 1;
@@ -242,8 +244,7 @@ impl SharingOutcome {
                 _ if n == 1 => name.to_owned(),
                 _ => numbered(path, n),
             });
-            let sidecar = crate::metadata::xmp::sidecar(&target);
-            if is_made_up && !(is_surely_gone(&target) && is_surely_gone(&sidecar)) {
+            if !is_free(&target) {
                 continue;
             }
             match create_file(&target, &bytes) {
@@ -572,6 +573,11 @@ mod tests {
             (5, 5)
         );
         assert!(renamed.text(&out, None).contains("1 file given new names"));
+        // A sidecar left at the next name without its image keeps that name taken, so its
+        // keywords never show on the copy.
+        std::fs::write(out.join("x-3.png.xmp"), "left").unwrap();
+        renamed.copy_into(&b, &out, &kept, super::Naming::OwnOrNumbered);
+        assert!(out.join("x-4.png").exists() && !out.join("x-3.png").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
