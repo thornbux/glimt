@@ -1,7 +1,7 @@
 //! Find Duplicates, as in Geeqie: groups of images that are the same file, have the same name,
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
-use crate::files::file_io::{FileFingerprint, fingerprint};
+use crate::files::file_io::{FileFingerprint, fingerprint, fingerprint_of_file_read};
 use crate::files::file_ops::LookUpStep;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
@@ -62,14 +62,25 @@ struct Picture {
 /// had when the search saw it (`Seen`).
 type FoundGroups = (Vec<Vec<PathBuf>>, HashMap<PathBuf, u64>, Seen);
 
-/// The fingerprint that each file of the groups had when the search saw it. Move to Trash leaves
-/// out a file that no longer has it, as it may no longer be what the search found.
-type Seen = HashMap<PathBuf, FileFingerprint>;
+/// What each file of the groups was when the search saw it. Move to Trash leaves out a file that
+/// is no longer so, as it may no longer be what the search found.
+type Seen = HashMap<PathBuf, SeenAs>;
 
 /// A group's checked files, and its unchecked ones with their fingerprints as the search saw
 /// them (`FindDuplicates::kept_beside_checked`). An unchecked file has `None` when the search
 /// has no fingerprint of it.
 type CheckedAndKept = (Vec<PathBuf>, Vec<(PathBuf, Option<FileFingerprint>)>);
+
+/// The fingerprints a file of the groups had when the search saw it. The two differ only for a
+/// link: the trash takes the link itself, and the bytes compared are those of the file the link
+/// points to.
+#[derive(Clone, Copy)]
+pub(crate) struct SeenAs {
+    /// The fingerprint of the name, which a checked file is trashed by.
+    name: FileFingerprint,
+    /// The fingerprint of the file whose bytes were read, which an unchecked file is looked at by.
+    read: FileFingerprint,
+}
 
 /// The Find Duplicates window: what to compare by, the search running and its results.
 pub(crate) struct FindDuplicates {
@@ -85,7 +96,7 @@ pub(crate) struct FindDuplicates {
     /// The size of each file in the groups, looked at with the search in its thread, because
     /// the window's thread does not wait for the disk.
     sizes: HashMap<PathBuf, u64>,
-    /// The fingerprint of each file in the groups as the search saw it.
+    /// The fingerprints of each file in the groups as the search saw it.
     seen: Seen,
     /// What the groups shown were found by. Only Checksum finds copies; the other ways group
     /// images that may differ, so trashing their files asks first.
@@ -104,7 +115,7 @@ impl FindDuplicates {
             let (checked, kept): (Vec<&PathBuf>, Vec<&PathBuf>) =
                 group.iter().partition(|p| self.checked.contains(*p));
             let kept = (kept.into_iter())
-                .map(|p| (p.clone(), self.seen.get(p).copied()))
+                .map(|p| (p.clone(), self.seen.get(p).map(|seen| seen.read)))
                 .collect::<Vec<_>>();
             (checked.into_iter().cloned().collect::<Vec<_>>(), kept)
         });
@@ -428,8 +439,10 @@ impl crate::App {
         );
     }
 
-    /// Moves the files `checked` of the list to the trash, each only while it is as `seen`.
+    /// Moves the files `checked` of the list to the trash, each only while its name is as `seen`.
     fn trash_now(&mut self, ctx: &egui::Context, checked: &HashSet<PathBuf>, seen: &Seen) {
+        let names = (seen.iter()).map(|(path, seen)| (path.clone(), seen.name));
+        let seen: HashMap<PathBuf, FileFingerprint> = names.collect();
         let checked_rows = (0..self.list.files().len())
             .filter(|&i| checked.contains(&self.path(i)))
             .collect();
@@ -439,7 +452,7 @@ impl crate::App {
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
         if self.list.selected().len() == checked.len() {
-            self.request_delete_as_seen(ctx, true, Some(seen));
+            self.request_delete_as_seen(ctx, true, Some(&seen));
         } else {
             self.notice
                 .give(tr("The checked files are no longer all in the list").into());
@@ -468,16 +481,26 @@ fn look_at_kept_files(
     drop(found_tx.send(LookUpStep::Answered(changed)));
 }
 
-/// Whether the file `path` is still as the search saw it, `seen`. It waits for the disk.
+/// Whether the file read at `path`, through a link the file it points to, still has the
+/// fingerprint `seen` that the search took of it. A look that fails counts as a change. It waits
+/// for the disk.
 fn is_as_seen(path: &Path, seen: FileFingerprint) -> bool {
-    let known = crate::files::file_io::KnownAs::fingerprint(seen);
-    crate::files::file_io::is_still_the_file(path, known).is_ok()
+    fingerprint_of_file_read(path)
+        .is_some_and(|now| crate::files::file_io::same_fingerprint(seen, now))
+}
+
+/// Returns the fingerprints of the name `path` and of the file read through it, or `None` when
+/// either look failed. It waits for the disk.
+fn seen_as(path: &Path) -> Option<SeenAs> {
+    let name = fingerprint(path)?;
+    let read = fingerprint_of_file_read(path)?;
+    Some(SeenAs { name, read })
 }
 
 /// Groups of two or more of `paths` that match `by`, largest groups first, with the fingerprint
 /// of each file in them as the search saw it. `rotate` and `save` are passed on to the
 /// thumbnails used for similarity.
-pub fn find(
+pub(crate) fn find(
     paths: Vec<PathBuf>,
     by: By,
     rotate: bool,
@@ -514,7 +537,7 @@ pub fn find(
             // Only files of the same size can be the same; most are never read.
             let sizes = on_all_cores(&paths, progress, size);
             let candidates: Vec<PathBuf> = groups(paths, sizes).into_iter().flatten().collect();
-            let looked = on_all_cores(&candidates, progress, fingerprint);
+            let looked = on_all_cores(&candidates, progress, seen_as);
             read_as = Some(
                 (candidates.iter().zip(looked))
                     .filter_map(|(path, seen)| Some((path.clone(), seen?)))
@@ -557,7 +580,7 @@ pub fn find(
         .filter_map(|path| {
             let seen = match &mut read_as {
                 Some(read_as) => read_as.remove(path),
-                None => fingerprint(path),
+                None => seen_as(path),
             };
             Some((path.clone(), seen?))
         })
@@ -981,7 +1004,7 @@ mod tests {
         for f in &files {
             image::RgbImage::new(2, 2).save(f).unwrap();
         }
-        let seen = |f: &PathBuf| (f.clone(), super::fingerprint(f));
+        let seen = |f: &PathBuf| (f.clone(), super::fingerprint_of_file_read(f));
         let kept = vec![
             vec![seen(&files[0])],
             vec![seen(&files[1]), seen(&files[2])],
@@ -1023,6 +1046,43 @@ mod tests {
             super::LookUpStep::GoesOn => None,
         });
         assert_eq!(answer, Some(vec![true]));
+    }
+
+    /// The look at an unchecked file that is a link looks at the file the link points to, whose
+    /// bytes the search compared, so an edit of that file keeps the checked copy (F1-1 of round 3
+    /// of the review before 1.0). Before, it looked at the link itself, which an edit of its
+    /// target leaves as it was, and the copy, now the only one of the original, was trashed.
+    #[test]
+    fn a_copy_whose_original_behind_a_link_was_edited_is_not_trashed() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-dup-link-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("elsewhere")).unwrap();
+        let (original, copy, link) = (
+            dir.join("elsewhere/original.png"),
+            dir.join("copy.png"),
+            dir.join("link.png"),
+        );
+        std::fs::write(&original, "the same bytes").unwrap();
+        std::fs::write(&copy, "the same bytes").unwrap();
+        std::os::unix::fs::symlink(&original, &link).unwrap();
+        let progress = super::Progress::default();
+        let paths = vec![copy.clone(), link.clone()];
+        let (groups, seen) = super::find(paths, super::By::Checksum, false, false, &progress);
+        assert_eq!(groups, [[copy.clone(), link.clone()]]);
+        let mut find_duplicates = super::FindDuplicates::new();
+        (find_duplicates.groups, find_duplicates.seen) = (groups, seen);
+        find_duplicates.checked = [copy.clone()].into();
+        std::fs::write(&original, "edited by its own path").unwrap();
+        let kept: Vec<_> = (find_duplicates.kept_beside_checked().into_iter())
+            .map(|(_, kept)| kept)
+            .collect();
+        let (tx, rx) = std::sync::mpsc::channel();
+        super::look_at_kept_files(&kept, &tx);
+        let answer = rx.into_iter().find_map(|step| match step {
+            super::LookUpStep::Answered(changed) => Some(changed),
+            super::LookUpStep::GoesOn => None,
+        });
+        assert_eq!(answer, Some(vec![true]));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Move to Trash leaves out the checked copy of a group whose unchecked file was edited
