@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Copy for Sharing has a box of its own for the file name, under Date and time and Photographer
+  and copyright. Ticked, the copies are named image-1.jpg, image-2.jpg and so on, numbered past
+  every file and leftover sidecar in the folder, and Remove All ticks it too. Before, a copy
+  always kept the original's name, such as PXL_20231004_142355.jpg, and the date and time in it,
+  also when the user left the date out.
+
 ## [0.85.0] - 2026-11-16
 
 ### Fixed
