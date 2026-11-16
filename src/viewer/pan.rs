@@ -358,6 +358,8 @@ impl crate::App {
         let Some((days, _)) = pan.days.as_ref() else {
             return (None, false);
         };
+        // The files in the order the view shows them, made only for a Shift+click.
+        let order = || days.iter().flat_map(|d| d.1.iter().copied()).collect();
         let mut area = egui::ScrollArea::vertical().auto_shrink(false);
         if let Some(d) = pan.scroll_to_day.take()
             && let Some(row) = pan.rows.iter().find(|r| r.1 == Row::Heading(d))
@@ -397,11 +399,12 @@ impl crate::App {
                             let at = top + egui::vec2(j as f32 * cell.x, y);
                             let rect = egui::Rect::from_min_size(at, cell);
                             self.list.note_pan_thumb(i);
-                            let r = self.file_cell(ui, i, rect);
-                            // A click selects as in the list: Ctrl adds the file, Shift a range,
-                            // and a plain click shows it alone.
-                            if let Some(go_to) = self.row_clicked(ui.ctx(), &r, i) {
-                                show = Some(go_to);
+                            // A click selects as in the list: Ctrl adds the file, Shift the
+                            // range between in the view's own order, and a plain click shows
+                            // the file alone.
+                            let (r, go_to) = self.file_cell(ui, i, rect, Some(&order));
+                            if go_to.is_some() {
+                                show = go_to;
                             }
                             if r.double_clicked() {
                                 (show, close) = (Some(i), true);
@@ -834,6 +837,74 @@ mod tests {
         // A delete in a list the reading is not for leaves it alone.
         pan.follow(&[0], 3, 9);
         assert_eq!(pan.removed_while_reading.1, 8);
+    }
+
+    /// A Shift+click in the timeline selects the cells between in the view's own order, the
+    /// days, never the files between in the list's order. A right-click there leaves the
+    /// selection as it is, as the view has no menu of the selection. Before, the list sorted by
+    /// name a, b, c with the days b, c, a gave a, b and c for a Shift+click on c from a, and a
+    /// right-click on b made it the only file selected.
+    #[test]
+    fn a_shift_click_in_the_timeline_takes_the_views_order() {
+        let name = format!("glimt-test-pan-shift-click-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        assert_eq!(app.list.shown(), 0);
+        let mut pan = PanView::default();
+        let days = vec![
+            ("2024-01-01".into(), vec![1]),
+            ("2024-01-02".into(), vec![2]),
+            ("2024-01-03".into(), vec![0]),
+        ];
+        pan.days = Some((days, app.list.version()));
+        let cell = app.cell();
+        // A frame of the timeline with `events`, which returns where the timeline starts.
+        let mut frame = |app: &mut crate::App, mut events: Vec<egui::Event>, shift: bool| {
+            let modifiers = egui::Modifiers {
+                shift,
+                ..Default::default()
+            };
+            events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let mut top = egui::Pos2::ZERO;
+            let _ = ctx.run_ui(input, |ui| {
+                top = ui.cursor().min;
+                let _ = app.pan_timeline(ui, &mut pan, cell);
+            });
+            top
+        };
+        let top = frame(&mut app, Vec::new(), false);
+        // The cell of the day `d`, under its heading.
+        let at = |d: f32| top + egui::vec2(cell.x / 2.0, (d + 1.0) * 26.0 + d * cell.y + 10.0);
+        let mut click = |app: &mut crate::App, pos, button, shift| {
+            let modifiers = egui::Modifiers {
+                shift,
+                ..Default::default()
+            };
+            let press = |pressed| egui::Event::PointerButton {
+                pos,
+                button,
+                pressed,
+                modifiers,
+            };
+            frame(app, vec![egui::Event::PointerMoved(pos)], shift);
+            frame(app, vec![press(true)], shift);
+            frame(app, vec![press(false)], shift);
+        };
+        // From the shown a, the third day, Shift+click c, the second day.
+        click(&mut app, at(1.0), egui::PointerButton::Primary, true);
+        let selected: Vec<usize> = app.list.selected().iter().copied().collect();
+        assert_eq!(selected, [0, 2]);
+        click(&mut app, at(0.0), egui::PointerButton::Secondary, false);
+        let selected: Vec<usize> = app.list.selected().iter().copied().collect();
+        assert_eq!(selected, [0, 2]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A delete in the window keeps Pan view's days for the new list, so they are not read
