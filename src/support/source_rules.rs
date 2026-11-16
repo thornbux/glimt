@@ -7,6 +7,10 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+/// What `config_writes` gives as the setting written when the settings are handed on whole, so
+/// that any of them may be changed.
+const ALL_SETTINGS: &str = "*";
+
 /// The names that 0.74.0's naming review retired, because a reader new to the code could not tell
 /// from them what they hold or do, and the names of plugins and decoder plugins, which 0.75.0
 /// renamed tools and added formats. Beside each is the name that took its place, which is the one
@@ -2440,7 +2444,7 @@ fn settings_change_through_their_setters() {
             // A on a stepped animation plays it on and leaves the setting, which a checkbox in
             // Preferences must not.
             let toggle = function == "toggle_setting" && field != "animate";
-            if !function.starts_with("set_") && !toggle {
+            if field == ALL_SETTINGS || !function.starts_with("set_") && !toggle {
                 continue;
             }
             let theirs = setters.entry(field).or_default();
@@ -2482,6 +2486,11 @@ fn settings_change_through_their_setters() {
     // The settings file's own reader fills the fields it reads.
     for (file, text) in sources.iter().filter(|(f, _)| f != "files/config.rs") {
         for (function, line, field) in config_writes(text) {
+            // The settings handed on whole can be changed in any way, past every setter.
+            if field == ALL_SETTINGS {
+                wrong.push(format!("{file}:{line} (all, in {function})"));
+                continue;
+            }
             let Some(theirs) = setters.get(&field) else {
                 continue;
             };
@@ -2674,10 +2683,12 @@ fn a_setting_counts_as_a_control_only_when_a_call_takes_it() {
     assert!(!gives_to_a_call(code, "giv"));
 }
 
-/// The setter test sees a setting written however it is written: assigned, added to, or taken
-/// as `&mut`, also through `&mut self.config` bound to any name, but not compared or read.
+/// The setter test sees a setting written in each spelling that `config_writes` names: assigned,
+/// added to, or taken as `&mut`, also through `&mut self.config` bound to any name, but not
+/// compared or read. It reads a statement whole, also where rustfmt broke it over lines, and
+/// follows the settings into a function or closure that takes them as `&mut Config`.
 #[test]
-fn a_setting_is_seen_written_however_it_is_written() {
+fn a_setting_is_seen_written_in_each_spelling_it_knows() {
     let code = "fn set_a(&mut self) {\n    if on {\n        x();\n    }\n    self.config.a = 1;\n}\n\
          fn b(&mut self) {\n    let mut cfg = &mut self.config;\n    cfg.b += \"}\";\n    \
          cfg.d == 2;\n    let f = &mut cfg.f;\n    x.g = 3;\n    self.config.h -= 1;\n}\n";
@@ -2723,6 +2734,38 @@ fn a_setting_is_seen_written_however_it_is_written() {
             ("c", 11, "r"),
         ]
     );
+    // The forms that rustfmt writes once a line is long, which slipped through before: a tuple
+    // of places and a pattern broken over lines, and arguments broken inside their brackets.
+    // A function or closure handed the settings writes them through its parameter, and
+    // `Config::set` writes any setting. A closure's body is read as statements of its own.
+    let code = "fn d(&mut self) {\n    (\n        self.config.w,\n        self.config.x,\n    ) = (a, b);\n    \
+         let Config {\n        y,\n        ..\n    } = &mut self.config;\n    \
+         call(\n        1,\n        &mut self.config.z,\n    );\n    \
+         change(&mut self.config);\n    self.config.set(\"a\", \"b\");\n    \
+         let c = &mut self.config;\n    change(1, c);\n    c.thumbnails.len();\n    \
+         ui.horizontal(|ui| {\n        let e = &mut self.config;\n        e.aa = 1;\n    });\n    \
+         self.config.bb.sort_unstable_by(f);\n    (c.cc).len();\n    \
+         let g = |cf: &mut crate::files::config::Config| cf.ee = 2;\n}\n\
+         fn fields(ui: &mut Ui, mut c: &mut Config, d: &Config) {\n    c.dd = 1;\n    d.ff = 1;\n}\n";
+    let found = config_writes(code);
+    let found: Vec<_> = found
+        .iter()
+        .map(|(f, l, s)| (f.as_str(), *l, s.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("d", 2, "w"),
+            ("d", 2, "x"),
+            ("d", 6, "y"),
+            ("d", 10, "z"),
+            ("d", 15, ALL_SETTINGS),
+            ("d", 21, "aa"),
+            ("d", 23, "bb"),
+            ("d", 25, "ee"),
+            ("fields", 28, "dd"),
+        ]
+    );
 }
 
 /// Returns each place outside the tests in `text` where a setting is written, as the function,
@@ -2730,8 +2773,14 @@ fn a_setting_is_seen_written_however_it_is_written() {
 /// the like), also in a tuple of places, when one of its parts is (`.0 =`, `[i] =`), when a
 /// method that changes it is called on it or on a part (`.push(`, `.retain(`, `.clone_from(`),
 /// or when it is taken as `&mut`. It is found as `self.config.X`, through a name that the
-/// function bound to `&mut self.config`, and as a field of a pattern bound to it. A line that
-/// starts with `.` is read with the line before it, as rustfmt breaks a long chain of calls.
+/// function bound to `&mut self.config`, as a field of a pattern bound to it, and through a
+/// parameter of type `&mut Config`, where a function or closure is handed the settings. A call
+/// of `Config::set`, which can change any setting, is a write of `ALL_SETTINGS`. Each
+/// statement is read whole, from its first line, also where rustfmt broke it over lines
+/// (`statements`).
+///
+/// It does not see the settings handed whole to a closure whose parameter has no type written,
+/// nor a setting written by a macro.
 fn config_writes(text: &str) -> Vec<(String, usize, String)> {
     let ident = |c: char| c.is_alphanumeric() || c == '_';
     // The methods of the standard library's types that change their value (`&mut self`).
@@ -2749,39 +2798,43 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
         "get_mut",
         "get_or_insert",
         "get_or_insert_with",
+        "first_mut",
         "insert",
         "insert_str",
         "iter_mut",
+        "last_mut",
         "pop",
+        "pop_back",
+        "pop_front",
         "push",
+        "push_back",
+        "push_front",
         "push_str",
         "remove",
         "replace",
+        "replace_range",
         "resize",
         "retain",
         "retain_mut",
+        "reverse",
+        "rotate_left",
+        "rotate_right",
         "sort",
         "sort_by",
         "sort_by_key",
         "sort_unstable",
+        "sort_unstable_by",
+        "sort_unstable_by_key",
         "split_off",
         "swap",
+        "swap_remove",
         "take",
         "truncate",
     ];
-    let lines = code_lines(text);
-    // Each line, with the lines that go on its chain of calls joined to it.
-    let mut joined: Vec<(usize, String)> = Vec::new();
-    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
-        match joined.last_mut() {
-            Some((_, last)) if line.trim_start().starts_with('.') => last.push_str(line.trim()),
-            _ => joined.push((i, line.clone())),
-        }
-    }
     let mut function = String::new();
     let mut prefixes = Vec::new();
     let mut writes = Vec::new();
-    for (i, line) in &joined {
+    for (i, line) in &statements(text) {
         // A top-level line starts a new item, so its bindings end there.
         if line.starts_with(|c: char| c.is_alphabetic()) {
             function.clear();
@@ -2812,6 +2865,9 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
                 }
             }
         }
+        // A parameter of a function or closure that is handed the settings is the settings
+        // too, so what a function writes through it is seen in that function.
+        prefixes.extend(config_parameters(line).map(|name| format!("{name}.")));
         for prefix in &prefixes {
             for (at, _) in line.match_indices(prefix.as_str()) {
                 if line[..at].ends_with(|c: char| ident(c) || c == '.') {
@@ -2825,6 +2881,11 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
                     .collect();
                 let changes = CHANGING.contains(&method.as_str())
                     && after[1 + method.len()..].starts_with('(');
+                // `Config::set` changes the setting its key names, any of them.
+                if name == "set" && after.starts_with('(') {
+                    writes.push((function.clone(), i + 1, ALL_SETTINGS.to_owned()));
+                    continue;
+                }
                 let written = is_assignment(after)
                     || changes
                     || line[..at].ends_with("&mut ")
@@ -2836,6 +2897,61 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
         }
     }
     writes
+}
+
+/// Returns the statements of `text` outside the tests, each with the index of its first line,
+/// as the code of its lines joined. A line goes on the statement before it when it starts with
+/// `.` (a chain of calls that rustfmt broke), when that statement left a bracket open (its
+/// arguments, or a tuple of places, broken inside the brackets), and when it is a `let` that
+/// has not yet come to its `=` (a pattern broken over lines). A statement ends at a line that
+/// opens a block, so the code in a closure's body or an `if` is read as statements of its own.
+fn statements(text: &str) -> Vec<(usize, String)> {
+    let lines = code_lines(text);
+    let mut joined: Vec<(usize, String)> = Vec::new();
+    let mut open = 0i32;
+    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+        let goes_on = joined.last().is_some_and(|(_, last)| {
+            let last = last.trim();
+            let unfinished_let = last.starts_with("let ") && !last.contains('=');
+            line.trim_start().starts_with('.')
+                || (open > 0 && !last.ends_with('{'))
+                || (unfinished_let && !last.ends_with(';'))
+        });
+        match joined.last_mut() {
+            Some((_, last)) if goes_on => last.push_str(line.trim()),
+            _ => {
+                joined.push((i, line.clone()));
+                open = 0;
+            }
+        }
+        for c in line.chars() {
+            match c {
+                '(' | '[' => open += 1,
+                ')' | ']' => open = (open - 1).max(0),
+                _ => {}
+            }
+        }
+    }
+    joined
+}
+
+/// Returns the names of the parameters in `line` that take the settings as `&mut Config`, of a
+/// function or of a closure.
+fn config_parameters(line: &str) -> impl Iterator<Item = &str> {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    (line.match_indices(": &mut ")).filter_map(move |(at, typed)| {
+        let ty = &line[at + typed.len()..];
+        let ty = ["crate::files::config::", "config::"]
+            .iter()
+            .find_map(|path| ty.strip_prefix(path))
+            .unwrap_or(ty);
+        let is_config = ty
+            .strip_prefix("Config")
+            .is_some_and(|after| !after.starts_with(ident));
+        let name = line[..at].trim_end_matches(ident);
+        let name = &line[name.len()..at];
+        (is_config && !name.is_empty()).then_some(name)
+    })
 }
 
 /// Passes over the fields and indexes at the start of `code` (`.0`, `.name`, `[i]`), which name

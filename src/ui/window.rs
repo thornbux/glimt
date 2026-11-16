@@ -62,6 +62,9 @@ pub(crate) struct Window {
     /// they are stopped after the file at hand and it waits for that; 3, a third close ends at
     /// once, and `on_exit` does not wait for the writes it queues.
     close_requests: u8,
+    /// `guard_close` sent the close again itself, because the work it waited for ended. That
+    /// close is no new close by the user, so it does not count in `close_requests`.
+    is_close_sent_again: bool,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
     /// A save that worked forgets it, so the same turn made again is saved too.
@@ -98,6 +101,7 @@ impl Window {
             pointer_moved: Instant::now(),
             title_template: String::new(),
             close_requests: 0,
+            is_close_sent_again: false,
             turn_tried_at_close: None,
             // A signal that came before the window was made, while it started, closes it too.
             termination_signals_seen: 0,
@@ -236,6 +240,7 @@ impl crate::App {
             self.ask_to_close(ctx);
         }
         let close = ctx.input(|i| i.viewport().close_requested());
+        let is_sent_again = close && std::mem::take(&mut self.window.is_close_sent_again);
         if !close && self.window.close_requests == 0 {
             return;
         }
@@ -265,11 +270,12 @@ impl crate::App {
             return;
         }
         if close {
-            self.refuse_or_delay_close(ctx);
+            self.refuse_or_delay_close(ctx, is_sent_again);
         } else if !was_writing || failed {
             // The close waited for the files, and they are written. After a failure, which
             // forgot the close that waited, the close is asked for again, and it waits for the
             // files still being written.
+            self.window.is_close_sent_again = true;
             self.ask_to_close(ctx);
         }
     }
@@ -290,8 +296,9 @@ impl crate::App {
     }
 
     /// Answers the close that `guard_close` saw. A kiosk cancels it. Otherwise it waits while
-    /// files are written.
-    fn refuse_or_delay_close(&mut self, ctx: &egui::Context) {
+    /// files are written. `is_sent_again` tells a close that `guard_close` sent itself when the
+    /// work it waited for ended.
+    fn refuse_or_delay_close(&mut self, ctx: &egui::Context, is_sent_again: bool) {
         if self.window.is_kiosk && !self.window.kiosk_may_quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             return;
@@ -315,29 +322,37 @@ impl crate::App {
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
-        let is_writing = self.is_writing();
-        if is_writing && self.window.close_requests == 2 {
+        if !self.is_writing() {
+            return;
+        }
+        if is_sent_again {
+            // The close sent again can start writing of its own, such as a turn refused before.
+            // It waits for that writing as the user's closes asked, and is no close of its own.
+            // Counted, it would stop the jobs, and the user's next close would end at once
+            // without waiting for the turn.
+            self.window.close_requests = self.window.close_requests.max(1);
+        } else if self.window.close_requests >= 2 {
             // The third close ends at once. The second one still waits at exit.
             self.window.close_requests = 3;
-        }
-        if is_writing && self.window.close_requests < 2 {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            return;
+        } else {
             self.window.close_requests += 1;
             if self.window.close_requests == 2 {
                 self.file_operations.stop_jobs();
             }
-            self.notice.give(
-                match self.window.close_requests {
-                    1 => crate::support::lang::tr(
-                        "Glimt closes when the file operations are done; close again to stop them",
-                    ),
-                    _ => crate::support::lang::tr(
-                        "Stopping after the files at hand; close once more to end at once",
-                    ),
-                }
-                .into(),
-            );
         }
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        self.notice.give(
+            match self.window.close_requests {
+                1 => crate::support::lang::tr(
+                    "Glimt closes when the file operations are done; close again to stop them",
+                ),
+                _ => crate::support::lang::tr(
+                    "Stopping after the files at hand; close once more to end at once",
+                ),
+            }
+            .into(),
+        );
     }
 
     /// Saves keywords typed and takes the file jobs' last reports, before `on_exit` writes the
@@ -864,34 +879,48 @@ mod tests {
     /// saved by the close sent when that work ends, and the refusal is not hidden by the close's
     /// own notice. Before, the refusal counted as the one try, so the window closed without the
     /// turn and without a word, and the close's notice took the refusal's place at once.
+    ///
+    /// The close sent again counts as no close of the user's. Before, it counted as the second:
+    /// it stopped the jobs and said so, and the user's next close ended without waiting for the
+    /// turn's save. After two closes it made the third, and did not wait at all.
     #[test]
     fn a_turn_refused_at_closing_is_saved_when_the_work_ends() {
         let dir = contract_folder("close-turn-refused");
         let a = dir.join("a.png");
-        let (mut app, ctx) = app_on(&dir);
-        app.config.save_orientation = true;
-        app.viewing.set_turn((1, false), a.clone());
-        // Other work changes a.png, and files are written meanwhile.
-        let held = app.hold_back_while_writing(vec![a.clone()]).unwrap();
-        let writing = crate::support::threads::Working::new(&crate::files::file_io::WRITING);
-        assert!(!close_pass(&mut app, &ctx, true));
-        assert!(!app.file_operations.is_saving(&a));
-        let shown = app.notice.text().unwrap_or_default().to_owned();
-        assert!(shown.contains("The rotation was not saved"), "{shown}");
-        assert!(shown.contains("Glimt closes when"), "{shown}");
-        // The work ends, and the close that waited is sent again.
-        drop((held, writing));
-        let start = std::time::Instant::now();
-        while !close_pass(&mut app, &ctx, false) {
-            assert!(
-                start.elapsed().as_secs() < 5,
-                "the close was not sent again"
-            );
+        for user_closes in [1, 2] {
+            let (mut app, ctx) = app_on(&dir);
+            app.config.save_orientation = true;
+            app.viewing.set_turn((1, false), a.clone());
+            // Other work changes a.png, and files are written meanwhile.
+            let held = app.hold_back_while_writing(vec![a.clone()]).unwrap();
+            let writing = crate::support::threads::Working::new(&crate::files::file_io::WRITING);
+            for _ in 0..user_closes {
+                assert!(!close_pass(&mut app, &ctx, true));
+            }
+            assert!(!app.file_operations.is_saving(&a));
+            let shown = app.notice.text().unwrap_or_default().to_owned();
+            assert!(shown.contains("The rotation was not saved"), "{shown}");
+            // The work ends, and the close that waited is sent again.
+            drop((held, writing));
+            let start = std::time::Instant::now();
+            while !close_pass(&mut app, &ctx, false) {
+                assert!(
+                    start.elapsed().as_secs() < 5,
+                    "the close was not sent again"
+                );
+            }
+            assert!(!close_pass(&mut app, &ctx, true));
+            assert!(app.file_operations.is_saving(&a), "the turn was not saved");
+            assert_eq!(app.window.close_requests, user_closes);
+            let shown = app.notice.text().unwrap_or_default().to_owned();
+            let waits = ["Glimt closes when", "Stopping after"][usize::from(user_closes) - 1];
+            assert!(shown.contains(waits), "{user_closes}: {shown}");
+            // The user's next close still waits at exit for the turn's save.
+            let _ = close_pass(&mut app, &ctx, true);
+            assert!(app.window.waits_at_exit() || user_closes == 2);
+            let over = |app: &crate::App| !app.file_operations.is_saving(&a);
+            assert!(run_background_until(&mut app, &ctx, over));
         }
-        assert!(!close_pass(&mut app, &ctx, true));
-        assert!(app.file_operations.is_saving(&a), "the turn was not saved");
-        let over = |app: &crate::App| !app.file_operations.is_saving(&a);
-        assert!(run_background_until(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

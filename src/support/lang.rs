@@ -73,6 +73,14 @@ static CURRENT_TRANSLATION: RwLock<Option<&'static Translation>> = RwLock::new(N
 /// The most forms a noun has in a translation built in (Polish: one, few, many).
 const FORMS: usize = 4;
 
+// The language that `tr` uses on this thread in a test, in place of the one in use. A test can
+// then see the window in a translation without changing the language of the tests beside it.
+#[cfg(test)]
+thread_local! {
+    static LANGUAGE_OF_THIS_TEST: std::cell::Cell<Option<&'static Translation>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// A translation, parsed: each English text and its translation, and each noun of `count`
 /// with its forms; `code` picks the form.
 #[derive(Default)]
@@ -102,13 +110,26 @@ fn plural_form(code: &str, n: usize) -> usize {
 
 /// Use the language of `setting` (a code of `LANGUAGES`, "en"), or with "" the system's.
 pub fn set_language(setting: &str) {
-    let chosen = translation_code(setting).and_then(|code| {
-        let k = LANGUAGES.iter().position(|l| l.0 == code)?;
-        Some(translation(k))
-    });
     *CURRENT_TRANSLATION
         .write()
-        .unwrap_or_else(|e| e.into_inner()) = chosen;
+        .unwrap_or_else(|e| e.into_inner()) = chosen_translation(setting);
+}
+
+/// Makes `tr` on this thread use the language of `setting`, as `set_language` does for the
+/// whole window. Only the tests use it, so that a test of a translated window leaves the others
+/// in English.
+#[cfg(test)]
+pub(crate) fn set_language_of_this_test(setting: &str) {
+    LANGUAGE_OF_THIS_TEST.set(chosen_translation(setting));
+}
+
+/// Returns the translation that the language setting `setting` asks for, and `None` for
+/// English.
+fn chosen_translation(setting: &str) -> Option<&'static Translation> {
+    translation_code(setting).and_then(|code| {
+        let k = LANGUAGES.iter().position(|l| l.0 == code)?;
+        Some(translation(k))
+    })
 }
 
 /// Returns the code in `LANGUAGES` of the translation that the language setting `setting`
@@ -177,6 +198,10 @@ fn language(locale: &str) -> Option<String> {
 
 /// `en` in the language in use, or itself when that has no translation of it.
 pub fn tr(en: &'static str) -> &'static str {
+    #[cfg(test)]
+    if let Some(translation) = LANGUAGE_OF_THIS_TEST.get() {
+        return translation.texts.get(en).map_or(en, |t| t.as_str());
+    }
     let current = CURRENT_TRANSLATION
         .read()
         .unwrap_or_else(|e| e.into_inner());

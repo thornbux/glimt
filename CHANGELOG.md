@@ -7,14 +7,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The search in Preferences finds "Automatic (system language)" by its English words also when
+  the window is in another language. Before, it found it only in English.
+- A close that waits for file operations, with Save Orientation on and a turn whose save was
+  refused while they ran, saves the turn when they end and waits for it. Before, that counted
+  as a second close: it stopped the file operations, and the next close ended without waiting
+  for the turn's save.
 - "Add the keywords to the selected" in the info panel keeps a keyword that holds a comma
   ("Smith, John", as Lightroom and digiKam write a person's name) whole. Before, every selected
   file got "Smith" and "John" instead, and the shown one got them beside its "Smith, John".
 - With the grid in the image area (G), the status bar tells about the image shown now. Before,
   it told about the image shown before G, or about a file of another folder.
 - Shift+Space and Shift+Backspace browse as Space and Backspace, as the help says, and no
-  longer select a range that the next Delete acts on. Shift selects a range only with the
-  arrows, Page Up/Down, Home and End, not with a menu item clicked or the wheel.
+  longer select a range that the next Delete acts on. Of the keys, only the arrows, Page
+  Up/Down, Home and End select a range with Shift, and a menu item or the wheel never does. A
+  click with Shift still selects a range.
 - In Compare (E), Alt+Right and a click on the right half show the compared image in the first
   pane. Before, with two files selected, Alt+Right showed the next image in the list, which
   neither half showed, and a click on the right half did nothing.
