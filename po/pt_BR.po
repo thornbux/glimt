@@ -3982,3 +3982,8 @@ msgstr "Não foi possível ler o arquivo de marcas {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Projetor do Glimt"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "não contado em uma pasta de rede"

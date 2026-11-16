@@ -3971,3 +3971,8 @@ msgstr "Merkintätiedostoa {name} ei voitu lukea: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-projektori"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "ei laskettu verkkokansiossa"

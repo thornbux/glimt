@@ -3971,3 +3971,8 @@ msgstr "Impossibile leggere il file dei contrassegni {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Proiettore Glimt"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "non calcolato in una cartella di rete"

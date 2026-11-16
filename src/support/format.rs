@@ -3,6 +3,11 @@
 
 use crate::support::lang::{self, tr};
 
+/// The size that a sum of the files of a share gives (`listing::is_on_a_share`). Their sizes
+/// are not summed there, because a look at each file is a round trip over the network, and a
+/// tree of many files kept the share busy for a program the user started on it.
+pub(crate) const NOT_COUNTED_ON_A_SHARE: u64 = u64::MAX;
+
 /// A piece of a text with `%` codes, as `pieces` reads it.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Piece<'a> {
@@ -12,9 +17,14 @@ pub(crate) enum Piece<'a> {
     Code(&'a str),
 }
 
-/// A size for the status bar, or "calculating…" while it is summed (`None`).
+/// A size for the status bar, or "calculating…" while it is summed (`None`), or that it is not
+/// counted on a share (`NOT_COUNTED_ON_A_SHARE`).
 pub(crate) fn size_text(bytes: Option<u64>) -> String {
-    bytes.map_or(tr("calculating…").to_owned(), human_size)
+    match bytes {
+        None => tr("calculating…").to_owned(),
+        Some(NOT_COUNTED_ON_A_SHARE) => tr("not counted on a network folder").to_owned(),
+        Some(bytes) => human_size(bytes),
+    }
 }
 
 /// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units), with the

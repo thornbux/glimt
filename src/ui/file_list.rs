@@ -6,7 +6,9 @@ use crate::files::external::is_video;
 use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{SORTS, Types, list_folder};
-use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
+use crate::support::format::{
+    NOT_COUNTED_ON_A_SHARE, count, local_time, middle_cut, size_text, thousands,
+};
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
@@ -533,7 +535,9 @@ impl StatusBar {
         while let Ok((freed, _pointer)) = self.freed_bytes.try_recv() {
             // shortcut: a delete while the sum is still being computed can make it slightly off;
             // fine for a status bar figure.
-            self.total_size = self.total_size.saturating_sub(freed);
+            if self.total_size != NOT_COUNTED_ON_A_SHARE {
+                self.total_size = self.total_size.saturating_sub(freed);
+            }
         }
         match self.selection_sum.take() {
             Took::Answer(size) => self.selected_size = Some(size),

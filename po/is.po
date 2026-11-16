@@ -3971,3 +3971,8 @@ msgstr "Gat ekki lesið merkjaskrána {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Glimt-skjávarpi"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "ekki talið í netmöppu"

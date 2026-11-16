@@ -3982,3 +3982,8 @@ msgstr "Nie udało się odczytać pliku znaczników {name}: {e}"
 #, fuzzy
 msgid "Glimt Projector"
 msgstr "Projektor Glimt"
+
+#: src/support/format.rs
+#, fuzzy
+msgid "not counted on a network folder"
+msgstr "nie liczone w folderze sieciowym"
