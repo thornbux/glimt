@@ -102,7 +102,8 @@ pub const REMOTE_ALL: &str = "--remote-all";
 
 /// The exit code of `glimt --remote` when a command cannot be sent: unknown, with the wrong
 /// arguments, a `run` of an action that is not for scripts, more than `MAX_SELECT` files, or a
-/// path that cannot go in the text sent (not UTF-8, or with a line break in it).
+/// path that cannot go in the text sent (not UTF-8, or with a line break or carriage return in
+/// it).
 pub const NOT_SENT: i32 = 2;
 
 /// The exit code of `glimt --remote` and `--remote-all` when no Glimt takes the command, or
@@ -1596,10 +1597,12 @@ pub fn client(
             // The path is made as the window has its folder, with links followed, because
             // ~/Pictures may be one.
             let p = crate::model::listing::real_path(std::path::Path::new(p));
-            match p.to_str().filter(|t| !t.contains('\n')) {
+            match p.to_str().filter(|t| can_be_sent(t)) {
                 Some(text) => sent.push(text.to_owned()),
                 None => {
-                    eprintln!("glimt: cannot send {p:?}: not UTF-8, or a line break in it");
+                    eprintln!(
+                        "glimt: cannot send {p:?}: not UTF-8, or a line break or carriage return in it"
+                    );
                     std::process::exit(NOT_SENT);
                 }
             }
@@ -1626,9 +1629,12 @@ pub fn client(
         command = format!("{} {}", words[0], open_path_sent(&path));
     }
     // A line ends a command at the window, so a line break in a file name would be read as a
-    // command of its own, such as quit.
-    if command.contains('\n') {
-        eprintln!("glimt: cannot send a line break in a command or file name");
+    // command of its own, such as quit. A window older than 0.86 takes a "\r" off the end of
+    // a path, so `open` would open another folder.
+    if command.contains('\n') || open_path(&command).is_some_and(|p| !can_be_sent(&p)) {
+        eprintln!(
+            "glimt: cannot send a line break in a command, or a line break or carriage return in a file name"
+        );
         std::process::exit(NOT_SENT);
     }
     let line = match wait && !is_query(&command) {
@@ -1657,6 +1663,12 @@ pub fn client(
             std::process::exit(NOT_TAKEN);
         }
     }
+}
+
+/// Whether the path `path` can be sent to a window: the line break ends a command there, and a
+/// window older than 0.86 takes a "\r" off the end of a line, also off a path's last byte.
+fn can_be_sent(path: &str) -> bool {
+    !path.contains(['\n', '\r'])
 }
 
 /// Returns `path` of `--remote open` as it is sent to a window, or given to a new Glimt: a
@@ -1969,9 +1981,24 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
         return None;
     }
     let line = line.strip_suffix(b"\n").unwrap_or(&line);
-    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    // A "\r" before the line break is taken off, for a client that ends its lines with
+    // "\r\n", but not from the end of a path, where it is part of the file's name.
+    let line = match line.strip_suffix(b"\r") {
+        Some(cut) if !ends_in_a_path(cut) => cut,
+        _ => line,
+    };
     // Told, as an end without an answer would read as done.
     Some(String::from_utf8(line.to_vec()).map_err(|_| "not UTF-8"))
+}
+
+/// Whether `line` ends in a path: it is an `open`, `select` or `info` with files, and its last
+/// byte is not the NUL after a file.
+fn ends_in_a_path(line: &[u8]) -> bool {
+    let line = line.trim_ascii_start();
+    let line = line.strip_prefix(WAIT_WORD.as_bytes()).unwrap_or(line);
+    let line = line.trim_ascii_start();
+    let mut takes_paths = ["open ", "select ", "info "].iter();
+    takes_paths.any(|w| line.starts_with(w.as_bytes())) && !line.ends_with(b"\0")
 }
 
 /// Makes the folder `dir` of the sockets private to the user, when it is the user's own. The
@@ -3968,6 +3995,28 @@ mod tests {
             assert!(why.is_some_and(|w| w.contains("where Next")));
             std::fs::remove_dir_all(dir).unwrap();
         }
+    }
+
+    /// A "\r" at the end of a path is part of the file's name, and reaches the window with the
+    /// path. Before, `open "/pics/Trip\r"` opened /pics/Trip. A "\r" before the line break of
+    /// any other command, or after the NUL of a select's last file, is still taken off, and
+    /// the client refuses to send a path with one, as an older window takes it off.
+    #[test]
+    fn a_carriage_return_at_the_end_of_a_path_is_kept() {
+        let read = |text: &str| {
+            let mut reader = std::io::Cursor::new(text.as_bytes().to_vec());
+            super::read_command(&mut reader).unwrap().unwrap()
+        };
+        assert_eq!(read("open /pics/Trip\r\n"), "open /pics/Trip\r");
+        assert_eq!(read("wait open /pics/Trip\r\n"), "wait open /pics/Trip\r");
+        assert_eq!(read("select /a.jpg\0/b.jpg\r\n"), "select /a.jpg\0/b.jpg\r");
+        assert_eq!(read("info /b.jpg\r\n"), "info /b.jpg\r");
+        assert_eq!(read("select /a.jpg\0\r\n"), "select /a.jpg\0");
+        assert_eq!(read("next\r\n"), "next");
+        assert_eq!(read("info\r\n"), "info");
+        assert!(super::can_be_sent("/pics/Trip"));
+        assert!(!super::can_be_sent("/pics/Trip\r"));
+        assert!(!super::can_be_sent("/pics/a\nquit"));
     }
 
     /// Serves the one client at `stream`, as the listener does, with a place of its own.
