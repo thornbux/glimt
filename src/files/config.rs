@@ -1999,6 +1999,10 @@ mod tests {
         // The words of the groups that Copy for Sharing keeps in its file of the last choice.
         let groups = crate::images::shared_copy::Group::ALL.iter();
         now.extend(groups.map(|group| format!("sharing {}", group.key())));
+        now.push(format!(
+            "sharing {}",
+            crate::images::shared_copy::FILE_NAME_KEY
+        ));
         // The single tags and parts that the same file names, each left out on its own.
         let tags = crate::images::shared_copy::names_of_single_tags().into_iter();
         now.extend(tags.map(|tag| format!("sharing_tag {tag}")));

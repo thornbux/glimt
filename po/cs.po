@@ -3742,6 +3742,16 @@ msgstr "Vždy zachováno: orientace, aby se obrázek nezobrazil na boku, barevn�
 
 #: src/features/copy_for_sharing.rs
 #, fuzzy
+msgid "File name"
+msgstr "Název souboru"
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
+msgid "A copy keeps the file's name, which can hold the date, unless File name is ticked: then the copies are named image-1, image-2 and so on."
+msgstr "Kopie si ponechá název souboru, který může obsahovat datum, pokud není zaškrtnuto Název souboru: pak se kopie jmenují image-1, image-2 a tak dále."
+
+#: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Skrýt"
 

@@ -5283,7 +5283,12 @@ mod tests {
                 "copy for sharing",
                 |app, _, d| {
                     let paths = crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]);
-                    app.copy_for_sharing(paths, d.join("sub"), Default::default(), false)
+                    app.copy_for_sharing(
+                        paths,
+                        d.join("sub"),
+                        Default::default(),
+                        crate::features::copy_for_sharing::Naming::Own,
+                    )
                 },
                 |app, d| {
                     let (to, a) = (d.join("sub/a.png"), d.join("a.png"));
