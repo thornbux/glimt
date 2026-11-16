@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Save As over a file, and a turn saved, keep the file's sidecar as it was when the file cannot
+  be replaced at the last step, as when another computer holds it open on a share or it is
+  another user's file in a shared folder. Before, Save As had already removed the sidecar with
+  its keywords and stars, and a turn left a sidecar that said the image was turned.
+- Crop never takes a name whose sidecar is there without its image, as when the earlier crop was
+  moved away without its sidecar. Before, the new crop took the name and removed that sidecar,
+  the only copy of the earlier crop's keywords and stars. Save As refuses such a name, and Copy
+  for Sharing passes over it.
+- A crop or Save As of a photo with a very long name (near 255 bytes) is saved whole with its
+  sidecar, or not at all, and a copy saved without a sidecar it could not write is told as
+  saved. Before, the crop was told as failed while it was saved without its sidecar and marks,
+  a new copy on each try, and a photo whose sidecar's name would be too long could not be
+  cropped or saved as a copy.
+
 ## [0.85.0] - 2026-11-16
 
 ### Fixed
