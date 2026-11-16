@@ -46,6 +46,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   moment) is told, and the list shown stays with its selection. Before, it was listed as
   empty without a word, and a refresh that failed emptied the list, so the files came back
   unselected.
+- A folder among several shown together, a subfolder of a tree with Include Subfolders, or an
+  entry of a collection that cannot be read (a locked folder, a damaged folder on a USB disk,
+  an entry through a file) is left out and told once, and the rest is listed. Before, it
+  failed the whole listing every time, so no image was shown, and a collection held every file
+  operation back.
+- A plain list (.m3u, .txt) keeps only the window's own changes, and only while it is shown.
+  Before, two copies of every list shown stayed in memory until Glimt closed, 70 MB for a list
+  of 500,000 photos.
+- Move First, Last, Earlier and Later on an image that the search hides says that the search
+  hides it. Before, it did nothing and said nothing.
 - A path chosen from Open Recent that is gone leaves the recent file too. Before, it left only
   the menu of that window, and came back in other windows and after a restart.
 - A collection that cannot be read leaves Go → Back and Forward as they were. Before, the
