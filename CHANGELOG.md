@@ -48,9 +48,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   unselected.
 - A folder among several shown together, a subfolder of a tree with Include Subfolders, or an
   entry of a collection that cannot be read (a locked folder, a damaged folder on a USB disk,
-  an entry through a file) is left out and told once, and the rest is listed. Before, it
-  failed the whole listing every time, so no image was shown, and a collection held every file
-  operation back.
+  an entry through a file) is left out and told once, and the rest is listed. The images of
+  it that were shown already stay in the list, with their selection. Before, it failed the
+  whole listing every time, so no image was shown, and a collection held every file operation
+  back.
 - A plain list (.m3u, .txt) keeps only the window's own changes, and only while it is shown.
   Before, two copies of every list shown stayed in memory until Glimt closed, 70 MB for a list
   of 500,000 photos.
