@@ -67,8 +67,9 @@ type FoundGroups = (Vec<Vec<PathBuf>>, HashMap<PathBuf, u64>, Seen);
 type Seen = HashMap<PathBuf, FileFingerprint>;
 
 /// A group's checked files, and its unchecked ones with their fingerprints as the search saw
-/// them (`FindDuplicates::kept_beside_checked`).
-type CheckedAndKept = (Vec<PathBuf>, Vec<(PathBuf, FileFingerprint)>);
+/// them (`FindDuplicates::kept_beside_checked`). An unchecked file has `None` when the search
+/// has no fingerprint of it.
+type CheckedAndKept = (Vec<PathBuf>, Vec<(PathBuf, Option<FileFingerprint>)>);
 
 /// The Find Duplicates window: what to compare by, the search running and its results.
 pub(crate) struct FindDuplicates {
@@ -96,13 +97,14 @@ pub(crate) struct FindDuplicates {
 
 impl FindDuplicates {
     /// Each group with a checked file and a file left unchecked: its checked files, and the
-    /// unchecked ones with their fingerprints as the search saw them.
+    /// unchecked ones with their fingerprints as the search saw them. An unchecked file whose
+    /// fingerprint the search could not take stays in, so that the look counts it as changed.
     fn kept_beside_checked(&self) -> Vec<CheckedAndKept> {
         let groups = self.groups.iter().map(|group| {
             let (checked, kept): (Vec<&PathBuf>, Vec<&PathBuf>) =
                 group.iter().partition(|p| self.checked.contains(*p));
             let kept = (kept.into_iter())
-                .filter_map(|p| self.seen.get(p).map(|seen| (p.clone(), *seen)))
+                .map(|p| (p.clone(), self.seen.get(p).copied()))
                 .collect::<Vec<_>>();
             (checked.into_iter().cloned().collect::<Vec<_>>(), kept)
         });
@@ -446,17 +448,18 @@ impl crate::App {
 }
 
 /// Looks at the unchecked files of each group, `kept`, and sends whether any of a group's is no
-/// longer as the search saw it. Each file looked at first sends a sign that the look goes on, so
+/// longer as the search saw it. A file without a fingerprint counts as changed, as nothing can
+/// tell that it is still a copy. Each file looked at first sends a sign that the look goes on, so
 /// a look at many files on a share that answers is not given up after a minute in all. It waits
 /// for the disk.
 fn look_at_kept_files(
-    kept: &[Vec<(PathBuf, FileFingerprint)>],
+    kept: &[Vec<(PathBuf, Option<FileFingerprint>)>],
     found_tx: &std::sync::mpsc::Sender<LookUpStep<Vec<bool>>>,
 ) {
     let changed: Vec<bool> = (kept.iter())
         .map(|files| {
             (files.iter()).any(|(path, seen)| {
-                let changed = !is_as_seen(path, *seen);
+                let changed = !seen.is_some_and(|seen| is_as_seen(path, seen));
                 drop(found_tx.send(LookUpStep::GoesOn));
                 changed
             })
@@ -978,7 +981,7 @@ mod tests {
         for f in &files {
             image::RgbImage::new(2, 2).save(f).unwrap();
         }
-        let seen = |f: &PathBuf| (f.clone(), super::fingerprint(f).unwrap());
+        let seen = |f: &PathBuf| (f.clone(), super::fingerprint(f));
         let kept = vec![
             vec![seen(&files[0])],
             vec![seen(&files[1]), seen(&files[2])],
@@ -995,6 +998,31 @@ mod tests {
         }
         assert_eq!((signs, answer), (3, Some(vec![false, false])));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A group whose unchecked file the search has no fingerprint of keeps its checked files,
+    /// as nothing can tell that the unchecked one is still a copy (F1-2 of round 3 of the review
+    /// before 1.0). Before, that file was left out of the look, and with no other unchecked
+    /// file the group's checked ones went to the trash unlooked at.
+    #[test]
+    fn a_group_whose_unchecked_file_has_no_fingerprint_is_not_trashed() {
+        let (a, b) = (
+            PathBuf::from("/dup-unseen/a.png"),
+            PathBuf::from("/dup-unseen/b.png"),
+        );
+        let mut find_duplicates = super::FindDuplicates::new();
+        find_duplicates.groups = vec![vec![a.clone(), b.clone()]];
+        find_duplicates.checked = [b.clone()].into();
+        let groups = find_duplicates.kept_beside_checked();
+        assert_eq!(groups.len(), 1, "the group is not looked at");
+        let kept: Vec<_> = groups.into_iter().map(|(_, kept)| kept).collect();
+        let (tx, rx) = std::sync::mpsc::channel();
+        super::look_at_kept_files(&kept, &tx);
+        let answer = rx.into_iter().find_map(|step| match step {
+            super::LookUpStep::Answered(changed) => Some(changed),
+            super::LookUpStep::GoesOn => None,
+        });
+        assert_eq!(answer, Some(vec![true]));
     }
 
     /// Move to Trash leaves out the checked copy of a group whose unchecked file was edited
