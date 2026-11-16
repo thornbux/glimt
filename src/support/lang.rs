@@ -859,7 +859,7 @@ msgstr[1] "bilder"
                 "read in gio's output",
             ),
             (
-                "images/thumbs.rs",
+                "images/decode.rs",
                 &[
                     "No such file or directory",
                     "Permission denied",

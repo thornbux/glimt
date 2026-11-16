@@ -4008,3 +4008,12 @@ msgstr "Projektor Glimt"
 #, fuzzy
 msgid "not counted on a network folder"
 msgstr "v síťové složce se nepočítá"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: nelze zkontrolovat: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Nelze zkontrolovat ({n}):"

@@ -3997,3 +3997,12 @@ msgstr "Projetor do Glimt"
 #, fuzzy
 msgid "not counted on a network folder"
 msgstr "não contado em uma pasta de rede"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: não foi possível verificar: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Não foi possível verificar {n}:"

@@ -3986,3 +3986,12 @@ msgstr "Glimt-projector"
 #, fuzzy
 msgid "not counted on a network folder"
 msgstr "niet geteld in een netwerkmap"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: kon niet worden gecontroleerd: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "{n} konden niet worden gecontroleerd:"

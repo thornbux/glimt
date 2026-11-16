@@ -3210,4 +3210,10 @@ msgstr ""
 
 #: src/support/format.rs
 msgid "not counted on a network folder"
+#: src/features/check.rs
+msgid "{name}: could not be checked: {why}"
+msgstr ""
+
+#: src/features/check.rs
+msgid "{n} could not be checked:"
 msgstr ""

@@ -3997,3 +3997,12 @@ msgstr "Projektor Glimt"
 #, fuzzy
 msgid "not counted on a network folder"
 msgstr "nie liczone w folderze sieciowym"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: nie udało się sprawdzić: {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Nie udało się sprawdzić ({n}):"

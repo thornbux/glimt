@@ -3986,3 +3986,12 @@ msgstr "Projecteur Glimt"
 #, fuzzy
 msgid "not counted on a network folder"
 msgstr "non compté dans un dossier réseau"
+#: src/features/check.rs
+#, fuzzy
+msgid "{name}: could not be checked: {why}"
+msgstr "{name} : vérification impossible : {why}"
+
+#: src/features/check.rs
+#, fuzzy
+msgid "{n} could not be checked:"
+msgstr "Vérification impossible pour {n} :"

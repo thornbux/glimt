@@ -36,6 +36,13 @@ pub const MAX_DECODE_BYTES: u64 = 512 << 20;
 /// each claim nearly the limit would otherwise take gigabytes together.
 pub const DECODE_BUDGET: u64 = 4 * MAX_DECODE_BYTES;
 
+/// The error of a decode whose file could not be looked at, such as one on a share that
+/// dropped for a moment. It says nothing about the file (`failure_of`).
+const NOT_LOOKED_AT: &str = "the file could not be looked at";
+
+/// The error of a decode whose file changed while it was read (`DecodeInput::holding`).
+const CHANGED_WHILE_READ: &str = "the file changed while it was read";
+
 /// The shared budget that every decode takes its bytes from (`reserve_from_budget`).
 static BUDGET: DecodeBudget = DecodeBudget::new(DECODE_BUDGET);
 
@@ -45,6 +52,9 @@ thread_local! {
     /// Whether this thread's decodes take their bytes before the others that wait, because
     /// they are of the shown image (`let_this_thread_go_first`).
     static GOES_FIRST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The bytes of the files and program output that this thread's decodes hold while they
+    /// make pixels of them (`DecodeInput`). Every reservation takes them on top.
+    static INPUT_HOLDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 // The budget of this thread, when it was given one. The tests run side by side in one process,
@@ -102,6 +112,22 @@ type Unturned = (
 /// An animation's frames, decoded as they are taken, and its size, or why it is not decoded.
 type Animated = Result<(image::Frames<'static>, (u32, u32)), String>;
 
+/// What a failed decode says about its file, told by its error (`failure_of`).
+#[derive(Debug, PartialEq)]
+pub enum DecodeFailure {
+    /// The file is broken, or it is no image that Glimt reads.
+    OfTheFile,
+    /// The file is larger than Glimt decodes, or needs more memory than a decode may take. It
+    /// may be a good image, such as a large panorama.
+    TooLarge,
+    /// The program that reads it did not end in time. A busy computer or a share that woke
+    /// slowly causes that too.
+    TimedOut,
+    /// Nothing about the file: the program that reads it is not there, or the file could not
+    /// be looked at or read.
+    NotOfTheFile,
+}
+
 /// Bytes that decodes take from a shared total before they allocate, and give back after.
 pub struct DecodeBudget {
     state: std::sync::Mutex<BudgetState>,
@@ -127,12 +153,18 @@ impl DecodeBudget {
     /// by smaller ones that come after it, and those of the shown image (`goes_first`) take
     /// theirs before every other that waits. Returns an error when `bytes` alone is more than
     /// the whole budget, because no wait makes room then.
-    fn take(&self, bytes: u64, goes_first: bool) -> Result<(), String> {
+    ///
+    /// The `held` bytes that the caller holds are given back first, in the same step as its
+    /// turn is taken, so that no other decode takes them between the two. A decode that needs
+    /// more than it holds would else lose them to one that came after it.
+    fn take(&self, held: u64, bytes: u64, goes_first: bool) -> Result<(), String> {
         if bytes > self.total {
+            self.give_back(held);
             return Err(format!("image too large ({})", human_size(bytes)));
         }
         let line = usize::from(!goes_first);
         let mut state = lock_even_if_poisoned(&self.state);
+        state.free += held;
         let turn = state.turns_given[line];
         state.turns_given[line] += 1;
         while !state.is_turn_of(line, turn, bytes) {
@@ -197,6 +229,83 @@ impl Drop for DecodeJobBudget {
     }
 }
 
+/// A file's bytes, or a program's output, that a decode holds while it makes pixels of them.
+/// Its bytes are taken from the budget before they are read. While it lives, every later
+/// reservation of this thread asks for them on top (`INPUT_HOLDS`), so the budget counts what
+/// was read together with the pixels made of it. Before, only the pixels counted, and a folder
+/// of small JPEGs that each end in 500 MB of zeros held gigabytes outside the budget.
+pub struct DecodeInput {
+    bytes: Vec<u8>,
+    reserved: u64,
+    /// It is not sent to another thread, because its bytes count in this thread's
+    /// `INPUT_HOLDS`. The reservation's job keeps it there.
+    _reservation: BudgetReservation,
+}
+
+impl DecodeInput {
+    /// Takes `cap` bytes of the budget for input that is about to be read, such as a program's
+    /// output of at most `cap` bytes, and returns it empty. Returns an error when `cap` with
+    /// what this thread holds already is more than the whole budget.
+    pub fn reserve(cap: u64) -> Result<DecodeInput, String> {
+        let reservation = reserve_from_budget(cap)?;
+        INPUT_HOLDS.set(INPUT_HOLDS.get() + cap);
+        Ok(DecodeInput {
+            bytes: Vec::new(),
+            reserved: cap,
+            _reservation: reservation,
+        })
+    }
+
+    /// Puts `bytes` into the room reserved. Returns an error when they are more than was
+    /// reserved, such as a file that grew while it was read.
+    pub fn holding(mut self, bytes: Vec<u8>) -> Result<DecodeInput, String> {
+        if bytes.len() as u64 > self.reserved {
+            return Err(CHANGED_WHILE_READ.into());
+        }
+        self.bytes = bytes;
+        Ok(self)
+    }
+
+    /// Reads the whole of `path`, as `read_limited` does, after its size is taken from the
+    /// budget. This is the way a decode reads a file whole.
+    pub fn read(path: &Path) -> std::io::Result<DecodeInput> {
+        let (file, meta) = open_regular_with_metadata(path)?;
+        if meta.len() > MAX_DECODE_BYTES {
+            return Err(file_too_large());
+        }
+        let input = DecodeInput::reserve(meta.len()).map_err(std::io::Error::other)?;
+        let bytes = read_open_file((file, meta))?;
+        input.holding(bytes).map_err(std::io::Error::other)
+    }
+
+    /// Reads the first `max` bytes of `path`, as `read_head` does, after they are taken from
+    /// the budget.
+    pub fn read_head(path: &Path, max: u64) -> std::io::Result<DecodeInput> {
+        use std::io::Read;
+        let (file, meta) = open_regular_with_metadata(path)?;
+        let cap = meta.len().min(max);
+        let input = DecodeInput::reserve(cap).map_err(std::io::Error::other)?;
+        let mut head = Vec::new();
+        #[allow(clippy::disallowed_methods)] // bounded by take
+        file.take(cap).read_to_end(&mut head)?;
+        input.holding(head).map_err(std::io::Error::other)
+    }
+}
+
+impl std::ops::Deref for DecodeInput {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Drop for DecodeInput {
+    fn drop(&mut self) {
+        INPUT_HOLDS.set(INPUT_HOLDS.get() - self.reserved);
+    }
+}
+
 /// Returns the budget that this thread's decodes take their bytes from, the shared `BUDGET`.
 /// In tests, each test's own thread has a budget of its own (`TEST_BUDGET`).
 fn budget() -> &'static DecodeBudget {
@@ -244,13 +353,20 @@ pub fn start_decode_job() -> DecodeJobBudget {
 /// jobs never wait for each other. Outside a job, the reservation starts one, so a thread never
 /// waits for the budget while it holds some of it. Before, a second reservation beside the
 /// first waited behind a larger one in line, which waited for the first: a deadlock.
+///
+/// The input that this thread's decode holds (`DecodeInput`) is asked for on top of `bytes`,
+/// because it stays in memory while the pixels are made. Such a decode also asks before the
+/// others in line, because its input stays in memory while it waits. Behind them, the other
+/// threads could each read their input while it waited, and the input would again lie outside
+/// the budget.
 pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
     let job = JOB_HOLDS.get().is_none().then(start_decode_job);
     let held = JOB_HOLDS.get().unwrap_or(0);
+    let input = INPUT_HOLDS.get();
+    let bytes = bytes.saturating_add(input);
     if bytes > held {
-        budget().give_back(held);
         JOB_HOLDS.set(Some(0));
-        budget().take(bytes, GOES_FIRST.get())?;
+        budget().take(held, bytes, GOES_FIRST.get() || input > 0)?;
         JOB_HOLDS.set(Some(bytes));
     }
     Ok(BudgetReservation { _job: job })
@@ -288,7 +404,10 @@ pub fn decode(
     let _job = start_decode_job();
     // Also for a file from a collection or the command line, which the listing did not see.
     if !crate::files::file_io::is_surely_file(path) {
-        return Err("not a regular file".into());
+        return Err(match crate::files::file_io::is_surely_there(path) {
+            true => "not a regular file".into(),
+            false => NOT_LOOKED_AT.into(),
+        });
     }
     if let Some((frames, orig)) = animation(path, max) {
         return Ok((frames, orig, 1));
@@ -384,6 +503,8 @@ fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
         |e: &[u8; 16], at: usize| u32::from_le_bytes([e[at], e[at + 1], e[at + 2], e[at + 3]]);
     let (len, offset) = (le32(&entry, 8), le32(&entry, 12));
     let mut file = open_regular(path).map_err(|e| e.to_string())?;
+    let most = u64::from(len).min(1 << 26);
+    let input = DecodeInput::reserve(22 + most)?;
     file.seek(std::io::SeekFrom::Start(offset.into()))
         .map_err(|e| e.to_string())?;
     let mut one = vec![0, 0, 1, 0, 1, 0];
@@ -392,10 +513,10 @@ fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
     // The length is the file's word, so it reads no more than is there, and no more than
     // 64 MB, which a 256×256 image is far from.
     #[allow(clippy::disallowed_methods)] // bounded by take
-    file.take(u64::from(len).min(1 << 26))
+    file.take(most)
         .read_to_end(&mut one)
         .map_err(|e| e.to_string())?;
-    from_memory(&one)
+    from_memory(&input.holding(one)?)
 }
 
 /// The number of pages (images) in a TIFF file. It reads only their directories.
@@ -780,7 +901,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         return Ok((img, None, upright, size));
     }
     if has_ext(path, raw::EXTS) {
-        let (img, turn) = raw::unturned(&read_limited(path).map_err(|e| e.to_string())?)?;
+        let (img, turn) = raw::unturned(&DecodeInput::read(path).map_err(|e| e.to_string())?)?;
         return Ok((img, None, if rotate { turn } else { upright }, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
@@ -820,10 +941,10 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     if let Some(added) = crate::images::added_formats::for_path(path) {
         return Ok((added.decode(path)?, None, upright, None));
     }
-    let dec = image_reader(path)
-        .map_err(|e| e.to_string())?
-        .into_decoder()
-        .map_err(|e| e.to_string());
+    let (reader, whole_read) = image_reader_and_whole_read(path).map_err(|e| e.to_string())?;
+    // The image crate holds a JPEG's bytes while it decodes, so they count beside its pixels.
+    let _input = DecodeInput::reserve(whole_read)?;
+    let dec = reader.into_decoder().map_err(|e| e.to_string());
     // Grey TIFFs that the image crate does not take (floats, signed) go through the tiff crate.
     let mut dec = match dec {
         Err(e) if has_ext(path, crate::model::listing::TIFF_LIKE) => {
@@ -864,7 +985,7 @@ pub fn scaled_jpeg(
     rotate: bool,
 ) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
     if crate::model::listing::is_jpeg(path) {
-        return scaled(&read_limited(path).ok()?, max, rotate, None);
+        return scaled(&DecodeInput::read(path).ok()?, max, rotate, None);
     }
     if has_ext(path, raw::EXTS) {
         // As in raw::load, the orientation comes from a TIFF-based RAW's own header, and there
@@ -875,10 +996,10 @@ pub fn scaled_jpeg(
         };
         // The first 8 MB are read first. Cameras put the preview before the sensor data, so a
         // folder of 50 MB RAW files on a share is not read whole for its thumbnails.
-        let head = read_head(path, 8 << 20).ok()?;
+        let head = DecodeInput::read_head(path, 8 << 20).ok()?;
         let covers = |p: &[u8]| raw::jpeg_size(p).is_some_and(|(w, h)| w >= max[0] || h >= max[1]);
         if raw::preview(&head).is_some_and(|p| covers(p) && raw::is_whole_jpeg(p)) {
-            if let Some(shown) = from(&head) {
+            if let Some(shown) = from(&head[..]) {
                 return Some(shown);
             }
             // When it cannot be decoded at a fraction (shown larger than half the preview), it
@@ -889,10 +1010,11 @@ pub fn scaled_jpeg(
                 return Some((img, None, orig));
             }
         }
-        let data = read_limited(path).ok()?;
+        drop(head);
+        let data = DecodeInput::read(path).ok()?;
         // When it cannot be decoded at a fraction (shown larger than half the preview), it is
         // decoded whole from what was read, rather than read a second time.
-        return from(&data).or_else(|| {
+        return from(&data[..]).or_else(|| {
             let img = raw::load_data(&data, rotate).ok()?;
             let orig = [img.width() as usize, img.height() as usize];
             Some((img, None, orig))
@@ -921,6 +1043,7 @@ pub fn scaled(
     orientation: Option<image::metadata::Orientation>,
 ) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
     use jpeg_decoder::PixelFormat;
+    is_counted_input(data).ok()?;
     let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(data));
     dec.read_info().ok()?;
     let info = dec.info()?;
@@ -1009,8 +1132,10 @@ pub fn from_decoder(dec: impl ImageDecoder) -> Result<image::DynamicImage, Strin
 
 /// Decodes an image held in memory, of the format its bytes tell, after `fits_decode_limit`. It is
 /// the one way bytes are decoded (an added format's or ffmpeg's output, an ICO's image, a cached
-/// thumbnail). Clippy refuses the image crate's `load_from_memory`.
+/// thumbnail). Clippy refuses the image crate's `load_from_memory`. The bytes must lie in a
+/// `DecodeInput`, so that the budget counts them (`is_counted_input`).
 pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    is_counted_input(bytes)?;
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format();
     from_decoder(
         reader
@@ -1018,6 +1143,16 @@ pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
             .into_decoder()
             .map_err(|e| e.to_string())?,
     )
+}
+
+/// Returns an error unless `bytes` lie in a `DecodeInput` of this thread, whose bytes the
+/// budget counts beside the pixels made of them. The decoders of bytes ask it, so that a new
+/// way in that reads its input outside the budget fails in the tests.
+fn is_counted_input(bytes: &[u8]) -> Result<(), String> {
+    match bytes.len() as u64 <= INPUT_HOLDS.get() {
+        true => Ok(()),
+        false => Err("the bytes to decode are not counted in the decode budget".into()),
+    }
 }
 
 /// Decodes an image built into Glimt itself, its logo, on the window's thread. It takes nothing
@@ -1039,6 +1174,60 @@ pub fn check_decodes(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns what the failure of a decode of `path` with `error` says about the file. This is the
+/// one rule for it, which Check Images and the thumbnails' failure marks follow. A program
+/// that is not there may be installed later. A file that could not be read says so in the
+/// system's words, "(os error N)", which a file that is no picture never gives, and a program
+/// that read from a share that failed says it in its own words.
+pub fn failure_of(path: &Path, error: &str) -> DecodeFailure {
+    if error.contains(crate::files::external::TIMED_OUT) {
+        return DecodeFailure::TimedOut;
+    }
+    let away = [
+        "Input/output error",
+        "Transport endpoint is not connected",
+        "Host is down",
+        NOT_LOOKED_AT,
+        CHANGED_WHILE_READ,
+    ];
+    if (needs_program(path) && program_missing(error))
+        || error.contains("(os error")
+        || away.iter().any(|m| error.contains(m))
+    {
+        return DecodeFailure::NotOfTheFile;
+    }
+    // An added format's error that it ran out of memory is told in the user's language, with
+    // the program's own words after it.
+    let added_format = crate::images::added_formats::for_path(path).is_some();
+    let too_large = ["too large", "too much memory"]
+        .iter()
+        .any(|m| error.contains(m))
+        || (added_format && crate::images::added_formats::ran_out_of_memory(error));
+    match too_large {
+        true => DecodeFailure::TooLarge,
+        false => DecodeFailure::OfTheFile,
+    }
+}
+
+/// Returns whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or an added
+/// format.
+fn needs_program(path: &Path) -> bool {
+    crate::files::external::ffmpeg_decodes(path)
+        || crate::images::added_formats::for_path(path).is_some()
+}
+
+/// Returns whether `error` says that the program was not found or may not run, not that the
+/// file is bad.
+fn program_missing(error: &str) -> bool {
+    [
+        "No such file or directory",
+        "command not found",
+        "Permission denied",
+    ]
+    .iter()
+    .any(|m| error.contains(m))
+}
+
 /// Returns whether a JPEG file's image data reaches its end marker (FF D9), which the data itself
 /// never holds (an FF in it is followed by 00 or a restart marker). The marker is looked for from
 /// the image data on, not in the last bytes, because phones put a video of megabytes after it in a
@@ -1046,8 +1235,15 @@ pub fn check_decodes(path: &Path) -> Result<(), String> {
 // shortcut: reads the whole file, as Check Images does each JPEG once; read from the image
 // data's start in blocks if motion photos of hundreds of MB make it slow.
 fn is_whole_jpeg_file(path: &Path) -> Result<bool, String> {
-    let data = read_limited(path).map_err(|e| e.to_string())?;
+    let data = DecodeInput::read(path).map_err(|e| e.to_string())?;
     Ok(crate::images::raw::is_whole_jpeg(&data))
+}
+
+/// Returns the bytes of the budget that this thread's decode job holds, or `None` outside a
+/// job, for the tests of other modules.
+#[cfg(test)]
+pub(crate) fn held_by_this_job() -> Option<u64> {
+    JOB_HOLDS.get()
 }
 
 /// Returns whether the EXIF orientation turns the image a quarter, so its width and height swap. It
@@ -1090,20 +1286,23 @@ pub(crate) fn read_unlinked(path: &Path) -> std::io::Result<Vec<u8>> {
 /// The whole of a file opened by `open_regular_with_metadata`, up to `MAX_DECODE_BYTES` bytes.
 fn read_open_file((file, meta): (std::fs::File, std::fs::Metadata)) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
-    let too_large =
-        || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE_BYTES)));
     // The size is looked at first, so a large file is not read at all. `take` is for a file
     // that grows meanwhile.
     if meta.len() > MAX_DECODE_BYTES {
-        return Err(too_large());
+        return Err(file_too_large());
     }
     let mut data = Vec::new();
     #[allow(clippy::disallowed_methods)] // bounded by take
     file.take(MAX_DECODE_BYTES + 1).read_to_end(&mut data)?;
     if data.len() as u64 > MAX_DECODE_BYTES {
-        return Err(too_large());
+        return Err(file_too_large());
     }
     Ok(data)
+}
+
+/// The error of a file larger than a decode may read (`MAX_DECODE_BYTES`).
+fn file_too_large() -> std::io::Error {
+    std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE_BYTES)))
 }
 
 /// Opens `path` to be read, if it is a regular file, and returns it with its metadata. It is opened
@@ -1121,10 +1320,9 @@ fn open_regular_with_flags(
     flags: i32,
 ) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::unix::fs::OpenOptionsExt;
-    const O_NONBLOCK: i32 = 0o4000;
     #[allow(clippy::disallowed_methods)] // the one opening of a file to read it whole
     let file = (std::fs::OpenOptions::new().read(true))
-        .custom_flags(O_NONBLOCK | flags)
+        .custom_flags(libc::O_NONBLOCK | flags)
         .open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
@@ -1159,7 +1357,7 @@ pub fn dimensions(path: &Path) -> Option<(u32, u32)> {
         if let Some(p) = raw::preview(&read_head(path, 8 << 20).ok()?) {
             return raw::jpeg_size(p);
         }
-        let data = read_limited(path).ok()?;
+        let data = DecodeInput::read(path).ok()?;
         return raw::jpeg_size(raw::preview(&data)?);
     }
     image_reader(path).ok()?.into_dimensions().ok()
@@ -1181,7 +1379,14 @@ fn jpeg_head_size(path: &Path) -> Option<(u32, u32)> {
 pub(crate) fn image_reader(
     path: impl AsRef<Path>,
 ) -> std::io::Result<image::ImageReader<std::io::BufReader<std::fs::File>>> {
-    let path = path.as_ref();
+    image_reader_and_whole_read(path.as_ref()).map(|(reader, _)| reader)
+}
+
+/// `image_reader` of `path`, and the bytes that the image crate reads whole before it decodes
+/// (the file's length for a JPEG, else 0), which a decode counts as its input.
+fn image_reader_and_whole_read(
+    path: &Path,
+) -> std::io::Result<(image::ImageReader<std::io::BufReader<std::fs::File>>, u64)> {
     let (file, meta) = open_regular_with_metadata(path)?;
     let mut reader = image::ImageReader::new(std::io::BufReader::new(file));
     if let Ok(format) = image::ImageFormat::from_path(path) {
@@ -1194,12 +1399,9 @@ pub(crate) fn image_reader(
     // seeking, so a large TIFF or PNG still opens. A file of no known format is refused as well.
     let whole = matches!(reader.format(), Some(image::ImageFormat::Jpeg) | None);
     if whole && meta.len() > MAX_DECODE_BYTES {
-        return Err(std::io::Error::other(format!(
-            "file too large ({})",
-            human_size(MAX_DECODE_BYTES)
-        )));
+        return Err(file_too_large());
     }
-    Ok(reader)
+    Ok((reader, if whole { meta.len() } else { 0 }))
 }
 
 /// Scale down to fit within `max`.
@@ -1244,7 +1446,7 @@ mod tests {
         let start_large = || {
             let (budget, running, most) = (budget.clone(), running.clone(), most.clone());
             std::thread::spawn(move || {
-                budget.take(600, false).unwrap();
+                budget.take(0, 600, false).unwrap();
                 most.fetch_max(running.fetch_add(1, SeqCst) + 1, SeqCst);
                 std::thread::sleep(Duration::from_millis(300));
                 running.fetch_sub(1, SeqCst);
@@ -1258,7 +1460,7 @@ mod tests {
         let small = budget.clone();
         std::thread::spawn(move || {
             for _ in 0..30 {
-                small.take(10, false).unwrap();
+                small.take(0, 10, false).unwrap();
                 small.give_back(10);
             }
             done.send(()).unwrap();
@@ -1269,7 +1471,7 @@ mod tests {
             thread.join().unwrap();
         }
         assert_eq!(most.load(SeqCst), 1);
-        assert!(budget.take(1001, false).is_err());
+        assert!(budget.take(0, 1001, false).is_err());
         assert_eq!(lock_even_if_poisoned(&budget.state).free, 1000);
     }
 
@@ -1282,12 +1484,12 @@ mod tests {
         use std::sync::{Arc, Mutex};
         use std::time::Duration;
         let budget = Arc::new(super::DecodeBudget::new(1000));
-        budget.take(600, false).unwrap();
+        budget.take(0, 600, false).unwrap();
         let taken = Arc::new(Mutex::new(Vec::new()));
         let start = |name: &'static str, bytes: u64, goes_first: bool| {
             let (budget, taken) = (budget.clone(), taken.clone());
             let thread = std::thread::spawn(move || {
-                budget.take(bytes, goes_first).unwrap();
+                budget.take(0, bytes, goes_first).unwrap();
                 lock_even_if_poisoned(&taken).push(name);
             });
             std::thread::sleep(Duration::from_millis(50));
@@ -1367,6 +1569,92 @@ mod tests {
         assert_eq!(ended, Ok(None));
     }
 
+    /// `bytes` held as a decode's input, which the budget counts, as `from_memory` and
+    /// `scaled` want them.
+    fn counted(bytes: Vec<u8>) -> super::DecodeInput {
+        let input = super::DecodeInput::reserve(bytes.len() as u64).unwrap();
+        input.holding(bytes).unwrap()
+    }
+
+    /// A decode counts the file it read in its share of the budget, beside the pixels it made
+    /// of it, scaled or whole. Before, a small JPEG followed by 4 MB of zeros took only its
+    /// pixels, and a folder of such files held gigabytes outside the budget.
+    #[test]
+    fn a_decode_counts_the_file_it_read_beside_its_pixels() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-padded-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("padded.jpg");
+        let mut jpeg = Vec::new();
+        let img = image::RgbImage::from_fn(64, 64, |x, y| image::Rgb([x as u8, y as u8, 7]));
+        (img.write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        ))
+        .unwrap();
+        jpeg.extend(vec![0; 4 << 20]);
+        std::fs::write(&file, &jpeg).unwrap();
+        let read = jpeg.len() as u64;
+        // A thumbnail, scaled while it is decoded.
+        {
+            let _job = super::start_decode_job();
+            super::decode_shrunk(&file, [8, 8], false).unwrap();
+            assert!(super::JOB_HOLDS.get().unwrap() > read);
+        }
+        // Shown at its size, decoded whole by the image crate.
+        {
+            let _job = super::start_decode_job();
+            super::decode(&file, [64, 64], false, 0).unwrap();
+            assert!(super::JOB_HOLDS.get().unwrap() > read);
+        }
+        assert_eq!(super::INPUT_HOLDS.get(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A decode that holds its input and needs more for its pixels takes them before a decode
+    /// that asked earlier, so that no other reads its input in between. Before, it waited at
+    /// the end of the line with its input in memory, and every thread could do the same.
+    #[test]
+    fn a_decode_that_holds_its_input_goes_before_the_others() {
+        use std::sync::{Arc, Mutex, mpsc};
+        use std::time::Duration;
+        let total = super::DECODE_BUDGET;
+        let budget = super::budget();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let input = super::DecodeInput::reserve(total * 4 / 10).unwrap();
+        // Another decode holds half, until it is told to let go.
+        let (taken, other_holds) = mpsc::channel();
+        let (let_go, told) = mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total / 2).unwrap();
+            taken.send(()).unwrap();
+            told.recv().unwrap();
+            drop(held);
+        });
+        other_holds.recv().unwrap();
+        // A third asks for half and waits in line, with a tenth free.
+        let in_line = order.clone();
+        let third = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let _held = super::reserve_from_budget(total / 2).unwrap();
+            lock_even_if_poisoned(&in_line).push("asked first");
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let_go.send(()).unwrap();
+        });
+        // The pixels on top of the input: 6 tenths, which wait for the half held.
+        let pixels = super::reserve_from_budget(total / 5).unwrap();
+        lock_even_if_poisoned(&order).push("holds its input");
+        drop((pixels, input));
+        third.join().unwrap();
+        assert_eq!(
+            *lock_even_if_poisoned(&order),
+            ["holds its input", "asked first"]
+        );
+    }
+
     /// A decode job holds the most that one of its decodes asked for, not their sum, joins an
     /// outer job rather than giving back early, and gives everything back when it ends.
     #[test]
@@ -1435,7 +1723,7 @@ mod tests {
             )
             .unwrap();
         for bytes in crate::support::test_support::broken(&jpeg) {
-            let _ = super::scaled(&bytes, [8, 8], true, None);
+            let _ = super::scaled(&counted(bytes), [8, 8], true, None);
         }
     }
 
@@ -2103,6 +2391,47 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A failure says what it says about the file: ffmpeg not installed, a share away, a time
+    /// limit and Glimt's own size limit are not the file's fault, and a decoder's error is.
+    /// Check Images and the thumbnails' failure marks both follow this one rule.
+    #[test]
+    fn tells_what_a_failure_says_about_the_file() {
+        use super::DecodeFailure::{NotOfTheFile, OfTheFile, TimedOut, TooLarge};
+        use std::path::Path;
+        let (heic, jpg) = (Path::new("/a.heic"), Path::new("/a.jpg"));
+        let missing = "video, HEIC and AVIF need ffmpeg: No such file or directory (os error 2)";
+        assert_eq!(super::failure_of(heic, missing), NotOfTheFile);
+        let away = std::io::Error::from_raw_os_error(5).to_string();
+        assert_eq!(super::failure_of(jpg, &away), NotOfTheFile);
+        assert_eq!(super::failure_of(jpg, super::NOT_LOOKED_AT), NotOfTheFile);
+        let slow = format!("ffmpeg {}", crate::files::external::TIMED_OUT);
+        assert_eq!(super::failure_of(heic, &slow), TimedOut);
+        assert_eq!(super::failure_of(jpg, "image too large (1.1 GB)"), TooLarge);
+        let bad = "Format error decoding Jpeg: invalid marker";
+        assert_eq!(super::failure_of(jpg, bad), OfTheFile);
+        let invalid = "Invalid data found when processing input";
+        assert_eq!(super::failure_of(heic, invalid), OfTheFile);
+    }
+
+    /// A file whose look failed, as on a share that dropped for a moment, fails to decode with
+    /// an error that is not the file's fault. Before, it was "not a regular file", and Check
+    /// Images listed it as broken.
+    #[test]
+    fn a_file_that_could_not_be_looked_at_is_not_the_files_fault() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-look-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("away.png");
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        let looks_fail = &crate::files::file_io::LOOKS_FAIL;
+        lock_even_if_poisoned(looks_fail).push(file.clone());
+        let why = super::check_decodes(&file).unwrap_err();
+        lock_even_if_poisoned(looks_fail).retain(|p| *p != file);
+        let failure = super::failure_of(&file, &why);
+        assert_eq!(failure, super::DecodeFailure::NotOfTheFile);
+        assert_eq!(super::check_decodes(&file), Ok(()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// BMP, ICO, QOI and PNM are listed and shown as the other everyday formats.
     #[test]
     fn lists_and_decodes_more_formats() {
@@ -2265,7 +2594,9 @@ mod tests {
         // The baseline frame header holds the height and then the width, 40000 being 0x9C40.
         let sof = jpeg.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
         jpeg[sof + 5..sof + 9].copy_from_slice(&[0x9C, 0x40, 0x9C, 0x40]);
-        assert!(super::scaled(&jpeg, [16384, 16384], false, None).is_none());
+        let input = counted(jpeg.clone());
+        assert!(super::scaled(&input, [16384, 16384], false, None).is_none());
+        drop(input);
         let file =
             std::env::temp_dir().join(format!("glimt-test-claims-{}.jpg", std::process::id()));
         std::fs::write(&file, &jpeg).unwrap();
@@ -2280,7 +2611,9 @@ mod tests {
             super::decode_shrunk(&file, [16384, 16384], false).err()
         ));
         std::fs::remove_file(&file).unwrap();
-        assert!(refused(super::from_memory(b"P6\n40000 40000\n255\n").err()));
+        let claims = counted(b"P6\n40000 40000\n255\n".to_vec());
+        assert!(refused(super::from_memory(&claims).err()));
+        drop(claims);
         // A grey TIFF page of 40000×40000, read by the tiff crate for its later pages.
         let mut tiff = b"II*\0\x08\0\0\0\x09\0".to_vec();
         for (tag, kind, value) in [

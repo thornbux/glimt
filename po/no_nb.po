@@ -3201,3 +3201,10 @@ msgstr "Glimt-projektor"
 #: src/support/format.rs
 msgid "not counted on a network folder"
 msgstr "ikke talt opp i en nettverksmappe"
+#: src/features/check.rs
+msgid "{name}: could not be checked: {why}"
+msgstr "{name}: kunne ikke sjekkes: {why}"
+
+#: src/features/check.rs
+msgid "{n} could not be checked:"
+msgstr "{n} kunne ikke sjekkes:"
