@@ -1481,21 +1481,20 @@ impl crate::App {
         let Listed {
             dirs,
             files,
-            mut left_out,
+            left_out,
             read,
             read_in,
         } = listed;
         // A folder that could not be read is told, and the list shown stays with its selection.
         // Taken as empty, a share that failed for a moment emptied the list, and the files came
-        // back unselected with the next listing. So does a part left out (a folder of a tree or
-        // of several, an entry of a collection) whose files the list shows. A part whose files
-        // the list does not show is left out and told, and the rest is listed, as such a part
-        // mostly stays unreadable (a locked folder, an entry that names a path through a file).
-        let held = (self.list_holds_files_of(&left_out)).map(|i| left_out.swap_remove(i));
-        let files = match (files, held) {
-            (Ok(files), None) => files,
-            (Err(unread), _) | (Ok(_), Some(unread)) => {
-                let (path, e) = unread;
+        // back unselected with the next listing. A part left out (a folder of a tree or of
+        // several, an entry of a collection) keeps the files of it that the list shows, with
+        // their selection, and the rest is listed anew. Holding the whole listing for it froze
+        // the list for good while the part stayed unreadable (a folder locked after its files
+        // were shown).
+        let files = match files {
+            Ok(files) => self.with_shown_files_of_parts(files, &left_out),
+            Err((path, e)) => {
                 self.notice
                     .give(tf!("Could not open {name}:\n{e}", name = path.display(), e));
                 if !read.is_empty() {
@@ -1538,28 +1537,60 @@ impl crate::App {
         self.tell_left_out(left_out);
     }
 
-    /// Returns the place in `left_out` of the first part left out of a listing that the list
-    /// shown holds files of: a folder that a file of the list is in, or an entry of a
-    /// collection that the list holds. Returns `None` when it holds none of them, or holds only
-    /// a collection's entries that no listing has checked yet.
-    fn list_holds_files_of(&self, left_out: &[Unread]) -> Option<usize> {
+    /// Adds to a listing's `files` the files of the list shown that lie in a part `left_out`
+    /// of the listing: in a folder left out, or an entry of a collection left out. Each one
+    /// goes after the file it followed in the list shown, and keeps its identity, so an action
+    /// on it still checks that it is the file listed. Returns `files` as they are when the
+    /// list shows none of them, or holds only a collection's entries that no listing has
+    /// checked yet.
+    fn with_shown_files_of_parts(
+        &self,
+        files: Vec<ListedName>,
+        left_out: &[Unread],
+    ) -> Vec<ListedName> {
         if left_out.is_empty() || self.list.has_unchecked_entries() {
-            return None;
+            return files;
         }
-        let parts: HashMap<&[u8], usize> = (left_out.iter().enumerate())
-            .filter_map(|(i, (path, _))| {
+        let parts: HashSet<&[u8]> = (left_out.iter())
+            .filter_map(|(path, _)| {
                 let part = path.strip_prefix(&self.folder.dir).ok()?;
-                Some((part.as_os_str().as_encoded_bytes(), i))
+                Some(part.as_os_str().as_encoded_bytes())
             })
             .collect();
-        // Each name is looked up whole, and up to each "/" in it, once per listing that left a
-        // part out, as a hash lookup each. That is a few lookups per file, no system call.
-        self.list.files().iter().find_map(|name| {
+        // Each name is looked up whole, and up to each "/" in it, as a hash lookup each. That
+        // is a few lookups per file once per listing that left a part out, and no system call.
+        let is_in_a_part = |name: &OsString| {
             let name = name.as_encoded_bytes();
             let slashes = (name.iter().enumerate()).filter(|(_, b)| **b == b'/');
             (slashes.map(|(end, _)| end).chain([name.len()]))
-                .find_map(|end| parts.get(&name[..end]).copied())
-        })
+                .any(|end| parts.contains(&name[..end]))
+        };
+        let place: HashMap<&OsString, usize> =
+            (files.iter().enumerate()).map(|(i, f)| (&f.0, i)).collect();
+        // The files kept, by the number of the listing's files before them.
+        let mut kept: HashMap<usize, Vec<ListedName>> = HashMap::new();
+        let mut listed_before = 0;
+        for (i, name) in self.list.files().iter().enumerate() {
+            match place.get(name) {
+                Some(&at) => listed_before = at + 1,
+                None if is_in_a_part(name) => {
+                    let file = (name.clone(), self.list.identity(i));
+                    kept.entry(listed_before).or_default().push(file);
+                }
+                None => {}
+            }
+        }
+        if kept.is_empty() {
+            return files;
+        }
+        let mut merged =
+            Vec::with_capacity(files.len() + kept.values().map(Vec::len).sum::<usize>());
+        merged.extend(kept.remove(&0).unwrap_or_default());
+        for (i, file) in files.into_iter().enumerate() {
+            merged.push(file);
+            merged.extend(kept.remove(&(i + 1)).unwrap_or_default());
+        }
+        merged
     }
 
     /// Tells the parts `left_out` of a listing that could not be read, each the first time it
@@ -2527,12 +2558,13 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A part left out of a listing whose files the list shows keeps the list and its
-    /// selection, as a folder that could not be read does, because a share that failed for a
-    /// moment would take its files away unselected. A part whose files the list does not show
-    /// is left out, and the rest is listed.
+    /// A part left out of a listing keeps the files of it that the list shows, with their
+    /// selection, because a share that failed for a moment would take them away unselected.
+    /// The rest of the list is listed anew, and the part is told once. Before, such a part held
+    /// the whole listing for as long as it stayed unreadable: new files never came, and the
+    /// part was told at every listing.
     #[test]
-    fn a_part_left_out_whose_files_are_shown_keeps_the_list() {
+    fn a_part_left_out_keeps_its_shown_files_and_the_rest_is_listed() {
         let dir = std::env::temp_dir().join(format!("glimt-test-held-part-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
@@ -2553,7 +2585,7 @@ mod tests {
             app.folder.hold_listing(rx);
             let listed = super::Listed {
                 dirs: Vec::new(),
-                files: Ok(vec![("a.png".into(), None)]),
+                files: Ok(vec![("a.png".into(), None), ("c.png".into(), None)]),
                 left_out: vec![(dir.join(part), std::io::Error::other("the share failed"))],
                 read: Vec::new(),
                 read_in: std::time::Duration::ZERO,
@@ -2562,13 +2594,18 @@ mod tests {
             app.receive_listing(&ctx, std::time::Duration::ZERO);
         };
         send(&mut app, "sub");
-        assert_eq!(app.list.files(), ["a.png", "sub/b.png"]);
+        assert_eq!(app.list.files(), ["a.png", "sub/b.png", "c.png"]);
         assert_eq!(app.list.selected(), &[0, 1].into());
         let told = app.notice.text().unwrap_or_default();
         assert!(told.ends_with("the share failed"), "{told}");
+        // The next listing that leaves it out does not tell it again.
+        app.notice.clear();
+        send(&mut app, "sub");
+        assert_eq!(app.list.files(), ["a.png", "sub/b.png", "c.png"]);
+        assert_eq!(app.notice.text(), None);
         // "su" is no folder of "sub/b.png".
         send(&mut app, "su");
-        assert_eq!(app.list.files(), ["a.png"]);
+        assert_eq!(app.list.files(), ["a.png", "c.png"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
