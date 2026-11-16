@@ -3974,5 +3974,10 @@ msgstr "Glimt-skjávarpi"
 
 #: src/images/save.rs
 #, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Vistaði {file}, en ekki hliðarskrána: {e}"
+
+#: src/images/save.rs
+#, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "hliðarskránni var ekki skilað aftur: {e}"

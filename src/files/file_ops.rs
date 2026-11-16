@@ -2483,10 +2483,12 @@ impl crate::App {
                         crate::images::save::frame_png(img, &how)
                             .and_then(|png| {
                                 let replace = at_pick.filter(|_| only.is_some());
+                                // Stripped, a frame gets no sidecar that could fail.
                                 crate::images::save::save_copy_with_sidecar(
                                     &path, &file, &png, replace, true,
                                 )
                                 .map_err(|e| e.to_string())
+                                .and_then(|sidecar_failed| sidecar_failed.map_or(Ok(()), Err))
                             })
                             .map_err(|e| format!("{}: {e}", file.display()))
                     })

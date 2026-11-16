@@ -3974,5 +3974,10 @@ msgstr "Proyector de Glimt"
 
 #: src/images/save.rs
 #, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Se guardó {file}, pero no su archivo complementario: {e}"
+
+#: src/images/save.rs
+#, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "su archivo complementario no se restauró: {e}"

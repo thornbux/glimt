@@ -3985,5 +3985,10 @@ msgstr "Projetor do Glimt"
 
 #: src/images/save.rs
 #, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "{file} salvo, mas não seu arquivo XMP associado: {e}"
+
+#: src/images/save.rs
+#, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "o arquivo XMP associado não foi restaurado: {e}"

@@ -3974,5 +3974,10 @@ msgstr "Glimt-projektor"
 
 #: src/images/save.rs
 #, fuzzy
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Sparade {file}, men inte dess sidofil: {e}"
+
+#: src/images/save.rs
+#, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "sidofilen lades inte tillbaka: {e}"

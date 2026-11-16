@@ -235,7 +235,7 @@ impl crate::App {
                     decode::catch_panic_as_error(|| save::save_as(&path, &copy_as, &to, at_pick))
                 });
             Some(match saved {
-                Ok(new) => {
+                Ok((new, sidecar_failed)) => {
                     // Saved over a file the dialog let it replace, maybe one in the list. The
                     // copy gets the marks and stars of the original, as it got its sidecar,
                     // unless it was stripped.
@@ -249,7 +249,7 @@ impl crate::App {
                         is_copy: true,
                         ..Default::default()
                     });
-                    crate::support::threads::Told::Notice(tf!("Saved {file}", file = new.display()))
+                    save::told_saved(&new, sidecar_failed)
                 }
                 Err(e) => crate::support::threads::Told::FailedWrite(tf!(
                     "Could not save the image: {e}",

@@ -3191,5 +3191,9 @@ msgid "Glimt Projector"
 msgstr "Glimt-projektor"
 
 #: src/images/save.rs
+msgid "Saved {file}, but not its sidecar: {e}"
+msgstr "Lagret {file}, men ikke sidefilen: {e}"
+
+#: src/images/save.rs
 msgid "its sidecar was not put back: {e}"
 msgstr "sidefilen ble ikke lagt tilbake: {e}"

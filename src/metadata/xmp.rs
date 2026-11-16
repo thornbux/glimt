@@ -592,14 +592,16 @@ fn own_sidecar_text(path: &Path) -> Option<String> {
 /// permission, a folder), which a writer must not write over. A sidecar that is a link is not
 /// the photo's own, because a downloaded folder could point it at another file of the user's,
 /// whose contents would then show for this photo or be copied with it. The link is refused by
-/// the open itself, so one swapped in after a look at the name is not read through either.
+/// the open itself, so one swapped in after a look at the name is not read through either. A
+/// photo whose name is too long for ".xmp" after it has no sidecar (ENAMETOOLONG). Before, that
+/// was an error, and every crop or Save As of such a photo was refused.
 pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     #[cfg(test)]
     SIDECAR_READS.set(SIDECAR_READS.get() + 1);
     match crate::images::decode::read_unlinked(&sidecar(path)) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) if e.raw_os_error() == Some(libc::ELOOP) => Ok(None),
+        Err(e) if matches!(e.raw_os_error(), Some(libc::ELOOP | libc::ENAMETOOLONG)) => Ok(None),
         Err(e) => Err(e),
     }
 }

@@ -169,7 +169,7 @@ impl crate::App {
                 crate::images::save::save_cropped(&path, &copy_as)
             });
             Some(match saved {
-                Ok(new) => {
+                Ok((new, sidecar_failed)) => {
                     // The copy gets the marks and stars of the original, as it got its
                     // sidecar, unless it was stripped.
                     let _ = report_tx.send(OperationReport {
@@ -181,7 +181,7 @@ impl crate::App {
                         is_copy: true,
                         ..Default::default()
                     });
-                    crate::support::threads::Told::Notice(tf!("Saved {file}", file = new.display()))
+                    crate::images::save::told_saved(&new, sidecar_failed)
                 }
                 Err(e) => crate::support::threads::Told::FailedWrite(tf!(
                     "Could not crop the image: {e}",
