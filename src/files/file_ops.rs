@@ -5208,14 +5208,22 @@ mod tests {
         };
         let held = std::sync::Arc::new(std::sync::Mutex::new(many("busy")));
         app.file_operations.held_back_files.push(held.clone());
+        // The time to make the 50,000 paths asked about is the unit, so a machine busy with
+        // other builds slows the unit and the check alike. Path against path is 50,000
+        // comparisons for each path made, so it takes thousands of units; the answer at once
+        // takes a few.
+        let start = std::time::Instant::now();
         let asked = many("free");
+        let unit = start.elapsed();
         let start = std::time::Instant::now();
         assert!(app.are_free_to_change(&asked));
         assert!(!app.are_free_to_change(&[dir.join("busy")]));
         assert!(!app.are_free_to_change(&[dir.join("busy/7.jpg")]));
-        // Path against path would take minutes. Five seconds leaves room for a machine busy
-        // with other builds, and for a debug build, where one second failed.
-        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        let took = start.elapsed();
+        assert!(
+            took < (unit * 200).max(std::time::Duration::from_millis(500)),
+            "{took:?} for the check against {unit:?} to make the paths"
+        );
         drop(held);
         std::fs::remove_dir_all(dir).unwrap();
     }
