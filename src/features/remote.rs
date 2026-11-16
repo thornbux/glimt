@@ -983,7 +983,13 @@ fn is_query(command: &str) -> bool {
     matches!(command.trim(), "current" | "selection")
         || is_info(command)
         || command.starts_with("select ")
-        || command.starts_with("where ")
+        || is_where(command)
+}
+
+/// Whether `command` is `where`, which only the release tests' build knows. Any other build
+/// answers it as a command it does not know.
+fn is_where(command: &str) -> bool {
+    cfg!(feature = "test-hooks") && command.starts_with("where ")
 }
 
 /// Whether `command` closes the window: `quit`, or `run` of Quit or CloseWindow.
@@ -3942,6 +3948,26 @@ mod tests {
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `where` is a query only in the release tests' build. Any other build answers it as a
+    /// command it does not know, as the frozen answer is. Before, it answered with the paths
+    /// of the selected files, and the client exited with 0.
+    #[test]
+    fn only_the_release_tests_build_knows_where() {
+        assert_eq!(super::is_query("where Next"), cfg!(feature = "test-hooks"));
+        #[cfg(not(feature = "test-hooks"))]
+        {
+            let dir = std::env::temp_dir().join(format!("glimt-test-where-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let (mut app, ctx) = app_on(&dir);
+            app.list.set_files(["a.png"].map(Into::into).to_vec());
+            let (reply, answer) = std::sync::mpsc::channel();
+            app.handle_remote(&ctx, "where Next", Some(reply));
+            let why = super::not_done_reason(&answer.try_recv().unwrap());
+            assert!(why.is_some_and(|w| w.contains("where Next")));
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 
     /// Serves the one client at `stream`, as the listener does, with a place of its own.
