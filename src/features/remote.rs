@@ -3261,12 +3261,15 @@ mod tests {
         let other = dir.join("other");
         std::fs::create_dir_all(&other).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        // `app_on` waits five seconds for the first listing; under the load of the whole test
-        // run it may not be done, and the `open` would then wait behind it and not be answered
-        // before the close. So the test waits for it, as a window rests before a script runs.
-        let listed = |app: &crate::App| !app.folder.is_listing();
+        // The first listing queued a write (`keep_window_list_of`) in the writer thread that
+        // every test shares. Under the load of the whole test run it was still queued at the
+        // close, which was then rightly told that its writes were not done. So the test waits
+        // for its writes, as a window rests before a script runs.
+        let not_writing = |app: &crate::App| !app.is_writing();
         assert!(crate::support::test_support::run_background_until(
-            &mut app, &ctx, listed
+            &mut app,
+            &ctx,
+            not_writing
         ));
         let (reply, answer) = std::sync::mpsc::channel();
         let open = format!("wait open {}", other.display());
@@ -3276,7 +3279,10 @@ mod tests {
         let _held = app.folder.hold_look_up();
         app.answer_awaited_outcomes(&ctx, true);
         let why = super::not_done_reason(&answer.try_recv().unwrap());
-        assert!(why.is_some_and(|w| w.contains("folder was read")));
+        assert!(
+            why.as_ref().is_some_and(|w| w.contains("folder was read")),
+            "{why:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
