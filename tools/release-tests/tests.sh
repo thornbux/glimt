@@ -4293,23 +4293,27 @@ for v in new old; do
     menu File "Copy for Sharing…"; sleep 3
     shot sharing-$v
     menu "Remove All" "Copy…"
-    until_file $d/out/b.png 10
+    # From 0.86 Remove All also ticks File name, so the copies are named image-1, image-2.
+    until_file $d/out/image-2.png 10
     sleep 1
     quit
     if [ $v = new ]; then
-        expect "both images copied" "$(ls $d/out | tr '\n' ' ')" "a.jpg b.png "
+        expect "both images copied, under neutral names" "$(ls $d/out | tr '\n' ' ')" \
+            "image-1.jpg image-2.png "
+        expect_empty "no original name in the copies" "$(grep -alE 'a\.jpg|b\.png' $d/out/*)"
         expect_empty "no place, make, serial number or keyword anywhere in the copies" \
             "$(grep -alE 'SecretMake|SN-424242|secretword' $d/out/*)"
-        for f in a.jpg b.png; do
+        for f in a.jpg:image-1.jpg b.png:image-2.png; do
+            copy=$d/out/${f#*:} f=${f%%:*}
             expect_empty "$f: exiftool finds no place, make, serial number or keyword" \
-                "$(exiftool -s3 -GPSLatitude -Make -SerialNumber -Subject $d/out/$f)"
-            expect "$f: the orientation kept" "$(exiftool -s3 -n -Orientation $d/out/$f)" 6
+                "$(exiftool -s3 -GPSLatitude -Make -SerialNumber -Subject $copy)"
+            expect "$f: the orientation kept" "$(exiftool -s3 -n -Orientation $copy)" 6
             expect "$f: the same pixels" \
-                "$(compare -metric AE $d/$f $d/out/$f null: 2>&1 | cut -d' ' -f1)" 0
+                "$(compare -metric AE $d/$f $copy null: 2>&1 | cut -d' ' -f1)" 0
         done
         expect "the originals unchanged" "$(md5sum $d/a.jpg $d/b.png)" "$sums"
         expect "Remove All kept for the next time" \
-            "$(grep -c '^group:' $XDG_STATE_HOME/glimt/sharing 2>/dev/null)" 8
+            "$(grep -c '^group:' $XDG_STATE_HOME/glimt/sharing 2>/dev/null)" 9
     else note "old: $(ls $d/out | tr '\n' ' ')"; fi
 done
 
@@ -4325,6 +4329,9 @@ for name in ultrahdr-pixel.jpg iphone-gain-map.jpg dji-drone.jpg lightroom-keywo
     digikam-tags.jpg; do
     if [ -f /samples/$name ]; then cp /samples/$name $d/in/; else fail "$name not downloaded"; fi
 done
+# neutral NAME: the name that Remove All, which ticks File name, gives the copy of the sample
+# NAME: image-N with its extension, N its place in the list, sorted by name.
+neutral() { echo image-$(ls $d/in | grep -nxF "$1" | cut -d: -f1).${1##*.}; }
 # copy_shared FOLDER GROUP…: copies every sample into FOLDER, with Remove All when no GROUP is
 # named, and else with each GROUP's box ticked. The choice starts empty each time.
 copy_shared() {
@@ -4341,7 +4348,9 @@ copy_shared() {
     if [ $# = 0 ]; then menu "Remove All"; else menu "$@"; fi
     shot sharing-real-$(basename $out)
     menu "Copy…"
-    for name in $(ls $d/in); do until_file $out/$name 30; done
+    for name in $(ls $d/in); do
+        if [ $# = 0 ]; then until_file $out/$(neutral $name) 30; else until_file $out/$name 30; fi
+    done
     sleep 1
     quit
 }
@@ -4357,10 +4366,11 @@ hdr_tags='^\[MakerNotes:Apple\] (HDRHeadroom|HDRGain) '
 copy_shared $d/all
 copy_shared $d/place Place
 samples=$(ls $d/in | tr '\n' ' ')
-expect "every sample copied with Remove All" "$(ls $d/all | tr '\n' ' ')" "$samples"
+expect "every sample copied with Remove All, under neutral names" "$(ls $d/all | tr '\n' ' ')" \
+    "$(for name in $samples; do printf '%s ' $(neutral $name); done)"
 expect "every sample copied with Place" "$(ls $d/place | tr '\n' ' ')" "$samples"
 for name in $(ls $d/in); do
-    in=$d/in/$name all=$d/all/$name place=$d/place/$name
+    in=$d/in/$name all=$d/all/$(neutral $name) place=$d/place/$name
     expect_empty "$name, Remove All: no place, serial number, maker note, credentials or keyword" \
         "$(all_tags $all | grep -iE "$private_tags" | grep -vE "$hdr_tags")"
     expect "$name, Remove All: the orientation kept" \
@@ -4378,20 +4388,21 @@ for name in $(ls $d/in); do
     done
 done
 # The gain maps: the index of the images after the main one, and the gain map marked as such.
-for copy in $d/all $d/place; do
-    kind=$(basename $copy)
+for kind in all place; do
+    # copy NAME: the copy of the sample NAME made with this choice.
+    copy() { if [ $kind = all ]; then echo $d/all/$(neutral $1); else echo $d/place/$1; fi; }
     expect "ultrahdr-pixel.jpg, $kind: two images in the MPF index" \
-        "$(exiftool -s3 -NumberOfImages $copy/ultrahdr-pixel.jpg)" 2
+        "$(exiftool -s3 -NumberOfImages $(copy ultrahdr-pixel.jpg))" 2
     expect "ultrahdr-pixel.jpg, $kind: the gain map's hdrgm marking kept" \
-        "$(exiftool -a -ee3 -G3 -s -XMP-hdrgm:GainMapMax $copy/ultrahdr-pixel.jpg | grep -c Doc)" 1
+        "$(exiftool -a -ee3 -G3 -s -XMP-hdrgm:GainMapMax $(copy ultrahdr-pixel.jpg) | grep -c Doc)" 1
     expect "iphone-gain-map.jpg, $kind: two images in the MPF index" \
-        "$(exiftool -s3 -NumberOfImages $copy/iphone-gain-map.jpg)" 2
+        "$(exiftool -s3 -NumberOfImages $(copy iphone-gain-map.jpg))" 2
     expect "iphone-gain-map.jpg, $kind: the gain map's Apple marking kept" \
-        "$(exiftool -a -ee3 -s3 -XMP-apdi:AuxiliaryImageType $copy/iphone-gain-map.jpg)" \
+        "$(exiftool -a -ee3 -s3 -XMP-apdi:AuxiliaryImageType $(copy iphone-gain-map.jpg))" \
         urn:com:apple:photo:2020:aux:hdrgainmap
     # The gain map is shown as bright as the original only with the maker note's headroom.
     expect "iphone-gain-map.jpg, $kind: the maker note's HDR headroom kept" \
-        "$(exiftool -s3 -MakerNotes:HDRHeadroom $copy/iphone-gain-map.jpg)" \
+        "$(exiftool -s3 -MakerNotes:HDRHeadroom $(copy iphone-gain-map.jpg))" \
         "$(exiftool -s3 -MakerNotes:HDRHeadroom $d/in/iphone-gain-map.jpg)"
 done
 # Place alone keeps the keywords: digiKam's list, which Remove All takes out. digiKam 4 wrote
@@ -4402,7 +4413,7 @@ expect "digikam-tags.jpg: the original holds digiKam's keyword list" \
 expect "digikam-tags.jpg, Place: digiKam's keyword list kept" \
     "$(tags_list $d/place/digikam-tags.jpg)" Adrien
 expect_empty "digikam-tags.jpg, Remove All: digiKam's keyword list left out" \
-    "$(tags_list $d/all/digikam-tags.jpg)"
+    "$(tags_list $d/all/$(neutral digikam-tags.jpg))"
 expect "the originals unchanged" "$(cd $d/in && md5sum * | md5sum)" \
     "$(cd /samples && md5sum $(ls $d/in) | md5sum)"
 
