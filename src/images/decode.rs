@@ -75,6 +75,12 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// The page of a multi-page file, counted from 0, as a decode job and its result carry it. It
+/// has a type of its own so that it is never taken for a place in the list, which a pool's
+/// workers must not judge a job by (`source_rules::worker_pools_judge_jobs_by_their_files`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PageNumber(pub usize);
+
 pub struct Decoded {
     /// The file the job was for. It rejects results from a folder that has since been replaced.
     pub path: PathBuf,
@@ -82,7 +88,7 @@ pub struct Decoded {
     /// meanwhile.
     pub rotated: bool,
     /// The page of a multi-page TIFF. It is 0 for everything else.
-    pub page: usize,
+    pub page: PageNumber,
     /// The request's number, as in `App::pending`.
     pub request_number: u64,
     /// `None` = skipped because the user has already moved past it.

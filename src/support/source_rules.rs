@@ -7488,11 +7488,13 @@ fn walks_without_markup_skip(sources: &[(String, String)]) -> Vec<String> {
 /// share the parts came faster than the jobs were served, so the jobs were skipped and asked for
 /// again until the tree was read. In a function that starts a pool, no line about its jobs or
 /// what its workers share (a channel, an `Arc` or `Mutex`, a closure), with the crate's type
-/// aliases written out, names a `usize`.
+/// aliases and the fields of its structs written out, names a `usize`. A number
+/// that is no place in the list has a type of its own (`decode::PageNumber`), which is not
+/// written out.
 #[test]
 fn worker_pools_judge_jobs_by_their_files() {
     let sources = rust_sources();
-    let aliases = type_aliases(&sources);
+    let aliases = types_written_out(&sources);
     let mut wrong = Vec::new();
     for (file, text) in &sources {
         wrong.extend(pools_judged_by_place(file, text, &aliases));
@@ -7505,7 +7507,8 @@ fn worker_pools_judge_jobs_by_their_files() {
 }
 
 /// The check above finds a place in a job, in a channel and in what the workers share through a
-/// type alias, but not a count of workers.
+/// type alias, and in a field of a job's struct. It passes a count
+/// of workers and a number with a type of its own. Before, a struct's fields were not read.
 #[test]
 fn finds_a_pool_judged_by_place() {
     let text = "type Shown = Arc<Mutex<Vec<usize>>>;\n\
@@ -7516,20 +7519,32 @@ fn finds_a_pool_judged_by_place() {
         spawn_worker_pool(n, rx, |_| {}, go);\n}\n\
         fn d(\n    workers: usize,\n    shown: &Arc<Mutex<Vec<PathBuf>>>,\n) {\n    \
         spawn_worker_pool(n, rx, |_| {}, move |path: PathBuf| go(path));\n}\n\
-        fn e(shown: &Shown) {\n    go(shown);\n}\n";
+        fn e(shown: &Shown) {\n    go(shown);\n}\n\
+        struct Job {\n    place: usize,\n    path: PathBuf,\n}\n\
+        struct Paged {\n    page: PageNumber,\n}\nstruct PageNumber(usize);\n\
+        fn f() {\n    spawn_worker_pool(n, rx, |_| {}, move |job: Job| go(job.place));\n}\n\
+        fn g() {\n    spawn_worker_pool(n, rx, |_| {}, move |job: Paged| go(job.page));\n}\n";
     let sources = [("x.rs".to_owned(), text.to_owned())];
-    let aliases = type_aliases(&sources);
+    let aliases = types_written_out(&sources);
     assert_eq!(
         pools_judged_by_place("x.rs", text, &aliases),
-        ["x.rs: a", "x.rs: b", "x.rs: c"]
+        ["x.rs: a", "x.rs: b", "x.rs: c", "x.rs: f"]
     );
 }
 
-/// Returns the crate's type aliases in `sources`, each name with what it stands for.
-fn type_aliases(sources: &[(String, String)]) -> Vec<(String, String)> {
+/// Returns the crate's type aliases and its structs with named fields in `sources`, each name
+/// with what it stands for: the type of an alias, and the fields of a struct. A tuple struct
+/// (`PageNumber(usize)`) is a type of its own, so it is not written out.
+fn types_written_out(sources: &[(String, String)]) -> Vec<(String, String)> {
     let mut aliases = Vec::new();
     for (_, text) in sources {
-        for line in code_lines(text) {
+        let lines = code_lines(text);
+        for (i, line) in lines.iter().enumerate() {
+            if let Some(name) = struct_name(without_qualifiers(line.trim_start())) {
+                let last = block_end(&lines, i).unwrap_or(i);
+                aliases.push((name.to_owned(), lines[i + 1..=last].join(" ")));
+                continue;
+            }
             let Some(rest) = without_qualifiers(line.trim_start()).strip_prefix("type ") else {
                 continue;
             };
@@ -7569,6 +7584,7 @@ fn pools_judged_by_place(file: &str, text: &str, aliases: &[(String, String)]) -
         let mut written_out = line.clone();
         for (name, stands_for) in aliases {
             if has_word(line, name) {
+                written_out.push(' ');
                 written_out.push_str(stands_for);
             }
         }
