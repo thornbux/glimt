@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-11-17
+
 ### Added
 
 - Copy for Sharing has a box of its own for the file name, under Date and time and Photographer
@@ -4261,7 +4263,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.85.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.86.0...HEAD
+[0.86.0]: https://github.com/thornbux/glimt/compare/v0.85.0...v0.86.0
 [0.85.0]: https://github.com/thornbux/glimt/compare/v0.84.0...v0.85.0
 [0.84.0]: https://github.com/thornbux/glimt/compare/v0.83.0...v0.84.0
 [0.83.0]: https://github.com/thornbux/glimt/compare/v0.82.0...v0.83.0
