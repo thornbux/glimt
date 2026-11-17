@@ -24,6 +24,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// How many looks at a copy's names may fail before the copy is given up, and the last look's
+/// error told.
+const MOST_FAILED_LOOKS: usize = 1000;
+
 /// How the copies are named.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Naming {
@@ -219,7 +223,6 @@ impl SharingOutcome {
     /// look that failed are told as errors that say so, not as a file of that name.
     fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>, naming: Naming) {
         let name = path.file_name().unwrap_or_default();
-        let is_free = |target: &Path| is_name_free(target).unwrap_or(false);
         if naming == Naming::Own {
             match is_name_free(&folder.join(name)) {
                 Ok(true) => {}
@@ -233,9 +236,13 @@ impl SharingOutcome {
             Ok(Some(bytes)) => bytes,
             Err(e) => return self.errors.push(format!("{}: {e}", path.display())),
         };
-        // A bound, so a folder whose names cannot be looked at does not keep it trying.
-        let tries = if naming == Naming::Own { 1 } else { 1000 };
-        for n in 1..=tries {
+        // Only the looks that fail count against a bound, so a folder whose names cannot be
+        // looked at does not keep it trying. Names surely taken do not, as the copies are
+        // numbered past every name in the folder. Before, a folder with image-1 to image-1000
+        // left the first copy of every later job out.
+        let mut failed_looks = 0;
+        let last = if naming == Naming::Own { 1 } else { usize::MAX };
+        for n in 1..=last {
             let target = folder.join(match naming {
                 Naming::Neutral => {
                     self.last_neutral_number += 1;
@@ -244,8 +251,22 @@ impl SharingOutcome {
                 _ if n == 1 => name.to_owned(),
                 _ => numbered(path, n),
             });
-            if !is_free(&target) {
-                continue;
+            match is_name_free(&target) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                // A sidecar left without its image keeps its name taken.
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::AlreadyExists && naming != Naming::Own =>
+                {
+                    continue;
+                }
+                Err(e) => {
+                    failed_looks += 1;
+                    if naming == Naming::Own || failed_looks == MOST_FAILED_LOOKS {
+                        return self.errors.push(e.to_string());
+                    }
+                    continue;
+                }
             }
             match create_file(&target, &bytes) {
                 Ok(()) => {
@@ -592,6 +613,33 @@ mod tests {
         std::fs::write(out.join("x-3.png.xmp"), "left").unwrap();
         renamed.copy_into(&b, &out, &kept, super::Naming::OwnOrNumbered);
         assert!(out.join("x-4.png").exists() && !out.join("x-3.png").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Neutral names are numbered past every name in the folder, also past a thousand copies
+    /// made by earlier jobs. Before, each copy gave up after a thousand names taken, so the first
+    /// copy of every later job was left out as if its name were taken.
+    #[test]
+    fn neutral_names_go_past_a_thousand_names_taken() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-sharing-thousand-{}",
+            std::process::id()
+        ));
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        for n in 1..=1000 {
+            std::fs::write(out.join(format!("image-{n}.png")), b"").unwrap();
+        }
+        for job in [1001, 1002] {
+            let mut outcome = super::SharingOutcome::default();
+            outcome.copy_into(&a, &out, &Default::default(), super::Naming::Neutral);
+            assert_eq!((outcome.copied, outcome.names_taken), (1, 0));
+            assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+            let made = out.join(format!("image-{job}.png"));
+            assert_eq!(image::image_dimensions(made).unwrap(), (4, 4));
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
