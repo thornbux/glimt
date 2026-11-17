@@ -35,13 +35,14 @@ leave() {
 trap leave EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-# The build folders of removed worktrees fill Docker's disk, and a run with too little room
-# fails halfway through its builds, so they go first and the room left is checked.
-tools/check.sh --clean || true
+# A run with too little room fails halfway through its builds, so the room is checked first.
+# The build folders of removed worktrees fill Docker's disk, but run.sh does not remove them:
+# tools/check.sh --clean also removes those of other clones, which AGENTS.md says to ask about.
 free=$(docker run --rm -v glimt-target:/target rust:1 df -Pk /target |
     awk 'NR == 2 { print int($4 / 1048576) }') || free=
 if [ -n "$free" ] && [ "$free" -lt 25 ]; then
-    echo "Docker has $free GB free, and a run needs about 25 GB: see docker system df"
+    echo "Docker has $free GB free, and a run needs about 25 GB: see docker system df, and"
+    echo "tools/check.sh --clean, which also removes the build folders of other clones"
     exit 1
 fi
 new=${1:-HEAD}
