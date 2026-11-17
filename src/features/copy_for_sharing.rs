@@ -425,10 +425,7 @@ impl crate::App {
         let Some(job) = self.start_job(tr("Copying"), paths.len(), paths.clone()) else {
             return;
         };
-        // Copies made into the folder shown, or one below it in the list with subfolders, join
-        // the list.
-        let listed = folder == self.folder.dir()
-            || (self.folder.recursive() && folder.starts_with(self.folder.dir()));
+        let listed = self.folder.takes_files_put_in(&folder);
         let report_tx = self.file_operations.report_sender();
         self.run_in_background(ctx, Vec::new(), move || {
             let mut outcome = SharingOutcome::default();

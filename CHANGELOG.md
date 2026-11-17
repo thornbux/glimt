@@ -33,6 +33,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Sorting by date, the "exif:" search, the info panel, Copy for Sharing and a turned save count
   a file they read whole in the memory that decodes share. Before, a RAW or HEIC whose EXIF is
   not near its start was read whole outside it, up to 512 MB in each thread of the pass.
+- With several folders shown together, a Copy, Move or Copy for Sharing into one of them shows
+  the new files at once. With Include Subfolders on, one into a folder that is not shown no
+  longer reads all the folders shown again. Before, the copies came only when the watch saw
+  them, and every such copy read the whole trees again.
 ### Fixed
 
 - On a network folder (SMB, NFS, a gvfs share), the status bar no longer sums the sizes of the
