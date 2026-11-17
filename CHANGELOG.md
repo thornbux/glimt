@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The `.deb` and the `.rpm` install the X11 and Wayland libraries that the window needs. Before,
+  on a minimal system without a desktop, Glimt installed but could not open its window.
+
 ## [0.86.0] - 2026-11-17
 
 ### Added
