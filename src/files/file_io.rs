@@ -1498,14 +1498,13 @@ fn copy_until_stopped(
     to: &mut std::fs::File,
     is_stopped: &dyn Fn() -> bool,
 ) -> std::io::Result<()> {
-    use std::io::Read;
     // Small in the tests, so that a stop inside a file needs no file of many megabytes.
     const PART: u64 = if cfg!(test) { 4 << 10 } else { 8 << 20 };
     loop {
         if is_stopped() {
             return Err(std::io::ErrorKind::Interrupted.into());
         }
-        if std::io::copy(&mut from.by_ref().take(PART), to)? == 0 {
+        if crate::images::decode::copy_limited(from, to, PART)? == 0 {
             return Ok(());
         }
     }

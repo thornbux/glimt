@@ -521,6 +521,10 @@ method.
   bypass:
   - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device),
     and open one with `decode::open_regular` (no pipe or device);
+  - read a line from a socket or a program with `decode::read_line_limited`, and copy from a
+    reader with `decode::copy_limited`, each up to a bound, because a reader with no end would
+    fill the memory (clippy refuses `read_line`, `read_until`, `lines`, `split`, `bytes` and
+    `io::copy`);
   - decode an image only through `decode::from_decoder`, `from_memory` or `scaled`, which
     check `fits_decode_limit` before any pixels are made. What a decode reads whole, a file or
     a program's output, is held in a `decode::DecodeInput`, which takes it from the decodes'

@@ -538,6 +538,12 @@ const REFUSED_CALLS: &[&str] = &[
     "std::fs::read_to_string",
     "std::io::read_to_string",
     "std::io::Read::read_to_end",
+    "std::io::BufRead::read_line",
+    "std::io::BufRead::read_until",
+    "std::io::BufRead::lines",
+    "std::io::BufRead::split",
+    "std::io::Read::bytes",
+    "std::io::copy",
     "std::fs::write",
     "std::fs::File::create",
     "std::fs::File::create_new",
@@ -549,6 +555,7 @@ const REFUSED_CALLS: &[&str] = &[
     "std::fs::remove_dir_all",
     "std::fs::hard_link",
     "std::os::unix::fs::symlink",
+    "std::fs::soft_link",
     "std::fs::set_permissions",
     "std::fs::File::set_modified",
     "std::fs::File::set_times",
@@ -655,6 +662,7 @@ const DISK_CALLS: &[&str] = &[
     "set_permissions(",
     "hard_link(",
     "symlink(",
+    "soft_link(",
     "xattr(",
     "libc::access(",
     "UnixListener::bind(",
@@ -671,6 +679,8 @@ const OUTSIDE_TEXT_READS: &[&str] = &[
     "output_of(",
     "short_output_of(",
     "read_until(",
+    "read_line(",
+    "read_line_limited(",
 ];
 
 /// The calls that hand work to another thread, whose text `DISK_CALLS` are not looked for in.
