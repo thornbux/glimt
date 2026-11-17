@@ -4043,6 +4043,11 @@ msgstr "není známo, zda kopie získala název, proto doprovodný soubor tamní
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
 msgstr "tamní soubor nebyl nahrazen, ale jeho doprovodný soubor {sidecar} mohl být odložen jako {aside}; pokud nemá svůj vlastní název, vraťte mu ho ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
+msgstr "nyní může mít skrytý název {hidden}; pokud {photo} stále existuje a tento doprovodný soubor nemá svůj vlastní název, vraťte mu ho ({e})"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
