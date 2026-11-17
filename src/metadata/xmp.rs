@@ -2291,7 +2291,9 @@ fn quoted(text: &str) -> Option<&str> {
 
 /// Writes a new XMP packet of the properties of `properties`. The properties of each packet
 /// they came from go into an rdf:Description of their own, with the namespaces they use
-/// declared on it, so a prefix that two packets bind to two namespaces keeps both.
+/// declared on it, so a prefix that two packets bind to two namespaces keeps both. It writes
+/// markup and walks none, so it has no comment to pass over (`not_element_length`): a '<' in a
+/// namespace's URI is escaped.
 pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
     let mut out = String::from(
         "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
@@ -2501,7 +2503,8 @@ fn element_end(xmp: &[u8], mut from: usize, name: &[u8]) -> Option<usize> {
 /// allow (the control characters below U+0020 but tab, line feed and carriage return, and the
 /// noncharacters U+FFFE and U+FFFF) are left out, as no entity can stand for them either. Left
 /// in, they make the whole sidecar unreadable for exiv2, and so for darktable and digiKam. A
-/// comment pasted from a PDF may hold a form feed.
+/// comment pasted from a PDF may hold a form feed. The text is a value, not markup, so it has
+/// no comment to pass over (`not_element_length`).
 pub(crate) fn escape(text: &str) -> String {
     let not_allowed = |c: char| {
         (c < ' ' && !matches!(c, '\t' | '\n' | '\r')) || matches!(c, '\u{fffe}' | '\u{ffff}')
@@ -2513,6 +2516,8 @@ pub(crate) fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// `text`, an XML value, with its entities and character references read. The text is a value,
+/// not markup, so it has no comment to pass over (`not_element_length`).
 fn unescape(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;

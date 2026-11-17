@@ -1386,6 +1386,32 @@ fn read_open_file((file, meta): (std::fs::File, std::fs::Metadata)) -> std::io::
     Ok(data)
 }
 
+/// Reads from `reader` into `line` up to and with the next line break, but at most `most`
+/// bytes. Returns how many bytes were read, 0 at the end. This is the one way Glimt reads a
+/// line, because a socket or a program that never sends a line break would otherwise fill the
+/// memory, and clippy (clippy.toml) refuses `read_line`, `read_until`, `lines` and `split`.
+pub(crate) fn read_line_limited(
+    reader: &mut impl std::io::BufRead,
+    most: u64,
+    line: &mut Vec<u8>,
+) -> std::io::Result<usize> {
+    use std::io::BufRead;
+    #[allow(clippy::disallowed_methods)] // bounded by take
+    std::io::Read::take(reader, most).read_until(b'\n', line)
+}
+
+/// Copies from `from` to `to` until its end, but at most `most` bytes. Returns how many bytes
+/// were copied. This is the one way Glimt copies from a reader, because clippy (clippy.toml)
+/// refuses `io::copy`, which into a `Vec` fills the memory from a reader with no end.
+pub(crate) fn copy_limited<W: std::io::Write + ?Sized>(
+    from: &mut impl std::io::Read,
+    to: &mut W,
+    most: u64,
+) -> std::io::Result<u64> {
+    #[allow(clippy::disallowed_methods)] // bounded by take
+    std::io::copy(&mut std::io::Read::take(from, most), to)
+}
+
 /// The error of a file larger than a decode may read (`MAX_DECODE_BYTES`).
 fn file_too_large() -> std::io::Error {
     std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE_BYTES)))

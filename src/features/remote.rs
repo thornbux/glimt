@@ -8,6 +8,7 @@
 //! receives.
 
 use crate::features::remote;
+use crate::images::decode::{copy_limited, read_line_limited};
 use crate::support::lang::tr;
 #[cfg(feature = "test-hooks")]
 use crate::support::test_hooks;
@@ -1919,7 +1920,7 @@ fn serve(
             // sends is read first, up to `most`, because closing with bytes unread resets the
             // connection, and the client then reads no answer.
             Err(why) => {
-                let _ = std::io::copy(&mut reader, &mut std::io::sink());
+                let _ = copy_limited(&mut reader, &mut std::io::sink(), most);
                 if let Some(out) = out.as_mut() {
                     let _ = out.write_all(&not_done_answer(why));
                 }
@@ -1998,9 +1999,7 @@ fn serve(
 /// within its time limit.
 fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str>> {
     let mut line = Vec::new();
-    std::io::Read::take(&mut *reader, MOST_LINE)
-        .read_until(b'\n', &mut line)
-        .ok()?;
+    read_line_limited(&mut *reader, MOST_LINE, &mut line).ok()?;
     let ended = line.ends_with(b"\n");
     let takes_files = |line: &[u8]| line.starts_with(b"select ") || line.starts_with(b"info ");
     if !ended && takes_files(line.trim_ascii_start()) {
@@ -2009,9 +2008,7 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
         let mut files = line.iter().filter(|&&b| b == 0).count();
         loop {
             let start = line.len();
-            std::io::Read::take(&mut *reader, MOST_LINE)
-                .read_until(b'\n', &mut line)
-                .ok()?;
+            read_line_limited(&mut *reader, MOST_LINE, &mut line).ok()?;
             files += line[start..].iter().filter(|&&b| b == 0).count();
             if files > MAX_SELECT {
                 return Some(Err(TOO_MANY_FILES));
