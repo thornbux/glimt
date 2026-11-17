@@ -125,17 +125,18 @@ impl Tool {
             // what it started too (in a Flatpak through INT, see `external::stop_process_group`).
             // Not `stoppable_command`: its --watch-bus would end an editor on the host when the
             // Flatpak's Glimt closes, with its unsaved work.
+            use crate::files::external::{host_command, start_users_program};
             use std::os::unix::process::CommandExt;
-            let mut child =
-                crate::files::external::host_command(program.to_string_lossy().as_ref())
+            let mut child = start_users_program(
+                host_command(program.to_string_lossy().as_ref())
                     .process_group(0)
                     .args(&args[1..])
                     .current_dir(folder)
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::piped())
-                    .spawn()
-                    .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+                    .stderr(std::process::Stdio::piped()),
+            )
+            .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
             let pid = child.id();
             lock_even_if_poisoned(running).push((self.name.clone(), pid));
             // Its errors are read in a thread of their own, and only the last of them are kept.
@@ -706,6 +707,35 @@ mod tests {
         assert_eq!(endless.run(&files, &dir, &running), Err("stopped".into()));
         stopping.join().unwrap();
         assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A tool, and an application that Open With or Play Video starts (`run_telling`), note
+    /// that a program starts on the user's files, so that Glimt's own reading of a share gives
+    /// way to it. Before, only Play Video and the default application did.
+    #[test]
+    fn a_program_started_on_files_is_noted() {
+        use crate::model::listing::PROGRAMS_STARTED;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-tool-noted-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let tool = parse("[Desktop Entry]\nName=T\nExec=true %f\n", &dir).unwrap();
+        let before = PROGRAMS_STARTED.get();
+        let files = [dir.join("a.jpg"), dir.join("b.jpg")];
+        tool.run(&files, &dir, &RunningTools::default()).unwrap();
+        assert_eq!(
+            PROGRAMS_STARTED.get(),
+            before + 2,
+            "a tool, once for each file"
+        );
+        let ran =
+            crate::files::external::run_telling("true", crate::files::external::command("true"));
+        assert_eq!(ran, Ok(()));
+        assert_eq!(
+            PROGRAMS_STARTED.get(),
+            before + 3,
+            "Open With's application"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -756,11 +756,21 @@ pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result
 /// starts for it, as it may stay open for hours. Its output is not read, so a program that
 /// prints for hours is not kept. Returns how it failed, when it did.
 pub(crate) fn run_telling(name: &str, mut cmd: std::process::Command) -> Result<(), String> {
-    let child = (cmd.stdout(std::process::Stdio::null()))
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("{name}: {e}"))?;
+    let child = start_users_program(
+        (cmd.stdout(std::process::Stdio::null())).stderr(std::process::Stdio::piped()),
+    )
+    .map_err(|e| format!("{name}: {e}"))?;
     wait_telling(child, name)
+}
+
+/// Starts `cmd`, a program of the user's on the user's files: an application of Open With, the
+/// video player or a tool. It notes the start (`listing::program_started`), so that Glimt's own
+/// reading of a share gives way while the program reads the start of its file.
+pub(crate) fn start_users_program(
+    cmd: &mut std::process::Command,
+) -> std::io::Result<std::process::Child> {
+    crate::model::listing::program_started();
+    cmd.spawn()
 }
 
 /// Opens Glimt's own folder `dir` in the file manager, and makes it first when it is not there

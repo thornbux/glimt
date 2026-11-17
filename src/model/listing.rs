@@ -67,9 +67,16 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
 /// share serves Glimt's look at each file of a tree between the player's reads.
 const PROGRAM_STARTS_FOR: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// When a program was last started on a file, by Play Video or Open With.
+/// When a program was last started on the user's files: Play Video, Open With or a tool.
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
     std::sync::Mutex::new(None);
+
+#[cfg(test)]
+thread_local! {
+    // How many programs this thread noted as started (`program_started`), so that a test can see
+    // that a way to start a program on the user's files notes it, whatever other tests start.
+    pub(crate) static PROGRAMS_STARTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The folders a listing read, each with the modification time it had when it was read, so the
 /// folder watcher sees a change made after the reading. The time is `None` when it could not be
@@ -351,8 +358,11 @@ fn walk_by(
 }
 
 /// Notes that a program was just started on a file, so that the reading of a share that nobody
-/// waits for waits a moment for it (`wait_while_a_program_starts`).
+/// waits for waits a moment for it (`wait_while_a_program_starts`). A program of the user's is
+/// started through `external::start_users_program`, which calls it.
 pub(crate) fn program_started() {
+    #[cfg(test)]
+    PROGRAMS_STARTED.set(PROGRAMS_STARTED.get() + 1);
     *crate::support::threads::lock_even_if_poisoned(&PROGRAM_STARTED_AT) =
         Some(std::time::Instant::now());
 }
