@@ -87,9 +87,9 @@ pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
 /// hold the old orientation.
 const DROPPED_PHOTOSHOP_RESOURCES: [u16; 4] = [0x0409, 0x040C, 0x0422, 0x0424];
 
-// Makes `same_file_by_opening` and `is_there_by_opening` on this thread find this name gone,
+// Makes `same_file_by_opening` and `opens_as` on this thread find this name gone,
 // while a look still finds it, as on a share whose cache still shows a name that the server
-// removed. A folder makes every temporary file of Glimt's in it gone so.
+// removed.
 #[cfg(test)]
 thread_local! {
     pub(crate) static GONE_FROM_THE_SERVER: std::cell::RefCell<Option<std::path::PathBuf>> =
@@ -803,6 +803,7 @@ pub(crate) fn save_copy_with_sidecar(
             let aside = crate::files::file_io::tmp_path(&side);
             crate::files::file_io::replace_name_with(
                 new,
+                Some(asked_about),
                 |f| f.write_all(out),
                 || {
                     crate::files::file_io::is_still_the_file(
@@ -924,10 +925,13 @@ pub(crate) fn same_file_by_opening(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Returns whether a file is at `path`, by opening it as `same_file_by_opening` does, so that a
-/// share's cache cannot answer for the server. A name that cannot be opened counts as not there.
-pub(crate) fn is_there_by_opening(path: &Path) -> bool {
-    opened(path).is_some()
+/// Returns whether the file at `path`, opened as `same_file_by_opening` does so that a share's
+/// cache cannot answer for the server, is the file whose fingerprint was `known`
+/// (`file_io::same_fingerprint`). A name that cannot be opened is not that file.
+pub(crate) fn opens_as(path: &Path, known: FileFingerprint) -> bool {
+    opened(path).is_some_and(|(id, (size, seconds, nanoseconds))| {
+        crate::files::file_io::same_fingerprint(known, (id.ok(), size, (seconds, nanoseconds)))
+    })
 }
 
 /// Opens the file at `p` and returns its key and its (size, modification time in seconds and
@@ -935,13 +939,7 @@ pub(crate) fn is_there_by_opening(path: &Path) -> bool {
 fn opened(p: &Path) -> Option<(FileId, (u64, i64, i64))> {
     use std::os::unix::fs::MetadataExt;
     #[cfg(test)]
-    if GONE_FROM_THE_SERVER.with_borrow(|gone| {
-        let is_temporary = |name: &std::ffi::OsStr| {
-            (name.as_encoded_bytes()).starts_with(crate::files::file_io::TMP_PREFIX.as_bytes())
-        };
-        gone.as_deref() == Some(p)
-            || (gone.as_deref() == p.parent() && p.file_name().is_some_and(is_temporary))
-    }) {
+    if GONE_FROM_THE_SERVER.with_borrow(|gone| gone.as_deref() == Some(p)) {
         return None;
     }
     let (_file, m) = crate::images::decode::open_regular_with_metadata(p).ok()?;
@@ -3116,16 +3114,17 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Save As and a turn whose rename failed in a way that may have been done (EIO), where a
-    /// look still finds the new version but an open does not (a share's cache after a rename
-    /// that the server did), put nothing back: the replaced file's sidecar stays aside and is
-    /// named, and the turned image's sidecar keeps its new orientation. Before, the look counted
-    /// the rename as not done, so the copy got the replaced file's keywords and stars, and the
-    /// turned image got its old orientation back in its sidecar.
+    /// Save As and a turn whose rename failed in a way that may have been done (EIO) after it
+    /// gave the name the new version, which is still beside it, put nothing back: the replaced
+    /// file's sidecar stays aside and is named, and the turned image's sidecar keeps its new
+    /// orientation. A share's cache shows the new version so after a rename that the server did,
+    /// and rclone or s3fs on S3 leave it so after a rename by copy whose delete failed. Before,
+    /// the new version still found beside the name counted as a rename not done, so the copy got
+    /// the replaced file's keywords and stars, and the turned image got its old orientation back
+    /// in its sidecar.
     #[test]
-    fn a_rename_that_only_the_cache_says_was_not_done_puts_nothing_back() {
-        use super::GONE_FROM_THE_SERVER;
-        use crate::files::file_io::{REPLACE_FAILS, fingerprint};
+    fn a_rename_done_with_the_new_version_still_beside_puts_nothing_back() {
+        use crate::files::file_io::{RENAME_COPIES_TO, fingerprint};
         let dir = std::env::temp_dir().join(format!("glimt-save-cached-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = std::fs::canonicalize(&dir).unwrap();
@@ -3137,13 +3136,12 @@ mod tests {
         std::fs::write(side(&b), "b's").unwrap();
         let unturned = BRIDGE_XMP.replace("Orientation=\"6\"", "Orientation=\"1\"");
         std::fs::write(side(&jpeg), &unturned).unwrap();
-        GONE_FROM_THE_SERVER.set(Some(dir.clone()));
-        REPLACE_FAILS.set(Some((b.clone(), libc::EIO)));
+        RENAME_COPIES_TO.set(Some(b.clone()));
         let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
-        REPLACE_FAILS.set(Some((jpeg.clone(), libc::EIO)));
+        RENAME_COPIES_TO.set(Some(jpeg.clone()));
         let turned = crate::metadata::exif::write_orientation(&jpeg, 1, false, true);
-        REPLACE_FAILS.set(None);
-        GONE_FROM_THE_SERVER.set(None);
+        RENAME_COPIES_TO.set(None);
+        assert_eq!(image::image_dimensions(&b).unwrap(), (8, 8));
         let told = saved.unwrap_err();
         assert!(
             told.contains("the sidecar of the file there was left at"),
