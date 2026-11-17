@@ -4048,6 +4048,16 @@ msgstr "tamní soubor nebyl nahrazen, ale jeho doprovodný soubor {sidecar} mohl
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "nyní může mít skrytý název {hidden}; pokud {photo} stále existuje a tento doprovodný soubor nemá svůj vlastní název, vraťte mu ho ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} už není takový, jak ho smazání zanechalo, takže jeho doprovodný soubor {sidecar} zůstává pod skrytým názvem {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Název {sidecar} má nyní jiný soubor, takže odložený doprovodný soubor zůstává pod skrytým názvem {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

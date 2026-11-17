@@ -628,6 +628,12 @@ Its folder
 holds, for each log of a Delete for good, each sidecar put aside under a hidden name just before
 its photo goes, so that the next start puts it back beside a photo that is still there, or
 deletes it when the photo went.
+Its folder
+.I deletes/kept
+holds, for each log of a Delete for good that kept a photo while its sidecar may still be under
+the hidden name, as on a share that lost an answer, the path of that photo. The log then stays
+for a later start, which gives the sidecar back to the photo still there as it was, and
+otherwise names the hidden name and never deletes it.
 .TP
 .IR .config.lock ", " .keywords.lock ", " .sort\-folders.lock ", " .recent.lock ", " .sharing.lock ", " .marks.lock
 The locks beside the files of the same name above, which every window holds while it reads and

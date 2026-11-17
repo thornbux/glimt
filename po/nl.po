@@ -4026,6 +4026,16 @@ msgstr "het bestand daar is niet vervangen, maar het sidecar-bestand {sidecar} i
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "het heeft nu misschien de verborgen naam {hidden}; is {photo} er nog en heeft dit sidecar-bestand niet zijn eigen naam, geef het die naam dan terug ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} is er niet meer zoals het verwijderen het achterliet, dus het sidecar-bestand {sidecar} blijft onder de verborgen naam {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Een ander bestand heeft nu de naam {sidecar}, dus het opzijgezette sidecar-bestand blijft onder de verborgen naam {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

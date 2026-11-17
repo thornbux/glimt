@@ -4037,6 +4037,16 @@ msgstr "o arquivo que estava lá não foi substituído, mas seu arquivo XMP asso
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "ele pode estar agora com o nome oculto {hidden}; se {photo} ainda estiver lá e este arquivo XMP associado não estiver com o próprio nome, devolva-lhe esse nome ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} não está mais como a exclusão o deixou, então seu arquivo XMP associado {sidecar} fica com o nome oculto {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Outro arquivo tem agora o nome {sidecar}, então o arquivo XMP associado posto de lado fica com o nome oculto {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

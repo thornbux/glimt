@@ -4026,6 +4026,16 @@ msgstr "siellä olevaa tiedostoa ei korvattu, mutta sen sivutiedosto {sidecar} o
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "se voi nyt olla piilotetulla nimellä {hidden}; jos {photo} on yhä paikallaan eikä tällä sivutiedostolla ole omaa nimeään, anna se sille takaisin ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} ei ole enää sellaisena kuin poisto sen jätti, joten sen sivutiedosto {sidecar} jää piilotetulle nimelle {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Nimellä {sidecar} on nyt toinen tiedosto, joten sivuun siirretty sivutiedosto jää piilotetulle nimelle {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

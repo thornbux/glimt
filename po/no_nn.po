@@ -4037,6 +4037,16 @@ msgstr "fila der vart ikkje erstatta, men sidefila {sidecar} kan ha vorte lagd t
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "ho kan no liggje under det løynde namnet {hidden}; om {photo} framleis er der og denne sidefila ikkje har sitt eige namn, gje ho namnet tilbake ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} er ikkje der slik slettinga lét det vere, så sidefila {sidecar} blir liggjande under det løynde namnet {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Namnet {sidecar} er teke av ei anna fil no, så sidefila som vart lagd til sides, blir liggjande under det løynde namnet {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

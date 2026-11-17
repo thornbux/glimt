@@ -4026,6 +4026,16 @@ msgstr "il file che c'era non è stato sostituito, ma il suo file sidecar {sidec
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "ora potrebbe avere il nome nascosto {hidden}; se {photo} c'è ancora e questo file sidecar non ha il suo nome, ridaglielo ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} non è più come l'ha lasciato l'eliminazione, quindi il suo file sidecar {sidecar} resta con il nome nascosto {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Un altro file ha ora il nome {sidecar}, quindi il file sidecar messo da parte resta con il nome nascosto {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
