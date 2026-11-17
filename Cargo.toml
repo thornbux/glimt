@@ -79,7 +79,8 @@ full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility", "portal
 # `#[allow(unsafe_code)]` on the narrowest statement or function and a `// SAFETY:` comment. An
 # unwrap or expect that cannot fail has `#[allow(clippy::unwrap_used)]` or `expect_used` with
 # its reason; the tests keep theirs (main.rs). `source_rules::the_lints_stay_on` fails when one
-# is taken out or lowered.
+# is taken out or lowered, when any line here is below deny (a group allowed at a higher priority
+# wins), and when a profile sets `panic`: `catch_panic` needs every build to unwind.
 [lints.rust]
 unsafe_code = "deny"
 
