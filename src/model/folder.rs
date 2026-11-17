@@ -273,6 +273,16 @@ impl Folder {
         self.recursive && self.collection.is_none()
     }
 
+    /// Returns whether files put in `folder` join the list when the places shown are read again:
+    /// `folder` is one of the places, or below one while their trees are walked. Before, files put
+    /// anywhere counted with several folders or a collection shown with Subfolders on, as their
+    /// `dir` is "/", and the folders shown were read again for nothing. Both paths are real, as
+    /// `listing::walk` lists a folder reached through a link only when its real path is inside.
+    pub(crate) fn takes_files_put_in(&self, folder: &Path) -> bool {
+        let walks = self.walks_subfolders();
+        (self.places().iter()).any(|place| folder == place || (walks && folder.starts_with(place)))
+    }
+
     /// Lists the subfolders' images too, or not, from the next listing on.
     pub(crate) fn set_recursive(&mut self, on: bool) {
         self.recursive = on;
@@ -2473,6 +2483,40 @@ mod tests {
         app.poll_background(&ctx);
         app.receive_listing(&ctx, std::time::Duration::from_millis(500));
         assert_eq!(app.folder.whole_listings(), listings_before);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Files put in a folder join the list of folders shown together only in one of them, or
+    /// below one with Subfolders on, and never in a collection's "/". Before, files put in any
+    /// folder counted with Subfolders on, and files put in one of the folders shown with it off
+    /// did not.
+    #[test]
+    fn files_join_the_list_only_in_the_places_shown() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-joined-{}", std::process::id()));
+        let (x, y) = (dir.join("x"), dir.join("y"));
+        for d in [&x, &y] {
+            std::fs::create_dir_all(d.join("sub")).unwrap();
+            image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
+        }
+        let dir = crate::model::listing::real_dir(&dir);
+        let (x, y, z) = (dir.join("x"), dir.join("y"), dir.join("z"));
+        let (mut app, ctx) = app_on(&x);
+        app.open_folders(&ctx, vec![x.clone(), y.clone()]);
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        assert!(app.folder.collection().is_none() && app.folder.places().len() == 2);
+        for on in [false, true] {
+            app.folder.set_recursive(on);
+            assert!(app.folder.takes_files_put_in(&y), "{on}");
+            assert_eq!(app.folder.takes_files_put_in(&x.join("sub")), on);
+            assert!(!app.folder.takes_files_put_in(&z), "{on}");
+        }
+        let collection = dir.join("c.gqv");
+        let entry = format!("#GQview collection\n\"{}\"\n", x.join("a.png").display());
+        std::fs::write(&collection, entry).unwrap();
+        crate::support::test_support::open_now(&mut app, &ctx, collection);
+        assert!(app.folder.collection().is_some());
+        app.folder.show_subfolders(true);
+        assert!(!app.folder.takes_files_put_in(&z));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

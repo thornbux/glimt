@@ -1444,11 +1444,7 @@ impl crate::App {
         let freed_tx = self.status_bar.freed_sender();
         let report_tx = self.file_operations.report_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir());
-        // When the files go into the folder, or into one below it in the list with subfolders,
-        // they join the list. Both paths are real, as `listing::walk` lists a folder reached
-        // through a link only when its real path is inside the folder's.
-        let listed = dest == self.folder.dir()
-            || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
+        let listed = self.folder.takes_files_put_in(&dest);
         let undo_on_the_way = (!is_copy).then(|| self.file_operations.undo_on_the_way());
         // The tests share one state folder, and a test's Move would leave its log there when
         // the test does not take the report. They test the log on folders of their own.
