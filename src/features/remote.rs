@@ -1472,14 +1472,18 @@ fn read_each_answer(
 /// Reads the window's answer to `command` on `s` until the window closes the connection.
 /// Returns the bytes that came, with the error when the answer did not end within the time
 /// limit or the connection failed.
-fn read_answer(mut s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
-    use std::io::Read;
-    let limit = match command.starts_with(WAIT_WORD) {
+/// Returns how long the client waits for the window's answer to `command`.
+fn client_limit(command: &str) -> std::time::Duration {
+    match command.starts_with(WAIT_WORD) {
         // The window's listener says "no answer" a second after `OUTCOME_WAIT`.
         true => OUTCOME_WAIT + std::time::Duration::from_secs(2),
         false => WAIT,
-    };
-    let _ = s.set_read_timeout(Some(limit));
+    }
+}
+
+fn read_answer(mut s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
+    use std::io::Read;
+    let _ = s.set_read_timeout(Some(client_limit(command)));
     let mut answer = Vec::new();
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
@@ -1858,6 +1862,27 @@ fn serve_clients(
     }
 }
 
+/// Returns how long the client of `line` waits for its answer, as the window counts it, where a
+/// client waits `wait` for a command sent without `--wait`. A command sent with `--wait` is
+/// answered when its work has ended, so it has longer.
+fn client_waits(line: &str, wait: std::time::Duration) -> std::time::Duration {
+    match line.starts_with(WAIT_WORD) {
+        true => OUTCOME_WAIT,
+        false => wait,
+    }
+}
+
+/// Returns the time by which the window does a command whose reading started at
+/// `read_started` and whose client waits `client_waits`, or else answers it "not done". The
+/// client waits from when it has sent the line, which is after its reading started, so this
+/// comes `TIME_TO_ANSWER` before the client stops waiting.
+fn time_to_do(
+    read_started: std::time::Instant,
+    client_waits: std::time::Duration,
+) -> std::time::Instant {
+    read_started + client_waits.saturating_sub(TIME_TO_ANSWER)
+}
+
 /// One client's commands, each passed to the window, and its answer to a query sent back. The
 /// client has `wait` (`WAIT`) to send each command, and the window a second more to answer it.
 /// A command sent with `--wait` gives the client's `place` back and takes one of
@@ -1919,14 +1944,9 @@ fn serve(
         // closing.
         let answering = UnfinishedAnswer::new();
         let comes_in_parts = is_info(&line);
-        // A command sent with `--wait` is answered when its work has ended, so it has longer.
-        let client_waits = match line.starts_with(WAIT_WORD) {
-            true => OUTCOME_WAIT,
-            false => wait,
-        };
+        let client_waits = client_waits(&line, wait);
         let limit = client_waits + std::time::Duration::from_secs(1);
-        // The client waits from when it has sent the line, which is after its reading started.
-        let time_to_do = read_started + client_waits.saturating_sub(TIME_TO_ANSWER);
+        let time_to_do = time_to_do(read_started, client_waits);
         if tx.send((line, Some(reply), time_to_do)).is_err() {
             return;
         }
@@ -4073,6 +4093,22 @@ mod tests {
         assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
         assert_eq!(app.list.shown(), 0, "a next was done after its time");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The window gives up a waiting command at least a second before its client stops
+    /// waiting, so that the answer "not done" reaches the client, and the command is never done
+    /// after the client was told "no answer".
+    #[test]
+    fn the_window_gives_up_a_command_before_its_client_does() {
+        let read_started = std::time::Instant::now();
+        for line in ["next", "select /a.png\0", "wait run Delete"] {
+            let deadline = super::time_to_do(read_started, super::client_waits(line, super::WAIT));
+            let client_gives_up = read_started + super::client_limit(line);
+            assert!(
+                deadline + std::time::Duration::from_secs(1) <= client_gives_up,
+                "{line}"
+            );
+        }
     }
 
     /// A "\r" at the end of a path is part of the file's name, and reaches the window with the
