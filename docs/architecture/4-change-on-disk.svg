@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 946" width="1200" height="946" role="img" aria-label="How Glimt changes a file on disk safely. An action passes are_free_to_change, which refuses while other work touches the same files. The job runs in its own thread and changes the disk only through one function per kind of change: trash, put_file, rename_never_over, replace_existing and replace_name, each writing whole under a hidden temporary name and renaming, never over another file. The result comes back as an OperationReport: the list, marks, stars and collection entries follow, and Undo is kept; Rename Many's journal puts names right after a crash.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1290" width="1200" height="1290" role="img" aria-label="How Glimt changes a file on disk safely. An action passes are_free_to_change, which refuses while other work touches the same files. The job runs in its own thread and changes the disk only through one function per kind of change: trash, put_file, rename_never_over, replace_existing and replace_name, each writing whole under a hidden temporary name and renaming, never over another file. Right before each change, the job's thread looks that the file is still the one picked. An error that may mean a step was done is never guessed at. The result comes back as an OperationReport: the list, marks, stars and collection entries follow, and Undo is kept. Rename Many's plan and the logs of Move and Delete put things right at the next start after a kill.">
   <title>A change on disk, safely</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -8,7 +8,7 @@
       <path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/>
     </marker>
   </defs>
-  <rect x="0" y="0" width="1200" height="946" fill="#ffffff"/>
+  <rect x="0" y="0" width="1200" height="1290" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#1f2328">
     <text x="20" y="34" font-size="20" font-weight="700">A change on disk, safely</text>
     <text x="20" y="56" font-size="13" fill="#57606a">Five operations from the menu down to the disk. Each column is one operation; the layers are the same for all of them.</text>
@@ -62,137 +62,175 @@
 
     <!-- 3. The job threads -->
     <g font-size="12">
-      <rect x="30" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
+      <rect x="30" y="328" width="220" height="212" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="42" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">delete_now</text>
-      <text x="42" y="369">in chunks of 100, Stop between;</text>
-      <text x="42" y="385">xmp::lock_sidecars locks the sidecars;</text>
-      <text x="42" y="401">trash::trash, or remove_file</text>
-      <text x="42" y="417">for good; the sidecars go the</text>
-      <text x="42" y="433">same way</text>
+      <text x="42" y="369">chunks of 100, Stop between;</text>
+      <text x="42" y="385">each chunk noted in the</text>
+      <text x="42" y="401">DeleteLog before it goes;</text>
+      <text x="42" y="417">xmp::lock_sidecars per chunk.</text>
+      <text x="42" y="433">Trash: trash::trash, sidecars</text>
+      <text x="42" y="449">first, in the same call.</text>
+      <text x="42" y="465">For good, delete_for_good:</text>
+      <text x="42" y="481">sidecars put aside under</text>
+      <text x="42" y="497">tmp_path (note_aside first),</text>
+      <text x="42" y="513">the photo removed, then the</text>
+      <text x="42" y="529">hidden sidecars; else back</text>
 
-      <rect x="260" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
+      <rect x="260" y="328" width="220" height="212" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="272" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">transfer</text>
       <text x="272" y="369">per move, xmp::lock_sidecar;</text>
       <text x="272" y="385" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">put_file(from, to, keep)</text>
       <text x="272" y="401">then xmp::follow moves or</text>
-      <text x="272" y="417">copies the sidecar after it</text>
+      <text x="272" y="417">copies the sidecar after it.</text>
+      <text x="272" y="433">A Move first notes each pair</text>
+      <text x="272" y="449">in its MoveLog, before the</text>
+      <text x="272" y="465">file goes</text>
 
-      <rect x="490" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
+      <rect x="490" y="328" width="220" height="212" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="502" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">rename_files</text>
-      <text x="502" y="369">journal::start_journal: plan on</text>
-      <text x="502" y="385">disk, locked, before a rename;</text>
+      <text x="502" y="369">journal::start_journal: the</text>
+      <text x="502" y="385">plan on disk, locked, first;</text>
       <text x="502" y="401">journal::rename_step each one;</text>
-      <text x="502" y="417">a failure: journal::undo puts</text>
-      <text x="502" y="433">every name back</text>
+      <text x="502" y="417">a refusal: journal::undo puts</text>
+      <text x="502" y="433">every name back. An error that</text>
+      <text x="502" y="449">may_have_been_done: nothing</text>
+      <text x="502" y="465">is undone, and the plan stays</text>
+      <text x="502" y="481">for the next start</text>
 
-      <rect x="720" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
+      <rect x="720" y="328" width="220" height="212" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="732" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">save_orientation</text>
       <text x="732" y="369">JPEG: exif::write_orientation</text>
       <text x="732" y="385">PNG, WebP: save_rotated</text>
       <text x="732" y="401">both end in</text>
       <text x="732" y="417" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_with_sidecar</text>
-      <text x="732" y="433">with Derived::Oriented or Turned</text>
+      <text x="732" y="433">with Derived::Oriented</text>
+      <text x="732" y="449">or Derived::Turned</text>
 
-      <rect x="950" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
+      <rect x="950" y="328" width="220" height="212" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="962" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">write_sidecars</text>
-      <text x="962" y="369">one sidecar_writer thread, so</text>
-      <text x="962" y="385">changes land in the order made;</text>
-      <text x="962" y="401">xmp::update_sidecar under the</text>
-      <text x="962" y="417">sidecar's lock (stars too,</text>
-      <text x="962" y="433">marks::write_xmp)</text>
+      <text x="962" y="369">one sidecar_writer thread,</text>
+      <text x="962" y="385">so changes land in the order</text>
+      <text x="962" y="401">made; xmp::update_sidecar</text>
+      <text x="962" y="417">under the sidecar's lock</text>
+      <text x="962" y="433">(stars too, marks::write_xmp)</text>
     </g>
 
     <g stroke="#1f2328" stroke-width="1.5">
-      <line x1="140" y1="460" x2="140" y2="512" marker-end="url(#arrow)"/>
-      <line x1="370" y1="460" x2="370" y2="512" marker-end="url(#arrow)"/>
-      <line x1="600" y1="460" x2="440" y2="512" marker-end="url(#arrow)"/>
-      <line x1="830" y1="460" x2="830" y2="512" marker-end="url(#arrow)"/>
-      <line x1="1060" y1="460" x2="1060" y2="512" marker-end="url(#arrow)"/>
+      <line x1="140" y1="540" x2="140" y2="568" marker-end="url(#arrow)"/>
+      <line x1="370" y1="540" x2="370" y2="568" marker-end="url(#arrow)"/>
+      <line x1="600" y1="540" x2="600" y2="568" marker-end="url(#arrow)"/>
+      <line x1="830" y1="540" x2="830" y2="568" marker-end="url(#arrow)"/>
+      <line x1="1060" y1="540" x2="1060" y2="568" marker-end="url(#arrow)"/>
     </g>
-    <text x="528" y="492" font-size="12" fill="#57606a">journal::rename_step</text>
+
+    <!-- 3b. The look right before each change -->
+    <rect x="30" y="570" width="1140" height="80" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
+    <text x="44" y="591" font-size="13" font-weight="700">Right before each change, in the job's thread: is it still the file the user picked?   <tspan font-weight="400" font-size="12" fill="#57606a">files/file_io.rs</tspan></text>
+    <g font-size="12">
+      <text x="44" y="611"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">PickedFiles</tspan>: Delete, Move and Rename Many, picked before a question or the file chooser; the fingerprints are taken while the user waits, and <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">still_the_one_picked</tspan></text>
+      <text x="44" y="627">looks at each file just before it goes. <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">ListedFile::check</tspan>: keywords, stars and marks, by the inode the list knew. Save a turn: <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">is_still_the_file</tspan>.</text>
+      <text x="44" y="643">Another file at the name (another window's rename, another program) is left alone, and the error is told.</text>
+    </g>
+
+    <g stroke="#1f2328" stroke-width="1.5">
+      <line x1="140" y1="650" x2="140" y2="676" marker-end="url(#arrow)"/>
+      <line x1="370" y1="650" x2="370" y2="676" marker-end="url(#arrow)"/>
+      <line x1="600" y1="650" x2="440" y2="676" marker-end="url(#arrow)"/>
+      <line x1="830" y1="650" x2="830" y2="676" marker-end="url(#arrow)"/>
+      <line x1="1060" y1="650" x2="1060" y2="676" marker-end="url(#arrow)"/>
+    </g>
+    <text x="612" y="669" font-size="12" fill="#57606a">journal::rename_step</text>
 
     <!-- 4. The one function per change -->
     <g font-size="12">
-      <rect x="30" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
-      <text x="42" y="535" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">trash::trash</text>
-      <text x="42" y="555">gio trash in chunks, timed;</text>
-      <text x="42" y="571">without gio, or a file the</text>
-      <text x="42" y="587">portal refuses, by hand:</text>
-      <text x="42" y="603">.Trash/UID or .Trash-UID on</text>
-      <text x="42" y="619">another disk; no network share</text>
-      <text x="42" y="641" fill="#57606a">files/trash.rs</text>
+      <rect x="30" y="678" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
+      <text x="42" y="699" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">trash::trash</text>
+      <text x="42" y="719">gio trash in chunks, timed;</text>
+      <text x="42" y="735">without gio, or a file the</text>
+      <text x="42" y="751">portal refuses, by hand:</text>
+      <text x="42" y="767">.Trash/UID or .Trash-UID on</text>
+      <text x="42" y="783">another disk; no network share</text>
+      <text x="42" y="805" fill="#57606a">files/trash.rs</text>
 
-      <rect x="260" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
-      <text x="272" y="535" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">put_file</text>
-      <text x="272" y="555">copy: under a hidden name,</text>
-      <text x="272" y="571">0600, synced, then renamed;</text>
-      <text x="272" y="587">move: a rename; to another</text>
-      <text x="272" y="603">disk, a copy and an unlink</text>
-      <text x="272" y="619">after its folder is synced</text>
-      <text x="272" y="641" fill="#57606a">files/file_io.rs</text>
+      <rect x="260" y="678" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
+      <text x="272" y="699" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">put_file</text>
+      <text x="272" y="719">copy: under a hidden name,</text>
+      <text x="272" y="735">0600, synced, then renamed;</text>
+      <text x="272" y="751">move: a rename; to another</text>
+      <text x="272" y="767">disk, a copy and an unlink</text>
+      <text x="272" y="783">after its folder is synced</text>
+      <text x="272" y="805" fill="#57606a">files/file_io.rs</text>
 
-      <rect x="490" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
-      <text x="502" y="535" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">rename_never_over</text>
-      <text x="502" y="555">renameat2 with</text>
-      <text x="502" y="571">RENAME_NOREPLACE; where the</text>
-      <text x="502" y="587">disk cannot, a hard link and</text>
-      <text x="502" y="603">an unlink: never over a file</text>
-      <text x="502" y="619">another window just put there</text>
-      <text x="502" y="641" fill="#57606a">files/file_io.rs</text>
+      <rect x="490" y="678" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
+      <text x="502" y="699" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">rename_never_over</text>
+      <text x="502" y="719">renameat2 with</text>
+      <text x="502" y="735">RENAME_NOREPLACE; where the</text>
+      <text x="502" y="751">disk cannot, a hard link and</text>
+      <text x="502" y="767">an unlink: never over a file</text>
+      <text x="502" y="783">another window just put there</text>
+      <text x="502" y="805" fill="#57606a">files/file_io.rs</text>
 
-      <rect x="720" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
-      <text x="732" y="535" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_existing</text>
-      <text x="732" y="555">check_writable(): read-only is</text>
-      <text x="732" y="571">refused; the new image written</text>
-      <text x="732" y="587">whole beside it; still there?</text>
-      <text x="732" y="603">then the sidecar step, then</text>
-      <text x="732" y="619">the rename over the old file</text>
-      <text x="732" y="641" fill="#57606a">files/file_io.rs</text>
+      <rect x="720" y="678" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
+      <text x="732" y="699" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_existing</text>
+      <text x="732" y="719">check_writable(): read-only is</text>
+      <text x="732" y="735">refused; the new image written</text>
+      <text x="732" y="751">whole beside it; still there?</text>
+      <text x="732" y="767">then the sidecar step, then</text>
+      <text x="732" y="783">the rename over the old file</text>
+      <text x="732" y="805" fill="#57606a">files/file_io.rs</text>
 
-      <rect x="950" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
-      <text x="962" y="535" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_name</text>
-      <text x="962" y="555">the sidecar written whole</text>
-      <text x="962" y="571">beside it and renamed over</text>
-      <text x="962" y="587">the name: a link there is</text>
-      <text x="962" y="603">replaced, never followed to</text>
-      <text x="962" y="619">the file it points at</text>
-      <text x="962" y="641" fill="#57606a">files/file_io.rs</text>
+      <rect x="950" y="678" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
+      <text x="962" y="699" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_name</text>
+      <text x="962" y="719">the sidecar written whole</text>
+      <text x="962" y="735">beside it and renamed over</text>
+      <text x="962" y="751">the name: a link there is</text>
+      <text x="962" y="767">replaced, never followed to</text>
+      <text x="962" y="783">the file it points at</text>
+      <text x="962" y="805" fill="#57606a">files/file_io.rs</text>
     </g>
-    <line x1="480" y1="583" x2="488" y2="583" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="480" y1="747" x2="488" y2="747" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-    <rect x="30" y="662" width="1140" height="66" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-    <text x="44" y="682" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">write_beside · tmp_path</tspan>: every file Glimt writes goes whole to .glimt-tmp-&lt;instance&gt;-&lt;n&gt; beside it, synced, renamed, its folder synced (not a thumbnail's): the old or the new after a crash.</text>
-    <text x="44" y="700" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">edit_shared</tspan>: the files the windows share (settings, marks, the keyword tree) are locked, read, changed and written as one step.</text>
-
-    <text x="44" y="718" font-size="12">clippy.toml refuses the raw calls (std::fs::write, rename, copy, File::create …), so cargo clippy fails on a bypass; an exception carries #[allow] and its reason.</text>
+    <rect x="30" y="826" width="1140" height="104" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="44" y="846" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">write_beside · tmp_path</tspan>: every file Glimt writes goes whole to .glimt-tmp-&lt;instance&gt;-&lt;n&gt; beside it, synced, renamed, its folder synced: after a crash, old or new.</text>
+    <text x="44" y="864" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">edit_shared</tspan>: the files the windows share (settings, marks, the keyword tree) are locked, read, changed and written as one step.</text>
+    <text x="44" y="882" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">may_have_been_done</tspan>: an error that may mean the step was done all the same (a share that lost its answer: EIO, a timeout, ENOENT on a share) is never guessed at.</text>
+    <text x="44" y="898" font-size="12">Nothing is put back over it: the file stays where it may be, the message names that name (journal::may_be_hidden), and a plan or log stays for the next start.</text>
+    <text x="44" y="918" font-size="12">clippy.toml refuses the raw calls (std::fs::write, rename, copy, File::create …), so cargo clippy fails on a bypass; an exception carries #[allow] and its reason.</text>
     <!-- 5. Back in the window -->
-    <text x="30" y="760" font-size="14" font-weight="700">Back in the window, Undo, and after a crash</text>
+    <text x="30" y="966" font-size="14" font-weight="700">Back in the window, Undo, and after a kill</text>
     <g font-size="12">
-      <rect x="30" y="770" width="400" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
-      <text x="42" y="791" font-size="13" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_operation_report</tspan>  <tspan font-weight="400" font-size="12" fill="#57606a">an OperationReport</tspan></text>
-      <text x="42" y="813">files gone leave the list; moved ones take their new name</text>
-      <text x="42" y="831">marks.forget, marks.follow_files: marks and stars go along</text>
-      <text x="42" y="849">forget_in_collection: a collection's entry goes with it</text>
-      <text x="42" y="867">after a failure the folder is read again instead</text>
-      <text x="42" y="889">kept for Edit → Undo: Undo::Trash, Undo::Move,</text>
-      <text x="42" y="905">or Undo::Rename</text>
+      <rect x="30" y="976" width="400" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="42" y="997" font-size="13" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_operation_report</tspan>  <tspan font-weight="400" font-size="12" fill="#57606a">an OperationReport</tspan></text>
+      <text x="42" y="1019">files gone leave the list; moved ones take their new name</text>
+      <text x="42" y="1037">marks.forget, marks.follow_files: marks and stars go along</text>
+      <text x="42" y="1055">forget_in_collection: a collection's entry goes with it</text>
+      <text x="42" y="1073">after a failure the folder is read again instead</text>
+      <text x="42" y="1095">kept for Edit → Undo: Undo::Trash, Undo::Move,</text>
+      <text x="42" y="1111">or Undo::Rename</text>
 
-      <rect x="445" y="770" width="360" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
-      <text x="457" y="791" font-size="13" font-weight="700">Edit → Undo <tspan font-weight="400" font-size="12" fill="#57606a">App::undo, in the background</tspan></text>
-      <text x="457" y="813">Trash: trash::restore finds the files in the trash</text>
-      <text x="457" y="829">folders and puts them and their sidecars back;</text>
-      <text x="457" y="845">marks.restore gives back their marks and stars</text>
-      <text x="457" y="867">Move: put_file back; Rename: rename_files_of back</text>
-      <text x="457" y="883">to the old names. Each only where the file's</text>
-      <text x="457" y="899">fingerprint still matches what was moved or renamed</text>
+      <rect x="445" y="976" width="360" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="457" y="997" font-size="13" font-weight="700">Edit → Undo <tspan font-weight="400" font-size="12" fill="#57606a">App::undo, in the background</tspan></text>
+      <text x="457" y="1019">Trash: trash::restore finds the files in the trash</text>
+      <text x="457" y="1035">folders and puts them and their sidecars back;</text>
+      <text x="457" y="1051">marks.restore gives back their marks and stars</text>
+      <text x="457" y="1073">Move: put_file back; Rename: rename_files_of back</text>
+      <text x="457" y="1089">to the old names. Each only where the file's</text>
+      <text x="457" y="1105">fingerprint still matches what was moved or renamed</text>
 
-      <rect x="820" y="770" width="350" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
-      <text x="832" y="791" font-size="13" font-weight="700">Rename Many's journal <tspan font-weight="400" font-size="12" fill="#57606a">files/journal.rs</tspan></text>
-      <text x="832" y="813">The plan stays on disk, locked, while it runs.</text>
-      <text x="832" y="829">A crash halfway leaves it behind:</text>
-      <text x="832" y="851">journal::cut_short_plans finds it at the next start,</text>
-      <text x="832" y="867">and a dialog puts the old names back</text>
-      <text x="832" y="883">(journal::undo) or finishes (journal::finish).</text>
+      <rect x="820" y="976" width="350" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="832" y="997" font-size="13" font-weight="700">Rename Many's journal <tspan font-weight="400" font-size="12" fill="#57606a">files/journal.rs</tspan></text>
+      <text x="832" y="1019">The plan stays on disk, locked, while it runs.</text>
+      <text x="832" y="1035">A crash halfway leaves it behind:</text>
+      <text x="832" y="1057">journal::cut_short_plans finds it at the next start,</text>
+      <text x="832" y="1073">and a dialog puts the old names back</text>
+      <text x="832" y="1089">(journal::undo) or finishes (journal::finish).</text>
+      <rect x="30" y="1136" width="1140" height="130" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="42" y="1157" font-size="13" font-weight="700">The logs of Move and Delete <tspan font-weight="400" font-size="12" fill="#57606a">files/journal.rs, in $XDG_STATE_HOME/glimt/moves and deletes</tspan></text>
+      <text x="42" y="1179"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">start_move_log, start_delete_log</tspan>: each file is written down before it goes, and the log is removed once the marks and collections have followed.</text>
+      <text x="42" y="1197">Glimt killed halfway leaves the log. At the next start, <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">logs_left_by_a_kill</tspan> finds those no window holds locked, and <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">moves_cut_short</tspan> and</text>
+      <text x="42" y="1215"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">deletes_cut_short</tspan> send the files that went to the window: their marks, stars and collection entries follow them or are forgotten, as the report would have done.</text>
+      <text x="42" y="1233">A delete for good notes the sidecars it hides first (note_aside). <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">sidecars_back_from_hiding</tspan> gives them back to a photo still there, or deletes those of one gone.</text>
+      <text x="42" y="1251">A log kept for a later start (keep_for_a_later_start, deletes/kept/) names the photos whose sidecar may still be hidden, so none is taken for one deleted.</text>
     </g>
   </g>
 </svg>
