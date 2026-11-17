@@ -3925,8 +3925,129 @@ fn comments_fit_the_width() {
     );
 }
 
-/// The .deb and the .rpm install the same files, and the AppImage, the tar.gz and the Flatpak
-/// each of them that is not documentation: five lists kept in step by this test, not by memory.
+/// The files that the `install` and `cp` commands of a script put in place, each as its source
+/// and where it goes, in the form `normalized_install` gives them. Comments are left out, and a
+/// line that ends in a backslash goes on in the next. A destination is a folder when the command
+/// names one with `-t`, ends it with a slash, or copies more than one source into it, and the
+/// source's file name is then added to it.
+fn installed_files(script: &str) -> HashSet<(String, String)> {
+    let mut found = HashSet::new();
+    let mut command = String::new();
+    for line in script.lines() {
+        // A line of a YAML list is a command too.
+        let line = line.trim().trim_start_matches("- ");
+        if line.starts_with('#') {
+            continue;
+        }
+        if let Some(part) = line.strip_suffix('\\') {
+            command.push_str(part);
+            command.push(' ');
+            continue;
+        }
+        command.push_str(line);
+        let words: Vec<String> = command
+            .split_whitespace()
+            .map(|word| word.trim_matches('"').to_owned())
+            .collect();
+        command.clear();
+        let Some((program, arguments)) = words.split_first() else {
+            continue;
+        };
+        if program != "install" && program != "cp" {
+            continue;
+        }
+        let mut folder = None;
+        let mut paths = Vec::new();
+        let mut arguments = arguments.iter();
+        while let Some(argument) = arguments.next() {
+            if argument == "-t" {
+                folder = arguments.next().cloned();
+            } else if !argument.starts_with('-') {
+                paths.push(argument.clone());
+            }
+        }
+        let folder = match folder {
+            Some(folder) => folder,
+            None => match paths.pop() {
+                Some(last) if paths.len() == 1 && !last.ends_with('/') => {
+                    found.insert(normalized_install(&paths[0], &last));
+                    continue;
+                }
+                Some(last) => last,
+                None => continue,
+            },
+        };
+        for source in &paths {
+            found.insert(normalized_install(source, &in_folder(&folder, source)));
+        }
+    }
+    found
+}
+
+/// Returns where a file goes when it is put in a folder: the folder with the file's name.
+fn in_folder(folder: &str, source: &str) -> String {
+    let name = source.rsplit('/').next().unwrap_or(source);
+    format!("{}/{name}", folder.trim_end_matches('/'))
+}
+
+/// Puts an installed file's source and destination in the form every package shares, so that
+/// the packages' lists can be compared. The binary is built to target/<the target>/release in
+/// the release workflow. A destination loses the prefix of its package (`/usr/`, the
+/// AppImage's `$app/usr/`, the Flatpak's `/app/`), and a license goes to the documentation's
+/// folder, where the .deb and the AppImage put it.
+fn normalized_install(source: &str, destination: &str) -> (String, String) {
+    let source = source.replace("target/$TARGET/release/", "target/release/");
+    let mut destination = destination.to_owned();
+    for prefix in ["$app/usr/", "/app/", "/usr/", "usr/"] {
+        if let Some(rest) = destination.strip_prefix(prefix) {
+            destination = rest.to_owned();
+            break;
+        }
+    }
+    if destination.starts_with("share/licenses/") {
+        destination = in_folder("share/doc/glimt", &destination);
+    }
+    (source, destination)
+}
+
+/// The commands are read as commands: a file named only in a comment, or as part of a longer
+/// name, is not installed, and a file put elsewhere is installed there, not where it belongs.
+#[test]
+fn installed_files_are_read_from_the_commands() {
+    let script = "# install -Dm644 LICENSE /usr/share/doc/glimt/LICENSE\n\
+        install -Dm644 -t \"$app/usr/share/doc/glimt\" assets/fonts/LICENSE-Inter.txt \\\n\
+            THIRD-PARTY-LICENSES.txt\n\
+        cp assets/glimt.desktop assets/glimt.svg \"$app/\"\n\
+        install -Dm755 \"target/$TARGET/release/glimt\" \"$app/usr/bin/glimt\"\n";
+    let found = installed_files(script);
+    let pair = |source: &str, destination: &str| (source.to_owned(), destination.to_owned());
+    assert!(!found.iter().any(|(source, _)| source == "LICENSE"));
+    assert!(found.contains(&pair(
+        "assets/fonts/LICENSE-Inter.txt",
+        "share/doc/glimt/LICENSE-Inter.txt"
+    )));
+    assert!(found.contains(&pair(
+        "THIRD-PARTY-LICENSES.txt",
+        "share/doc/glimt/THIRD-PARTY-LICENSES.txt"
+    )));
+    assert!(found.contains(&pair("target/release/glimt", "bin/glimt")));
+    // The icon at the AppImage's top is not the one installed with the other icons.
+    assert!(!found.contains(&pair(
+        "assets/glimt.svg",
+        "share/icons/hicolor/scalable/apps/glimt.svg"
+    )));
+    assert_eq!(
+        normalized_install(
+            "LICENSE",
+            "/app/share/licenses/io.github.thornbux.Glimt/LICENSE"
+        ),
+        normalized_install("LICENSE", "usr/share/doc/glimt/LICENSE")
+    );
+}
+
+/// The .deb and the .rpm install the same files in the same places, and the AppImage and the
+/// Flatpak each of them that is not documentation, also in the same places. The tar.gz holds
+/// those files at its top. Five lists kept in step by this test, not by memory.
 #[test]
 fn packages_install_the_same_files() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -3934,20 +4055,40 @@ fn packages_install_the_same_files() {
     let cargo = read("Cargo.toml");
     let deb = cargo.split_once("[package.metadata.deb]").unwrap().1;
     let (deb, rpm) = deb.split_once("[package.metadata.generate-rpm]").unwrap();
-    fn quoted<'a>(line: &'a str, start: &str) -> Option<&'a str> {
-        line.split_once(start)?.1.split('"').next()
-    }
-    // The .deb's license-file is its LICENSE.
-    let mut deb: Vec<&str> = deb.lines().filter_map(|l| quoted(l, "[\"")).collect();
-    let mut rpm: Vec<&str> = rpm
+    let in_place = |source: &str, destination: &str| {
+        if destination.ends_with('/') {
+            normalized_install(source, &in_folder(destination, source))
+        } else {
+            normalized_install(source, destination)
+        }
+    };
+    let deb: HashSet<(String, String)> = deb
         .lines()
-        .filter_map(|l| quoted(l, "source = \""))
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_once("[\"")?.1.split('"').collect();
+            // The .deb's license-file is LICENSE, which it installs as its copyright file in
+            // the documentation's folder.
+            if line.starts_with("license-file") {
+                return Some(in_place(fields[0], "usr/share/doc/glimt/LICENSE"));
+            }
+            Some(in_place(fields[0], fields.get(2)?))
+        })
         .collect();
-    deb.sort();
-    rpm.sort();
-    assert_eq!(
-        deb, rpm,
-        "Cargo.toml: the .deb's and the .rpm's assets differ"
+    let quoted = |line: &str, key: &str| -> Option<String> {
+        Some(line.split_once(key)?.1.split('"').next()?.to_owned())
+    };
+    let rpm: HashSet<(String, String)> = rpm
+        .lines()
+        .filter_map(|line| {
+            let source = quoted(line, "source = \"")?;
+            Some(in_place(&source, &quoted(line, "dest = \"")?))
+        })
+        .collect();
+    let mut differ: Vec<_> = deb.symmetric_difference(&rpm).collect();
+    differ.sort();
+    assert!(
+        differ.is_empty(),
+        "Cargo.toml: the .deb's and the .rpm's assets differ:\n{differ:?}"
     );
     let release = read(".github/workflows/release.yml");
     let step = |name: &str| {
@@ -3958,25 +4099,31 @@ fn packages_install_the_same_files() {
             .unwrap()
             .to_owned()
     };
+    let tar = installed_files(&step("tar.gz"));
     let others = [
-        ("the tar.gz", step("tar.gz")),
-        ("the AppImage", step("AppImage")),
-        ("the Flatpak", read("flatpak/io.github.thornbux.Glimt.yml")),
+        ("the AppImage", installed_files(&step("AppImage"))),
+        (
+            "the Flatpak",
+            installed_files(&read("flatpak/io.github.thornbux.Glimt.yml")),
+        ),
     ];
     let docs = ["README.md", "CHANGELOG.md", "examples/"];
     let mut wrong = Vec::new();
-    for file in rpm
-        .iter()
-        .filter(|f| !docs.iter().any(|d| f.starts_with(d)))
-    {
-        // The binary is built to target/<the target>/release in the release workflow.
-        let name = file.trim_start_matches("target/");
-        for (package, text) in &others {
-            if !text.contains(name) {
-                wrong.push(format!("{package}: {file}"));
+    for (source, destination) in &rpm {
+        if docs.iter().any(|d| source.starts_with(d)) {
+            continue;
+        }
+        let file = (source.clone(), destination.clone());
+        for (package, installed) in &others {
+            if !installed.contains(&file) {
+                wrong.push(format!("{package}: {source} to {destination}"));
             }
         }
+        if !tar.contains(&(source.clone(), in_folder("$dir", source))) {
+            wrong.push(format!("the tar.gz: {source}"));
+        }
     }
+    wrong.sort();
     assert!(wrong.is_empty(), "not installed:\n{}", wrong.join("\n"));
 }
 

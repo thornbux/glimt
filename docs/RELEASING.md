@@ -139,8 +139,10 @@ These need a desktop, so no script checks them:
   setting changed under `--lock-settings`).
 
 The release workflow's smoke test, `tools/package-smoke.sh`, checks before each package is
-published that the AppImage and the Flatpak bundle draw an SVG, and that the AppImage also
-draws it in a New Window after the first window closed.
+published that every package draws an SVG, and that the AppImage also draws it in a New Window
+after the first window closed. The `.deb` and the `.rpm` are installed for it in a bare Ubuntu
+20.04 and AlmaLinux 8, with only their own dependencies, so a library missing from their lists
+stops the release.
 
 ## Packages
 

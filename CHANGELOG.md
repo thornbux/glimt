@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   file it had read back over it, so a keyword added in another XMP editor, or a song a script
   added to a list, was lost. A failed look at a Rename Many plan that was cut short now keeps
   the plan and says why, instead of taking it for one another window had put right.
+- The `.deb` and the `.rpm` install the X11 and Wayland libraries that the window needs. Before,
+  on a minimal system without a desktop, Glimt installed but could not open its window.
 
 ## [0.86.0] - 2026-11-17
 

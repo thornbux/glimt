@@ -135,7 +135,7 @@ install -Dm644 docs/glimt.1 ~/.local/share/man/man1/glimt.1
 
 | Needed for | Tool | Fallback |
 |---|---|---|
-| Showing images | OpenGL 3 (Mesa, EGL), xkbcommon, Wayland or X11; the `.deb` and `.rpm` install them | none |
+| Showing images | OpenGL 3 (EGL, with the system's driver such as Mesa), xkbcommon, and the Wayland or X11 libraries; the `.deb` and `.rpm` install all but the driver | none |
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
 | Move to trash, network shares, Open With | `gio` (glib) and GVfs; in the Flatpak the desktop portals | `xdg-open` for Open With; Glimt moves files to the trash itself (`.Trash/UID` or `.Trash-UID` on another disk), but not on a network share |
 | Import Lightroom Catalog | `sqlite3`, 3.37 or newer | none |
