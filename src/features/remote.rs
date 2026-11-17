@@ -641,10 +641,10 @@ impl crate::App {
             || (select && (self.folder.is_listing() || self.asking_about_selection()))
     }
 
-    /// Answers each select still waiting at closing, with all its paths and none of them
-    /// selected. Left without an answer, the closed socket would read as "all found". It also
-    /// answers those sent just before and not yet taken from the channel, and a query is
-    /// answered as usual (current, selection).
+    /// Answers each command still waiting at closing, and those sent just before and not yet
+    /// taken from the channel. A select and any other command are answered that they were not
+    /// done, because a closed socket without an answer would read as done, and for a select as
+    /// "all found". A query other than a select is answered as usual (current, selection).
     pub(crate) fn answer_waiting_selects(&mut self) {
         let sent: Vec<_> = self.remote.rx.try_iter().collect();
         let waiting = std::mem::take(&mut self.remote.waiting_commands);
@@ -656,7 +656,7 @@ impl crate::App {
             match is_query(&command) && !command.starts_with("select ") {
                 true => self.handle_remote(&ctx, &command, Some(reply)),
                 false => {
-                    let _ = reply.send(not_done_reply(&command, "this Glimt is closing"));
+                    let _ = reply.send(not_done_answer("this Glimt is closing"));
                 }
             }
         }
@@ -967,25 +967,14 @@ fn not_done_answer(why: &str) -> Vec<u8> {
     format!("{NOT_DONE_ANSWER}{why}\n").into_bytes()
 }
 
-/// Answers each command of `commands` that it was not done, for the reason `why`.
+/// Answers each command of `commands` that it was not done, for the reason `why`. A select
+/// is answered so too, never with its paths, which would tell the script that they are not in
+/// the list. Its paths start with "/", so the answer cannot be taken for one of them.
 fn answer_not_done(commands: Vec<Sent>, why: &str) {
-    for (command, reply, _) in commands {
+    for (_, reply, _) in commands {
         if let Some(reply) = reply {
-            let _ = reply.send(not_done_reply(&command, why));
+            let _ = reply.send(not_done_answer(why));
         }
-    }
-}
-
-/// Returns the answer to `command` when it was not done, for the reason `why`. A select is answered
-/// with all its paths, none of them selected, because an empty answer would read as "all
-/// found".
-fn not_done_reply(command: &str, why: &str) -> Vec<u8> {
-    match command.strip_prefix("select ") {
-        Some(paths) => {
-            let paths = paths.split('\0').filter(|p| !p.is_empty());
-            paths.flat_map(|p| p.bytes().chain([0])).collect()
-        }
-        None => not_done_answer(why),
     }
 }
 
@@ -4015,8 +4004,8 @@ mod tests {
         assert_eq!(app.folder.dir(), other);
         app.receive_remote(&ctx);
         assert!(current_after_open.try_recv().is_ok());
-        // Closing with selects still waiting, and one sent just before, tells each that none of
-        // its paths was selected.
+        // Closing with selects still waiting, and one sent just before, tells each that it was
+        // not done. Before, each was answered with its paths, which read as "not in the list".
         let (reply, closing) = std::sync::mpsc::channel();
         app.remote
             .waiting_commands
@@ -4024,8 +4013,10 @@ mod tests {
         let (reply, late) = std::sync::mpsc::channel();
         tx.send((select.clone(), Some(reply), later())).unwrap();
         app.answer_waiting_selects();
-        assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
-        assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
+        for answer in [closing, late] {
+            let why = super::not_done_reason(&answer.try_recv().unwrap());
+            assert_eq!(why.as_deref(), Some("this Glimt is closing"));
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4039,7 +4030,8 @@ mod tests {
     /// its client's time has run out: it is answered "not done", so a script that tries again
     /// does it once. A command that the window takes only after its time is not done either.
     /// Before, it stayed in the queue and was done when the look-up ended, after its client
-    /// had been told "no answer".
+    /// had been told "no answer". A select is answered "not done" too, not with its paths,
+    /// which would tell the script that the files are not in the list.
     #[test]
     fn a_command_is_not_done_after_its_clients_time_runs_out() {
         let dir =
@@ -4055,12 +4047,18 @@ mod tests {
             .tx
             .send(("next".to_owned(), Some(reply), soon))
             .unwrap();
+        let (reply, selected) = std::sync::mpsc::channel();
+        let select = format!("select {}\0", dir.join("b.png").display());
+        app.remote.tx.send((select, Some(reply), soon)).unwrap();
         app.receive_remote(&ctx);
         assert!(answer.try_recv().is_err(), "next waits for the look-up");
+        assert!(selected.try_recv().is_err(), "select waits for the look-up");
         std::thread::sleep(std::time::Duration::from_millis(100));
         app.receive_remote(&ctx);
-        let why = super::not_done_reason(&answer.try_recv().unwrap());
-        assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
+        for answer in [answer, selected] {
+            let why = super::not_done_reason(&answer.try_recv().unwrap());
+            assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
+        }
         let (reply, late) = std::sync::mpsc::channel();
         let now = std::time::Instant::now();
         app.remote
