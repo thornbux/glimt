@@ -4015,3 +4015,13 @@ msgstr "het is niet bekend of de afbeelding is geschreven, en het sidecar-bestan
 #, fuzzy
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "het is niet bekend of de kopie de naam heeft gekregen, dus het sidecar-bestand van het bestand daar bleef staan als {aside}; staat dat bestand er nog, geef het sidecar-bestand dan zijn naam {sidecar} terug"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} is een sidecar-bestand dat daar zonder zijn afbeelding staat, dus de naam wordt niet gebruikt; verplaats of verwijder het om de naam te gebruiken"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "kon {name} niet bekijken: {e}"

@@ -606,14 +606,33 @@ pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     }
 }
 
-/// Returns whether no sidecar is at the sidecar name of `path`, so that a new image that Glimt
-/// names may take `path`: nothing is there, or nothing can be, as the name is too long. A
-/// sidecar left there without its image holds keywords that are not the new image's, and may be
-/// their only copy. A look that failed counts as a sidecar there.
-pub(crate) fn has_no_sidecar(path: &Path) -> bool {
-    match crate::files::file_io::check_free(&sidecar(path)) {
-        Ok(()) => true,
-        Err(e) => e.raw_os_error() == Some(libc::ENAMETOOLONG),
+/// Looks whether a new image that Glimt names may take `path` as far as its sidecar goes: no
+/// sidecar is at its sidecar name. A sidecar left there without its image holds keywords that
+/// are not the new image's, and may be their only copy, so the name is not used, and the error
+/// names that sidecar and says what to do, as the file list does not show it. A name too long
+/// for a sidecar has none there, which leaves the name free unless `will_have_one`, a new image
+/// that gets a sidecar of its own. Returns the error to tell: `AlreadyExists` for a sidecar
+/// there, or the look's own error when it failed, which says nothing either way.
+pub(crate) fn check_no_sidecar(path: &Path, will_have_one: bool) -> std::io::Result<()> {
+    let side = sidecar(path);
+    let named = side.display();
+    match crate::files::file_io::check_free(&side) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(libc::ENAMETOOLONG) && !will_have_one => Ok(()),
+        Err(e) if e.raw_os_error() == Some(libc::ENAMETOOLONG) => {
+            Err(std::io::Error::new(e.kind(), format!("{named}: {e}")))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(std::io::Error::new(
+            e.kind(),
+            crate::tf!(
+                "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name",
+                sidecar = named
+            ),
+        )),
+        Err(e) => Err(std::io::Error::new(
+            e.kind(),
+            crate::tf!("could not look at {name}: {e}", name = named, e),
+        )),
     }
 }
 

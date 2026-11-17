@@ -4015,3 +4015,13 @@ msgstr "ei tiedetä, kirjoitettiinko kuva, ja sen sivutiedosto {sidecar} kertoo 
 #, fuzzy
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "ei tiedetä, saiko kopio nimen, joten siellä olleen tiedoston sivutiedosto jäi nimelle {aside}; jos se tiedosto on yhä siellä, anna sen sivutiedostolle takaisin nimi {sidecar}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} on sivutiedosto, joka on jäänyt sinne ilman kuvaansa, joten nimeä ei käytetä; siirrä tai poista se, jotta nimeä voi käyttää"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "kohdetta {name} ei voitu tarkistaa: {e}"

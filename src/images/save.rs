@@ -857,10 +857,8 @@ pub(crate) fn save_copy_with_sidecar(
                 |f| f.write_all(out),
                 |tmp| {
                     lock = Some(crate::metadata::xmp::lock_sidecar(new));
-                    match crate::files::file_io::check_free(&side) {
-                        Err(e) if !needs_no_sidecar_there(&e) => Err(named(e)),
-                        _ => crate::files::file_io::rename_never_over(tmp, new),
-                    }
+                    crate::metadata::xmp::check_no_sidecar(new, source.is_some())?;
+                    crate::files::file_io::rename_never_over(tmp, new)
                 },
             )?;
         }
@@ -3089,6 +3087,40 @@ mod tests {
         assert_eq!(
             std::fs::read_dir(&dir).unwrap().count(),
             4,
+            "a file was left"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Save As to a name where only a sidecar is, left without its image, is refused with that
+    /// sidecar's path and what to do about it, and a look at it that fails says so. Before,
+    /// both said only "…/b.png.xmp: entity already exists" or the look's error.
+    #[test]
+    fn a_save_as_refused_for_a_leftover_sidecar_says_why() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = std::env::temp_dir().join(format!("glimt-save-as-left-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(8, 8).save(&a).unwrap();
+        let leftover = crate::metadata::xmp::sidecar(&b);
+        std::fs::write(&leftover, "left").unwrap();
+        let refused = super::save_as(&a, &copy_as(None, true), &b, None).unwrap_err();
+        assert!(
+            refused.contains(&format!("{} is a sidecar", leftover.display())),
+            "{refused}"
+        );
+        assert!(refused.contains("move or delete it"), "{refused}");
+        assert_eq!(std::fs::read_to_string(&leftover).unwrap(), "left");
+        assert!(!b.exists());
+        lock_even_if_poisoned(&LOOKS_FAIL).push(leftover.clone());
+        let refused = super::save_as(&a, &copy_as(None, true), &b, None).unwrap_err();
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != leftover);
+        assert!(refused.contains("could not look at"), "{refused}");
+        assert!(!b.exists());
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            2,
             "a file was left"
         );
         std::fs::remove_dir_all(dir).unwrap();

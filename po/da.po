@@ -4015,3 +4015,13 @@ msgstr "det vides ikke, om billedet blev skrevet, og dets sidefil {sidecar} sige
 #, fuzzy
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "det vides ikke, om kopien fik navnet, så sidefilen til filen der blev liggende som {aside}; hvis den fil stadig er der, så giv dens sidefil navnet {sidecar} tilbage"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} er en sidefil, der ligger der uden sit billede, så navnet bruges ikke; flyt eller slet den for at bruge navnet"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "kunne ikke se på {name}: {e}"

@@ -215,17 +215,17 @@ impl SharingOutcome {
     /// the image's own. With `Naming::Own` the copy is left out then, and with
     /// `OwnOrNumbered` it gets the first free name of "NAME-2.EXT", "NAME-3.EXT" …. Every name,
     /// its own too, is free only when no sidecar of that name is left there either, which would
-    /// give the copy a stranger's keywords and comment.
+    /// give the copy a stranger's keywords and comment. With `Naming::Own`, such a sidecar and a
+    /// look that failed are told as errors that say so, not as a file of that name.
     fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>, naming: Naming) {
         let name = path.file_name().unwrap_or_default();
-        let is_free = |target: &Path| {
-            crate::files::file_io::is_surely_gone(target)
-                && crate::metadata::xmp::has_no_sidecar(target)
-        };
-        // A name whose look failed counts as taken too.
-        if naming == Naming::Own && !is_free(&folder.join(name)) {
-            self.names_taken += 1;
-            return;
+        let is_free = |target: &Path| is_name_free(target).unwrap_or(false);
+        if naming == Naming::Own {
+            match is_name_free(&folder.join(name)) {
+                Ok(true) => {}
+                Ok(false) => return self.names_taken += 1,
+                Err(e) => return self.errors.push(e.to_string()),
+            }
         }
         let made = crate::images::decode::catch_panic_as_error(|| copy(path, kept));
         let bytes = match made {
@@ -449,6 +449,20 @@ fn numbered(path: &Path, n: usize) -> std::ffi::OsString {
     name
 }
 
+/// Looks whether a copy may take the name `target`: no file is there, nor a sidecar left
+/// without its image (`xmp::check_no_sidecar`). Returns `Ok(false)` when a file is there, and the
+/// error to tell when only such a sidecar is there (`AlreadyExists`) or a look failed.
+fn is_name_free(target: &Path) -> std::io::Result<bool> {
+    match crate::files::file_io::check_free(target) {
+        Ok(()) => crate::metadata::xmp::check_no_sidecar(target, false).map(|()| true),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(std::io::Error::new(
+            e.kind(),
+            tf!("could not look at {name}: {e}", name = target.display(), e),
+        )),
+    }
+}
+
 /// Returns the neutral name "image-n.EXT" for a copy of `path`, or "image-n" when it has no
 /// extension. The extension stays, as it says the format and nothing about the photo.
 fn neutral_name(path: &Path, n: usize) -> std::ffi::OsString {
@@ -578,6 +592,42 @@ mod tests {
         std::fs::write(out.join("x-3.png.xmp"), "left").unwrap();
         renamed.copy_into(&b, &out, &kept, super::Naming::OwnOrNumbered);
         assert!(out.join("x-4.png").exists() && !out.join("x-3.png").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy left out for a sidecar at its own name without its image, or for a look that
+    /// failed, is told by that reason, with the sidecar's path and what to do about it. Before,
+    /// both were told as "the folder has files of those names", which the user could not find.
+    #[test]
+    fn a_name_with_only_a_sidecar_is_told_by_that_sidecar() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-sharing-leftover-{}",
+            std::process::id()
+        ));
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let leftover = out.join("a.png.xmp");
+        std::fs::write(&leftover, "left").unwrap();
+        lock_even_if_poisoned(&LOOKS_FAIL).push(out.join("b.png"));
+        let mut outcome = super::SharingOutcome::default();
+        outcome.copy_into(&a, &out, &Default::default(), super::Naming::Own);
+        outcome.copy_into(&b, &out, &Default::default(), super::Naming::Own);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| !p.starts_with(&out));
+        assert_eq!((outcome.copied, outcome.names_taken), (0, 0));
+        let told = outcome.errors.join("\n");
+        assert!(
+            told.contains(&format!("{} is a sidecar", leftover.display())),
+            "{told}"
+        );
+        assert!(told.contains("move or delete it"), "{told}");
+        assert!(told.contains("could not look at"), "{told}");
+        assert_eq!(std::fs::read_to_string(&leftover).unwrap(), "left");
+        assert!(!out.join("a.png").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

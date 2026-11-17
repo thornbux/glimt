@@ -4015,3 +4015,13 @@ msgstr "non si sa se l'immagine è stata scritta, e il suo file sidecar {sidecar
 #, fuzzy
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "non si sa se la copia ha preso il nome, quindi il file sidecar del file che c'era è rimasto come {aside}; se quel file c'è ancora, ridai al suo file sidecar il nome {sidecar}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} è un file sidecar rimasto lì senza la sua immagine, quindi il nome non viene usato; spostalo o eliminalo per usare il nome"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "impossibile controllare {name}: {e}"

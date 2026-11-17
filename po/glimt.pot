@@ -3234,3 +3234,11 @@ msgstr ""
 #: src/images/save.rs
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr ""
+
+#: src/metadata/xmp.rs
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr ""
+
+#: src/metadata/xmp.rs
+msgid "could not look at {name}: {e}"
+msgstr ""

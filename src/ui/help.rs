@@ -233,7 +233,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          text written in Glimt reaches the published copy; its tags are in the dialog like the \
          others. IPTC keywords, caption, creator and place go into the copy's XMP too. Other \
          formats are not copied, and a file whose own name the folder already has is skipped, \
-         or given the name NAME-2.EXT when you tick that; the notice at the end counts them. The originals are never changed.",
+         or given the name NAME-2.EXT when you tick that; the notice at the end counts them. \
+         A sidecar left there without its image keeps its name taken too: a copy left out for \
+         one is told with the sidecar's path, so you can move or delete it. The originals are never changed.",
     ),
     (
         "Slideshow",
