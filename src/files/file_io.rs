@@ -1112,6 +1112,29 @@ pub(crate) fn is_remote(kind: &str) -> bool {
     kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
 }
 
+/// Returns whether a mount of type `kind` (from `file_system_type`) is a network file system,
+/// where each look at a file is a round trip to another computer or a cloud: SMB, NFS, 9p, or
+/// one of the FUSE file systems named in `NETWORK_FUSE`. A local FUSE mount, such as a KDE
+/// Vault (gocryptfs, cryfs), a mergerfs pool, bindfs or the Flatpak's document portal, is not,
+/// although `is_remote` counts it. The FUSE file systems are named one by one, because a network
+/// one left out only has its sizes summed, as before 0.86.0, while a local one taken for a
+/// network one would lose them and be called a network folder.
+pub(crate) fn is_network(kind: &str) -> bool {
+    const NETWORK_FUSE: [&str; 10] = [
+        "sshfs",
+        "rclone",
+        "gvfsd-fuse",
+        "kio-fuse",
+        "s3fs",
+        "gcsfuse",
+        "curlftpfs",
+        "smbnetfs",
+        "glusterfs",
+        "ceph-fuse",
+    ];
+    (kind.strip_prefix("fuse.")).map_or(is_remote(kind), |name| NETWORK_FUSE.contains(&name))
+}
+
 /// Returns the type of the mount in `mountinfo`, the bytes of /proc/self/mountinfo, that holds
 /// `path`. It goes down from the top mount through the mounts on each one, as the kernel walks
 /// a path. Of the mounts on one mount that start the path, the one with the shortest mount

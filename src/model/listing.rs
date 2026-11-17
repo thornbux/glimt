@@ -379,12 +379,11 @@ fn wait_while_a_program_starts(stop: &std::sync::atomic::AtomicBool) {
     }
 }
 
-/// Returns whether `dir` is on a share or another FUSE mount (`file_io::is_remote`), where
-/// each look at a file is a round trip over the network. A mount whose type cannot be read
-/// counts as none.
+/// Returns whether `dir` is on a share (`file_io::is_network`), where each look at a file is a
+/// round trip over the network. A mount whose type cannot be read counts as none.
 pub(crate) fn is_on_a_share(dir: &Path) -> bool {
     crate::files::file_ops::file_system_type_or_test(dir)
-        .is_some_and(|kind| crate::files::file_io::is_remote(&kind))
+        .is_some_and(|kind| crate::files::file_io::is_network(&kind))
 }
 
 /// Returns the path relative to the tree whose real path is `top` of a link's folder whose real
@@ -713,6 +712,34 @@ mod tests {
         assert!(list() >= Duration::from_millis(200), "a share");
         crate::files::file_ops::test_mount(&dir, None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A local FUSE folder, such as a KDE Vault, a mergerfs pool or the Flatpak's document
+    /// portal, is not a share, and keeps the sizes the status bar sums. Before, every FUSE mount
+    /// was one, and the status bar called such a folder a network folder.
+    #[test]
+    fn a_local_fuse_folder_is_not_a_share() {
+        use crate::files::file_ops::test_mount;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-local-fuse-{}", std::process::id()));
+        for (kind, is_share) in [
+            ("fuse.gocryptfs", false),
+            ("fuse.cryfs", false),
+            ("fuse.mergerfs", false),
+            ("fuse.bindfs", false),
+            ("fuse.portal", false),
+            ("fuseblk", false),
+            ("ext4", false),
+            ("fuse.sshfs", true),
+            ("fuse.rclone", true),
+            ("fuse.gvfsd-fuse", true),
+            ("cifs", true),
+            ("nfs4", true),
+        ] {
+            test_mount(&dir, Some(kind));
+            assert_eq!(super::is_on_a_share(&dir), is_share, "{kind}");
+        }
+        test_mount(&dir, None);
     }
 
     /// The images of a tree told after each folder with images, read in name order: the
