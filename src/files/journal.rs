@@ -1119,6 +1119,7 @@ fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
             continue;
         }
         let text: String = known.into_iter().map(known_line).collect();
+        // Glimt's own: the list of files of a plan, in Glimt's state folder.
         if let Err(e) = crate::files::file_io::replace_name(&entry.path(), text) {
             crate::files::file_io::save_failed(crate::tf!(
                 "Could not save {name}: {e}",

@@ -176,7 +176,7 @@ fn write_thumbnail(
             out.set_permissions(std::fs::Permissions::from_mode(0o600))?;
             out.write_all(&png)
         },
-        // The cache's own file, replaced on purpose.
+        // Glimt's own: the cache's file, replaced on purpose.
         |tmp| std::fs::rename(tmp, file),
     )
 }

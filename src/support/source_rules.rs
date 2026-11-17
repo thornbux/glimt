@@ -4430,9 +4430,9 @@ fn destructive_acts_check_the_file_is_still_the_one_picked() {
             "it removes names it looked at or made",
         ),
         ("files/file_io.rs", "unlink", "the unlink of unlink_linked"),
-        // A document read and written again whole, a sidecar or a collection, not a file
-        // picked: `replace_name_with` with nothing to look at before.
-        ("files/file_io.rs", "replace_name", "it writes what it read"),
+        // `replace_name_with` with nothing to look at before. Its callers are acts: a sidecar
+        // or a collection, read first, goes through `replace_what_was_read` instead.
+        ("files/file_io.rs", "replace_name", "its callers check"),
         (
             "files/trash.rs",
             "trash_by_hand",
@@ -4499,7 +4499,9 @@ fn test_only_files(sources: &[(String, String)]) -> Vec<String> {
 // PickedFiles type that every such act takes holds the branches; following each branch would
 // need a parser, worth it if this class is found again.
 fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
-    const ACTS: [&str; 10] = [
+    // `replace_name` and a raw `fs::rename` replace a file as `replace_name_with` does, so a
+    // caller that hands them a user's path is an act too.
+    const ACTS: [&str; 12] = [
         "remove_file(",
         "remove_dir_all(",
         "trash::trash(",
@@ -4507,6 +4509,8 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         "rename_files(",
         "rename_files_planned_in(",
         "replace_name_with(",
+        "replace_name(",
+        "fs::rename(",
         "rename_never_over(",
         "rename_step(",
         "put_file_back(",
@@ -4557,9 +4561,15 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
             (acts, acts_on_files, checks, finds_sidecars) = (false, false, false, false);
             continue;
         }
-        let raw = ["remove_file(", "remove_dir_all(", "rename_never_over("]
-            .iter()
-            .any(|r| line.contains(r));
+        let raw = [
+            "remove_file(",
+            "remove_dir_all(",
+            "rename_never_over(",
+            "fs::rename(",
+            "replace_name(",
+        ]
+        .iter()
+        .any(|r| line.contains(r));
         let act = (ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i)))
             || (line.contains("put_file(") && !is_copy(line));
         acts |= act;
@@ -4581,7 +4591,8 @@ fn names_a_sidecar(line: &str) -> bool {
 /// `side`. It passes one that looks first, a removal or rename of Glimt's own file (also one
 /// whose statement takes several lines), a copy, a function that only looks, an act on the
 /// sidecars it finds, and a function that is one of the acts itself. A rename just below a
-/// removal of Glimt's own file is not excused by that removal's reason.
+/// removal of Glimt's own file is not excused by that removal's reason. A file replaced with
+/// `replace_name` and a raw `fs::rename` are found too, which before passed unseen.
 #[test]
 fn finds_a_destructive_act_without_its_check() {
     let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
@@ -4605,7 +4616,12 @@ fn finds_a_destructive_act_without_its_check() {
         rename_never_over(x, y)\n}\n\
         fn p() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: an old folder\n    \
         if a\n        && std::fs::remove_dir_all(x).is_ok()\n    {\n    }\n}\n\
-        fn rename_files_planned_in() {\n    journal::rename_step(x, y)\n}\n";
+        fn rename_files_planned_in() {\n    journal::rename_step(x, y)\n}\n\
+        fn q() {\n    file_io::replace_name(path, bytes)\n}\n\
+        fn r() {\n    #[allow(clippy::disallowed_methods)] // a reason\n    \
+        std::fs::rename(x, y)\n}\n\
+        fn s() {\n    // Glimt's own: a thumbnail\n    std::fs::rename(tmp, thumb)\n}\n\
+        fn t() {\n    // Glimt's own: a plan's list\n    file_io::replace_name(list, text)\n}\n";
     assert_eq!(
         destructive_acts_in(text),
         [
@@ -4620,6 +4636,8 @@ fn finds_a_destructive_act_without_its_check() {
             ("l".into(), false),
             ("n".into(), false),
             ("o".into(), false),
+            ("q".into(), false),
+            ("r".into(), false),
         ]
     );
 }
@@ -5373,7 +5391,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         "write_image(",
         "write_to(",
     ];
-    const WRITERS: [&str; 17] = [
+    const WRITERS: [&str; 18] = [
         // collections::edit and edit_open_collection, which write through replace_name.
         "edit(",
         "edit_open_collection(",
@@ -5389,6 +5407,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         "replace_existing(",
         "replace_name(",
         "replace_name_with(",
+        "replace_what_was_read(",
         "write_beside(",
         "create_file(",
         // A removal of Glimt's own plan, log or state file, which the next start would act on
