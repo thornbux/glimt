@@ -637,6 +637,8 @@ fn embedded(path: &Path) -> Option<String> {
         Some(found) => found?[JPEG.len()..].to_vec(),
         None => {
             use image::ImageDecoder;
+            // A JPEG under another name is read whole, which counts in the decodes' budget.
+            let _job = crate::images::decode::start_decode_job();
             let reader = crate::images::decode::image_reader(path).ok()?;
             reader.into_decoder().ok()?.xmp_metadata().ok()??
         }

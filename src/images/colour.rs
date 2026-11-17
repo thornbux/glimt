@@ -503,6 +503,8 @@ pub fn colour_source(path: &Path) -> String {
             .ok()
             .map(|p| crate::tf!("{name}, in the file", name = name_of(&p))),
         None => {
+            // A JPEG that the decoder reads whole counts in the decodes' budget.
+            let _job = crate::images::decode::start_decode_job();
             let dec = crate::images::decode::image_reader(path)
                 .ok()
                 .and_then(|r| r.into_decoder().ok());

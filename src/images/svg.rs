@@ -495,6 +495,9 @@ fn draw(
     font_list: &[u8],
 ) -> Result<(image::RgbaImage, Option<[usize; 2]>), String> {
     use resvg::{tiny_skia, usvg};
+    // The SVG and the pictures it takes are read whole as a decode reads its file, which the
+    // child's own budget counts. The parent counted the child's memory in its budget before.
+    let _job = crate::images::decode::start_decode_job();
     let mut data = read_limited(path).map_err(|e| e.to_string())?;
     // usvg unpacks a .svgz without a limit, and 10 MB of zeros would be 10 GB.
     if data.starts_with(&[0x1f, 0x8b]) {
@@ -833,6 +836,8 @@ mod tests {
             .unwrap()
             .save(dir.join("big.png"))
             .unwrap();
+        // The child draws in a decode job, which counts the pictures it reads (`draw`).
+        let _job = crate::images::decode::start_decode_job();
         let resolver = super::svg_images();
         let opts = resvg::usvg::Options {
             resources_dir: Some(dir.clone()),

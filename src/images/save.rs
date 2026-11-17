@@ -341,11 +341,15 @@ pub(crate) fn replace_with_sidecar(
 ) -> Result<(), String> {
     // The fingerprint finds a copier that wrote on after the read, but not one that paused
     // meanwhile. The file's own end shows that it is not all there yet.
-    let bytes = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
-    if let Some(why) = why_cut_short(&bytes, changed_lately(read.2)) {
-        return Err(why);
+    // The file counts in the decodes' budget while it is looked at. The job ends before the
+    // sidecar's lock is taken, so that the budget is never held while a lock is waited for.
+    {
+        let _job = crate::images::decode::start_decode_job();
+        let bytes = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
+        if let Some(why) = why_cut_short(&bytes, changed_lately(read.2)) {
+            return Err(why);
+        }
     }
-    drop(bytes);
     let step = |lock: &crate::metadata::xmp::SidecarLock| derive_sidecar(lock, named, how);
     replace_with_sidecar_locked(real, named, read, out, step)
 }
@@ -1053,9 +1057,7 @@ pub fn save_as(
 /// written back. It asks by what the file is, because it is read by its content. An animated
 /// GIF named a.png is still animated, and a JPEG named so is not.
 fn animated(path: &Path) -> Result<bool, String> {
-    let format = crate::images::decode::image_reader(path)
-        .map_err(|e| e.to_string())?
-        .format();
+    let format = crate::images::decode::image_format(path).map_err(|e| e.to_string())?;
     let file = || crate::images::decode::open_regular(path).map(std::io::BufReader::new);
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
@@ -1081,6 +1083,9 @@ fn derived_metadata(
     size: (u32, u32),
     how: Derived,
 ) -> Result<Metadata, String> {
+    // A JPEG that the decoder reads whole, and a PNG read whole below, count in the decodes'
+    // budget until the metadata is made.
+    let _job = crate::images::decode::start_decode_job();
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
     let mut exif = exif::derived(path, how);
@@ -1315,7 +1320,8 @@ fn encode(
     written.map_err(|e| e.to_string())?;
     // The rest of what the PNG said of itself is kept: its text (a comment, an AI tool's
     // prompt), its DPI and its gamma. Otherwise a 300 dpi scan prints at 72 after a turn. It is
-    // only taken from a PNG.
+    // only taken from a PNG, which counts in the decodes' budget while it is read.
+    let _job = crate::images::decode::start_decode_job();
     if let Encoding::Png = encoding
         && has_ext(path, &["png"])
         && let Ok(old) = crate::images::decode::read_limited(path)
@@ -1418,6 +1424,8 @@ fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, Stri
 /// frame, so a crop or copy keeps none of them. Resources that cannot be read stay dropped, as
 /// before.
 fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, String> {
+    // The old PNG counts in the decodes' budget while it is read.
+    let _job = crate::images::decode::start_decode_job();
     let resources = (crate::images::decode::read_limited(old).ok())
         .and_then(|bytes| exif::png_metadata(&bytes).photoshop_resources)
         .and_then(|bytes| without_dropped_photoshop_resources(&bytes));

@@ -1091,8 +1091,7 @@ fn info_values(
     let modified = file.modified().ok().and_then(since_1970);
     let modified = modified.map(|d| crate::support::format::utc_time(d.as_secs() as i64));
     let size = catch_panic(|| crate::images::decode::dimensions(path)).flatten();
-    let format = (crate::images::decode::image_reader(path).ok())
-        .and_then(|reader| reader.format())
+    let format = (crate::images::decode::image_format(path).ok().flatten())
         .and_then(|f| f.extensions_str().first().map(|e| e.to_string()))
         .or_else(|| path.extension().map(|e| e.to_string_lossy().to_lowercase()));
     let (exif_rows, orientation) =

@@ -43,6 +43,10 @@ const NOT_LOOKED_AT: &str = "the file could not be looked at";
 /// The error of a decode whose file changed while it was read (`DecodeInput::holding`).
 const CHANGED_WHILE_READ: &str = "the file changed while it was read";
 
+/// The error of a read or a decode whose bytes the budget does not count (`count_whole_read`,
+/// `is_counted_input`). It is a fault in Glimt, never in the file (`failure_of`).
+const NOT_COUNTED: &str = "the bytes to decode are not counted in the decode budget";
+
 /// The shared budget that every decode takes its bytes from (`reserve_from_budget`).
 static BUDGET: DecodeBudget = DecodeBudget::new(DECODE_BUDGET);
 
@@ -55,6 +59,9 @@ thread_local! {
     /// The bytes of the files and program output that this thread's decodes hold while they
     /// make pixels of them (`DecodeInput`). Every reservation takes them on top.
     static INPUT_HOLDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// The part of `INPUT_HOLDS` that this thread's decode job read whole outside a
+    /// `DecodeInput` (`count_whole_read`). It counts until the job ends.
+    static JOB_INPUT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 // The budget of this thread, when it was given one. The tests run side by side in one process,
@@ -224,6 +231,7 @@ pub struct DecodeJobBudget {
 impl Drop for DecodeJobBudget {
     fn drop(&mut self) {
         if self.is_outermost {
+            INPUT_HOLDS.set(INPUT_HOLDS.get() - JOB_INPUT.take());
             budget().give_back(JOB_HOLDS.take().unwrap_or(0));
         }
     }
@@ -264,6 +272,27 @@ impl DecodeInput {
         }
         self.bytes = bytes;
         Ok(self)
+    }
+
+    /// Takes `bytes` that were read before their length was known, such as what a program
+    /// wrote, from the budget, and holds them. They are in memory already, so they are taken
+    /// before the decodes that wait, as the pixels of a decode that holds its input are
+    /// (`reserve_from_budget`). Returns an error when they are more than the whole budget with
+    /// what this thread holds already.
+    pub fn counting(bytes: Vec<u8>) -> Result<DecodeInput, String> {
+        let length = bytes.len() as u64;
+        INPUT_HOLDS.set(INPUT_HOLDS.get() + length);
+        match reserve_from_budget(0) {
+            Ok(reservation) => Ok(DecodeInput {
+                bytes,
+                reserved: length,
+                _reservation: reservation,
+            }),
+            Err(e) => {
+                INPUT_HOLDS.set(INPUT_HOLDS.get() - length);
+                Err(e)
+            }
+        }
     }
 
     /// Reads the whole of `path`, as `read_limited` does, after its size is taken from the
@@ -823,6 +852,8 @@ pub fn decode_shrunk(path: &Path, max: [u32; 2], rotate: bool) -> Result<ShrunkI
 /// Returns the ICC profile inside `path`, read by the same decoder the view reads it with, or
 /// `None` when it has none. The info panel names it.
 pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
+    // A JPEG that the decoder reads whole counts in the budget, as a decode's does.
+    let _job = start_decode_job();
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::model::listing::JXL_EXTS) {
         let file = std::io::BufReader::new(open_regular(path).ok()?);
@@ -941,9 +972,9 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     if let Some(added) = crate::images::added_formats::for_path(path) {
         return Ok((added.decode(path)?, None, upright, None));
     }
-    let (reader, whole_read) = image_reader_and_whole_read(path).map_err(|e| e.to_string())?;
-    // The image crate holds a JPEG's bytes while it decodes, so they count beside its pixels.
-    let _input = DecodeInput::reserve(whole_read)?;
+    // The image crate holds a JPEG's bytes while it decodes, and `image_reader` counts them in
+    // this job, beside its pixels.
+    let reader = image_reader(path).map_err(|e| e.to_string())?;
     let dec = reader.into_decoder().map_err(|e| e.to_string());
     // Grey TIFFs that the image crate does not take (floats, signed) go through the tiff crate.
     let mut dec = match dec {
@@ -1117,7 +1148,16 @@ pub fn fits_decode_limit(w: u32, h: u32, bytes: u64) -> bool {
 /// crate's own `from_decoder` allocates whatever the header claims, so a few bytes that claim
 /// a huge image would make Glimt allocate gigabytes, which aborts the process. This is the one
 /// way a decoder made directly is decoded; clippy refuses the image crate's.
-pub fn from_decoder(dec: impl ImageDecoder) -> Result<image::DynamicImage, String> {
+///
+/// A decoder over bytes in memory (a `Cursor`) is refused while this thread holds no counted
+/// input, because those bytes were then read outside the budget. A RAW's preview decoded from
+/// a `Vec` that `read_limited` gave outside a decode job passed before.
+pub fn from_decoder<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, String> {
+    // shortcut: the reader is told by the decoder's type name, which Rust does not promise to
+    // keep; `whole_reads_of_images_are_counted` fails if it changes.
+    if std::any::type_name::<D>().contains("Cursor<") && INPUT_HOLDS.get() == 0 {
+        return Err(NOT_COUNTED.into());
+    }
     let (w, h) = dec.dimensions();
     if !fits_decode_limit(w, h, dec.color_type().bytes_per_pixel().into()) {
         return Err(format!(
@@ -1151,8 +1191,27 @@ pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
 fn is_counted_input(bytes: &[u8]) -> Result<(), String> {
     match bytes.len() as u64 <= INPUT_HOLDS.get() {
         true => Ok(()),
-        false => Err("the bytes to decode are not counted in the decode budget".into()),
+        false => Err(NOT_COUNTED.into()),
     }
+}
+
+/// Takes `bytes` that are about to be read whole from `path` from the budget, as input of this
+/// thread's decode job, which counts them until it ends. Returns whether they were counted.
+/// Outside a decode job, a whole read of an image's file is refused, so that a pass over many
+/// files (the sort by date, the "exif:" search, Copy for Sharing) never holds one outside the
+/// budget. Before, only the decodes counted what they read, and a RAW or HEIC whose EXIF was
+/// not near its start was read whole, up to 512 MB, in each thread of the EXIF pass.
+fn count_whole_read(path: &Path, bytes: u64) -> std::io::Result<bool> {
+    if JOB_HOLDS.get().is_none() {
+        return match crate::model::listing::built_in_format(path) {
+            true => Err(std::io::Error::other(NOT_COUNTED)),
+            false => Ok(false),
+        };
+    }
+    reserve_from_budget(bytes).map_err(std::io::Error::other)?;
+    INPUT_HOLDS.set(INPUT_HOLDS.get() + bytes);
+    JOB_INPUT.set(JOB_INPUT.get() + bytes);
+    Ok(true)
 }
 
 /// Decodes an image built into Glimt itself, its logo, on the window's thread. It takes nothing
@@ -1189,6 +1248,7 @@ pub fn failure_of(path: &Path, error: &str) -> DecodeFailure {
         "Host is down",
         NOT_LOOKED_AT,
         CHANGED_WHILE_READ,
+        NOT_COUNTED,
     ];
     if (needs_program(path) && program_missing(error))
         || error.contains("(os error")
@@ -1216,16 +1276,19 @@ fn needs_program(path: &Path) -> bool {
         || crate::images::added_formats::for_path(path).is_some()
 }
 
-/// Returns whether `error` says that the program was not found or may not run, not that the
-/// file is bad.
-fn program_missing(error: &str) -> bool {
-    [
+/// Returns whether `error` says that the program, or a part it needs, was not found or may not
+/// run, not that the file is bad. A shell says it in its own words: dash and busybox write
+/// "exec: convert: not found", bash "command not found". A Python script without a module it
+/// needs, as the examples' scripts are, says "ModuleNotFoundError" on its last line.
+pub(crate) fn program_missing(error: &str) -> bool {
+    let missing = [
         "No such file or directory",
         "command not found",
         "Permission denied",
-    ]
-    .iter()
-    .any(|m| error.contains(m))
+        "cannot execute",
+        "ModuleNotFoundError",
+    ];
+    missing.iter().any(|m| error.contains(m)) || error.trim_end().ends_with(": not found")
 }
 
 /// Returns whether a JPEG file's image data reaches its end marker (FF D9), which the data itself
@@ -1244,6 +1307,14 @@ fn is_whole_jpeg_file(path: &Path) -> Result<bool, String> {
 #[cfg(test)]
 pub(crate) fn held_by_this_job() -> Option<u64> {
     JOB_HOLDS.get()
+}
+
+/// Returns a function that gives the thread it is called on this thread's budget, for a test
+/// of another module whose threads must share its test's budget.
+#[cfg(test)]
+pub(crate) fn share_this_threads_budget() -> impl Fn() + Send + Clone + 'static {
+    let budget = budget();
+    move || TEST_BUDGET.set(Some(budget))
 }
 
 /// Returns whether the EXIF orientation turns the image a quarter, so its width and height swap. It
@@ -1272,8 +1343,23 @@ pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
 /// So is what is not a file (a pipe would block for good, and /dev/zero would fill memory), also
 /// through a link. This is the one way Glimt reads a file whole, whoever wrote it, and clippy
 /// (clippy.toml) refuses every other read.
+///
+/// In a decode job the bytes are counted in the decodes' budget until the job ends, and an
+/// image's file is read only in one (`count_whole_read`). A file that grows past what was
+/// counted while it is read is refused then.
 pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
-    read_open_file(open_regular_with_metadata(path.as_ref())?)
+    let path = path.as_ref();
+    let (file, meta) = open_regular_with_metadata(path)?;
+    let length = meta.len();
+    if length > MAX_DECODE_BYTES {
+        return Err(file_too_large());
+    }
+    let counted = count_whole_read(path, length)?;
+    let data = read_open_file((file, meta))?;
+    if counted && data.len() as u64 > length {
+        return Err(std::io::Error::other(CHANGED_WHILE_READ));
+    }
+    Ok(data)
 }
 
 /// `read_limited` of `path` when it is no link. Returns an error whose `raw_os_error` is
@@ -1346,6 +1432,8 @@ pub(crate) fn open_regular(path: impl AsRef<Path>) -> std::io::Result<std::fs::F
 /// is not applied, so a photo turned upright reports the size the camera wrote. Returns `None`
 /// for a file whose size cannot be read without decoding it (HEIC, AVIF, SVG, video).
 pub fn dimensions(path: &Path) -> Option<(u32, u32)> {
+    // A file that is read whole for its size counts in the budget, as a decode's does.
+    let _job = start_decode_job();
     if crate::model::listing::is_jpeg(path)
         && let Some(size) = jpeg_head_size(path)
     {
@@ -1376,10 +1464,24 @@ fn jpeg_head_size(path: &Path) -> Option<(u32, u32)> {
 /// guessed from the file's first bytes, and from the extension when they say nothing, as
 /// `image::ImageReader::open` and `with_guessed_format` do. Clippy refuses `open`, because the
 /// image crate opens the file itself, where clippy cannot look.
+///
+/// The image crate reads a JPEG whole before it decodes it, so a JPEG's length is counted as
+/// a read of the whole file (`count_whole_read`): in a decode job only, until the job ends.
 pub(crate) fn image_reader(
     path: impl AsRef<Path>,
 ) -> std::io::Result<image::ImageReader<std::io::BufReader<std::fs::File>>> {
-    image_reader_and_whole_read(path.as_ref()).map(|(reader, _)| reader)
+    let path = path.as_ref();
+    let (reader, whole_read) = image_reader_and_whole_read(path)?;
+    if whole_read > 0 {
+        count_whole_read(path, whole_read)?;
+    }
+    Ok(reader)
+}
+
+/// Returns the format of the image at `path`, as `image_reader` guesses it, without decoding
+/// it. Nothing is read whole, so nothing is counted in the budget.
+pub(crate) fn image_format(path: &Path) -> std::io::Result<Option<image::ImageFormat>> {
+    image_reader_and_whole_read(path).map(|(reader, _)| reader.format())
 }
 
 /// `image_reader` of `path`, and the bytes that the image crate reads whole before it decodes
@@ -1674,6 +1776,56 @@ mod tests {
             assert!(super::reserve_from_budget(super::DECODE_BUDGET + 1).is_err());
         }
         assert_eq!(holds(), None);
+    }
+
+    /// A whole read of an image's file counts in its decode job until the job ends, and is
+    /// refused outside one, also the image crate's whole read of a JPEG. A decoder over bytes
+    /// in memory that nothing counted is refused. Before, `read_limited` read up to 512 MB
+    /// outside the budget for the EXIF pass, and a decoder over such bytes passed.
+    #[test]
+    fn whole_reads_of_images_are_counted() {
+        use image::codecs::jpeg::JpegDecoder;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-whole-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (file, named_png) = (dir.join("a.jpg"), dir.join("b.png"));
+        let mut jpeg = Vec::new();
+        (image::RgbImage::new(8, 8).write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        ))
+        .unwrap();
+        std::fs::write(&file, &jpeg).unwrap();
+        std::fs::write(&named_png, &jpeg).unwrap();
+        let length = jpeg.len() as u64;
+        assert!(super::read_limited(&file).is_err());
+        assert!(super::image_reader(&named_png).is_err());
+        assert!(
+            super::from_decoder(JpegDecoder::new(std::io::Cursor::new(&jpeg)).unwrap()).is_err()
+        );
+        {
+            let _job = super::start_decode_job();
+            let bytes = super::read_limited(&file).unwrap();
+            assert!(super::JOB_HOLDS.get().unwrap() >= length);
+            let img = super::from_decoder(JpegDecoder::new(std::io::Cursor::new(&bytes)).unwrap());
+            assert_eq!(img.unwrap().width(), 8);
+            // With the bytes read, the image crate's own read of the other is on top.
+            super::image_reader(&named_png).unwrap();
+            assert!(super::JOB_HOLDS.get().unwrap() >= 2 * length);
+        }
+        assert_eq!(
+            (super::JOB_HOLDS.get(), super::INPUT_HOLDS.get()),
+            (None, 0)
+        );
+        // A file that is no image is read outside a job, uncounted.
+        let notes = dir.join("notes.txt");
+        std::fs::write(&notes, b"text").unwrap();
+        assert_eq!(super::read_limited(&notes).unwrap(), b"text");
+        assert_eq!(
+            super::image_format(&named_png).unwrap(),
+            Some(image::ImageFormat::Jpeg)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// What is no file is refused before it is read, a pipe without blocking on it. That every
@@ -2678,6 +2830,7 @@ mod tests {
         assert!(crate::images::raw::exif(&raf).is_none());
         std::fs::remove_file(&raf).unwrap();
         f.set_len(10).unwrap();
+        let _job = super::start_decode_job();
         assert_eq!(super::read_limited(&file).unwrap().len(), 10);
         std::fs::remove_file(file).unwrap();
     }
