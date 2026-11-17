@@ -84,14 +84,16 @@ impl AddedFormat {
             true => program,
             false => local,
         };
-        // The image it writes stays in memory while its pixels are decoded, so the most it may
-        // write is taken from the decodes' budget before it starts.
-        // shortcut: the program writes the whole picture also for a thumbnail, so each decode
-        // takes the most; tell it the size shown (a new %-code or variable, which freezes) if
-        // a folder of an added format makes thumbnails wait for each other.
+        // The image it writes stays in memory while its pixels are decoded, so it is taken from
+        // the decodes' budget once it is written (`DecodeInput::counting`). Before, the most it
+        // may write was taken before it started and held for its whole run, up to 30 seconds,
+        // so three programs that made thumbnails or read ahead made the shown image wait. While
+        // the program runs, what it writes lies outside the budget, as its own memory does: at
+        // most one output for each thread that decodes.
+        // shortcut: the program writes the whole picture also for a thumbnail, so it may write
+        // the most for each; tell it the size shown (a new %-code or variable, which freezes)
+        // if a folder of an added format takes too much memory for its thumbnails.
         let max = crate::images::decode::MAX_DECODE_BYTES + 64;
-        let input = crate::images::decode::DecodeInput::reserve(max)
-            .map_err(|e| format!("{}: {e}", self.name))?;
         // The shell sets the memory limit and then becomes the program, which inherits it, as
         // does what the program starts. The limit, the program and the file are arguments,
         // never part of the script's text. In a Flatpak the shell runs on the host through
@@ -118,8 +120,9 @@ impl AddedFormat {
             }
             return Err(format!("{}: {error}", self.name));
         }
-        let image = input.holding(image)?;
-        crate::images::decode::from_memory(&image).map_err(|e| format!("{}: {e}", self.name))
+        let named = |e| format!("{}: {e}", self.name);
+        let image = crate::images::decode::DecodeInput::counting(image).map_err(named)?;
+        crate::images::decode::from_memory(&image).map_err(named)
     }
 
     /// Returns the command's words for the file at `path`: `%f` is the path, also inside a
@@ -237,10 +240,12 @@ mod tests {
         let job = crate::images::decode::start_decode_job();
         let img = cat.decode(&file).unwrap();
         assert_eq!((img.width(), img.height()), (6, 3));
-        // The most it may write was taken from the decodes' budget before it ran, as that stays
-        // in memory beside the pixels. Before, only the pixels were.
+        // What it wrote was taken from the decodes' budget, as that stays in memory beside the
+        // pixels, and no more than that. Before 0.86, only the pixels were. In the first
+        // version of 0.86, the most a program may write was, for its whole run.
+        let written = std::fs::metadata(&file).unwrap().len();
         let held = crate::images::decode::held_by_this_job().unwrap();
-        assert!(held > crate::images::decode::MAX_DECODE_BYTES);
+        assert!(held >= written + 6 * 3 * 3 && held < 1 << 20, "{held}");
         drop(job);
         // Nothing written: an error that names the format.
         let empty = super::parse("Name=Empty\nExtensions=xyz\nExec=true %f", &dir).unwrap();
@@ -299,6 +304,40 @@ mod tests {
         assert_eq!(quoted.decode(&injected).unwrap_err(), "Quoted: no image");
         assert!(super::parse("Name=No file\nExtensions=xyz\nExec=cat", &dir).is_none());
         assert!(super::parse("Name=No ext\nExec=cat %f", Path::new("/")).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// While an added format's program runs for a thumbnail or an image read ahead, the shown
+    /// image takes the whole budget at once. Before, each run held 512 MB of the budget until
+    /// its program ended, up to 30 seconds, and the shown image waited behind it.
+    #[test]
+    fn a_running_program_holds_none_of_the_budget() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-running-format-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("slow.xyz");
+        image::RgbImage::new(6, 3)
+            .write_to(
+                &mut std::fs::File::create(&file).unwrap(),
+                image::ImageFormat::Pnm,
+            )
+            .unwrap();
+        let slow = "Name=Slow\nExtensions=xyz\nExec=sh -c \"sleep 2; cat \\\"$0\\\"\" %f";
+        let slow = super::parse(slow, &dir).unwrap();
+        let share_budget = crate::images::decode::share_this_threads_budget();
+        let thumbnail = std::thread::spawn(move || {
+            share_budget();
+            slow.decode(&file).map(|img| img.width())
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        let start = std::time::Instant::now();
+        let whole =
+            crate::images::decode::reserve_from_budget(crate::images::decode::DECODE_BUDGET)
+                .unwrap();
+        let waited = start.elapsed();
+        drop(whole);
+        assert_eq!(thumbnail.join().unwrap(), Ok(6));
+        assert!(waited < Duration::from_secs(1), "waited {waited:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

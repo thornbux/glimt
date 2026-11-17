@@ -266,6 +266,27 @@ impl DecodeInput {
         Ok(self)
     }
 
+    /// Takes `bytes` that were read before their length was known, such as what a program
+    /// wrote, from the budget, and holds them. They are in memory already, so they are taken
+    /// before the decodes that wait, as the pixels of a decode that holds its input are
+    /// (`reserve_from_budget`). Returns an error when they are more than the whole budget with
+    /// what this thread holds already.
+    pub fn counting(bytes: Vec<u8>) -> Result<DecodeInput, String> {
+        let length = bytes.len() as u64;
+        INPUT_HOLDS.set(INPUT_HOLDS.get() + length);
+        match reserve_from_budget(0) {
+            Ok(reservation) => Ok(DecodeInput {
+                bytes,
+                reserved: length,
+                _reservation: reservation,
+            }),
+            Err(e) => {
+                INPUT_HOLDS.set(INPUT_HOLDS.get() - length);
+                Err(e)
+            }
+        }
+    }
+
     /// Reads the whole of `path`, as `read_limited` does, after its size is taken from the
     /// budget. This is the way a decode reads a file whole.
     pub fn read(path: &Path) -> std::io::Result<DecodeInput> {
@@ -1247,6 +1268,14 @@ fn is_whole_jpeg_file(path: &Path) -> Result<bool, String> {
 #[cfg(test)]
 pub(crate) fn held_by_this_job() -> Option<u64> {
     JOB_HOLDS.get()
+}
+
+/// Returns a function that gives the thread it is called on this thread's budget, for a test
+/// of another module whose threads must share its test's budget.
+#[cfg(test)]
+pub(crate) fn share_this_threads_budget() -> impl Fn() + Send + Clone + 'static {
+    let budget = budget();
+    move || TEST_BUDGET.set(Some(budget))
 }
 
 /// Returns whether the EXIF orientation turns the image a quarter, so its width and height swap. It

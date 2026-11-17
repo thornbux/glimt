@@ -523,9 +523,11 @@ method.
     and open one with `decode::open_regular` (no pipe or device);
   - decode an image only through `decode::from_decoder`, `from_memory` or `scaled`, which
     check `fits_decode_limit` before any pixels are made. What a decode reads whole, a file or
-    a program's output, is held in a `decode::DecodeInput` (`DecodeInput::read`, or
-    `DecodeInput::reserve` before a program starts), which takes it from the decodes' budget
-    before it is read and counts it beside the pixels. `from_memory` and `scaled` refuse bytes
+    a program's output, is held in a `decode::DecodeInput`, which takes it from the decodes'
+    budget and counts it beside the pixels: a file before it is read (`DecodeInput::read`),
+    ffmpeg's frame, capped by the box shown, before ffmpeg starts (`DecodeInput::reserve`), and
+    an added format's image once its program has written it (`DecodeInput::counting`), so that
+    no program holds the budget while it runs. `from_memory` and `scaled` refuse bytes
     that no `DecodeInput` of their thread holds;
   - write a file whole or not at all:
     - a new file with `file_io::create_file`;
