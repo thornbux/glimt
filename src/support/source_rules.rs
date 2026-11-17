@@ -1214,6 +1214,23 @@ fn comment_lines(text: &str) -> Vec<String> {
     comments.lines().map(str::to_owned).collect()
 }
 
+/// `text`'s string and char literals only, by line: the code and the comments blanked, so a
+/// '<' in a literal is told from one in a type or a comment.
+fn literal_lines(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut literals = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let end = literal_end(&chars, i);
+        let is_literal = end.is_some() && chars[i] != '/';
+        let end = end.unwrap_or(i + 1);
+        let keep = |&c: &char| if is_literal || c == '\n' { c } else { ' ' };
+        literals.extend(chars[i..end].iter().map(keep));
+        i = end;
+    }
+    literals.lines().map(str::to_owned).collect()
+}
+
 /// Where the comment or literal that starts at `i` ends (one past its last character); `None`
 /// when code starts there.
 fn literal_end(c: &[char], i: usize) -> Option<usize> {
@@ -6607,9 +6624,7 @@ fn finds_a_search_for_an_xmp_property_in_every_spelling() {
 /// whose search looks for its own parameter is a search too, so a caller that gives it a
 /// property's name is found, at the place of the search that the name reaches.
 fn searches_for_xmp_properties(sources: &[(String, String)]) -> Vec<String> {
-    let mut searches: Vec<(String, usize, Option<String>)> = (TEXT_SEARCHES.iter())
-        .map(|&(call, at)| (call.to_owned(), at, None))
-        .collect();
+    let mut searches = text_searches();
     let mut wrong = std::collections::BTreeSet::new();
     loop {
         let known = searches.len();
@@ -6641,6 +6656,19 @@ fn searches_for_xmp_properties(sources: &[(String, String)]) -> Vec<String> {
     }
 }
 
+/// Returns the calls of `TEXT_SEARCHES`, each also as a path (`str::find(text, name)`), whose
+/// text searched for comes one argument later, as `searches_in` takes them.
+fn text_searches() -> Vec<(String, usize, Option<String>)> {
+    let mut searches = Vec::new();
+    for &(call, at) in &TEXT_SEARCHES {
+        searches.push((call.to_owned(), at, None));
+        if let Some(method) = call.strip_prefix('.') {
+            searches.push((format!("::{method}"), at + 1, None));
+        }
+    }
+    searches
+}
+
 /// Returns the searches in function `f` of a file whose lines are `raw` and whose `code_lines`
 /// are `code`, each as what it looks for (as written), its line counted from 1, and the place of
 /// the search it reaches when it calls a function of the crate that searches for its parameter.
@@ -6657,7 +6685,7 @@ fn searches_in(
     for (call, argument, through) in searches {
         for (at, _) in code_text.match_indices(call.as_str()) {
             let before = code_text[..at].chars().next_back().unwrap_or(' ');
-            let is_whole_name = call.starts_with('.') || !is_word_char(before);
+            let is_whole_name = call.starts_with(['.', ':']) || !is_word_char(before);
             if !is_whole_name || code_text[..at].ends_with("fn ") {
                 continue;
             }
@@ -6967,7 +6995,8 @@ fn packet_walks_pass_over_markup_that_is_no_element() {
 
 /// The check above finds a walk from one '<' to the next, and a search for namespace
 /// declarations, that neither calls `not_element_length` nor names it in its doc comment. It
-/// finds `namespace_declarations` as it was written before this check.
+/// finds `namespace_declarations` as it was written before this check, and a '<' searched for
+/// or compared in each way it can be written, but not a '<' in a type or a comment.
 #[test]
 fn finds_a_walk_that_does_not_pass_over_markup() {
     let a = "/// The namespaces.\nfn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {\n    \
@@ -6978,44 +7007,76 @@ fn finds_a_walk_that_does_not_pass_over_markup() {
         not_element_length(x);\n}\n\
         /// Text outside markup (`not_element_length`).\nfn given(x: &str) {\n    \
         x.match_indices(\"xmlns:\");\n}\n\
-        fn tag(name: &[u8]) -> bool {\n    name.starts_with(b\"xmlns:\")\n}\n";
+        fn tag(name: &[u8]) -> bool {\n    name.starts_with(b\"xmlns:\")\n}\n\
+        fn byte(x: &[u8]) {\n    memchr::memchr(b'<', x);\n}\n\
+        fn parts(x: &str) {\n    x.split('<');\n}\n\
+        fn string(x: &str) {\n    x.find(\"<\");\n}\n\
+        fn closure(x: &str) {\n    x.find(|c| c == '<');\n}\n\
+        fn turned(x: &[u8], i: usize) -> bool {\n    b'<' == x[i]\n}\n\
+        fn escaped(x: &[u8]) {\n    x.iter().position(|&c| c == b'\\x3c');\n}\n\
+        fn path(x: &str) {\n    str::find(x, \"xmlns:\");\n}\n\
+        fn types(x: Vec<u8>) -> Option<Vec<u8>> {\n    // A '<' in a comment.\n    Some(x)\n}\n";
     let found = walks_without_markup_skip(&[("a.rs".into(), a.into())]);
     assert_eq!(
         found,
         [
             "a.rs:2 namespace_declarations",
             "a.rs:7 walk",
-            "a.rs:10 text"
+            "a.rs:10 text",
+            "a.rs:24 byte",
+            "a.rs:27 parts",
+            "a.rs:30 string",
+            "a.rs:33 closure",
+            "a.rs:36 turned",
+            "a.rs:39 escaped",
+            "a.rs:42 path",
         ]
     );
+    // A file that does not name XMP is not read: an SVG's walk is not a packet's.
+    let svg = "fn entities(x: &[u8]) {\n    x.iter().position(|&c| c == b'<');\n}\n";
+    assert!(walks_without_markup_skip(&[("svg.rs".into(), svg.into())]).is_empty());
 }
 
 /// Returns the functions outside the tests of `sources` that walk a packet from one '<' to the
 /// next or search it for namespace declarations, without `not_element_length` in their body or
-/// in the doc comment above them, as "file:line name".
+/// in the doc comment above them, as "file:line name". Only the files that name XMP are read. A
+/// function walks when it has a '<' as a literal in any spelling (`'<'`, `b'<'`, `"<"` or an
+/// escape of it), whatever compares or searches with it, or when it searches a text anywhere
+/// for a literal that starts with "xmlns" (`TEXT_SEARCHES`). A test of a name's start, such as
+/// `starts_with`, searches no packet.
 fn walks_without_markup_skip(sources: &[(String, String)]) -> Vec<String> {
-    const WALKS: [&str; 5] = [
-        "c == b'<'",
-        "find('<')",
-        "match_indices('<')",
-        "match_indices(\"xmlns",
-        "find(\"xmlns",
-    ];
+    const LESS_THAN: [&str; 6] = ["'<'", "\"<\"", "\\x3c", "\\x3C", "\\u{3c}", "\\u{3C}"];
+    let is_anchored = |call: &str| {
+        ["starts_with", "ends_with", "strip_", "trim_"]
+            .iter()
+            .any(|a| call.contains(a))
+    };
+    let searches: Vec<(String, usize, Option<String>)> = (text_searches().into_iter())
+        .filter(|(call, _, _)| !is_anchored(call))
+        .collect();
     let names_the_skip = |l: &&str| l.contains("not_element_length");
     let mut wrong = Vec::new();
     for (file, text) in sources {
+        if !text.to_lowercase().contains("xmp") {
+            continue;
+        }
         let (raw, code) = (text.lines().collect::<Vec<_>>(), code_lines(text));
+        let literals = literal_lines(text);
         for f in functions_in(file, &code) {
+            let has_less_than = (f.lines.clone())
+                .filter_map(|i| literals.get(i))
+                .any(|l| LESS_THAN.iter().any(|lt| l.contains(lt)));
+            let searches_namespaces = || {
+                (searches_in(&f, &raw, &code, &searches).iter())
+                    .any(|(needle, ..)| quoted_text(needle).is_some_and(|t| t.starts_with("xmlns")))
+            };
+            if !has_less_than && !searches_namespaces() {
+                continue;
+            }
             let body: Vec<&str> = (f.lines.clone())
                 .filter_map(|i| raw.get(i).copied())
                 .filter(|l| !l.trim_start().starts_with("//"))
                 .collect();
-            if !body
-                .iter()
-                .any(|l| WALKS.iter().any(|walk| l.contains(walk)))
-            {
-                continue;
-            }
             let is_doc = |l: &&&str| {
                 let l = l.trim_start();
                 l.starts_with("///") || l.starts_with("#[")

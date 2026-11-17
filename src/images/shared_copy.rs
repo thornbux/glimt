@@ -2145,7 +2145,9 @@ fn gain_map_copy(gain_map: &GainMap) -> Result<Vec<u8>, String> {
 /// (`GAIN_MAP_PROPERTIES`), or `None` when it has none. A property of one value is written as
 /// an attribute, as readers of gain maps (Android's and Chrome's) look for one there, and a
 /// value for each colour as the element it is. Every property is in one rdf:Description, as
-/// Chrome looks for Apple's two namespaces on the same one.
+/// Chrome looks for Apple's two namespaces on the same one. The properties come from
+/// `xmp::properties`, whose walk passes over comments and CDATA (`not_element_length`), so a '<'
+/// left in a value is markup, and that value is written as its element.
 /// shortcut: an element written with another prefix or with attributes of its own is left out;
 /// write it with its namespace's prefix if a gain map is found that has one.
 fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
