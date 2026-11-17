@@ -2425,24 +2425,50 @@ fn finds_a_writing_thread_that_tells_nothing() {
     assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d", "x.rs: e"]);
 }
 
+/// The check above finds a writing thread in each way one is started, and judges each thread
+/// by its own call: a thread through `told_work` does not let another of its function pass.
+/// Before, only `thread::spawn(` was looked at, and on its own line.
+#[test]
+fn finds_every_writing_thread_that_tells_nothing() {
+    let text = "impl A {\n    fn a(app: &App) {\n        let job = app.start_job(x);\n        \
+        std::thread::Builder::new()\n            .name(n)\n            .spawn(move || drop(job));\n    \
+        }\n    fn b(app: &App) {\n        let job = app.start_job(x);\n        \
+        spawn(move || drop(job));\n    }\n    fn c(app: &App) {\n        \
+        let w = app.start_job_of(x);\n        \
+        std::thread::spawn(told_work(app.notice_sender.clone(), c, w, work));\n        \
+        std::thread::spawn(move || drop(other));\n    }\n    fn d(app: &App) {\n        \
+        let w = app.start_job_of(x);\n        std::thread::spawn(\n            \
+        told_work(app.notice_sender.clone(), c, w, work),\n        );\n    }\n}\n";
+    assert_eq!(
+        untold_writing_threads("x.rs", text),
+        ["x.rs: a", "x.rs: b", "x.rs: c"]
+    );
+}
+
 /// Returns the functions in `text`, the source of `file`, that start writing work
-/// (`WRITING_WORK`) and spawn a thread that does not run through `told_work`.
+/// (`WRITING_WORK`) and start a thread (`thread_start`) that does not run through `told_work`.
 fn untold_writing_threads(file: &str, text: &str) -> Vec<String> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let (mut function, mut writes, mut untold) = (String::new(), false, false);
+    let mut scopes = Vec::new();
     let mut wrong = Vec::new();
     // A last line that starts no function ends the last one, so it is checked too.
     let last = "fn end".to_owned();
-    for line in lines[..end].iter().chain([&last]) {
+    for (i, line) in lines[..end].iter().chain([&last]).enumerate() {
         if let Some(name) = function_name(line) {
             if writes && untold {
                 wrong.push(format!("{file}: {function}"));
             }
             (function, writes, untold) = (name.to_owned(), false, false);
+            scopes.clear();
         }
+        scopes.extend(scope_names(line));
         writes |= WRITING_WORK.iter().any(|w| line.contains(w));
-        untold |= line.contains("thread::spawn(") && !line.contains("told_work(");
+        // Each thread is judged by its own call, wherever its work is written.
+        if let Some(at) = thread_start(line, &scopes) {
+            untold |= !call_text(&lines[..end], i, at).0.contains("told_work(");
+        }
     }
     wrong
 }
@@ -5656,22 +5682,28 @@ fn threads_show_the_busy_pointer_or_say_why_not() {
     );
 }
 
-/// Returns the lines of `text` outside the tests that start a thread (`thread::spawn(`) in a
-/// function that has made or been given no busy pointer up to that line (no `Working`,
-/// `AnswerSender` or `answer_channel`), unless the comment lines just above the statement
-/// say "No busy pointer:" or "Its busy pointer:".
+/// Returns the lines of `text` outside the tests that start a thread (`thread_start`) that is
+/// given no busy pointer of its own, unless the comment lines just above the statement say
+/// "No busy pointer:" or "Its busy pointer:". A thread has a pointer of its own when its call
+/// makes one (a `Working`, an `AnswerSender` or an `answer_channel`), or names what its
+/// function bound to one before it (`pointer_holders`), so that a pointer moved into one thread
+/// does not count for the next.
 fn threads_without_pointer(text: &str) -> Vec<usize> {
     let (code, comments) = (code_lines(text), comment_lines(text));
+    let end = tests_start(&code);
     let mut found = Vec::new();
-    let mut has_pointer = false;
-    for (i, line) in code[..tests_start(&code)].iter().enumerate() {
+    let (mut holders, mut scopes): (Vec<String>, Vec<String>) = Default::default();
+    for (i, line) in code[..end].iter().enumerate() {
         if function_name(line).is_some() {
-            has_pointer = false;
+            (holders, scopes) = Default::default();
         }
-        has_pointer |= ["Working", "AnswerSender", "answer_channel("]
-            .iter()
-            .any(|p| line.contains(p));
-        if !line.contains("thread::spawn(") || has_pointer {
+        scopes.extend(scope_names(line));
+        let bound = pointer_holders(line, &holders);
+        holders.extend(bound);
+        let Some(at) = thread_start(line, &scopes) else {
+            continue;
+        };
+        if names_a_pointer(&call_text(&code[..end], i, at).0, &holders) {
             continue;
         }
         // Up to the statement's first line, then up the comments and attributes above it.
@@ -5696,6 +5728,60 @@ fn threads_without_pointer(text: &str) -> Vec<usize> {
     found
 }
 
+/// Returns whether `text` makes a busy pointer (a `Working`, an `AnswerSender` or an
+/// `answer_channel`) or names one of `holders` as a word.
+fn names_a_pointer(text: &str, holders: &[String]) -> bool {
+    const POINTERS: [&str; 3] = ["Working", "AnswerSender", "answer_channel("];
+    let names = |name: &String| {
+        (text.match_indices(name.as_str())).any(|(at, _)| {
+            !text[..at].ends_with(is_word_char)
+                && !text[at + name.len()..].starts_with(is_word_char)
+        })
+    };
+    POINTERS.iter().any(|p| text.contains(p)) || holders.iter().any(names)
+}
+
+/// Returns the names that `line` binds to a busy pointer or to what holds one: those of a `let`
+/// whose value makes one or names one of `holders` (each name of a tuple by its own part), and
+/// a parameter whose type is one.
+fn pointer_holders(line: &str, holders: &[String]) -> Vec<String> {
+    if line.trim_start().starts_with("let ") {
+        return (let_bindings(line).into_iter())
+            .filter(|(_, value)| names_a_pointer(value, holders))
+            .map(|(name, _)| name)
+            .filter(|name| !name.is_empty() && name.chars().all(is_word_char))
+            .collect();
+    }
+    (line.split([',', '(']))
+        .filter_map(|part| part.split_once(": "))
+        .filter(|(_, written)| names_a_pointer(written, &[]))
+        .map(|(name, _)| name.trim().trim_start_matches("mut ").to_owned())
+        .filter(|name| !name.is_empty() && name.chars().all(is_word_char))
+        .collect()
+}
+
+/// Returns where `line` starts a thread that may outlive its function, in each way one is
+/// started: `thread::spawn(`, `spawn(` imported alone, and a `thread::Builder`'s `.spawn(` with
+/// its work, also on a line of its own. A scope's thread, started on one of the receivers in
+/// `scopes`, ends before its scope does, and a program's `.spawn()` has nothing in its
+/// parentheses, so both are left out. Returns `None` for a line that starts no thread.
+fn thread_start(line: &str, scopes: &[String]) -> Option<usize> {
+    let call = "spawn(";
+    (line.match_indices(call).map(|(at, _)| at)).find(|&at| {
+        let before = &line[..at];
+        let has_work = !line[at + call.len()..].starts_with(')');
+        match before.ends_with('.') {
+            true => has_work && !is_scoped(before, scopes),
+            false => {
+                before.ends_with("thread::")
+                    || !(before.ends_with(is_word_char)
+                        || before.ends_with(':')
+                        || before.ends_with("fn "))
+            }
+        }
+    })
+}
+
 /// The check above finds a thread started without a pointer, also when another function made
 /// one, and passes one with a `Working` made before it or given to its function, one that
 /// answers through an `AnswerSender`, one whose comment above says why it needs none (also
@@ -5706,12 +5792,36 @@ fn finds_a_thread_without_the_busy_pointer() {
         std::thread::spawn(move || drop(p));\n}\nfn b() {\n    std::thread::spawn(f);\n}\n\
         fn c(p: Working) {\n    std::thread::spawn(move || drop(p));\n}\n\
         fn d(&self) {\n    let (tx, rx) = answer_channel(&self.busy);\n    \
-        std::thread::spawn(f);\n}\nfn e() {\n    // No busy pointer: a listener.\n    \
+        std::thread::spawn(move || tx.send(1));\n}\nfn e() {\n    // No busy pointer: a listener.\n    \
         std::thread::spawn(f);\n    // A reaper.\n    std::thread::spawn(g);\n}\n\
         fn f() {\n    // No busy pointer: a reaper, which\n    // reaps.\n    \
         #[allow(clippy::disallowed_methods)] // a reason\n    \
         std::thread::spawn(move || child.wait());\n    std::thread::scope(|s| s.spawn(g));\n}\n";
     assert_eq!(threads_without_pointer(text), [6, 19]);
+}
+
+/// The check above finds a thread in each way one is started: through a `thread::Builder`,
+/// also with its `.spawn(` on a line of its own, and by `spawn(` imported alone. It finds a
+/// second thread of a function whose pointer the first took, and passes one that makes its own
+/// pointer inside its work, one given a pointer through a tuple's binding or a clone of a
+/// sender, a program's `.spawn()` and a scope's thread. Before, only `thread::spawn(` was
+/// looked at, and one pointer in a function let every later thread there pass.
+#[test]
+fn finds_every_thread_without_the_busy_pointer() {
+    let text = "fn a() {\n    std::thread::Builder::new().name(n).spawn(f);\n}\n\
+        fn b() {\n    std::thread::Builder::new()\n        .name(n)\n        .spawn(move || f());\n}\n\
+        fn c() {\n    spawn(f);\n}\n\
+        fn d(&self) {\n    let p = Working::new(&self.busy);\n    \
+        std::thread::spawn(move || drop(p));\n    std::thread::spawn(g);\n}\n\
+        fn e(&self) {\n    std::thread::spawn(move || {\n        \
+        let _p = Working::new(&busy);\n    });\n}\n\
+        fn f(&self) {\n    let (pointer, ctx) = (Working::new(&self.busy), c.clone());\n    \
+        let (sender, answers) = answer_channel(&self.busy);\n    let tx = sender.clone();\n    \
+        std::thread::spawn(told_work(n, &ctx, pointer, work));\n    \
+        std::thread::spawn(move || tx.send(1));\n    std::thread::spawn(move || ctx.x());\n}\n\
+        fn g() {\n    let child = command.spawn()?;\n    \
+        std::thread::scope(|scope| {\n        scope.spawn(f);\n    });\n}\n";
+    assert_eq!(threads_without_pointer(text), [2, 7, 10, 15, 28]);
 }
 
 /// Returns the names, in `sources` outside the tests, of the fields, arguments and functions
