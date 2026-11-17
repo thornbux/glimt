@@ -209,8 +209,9 @@ struct SharingOutcome {
     renamed: usize,
     errors: Vec<String>,
     /// The number of the last neutral name tried (`Naming::Neutral`), so that each copy of a
-    /// job looks on from there.
-    last_neutral_number: usize,
+    /// job looks on from there. It is `None` until the job's first neutral copy, which starts
+    /// past the highest "image-N" in the folder (`highest_neutral_number`).
+    last_neutral_number: Option<usize>,
 }
 
 impl SharingOutcome {
@@ -245,8 +246,10 @@ impl SharingOutcome {
         for n in 1..=last {
             let target = folder.join(match naming {
                 Naming::Neutral => {
-                    self.last_neutral_number += 1;
-                    neutral_name(path, self.last_neutral_number)
+                    let last = (self.last_neutral_number)
+                        .get_or_insert_with(|| highest_neutral_number(folder));
+                    *last += 1;
+                    neutral_name(path, *last)
                 }
                 _ if n == 1 => name.to_owned(),
                 _ => numbered(path, n),
@@ -495,6 +498,28 @@ fn neutral_name(path: &Path, n: usize) -> std::ffi::OsString {
     name
 }
 
+/// Returns the highest n of the names "image-n…" in `folder`, its copies' and their sidecars',
+/// from one reading of the folder, so that a job's neutral names start past them. A look at each
+/// taken name took minutes in a folder of 200,000 earlier copies on a share, and Stop waited for
+/// it. Returns 0 when there is none, or when the folder cannot be read; the names are then
+/// looked at one by one from image-1. A number past `u32::MAX` is left out, so that no planted
+/// name can make the count overflow.
+fn highest_neutral_number(folder: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return 0;
+    };
+    let number = |name: &[u8]| {
+        let digits = name.strip_prefix(b"image-")?;
+        let end = (digits.iter().position(|b| !b.is_ascii_digit())).unwrap_or(digits.len());
+        let n: u32 = std::str::from_utf8(digits.get(..end)?).ok()?.parse().ok()?;
+        usize::try_from(n).ok()
+    };
+    (entries.flatten())
+        .filter_map(|entry| number(entry.file_name().as_encoded_bytes()))
+        .max()
+        .unwrap_or(0)
+}
+
 /// Returns how many of `paths` have the name of one before them, as images picked from several
 /// folders, listed with subfolders, can have.
 fn name_clashes(paths: &[PathBuf]) -> usize {
@@ -551,7 +576,7 @@ mod tests {
             names_taken: 3,
             renamed: 0,
             errors: Vec::new(),
-            last_neutral_number: 0,
+            last_neutral_number: None,
         };
         let text = outcome.text(std::path::Path::new("/out"), None);
         assert!(text.starts_with("2 files copied to /out"), "{text}");
@@ -617,8 +642,10 @@ mod tests {
     }
 
     /// Neutral names are numbered past every name in the folder, also past a thousand copies
-    /// made by earlier jobs. Before, each copy gave up after a thousand names taken, so the first
-    /// copy of every later job was left out as if its name were taken.
+    /// made by earlier jobs, from one reading of the folder without a look at each taken name.
+    /// Before, each copy gave up after a thousand names taken, so the first copy of every later
+    /// job was left out as if its name were taken, and then each job looked at every taken name,
+    /// which took minutes on a share.
     #[test]
     fn neutral_names_go_past_a_thousand_names_taken() {
         let dir = std::env::temp_dir().join(format!(
@@ -632,9 +659,13 @@ mod tests {
         for n in 1..=1000 {
             std::fs::write(out.join(format!("image-{n}.png")), b"").unwrap();
         }
+        std::fs::write(out.join("image-99999999999.png"), b"").unwrap();
         for job in [1001, 1002] {
             let mut outcome = super::SharingOutcome::default();
+            crate::files::file_io::LOOKS_MADE.set(0);
             outcome.copy_into(&a, &out, &Default::default(), super::Naming::Neutral);
+            let looks = crate::files::file_io::LOOKS_MADE.get();
+            assert!(looks < 10, "{looks} looks");
             assert_eq!((outcome.copied, outcome.names_taken), (1, 0));
             assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
             let made = out.join(format!("image-{job}.png"));

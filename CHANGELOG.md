@@ -94,16 +94,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Save As and a turn saved on a share that loses its answer at the last step look whether the
   file was replaced: a copy that took the name is saved with its own sidecar, and one that did
-  not leaves the replaced file's sidecar where it was. When the share cannot tell, the error
-  says where the sidecar was set aside. Before, the sidecar could stay under a hidden name, told
+  not leaves the replaced file's sidecar where it was. Only a file that still opens counts as
+  not replaced, never one that the share's cache still shows. When the share cannot tell, the
+  error says where the sidecar was set aside. Before, the sidecar could stay under a hidden name, told
   only as "Input/output error", or a saved copy was told as not saved, without its sidecar.
 - Save As, Save This Frame and Copy for Sharing say why they do not use a name where only a
   sidecar is, left without its image: the notice names that sidecar and says to move or delete
   it, and a look that failed says so. Before, it said "entity already exists", or that the
   folder had files of those names, which the file list does not show.
 - Copy for Sharing with File name ticked numbers its copies past every name in the folder, also
-  past image-1000. Before, the first copy of each later job in such a folder was left out as if
-  its name were taken.
+  past image-1000, from one reading of the folder. Before, the first copy of each later job in
+  such a folder was left out as if its name were taken.
 - A choice of Copy for Sharing saved by a later Glimt, with a group this one does not know, no
   longer leaves the extra images, the maker note and the other blocks out of every copy.
 

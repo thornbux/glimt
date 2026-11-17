@@ -2048,10 +2048,13 @@ fn renamed_in_a_test(path: &Path, result: std::io::Result<()>) -> std::io::Resul
 /// new version `tmp` to `path` was tried, as a look that failed before it renamed nothing. An
 /// error that may mean done (`may_have_been_done`, a share that lost its answer) is looked into
 /// as `done_after_all` does: `tmp` surely gone and `path` surely there is a rename done, and the
-/// replace goes on as saved, and `tmp` surely there is one not done, which is taken back. When
-/// the names cannot tell, the step is left and `undo` says what it left, such as the hidden name
-/// of a sidecar set aside. Before, every such error left the step without a word of it: Save As
-/// left the replaced file's sidecar under a hidden name, or told a copy saved as not saved.
+/// replace goes on as saved. A rename not done, which is taken back, is told only by opening
+/// `tmp` (`is_there_by_opening`). A look at it may be answered from a share's cache, which still
+/// shows `tmp` after a rename that the server did and lost the answer of, and the step taken
+/// back then put the replaced file's sidecar on the new file. When the names cannot tell, the
+/// step is left and `undo` says what it left, such as the hidden name of a sidecar set aside.
+/// Before, every such error left the step without a word of it: Save As left the replaced
+/// file's sidecar under a hidden name, or told a copy saved as not saved.
 /// Returns the error to tell, with what the undo said after it, or `Ok` when the rename was done.
 fn taken_back(
     e: std::io::Error,
@@ -2063,7 +2066,7 @@ fn taken_back(
     let failed = match tried_rename && may_have_been_done(&e, tmp) {
         false => RenameFailed::NotDone,
         true if is_surely_gone(tmp) && is_surely_there(path) => return Ok(()),
-        true if is_surely_there(tmp) => RenameFailed::NotDone,
+        true if crate::images::save::is_there_by_opening(tmp) => RenameFailed::NotDone,
         true => RenameFailed::MayHaveBeenDone,
     };
     match undo(failed) {
@@ -2959,11 +2962,13 @@ mod tests {
 
     /// A replace's rename that failed in a way that may have been done (EIO) is looked into: a
     /// new version still beside the name was not renamed, and its step is taken back, while one
-    /// whose look fails leaves the step and tells what the undo says of it. A refusal (EBUSY) is
-    /// taken back without a look. Before, every EIO left the step without a word of it.
+    /// that cannot be opened, also one that a look still finds (a share's cache), leaves the step
+    /// and tells what the undo says of it. A refusal (EBUSY) is taken back without a look.
+    /// Before, every EIO left the step without a word of it.
     #[test]
     fn a_rename_that_may_have_been_done_is_looked_into() {
         use super::RenameFailed::{self, MayHaveBeenDone, NotDone};
+        use crate::images::save::GONE_FROM_THE_SERVER;
         let dir =
             std::env::temp_dir().join(format!("glimt-test-taken-back-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2985,9 +2990,10 @@ mod tests {
         };
         assert_eq!(undo_told(libc::EBUSY).1, Some(NotDone));
         assert_eq!(undo_told(libc::EIO).1, Some(NotDone));
-        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).push(tmp.clone());
+        // A share's cache still shows the new version after a rename that the server did.
+        GONE_FROM_THE_SERVER.set(Some(tmp.clone()));
         let (text, told) = undo_told(libc::EIO);
-        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).retain(|p| *p != tmp);
+        GONE_FROM_THE_SERVER.set(None);
         assert_eq!(told, Some(MayHaveBeenDone));
         assert!(text.contains("left at .aside"), "{text}");
         std::fs::remove_dir_all(dir).unwrap();
