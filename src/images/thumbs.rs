@@ -2,7 +2,7 @@
 //! cache (`~/.cache/thumbnails/normal`, or `large` for big thumbnails). Existing thumbnails are
 //! always read; new ones are written there only when "Save thumbnails" is on.
 
-use crate::files::file_io::{is_surely_dir, is_surely_file};
+use crate::files::file_io::{is_surely_dir, is_surely_file, is_surely_gone};
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -176,7 +176,7 @@ fn write_thumbnail(
             out.set_permissions(std::fs::Permissions::from_mode(0o600))?;
             out.write_all(&png)
         },
-        // The cache's own file, replaced on purpose.
+        // Glimt's own: the cache's file, replaced on purpose.
         |tmp| std::fs::rename(tmp, file),
     )
 }
@@ -223,7 +223,7 @@ fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
             // Only a file that is surely not there counts as gone. A share that answers with an
             // error for a moment is no reason to delete the thumbnail.
             #[allow(clippy::disallowed_methods)] // Glimt's own: a thumbnail whose image is gone
-            if path.try_exists().is_ok_and(|exists| !exists)
+            if is_surely_gone(&path)
                 && path.parent().is_some_and(is_surely_dir)
                 && std::fs::remove_file(entry.path()).is_ok()
             {

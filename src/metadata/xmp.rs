@@ -1115,6 +1115,9 @@ fn update(
             name = side.display()
         ));
     }
+    // The sidecar is looked at before it is read, so that one another program writes after the
+    // read is not written over with what was read.
+    let read = crate::files::file_io::fingerprint_if_there(&side).map_err(named)?;
     // A sidecar that is there but cannot be read (no permission, not UTF-8) is not written
     // over, because it may hold another program's edits.
     let old = match own_sidecar(path) {
@@ -1136,9 +1139,10 @@ fn update(
         return Ok(());
     }
     // A link put there since the look above is replaced, and the file it points to is left
-    // alone.
+    // alone. A sidecar changed or made since the read is left alone too.
     let named = |e: std::io::Error| format!("{}: {e}", side.display());
-    crate::files::file_io::replace_name(&side, text).map_err(named)
+    let write = |f: &mut std::fs::File| std::io::Write::write_all(f, text.as_bytes());
+    crate::files::file_io::replace_what_was_read(&side, read, write).map_err(named)
 }
 
 /// Returns the sidecar of `path` when there is one, as a name in the folder. A link counts, also
@@ -3537,6 +3541,31 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), theirs);
         let link = std::fs::symlink_metadata(sidecar(&file)).unwrap();
         assert!(link.file_type().is_symlink());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar that another program writes, or makes, between the read and the write keeps
+    /// what that program wrote, and the write fails. Before, Glimt wrote over it with what it
+    /// had read.
+    #[test]
+    fn never_writes_over_a_sidecar_changed_after_its_read() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-xmp-raced-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        let theirs = "<x:xmpmeta><rdf:RDF><rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+        for was_there in [false, true] {
+            if was_there {
+                std::fs::write(sidecar(&file), "<x:xmpmeta/>").unwrap();
+            }
+            let written = update_sidecar(&file, false, |old| {
+                std::fs::write(sidecar(&file), theirs).unwrap();
+                Some(format!("{old} "))
+            });
+            assert!(written.is_err(), "was there: {was_there}");
+            assert_eq!(std::fs::read_to_string(sidecar(&file)).unwrap(), theirs);
+            std::fs::remove_file(sidecar(&file)).unwrap();
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

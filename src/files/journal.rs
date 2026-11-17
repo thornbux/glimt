@@ -641,7 +641,7 @@ fn logs_left_by_a_kill(dir: &Path) -> Vec<(PathBuf, File, Vec<u8>)> {
             e.file_type().ok().filter(|kind| kind.is_file())?;
             let file = crate::files::file_io::open_if_unlocked(&e.path(), false)
                 .ok()
-                .filter(is_linked)?;
+                .filter(|file| is_linked(file).unwrap_or(false))?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
             let read = (&file)
@@ -1119,6 +1119,7 @@ fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
             continue;
         }
         let text: String = known.into_iter().map(known_line).collect();
+        // Glimt's own: the list of files of a plan, in Glimt's state folder.
         if let Err(e) = crate::files::file_io::replace_name(&entry.path(), text) {
             crate::files::file_io::save_failed(crate::tf!(
                 "Could not save {name}: {e}",
@@ -1200,7 +1201,7 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
             // before it lets go of the lock, so a file opened just before then is no longer linked.
             let file = crate::files::file_io::open_if_unlocked(&e.path(), false)
                 .ok()
-                .filter(is_linked)?;
+                .filter(|file| is_linked(file).unwrap_or(false))?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
             let read = (&file)
@@ -1360,7 +1361,7 @@ pub fn repair_cut_short(
     // that one let go.
     let _held = crate::files::file_io::open_if_unlocked(plan, false)
         .ok()
-        .filter(is_linked)?;
+        .filter(|file| is_linked(file).unwrap_or(false))?;
     let done = done.map(|d| done_by_names(moves, d));
     // A step whose photo's name another file has taken since the plan was made (while the
     // question waited for "Later") is not taken. Nothing is renamed then, so that a photo and its
@@ -1464,7 +1465,7 @@ pub fn leave_names(
             )),
             _ => Some(e),
         })?;
-    if !is_linked(&held) {
+    if !is_linked(&held).map_err(Some)? {
         return Err(None);
     }
     // Each file is followed to the name the count says it has now, and a pair is given only
@@ -1670,10 +1671,12 @@ fn remove_with_its_list(plan: &Path, remove: impl Fn(&Path) -> bool) {
     }
 }
 
-/// Whether `file` still has a name. A plan that another window put right and deleted has none.
-fn is_linked(file: &File) -> bool {
+/// Returns whether `file` still has a name. A plan that another window put right and deleted
+/// has none. A failed look is passed on, because it says nothing about the name. The listings
+/// skip such a file, as one they cannot read, and `leave_names` keeps the plan and says why.
+fn is_linked(file: &File) -> std::io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
-    file.metadata().is_ok_and(|m| m.nlink() > 0)
+    Ok(file.metadata()?.nlink() > 0)
 }
 
 #[cfg(test)]
@@ -2129,7 +2132,7 @@ mod tests {
         std::fs::write(&path, "x").unwrap();
         let opened = std::fs::File::open(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
-        assert!(!super::is_linked(&opened));
+        assert!(!super::is_linked(&opened).unwrap());
         // A second window that asked about it too finds it gone, and does nothing.
         assert_eq!(super::repair_cut_short(&path, &read, done, true), None);
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));

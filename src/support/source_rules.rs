@@ -939,9 +939,15 @@ impl CallGraph {
             let name = path.rsplit("::").next().unwrap_or(&path);
             let is_call = after.starts_with('(');
             // A function given as a value is told from a local by a name of more than one word
-            // or a path, because a local of one word is often named as a function is.
-            let is_value = after.starts_with([')', ','])
-                && before.trim_end().ends_with(['(', ','])
+            // or a path, because a local of one word is often named as a function is. It counts
+            // wherever it stands (`let write = replace_file;`, `if a { f } else { g }`), but not
+            // as a field (`x.name`, `name: value`), a macro or the name a `let` binds. Before, it
+            // counted only between `(` or `,` and `)` or `,`.
+            let is_field = before.ends_with('.')
+                || (after.starts_with(':') && !after.starts_with("::"))
+                || after.starts_with('!');
+            let binds = before.ends_with("let ") || before.ends_with("let mut ");
+            let is_value = !(is_call || is_field || binds || code.trim_start().starts_with("use "))
                 && (name.contains('_') || path.contains("::"));
             let is_type = name.starts_with(char::is_uppercase);
             if !(is_call || is_value) || before.ends_with("fn ") || is_type {
@@ -3183,21 +3189,32 @@ fn outside_homes_in(file: &str, text: &str, homes: &[(&str, &[(&str, &str)])]) -
     wrong
 }
 
-/// Returns whether `line` holds `text`. A call (`name(`) is also found as a function value
-/// (`.map(name)`, `f(name, x)`), and as renamed by a `use` (`use …::name as other;`), whose
-/// calls by the new name would not hold `text`. A rename is found on any line, so also inside a
-/// `use` whose braces span several lines.
+/// Returns whether `line` holds `text`. A call (`name(`) is also found as a function value,
+/// wherever the whole name stands (`.map(name)`, `let write = name;`, `if a { name } else`),
+/// and as renamed by a `use` (`use …::name as other;`), whose calls by the new name would not
+/// hold `text`. A rename is found on any line, so also inside a `use` whose braces span several
+/// lines. The name is not counted where it is defined (`fn name`), as a field (`x.name`,
+/// `name: value`), as a module (`name::`, `mod name`), or in a `use` that keeps it, whose calls
+/// are found by the name. Before, a
+/// value was counted only before `)` or `,`, so `let write = replace_file;` passed.
 fn mentions(line: &str, text: &str) -> bool {
     let Some(name) = text.strip_suffix('(').filter(|n| n.ends_with(is_word_char)) else {
         return line.contains(text);
     };
-    let is_whole = |at: usize| !line[..at].ends_with(is_word_char);
     let is_use = without_qualifiers(line.trim_start()).starts_with("use ");
     line.contains(text)
         || (line.match_indices(name)).any(|(at, _)| {
-            let after = &line[at + name.len()..];
-            is_whole(at)
-                && (after.starts_with(" as ") || (!is_use && after.starts_with([')', ','])))
+            let (before, after) = (&line[..at], &line[at + name.len()..]);
+            // A module of the same name is followed by `::`, or declared by `mod`.
+            let is_module =
+                (after.starts_with("::") && !after.starts_with("::<")) || before.ends_with("mod ");
+            let is_field = before.ends_with('.')
+                || (after.starts_with(':') && !after.starts_with("::"))
+                || after.starts_with('!');
+            let is_value = !(is_use || is_field || is_module || before.ends_with("fn "));
+            !before.ends_with(is_word_char)
+                && !after.starts_with(is_word_char)
+                && (after.starts_with(" as ") || is_value)
         })
 }
 
@@ -3208,7 +3225,8 @@ fn is_word_char(c: char) -> bool {
 
 /// A call is found also as a function value and as renamed by a `use`, also inside braces that
 /// span several lines, but not in a `use` that keeps its name, nor in a longer name. Before, a
-/// rename was found only on the line that starts with `use`.
+/// rename was found only on the line that starts with `use`. A value bound by `let` or chosen by
+/// an `if` is found too, but not a field of the same name.
 #[test]
 fn finds_a_call_by_another_spelling() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[("replace_file(", &[("a.rs", "home")])];
@@ -3216,12 +3234,20 @@ fn finds_a_call_by_another_spelling() {
         use crate::files::file_io::{replace_file, write_atomic};\nfn a() {\n    \
         paths.iter().map(file_io::replace_file);\n    try_all(replace_file, &paths);\n    \
         try_all(own_replace_file, &paths);\n    replace_files(p);\n}\n\
-        use crate::files::file_io::{\n    write_atomic,\n    replace_file as write_own,\n};\n";
+        use crate::files::file_io::{\n    write_atomic,\n    replace_file as write_own,\n};\n\
+        fn b() {\n    let write = crate::files::file_io::replace_file;\n    \
+        let w = if own { replace_file } else { replace_name };\n    x.replace_file = 1;\n    \
+        S { replace_file: true };\n}\n";
     let wrong = outside_homes_in("a.rs", text, HOMES);
     let lines: Vec<&str> = (wrong.iter())
         .map(|w| w.split(' ').next().unwrap())
         .collect();
-    assert_eq!(lines, ["a.rs:1", "a.rs:4", "a.rs:5", "a.rs:11"]);
+    assert_eq!(
+        lines,
+        [
+            "a.rs:1", "a.rs:4", "a.rs:5", "a.rs:11", "a.rs:14", "a.rs:15"
+        ]
+    );
 }
 
 /// A home ends at the next top-level item. Before, a static or const after a home function
@@ -4170,46 +4196,98 @@ fn operations_that_leave_an_undo_make_undo_wait() {
 }
 
 /// Returns the functions of `text`, the source of `file`, that leave an Undo outside the tests
-/// without taking `undo_on_the_way`, as "file: function".
+/// without holding `undo_on_the_way`, as "file: function". A report is any `OperationReport`
+/// built with an `undo` field, sent at once, bound first or handed to a helper, but not one
+/// taken apart by a `let` or a `for`. The token is held when a `let` binds it to a name that
+/// the function uses again, so a token dropped at once (`drop(self.undo_on_the_way())`) is
+/// not held. Before, only `.send(OperationReport {` was counted, and any mention of the token.
 fn undo_left_without_waiting(file: &str, text: &str) -> Vec<String> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
+    let mut starts: Vec<(usize, String)> = (0..end)
+        .filter_map(|i| function_name(&lines[i]).map(|n| (i, n.to_owned())))
+        .collect();
+    starts.push((end, String::new()));
     let mut missing = Vec::new();
-    let mut function = String::new();
-    let (mut sends_report, mut leaves_undo, mut waits) = (false, false, false);
-    let mut is_remainder = false;
-    for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
-        if let Some(name) = function_name(line) {
-            if leaves_undo && !waits && !is_remainder {
-                missing.push(format!("{file}: {function}"));
-            }
-            function = name.to_owned();
-            (sends_report, leaves_undo, waits, is_remainder) = (false, false, false, false);
-            continue;
+    for pair in starts.windows(2) {
+        let ((first, function), (next, _)) = (&pair[0], &pair[1]);
+        let body = lines[first + 1..*next].join("\n");
+        let leaves_undo = body.contains("rename_undoable(")
+            || (body.match_indices("OperationReport {"))
+                .any(|(at, found)| builds_with_undo(&body, at, found.len()));
+        if leaves_undo && !holds_the_token(&body) && !body.contains("is_undo_remainder: true") {
+            missing.push(format!("{file}: {function}"));
         }
-        is_remainder |= line.contains("is_undo_remainder: true");
-        let field = line.trim_start();
-        sends_report |= line.contains(".send(OperationReport {");
-        leaves_undo |= sends_report && (field == "undo," || field.starts_with("undo:"));
-        leaves_undo |= line.contains("rename_undoable(");
-        waits |= line.contains("undo_on_the_way()");
     }
     missing
 }
 
-/// The check above finds a report with an Undo and a rename that leaves one. It passes a
-/// function that takes the token, one that only reads a report, and an Undo's remainder.
+/// Returns whether the `OperationReport {` at `at` in `body` (`length` long) builds a report
+/// with an `undo` field. A report taken apart by a `let` or a `for` builds none.
+fn builds_with_undo(body: &str, at: usize, length: usize) -> bool {
+    let before = body[..at].trim_end_matches(|c: char| is_word_char(c) || c == ':');
+    let before = before.trim_end_matches(|c: char| c.is_whitespace() || c == '(');
+    let word = &before[before.trim_end_matches(is_word_char).len()..];
+    // The struct's own definition, read as part of the function before it, builds none either.
+    if ["let", "for", "struct"].contains(&word) {
+        return false;
+    }
+    let fields = &body[at + length..];
+    let fields = &fields[..fields.find('}').unwrap_or(fields.len())];
+    (fields.match_indices("undo")).any(|(u, _)| {
+        let after = &fields[u + "undo".len()..];
+        !fields[..u].ends_with(is_word_char)
+            && (after.trim_start().is_empty()
+                || after.trim_start().starts_with(',')
+                || (after.starts_with(':') && !after.starts_with("::")))
+    })
+}
+
+/// Returns whether `body` binds `undo_on_the_way()` with a `let` to a name that it uses again,
+/// which keeps the token until that use.
+fn holds_the_token(body: &str) -> bool {
+    body.lines().any(|line| {
+        let Some(at) = line.find("undo_on_the_way()") else {
+            return false;
+        };
+        let Some(bound) = line[..at].trim_start().strip_prefix("let ") else {
+            return false;
+        };
+        let bound = bound.strip_prefix("mut ").unwrap_or(bound);
+        let name = &bound[..bound
+            .find(|c: char| !is_word_char(c))
+            .unwrap_or(bound.len())];
+        let uses = (body.match_indices(name)).filter(|&(u, _)| {
+            !body[..u].ends_with(is_word_char) && !body[u + name.len()..].starts_with(is_word_char)
+        });
+        !name.is_empty() && name != "_" && uses.count() > 1
+    })
+}
+
+/// The check above finds a report with an Undo, sent at once, bound first, by its path or with
+/// its fields on one line, and a rename that leaves one. It also finds a token dropped at once,
+/// or bound and never used. It passes a function that holds the token, one that only reads a
+/// report (also in a tuple of a `for`), and an Undo's remainder.
 #[test]
 fn finds_an_undo_left_without_waiting() {
     let text = "fn a() {\n    tx.send(OperationReport {\n        undo,\n    });\n}\n\
         fn b() {\n    let t = self.undo_on_the_way();\n    tx.send(OperationReport {\n        \
-        undo: None,\n    });\n}\nfn c() {\n    tx.send(rename_undoable(f, t));\n}\n\
-        fn d() {\n    for OperationReport {\n        undo,\n    } in x {}\n}\n\
+        undo: None,\n    });\n    drop(t);\n}\nfn c() {\n    tx.send(rename_undoable(f, t));\n}\n\
+        fn d() {\n    for (\n        OperationReport {\n            undo,\n        },\n        \
+        x,\n    ) in x {}\n}\n\
         fn e() {\n    tx.send(OperationReport {\n        undo,\n        is_undo_remainder: true,\n\
-        });\n}\n";
+        });\n}\n\
+        fn f() {\n    let report = OperationReport { undo, ..Default::default() };\n    \
+        tx.send(report);\n}\n\
+        fn g() {\n    tell(crate::files::file_ops::OperationReport {\n        undo,\n    });\n}\n\
+        fn h() {\n    drop(self.undo_on_the_way());\n    tx.send(OperationReport { undo });\n}\n\
+        fn i() {\n    let _t = self.undo_on_the_way();\n    tx.send(OperationReport { undo });\n}\n\
+        fn j() {\n    let OperationReport { undo, .. } = report;\n}\n";
     assert_eq!(
         undo_left_without_waiting("x.rs", text),
-        ["x.rs: a", "x.rs: c"]
+        [
+            "x.rs: a", "x.rs: c", "x.rs: f", "x.rs: g", "x.rs: h", "x.rs: i"
+        ]
     );
 }
 
@@ -4491,9 +4569,9 @@ fn destructive_acts_check_the_file_is_still_the_one_picked() {
             "it removes names it looked at or made",
         ),
         ("files/file_io.rs", "unlink", "the unlink of unlink_linked"),
-        // A document read and written again whole, a sidecar or a collection, not a file
-        // picked: `replace_name_with` with nothing to look at before.
-        ("files/file_io.rs", "replace_name", "it writes what it read"),
+        // `replace_name_with` with nothing to look at before. Its callers are acts: a sidecar
+        // or a collection, read first, goes through `replace_what_was_read` instead.
+        ("files/file_io.rs", "replace_name", "its callers check"),
         (
             "files/trash.rs",
             "trash_by_hand",
@@ -4560,7 +4638,9 @@ fn test_only_files(sources: &[(String, String)]) -> Vec<String> {
 // PickedFiles type that every such act takes holds the branches; following each branch would
 // need a parser, worth it if this class is found again.
 fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
-    const ACTS: [&str; 10] = [
+    // `replace_name` and a raw `fs::rename` replace a file as `replace_name_with` does, so a
+    // caller that hands them a user's path is an act too.
+    const ACTS: [&str; 12] = [
         "remove_file(",
         "remove_dir_all(",
         "trash::trash(",
@@ -4568,6 +4648,8 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         "rename_files(",
         "rename_files_planned_in(",
         "replace_name_with(",
+        "replace_name(",
+        "fs::rename(",
         "rename_never_over(",
         "rename_step(",
         "put_file_back(",
@@ -4618,9 +4700,15 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
             (acts, acts_on_files, checks, finds_sidecars) = (false, false, false, false);
             continue;
         }
-        let raw = ["remove_file(", "remove_dir_all(", "rename_never_over("]
-            .iter()
-            .any(|r| line.contains(r));
+        let raw = [
+            "remove_file(",
+            "remove_dir_all(",
+            "rename_never_over(",
+            "fs::rename(",
+            "replace_name(",
+        ]
+        .iter()
+        .any(|r| line.contains(r));
         let act = (ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i)))
             || (line.contains("put_file(") && !is_copy(line));
         acts |= act;
@@ -4642,7 +4730,8 @@ fn names_a_sidecar(line: &str) -> bool {
 /// `side`. It passes one that looks first, a removal or rename of Glimt's own file (also one
 /// whose statement takes several lines), a copy, a function that only looks, an act on the
 /// sidecars it finds, and a function that is one of the acts itself. A rename just below a
-/// removal of Glimt's own file is not excused by that removal's reason.
+/// removal of Glimt's own file is not excused by that removal's reason. A file replaced with
+/// `replace_name` and a raw `fs::rename` are found too, which before passed unseen.
 #[test]
 fn finds_a_destructive_act_without_its_check() {
     let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
@@ -4666,7 +4755,12 @@ fn finds_a_destructive_act_without_its_check() {
         rename_never_over(x, y)\n}\n\
         fn p() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: an old folder\n    \
         if a\n        && std::fs::remove_dir_all(x).is_ok()\n    {\n    }\n}\n\
-        fn rename_files_planned_in() {\n    journal::rename_step(x, y)\n}\n";
+        fn rename_files_planned_in() {\n    journal::rename_step(x, y)\n}\n\
+        fn q() {\n    file_io::replace_name(path, bytes)\n}\n\
+        fn r() {\n    #[allow(clippy::disallowed_methods)] // a reason\n    \
+        std::fs::rename(x, y)\n}\n\
+        fn s() {\n    // Glimt's own: a thumbnail\n    std::fs::rename(tmp, thumb)\n}\n\
+        fn t() {\n    // Glimt's own: a plan's list\n    file_io::replace_name(list, text)\n}\n";
     assert_eq!(
         destructive_acts_in(text),
         [
@@ -4681,6 +4775,8 @@ fn finds_a_destructive_act_without_its_check() {
             ("l".into(), false),
             ("n".into(), false),
             ("o".into(), false),
+            ("q".into(), false),
+            ("r".into(), false),
         ]
     );
 }
@@ -4811,41 +4907,76 @@ fn gone_means_not_found() {
 }
 
 /// Returns the lines (from 1) of `text` outside the tests that ask whether a name is there in a
-/// way that takes every failed look for an answer. A call split over two lines is found too.
+/// way that takes every failed look for an answer. A call split over several lines is found too.
 fn looks_that_guess(text: &str) -> Vec<usize> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let guesses = |i: usize| {
         let line = &lines[i];
-        let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
-        let call = format!("{line}{}", if next.starts_with('.') { next } else { "" });
-        let asks_kind = [".is_file()", ".is_dir()", ".is_symlink()"]
-            .iter()
-            .any(|c| call.contains(c));
+        // A line that goes on with a method is read with the line before it.
+        let carried = match (line.trim_start().starts_with('.'), i.checked_sub(1)) {
+            (true, Some(above)) => lines[above].trim(),
+            _ => "",
+        };
         line.contains(".exists()")
-            || ["Path::exists", "Path::is_file", "Path::is_dir"]
-                .iter()
-                .any(|f| mentions(line, f))
-            || (line.contains("metadata(")
-                && ([".is_err()", ".is_ok()", "let Ok("]
-                    .iter()
-                    .any(|c| call.contains(c))
-                    || (asks_kind && !passes_each_error_on(&call))))
-            || asks_a_path_its_kind(line)
+            || [
+                "Path::exists",
+                "Path::is_file",
+                "Path::is_dir",
+                "Path::is_symlink",
+            ]
+            .iter()
+            .any(|f| mentions(line, f))
+            || drops_the_error_of_a_look(&statement_from(&lines, i))
+            || asks_a_path_its_kind(line, carried)
     };
     (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
 }
 
-/// Returns whether each look at the metadata in `call` passes its error on to the caller, with
-/// `?` right after it. A look whose kind is asked in any other way gives an answer for a failed
-/// look too (`is_ok_and`, `map_or`, `.ok().is_some_and`, `unwrap_or`, a `matches!` of
-/// `Ok(m)`), however it is spelled.
-fn passes_each_error_on(call: &str) -> bool {
-    (call.match_indices("metadata(")).all(|(at, _)| {
-        let mut depth = 0;
-        let close = call[at + "metadata".len()..]
-            .char_indices()
-            .find(|&(_, c)| {
+/// Returns line `at` of `lines` with the lines after it that go on with a method, and, when it
+/// matches on something, the lines up to the end of its arms.
+fn statement_from(lines: &[String], at: usize) -> String {
+    let mut statement = lines[at].clone();
+    let is_match = lines[at].contains("match ");
+    for line in &lines[at + 1..] {
+        let is_open = statement.matches('{').count() > statement.matches('}').count();
+        if !(line.trim_start().starts_with('.') || (is_match && is_open)) {
+            break;
+        }
+        statement = format!("{statement}\n{line}");
+    }
+    statement
+}
+
+/// Returns whether `statement` looks at a name (`metadata`, `symlink_metadata`, `try_exists`)
+/// and turns the look into a yes or no that a failed look answers too: it asks the result
+/// anything with an `is_` method, or matches its error as `Err(_)`, `Err(..)` or `_`, or takes
+/// only `Ok` with `let Ok(…)`. A `try_exists` is a yes or no itself. A look whose error goes on
+/// with `?` (or `.ok()?`) right after it, or is matched on NotFound, says which way a failed
+/// look counts.
+/// Before, only listed spellings were found, and `.ok().is_none()`, `if let Err(_) =` and
+/// `try_exists().unwrap_or(false)` passed.
+fn drops_the_error_of_a_look(statement: &str) -> bool {
+    if statement.contains("NotFound") {
+        return false;
+    }
+    // The methods called on the result (`.ok().is_none()`, `.map_or(…, |m| m.is_dir())`), or
+    // the rest of a `matches!`, are asked a yes or no. The arms of a `match` are read for how
+    // they take the error instead.
+    let asks_the_result =
+        |after: &str| after.trim_start().starts_with(['.', ',']) && after.contains(".is_");
+    let guesses_without_error = ["let Ok(", "Err(_", "Err(..)", "_ =>"]
+        .iter()
+        .any(|c| statement.contains(c));
+    ["metadata(", "try_exists("].iter().any(|look| {
+        (statement.match_indices(look)).any(|(at, found)| {
+            let before = &statement[..at];
+            if before.ends_with(is_word_char) && !before.ends_with("symlink_") {
+                return false;
+            }
+            let mut depth = 1;
+            let rest = &statement[at + found.len()..];
+            let close = rest.char_indices().find(|&(_, c)| {
                 depth += match c {
                     '(' => 1,
                     ')' => -1,
@@ -4853,19 +4984,22 @@ fn passes_each_error_on(call: &str) -> bool {
                 };
                 depth == 0
             });
-        let Some((close, _)) = close else {
-            return false;
-        };
-        let after = &call[at + "metadata".len() + close + 1..];
-        after.starts_with('?')
+            let after = close.map_or("", |(c, _)| &rest[c + 1..]);
+            let after = &after[..after.find(';').unwrap_or(after.len())];
+            // `.ok()?` passes the failure on as `None`.
+            let chained: String = after.chars().filter(|c| !c.is_whitespace()).collect();
+            !(chained.starts_with('?') || chained.starts_with(".ok()?"))
+                && (*look == "try_exists(" || asks_the_result(after) || guesses_without_error)
+        })
     })
 }
 
-/// Returns whether `line` asks a path whether it is a file or a folder (`Path::is_file` or
-/// `is_dir`), which answers no when the look fails. A metadata or a file type, which has been
-/// read already, is asked the same way, and is told apart by how it is named: a call of
-/// `metadata`, `symlink_metadata` or `file_type`, or a value named `m`, `meta` or `kind`.
-fn asks_a_path_its_kind(line: &str) -> bool {
+/// Returns whether `line` asks a path whether it is a file, a folder or a link (`Path::is_file`,
+/// `is_dir` or `is_symlink`), which answers no when the look fails. A metadata or a file type,
+/// which has been read already, is asked the same way, and is told apart by how it is named: a
+/// call of `metadata`, `symlink_metadata` or `file_type`, or a value named `m`, `meta` or
+/// `kind`. `carried` is the line before when `line` goes on with a method, where its receiver is.
+fn asks_a_path_its_kind(line: &str, carried: &str) -> bool {
     let is_read_already = |before: &str| {
         let before = before.trim_end_matches('?');
         let Some(inside) = before.strip_suffix(')') else {
@@ -4886,9 +5020,14 @@ fn asks_a_path_its_kind(line: &str) -> bool {
         let name = &called[called.trim_end_matches(is_word_char).len()..];
         ["metadata", "symlink_metadata", "file_type"].contains(&name)
     };
-    [".is_file()", ".is_dir()"]
+    [".is_file()", ".is_dir()", ".is_symlink()"]
         .iter()
-        .any(|ask| (line.match_indices(ask)).any(|(at, _)| !is_read_already(&line[..at])))
+        .any(|ask| {
+            (line.match_indices(ask)).any(|(at, _)| {
+                let before = line[..at].trim_start();
+                !is_read_already(&format!("{carried}{before}"))
+            })
+        })
 }
 
 /// The check above finds `exists`, also as a function value, and a look at the metadata whose
@@ -4901,7 +5040,7 @@ fn finds_a_look_that_guesses() {
     let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
         .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
         files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
-        let m = std::fs::metadata(p)?;\n    p.try_exists()\n    \
+        let m = std::fs::metadata(p)?;\n    p.try_exists()?;\n    \
         let Ok(old) = std::fs::metadata(p) else {\n    if let Ok(m) = p.metadata() {}\n}\n";
     assert_eq!(looks_that_guess(text), [2, 3, 5, 6, 10, 11]);
 }
@@ -4936,6 +5075,24 @@ fn finds_a_path_asked_its_kind() {
         e.file_type().is_ok_and(|t| t.is_file());\n    let f = lock.metadata()?.is_file();\n    \
         let x = is_surely_dir(p);\n}\n";
     assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9]);
+}
+
+/// The check above finds a look whose failure is taken for "gone" or "no link" in any spelling:
+/// a path asked `is_symlink`, `.ok().is_none()`, `if let Err(_) =`, a `match` with `Err(_)`, and
+/// `try_exists` turned into a yes or no. It passes a link asked of a metadata read already,
+/// also on the next line, a `try_exists` passed on, and a match on NotFound. Before, each of
+/// these found here passed.
+#[test]
+fn finds_a_failed_look_in_any_spelling() {
+    let text = "fn a() {\n    if path.is_symlink() {}\n    \
+        let gone = std::fs::symlink_metadata(p).ok().is_none();\n    \
+        if let Err(_) = std::fs::metadata(p) {}\n    match std::fs::metadata(p) {\n        \
+        Ok(_) => 1,\n        Err(_) => 2,\n    }\n    let t = p.try_exists().unwrap_or(false);\n    \
+        let t = p.try_exists().is_ok_and(|b| b);\n    let l = std::fs::symlink_metadata(p)?\n        \
+        .file_type()\n        .is_symlink();\n    let l = m.is_symlink();\n    \
+        let t = p.try_exists()?;\n    match std::fs::symlink_metadata(p) {\n        \
+        Ok(m) => m.is_dir(),\n        Err(e) => e.kind() == ErrorKind::NotFound,\n    }\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9, 10]);
 }
 
 /// A file is locked only through `file_io::open_and_lock` and `open_if_unlocked`, which open it
@@ -4997,12 +5154,17 @@ fn functions_that_lock(text: &str) -> Vec<String> {
             let is_by_type = owner.is_some_and(|o| o.starts_with(char::is_uppercase));
             !before.ends_with(is_word_char)
                 && ((before.ends_with('.') && after.starts_with('('))
-                    || (is_by_type && after.starts_with(['(', ')', ','])))
+                    || (is_by_type && !after.starts_with(is_word_char)))
         };
+        // A lock of the C library counts also as a value (`let take = libc::flock;`).
         let locks = (LOCKS.iter())
             .any(|name| (line.match_indices(name)).any(|(at, _)| takes(at, name)))
             || (C_LOCKS.iter()).any(|call| {
-                (line.match_indices(call)).any(|(at, _)| !line[..at].ends_with(is_word_char))
+                let name = call.trim_end_matches('(');
+                (line.match_indices(name)).any(|(at, _)| {
+                    !line[..at].ends_with(is_word_char)
+                        && !line[at + name.len()..].starts_with(is_word_char)
+                })
             });
         if locks && found.last() != Some(&function) {
             found.push(function.clone());
@@ -5014,7 +5176,8 @@ fn functions_that_lock(text: &str) -> Vec<String> {
 /// The check above finds a `try_lock`, a `flock` and a shared lock, a lock called by the path
 /// of its type or passed as a value, and `lockf`. It leaves a lock taken through
 /// `open_and_lock`, a function of a module that shares the name, and a longer name. Before, a
-/// lock was found only as a method, so `File::try_lock(&f)` and `libc::lockf` passed unseen.
+/// lock was found only as a method, so `File::try_lock(&f)` and `libc::lockf` passed unseen,
+/// and a lock bound by `let` (`let take = File::try_lock;`) passed until 0.87.
 #[test]
 fn finds_a_lock_taken_by_hand() {
     let text = "fn a() {\n    let f = open_regular(p)?;\n    f.try_lock()?;\n}\n\
@@ -5026,9 +5189,11 @@ fn finds_a_lock_taken_by_hand() {
         fn h() {\n    files.iter().map(File::lock);\n}\n\
         fn i() {\n    libc::lockf(fd, libc::F_LOCK, 0);\n}\n\
         fn j() {\n    crate::files::config::lock();\n    xmp::lock_sidecar(p);\n    \
-        f.unlock()?;\n    update_locked_sidecar(&lock, p);\n}\n";
+        f.unlock()?;\n    update_locked_sidecar(&lock, p);\n}\n\
+        fn k() {\n    let take = std::fs::File::try_lock;\n}\n\
+        fn l() {\n    let take = libc::flock;\n}\n";
     let found = functions_that_lock(text);
-    assert_eq!(found, ["a", "c", "d", "e", "g", "h", "i"]);
+    assert_eq!(found, ["a", "c", "d", "e", "g", "h", "i", "k", "l"]);
 }
 
 /// The functions of the C library are called through the `libc` crate, never declared by hand
@@ -5544,10 +5709,12 @@ fn finds_an_allow_without_its_reason() {
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
 /// of file_io's writers, with `let _ =` (or `let _: T =`), `_ =`, `.ok();`,
 /// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
-/// used again, or `if let Ok(…) =` with no `else`. A raw change on the disk of the standard
-/// library's, or an image encoded (`RAW_WRITES`), dropped so is found too, unless a comment in
-/// the statement or in the comment lines just above it says why its failure is not told, with
-/// "Not told:". An encoder's failure dropped left a printed page blank without a word.
+/// used again in its function, `if let Ok(…) =` with no `else`, or a statement that ends in a
+/// method taking nothing that could tell the error (`last_method_drops_its_receiver`). A raw
+/// change on the disk of the standard library's, or an image encoded (`RAW_WRITES`), dropped
+/// so is found too, unless a comment in the statement or in the comment lines just above it
+/// says why its failure is not told, with "Not told:". An encoder's failure dropped left a
+/// printed page blank without a word.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
     // `create(` is any create, by its path or its receiver: `File::create`, and `DirBuilder`'s,
     // which makes a folder as `create_dir_all` does.
@@ -5565,7 +5732,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         "write_image(",
         "write_to(",
     ];
-    const WRITERS: [&str; 17] = [
+    const WRITERS: [&str; 18] = [
         // collections::edit and edit_open_collection, which write through replace_name.
         "edit(",
         "edit_open_collection(",
@@ -5581,6 +5748,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         "replace_existing(",
         "replace_name(",
         "replace_name_with(",
+        "replace_what_was_read(",
         "write_beside(",
         "create_file(",
         // A removal of Glimt's own plan, log or state file, which the next start would act on
@@ -5635,11 +5803,8 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                 || (c == ';'
                     && (words.ends_with(".unwrap_or_default()")
                         || words.ends_with(".unwrap_or(())")))
-                || is_unused_binding(words, text)
-                || (c == ';'
-                    && words.ends_with(".ok()")
-                    && !words.contains('=')
-                    && !starts_with_keyword);
+                || is_unused_binding(words, &lines[..end], i)
+                || (c == ';' && !starts_with_keyword && last_method_drops_its_receiver(words));
             // The statement's lines, and the lines of comment alone just above it.
             let says_why = || {
                 let above = (0..first_line.saturating_sub(1))
@@ -5685,12 +5850,17 @@ fn without_attributes(statement: &str) -> &str {
     rest
 }
 
-/// Returns whether `statement` binds a name that starts with `_` (`let _name = …`) that `text`
-/// uses nowhere else.
-fn is_unused_binding(statement: &str, text: &str) -> bool {
+/// Returns whether `statement`, on line `at` of `lines`, binds a name that starts with `_`
+/// (`let _name = …`) that its function uses nowhere else. Before, a use anywhere in the file
+/// counted, so a `_done` of another function let the write's result go.
+fn is_unused_binding(statement: &str, lines: &[String], at: usize) -> bool {
     let Some(rest) = statement.strip_prefix("let _") else {
         return false;
     };
+    let starts = |j: &usize| function_name(&lines[*j]).is_some();
+    let first = (0..=at).rev().find(starts).unwrap_or(0);
+    let next = (at + 1..lines.len()).find(starts).unwrap_or(lines.len());
+    let text = &lines[first..next].join("\n");
     let name_length = rest.find(|c: char| !c.is_alphanumeric() && c != '_');
     let Some(name) = name_length.filter(|&n| n > 0).map(|n| &statement[4..5 + n]) else {
         return false;
@@ -5709,6 +5879,50 @@ fn is_unused_binding(statement: &str, text: &str) -> bool {
         .filter(|(at, _)| is_word_at(*at))
         .count()
         < 2
+}
+
+/// Returns whether `statement` assigns with `=`, not counting `==`, `!=`, `<=`, `>=` and `=>`.
+fn assigns(statement: &str) -> bool {
+    let chars: Vec<char> = statement.chars().collect();
+    (0..chars.len()).any(|i| {
+        let (before, after) = (i.checked_sub(1).map(|b| chars[b]), chars.get(i + 1));
+        chars[i] == '='
+            && !matches!(before, Some('=' | '!' | '<' | '>'))
+            && !matches!(after, Some('=' | '>'))
+    })
+}
+
+/// Returns whether `statement`, a statement of its own that assigns nothing, ends in a method
+/// that takes nothing that could tell an error: no argument (`.err()`, `.ok()`, `.is_ok()`),
+/// `drop`, `()`, or a closure whose argument is `_` (`.unwrap_or_else(|_| ())`). Whatever its
+/// receiver gave, an error among it, then goes nowhere. `.unwrap()` panics on it instead.
+/// Before, only `.ok()`, `.unwrap_or_default()` and `.unwrap_or(())` were found, so `.err();`
+/// and `.for_each(drop);` passed.
+fn last_method_drops_its_receiver(statement: &str) -> bool {
+    if assigns(statement) || statement.trim_end().ends_with(".unwrap()") {
+        return false;
+    }
+    let Some(inside) = statement.trim_end().strip_suffix(')') else {
+        return false;
+    };
+    let mut depth = 1;
+    let open = inside.char_indices().rev().find(|&(_, c)| {
+        depth += match c {
+            ')' => 1,
+            '(' => -1,
+            _ => 0,
+        };
+        depth == 0
+    });
+    let Some((open, _)) = open else {
+        return false;
+    };
+    let receiver = inside[..open].trim_end_matches(is_word_char);
+    let arguments = inside[open + 1..].trim();
+    receiver.ends_with('.')
+        && (["", "drop", "()"].contains(&arguments)
+            || arguments.starts_with("|_")
+            || arguments.starts_with("|()|"))
 }
 
 /// Returns whether `statement` drops the result of `writer` with `drop(…)`, also through a path
@@ -5785,6 +5999,16 @@ fn finds_a_dropped_write() {
     let builder = "fn a() {\n    let _ = std::fs::DirBuilder::new()\n        .recursive(true)\n        \
         .create(d);\n    let b = DirBuilder::new();\n    b.create(d).ok();\n}\n";
     assert_eq!(dropped_writes_in(builder), [2, 6]);
+    // A statement that ends in a method that takes no error, and a `_name` used only in another
+    // function, which before passed. A closure that names the error passes.
+    let more = "fn a() {\n    \
+        paths.iter().map(|p| file_io::replace_name(p, b)).for_each(drop);\n    \
+        file_io::replace_file(p, b).unwrap_or_else(|_| ());\n    \
+        file_io::replace_file(p, b).err();\n    \
+        replace_file(p, b).unwrap_or_else(|e| save_failed(e));\n    \
+        let _done = replace_file(p, b);\n    if a == b {\n        tell(replace_file(p, b));\n    \
+        }\n}\nfn b() {\n    say(_done);\n}\n";
+    assert_eq!(dropped_writes_in(more), [2, 3, 4, 6]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
@@ -7135,6 +7359,26 @@ fn finds_a_disk_call_in_the_window_thread() {
             ("a.rs", "default", ".is_symlink()", 77),
         ]
     );
+}
+
+/// `the_window_thread_never_waits_for_the_disk` finds a function given as a value wherever it
+/// stands: bound by a `let`, or chosen by an `if`. It passes a field and a local of that name.
+/// Before, a value was found only between `(` or `,` and `)` or `,`, so
+/// `let look = file_io::is_surely_there; look(&p)` passed.
+#[test]
+fn finds_a_disk_call_through_a_function_value_bound_by_let() {
+    let a = "impl crate::App {\n    fn a(&self) {\n        let look = crate::b::look_at;\n    }\n    \
+        fn b(&self) {\n        let f = if x { look_at } else { other };\n    }\n    \
+        fn c(&self) {\n        self.look_at = 1;\n        S { look_at: 2 };\n    }\n    \
+        fn d(&self, look_at: u8) {\n        let n = look_at;\n    }\n}\n\
+        fn look_at(p: &Path) {\n    p.is_dir();\n}\n";
+    let b = "pub fn look_at(p: &Path) {\n    p.is_dir();\n}\n";
+    let sources = [("a.rs".into(), a.into()), ("b.rs".into(), b.into())];
+    let found = disk_calls_in_window_thread(&sources, &[]);
+    let found: Vec<(&str, &str, usize)> = (found.iter())
+        .map(|(_, f, c, l, _)| (f.as_str(), c.as_str(), *l))
+        .collect();
+    assert_eq!(found, [("a", "look_at", 3), ("b", "look_at", 6)]);
 }
 
 /// `the_window_thread_never_waits_for_the_disk` also finds a wait for a program that a

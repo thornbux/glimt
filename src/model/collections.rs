@@ -717,6 +717,9 @@ pub(crate) fn edit_open_collection(
 pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // edit_shared cannot refuse to make one that went
     let _held = crate::files::file_io::file_lock(file);
+    // A script or a music player may write the file after it is read here, and its change is
+    // then not written over (`replace_what_was_read`).
+    let read = crate::files::file_io::fingerprint_if_there(file)?;
     let (text, was_new) = match crate::images::decode::read_limited(file) {
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
         read => (read?, false),
@@ -751,7 +754,10 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     // The link itself is replaced, so the file it points to is never written over.
     match was_new {
         true => crate::files::file_io::create_file(file, out),
-        false => crate::files::file_io::replace_name(file, out),
+        false => {
+            let write = |f: &mut std::fs::File| std::io::Write::write_all(f, &out);
+            crate::files::file_io::replace_what_was_read(file, read, write)
+        }
     }
 }
 
@@ -1165,6 +1171,25 @@ mod tests {
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("#geometry: 0 0 400 300\n") && text.contains("\"/b.jpg\""));
         assert!(!text.contains("/a.jpg") && text.ends_with("#end\n"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection that another program writes between the edit's read and its write keeps
+    /// what that program wrote, and the edit fails. Before, the edit wrote over it with the list
+    /// it had read.
+    #[test]
+    fn an_edit_never_writes_over_a_change_made_after_its_read() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-raced-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("trip.gqv");
+        std::fs::write(&file, "#GQview collection\n\"/a.jpg\"\n#end\n").unwrap();
+        let theirs = "#GQview collection\n\"/a.jpg\"\n\"/their.jpg\"\n#end\n";
+        let edited = super::edit(&file, false, |all| {
+            std::fs::write(&file, theirs).unwrap();
+            all.push("/b.jpg".into());
+        });
+        assert!(edited.is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), theirs);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

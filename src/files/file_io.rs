@@ -1558,7 +1558,9 @@ pub fn remove_own(path: &Path) -> std::io::Result<()> {
         // Glimt's own: a folder, such as the copy of a state folder in a backup.
         Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
         // Glimt's own: a plan, a log or a state file.
-        _ => std::fs::remove_file(path),
+        Ok(_) => std::fs::remove_file(path),
+        // A failed look says nothing of what is there, so nothing is removed.
+        Err(e) => Err(e),
     };
     match removed {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1976,17 +1978,41 @@ pub fn write_picked_name(
     at_pick: Option<FileFingerprint>,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    match at_pick {
-        Some(picked) => {
-            replace_name_with(path, write, || {
-                is_still_the_file(path, KnownAs::fingerprint(picked)).map(|()| nothing_to_undo)
-            })?;
-            crate::files::journal::note_written_anew(path, picked);
-            Ok(())
-        }
+    replace_what_was_read(path, at_pick, write)?;
+    if let Some(picked) = at_pick {
+        crate::files::journal::note_written_anew(path, picked);
+    }
+    Ok(())
+}
+
+/// Writes the file named `path` with the contents written by `write`, as `replace_name_with`
+/// does, when it is still the file whose fingerprint `read` was taken before it was read
+/// (`fingerprint_before_reading`). When `read` is `None`, nothing was there, and a file put at
+/// the name since is never written over. A sidecar or a collection is written so, because
+/// another program may write it between Glimt's read and its write, and its edit would be lost.
+pub(crate) fn replace_what_was_read(
+    path: &Path,
+    read: Option<FileFingerprint>,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    match read {
+        Some(read) => replace_name_with(path, write, || {
+            is_still_the_file(path, KnownAs::fingerprint(read)).map(|()| nothing_to_undo)
+        }),
         None => write_beside(&tmp_path(path), path, write, |tmp| {
             rename_never_over(tmp, path)
         }),
+    }
+}
+
+/// Returns the fingerprint of the file at `path` taken before it is read, for
+/// `replace_what_was_read`, or `None` when nothing is there (NotFound). Any other failed look
+/// is passed on.
+pub(crate) fn fingerprint_if_there(path: &Path) -> std::io::Result<Option<FileFingerprint>> {
+    match fingerprint_or_error(path) {
+        Ok(read) => Ok(Some(read)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
     }
 }
 

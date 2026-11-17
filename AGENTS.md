@@ -548,7 +548,10 @@ arm becomes a method.
     - a new file with `file_io::create_file`;
     - a file of the user's (a copy saved over one, a sidecar) with `replace_name`. When the name
       is a symbolic link, it replaces the link itself, not the file the link points to, and it
-      refuses a read-only file;
+      refuses a read-only file. One that was read first (a sidecar, a collection) is written
+      with `replace_what_was_read`, which leaves it alone when another program changed it
+      after the read, as `replace_name` and a raw `fs::rename` count as acts on a user's file
+      (`destructive_acts_check_the_file_is_still_the_one_picked`);
     - Glimt's own files with `replace_file` or `write_atomic`, which follow a symbolic link and
       write its target (`source_rules::only_glimts_own_files_are_written_through_links` lists
       where these are used);
