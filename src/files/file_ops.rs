@@ -2969,7 +2969,7 @@ fn delete_for_good(
                 // is told both names, and the log stays for the next start to give it back.
                 Err(e) if crate::files::file_io::may_have_been_done(&e, &side) => {
                     if let Some(log) = log.as_deref_mut() {
-                        log.keep_for_a_later_start();
+                        log.keep_for_a_later_start(p);
                     }
                     all_aside = Err((side, journal::may_be_hidden(e, p, &hidden)));
                     break;
@@ -3005,7 +3005,7 @@ fn delete_for_good(
             for (side, hidden) in aside.into_iter().rev() {
                 if let Err(e) = rename_never_over(&hidden, &side) {
                     if let Some(log) = log.as_deref_mut() {
-                        log.keep_for_a_later_start();
+                        log.keep_for_a_later_start(p);
                     }
                     failed(&side, journal::may_be_hidden(e, p, &hidden));
                 }

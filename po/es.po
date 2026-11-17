@@ -4026,6 +4026,16 @@ msgstr "el archivo que había allí no se reemplazó, pero su archivo complement
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "puede que ahora tenga el nombre oculto {hidden}; si {photo} sigue ahí y este archivo complementario no tiene su propio nombre, devuélveselo ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} ya no está como lo dejó el borrado, así que su archivo complementario {sidecar} sigue con el nombre oculto {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Otro archivo tiene ahora el nombre {sidecar}, así que el archivo complementario apartado sigue con el nombre oculto {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

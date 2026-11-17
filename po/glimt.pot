@@ -3243,6 +3243,14 @@ msgstr ""
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr ""
 
+#: src/files/journal.rs
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr ""
+
+#: src/files/journal.rs
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr ""
+
 #: src/metadata/xmp.rs
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
 msgstr ""

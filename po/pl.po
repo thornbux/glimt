@@ -4037,6 +4037,16 @@ msgstr "tamten plik nie został zastąpiony, ale jego plik poboczny {sidecar} m�
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "może mieć teraz ukrytą nazwę {hidden}; jeśli {photo} nadal tam jest, a ten plik poboczny nie ma swojej nazwy, przywróć mu ją ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} nie jest już taki, jakim zostawiło go usuwanie, więc jego plik poboczny {sidecar} pozostaje pod ukrytą nazwą {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Nazwę {sidecar} ma teraz inny plik, więc odłożony plik poboczny pozostaje pod ukrytą nazwą {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

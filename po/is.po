@@ -4026,6 +4026,16 @@ msgstr "skránni þar var ekki skipt út, en hliðarskrá hennar {sidecar} kann 
 msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
 msgstr "hún kann nú að bera falda nafnið {hidden}; ef {photo} er enn til staðar og þessi hliðarskrá ber ekki eigið nafn, gefðu henni það aftur ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}"
+msgstr "{photo} er ekki lengur eins og eyðingin skildi við hana, svo hliðarskráin {sidecar} verður áfram undir falda nafninu {hidden}"
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}"
+msgstr "Önnur skrá ber nú nafnið {sidecar}, svo hliðarskráin sem var lögð til hliðar verður áfram undir falda nafninu {hidden}"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
