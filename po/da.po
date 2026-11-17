@@ -4021,6 +4021,11 @@ msgstr "det vides ikke, om kopien fik navnet, så sidefilen til filen der blev l
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
 msgstr "filen der blev ikke erstattet, men dens sidefil {sidecar} kan være lagt til side som {aside}; hvis den ikke har sit eget navn, så giv den navnet tilbage ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
+msgstr "den kan nu ligge under det skjulte navn {hidden}; hvis {photo} stadig er der, og denne sidefil ikke har sit eget navn, så giv den navnet tilbage ({e})"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

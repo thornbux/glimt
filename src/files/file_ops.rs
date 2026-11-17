@@ -2922,7 +2922,10 @@ fn take_back_sidecars(
 /// it right when Glimt is killed before it is deleted or back. The photo is deleted only when
 /// all of them could be put aside. A photo whose sidecar
 /// cannot be put aside stays, with its sidecars back, and so does one whose delete did not go
-/// through or could not be looked at after it. A sidecar put aside that then cannot be deleted
+/// through or could not be looked at after it. A rename to or from a hidden name that fails
+/// may have been done all the same, on a share that lost its answer. Its error then names the
+/// hidden name, and the log stays, so that the next start gives the sidecar back to a photo
+/// still there. A sidecar put aside that then cannot be deleted
 /// stays under its hidden name, which no later file takes. Each is told in `errors`. Deleted
 /// first, the photo left a sidecar that could not go at the old name, where the next file of
 /// that name would show its keywords. Adobe's sidecar of two RAW files of one name stem goes
@@ -2962,6 +2965,15 @@ fn delete_for_good(
         for (side, hidden) in to_put_aside {
             match rename_never_over(&side, &hidden) {
                 Ok(()) => aside.push((side, hidden)),
+                // A share may have hidden it and lost its answer. Nothing guesses, so the user
+                // is told both names, and the log stays for the next start to give it back.
+                Err(e) if crate::files::file_io::may_have_been_done(&e, &side) => {
+                    if let Some(log) = log.as_deref_mut() {
+                        log.keep_for_a_later_start();
+                    }
+                    all_aside = Err((side, journal::may_be_hidden(e, p, &hidden)));
+                    break;
+                }
                 Err(e) => {
                     all_aside = Err((side, e));
                     break;
@@ -2992,7 +3004,10 @@ fn delete_for_good(
         if !(deleted && is_surely_gone(p)) {
             for (side, hidden) in aside.into_iter().rev() {
                 if let Err(e) = rename_never_over(&hidden, &side) {
-                    failed(&side, e);
+                    if let Some(log) = log.as_deref_mut() {
+                        log.keep_for_a_later_start();
+                    }
+                    failed(&side, journal::may_be_hidden(e, p, &hidden));
                 }
             }
             leaving.remove(p);
@@ -6289,6 +6304,95 @@ mod tests {
             !sides[1].exists(),
             "the new b.png got the sidecar of the one deleted"
         );
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Returns the names under `dir` that Glimt hides a file under (`file_io::tmp_path`).
+    fn hidden_names_in(dir: &std::path::Path) -> Vec<PathBuf> {
+        (std::fs::read_dir(dir).unwrap().flatten())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".glimt-tmp-"))
+            .map(|e| e.path())
+            .collect()
+    }
+
+    /// A Delete for good whose rename that hides a photo's sidecar was done on a share that lost
+    /// its answer, while the look at the sidecar's name fails too, leaves the photo, names the
+    /// hidden name, and keeps its log, so that the next start gives the sidecar back. Before, the
+    /// error named only the sidecar ("a.png.xmp: Input/output error"), the log went at the end of
+    /// the job, and the sidecar stayed hidden for good.
+    #[test]
+    fn a_delete_for_good_whose_set_aside_lost_its_answer_names_the_hidden_sidecar() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL};
+        let dir = contract_folder("delete-aside-lost");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        ANSWER_LOST_AT.set(Some(side.clone()));
+        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        let mut errors = Vec::new();
+        let how = (false, Some(&mut log));
+        let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
+        ANSWER_LOST_AT.set(None);
+        assert!(gone.is_empty() && a.exists(), "{errors:?}");
+        let hidden = hidden_names_in(&dir);
+        assert_eq!(hidden.len(), 1, "{hidden:?}");
+        let told = errors.join("\n");
+        assert!(told.contains(&hidden[0].display().to_string()), "{told}");
+        assert!(told.contains(&side.display().to_string()), "{told}");
+        log.remove_once_forgotten();
+        // The log goes after the writes of both writer threads, one queued after the other.
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
+        assert!(hidden_names_in(&dir).is_empty());
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A Delete for good whose photo stays, and whose sidecar then cannot be given back its own
+    /// name, names the hidden name it stays under and keeps its log, so that the next start gives
+    /// it back. Here the folder sync before the photo's delete fails, and the sidecar's name
+    /// cannot be looked at on a file system that renames only after a look. Before, the error
+    /// named only the sidecar, and the sidecar stayed hidden for good.
+    #[test]
+    fn a_delete_for_good_whose_sidecar_cannot_come_back_names_the_hidden_sidecar() {
+        use crate::files::file_io::{FOLDER_SYNC_FAILS_IN, LOOKS_FAIL, RENAME_WAYS_MISSING};
+        let dir = contract_folder("delete-aside-not-back");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
+        RENAME_WAYS_MISSING.set(2);
+        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        let mut errors = Vec::new();
+        let how = (false, Some(&mut log));
+        let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
+        RENAME_WAYS_MISSING.set(0);
+        FOLDER_SYNC_FAILS_IN.set(None);
+        assert!(gone.is_empty() && a.exists(), "{errors:?}");
+        let hidden = hidden_names_in(&dir);
+        assert_eq!(hidden.len(), 1, "{hidden:?}");
+        let told = errors.join("\n");
+        assert!(told.contains(&hidden[0].display().to_string()), "{told}");
+        log.remove_once_forgotten();
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
         drop(found);
         std::fs::remove_dir_all(&dir).unwrap();
     }

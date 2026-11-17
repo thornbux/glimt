@@ -236,8 +236,10 @@ pub struct DeleteLog {
     /// Whether the log's names and its list of files are on disk as far as they are written,
     /// with the folders that hold them (`note_aside`). A name noted since is not yet.
     is_on_disk: bool,
-    /// Whether the log, found at the start, names a file that the start could not tell went
-    /// or stayed (`went_before_the_kill`). Such a log stays on disk for a later start.
+    /// Whether the log names a file that the start could not tell went or stayed
+    /// (`went_before_the_kill`), or a sidecar that may still be under its hidden name because
+    /// the rename that hides it or gives it back failed (`keep_for_a_later_start`). Such a log
+    /// stays on disk for a later start.
     has_names_left: bool,
 }
 
@@ -332,6 +334,14 @@ impl DeleteLog {
     /// Returns the first write of the log that failed, and `None` when every one worked.
     pub fn take_failure(&mut self) -> Option<std::io::Error> {
         self.failure.take()
+    }
+
+    /// Keeps the log on disk after the job for a later start, because a sidecar that it notes
+    /// as put aside may still be under its hidden name. The rename that hides it or gives it
+    /// back failed, and on a share that lost its answer it may have been done all the same.
+    /// The next start gives it back when its photo is still there.
+    pub fn keep_for_a_later_start(&mut self) {
+        self.has_names_left = true;
     }
 
     /// Removes the log once the marks and stars of its files that went are forgotten. The window
@@ -520,7 +530,7 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
             }
             forget_in_the_collection_shown(&path, &gone);
             // Before the trash is looked in, where a sidecar put aside is not.
-            sidecars_back_from_hiding(&path, &gone, &stayed);
+            has_names_left |= !sidecars_back_from_hiding(&path, &gone, &stayed);
             // The log was last written just before the last of its files went. A log whose time
             // cannot be read takes no sidecar back, as it cannot tell which went after it.
             let written = file.metadata().and_then(|m| m.modified());
@@ -599,13 +609,16 @@ fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
 /// `gone`, as the delete would have done. Any other stays hidden: a photo that cannot be told
 /// about yet, whose log stays too, and a different file that took the photo's name since,
 /// which must not get the keywords of the photo deleted. Only a hidden name that
-/// `file_io::tmp_path` gives, beside the photo, is touched. A failure is told.
-fn sidecars_back_from_hiding(log: &Path, gone: &[PathBuf], stayed: &[PathBuf]) {
+/// `file_io::tmp_path` gives, beside the photo, is touched. A failure is told. Returns false when
+/// a sidecar of a photo that stayed may still be hidden, as its rename back failed, so that the
+/// log stays for a later start.
+fn sidecars_back_from_hiding(log: &Path, gone: &[PathBuf], stayed: &[PathBuf]) -> bool {
     use crate::files::file_io::{TMP_PREFIX, rename_never_over, save_failed, sync_folder_of};
     use std::collections::HashSet;
     let Ok(bytes) = crate::images::decode::read_limited(aside_path(log)) else {
-        return;
+        return true;
     };
+    let mut is_none_hidden = true;
     let (gone, stayed): (HashSet<&PathBuf>, HashSet<&PathBuf>) =
         (gone.iter().collect(), stayed.iter().collect());
     let names = parse_names(&bytes);
@@ -624,7 +637,16 @@ fn sidecars_back_from_hiding(log: &Path, gone: &[PathBuf], stayed: &[PathBuf]) {
         let put_right = if stayed.contains(photo) {
             // Glimt's own: the sidecar it put aside under its temporary name, given back. It is
             // on disk before the log goes, as a power cut would otherwise leave it hidden.
-            rename_never_over(hidden, side).and_then(|()| sync_folder_of(side))
+            if let Err(e) = rename_never_over(hidden, side) {
+                is_none_hidden = false;
+                save_failed(format!(
+                    "{}: {}",
+                    side.display(),
+                    may_be_hidden(e, photo, hidden)
+                ));
+                continue;
+            }
+            sync_folder_of(side)
         } else if gone.contains(photo) {
             #[allow(clippy::disallowed_methods)] // Glimt's own: put aside, of a photo deleted
             std::fs::remove_file(hidden)
@@ -635,6 +657,23 @@ fn sidecars_back_from_hiding(log: &Path, gone: &[PathBuf], stayed: &[PathBuf]) {
             save_failed(format!("{}: {e}", side.display()));
         }
     }
+    is_none_hidden
+}
+
+/// Returns the error `e` of a rename that was to hide a sidecar of `photo` under the name
+/// `hidden`, or to give it back its own name from there, with that hidden name in it. The error
+/// may mean that the rename was done all the same, on a share that lost its answer, so the
+/// sidecar may be under either name, and nothing guesses which.
+pub(crate) fn may_be_hidden(e: std::io::Error, photo: &Path, hidden: &Path) -> std::io::Error {
+    std::io::Error::new(
+        e.kind(),
+        crate::tf!(
+            "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})",
+            hidden = hidden.display(),
+            photo = photo.display(),
+            e
+        ),
+    )
 }
 
 /// Returns whether the file at `path` has the size and time of the fingerprint `known`, which a
@@ -2866,5 +2905,42 @@ mod tests {
             "{failed:?}"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A start that cannot give a sidecar back its own name from the hidden name a killed delete
+    /// for good put it under, here because another program wrote a sidecar at that name since,
+    /// names the hidden name and keeps the log for a later start. Before, the error named only
+    /// the sidecar, and the log went with its note of the hidden name.
+    #[test]
+    fn a_start_that_cannot_give_a_sidecar_back_names_the_hidden_name_and_keeps_the_log() {
+        let dir = crate::support::test_support::contract_folder("start-aside-not-back");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let hidden = crate::files::file_io::tmp_path(&side);
+        let mut log = super::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        log.note_aside(&a, &[(side.clone(), hidden.clone())]);
+        std::fs::rename(&side, &hidden).unwrap();
+        // The kill came here, and another program wrote a sidecar at the name before the start.
+        drop(log);
+        std::fs::write(&side, "another").unwrap();
+        let _ = crate::files::file_io::take_saves_failed();
+        let found = super::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        let told = crate::files::file_io::take_saves_failed().join("\n");
+        assert!(told.contains(&hidden.display().to_string()), "{told}");
+        for (log, _) in found {
+            log.remove_once_forgotten();
+        }
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        // The other sidecar is moved away, and a later start gives the hidden one back.
+        std::fs::remove_file(&side).unwrap();
+        let found = super::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

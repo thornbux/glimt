@@ -4032,6 +4032,11 @@ msgstr "não se sabe se a cópia ficou com o nome, então o arquivo XMP associad
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
 msgstr "o arquivo que estava lá não foi substituído, mas seu arquivo XMP associado {sidecar} pode ter sido posto de lado como {aside}; se ele não estiver com o próprio nome, devolva-lhe esse nome ({e})"
 
+#: src/files/journal.rs
+#, fuzzy
+msgid "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})"
+msgstr "ele pode estar agora com o nome oculto {hidden}; se {photo} ainda estiver lá e este arquivo XMP associado não estiver com o próprio nome, devolva-lhe esse nome ({e})"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
