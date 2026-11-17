@@ -5370,10 +5370,12 @@ fn finds_an_allow_without_its_reason() {
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
 /// of file_io's writers, with `let _ =` (or `let _: T =`), `_ =`, `.ok();`,
 /// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
-/// used again, or `if let Ok(…) =` with no `else`. A raw change on the disk of the standard
-/// library's, or an image encoded (`RAW_WRITES`), dropped so is found too, unless a comment in
-/// the statement or in the comment lines just above it says why its failure is not told, with
-/// "Not told:". An encoder's failure dropped left a printed page blank without a word.
+/// used again in its function, `if let Ok(…) =` with no `else`, or a statement that ends in a
+/// method taking nothing that could tell the error (`last_method_drops_its_receiver`). A raw
+/// change on the disk of the standard library's, or an image encoded (`RAW_WRITES`), dropped
+/// so is found too, unless a comment in the statement or in the comment lines just above it
+/// says why its failure is not told, with "Not told:". An encoder's failure dropped left a
+/// printed page blank without a word.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
     // `create(` is any create, by its path or its receiver: `File::create`, and `DirBuilder`'s,
     // which makes a folder as `create_dir_all` does.
@@ -5462,11 +5464,8 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                 || (c == ';'
                     && (words.ends_with(".unwrap_or_default()")
                         || words.ends_with(".unwrap_or(())")))
-                || is_unused_binding(words, text)
-                || (c == ';'
-                    && words.ends_with(".ok()")
-                    && !words.contains('=')
-                    && !starts_with_keyword);
+                || is_unused_binding(words, &lines[..end], i)
+                || (c == ';' && !starts_with_keyword && last_method_drops_its_receiver(words));
             // The statement's lines, and the lines of comment alone just above it.
             let says_why = || {
                 let above = (0..first_line.saturating_sub(1))
@@ -5512,12 +5511,17 @@ fn without_attributes(statement: &str) -> &str {
     rest
 }
 
-/// Returns whether `statement` binds a name that starts with `_` (`let _name = …`) that `text`
-/// uses nowhere else.
-fn is_unused_binding(statement: &str, text: &str) -> bool {
+/// Returns whether `statement`, on line `at` of `lines`, binds a name that starts with `_`
+/// (`let _name = …`) that its function uses nowhere else. Before, a use anywhere in the file
+/// counted, so a `_done` of another function let the write's result go.
+fn is_unused_binding(statement: &str, lines: &[String], at: usize) -> bool {
     let Some(rest) = statement.strip_prefix("let _") else {
         return false;
     };
+    let starts = |j: &usize| function_name(&lines[*j]).is_some();
+    let first = (0..=at).rev().find(starts).unwrap_or(0);
+    let next = (at + 1..lines.len()).find(starts).unwrap_or(lines.len());
+    let text = &lines[first..next].join("\n");
     let name_length = rest.find(|c: char| !c.is_alphanumeric() && c != '_');
     let Some(name) = name_length.filter(|&n| n > 0).map(|n| &statement[4..5 + n]) else {
         return false;
@@ -5536,6 +5540,50 @@ fn is_unused_binding(statement: &str, text: &str) -> bool {
         .filter(|(at, _)| is_word_at(*at))
         .count()
         < 2
+}
+
+/// Returns whether `statement` assigns with `=`, not counting `==`, `!=`, `<=`, `>=` and `=>`.
+fn assigns(statement: &str) -> bool {
+    let chars: Vec<char> = statement.chars().collect();
+    (0..chars.len()).any(|i| {
+        let (before, after) = (i.checked_sub(1).map(|b| chars[b]), chars.get(i + 1));
+        chars[i] == '='
+            && !matches!(before, Some('=' | '!' | '<' | '>'))
+            && !matches!(after, Some('=' | '>'))
+    })
+}
+
+/// Returns whether `statement`, a statement of its own that assigns nothing, ends in a method
+/// that takes nothing that could tell an error: no argument (`.err()`, `.ok()`, `.is_ok()`),
+/// `drop`, `()`, or a closure whose argument is `_` (`.unwrap_or_else(|_| ())`). Whatever its
+/// receiver gave, an error among it, then goes nowhere. `.unwrap()` panics on it instead.
+/// Before, only `.ok()`, `.unwrap_or_default()` and `.unwrap_or(())` were found, so `.err();`
+/// and `.for_each(drop);` passed.
+fn last_method_drops_its_receiver(statement: &str) -> bool {
+    if assigns(statement) || statement.trim_end().ends_with(".unwrap()") {
+        return false;
+    }
+    let Some(inside) = statement.trim_end().strip_suffix(')') else {
+        return false;
+    };
+    let mut depth = 1;
+    let open = inside.char_indices().rev().find(|&(_, c)| {
+        depth += match c {
+            ')' => 1,
+            '(' => -1,
+            _ => 0,
+        };
+        depth == 0
+    });
+    let Some((open, _)) = open else {
+        return false;
+    };
+    let receiver = inside[..open].trim_end_matches(is_word_char);
+    let arguments = inside[open + 1..].trim();
+    receiver.ends_with('.')
+        && (["", "drop", "()"].contains(&arguments)
+            || arguments.starts_with("|_")
+            || arguments.starts_with("|()|"))
 }
 
 /// Returns whether `statement` drops the result of `writer` with `drop(…)`, also through a path
@@ -5612,6 +5660,16 @@ fn finds_a_dropped_write() {
     let builder = "fn a() {\n    let _ = std::fs::DirBuilder::new()\n        .recursive(true)\n        \
         .create(d);\n    let b = DirBuilder::new();\n    b.create(d).ok();\n}\n";
     assert_eq!(dropped_writes_in(builder), [2, 6]);
+    // A statement that ends in a method that takes no error, and a `_name` used only in another
+    // function, which before passed. A closure that names the error passes.
+    let more = "fn a() {\n    \
+        paths.iter().map(|p| file_io::replace_name(p, b)).for_each(drop);\n    \
+        file_io::replace_file(p, b).unwrap_or_else(|_| ());\n    \
+        file_io::replace_file(p, b).err();\n    \
+        replace_file(p, b).unwrap_or_else(|e| save_failed(e));\n    \
+        let _done = replace_file(p, b);\n    if a == b {\n        tell(replace_file(p, b));\n    \
+        }\n}\nfn b() {\n    say(_done);\n}\n";
+    assert_eq!(dropped_writes_in(more), [2, 3, 4, 6]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
