@@ -97,11 +97,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Save As and a turn saved on a share that loses its answer at the last step look whether the
-  file was replaced: a copy that took the name is saved with its own sidecar, and one that did
-  not leaves the replaced file's sidecar where it was. Only a file that still opens counts as
-  not replaced, never one that the share's cache still shows. When the share cannot tell, the
-  error says where the sidecar was set aside. Before, the sidecar could stay under a hidden name, told
-  only as "Input/output error", or a saved copy was told as not saved, without its sidecar.
+  file was replaced: a copy that took the name is saved with its own sidecar. When the share
+  cannot say for sure that it was, nothing is put back, and the error says where the replaced
+  file's sidecar was set aside, or that the turned image's sidecar already says what the new
+  image does. Before, the sidecar could stay under a hidden name, told only as "Input/output
+  error", or a saved copy was told as not saved, without its sidecar.
 - Save As, Save This Frame and Copy for Sharing say why they do not use a name where only a
   sidecar is, left without its image: the notice names that sidecar and says to move or delete
   it, and a look that failed says so. Before, it said "entity already exists", or that the
