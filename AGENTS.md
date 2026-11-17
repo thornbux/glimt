@@ -528,7 +528,11 @@ method.
     ffmpeg's frame, capped by the box shown, before ffmpeg starts (`DecodeInput::reserve`), and
     an added format's image once its program has written it (`DecodeInput::counting`), so that
     no program holds the budget while it runs. `from_memory` and `scaled` refuse bytes
-    that no `DecodeInput` of their thread holds;
+    that no `DecodeInput` of their thread holds, and `from_decoder` a decoder over a `Cursor`
+    while the thread holds no counted input. A file of an image read whole for anything else,
+    its metadata or a copy, is read in a decode job (`start_decode_job`): there `read_limited`
+    and `image_reader` (whose JPEG decoder reads the file whole) count it until the job ends,
+    and outside one they refuse an image's file;
   - write a file whole or not at all:
     - a new file with `file_io::create_file`;
     - a file of the user's (a copy saved over one, a sidecar) with `replace_name`. When the name

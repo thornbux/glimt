@@ -1348,6 +1348,9 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
     if container_of(&head).is_none() {
         return Ok(None);
     }
+    // The file counts in the decodes' budget while its copy is made, as the copies of a
+    // selection are made in a job of their own.
+    let _job = crate::images::decode::start_decode_job();
     let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
     let keeps = |tag: &str| kept.contains(tag);
     with_walked(path, &data, |walked, mut metadata| {

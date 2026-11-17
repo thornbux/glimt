@@ -189,6 +189,7 @@ mod tests {
             ["a.arq", "b.gpr", "c.raw"].map(std::ffi::OsString::from)
         );
         for name in listed {
+            let _job = crate::images::decode::start_decode_job();
             let data = crate::images::decode::read_limited(dir.join(name)).unwrap();
             let img = super::load_data(&data, true).unwrap();
             assert_eq!((img.width(), img.height()), (60, 40));

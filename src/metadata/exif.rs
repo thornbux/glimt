@@ -556,8 +556,13 @@ pub fn write_orientation(
     // Taken before the read, so a JPEG still being copied in is not written back cut off.
     let read =
         crate::files::file_io::fingerprint_before_reading(real).map_err(|e| e.to_string())?;
-    let data = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
-    let (data, new) = oriented(data, turns, mirrored, rotate)?;
+    // The file counts in the decodes' budget while it is read and turned. The job ends before
+    // the sidecar's lock is taken, so that the budget is never held while a lock is waited for.
+    let (data, new) = {
+        let _job = crate::images::decode::start_decode_job();
+        let data = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
+        oriented(data, turns, mirrored, rotate)?
+    };
     let how = crate::images::save::Derived::Oriented(new);
     crate::images::save::replace_with_sidecar(real, path, read, data, how)
 }
@@ -963,6 +968,10 @@ fn add_orientation(
 }
 
 fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
+    // A RAW or HEIC whose EXIF is not in its first MB, or a JPEG under another name, is read
+    // whole, and that counts in the decodes' budget while the block is found. The sort by date
+    // and the "exif:" search read a folder's files in several threads at once.
+    let _job = crate::images::decode::start_decode_job();
     if crate::model::listing::has_ext(path, crate::images::raw::EXTS) {
         return crate::images::raw::exif(path);
     }
@@ -1780,6 +1789,31 @@ mod tests {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::read_exif_block(&file);
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A RAW whose preview is not in its first MB is read whole for its EXIF, and that read
+    /// counts in the decodes' budget, as the sort by date and the "exif:" search read many
+    /// such files at once. Before, each thread of the pass held up to 512 MB outside it.
+    #[test]
+    fn a_raw_read_whole_for_its_exif_counts_in_the_budget() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-late-raw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("late.cr2");
+        let mut preview = Vec::new();
+        (image::RgbImage::new(8, 8).write_to(
+            &mut std::io::Cursor::new(&mut preview),
+            image::ImageFormat::Jpeg,
+        ))
+        .unwrap();
+        let mut bytes = b"not a TIFF header".to_vec();
+        bytes.extend(vec![0; 2 << 20]);
+        bytes.extend(preview);
+        std::fs::write(&file, &bytes).unwrap();
+        let _job = crate::images::decode::start_decode_job();
+        super::read_exif_block(&file);
+        let held = crate::images::decode::held_by_this_job().unwrap();
+        assert!(held >= bytes.len() as u64, "{held}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
