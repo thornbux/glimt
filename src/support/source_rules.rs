@@ -710,11 +710,12 @@ const WRITING_WORK: &[&str] = &[
 /// The ways a text is searched for another in Rust, each as the call written and which of its
 /// arguments, counted from 0, is the text searched for: every method of `str` and of slices
 /// that looks for a pattern (also `split`, `starts_with`, `strip_prefix`, `replace`, `matches`
-/// and their kin), `memchr::memmem`, and the crate's own `ForwardSearch`. A window compared
+/// and their kin), `memchr::memmem`, the crate's own `ForwardSearch`, and a regular expression
+/// made from a pattern (`Regex::new`). A window compared
 /// (`windows(n).position(|w| w == name)`) is read apart, in `window_needles`, and a function of
 /// the crate that passes its own parameter on to one of these is added to them
 /// (`searches_for_xmp_properties`).
-const TEXT_SEARCHES: [(&str, usize); 32] = [
+const TEXT_SEARCHES: [(&str, usize); 34] = [
     (".contains(", 0),
     (".find(", 0),
     (".rfind(", 0),
@@ -747,6 +748,8 @@ const TEXT_SEARCHES: [(&str, usize); 32] = [
     ("Finder::new(", 0),
     ("FinderRev::new(", 0),
     ("ForwardSearch::new(", 1),
+    ("Regex::new(", 0),
+    ("RegexBuilder::new(", 0),
 ];
 
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
@@ -6618,6 +6621,31 @@ fn finds_a_search_for_an_xmp_property_in_every_spelling() {
     );
 }
 
+/// The check above follows a name to a `const` or `static` of any file, also by its path, and
+/// finds a search by a path (`str::find`) and a regular expression made from a property's name.
+/// A constant of the function's own file hides one of the same name in another, and a path may
+/// name the constant of any file.
+#[test]
+fn finds_a_property_in_a_static_another_module_or_a_regex() {
+    let names = "pub(crate) const RATING: &str = \"xmp:Rating\";\n\
+        pub static LABEL: &str = \"xmp:Label\";\nconst LIST: &str = \"<rdf:li\";\n";
+    let a = "use crate::names::RATING;\nconst LIST: &str = \"dc:subject\";\n\
+        fn a(x: &str) {\n    x.find(RATING);\n    x.find(crate::names::LABEL);\n    \
+        str::find(x, \"xmp:Rating\");\n    regex::Regex::new(\"<xmp:Rating>(\\\\d)\");\n    \
+        x.find(LIST);\n}\n";
+    let b = "static RATING: &str = \"xmp:Rating\";\n\
+        fn b(x: &str) {\n    x.find(RATING);\n    x.find(names::LIST);\n}\n";
+    let c = "const LIST: &str = \"<rdf:li\";\nfn c(x: &str) {\n    x.find(LIST);\n}\n";
+    let sources = [("names.rs", names), ("a.rs", a), ("b.rs", b), ("c.rs", c)];
+    let sources = sources.map(|(file, text)| (file.to_owned(), text.to_owned()));
+    assert_eq!(
+        searches_for_xmp_properties(&sources),
+        [
+            "a.rs:4", "a.rs:5", "a.rs:6", "a.rs:7", "a.rs:8", "b.rs:3", "b.rs:4"
+        ]
+    );
+}
+
 /// Returns the places outside the tests of `sources` where a packet is searched for an XMP
 /// property by its name, as "file:line", in order. A search for a name of the RDF or XML
 /// namespace, such as a Description or a list item, is no search for a property. A function
@@ -6625,6 +6653,7 @@ fn finds_a_search_for_an_xmp_property_in_every_spelling() {
 /// property's name is found, at the place of the search that the name reaches.
 fn searches_for_xmp_properties(sources: &[(String, String)]) -> Vec<String> {
     let mut searches = text_searches();
+    let constants = constants_in(sources);
     let mut wrong = std::collections::BTreeSet::new();
     loop {
         let known = searches.len();
@@ -6637,7 +6666,7 @@ fn searches_for_xmp_properties(sources: &[(String, String)]) -> Vec<String> {
                         Some(search) => format!("{file}:{line} through {search}"),
                         None => format!("{file}:{line}"),
                     };
-                    match searched_for(&needle, &f, &raw, &code, 0) {
+                    match searched_for(&needle, &f, &raw, &code, &constants, 0) {
                         Searched::Property => _ = wrong.insert(where_found),
                         Searched::Parameter(at) => {
                             let call = format!("{}(", f.name);
@@ -6799,7 +6828,14 @@ fn window_needles(code: &str, raw: &[char]) -> Vec<(usize, String)> {
 /// `f` or a constant of its file (`raw` and `code`) is read as what it is bound to, and
 /// `format!`, an array of parts and an array looped through by their parts, `depth` levels deep
 /// at most.
-fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth: u8) -> Searched {
+fn searched_for(
+    needle: &str,
+    f: &Function,
+    raw: &[&str],
+    code: &[String],
+    constants: &[(String, String, String)],
+    depth: u8,
+) -> Searched {
     let mut needle = needle.trim().trim_start_matches(['&', '*']).trim();
     for suffix in [
         ".as_bytes()",
@@ -6822,7 +6858,7 @@ fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth
             .split('{')
             .skip(1)
             .filter_map(|p| p.split('}').next());
-        let named = placeholders.map(|p| searched_for(p, f, raw, code, depth + 1));
+        let named = placeholders.map(|p| searched_for(p, f, raw, code, constants, depth + 1));
         let starts_a_tag = template.starts_with("<{") || template.starts_with("</{");
         std::iter::once(match starts_a_tag || names_a_property(&template) {
             true => Searched::Property,
@@ -6842,16 +6878,24 @@ fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth
         let inside = inside.trim_end_matches(']');
         (inside
             .split(',')
-            .map(|p| searched_for(p, f, raw, code, depth + 1)))
+            .map(|p| searched_for(p, f, raw, code, constants, depth + 1)))
         .collect()
     } else if let Some(inside) = needle.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
         // An array that a loop goes through, as in `for name in ["tiff:Orientation"]`.
         (inside
             .split(',')
-            .map(|p| searched_for(p, f, raw, code, depth + 1)))
+            .map(|p| searched_for(p, f, raw, code, constants, depth + 1)))
         .collect()
     } else if !needle.is_empty() && needle.chars().all(is_word_char) {
-        vec![bound_value(needle, f, raw, code, depth)]
+        vec![bound_value(needle, f, raw, code, constants, depth)]
+    } else if let Some((_, name)) =
+        (needle.rsplit_once("::")).filter(|_| needle.chars().all(|c| is_word_char(c) || c == ':'))
+    {
+        // A constant named by its path, such as `xmp::RATING`, may be of any file.
+        (constants.iter())
+            .filter(|c| c.1 == name)
+            .map(|c| searched_for(&c.2, f, raw, code, constants, depth + 1))
+            .collect()
     } else {
         Vec::new()
     };
@@ -6868,8 +6912,15 @@ fn searched_for(needle: &str, f: &Function, raw: &[&str], code: &[String], depth
 
 /// Returns what the name `word` is in function `f` of a file whose lines are `raw` and whose
 /// `code_lines` are `code`: one of its parameters, or what a `let` or a `for` loop in it or a
-/// constant of the file binds it to (`searched_for`).
-fn bound_value(word: &str, f: &Function, raw: &[&str], code: &[String], depth: u8) -> Searched {
+/// `const` or `static` of the crate (`constants`) binds it to (`searched_for`).
+fn bound_value(
+    word: &str,
+    f: &Function,
+    raw: &[&str],
+    code: &[String],
+    constants: &[(String, String, String)],
+    depth: u8,
+) -> Searched {
     if let Some(at) = parameters(f, code).iter().position(|p| p == word) {
         return Searched::Parameter(at);
     }
@@ -6891,15 +6942,45 @@ fn bound_value(word: &str, f: &Function, raw: &[&str], code: &[String], depth: u
     .flatten()
     .find(|(name, _)| name == word)
     .map(|(_, value)| value);
-    let constant = format!("const {word}: ");
-    let constant = || {
-        let line = raw.iter().find(|l| l.trim_start().starts_with(&constant))?;
-        Some(line.split_once(" = ")?.1.trim_end_matches(';').to_owned())
-    };
-    match bound.or_else(constant) {
-        Some(value) => searched_for(&value, f, raw, code, depth + 1),
-        None => Searched::Other,
+    if let Some(value) = bound {
+        return searched_for(&value, f, raw, code, constants, depth + 1);
     }
+    // A constant of the function's own file hides those of other files, and of those, imported
+    // by a `use`, each one that has the name may be the one meant.
+    let named: Vec<&(String, String, String)> = constants.iter().filter(|c| c.1 == word).collect();
+    let own: Vec<&(String, String, String)> =
+        named.iter().copied().filter(|c| c.0 == f.file).collect();
+    let meant = if own.is_empty() { named } else { own };
+    let is_property = |c: &&(String, String, String)| {
+        searched_for(&c.2, f, raw, code, constants, depth + 1) == Searched::Property
+    };
+    match meant.iter().any(is_property) {
+        true => Searched::Property,
+        false => Searched::Other,
+    }
+}
+
+/// Returns the `const` and `static` items of `sources` written on one line, each as its file,
+/// its name and its value as written.
+fn constants_in(sources: &[(String, String)]) -> Vec<(String, String, String)> {
+    let mut constants = Vec::new();
+    for (file, text) in sources {
+        for line in text.lines() {
+            let item = without_qualifiers(line.trim_start());
+            let Some(rest) = (item.strip_prefix("const ")).or(item.strip_prefix("static ")) else {
+                continue;
+            };
+            let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+            let (Some((name, _)), Some((_, value))) =
+                (rest.split_once(':'), rest.split_once(" = "))
+            else {
+                continue;
+            };
+            let value = value.trim_end().trim_end_matches(';').to_owned();
+            constants.push((file.clone(), name.trim().to_owned(), value));
+        }
+    }
+    constants
 }
 
 /// Returns the names of the parameters of function `f`, whose file's `code_lines` are `code`,
