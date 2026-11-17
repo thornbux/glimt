@@ -3791,8 +3791,8 @@ msgstr "Nie można nazwać tego okna: {why}"
 
 #: src/ui/dialogs.rs
 #, fuzzy
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
-msgstr "Nie można nazwać tego okna: nazwa ma do 64 liter, cyfr, - i _, i nie składa się z samych cyfr"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
+msgstr "Nie można nazwać tego okna: nazwa ma litery, cyfry, - i _, nie same cyfry, i najwyżej 64 bajty"
 
 #: src/files/file_io.rs
 #, fuzzy

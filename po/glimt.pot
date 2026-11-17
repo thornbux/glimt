@@ -3046,7 +3046,7 @@ msgid "Could not name this window: {why}"
 msgstr ""
 
 #: src/ui/dialogs.rs
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
 msgstr ""
 
 #: src/files/file_io.rs

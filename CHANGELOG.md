@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A window's name is told to hold at most 64 bytes, not 64 letters, as Glimt counts it: a
+  name of 33 letters such as æ was refused with a message that allowed it. Help's table of
+  differences also names the `--remote` commands `name` and `identify`.
+
 ## [0.86.0] - 2026-11-17
 
 ### Added

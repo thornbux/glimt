@@ -3780,8 +3780,8 @@ msgstr "Impossibile dare un nome a questa finestra: {why}"
 
 #: src/ui/dialogs.rs
 #, fuzzy
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
-msgstr "Impossibile dare un nome a questa finestra: un nome ha fino a 64 lettere, cifre, - e _, e non solo cifre"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
+msgstr "Impossibile dare un nome a questa finestra: un nome ha lettere, cifre, - e _, non solo cifre, e al massimo 64 byte"
 
 #: src/files/file_io.rs
 #, fuzzy

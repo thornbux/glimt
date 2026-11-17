@@ -88,18 +88,21 @@ out of use is still read, and ignored.
 
 `src/frozen-1.0.txt` pins these names, taken from the code's own tables:
 
-- the settings' keys; the values of each `config::NAMED` list in order; the values of `sort`
+- the settings' keys (`setting` lines); the values of each `config::NAMED` list in order
+  (`value` lines, as are the values that follow); the values of `sort`
   (`SORTS`), `layout` and `slideshow_one_image_at_a_time` (`LAYOUTS`, also `--layout`'s),
   `rendering_intent` (`INTENTS`), `input_profile`'s built-in words (`INPUT_PROFILES`),
   `print_paper` (`PAPERS`), `print_orientation` (`ORIENTATIONS`), `print_printer`'s own values
   (`print::SYSTEM_DIALOG` and `PDF_FILE`), `theme` (the built-in themes) and `language`
-  (`LANGUAGES` and `lang::ENGLISH`); the window state's keys (`WindowState`, `LAST_DIR`);
-- the `--remote` commands and the words of their choices (`on|off`, from `COMMANDS`), the
-  actions `--remote run` takes (`script` lines, from `SCRIPT_ACTIONS`, which only grows), and
-  the exit codes: `--remote`'s `cli::DONE` and `remote::NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`,
+  (`LANGUAGES` and `lang::ENGLISH`); the window state's keys (`state` lines, from
+  `WindowState` and `LAST_DIR`);
+- the `--remote` commands and the words of their choices (`remote` lines, with `on|off`, from
+  `COMMANDS`), the actions `--remote run` takes (`script` lines, from `SCRIPT_ACTIONS`, which
+  only grows), and the exit codes (`exit` lines): `--remote`'s `cli::DONE` and `remote::NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`,
   and those of `--check-config` and `--back-up` (`cli::CHECK_CONFIG_PROBLEMS`,
   `BACK_UP_FAILED`, `BACK_UP_NO_FOLDER`);
-- the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`;
+- the command-line options of `START_OPTIONS` with `--remote` and `--remote-all` (`option`
+  lines);
 - the `%field%` names of the templates (`field` lines). Each is checked to be filled, for a test
   image, in the templates it belongs to: the full screen info and the print caption (`name`,
   `path`, `position`, `dimensions`, `marks`, `keywords`, `comment`, and the EXIF labels of the
@@ -115,13 +118,16 @@ out of use is still read, and ignored.
   sidecars' lock files a sidecar takes (`sidecar_lock` lines, from `xmp::LOCK_FILES`,
   `lock_file_number` of `sidecar_hash` and `xmp::lock_file_path`). Windows of two versions that
   run at once must take the same lock for one file, or both read it and the last write drops
-  the other's change. A plan of Rename Many and a log of Move are each locked as the file
-  itself, which tells one still running from one cut short. Every lock is a flock
-  (`lock_kind` lines, for `file_io::open_and_lock`, `journal::start_journal` and
-  `start_move_log`): a lock of another kind (fcntl) would keep every name and exclude
-  nothing. Where a plan or log has the list of the files it moves (`list` lines, from
-  `journal::known_path`) is pinned too, or a later Glimt would take every older plan and log by
-  its names alone;
+  the other's change. A plan of Rename Many, a move log and a delete log are each locked as
+  the file itself, which tells one still running from one cut short. Every lock is a flock
+  (`lock_kind` lines, for a lock file of `file_io::open_and_lock`, a plan of
+  `journal::start_journal`, a move log of `start_move_log` and a delete log of
+  `start_delete_log`): a lock of another kind (fcntl) would keep every name and exclude
+  nothing. Where a plan or log has the list of the files it moves or deletes (`list` lines,
+  from `journal::known_path`) is pinned too, or a later Glimt would take every older plan and
+  log by its names alone. So are the files a delete log keeps beside it, in folders of their
+  own: the collection shown, the sidecars put aside and the photos kept (`collection`, `aside`
+  and `kept` lines, from `journal::collection_path`, `aside_path` and `kept_path`);
 - the words of the groups in the sharing file (`sharing` lines, `Group::key`), and the names
   of the single tags and parts it holds (`sharing_tag` lines, from
   `shared_copy::names_of_single_tags`): each EXIF tag's name, one of each form a tag or part
@@ -398,8 +404,8 @@ their names, or change only through a table of old names, as *Frozen in 1.x* say
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`). A
 longer one is split into functions named for what each part does, beside it or in the module
 of that part. The exceptions are the tables with one arm per action (`Action::english`,
-`Action::icon`, `App::run`). Their arms stay a few lines long, and a longer arm becomes a
-method.
+`Action::icon`, `Action::target`, `App::run`). Their arms stay a few lines long, and a longer
+arm becomes a method.
 
 ## How to add things
 

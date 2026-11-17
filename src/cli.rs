@@ -197,9 +197,11 @@ impl Start {
             "--name" => {
                 if value.is_empty() || !(remote::valid_name(value) || remote::is_process_id(value))
                 {
-                    return Err("--name takes up to 64 letters, digits, - and _, or with \
+                    return Err(
+                        "--name takes letters, digits, - and _, at most 64 bytes, or with \
                          --remote the process ID of a Glimt"
-                        .into());
+                            .into(),
+                    );
                 }
                 if !remote::name_fits(value) {
                     return Err(format!(
@@ -423,6 +425,11 @@ mod tests {
         );
         assert!(Start::parse(args(&["--name", "12345678901"])).is_err());
         assert!(Start::parse(args(&["--name", "a/b"])).is_err());
+        // The limit counts bytes, as the error says: 33 letters of two bytes each are too many.
+        let told = Start::parse(args(&["--name", &"æ".repeat(33)]))
+            .err()
+            .unwrap();
+        assert!(told.contains("at most 64 bytes"), "{told}");
         assert!(Start::parse(args(&["--name"])).is_err());
         assert!(Start::parse(args(&["--kiosk", "d"])).unwrap().0.kiosk);
         assert!(

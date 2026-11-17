@@ -3036,8 +3036,8 @@ msgid "Could not name this window: {why}"
 msgstr "Kunne ikke gi vinduet et navn: {why}"
 
 #: src/ui/dialogs.rs
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
-msgstr "Kunne ikke gi vinduet et navn: et navn har opptil 64 bokstaver, sifre, - og _, og ikke bare sifre"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
+msgstr "Kunne ikke gi vinduet et navn: et navn har bokstaver, sifre, - og _, ikke bare sifre, og høyst 64 byte"
 
 #: src/files/file_io.rs
 msgid "A change could not be saved, because Glimt met an error while writing it"

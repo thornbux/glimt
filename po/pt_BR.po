@@ -3791,8 +3791,8 @@ msgstr "Não foi possível dar nome a esta janela: {why}"
 
 #: src/ui/dialogs.rs
 #, fuzzy
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
-msgstr "Não foi possível dar nome a esta janela: um nome tem até 64 letras, algarismos, - e _, e não só algarismos"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
+msgstr "Não foi possível dar nome a esta janela: um nome tem letras, algarismos, - e _, não só algarismos, e no máximo 64 bytes"
 
 #: src/files/file_io.rs
 #, fuzzy

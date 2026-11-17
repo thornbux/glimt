@@ -778,8 +778,8 @@ impl crate::App {
         // Whether it fits the socket's path is looked up with the rest in the background.
         if !name.is_empty() && !crate::features::remote::valid_name(name) {
             let why = tr(
-                "Could not name this window: a name holds up to 64 letters, digits, \
-                 - and _, and not only digits",
+                "Could not name this window: a name holds letters, digits, - and _, \
+                 not only digits, and at most 64 bytes",
             );
             return self.notice.give(why.to_owned());
         }
@@ -1682,8 +1682,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.name_window(&ctx, "4242");
-        let told = "Could not name this window: a name holds up to 64 letters, digits, - and _, \
-                    and not only digits";
+        let told = "Could not name this window: a name holds letters, digits, - and _, \
+                    not only digits, and at most 64 bytes";
         assert_eq!(app.notice.text(), Some(told));
         assert!(include_str!("../../po/no_nb.po").contains(told));
         std::fs::remove_dir_all(dir).unwrap();

@@ -3802,8 +3802,8 @@ msgstr "Okno nelze pojmenovat: {why}"
 
 #: src/ui/dialogs.rs
 #, fuzzy
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
-msgstr "Okno nelze pojmenovat: název má nejvýše 64 písmen, číslic, - a _, a ne jen číslice"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
+msgstr "Okno nelze pojmenovat: název má písmena, číslice, - a _, ne jen číslice, a nejvýše 64 bajtů"
 
 #: src/files/file_io.rs
 #, fuzzy

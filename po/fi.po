@@ -3780,8 +3780,8 @@ msgstr "Ikkunalle ei voitu antaa nimeä: {why}"
 
 #: src/ui/dialogs.rs
 #, fuzzy
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
-msgstr "Ikkunalle ei voitu antaa nimeä: nimessä on enintään 64 kirjainta, numeroa, - ja _, eikä pelkkiä numeroita"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
+msgstr "Ikkunalle ei voitu antaa nimeä: nimessä on kirjaimia, numeroita, - ja _, ei pelkkiä numeroita, ja enintään 64 tavua"
 
 #: src/files/file_io.rs
 #, fuzzy
