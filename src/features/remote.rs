@@ -1468,9 +1468,6 @@ fn read_each_answer(
     });
 }
 
-/// Reads the window's answer to `command` on `s` until the window closes the connection.
-/// Returns the bytes that came, with the error when the answer did not end within the time
-/// limit or the connection failed.
 /// Returns how long the client waits for the window's answer to `command`.
 fn client_limit(command: &str) -> std::time::Duration {
     match command.starts_with(WAIT_WORD) {
@@ -1480,6 +1477,9 @@ fn client_limit(command: &str) -> std::time::Duration {
     }
 }
 
+/// Reads the window's answer to `command` on `s` until the window closes the connection.
+/// Returns the bytes that came, with the error when the answer did not end within the time
+/// limit or the connection failed.
 fn read_answer(mut s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
     use std::io::Read;
     let _ = s.set_read_timeout(Some(client_limit(command)));

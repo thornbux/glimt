@@ -266,6 +266,13 @@ impl Folder {
         self.recursive
     }
 
+    /// Returns whether the list walks the trees of `places`, so that a share mounted below one
+    /// of them is read too. The "/" of a collection is no tree walked, even with `recursive`
+    /// set, and asked about the mounts below it, it would see every mount on the system.
+    pub(crate) fn walks_subfolders(&self) -> bool {
+        self.recursive && self.collection.is_none()
+    }
+
     /// Lists the subfolders' images too, or not, from the next listing on.
     pub(crate) fn set_recursive(&mut self, on: bool) {
         self.recursive = on;
@@ -1414,7 +1421,11 @@ impl crate::App {
         let mut open_paths = self.folder.folders.clone();
         open_paths.extend(self.folder.collection.clone());
         open_paths.push(self.folder.dir.clone());
-        let with_subfolders = self.folder.recursive;
+        // The share is asked about for the places the list shows, never for the "/" of several
+        // folders shown together, whose mounts below are every mount on the system.
+        let mut places = self.folder.places();
+        places.extend(self.folder.collection.clone());
+        let with_subfolders = self.folder.walks_subfolders();
         let (watcher_generation, tx, ctx) = (
             self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
@@ -1426,7 +1437,7 @@ impl crate::App {
                 read.iter_mut()
                     .for_each(|(path, time)| *time = modified(path));
             }
-            let on_a_share = is_any_on_a_share(&open_paths, with_subfolders);
+            let on_a_share = is_any_on_a_share(&places, with_subfolders);
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
@@ -3687,6 +3698,40 @@ mod tests {
         let total = super::total_size_unless_on_a_share(&places, true, &paths);
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
         assert!(super::total_size_unless_on_a_share(&places, false, &paths) > 0);
+        test_mount(&dir.join("nas"), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection's list is under "/", which no walk reads as a tree, also with View →
+    /// Subfolders on. So a share mounted anywhere, such as GNOME's gvfs folder, leaves the sums
+    /// of its selection and matches alone. Before, "/" was asked about every mount below it, and
+    /// the sizes of local files were said to be on a network folder.
+    #[test]
+    fn a_collection_with_subfolders_on_is_not_taken_for_a_tree() {
+        use crate::files::file_ops::test_mount;
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-share-collection-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join("nas")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let dir = crate::model::listing::real_dir(&dir);
+        let collection = dir.join("c.gqv");
+        let entry = format!("#GQview collection\n\"{}\"\n", dir.join("a.png").display());
+        std::fs::write(&collection, entry).unwrap();
+        test_mount(&dir.join("nas"), Some("cifs"));
+        let (mut app, ctx) = app_on(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, collection);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert!(app.folder.collection().is_some());
+        app.folder.show_subfolders(true);
+        assert!(!app.folder.walks_subfolders());
+        let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
+        let total =
+            super::total_size_unless_on_a_share(&places, app.folder.walks_subfolders(), &paths);
+        assert!(total > 0 && total != crate::support::format::NOT_COUNTED_ON_A_SHARE);
         test_mount(&dir.join("nas"), None);
         std::fs::remove_dir_all(dir).unwrap();
     }

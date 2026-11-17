@@ -283,7 +283,7 @@ impl crate::App {
         };
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files()[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
-        let with_subfolders = self.folder.recursive();
+        let with_subfolders = self.folder.walks_subfolders();
         let (dir, places, ctx) = (
             self.folder.dir().to_path_buf(),
             self.folder.places(),
