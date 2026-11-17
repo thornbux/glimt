@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-11-17
+
 ### Fixed
 
 - A window's name is told to hold at most 64 bytes, not 64 letters, as Glimt counts it: a
@@ -4276,7 +4278,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.86.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.87.0...HEAD
+[0.87.0]: https://github.com/thornbux/glimt/compare/v0.86.0...v0.87.0
 [0.86.0]: https://github.com/thornbux/glimt/compare/v0.85.0...v0.86.0
 [0.85.0]: https://github.com/thornbux/glimt/compare/v0.84.0...v0.85.0
 [0.84.0]: https://github.com/thornbux/glimt/compare/v0.83.0...v0.84.0
