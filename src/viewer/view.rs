@@ -50,7 +50,7 @@ pub(crate) struct DecodeJob {
     /// Whether it is decoded at full resolution (zoomed in), not at the view's size.
     pub(crate) full_resolution: bool,
     pub(crate) path: PathBuf,
-    pub(crate) page: usize,
+    pub(crate) page: crate::images::decode::PageNumber,
     /// The request's number, as `pending` knows it.
     pub(crate) request_number: u64,
     /// The box to shrink into, sent with the job, so a decode is at the size asked for when it
@@ -510,7 +510,7 @@ impl crate::App {
             let _ = (self.decoding.decode_requests).send(DecodeJob {
                 full_resolution: full,
                 path,
-                page,
+                page: crate::images::decode::PageNumber(page),
                 request_number: self.decoding.last_request_number,
                 max_box: max,
             });
@@ -590,7 +590,7 @@ impl crate::App {
             let wanted = self.is_file(idx, &d.path)
                 && !crate::files::file_io::is_another_file(identity, self.list.identity(idx))
                 && d.rotated == self.config.exif_rotate
-                && d.page == if idx == self.list.shown() { self.viewing.page } else { 0 }
+                && d.page.0 == if idx == self.list.shown() { self.viewing.page } else { 0 }
                 && lock_even_if_poisoned(&self.decoding.kept_images).contains(&d.path)
                 // Full resolution is kept for each image on screen: the shown one, the compared
                 // one and the panes of a layout, which zoom together.
@@ -2044,7 +2044,7 @@ pub(crate) fn spawn_decoders(
             let read = crate::files::file_io::fingerprint(&path);
             // The histogram here too, so the UI thread never walks the pixels.
             let result = Some(
-                catch_panic_as_error(|| decode(&path, max_box, rotated, page)).map(
+                catch_panic_as_error(|| decode(&path, max_box, rotated, page.0)).map(
                     |(frames, orig, pages)| {
                         let hist = histogram(&frames[0].0);
                         (frames, orig, hist, pages)

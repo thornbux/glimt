@@ -624,8 +624,10 @@ const REFUSED_CALLS: &[&str] = &[
 /// Glimt's own functions that make one of them, such as `read_limited` or the writers of
 /// file_io, are not listed: `the_window_thread_never_waits_for_the_disk` follows every call to
 /// the functions it reaches. Listed too are the other waits the window must not make: for a
-/// program (`run_limited`, `output_of`, `short_output_of`), and for a decode (the three ways
-/// into one, `from_decoder`, `scaled` and `from_memory`), which take as long without the disk.
+/// program (`run_limited`, `output_of`, `short_output_of`), for a decode (the three ways into
+/// one, `from_decoder`, `scaled` and `from_memory`), which take as long without the disk, and
+/// for another thread with no time limit, which may itself be waiting for the disk. The join of
+/// a scope's thread is no such wait, because the scope's work is checked as the caller's own.
 const DISK_CALLS: &[&str] = &[
     "run_limited(",
     "output_of(",
@@ -633,6 +635,12 @@ const DISK_CALLS: &[&str] = &[
     // A program waited for under a `Watchdog`, which may take minutes (`lp`, `gio mount`).
     "wait_with_output(",
     ".wait()",
+    // Another thread's end, its message, or what it signals.
+    ".join()",
+    "JoinHandle::join(",
+    ".recv()",
+    "Receiver::recv(",
+    "wait_while(",
     "from_decoder(",
     "scaled(",
     "from_memory(",
@@ -705,6 +713,27 @@ const WRITING_WORK: &[&str] = &[
     "write_sidecars(",
     "undo_on_the_way(",
     "WRITING",
+];
+
+/// What a thread does not do while it holds a lock (AGENTS.md, "Background work"): catch a
+/// panic, send a message, or wait for another thread or a program. Every other thread that
+/// takes the lock, the window's too, would wait as long. `locks_held_across_waits` finds them.
+const NOT_WHILE_LOCKED: &[&str] = &[
+    "catch_panic(",
+    ".send(",
+    ".join()",
+    "JoinHandle::join(",
+    ".recv()",
+    "Receiver::recv(",
+    "recv_timeout(",
+    ".wait(",
+    "wait_timeout(",
+    "wait_while(",
+    "wait_with_output(",
+    "run_limited(",
+    "output_of(",
+    "short_output_of(",
+    "sleep(",
 ];
 
 /// The ways a text is searched for another in Rust, each as the call written and which of its
@@ -860,9 +889,20 @@ impl CallGraph {
         let signature = lines[*f.lines.start()..=opens.unwrap_or(*f.lines.start())].join(" ");
         let mut calls = Vec::new();
         let mut handed_over = 0usize;
+        // A scope's threads are joined at its end, and their work is checked as this
+        // function's own, so a join inside the scope is no wait for another thread.
+        let mut scopes = Vec::new();
+        let mut in_a_scope = std::collections::HashSet::new();
         for i in f.lines.clone() {
-            let code = code_of_this_thread(&lines[i], &mut handed_over);
-            let disk = DISK_CALLS.iter().find(|c| code.contains(**c));
+            scopes.extend(scope_names(&lines[i]));
+            for (at, _) in lines[i].match_indices("thread::scope(") {
+                in_a_scope.extend(i..=call_text(lines, i, at).1);
+            }
+        }
+        for i in f.lines.clone() {
+            let code = code_of_this_thread(&lines[i], &mut handed_over, &scopes);
+            let is_wait_in_scope = |c: &str| in_a_scope.contains(&i) && c.contains("join(");
+            let disk = (DISK_CALLS.iter()).find(|c| code.contains(**c) && !is_wait_in_scope(c));
             calls.extend(disk.map(|c| Call {
                 callee: None,
                 text: (*c).to_owned(),
@@ -2479,24 +2519,50 @@ fn finds_a_writing_thread_that_tells_nothing() {
     assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d", "x.rs: e"]);
 }
 
+/// The check above finds a writing thread in each way one is started, and judges each thread
+/// by its own call: a thread through `told_work` does not let another of its function pass.
+/// Before, only `thread::spawn(` was looked at, and on its own line.
+#[test]
+fn finds_every_writing_thread_that_tells_nothing() {
+    let text = "impl A {\n    fn a(app: &App) {\n        let job = app.start_job(x);\n        \
+        std::thread::Builder::new()\n            .name(n)\n            .spawn(move || drop(job));\n    \
+        }\n    fn b(app: &App) {\n        let job = app.start_job(x);\n        \
+        spawn(move || drop(job));\n    }\n    fn c(app: &App) {\n        \
+        let w = app.start_job_of(x);\n        \
+        std::thread::spawn(told_work(app.notice_sender.clone(), c, w, work));\n        \
+        std::thread::spawn(move || drop(other));\n    }\n    fn d(app: &App) {\n        \
+        let w = app.start_job_of(x);\n        std::thread::spawn(\n            \
+        told_work(app.notice_sender.clone(), c, w, work),\n        );\n    }\n}\n";
+    assert_eq!(
+        untold_writing_threads("x.rs", text),
+        ["x.rs: a", "x.rs: b", "x.rs: c"]
+    );
+}
+
 /// Returns the functions in `text`, the source of `file`, that start writing work
-/// (`WRITING_WORK`) and spawn a thread that does not run through `told_work`.
+/// (`WRITING_WORK`) and start a thread (`thread_start`) that does not run through `told_work`.
 fn untold_writing_threads(file: &str, text: &str) -> Vec<String> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let (mut function, mut writes, mut untold) = (String::new(), false, false);
+    let mut scopes = Vec::new();
     let mut wrong = Vec::new();
     // A last line that starts no function ends the last one, so it is checked too.
     let last = "fn end".to_owned();
-    for line in lines[..end].iter().chain([&last]) {
+    for (i, line) in lines[..end].iter().chain([&last]).enumerate() {
         if let Some(name) = function_name(line) {
             if writes && untold {
                 wrong.push(format!("{file}: {function}"));
             }
             (function, writes, untold) = (name.to_owned(), false, false);
+            scopes.clear();
         }
+        scopes.extend(scope_names(line));
         writes |= WRITING_WORK.iter().any(|w| line.contains(w));
-        untold |= line.contains("thread::spawn(") && !line.contains("told_work(");
+        // Each thread is judged by its own call, wherever its work is written.
+        if let Some(at) = thread_start(line, &scopes) {
+            untold |= !call_text(&lines[..end], i, at).0.contains("told_work(");
+        }
     }
     wrong
 }
@@ -5910,22 +5976,28 @@ fn threads_show_the_busy_pointer_or_say_why_not() {
     );
 }
 
-/// Returns the lines of `text` outside the tests that start a thread (`thread::spawn(`) in a
-/// function that has made or been given no busy pointer up to that line (no `Working`,
-/// `AnswerSender` or `answer_channel`), unless the comment lines just above the statement
-/// say "No busy pointer:" or "Its busy pointer:".
+/// Returns the lines of `text` outside the tests that start a thread (`thread_start`) that is
+/// given no busy pointer of its own, unless the comment lines just above the statement say
+/// "No busy pointer:" or "Its busy pointer:". A thread has a pointer of its own when its call
+/// makes one (a `Working`, an `AnswerSender` or an `answer_channel`), or names what its
+/// function bound to one before it (`pointer_holders`), so that a pointer moved into one thread
+/// does not count for the next.
 fn threads_without_pointer(text: &str) -> Vec<usize> {
     let (code, comments) = (code_lines(text), comment_lines(text));
+    let end = tests_start(&code);
     let mut found = Vec::new();
-    let mut has_pointer = false;
-    for (i, line) in code[..tests_start(&code)].iter().enumerate() {
+    let (mut holders, mut scopes): (Vec<String>, Vec<String>) = Default::default();
+    for (i, line) in code[..end].iter().enumerate() {
         if function_name(line).is_some() {
-            has_pointer = false;
+            (holders, scopes) = Default::default();
         }
-        has_pointer |= ["Working", "AnswerSender", "answer_channel("]
-            .iter()
-            .any(|p| line.contains(p));
-        if !line.contains("thread::spawn(") || has_pointer {
+        scopes.extend(scope_names(line));
+        let bound = pointer_holders(line, &holders);
+        holders.extend(bound);
+        let Some(at) = thread_start(line, &scopes) else {
+            continue;
+        };
+        if names_a_pointer(&call_text(&code[..end], i, at).0, &holders) {
             continue;
         }
         // Up to the statement's first line, then up the comments and attributes above it.
@@ -5950,6 +6022,60 @@ fn threads_without_pointer(text: &str) -> Vec<usize> {
     found
 }
 
+/// Returns whether `text` makes a busy pointer (a `Working`, an `AnswerSender` or an
+/// `answer_channel`) or names one of `holders` as a word.
+fn names_a_pointer(text: &str, holders: &[String]) -> bool {
+    const POINTERS: [&str; 3] = ["Working", "AnswerSender", "answer_channel("];
+    let names = |name: &String| {
+        (text.match_indices(name.as_str())).any(|(at, _)| {
+            !text[..at].ends_with(is_word_char)
+                && !text[at + name.len()..].starts_with(is_word_char)
+        })
+    };
+    POINTERS.iter().any(|p| text.contains(p)) || holders.iter().any(names)
+}
+
+/// Returns the names that `line` binds to a busy pointer or to what holds one: those of a `let`
+/// whose value makes one or names one of `holders` (each name of a tuple by its own part), and
+/// a parameter whose type is one.
+fn pointer_holders(line: &str, holders: &[String]) -> Vec<String> {
+    if line.trim_start().starts_with("let ") {
+        return (let_bindings(line).into_iter())
+            .filter(|(_, value)| names_a_pointer(value, holders))
+            .map(|(name, _)| name)
+            .filter(|name| !name.is_empty() && name.chars().all(is_word_char))
+            .collect();
+    }
+    (line.split([',', '(']))
+        .filter_map(|part| part.split_once(": "))
+        .filter(|(_, written)| names_a_pointer(written, &[]))
+        .map(|(name, _)| name.trim().trim_start_matches("mut ").to_owned())
+        .filter(|name| !name.is_empty() && name.chars().all(is_word_char))
+        .collect()
+}
+
+/// Returns where `line` starts a thread that may outlive its function, in each way one is
+/// started: `thread::spawn(`, `spawn(` imported alone, and a `thread::Builder`'s `.spawn(` with
+/// its work, also on a line of its own. A scope's thread, started on one of the receivers in
+/// `scopes`, ends before its scope does, and a program's `.spawn()` has nothing in its
+/// parentheses, so both are left out. Returns `None` for a line that starts no thread.
+fn thread_start(line: &str, scopes: &[String]) -> Option<usize> {
+    let call = "spawn(";
+    (line.match_indices(call).map(|(at, _)| at)).find(|&at| {
+        let before = &line[..at];
+        let has_work = !line[at + call.len()..].starts_with(')');
+        match before.ends_with('.') {
+            true => has_work && !is_scoped(before, scopes),
+            false => {
+                before.ends_with("thread::")
+                    || !(before.ends_with(is_word_char)
+                        || before.ends_with(':')
+                        || before.ends_with("fn "))
+            }
+        }
+    })
+}
+
 /// The check above finds a thread started without a pointer, also when another function made
 /// one, and passes one with a `Working` made before it or given to its function, one that
 /// answers through an `AnswerSender`, one whose comment above says why it needs none (also
@@ -5960,12 +6086,36 @@ fn finds_a_thread_without_the_busy_pointer() {
         std::thread::spawn(move || drop(p));\n}\nfn b() {\n    std::thread::spawn(f);\n}\n\
         fn c(p: Working) {\n    std::thread::spawn(move || drop(p));\n}\n\
         fn d(&self) {\n    let (tx, rx) = answer_channel(&self.busy);\n    \
-        std::thread::spawn(f);\n}\nfn e() {\n    // No busy pointer: a listener.\n    \
+        std::thread::spawn(move || tx.send(1));\n}\nfn e() {\n    // No busy pointer: a listener.\n    \
         std::thread::spawn(f);\n    // A reaper.\n    std::thread::spawn(g);\n}\n\
         fn f() {\n    // No busy pointer: a reaper, which\n    // reaps.\n    \
         #[allow(clippy::disallowed_methods)] // a reason\n    \
         std::thread::spawn(move || child.wait());\n    std::thread::scope(|s| s.spawn(g));\n}\n";
     assert_eq!(threads_without_pointer(text), [6, 19]);
+}
+
+/// The check above finds a thread in each way one is started: through a `thread::Builder`,
+/// also with its `.spawn(` on a line of its own, and by `spawn(` imported alone. It finds a
+/// second thread of a function whose pointer the first took, and passes one that makes its own
+/// pointer inside its work, one given a pointer through a tuple's binding or a clone of a
+/// sender, a program's `.spawn()` and a scope's thread. Before, only `thread::spawn(` was
+/// looked at, and one pointer in a function let every later thread there pass.
+#[test]
+fn finds_every_thread_without_the_busy_pointer() {
+    let text = "fn a() {\n    std::thread::Builder::new().name(n).spawn(f);\n}\n\
+        fn b() {\n    std::thread::Builder::new()\n        .name(n)\n        .spawn(move || f());\n}\n\
+        fn c() {\n    spawn(f);\n}\n\
+        fn d(&self) {\n    let p = Working::new(&self.busy);\n    \
+        std::thread::spawn(move || drop(p));\n    std::thread::spawn(g);\n}\n\
+        fn e(&self) {\n    std::thread::spawn(move || {\n        \
+        let _p = Working::new(&busy);\n    });\n}\n\
+        fn f(&self) {\n    let (pointer, ctx) = (Working::new(&self.busy), c.clone());\n    \
+        let (sender, answers) = answer_channel(&self.busy);\n    let tx = sender.clone();\n    \
+        std::thread::spawn(told_work(n, &ctx, pointer, work));\n    \
+        std::thread::spawn(move || tx.send(1));\n    std::thread::spawn(move || ctx.x());\n}\n\
+        fn g() {\n    let child = command.spawn()?;\n    \
+        std::thread::scope(|scope| {\n        scope.spawn(f);\n    });\n}\n";
+    assert_eq!(threads_without_pointer(text), [2, 7, 10, 15, 28]);
 }
 
 /// Returns the names, in `sources` outside the tests, of the fields, arguments and functions
@@ -6337,8 +6487,12 @@ fn the_marks_lock_is_never_held_across_the_disk() {
     }
     for f in (graph.functions.iter()).filter(|f| f.owner.as_deref() == Some("Marks")) {
         let mut handed_over = 0;
+        let scopes: Vec<String> = (f.lines.clone())
+            .flat_map(|i| scope_names(&lines[i]))
+            .collect();
         for i in f.lines.clone() {
-            if code_of_this_thread(&lines[i], &mut handed_over).contains("known_stamps()") {
+            let code = code_of_this_thread(&lines[i], &mut handed_over, &scopes);
+            if code.contains("known_stamps()") {
                 wrong.push(format!(
                     "{file}:{} the window locks it in {}",
                     i + 1,
@@ -6352,6 +6506,189 @@ fn the_marks_lock_is_never_held_across_the_disk() {
         "the marks' lock is held across the disk:\n{}",
         wrong.join("\n")
     );
+}
+
+/// A lock is never held across a `catch_panic`, a channel's send or a wait (`NOT_WHILE_LOCKED`),
+/// as AGENTS.md says, in any file: a guard taken with `lock_even_if_poisoned`, or given by a
+/// function of the crate that returns one, such as the marks' `known_stamps`. Before, only the
+/// marks' lock was checked, and only against the disk.
+#[test]
+fn locks_are_never_held_across_a_wait() {
+    let sources = rust_sources();
+    let lockers = lock_calls(&sources);
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        let found = locks_held_across_waits(text, &lockers);
+        wrong.extend(
+            found
+                .iter()
+                .map(|(line, call)| format!("{file}:{line} {call}")),
+        );
+    }
+    assert!(
+        wrong.is_empty(),
+        "a lock is held across a catch_panic, a send or a wait (let it go first):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds a lock held across a send, a wait and a `catch_panic`: by a guard
+/// bound with `let`, up to the end of its block or its `drop`, by a temporary to the end of its
+/// statement and through the block of a `match` it starts, and through a function that returns
+/// a guard. It passes a guard dropped before, a `Condvar`'s wait that is given the guard, a wait
+/// on the locked receiver itself, the condition of a plain `if`, a guard whose block ended, work
+/// handed to another thread, and the tests.
+#[test]
+fn finds_a_lock_held_across_a_wait() {
+    let text = "fn guard() -> MutexGuard<'static, u8> {\n    lock_even_if_poisoned(&M)\n}\n\
+        fn a() {\n    let guard = lock_even_if_poisoned(&state);\n    tx.send(guard.clone());\n}\n\
+        fn b() {\n    let mut g = lock_even_if_poisoned(&s);\n    drop(g);\n    tx.send(1);\n}\n\
+        fn c() {\n    tx.send(lock_even_if_poisoned(&s).clone());\n}\n\
+        fn d() {\n    match lock_even_if_poisoned(&s).get(k) {\n        \
+        Some(x) => catch_panic(|| x),\n        None => 0,\n    };\n}\n\
+        fn e() {\n    let mut g = crate::support::threads::lock_even_if_poisoned(&s);\n    \
+        while g.is_none() {\n        g = CV.wait(g).unwrap_or_else(|e| e.into_inner());\n    \
+        }\n}\nfn f() {\n    if *lock_even_if_poisoned(&s) != 1 {\n        tx.send(1);\n    }\n}\n\
+        fn g() {\n    let g = guard();\n    handle.join();\n}\n\
+        fn h() {\n    {\n        let g = lock_even_if_poisoned(&s);\n        g.push(1);\n    }\n    \
+        rx.recv();\n}\nfn i() {\n    let g = lock_even_if_poisoned(&s);\n    \
+        std::thread::spawn(move || tx.send(1));\n}\n\
+        fn j() {\n    let Ok(job) = lock_even_if_poisoned(&jobs).recv() else {\n        \
+        return;\n    };\n    let rx = lock_even_if_poisoned(&shared);\n    \
+        let next = rx.recv_timeout(t);\n}\n\
+        #[cfg(test)]\nmod tests {\n    fn t() {\n        \
+        let g = lock_even_if_poisoned(&s);\n        rx.recv();\n    }\n}\n";
+    let lockers = lock_calls(&[("x.rs".into(), text.into())]);
+    assert_eq!(lockers, ["lock_even_if_poisoned(", "guard("]);
+    let found = locks_held_across_waits(text, &lockers);
+    let found: Vec<(usize, &str)> = found.iter().map(|(l, c)| (*l, c.as_str())).collect();
+    assert_eq!(
+        found,
+        [
+            (6, ".send("),
+            (14, ".send("),
+            (18, "catch_panic("),
+            (35, ".join()")
+        ]
+    );
+}
+
+/// Returns the calls that take a lock: `lock_even_if_poisoned(`, and each function of
+/// `sources` that returns the guard it took, such as `known_stamps(`.
+fn lock_calls(sources: &[(String, String)]) -> Vec<String> {
+    let mut lockers = vec!["lock_even_if_poisoned(".to_owned()];
+    for (file, text) in sources {
+        let lines = code_lines(text);
+        for f in functions_in(file, &lines) {
+            let lines = &lines[f.lines.clone()];
+            let head: String = (lines.iter())
+                .take_while(|l| !l.ends_with('{'))
+                .chain(lines.iter().find(|l| l.ends_with('{')))
+                .map(String::as_str)
+                .collect();
+            let returns = head.split_once("->").map_or("", |(_, r)| r);
+            if returns.contains("MutexGuard") && f.name != "lock_even_if_poisoned" {
+                lockers.push(format!("{}(", f.name));
+            }
+        }
+    }
+    lockers
+}
+
+/// Returns the lines of `text` outside the tests that hold a lock taken with one of `lockers`
+/// across a call of `NOT_WHILE_LOCKED`, each with that call. A guard bound by `let` is held up
+/// to the end of its block, or to a `drop` of it at the same depth. A temporary guard is held to
+/// the end of its statement, and through the block of a `match`, `if let` or `while let` that
+/// it starts, but not past the condition of a plain `if` or `while`. A `Condvar`'s wait that is
+/// given the guard lets the lock go while it waits, and the work handed to another thread runs
+/// without the lock. A call made on the locked value itself, such as a pool's workers taking
+/// turns at one receiver (`lock_even_if_poisoned(&jobs).recv()`), is what the lock is for: every
+/// thread that takes the lock waits for that same call.
+fn locks_held_across_waits(text: &str, lockers: &[String]) -> Vec<(usize, String)> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        let locks = lockers.iter().any(|l| mentions_call(line, l));
+        if !locks || function_name(line).is_some() {
+            continue;
+        }
+        let guard = bound_guard(line, lockers);
+        let trimmed = line.trim_start();
+        let is_condition = (trimmed.starts_with("if ") && !trimmed.starts_with("if let "))
+            || (trimmed.starts_with("while ") && !trimmed.starts_with("while let "));
+        let after = |j: &usize| !lines[*j].trim().is_empty() && indent(&lines[*j]) <= indent(line);
+        let last = match &guard {
+            Some(name) => {
+                let drops = format!("drop({name})");
+                let ends = |j: &usize| {
+                    indent(&lines[*j]) < indent(line)
+                        || (indent(&lines[*j]) == indent(line) && lines[*j].contains(&drops))
+                };
+                (i + 1..end).find(ends).unwrap_or(end)
+            }
+            None if is_condition => i,
+            // The statement goes on over the lines indented deeper, and its block ends with a
+            // closing brace at its own depth.
+            None => match (i + 1..end).find(after) {
+                Some(j) if lines[j].trim_start().starts_with('}') => j,
+                Some(j) => j - 1,
+                None => end - 1,
+            },
+        };
+        let mut handed_over = 0;
+        for (j, held) in lines.iter().enumerate().take(last.min(end - 1) + 1).skip(i) {
+            let code = code_of_this_thread(held, &mut handed_over, &[]);
+            let gives_the_guard = |at: usize, call: &str| {
+                let argument = code[at + call.len()..].trim_start();
+                guard.as_ref().is_some_and(|g| {
+                    argument.starts_with(g.as_str())
+                        && !argument[g.len()..].starts_with(is_word_char)
+                })
+            };
+            let is_on_the_lock = |at: usize| {
+                let before = code[..at].strip_suffix('.').unwrap_or(&code[..at]);
+                let is_the_guard = guard.as_ref().is_some_and(|g| {
+                    (before.strip_suffix(g.as_str())).is_some_and(|b| !b.ends_with(is_word_char))
+                });
+                let ends_in_a_lock = lockers.iter().any(|l| {
+                    (before.rfind(l.as_str())).is_some_and(|k| {
+                        call_text(&[before.to_owned()], 0, k).0.len() == before.len() - k
+                    })
+                });
+                is_the_guard || ends_in_a_lock
+            };
+            let waits = NOT_WHILE_LOCKED.iter().find(|call| {
+                (code.match_indices(**call)).any(|(at, _)| {
+                    let is_condvar_wait = call.contains("wait") && call.ends_with('(');
+                    !((is_condvar_wait && gives_the_guard(at, call)) || is_on_the_lock(at))
+                })
+            });
+            if let Some(call) = waits {
+                found.push((j + 1, (*call).to_owned()));
+            }
+        }
+    }
+    found
+}
+
+/// Returns the name that `line` binds a guard to, when it is a `let` of nothing but a call of
+/// one of `lockers`, such as `let mut held = lock_even_if_poisoned(&m);`. Returns `None` for
+/// another line.
+fn bound_guard(line: &str, lockers: &[String]) -> Option<String> {
+    let rest = line.trim_start().strip_prefix("let ")?;
+    let (name, expression) = rest.split_once(" = ")?;
+    let name = name.trim_start_matches("mut ").trim();
+    let expression = expression.trim_end_matches(';');
+    let is_the_call = |locker: &String| {
+        (expression.find(locker.as_str())).is_some_and(|at| {
+            let path = &expression[..at];
+            let (call, _) = call_text(&[expression.to_owned()], 0, at);
+            path.chars().all(|c| is_word_char(c) || c == ':') && at + call.len() == expression.len()
+        })
+    };
+    let is_name = !name.is_empty() && name.chars().all(is_word_char);
+    (is_name && lockers.iter().any(is_the_call)).then(|| name.to_owned())
 }
 
 /// Returns whether `text` calls `call` (`name(`, or a call of `DISK_CALLS`), not merely a
@@ -6442,8 +6779,12 @@ fn functions_in(file: &str, lines: &[String]) -> Vec<Function> {
     let (mut functions, mut owner, mut i) = (Vec::new(), None, 0);
     while i < end {
         let line = &lines[i];
-        if indent(line) == 0 && line.ends_with('{') {
-            owner = block_owner(without_qualifiers(line));
+        // The owner is taken from the line that starts the item, also when a `where` clause
+        // puts its `{` on a line of its own, as rustfmt writes an `impl` with bounds.
+        let starts_a_block = line.ends_with('{') && line != "{";
+        let owner_here = block_owner(without_qualifiers(line));
+        if indent(line) == 0 && (starts_a_block || owner_here.is_some()) {
+            owner = owner_here;
         }
         let name = function_name(line).filter(|_| indent(line) <= 4 && !line.ends_with(';'));
         let Some(name) = name else {
@@ -6483,6 +6824,28 @@ fn block_owner(item: &str) -> Option<String> {
     let rest = rest.rsplit(" for ").next()?.split(" where").next()?;
     let name = rest.split('<').next()?.rsplit("::").next()?.trim();
     Some(name.to_owned())
+}
+
+/// The functions found keep the type of their `impl` block also when its head goes on over
+/// several lines, as rustfmt writes one with a `where` clause. Before, the `{` on a line of
+/// its own gave no owner, so a part of `App` written so had its methods taken for free
+/// functions, whose disk calls the window's rule did not look at.
+#[test]
+fn finds_the_owner_of_an_impl_with_a_where_clause() {
+    let text = "impl<T> Part<T>\nwhere\n    T: X,\n{\n    fn a(&self) {}\n}\n\
+        fn b<T>()\nwhere\n    T: X,\n{\n}\nimpl Other {\n    fn c(&self) {}\n}\n";
+    let found: Vec<(String, Option<String>)> = (functions_in("x.rs", &code_lines(text)).iter())
+        .map(|f| (f.name.clone(), f.owner.clone()))
+        .collect();
+    let owner = |o: &str| Some(o.to_owned());
+    assert_eq!(
+        found,
+        [
+            ("a".into(), owner("Part")),
+            ("b".into(), None),
+            ("c".into(), owner("Other")),
+        ]
+    );
 }
 
 /// Returns the type of each field of the crate's structs with named fields, by (struct, field),
@@ -6616,25 +6979,90 @@ fn written_type(text: &str, signature: &str, word: &str) -> Option<String> {
     })
 }
 
-/// Returns the part of `line` that runs in the thread the line runs in: all of it, the part
-/// before a call that hands work to another thread, or nothing while the parentheses of such a
-/// call on an earlier line are still open. `handed_over` counts how deep they still go.
-fn code_of_this_thread<'l>(line: &'l str, handed_over: &mut usize) -> &'l str {
-    let (mut own, mut handed) = ("", line);
-    if *handed_over == 0 {
-        match HANDED_TO_A_THREAD.iter().filter_map(|c| line.find(c)).min() {
-            None => return line,
-            Some(at) => (own, handed) = line.split_at(at),
+/// Returns the part of `line` that runs in the thread the line runs in: all of it but the calls
+/// that hand work to another thread, also the rest of such a call that an earlier line opened.
+/// What follows such a call on its line (`spawn(f).join()`) runs in this thread again, and so
+/// does the work of a scope's thread, started on one of the receivers in `scopes`, as this
+/// thread waits for it. `handed_over` counts how deep the parentheses of such a call still go
+/// at the end of the line.
+fn code_of_this_thread(line: &str, handed_over: &mut usize, scopes: &[String]) -> String {
+    let handed_at = |rest: &str| {
+        (HANDED_TO_A_THREAD.iter())
+            .flat_map(|c| rest.match_indices(c).map(|(at, _)| at))
+            .filter(|&at| !is_scoped(&rest[..at], scopes))
+            .min()
+    };
+    let (mut own, mut rest) = (String::new(), line);
+    loop {
+        if *handed_over == 0 {
+            match handed_at(rest) {
+                None => {
+                    own.push_str(rest);
+                    return own;
+                }
+                Some(at) => {
+                    own.push_str(&rest[..at]);
+                    rest = &rest[at..];
+                }
+            }
+        }
+        // The handed call runs up to the `)` that closes its parentheses.
+        let mut closed = None;
+        for (at, c) in rest.char_indices() {
+            match c {
+                '(' => *handed_over += 1,
+                ')' => *handed_over = handed_over.saturating_sub(1),
+                _ => continue,
+            }
+            if *handed_over == 0 {
+                closed = Some(at + 1);
+                break;
+            }
+        }
+        match closed {
+            Some(end) => rest = &rest[end..],
+            None => return own,
         }
     }
-    for c in handed.chars() {
-        match c {
-            '(' => *handed_over += 1,
-            ')' => *handed_over = handed_over.saturating_sub(1),
-            _ => {}
+}
+
+/// Returns whether a call whose text before it is `before` is made on one of the receivers in
+/// `scopes` (`s.spawn(`): a scope's thread, which ends before its scope does.
+fn is_scoped(before: &str, scopes: &[String]) -> bool {
+    let Some(receiver) = before.strip_suffix('.') else {
+        return false;
+    };
+    let start = (receiver.rfind(|c: char| !is_word_char(c))).map_or(0, |i| i + 1);
+    scopes.iter().any(|s| *s == receiver[start..])
+}
+
+/// Returns the names that `line` gives the scopes of threads it opens: `s` for
+/// `std::thread::scope(|s| …)`.
+fn scope_names(line: &str) -> Vec<String> {
+    (line.match_indices("thread::scope(|"))
+        .filter_map(|(at, found)| line[at + found.len()..].split('|').next())
+        .map(|name| name.trim().to_owned())
+        .collect()
+}
+
+/// Returns the text of the call that starts at column `at` of line `first` of `lines`, up to
+/// the `)` that closes it, and the line where that is: the last line when none closes it.
+fn call_text(lines: &[String], first: usize, at: usize) -> (String, usize) {
+    let (mut text, mut depth) = (String::new(), 0usize);
+    for (i, line) in lines.iter().enumerate().skip(first) {
+        let from = if i == first { at } else { 0 };
+        for c in line[from..].chars() {
+            text.push(c);
+            match c {
+                '(' => depth += 1,
+                ')' if depth <= 1 => return (text, i),
+                ')' => depth -= 1,
+                _ => {}
+            }
         }
+        text.push('\n');
     }
-    own
+    (text, lines.len().saturating_sub(1))
 }
 
 /// The check above finds a look at the disk or a change on it in the functions of `App` and of
@@ -6722,6 +7150,41 @@ fn finds_a_wait_for_a_program_in_the_window_thread() {
         .map(|(_, f, c, ..)| (f.as_str(), c.as_str()))
         .collect();
     assert_eq!(found, [("a", "send_to_printer("), ("b", "mount(")]);
+}
+
+/// `the_window_thread_never_waits_for_the_disk` also finds a wait without a time limit for
+/// another thread, which may itself wait for the disk: for its end, for its message and for a
+/// `Condvar`'s condition, also after the thread's call on the line that starts it. It passes
+/// such a wait inside the work handed to the thread, and the join of a scope's thread, whose
+/// work it checks as the caller's own. Before, only waits for the disk, a program and a decode
+/// were found, so the window could hand its look at the disk to a thread and wait for it, and
+/// the work of a scope's thread was not checked at all.
+#[test]
+fn finds_a_wait_for_another_thread_in_the_window_thread() {
+    let a = "impl crate::App {\n    fn a(&self) {\n        \
+        let m = std::thread::spawn(move || std::fs::metadata(&p)).join();\n    }\n    \
+        fn b(&self) {\n        std::thread::spawn(move || tx.send(1));\n        \
+        let m = rx.recv();\n    }\n    fn c(&self) {\n        \
+        ready.wait_while(guard, |g| g.is_none());\n    }\n    fn d(&self) {\n        \
+        std::thread::spawn(move || tx.send(rx.recv()));\n    }\n    \
+        fn e(&self) {\n        std::thread::JoinHandle::join(handle);\n    }\n    \
+        fn f(&self) {\n        std::thread::scope(|s| {\n            \
+        let h = s.spawn(|| std::fs::metadata(&p));\n            h.join();\n        });\n    \
+        }\n}\n";
+    let found = disk_calls_in_window_thread(&[("a.rs".into(), a.into())], &[]);
+    let found: Vec<(&str, &str, usize)> = (found.iter())
+        .map(|(_, f, c, l, _)| (f.as_str(), c.as_str(), *l))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("a", ".join()", 3),
+            ("b", ".recv()", 7),
+            ("c", "wait_while(", 10),
+            ("e", "JoinHandle::join(", 16),
+            ("f", "fs::metadata(", 20),
+        ]
+    );
 }
 
 /// An XMP property is found only as a top-level property of a Description
@@ -7420,11 +7883,13 @@ fn walks_without_markup_skip(sources: &[(String, String)]) -> Vec<String> {
 /// share the parts came faster than the jobs were served, so the jobs were skipped and asked for
 /// again until the tree was read. In a function that starts a pool, no line about its jobs or
 /// what its workers share (a channel, an `Arc` or `Mutex`, a closure), with the crate's type
-/// aliases written out, names a `usize`.
+/// aliases and the fields of its structs written out, names a `usize`. A number
+/// that is no place in the list has a type of its own (`decode::PageNumber`), which is not
+/// written out.
 #[test]
 fn worker_pools_judge_jobs_by_their_files() {
     let sources = rust_sources();
-    let aliases = type_aliases(&sources);
+    let aliases = types_written_out(&sources);
     let mut wrong = Vec::new();
     for (file, text) in &sources {
         wrong.extend(pools_judged_by_place(file, text, &aliases));
@@ -7437,7 +7902,8 @@ fn worker_pools_judge_jobs_by_their_files() {
 }
 
 /// The check above finds a place in a job, in a channel and in what the workers share through a
-/// type alias, but not a count of workers.
+/// type alias, and in a field of a job's struct. It passes a count
+/// of workers and a number with a type of its own. Before, a struct's fields were not read.
 #[test]
 fn finds_a_pool_judged_by_place() {
     let text = "type Shown = Arc<Mutex<Vec<usize>>>;\n\
@@ -7448,20 +7914,32 @@ fn finds_a_pool_judged_by_place() {
         spawn_worker_pool(n, rx, |_| {}, go);\n}\n\
         fn d(\n    workers: usize,\n    shown: &Arc<Mutex<Vec<PathBuf>>>,\n) {\n    \
         spawn_worker_pool(n, rx, |_| {}, move |path: PathBuf| go(path));\n}\n\
-        fn e(shown: &Shown) {\n    go(shown);\n}\n";
+        fn e(shown: &Shown) {\n    go(shown);\n}\n\
+        struct Job {\n    place: usize,\n    path: PathBuf,\n}\n\
+        struct Paged {\n    page: PageNumber,\n}\nstruct PageNumber(usize);\n\
+        fn f() {\n    spawn_worker_pool(n, rx, |_| {}, move |job: Job| go(job.place));\n}\n\
+        fn g() {\n    spawn_worker_pool(n, rx, |_| {}, move |job: Paged| go(job.page));\n}\n";
     let sources = [("x.rs".to_owned(), text.to_owned())];
-    let aliases = type_aliases(&sources);
+    let aliases = types_written_out(&sources);
     assert_eq!(
         pools_judged_by_place("x.rs", text, &aliases),
-        ["x.rs: a", "x.rs: b", "x.rs: c"]
+        ["x.rs: a", "x.rs: b", "x.rs: c", "x.rs: f"]
     );
 }
 
-/// Returns the crate's type aliases in `sources`, each name with what it stands for.
-fn type_aliases(sources: &[(String, String)]) -> Vec<(String, String)> {
+/// Returns the crate's type aliases and its structs with named fields in `sources`, each name
+/// with what it stands for: the type of an alias, and the fields of a struct. A tuple struct
+/// (`PageNumber(usize)`) is a type of its own, so it is not written out.
+fn types_written_out(sources: &[(String, String)]) -> Vec<(String, String)> {
     let mut aliases = Vec::new();
     for (_, text) in sources {
-        for line in code_lines(text) {
+        let lines = code_lines(text);
+        for (i, line) in lines.iter().enumerate() {
+            if let Some(name) = struct_name(without_qualifiers(line.trim_start())) {
+                let last = block_end(&lines, i).unwrap_or(i);
+                aliases.push((name.to_owned(), lines[i + 1..=last].join(" ")));
+                continue;
+            }
             let Some(rest) = without_qualifiers(line.trim_start()).strip_prefix("type ") else {
                 continue;
             };
@@ -7501,6 +7979,7 @@ fn pools_judged_by_place(file: &str, text: &str, aliases: &[(String, String)]) -
         let mut written_out = line.clone();
         for (name, stands_for) in aliases {
             if has_word(line, name) {
+                written_out.push(' ');
                 written_out.push_str(stands_for);
             }
         }

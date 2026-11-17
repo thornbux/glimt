@@ -469,8 +469,9 @@ arm becomes a method.
   other output only during a frame, so hand results to the UI thread instead of calling the
   context from a worker. A mutex is locked only with `threads::lock_even_if_poisoned` (clippy
   refuses `Mutex::lock`), because a panic that `catch_panic` caught may have poisoned it. Do
-  not hold a lock across a `catch_panic`, a channel send or a wait. Two windows share only the
-  files that `file_io::edit_shared` writes, and the socket.
+  not hold a lock across a `catch_panic`, a channel send or a wait
+  (`source_rules::locks_are_never_held_across_a_wait`). Two windows share only the files that
+  `file_io::edit_shared` writes, and the socket.
 - **A new way to show the list** (such as the grid in the image area, G) gets what every view
   of the list needs. The first grid missed these through five audit rounds:
   - its form from `file_list`'s parameters, never from the settings inside the functions that
