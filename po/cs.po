@@ -4038,6 +4038,11 @@ msgstr "není známo, zda byl obrázek zapsán, a jeho doprovodný soubor {sidec
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "není známo, zda kopie získala název, proto doprovodný soubor tamního souboru zůstal jako {aside}; pokud tam ten soubor stále je, vraťte jeho doprovodnému souboru název {sidecar}"
 
+#: src/images/save.rs
+#, fuzzy
+msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
+msgstr "tamní soubor nebyl nahrazen, ale jeho doprovodný soubor {sidecar} mohl být odložen jako {aside}; pokud nemá svůj vlastní název, vraťte mu ho ({e})"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

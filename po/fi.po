@@ -4016,6 +4016,11 @@ msgstr "ei tiedetä, kirjoitettiinko kuva, ja sen sivutiedosto {sidecar} kertoo 
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "ei tiedetä, saiko kopio nimen, joten siellä olleen tiedoston sivutiedosto jäi nimelle {aside}; jos se tiedosto on yhä siellä, anna sen sivutiedostolle takaisin nimi {sidecar}"
 
+#: src/images/save.rs
+#, fuzzy
+msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
+msgstr "siellä olevaa tiedostoa ei korvattu, mutta sen sivutiedosto {sidecar} on voitu siirtää sivuun nimelle {aside}; jos sillä ei ole omaa nimeään, anna se sille takaisin ({e})"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

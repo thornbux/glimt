@@ -99,8 +99,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Save As and a turn saved on a share that loses its answer at the last step look whether the
   file was replaced: a copy that took the name is saved with its own sidecar. When the share
   cannot say for sure that it was, nothing is put back, and the error says where the replaced
-  file's sidecar was set aside, or that the turned image's sidecar already says what the new
-  image does. Before, the sidecar could stay under a hidden name, told only as "Input/output
+  file's sidecar was set aside (also when the share lost its answer to that step, before the
+  file was replaced), or that the turned image's sidecar already says what the new image does. Before, the sidecar could stay under a hidden name, told only as "Input/output
   error", or a saved copy was told as not saved, without its sidecar.
 - Save As, Save This Frame and Copy for Sharing say why they do not use a name where only a
   sidecar is, left without its image: the notice names that sidecar and says to move or delete

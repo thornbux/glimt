@@ -3225,6 +3225,10 @@ msgstr "det er ukjent om bildet ble skrevet, og sidefilen {sidecar} sier allered
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "det er ukjent om kopien fikk navnet, så sidefilen til filen der ble liggende som {aside}; hvis den filen fortsatt er der, gi sidefilen navnet {sidecar} tilbake"
 
+#: src/images/save.rs
+msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
+msgstr "filen der ble ikke erstattet, men sidefilen {sidecar} kan ha blitt lagt til side som {aside}; hvis den ikke har sitt eget navn, gi den navnet tilbake ({e})"
+
 #: src/metadata/xmp.rs
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
 msgstr "{sidecar} er en sidefil som ligger der uten bildet sitt, så navnet brukes ikke; flytt eller slett den for å bruke navnet"
