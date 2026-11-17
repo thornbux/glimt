@@ -100,8 +100,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   file was replaced: a copy that took the name is saved with its own sidecar. When the share
   cannot say for sure that it was, nothing is put back, and the error says where the replaced
   file's sidecar was set aside (also when the share lost its answer to that step, before the
-  file was replaced), or that the turned image's sidecar already says what the new image does. Before, the sidecar could stay under a hidden name, told only as "Input/output
-  error", or a saved copy was told as not saved, without its sidecar.
+  file was replaced), or that the turned image's sidecar already says what the new image does.
+  Before, the sidecar could stay under a hidden name, told only as "Input/output error", or a
+  saved copy was told as not saved, without its sidecar.
+- Delete for good on a share that loses its answer while it sets a photo's sidecar aside under
+  a hidden name, or gives it back after the photo could not go, names that hidden name, and the
+  next start gives the sidecar back to the photo. Before, the photo stayed, its sidecar stayed
+  hidden, the only message was "a.jpg.xmp: Host is down", and nothing ever put it back.
 - Save As, Save This Frame and Copy for Sharing say why they do not use a name where only a
   sidecar is, left without its image: the notice names that sidecar and says to move or delete
   it, and a look that failed says so. Before, it said "entity already exists", or that the
