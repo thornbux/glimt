@@ -886,9 +886,15 @@ impl CallGraph {
             let name = path.rsplit("::").next().unwrap_or(&path);
             let is_call = after.starts_with('(');
             // A function given as a value is told from a local by a name of more than one word
-            // or a path, because a local of one word is often named as a function is.
-            let is_value = after.starts_with([')', ','])
-                && before.trim_end().ends_with(['(', ','])
+            // or a path, because a local of one word is often named as a function is. It counts
+            // wherever it stands (`let write = replace_file;`, `if a { f } else { g }`), but not
+            // as a field (`x.name`, `name: value`), a macro or the name a `let` binds. Before, it
+            // counted only between `(` or `,` and `)` or `,`.
+            let is_field = before.ends_with('.')
+                || (after.starts_with(':') && !after.starts_with("::"))
+                || after.starts_with('!');
+            let binds = before.ends_with("let ") || before.ends_with("let mut ");
+            let is_value = !(is_call || is_field || binds || code.trim_start().starts_with("use "))
                 && (name.contains('_') || path.contains("::"));
             let is_type = name.starts_with(char::is_uppercase);
             if !(is_call || is_value) || before.ends_with("fn ") || is_type {
@@ -3044,21 +3050,32 @@ fn outside_homes_in(file: &str, text: &str, homes: &[(&str, &[(&str, &str)])]) -
     wrong
 }
 
-/// Returns whether `line` holds `text`. A call (`name(`) is also found as a function value
-/// (`.map(name)`, `f(name, x)`), and as renamed by a `use` (`use …::name as other;`), whose
-/// calls by the new name would not hold `text`. A rename is found on any line, so also inside a
-/// `use` whose braces span several lines.
+/// Returns whether `line` holds `text`. A call (`name(`) is also found as a function value,
+/// wherever the whole name stands (`.map(name)`, `let write = name;`, `if a { name } else`),
+/// and as renamed by a `use` (`use …::name as other;`), whose calls by the new name would not
+/// hold `text`. A rename is found on any line, so also inside a `use` whose braces span several
+/// lines. The name is not counted where it is defined (`fn name`), as a field (`x.name`,
+/// `name: value`), as a module (`name::`, `mod name`), or in a `use` that keeps it, whose calls
+/// are found by the name. Before, a
+/// value was counted only before `)` or `,`, so `let write = replace_file;` passed.
 fn mentions(line: &str, text: &str) -> bool {
     let Some(name) = text.strip_suffix('(').filter(|n| n.ends_with(is_word_char)) else {
         return line.contains(text);
     };
-    let is_whole = |at: usize| !line[..at].ends_with(is_word_char);
     let is_use = without_qualifiers(line.trim_start()).starts_with("use ");
     line.contains(text)
         || (line.match_indices(name)).any(|(at, _)| {
-            let after = &line[at + name.len()..];
-            is_whole(at)
-                && (after.starts_with(" as ") || (!is_use && after.starts_with([')', ','])))
+            let (before, after) = (&line[..at], &line[at + name.len()..]);
+            // A module of the same name is followed by `::`, or declared by `mod`.
+            let is_module =
+                (after.starts_with("::") && !after.starts_with("::<")) || before.ends_with("mod ");
+            let is_field = before.ends_with('.')
+                || (after.starts_with(':') && !after.starts_with("::"))
+                || after.starts_with('!');
+            let is_value = !(is_use || is_field || is_module || before.ends_with("fn "));
+            !before.ends_with(is_word_char)
+                && !after.starts_with(is_word_char)
+                && (after.starts_with(" as ") || is_value)
         })
 }
 
@@ -3069,7 +3086,8 @@ fn is_word_char(c: char) -> bool {
 
 /// A call is found also as a function value and as renamed by a `use`, also inside braces that
 /// span several lines, but not in a `use` that keeps its name, nor in a longer name. Before, a
-/// rename was found only on the line that starts with `use`.
+/// rename was found only on the line that starts with `use`. A value bound by `let` or chosen by
+/// an `if` is found too, but not a field of the same name.
 #[test]
 fn finds_a_call_by_another_spelling() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[("replace_file(", &[("a.rs", "home")])];
@@ -3077,12 +3095,20 @@ fn finds_a_call_by_another_spelling() {
         use crate::files::file_io::{replace_file, write_atomic};\nfn a() {\n    \
         paths.iter().map(file_io::replace_file);\n    try_all(replace_file, &paths);\n    \
         try_all(own_replace_file, &paths);\n    replace_files(p);\n}\n\
-        use crate::files::file_io::{\n    write_atomic,\n    replace_file as write_own,\n};\n";
+        use crate::files::file_io::{\n    write_atomic,\n    replace_file as write_own,\n};\n\
+        fn b() {\n    let write = crate::files::file_io::replace_file;\n    \
+        let w = if own { replace_file } else { replace_name };\n    x.replace_file = 1;\n    \
+        S { replace_file: true };\n}\n";
     let wrong = outside_homes_in("a.rs", text, HOMES);
     let lines: Vec<&str> = (wrong.iter())
         .map(|w| w.split(' ').next().unwrap())
         .collect();
-    assert_eq!(lines, ["a.rs:1", "a.rs:4", "a.rs:5", "a.rs:11"]);
+    assert_eq!(
+        lines,
+        [
+            "a.rs:1", "a.rs:4", "a.rs:5", "a.rs:11", "a.rs:14", "a.rs:15"
+        ]
+    );
 }
 
 /// A home ends at the next top-level item. Before, a static or const after a home function
@@ -4858,12 +4884,17 @@ fn functions_that_lock(text: &str) -> Vec<String> {
             let is_by_type = owner.is_some_and(|o| o.starts_with(char::is_uppercase));
             !before.ends_with(is_word_char)
                 && ((before.ends_with('.') && after.starts_with('('))
-                    || (is_by_type && after.starts_with(['(', ')', ','])))
+                    || (is_by_type && !after.starts_with(is_word_char)))
         };
+        // A lock of the C library counts also as a value (`let take = libc::flock;`).
         let locks = (LOCKS.iter())
             .any(|name| (line.match_indices(name)).any(|(at, _)| takes(at, name)))
             || (C_LOCKS.iter()).any(|call| {
-                (line.match_indices(call)).any(|(at, _)| !line[..at].ends_with(is_word_char))
+                let name = call.trim_end_matches('(');
+                (line.match_indices(name)).any(|(at, _)| {
+                    !line[..at].ends_with(is_word_char)
+                        && !line[at + name.len()..].starts_with(is_word_char)
+                })
             });
         if locks && found.last() != Some(&function) {
             found.push(function.clone());
@@ -4875,7 +4906,8 @@ fn functions_that_lock(text: &str) -> Vec<String> {
 /// The check above finds a `try_lock`, a `flock` and a shared lock, a lock called by the path
 /// of its type or passed as a value, and `lockf`. It leaves a lock taken through
 /// `open_and_lock`, a function of a module that shares the name, and a longer name. Before, a
-/// lock was found only as a method, so `File::try_lock(&f)` and `libc::lockf` passed unseen.
+/// lock was found only as a method, so `File::try_lock(&f)` and `libc::lockf` passed unseen,
+/// and a lock bound by `let` (`let take = File::try_lock;`) passed until 0.87.
 #[test]
 fn finds_a_lock_taken_by_hand() {
     let text = "fn a() {\n    let f = open_regular(p)?;\n    f.try_lock()?;\n}\n\
@@ -4887,9 +4919,11 @@ fn finds_a_lock_taken_by_hand() {
         fn h() {\n    files.iter().map(File::lock);\n}\n\
         fn i() {\n    libc::lockf(fd, libc::F_LOCK, 0);\n}\n\
         fn j() {\n    crate::files::config::lock();\n    xmp::lock_sidecar(p);\n    \
-        f.unlock()?;\n    update_locked_sidecar(&lock, p);\n}\n";
+        f.unlock()?;\n    update_locked_sidecar(&lock, p);\n}\n\
+        fn k() {\n    let take = std::fs::File::try_lock;\n}\n\
+        fn l() {\n    let take = libc::flock;\n}\n";
     let found = functions_that_lock(text);
-    assert_eq!(found, ["a", "c", "d", "e", "g", "h", "i"]);
+    assert_eq!(found, ["a", "c", "d", "e", "g", "h", "i", "k", "l"]);
 }
 
 /// The functions of the C library are called through the `libc` crate, never declared by hand
@@ -6434,6 +6468,26 @@ fn finds_a_disk_call_in_the_window_thread() {
             ("a.rs", "default", ".is_symlink()", 77),
         ]
     );
+}
+
+/// `the_window_thread_never_waits_for_the_disk` finds a function given as a value wherever it
+/// stands: bound by a `let`, or chosen by an `if`. It passes a field and a local of that name.
+/// Before, a value was found only between `(` or `,` and `)` or `,`, so
+/// `let look = file_io::is_surely_there; look(&p)` passed.
+#[test]
+fn finds_a_disk_call_through_a_function_value_bound_by_let() {
+    let a = "impl crate::App {\n    fn a(&self) {\n        let look = crate::b::look_at;\n    }\n    \
+        fn b(&self) {\n        let f = if x { look_at } else { other };\n    }\n    \
+        fn c(&self) {\n        self.look_at = 1;\n        S { look_at: 2 };\n    }\n    \
+        fn d(&self, look_at: u8) {\n        let n = look_at;\n    }\n}\n\
+        fn look_at(p: &Path) {\n    p.is_dir();\n}\n";
+    let b = "pub fn look_at(p: &Path) {\n    p.is_dir();\n}\n";
+    let sources = [("a.rs".into(), a.into()), ("b.rs".into(), b.into())];
+    let found = disk_calls_in_window_thread(&sources, &[]);
+    let found: Vec<(&str, &str, usize)> = (found.iter())
+        .map(|(_, f, c, l, _)| (f.as_str(), c.as_str(), *l))
+        .collect();
+    assert_eq!(found, [("a", "look_at", 3), ("b", "look_at", 6)]);
 }
 
 /// `the_window_thread_never_waits_for_the_disk` also finds a wait for a program that a
