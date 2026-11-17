@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 830" width="1200" height="830" role="img" aria-label="From a folder to pixels in Glimt. A listing thread reads the folder without a stat per file; replace_files makes a new List and carries the shown file, selection and decoded images over by name. refill_preload asks the decode workers for the shown image and its neighbours at the size of the view; decode shrinks and converts to the screen with to_display. Thumbnails come from the freedesktop cache or are made, converted with to_srgb for the cache. Every decode checks fits_decode_limit before it allocates.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 914" width="1200" height="914" role="img" aria-label="From a folder to pixels in Glimt. A listing thread reads the folder without a stat per file; replace_files makes a new List and carries the shown file, selection and decoded images over by name. refill_preload asks the decode workers for the shown image and its neighbours at the size of the view; decode shrinks and converts to the screen with to_display. Thumbnails come from the freedesktop cache or are made, converted with to_srgb for the cache. Every decode checks fits_decode_limit before it allocates, and takes its bytes, with what it read whole (DecodeInput), from one shared budget.">
   <title>From a folder to pixels</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/>
     </marker>
   </defs>
-  <rect x="0" y="0" width="1200" height="830" fill="#ffffff"/>
+  <rect x="0" y="0" width="1200" height="914" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#1f2328">
     <text x="20" y="34" font-size="20" font-weight="700">From a folder to pixels</text>
     <text x="20" y="56" font-size="13" fill="#57606a">Decoded to the size of the view, full resolution only when zoomed in, and a fixed number of neighbours on each side: little memory at any folder size.</text>
@@ -163,7 +163,7 @@
     </g>
 
     <!-- Bottom: limits and colour -->
-    <rect x="30" y="652" width="560" height="156" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+    <rect x="30" y="652" width="560" height="240" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
     <text x="44" y="674" font-size="14" font-weight="700">Limits on every decode <tspan font-weight="400" font-size="12" fill="#57606a">images/decode.rs</tspan></text>
     <g font-size="12">
       <text x="44" y="696"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">fits_decode_limit(w, h, bytes)</tspan> ≤ MAX_DECODE_BYTES before a decoder</text>
@@ -171,10 +171,15 @@
       <text x="44" y="732"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">read_limited, read_text, open_regular</tspan>: a size cap, and no pipe or device.</text>
       <text x="44" y="752"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">from_decoder, from_memory</tspan>: the only ways into the image crate;</text>
       <text x="44" y="768">clippy.toml refuses image::open, load_from_memory and the rest.</text>
-      <text x="44" y="788"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">catch_panic_as_error</tspan>: a decoder that panics fails one image, not its worker thread.</text>
+      <text x="44" y="788"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">reserve_from_budget</tspan>: every decode at once takes its bytes from</text>
+      <text x="44" y="804">one shared DECODE_BUDGET, 4 × MAX_DECODE_BYTES.</text>
+      <text x="44" y="824"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">DecodeInput</tspan>: what a decode reads whole counts beside its pixels:</text>
+      <text x="44" y="840">a file before it is read (read), ffmpeg's frame before ffmpeg</text>
+      <text x="44" y="856">starts (reserve), an added format's image once written (counting).</text>
+      <text x="44" y="876"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">catch_panic_as_error</tspan>: a decoder that panics fails one image, not its worker thread.</text>
     </g>
 
-    <rect x="610" y="652" width="560" height="156" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+    <rect x="610" y="652" width="560" height="240" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
     <text x="624" y="674" font-size="14" font-weight="700">Two colour paths <tspan font-weight="400" font-size="12" fill="#57606a">images/colour.rs</tspan></text>
     <g font-size="12">
       <text x="624" y="696"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">to_display(img, icc)</tspan>: from the image's profile to the screen</text>

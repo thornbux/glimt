@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" role="img" aria-label="Glimt's source layout: main.rs holds struct App and the frame; the modules of model, viewer, ui and features add methods to App; images, metadata and files are mostly free functions they call; support is used by all. App's fields are private-field structs, one per part, each from the module whose code uses it.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 836" width="1200" height="836" role="img" aria-label="Glimt's source layout: main.rs holds struct App and the frame; the modules of model, viewer, ui and features add methods to App; images, metadata and files are mostly free functions they call; support is used by all. App's fields are private-field structs, one per part, each from the module whose code uses it.">
   <title>How Glimt's source is laid out</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/>
     </marker>
   </defs>
-  <rect x="0" y="0" width="1200" height="820" fill="#ffffff"/>
+  <rect x="0" y="0" width="1200" height="836" fill="#ffffff"/>
   <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#1f2328">
     <text x="20" y="34" font-size="20" font-weight="700">How Glimt's source is laid out</text>
     <text x="20" y="56" font-size="13" fill="#57606a">src/ holds main.rs, cli.rs and eight folders. The window's code is spread over modules as impl crate::App blocks; the lower folders are mostly free functions.</text>
@@ -81,17 +81,18 @@
       <text x="616" y="340">print.rs</text>
       <text x="616" y="355">tools.rs</text>
       <text x="616" y="370">remote.rs</text>
+      <text x="616" y="385">copy_for_sharing.rs</text>
     </g>
 
     <line x1="405" y1="482" x2="405" y2="516" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
     <text x="415" y="504" font-size="12" fill="#57606a">call: decode, save, read and write metadata, change files</text>
 
     <!-- Band C: images, metadata, files -->
-    <rect x="20" y="518" width="770" height="196" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+    <rect x="20" y="518" width="770" height="212" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
     <text x="34" y="540" font-size="13" font-weight="700">From a file to pixels and back: mostly free functions</text>
     <text x="780" y="540" font-size="12" fill="#57606a" text-anchor="end">* also holds an impl crate::App block</text>
 
-    <rect x="28" y="550" width="246" height="154" rx="6" fill="#e0f5f5" stroke="#138a8a" stroke-width="1.5"/>
+    <rect x="28" y="550" width="246" height="170" rx="6" fill="#e0f5f5" stroke="#138a8a" stroke-width="1.5"/>
     <text x="40" y="574" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#0d6b6b">images/</text>
     <text x="40" y="594" font-size="12" fill="#57606a">A file to pixels and back: decode,</text>
     <text x="40" y="610" font-size="12" fill="#57606a">colour, thumbnails, save</text>
@@ -100,9 +101,10 @@
       <text x="40" y="652">save.rs</text><text x="178" y="652">raw.rs</text>
       <text x="40" y="668">thumbs.rs</text><text x="178" y="668">svg.rs</text>
       <text x="40" y="684">added_formats.rs</text><text x="178" y="684">video.rs</text>
+      <text x="40" y="700">shared_copy.rs</text>
     </g>
 
-    <rect x="284" y="550" width="246" height="154" rx="6" fill="#fdeaea" stroke="#c0392b" stroke-width="1.5"/>
+    <rect x="284" y="550" width="246" height="170" rx="6" fill="#fdeaea" stroke="#c0392b" stroke-width="1.5"/>
     <text x="296" y="574" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#9b2c20">metadata/</text>
     <text x="296" y="594" font-size="12" fill="#57606a">What is said about an image:</text>
     <text x="296" y="610" font-size="12" fill="#57606a">EXIF, XMP sidecars, marks, stars</text>
@@ -111,7 +113,7 @@
       <text x="296" y="652">marks.rs</text><text x="420" y="652">lightroom.rs*</text>
     </g>
 
-    <rect x="540" y="550" width="242" height="154" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
+    <rect x="540" y="550" width="242" height="170" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
     <text x="552" y="574" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#5c5c1c">files/</text>
     <text x="552" y="594" font-size="12" fill="#57606a">How files change on disk: jobs,</text>
     <text x="552" y="610" font-size="12" fill="#57606a">one function per disk action</text>
@@ -123,14 +125,14 @@
     </g>
 
     <!-- Band D: support -->
-    <rect x="20" y="730" width="770" height="74" rx="6" fill="#eeeeee" stroke="#666666" stroke-width="1.5"/>
-    <text x="34" y="753" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#444444">support/</text>
-    <text x="118" y="753" font-size="13" fill="#57606a">what the rest is built on, used by every folder above</text>
-    <text x="34" y="775" font-size="12">threads.rs: Receiving&lt;T&gt;, Took, Working, AnswerSender · format.rs: human_size, count · lang.rs: tr, tf!</text>
-    <text x="34" y="793" font-size="12">source_rules.rs: tests of the source itself · test_support.rs: app_on, broken · test_hooks.rs</text>
+    <rect x="20" y="746" width="770" height="74" rx="6" fill="#eeeeee" stroke="#666666" stroke-width="1.5"/>
+    <text x="34" y="769" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#444444">support/</text>
+    <text x="118" y="769" font-size="13" fill="#57606a">what the rest is built on, used by every folder above</text>
+    <text x="34" y="791" font-size="12">threads.rs: Receiving&lt;T&gt;, Took, Working, AnswerSender · format.rs: human_size, count · lang.rs: tr, tf!</text>
+    <text x="34" y="809" font-size="12">source_rules.rs: tests of the source itself · test_support.rs: app_on, broken · test_hooks.rs</text>
 
     <!-- Right panel: App's parts -->
-    <rect x="810" y="76" width="370" height="728" rx="8" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
+    <rect x="810" y="76" width="370" height="744" rx="8" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
     <text x="826" y="101" font-size="15" font-weight="700">App's parts</text>
     <text x="826" y="121" font-size="12" fill="#57606a">fields of struct App in main.rs, and their types;</text>
     <text x="826" y="137" font-size="12" fill="#57606a">the colour is the folder that defines the type</text>

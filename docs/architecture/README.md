@@ -30,6 +30,8 @@ waits for the work its command started. `App::logic` also guards a close of the 
 (`guard_close`), so a minimized window waits for its file jobs before it closes.
 A SIGTERM or SIGHUP only counts itself in its handler and wakes a thread, which asks for a
 pass. `guard_close` then sees the new count and closes the window as Ctrl+Q does.
+On a share, the walk of a tree and the folder watch pause for a moment after a program is started
+on a file (`program_started`), so that the program reads the start of its file first.
 
 ## 3. From a folder to pixels
 
@@ -40,7 +42,9 @@ a `stat` for each file. The listing becomes a new `List`, and what should stay (
 the selection, the decoded images) is carried over by name. The shown image and a fixed number of
 neighbours are decoded at the size of the view. Thumbnails come from the shared freedesktop
 cache. The two boxes at the bottom show the limits that every decode passes, and the two colour
-paths: `to_display` for the screen, `to_srgb` for anything that leaves Glimt.
+paths: `to_display` for the screen, `to_srgb` for anything that leaves Glimt. All decodes at once
+share one budget of memory, and what a decode reads whole (a file, ffmpeg's frame, an added
+format's image) is held as a `DecodeInput` and counts in it beside the pixels.
 
 ## 4. A change on disk, safely
 
@@ -48,10 +52,17 @@ paths: `to_display` for the screen, `to_srgb` for anything that leaves Glimt.
 
 Read this before you touch a file operation. Every operation first passes `are_free_to_change`, which
 refuses it while other work changes the same files. The job then runs in a thread and changes the
-disk only through one function for each kind of change. Each of these writes the new file whole
-under a hidden name and renames it, and none renames over another file. The answer comes back to
-the window: the list, the marks, the stars and the collection entries follow the files, and Undo
-is kept. Rename Many writes a journal, so a crash halfway is put right at the next start.
+disk only through one function for each kind of change. Right before each change, the thread looks
+that the file is still the one the user picked (`PickedFiles` and `still_the_one_picked`, or
+`ListedFile::check`), and leaves another file at that name alone. Each of these functions writes
+the new file whole under a hidden name and renames it, and none renames over another file. A
+delete for good first puts the sidecars aside under a hidden name, and deletes them only once the
+photo is gone. An error that may mean a step was done all the same (`may_have_been_done`, a share
+that lost its answer) is never guessed at: nothing is put back over it, the file stays where it may
+be, and the message names that name. The answer comes back to the window: the list, the marks, the
+stars and the collection entries follow the files, and Undo is kept. Rename Many writes a plan, and
+a Move or a delete a log, before the files go. When Glimt is killed halfway, the next start puts
+the names right, or lets the marks and collections follow the files that went.
 
 ## 5. How the codebase keeps itself in shape
 
