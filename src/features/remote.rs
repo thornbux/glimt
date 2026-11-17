@@ -641,10 +641,10 @@ impl crate::App {
             || (select && (self.folder.is_listing() || self.asking_about_selection()))
     }
 
-    /// Answers each select still waiting at closing, with all its paths and none of them
-    /// selected. Left without an answer, the closed socket would read as "all found". It also
-    /// answers those sent just before and not yet taken from the channel, and a query is
-    /// answered as usual (current, selection).
+    /// Answers each command still waiting at closing, and those sent just before and not yet
+    /// taken from the channel. A select and any other command are answered that they were not
+    /// done, because a closed socket without an answer would read as done, and for a select as
+    /// "all found". A query other than a select is answered as usual (current, selection).
     pub(crate) fn answer_waiting_selects(&mut self) {
         let sent: Vec<_> = self.remote.rx.try_iter().collect();
         let waiting = std::mem::take(&mut self.remote.waiting_commands);
@@ -656,7 +656,7 @@ impl crate::App {
             match is_query(&command) && !command.starts_with("select ") {
                 true => self.handle_remote(&ctx, &command, Some(reply)),
                 false => {
-                    let _ = reply.send(not_done_reply(&command, "this Glimt is closing"));
+                    let _ = reply.send(not_done_answer("this Glimt is closing"));
                 }
             }
         }
@@ -967,25 +967,14 @@ fn not_done_answer(why: &str) -> Vec<u8> {
     format!("{NOT_DONE_ANSWER}{why}\n").into_bytes()
 }
 
-/// Answers each command of `commands` that it was not done, for the reason `why`.
+/// Answers each command of `commands` that it was not done, for the reason `why`. A select
+/// is answered so too, never with its paths, which would tell the script that they are not in
+/// the list. Its paths start with "/", so the answer cannot be taken for one of them.
 fn answer_not_done(commands: Vec<Sent>, why: &str) {
-    for (command, reply, _) in commands {
+    for (_, reply, _) in commands {
         if let Some(reply) = reply {
-            let _ = reply.send(not_done_reply(&command, why));
+            let _ = reply.send(not_done_answer(why));
         }
-    }
-}
-
-/// Returns the answer to `command` when it was not done, for the reason `why`. A select is answered
-/// with all its paths, none of them selected, because an empty answer would read as "all
-/// found".
-fn not_done_reply(command: &str, why: &str) -> Vec<u8> {
-    match command.strip_prefix("select ") {
-        Some(paths) => {
-            let paths = paths.split('\0').filter(|p| !p.is_empty());
-            paths.flat_map(|p| p.bytes().chain([0])).collect()
-        }
-        None => not_done_answer(why),
     }
 }
 
@@ -1482,14 +1471,18 @@ fn read_each_answer(
 /// Reads the window's answer to `command` on `s` until the window closes the connection.
 /// Returns the bytes that came, with the error when the answer did not end within the time
 /// limit or the connection failed.
-fn read_answer(mut s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
-    use std::io::Read;
-    let limit = match command.starts_with(WAIT_WORD) {
+/// Returns how long the client waits for the window's answer to `command`.
+fn client_limit(command: &str) -> std::time::Duration {
+    match command.starts_with(WAIT_WORD) {
         // The window's listener says "no answer" a second after `OUTCOME_WAIT`.
         true => OUTCOME_WAIT + std::time::Duration::from_secs(2),
         false => WAIT,
-    };
-    let _ = s.set_read_timeout(Some(limit));
+    }
+}
+
+fn read_answer(mut s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
+    use std::io::Read;
+    let _ = s.set_read_timeout(Some(client_limit(command)));
     let mut answer = Vec::new();
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
@@ -1868,6 +1861,27 @@ fn serve_clients(
     }
 }
 
+/// Returns how long the client of `line` waits for its answer, as the window counts it, where a
+/// client waits `wait` for a command sent without `--wait`. A command sent with `--wait` is
+/// answered when its work has ended, so it has longer.
+fn client_waits(line: &str, wait: std::time::Duration) -> std::time::Duration {
+    match line.starts_with(WAIT_WORD) {
+        true => OUTCOME_WAIT,
+        false => wait,
+    }
+}
+
+/// Returns the time by which the window does a command whose reading started at
+/// `read_started` and whose client waits `client_waits`, or else answers it "not done". The
+/// client waits from when it has sent the line, which is after its reading started, so this
+/// comes `TIME_TO_ANSWER` before the client stops waiting.
+fn time_to_do(
+    read_started: std::time::Instant,
+    client_waits: std::time::Duration,
+) -> std::time::Instant {
+    read_started + client_waits.saturating_sub(TIME_TO_ANSWER)
+}
+
 /// One client's commands, each passed to the window, and its answer to a query sent back. The
 /// client has `wait` (`WAIT`) to send each command, and the window a second more to answer it.
 /// A command sent with `--wait` gives the client's `place` back and takes one of
@@ -1929,14 +1943,9 @@ fn serve(
         // closing.
         let answering = UnfinishedAnswer::new();
         let comes_in_parts = is_info(&line);
-        // A command sent with `--wait` is answered when its work has ended, so it has longer.
-        let client_waits = match line.starts_with(WAIT_WORD) {
-            true => OUTCOME_WAIT,
-            false => wait,
-        };
+        let client_waits = client_waits(&line, wait);
         let limit = client_waits + std::time::Duration::from_secs(1);
-        // The client waits from when it has sent the line, which is after its reading started.
-        let time_to_do = read_started + client_waits.saturating_sub(TIME_TO_ANSWER);
+        let time_to_do = time_to_do(read_started, client_waits);
         if tx.send((line, Some(reply), time_to_do)).is_err() {
             return;
         }
@@ -3260,12 +3269,15 @@ mod tests {
         let other = dir.join("other");
         std::fs::create_dir_all(&other).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        // `app_on` waits five seconds for the first listing; under the load of the whole test
-        // run it may not be done, and the `open` would then wait behind it and not be answered
-        // before the close. So the test waits for it, as a window rests before a script runs.
-        let listed = |app: &crate::App| !app.folder.is_listing();
+        // The first listing queued a write (`keep_window_list_of`) in the writer thread that
+        // every test shares. Under the load of the whole test run it was still queued at the
+        // close, which was then rightly told that its writes were not done. So the test waits
+        // for its writes, as a window rests before a script runs.
+        let not_writing = |app: &crate::App| !app.is_writing();
         assert!(crate::support::test_support::run_background_until(
-            &mut app, &ctx, listed
+            &mut app,
+            &ctx,
+            not_writing
         ));
         let (reply, answer) = std::sync::mpsc::channel();
         let open = format!("wait open {}", other.display());
@@ -3275,7 +3287,10 @@ mod tests {
         let _held = app.folder.hold_look_up();
         app.answer_awaited_outcomes(&ctx, true);
         let why = super::not_done_reason(&answer.try_recv().unwrap());
-        assert!(why.is_some_and(|w| w.contains("folder was read")));
+        assert!(
+            why.as_ref().is_some_and(|w| w.contains("folder was read")),
+            "{why:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4008,8 +4023,8 @@ mod tests {
         assert_eq!(app.folder.dir(), other);
         app.receive_remote(&ctx);
         assert!(current_after_open.try_recv().is_ok());
-        // Closing with selects still waiting, and one sent just before, tells each that none of
-        // its paths was selected.
+        // Closing with selects still waiting, and one sent just before, tells each that it was
+        // not done. Before, each was answered with its paths, which read as "not in the list".
         let (reply, closing) = std::sync::mpsc::channel();
         app.remote
             .waiting_commands
@@ -4017,8 +4032,10 @@ mod tests {
         let (reply, late) = std::sync::mpsc::channel();
         tx.send((select.clone(), Some(reply), later())).unwrap();
         app.answer_waiting_selects();
-        assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
-        assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
+        for answer in [closing, late] {
+            let why = super::not_done_reason(&answer.try_recv().unwrap());
+            assert_eq!(why.as_deref(), Some("this Glimt is closing"));
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4032,7 +4049,8 @@ mod tests {
     /// its client's time has run out: it is answered "not done", so a script that tries again
     /// does it once. A command that the window takes only after its time is not done either.
     /// Before, it stayed in the queue and was done when the look-up ended, after its client
-    /// had been told "no answer".
+    /// had been told "no answer". A select is answered "not done" too, not with its paths,
+    /// which would tell the script that the files are not in the list.
     #[test]
     fn a_command_is_not_done_after_its_clients_time_runs_out() {
         let dir =
@@ -4048,12 +4066,18 @@ mod tests {
             .tx
             .send(("next".to_owned(), Some(reply), soon))
             .unwrap();
+        let (reply, selected) = std::sync::mpsc::channel();
+        let select = format!("select {}\0", dir.join("b.png").display());
+        app.remote.tx.send((select, Some(reply), soon)).unwrap();
         app.receive_remote(&ctx);
         assert!(answer.try_recv().is_err(), "next waits for the look-up");
+        assert!(selected.try_recv().is_err(), "select waits for the look-up");
         std::thread::sleep(std::time::Duration::from_millis(100));
         app.receive_remote(&ctx);
-        let why = super::not_done_reason(&answer.try_recv().unwrap());
-        assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
+        for answer in [answer, selected] {
+            let why = super::not_done_reason(&answer.try_recv().unwrap());
+            assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
+        }
         let (reply, late) = std::sync::mpsc::channel();
         let now = std::time::Instant::now();
         app.remote
@@ -4068,6 +4092,22 @@ mod tests {
         assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
         assert_eq!(app.list.shown(), 0, "a next was done after its time");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The window gives up a waiting command at least a second before its client stops
+    /// waiting, so that the answer "not done" reaches the client, and the command is never done
+    /// after the client was told "no answer".
+    #[test]
+    fn the_window_gives_up_a_command_before_its_client_does() {
+        let read_started = std::time::Instant::now();
+        for line in ["next", "select /a.png\0", "wait run Delete"] {
+            let deadline = super::time_to_do(read_started, super::client_waits(line, super::WAIT));
+            let client_gives_up = read_started + super::client_limit(line);
+            assert!(
+                deadline + std::time::Duration::from_secs(1) <= client_gives_up,
+                "{line}"
+            );
+        }
     }
 
     /// A "\r" at the end of a path is part of the file's name, and reaches the window with the

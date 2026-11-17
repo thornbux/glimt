@@ -54,6 +54,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Rename question) is never done once its client has stopped waiting: it is answered "not
   done" before then. Before, the client was told "no answer", and the command was done later,
   so a script that tried again moved two images, or its select replaced the user's selection.
+- A `--remote select` that is not done, because its time ran out while it waited, the window
+  closed or another `open` took its place, prints nothing, says why on standard error and exits
+  with 3. Before, the window closing or another `open` made it print every path, as if none of
+  the files were in the list, and exit 0.
 - `--remote open`, `select` and `info` keep a carriage return at the end of a path, and the
   client refuses to send a path with one (exit 2), as an older window takes it off. Before,
   `open "/pics/Trip\r"` opened /pics/Trip.
