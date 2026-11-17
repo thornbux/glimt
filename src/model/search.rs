@@ -283,6 +283,7 @@ impl crate::App {
         };
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files()[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
+        let with_subfolders = self.folder.recursive();
         let (dir, places, ctx) = (
             self.folder.dir().to_path_buf(),
             self.folder.places(),
@@ -294,7 +295,7 @@ impl crate::App {
             let sizes = names
                 .iter()
                 .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
-            send_sizes_unless_on_a_share(&places, sizes, tx, &ctx);
+            send_sizes_unless_on_a_share(&places, with_subfolders, sizes, tx, &ctx);
         });
         self.search.match_size_rx = Receiving::of(rx);
     }

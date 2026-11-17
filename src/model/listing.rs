@@ -380,10 +380,17 @@ fn wait_while_a_program_starts(stop: &std::sync::atomic::AtomicBool) {
 }
 
 /// Returns whether `dir` is on a share (`file_io::is_network`), where each look at a file is a
-/// round trip over the network. A mount whose type cannot be read counts as none.
-pub(crate) fn is_on_a_share(dir: &Path) -> bool {
-    crate::files::file_ops::file_system_type_or_test(dir)
-        .is_some_and(|kind| crate::files::file_io::is_network(&kind))
+/// round trip over the network. With `with_subfolders`, it is also whether a share is mounted
+/// in a folder below `dir`, such as a NAS at ~/Pictures/nas, as a walk of the tree goes into
+/// it. That is one read of the mount table, not a look at each folder. A mount whose type
+/// cannot be read counts as none.
+// shortcut: a share mounted in a hidden folder, which the walk leaves out, counts too; look at
+// the folders the walk reads if that leaves a tree's sizes uncounted for nothing.
+pub(crate) fn is_on_a_share(dir: &Path, with_subfolders: bool) -> bool {
+    use crate::files::{file_io::is_network, file_ops};
+    file_ops::file_system_type_or_test(dir).is_some_and(|kind| is_network(&kind))
+        || (with_subfolders
+            && (file_ops::mounted_types_below_or_test(dir).iter()).any(|kind| is_network(kind)))
 }
 
 /// Returns the path relative to the tree whose real path is `top` of a link's folder whose real
@@ -413,7 +420,7 @@ pub fn list_tree(
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
     let (mut read, mut left_out) = (Vec::new(), Vec::new());
-    let on_a_share = is_on_a_share(dir);
+    let on_a_share = is_on_a_share(dir, true);
     for walked in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
         let (rel, dirs, files, modified) = match walked {
             Ok(walked) => walked,
@@ -711,6 +718,16 @@ mod tests {
         crate::files::file_ops::test_mount(&dir, Some("fuse.gvfsd-fuse"));
         assert!(list() >= Duration::from_millis(200), "a share");
         crate::files::file_ops::test_mount(&dir, None);
+        // A share mounted in a folder of a tree on a disk of its own, such as ~/Pictures/nas.
+        // Before, only the tree's top folder was looked at.
+        let started = Instant::now().checked_sub(PROGRAM_STARTS_FOR - Duration::from_millis(400));
+        *crate::support::threads::lock_even_if_poisoned(&super::PROGRAM_STARTED_AT) = started;
+        crate::files::file_ops::test_mount(&dir.join("b"), Some("cifs"));
+        assert!(
+            list() >= Duration::from_millis(200),
+            "a share inside the tree"
+        );
+        crate::files::file_ops::test_mount(&dir.join("b"), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -737,7 +754,7 @@ mod tests {
             ("nfs4", true),
         ] {
             test_mount(&dir, Some(kind));
-            assert_eq!(super::is_on_a_share(&dir), is_share, "{kind}");
+            assert_eq!(super::is_on_a_share(&dir, false), is_share, "{kind}");
         }
         test_mount(&dir, None);
     }

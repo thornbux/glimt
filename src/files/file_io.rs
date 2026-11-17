@@ -1135,6 +1135,22 @@ pub(crate) fn is_network(kind: &str) -> bool {
     (kind.strip_prefix("fuse.")).map_or(is_remote(kind), |name| NETWORK_FUSE.contains(&name))
 }
 
+/// Returns the types of the mounts whose mount points are in the folders below `dir`, as
+/// /proc/self/mountinfo names them, a disk through FUSE as "fuseblk". Returns none when the
+/// table cannot be read. The path is taken as it is, as in `file_system_type`.
+pub(crate) fn mounted_types_below(dir: &Path) -> Vec<String> {
+    let mountinfo = crate::images::decode::read_limited("/proc/self/mountinfo").unwrap_or_default();
+    mounted_types_below_in(&mountinfo, dir)
+}
+
+/// Returns the types of the mounts in `mountinfo` below `dir`, as `mounted_types_below` does.
+fn mounted_types_below_in(mountinfo: &[u8], dir: &Path) -> Vec<String> {
+    (mounts_in(mountinfo).iter())
+        .filter(|m| m.at != dir && m.at.starts_with(dir))
+        .map(|m| String::from_utf8_lossy(m.kind).into_owned())
+        .collect()
+}
+
 /// Returns the type of the mount in `mountinfo`, the bytes of /proc/self/mountinfo, that holds
 /// `path`. It goes down from the top mount through the mounts on each one, as the kernel walks
 /// a path. Of the mounts on one mount that start the path, the one with the shortest mount
@@ -3006,6 +3022,20 @@ mod tests {
             assert_eq!(error.contains("check both"), keeps_both, "{error}");
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The mounts below a folder are those whose mount points are inside it, not the folder's
+    /// own mount, nor one beside it whose name only starts with the same letters.
+    #[test]
+    fn finds_the_mounts_below_a_folder() {
+        let mounts = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+            2 1 0:50 / /home/u/Pictures/nas rw - cifs //nas/p rw\n\
+            3 1 0:51 / /home/u/Pictures rw - ext4 /dev/sdb1 rw\n\
+            4 1 0:52 / /home/u/Pictures2 rw - fuse.sshfs h: rw\n";
+        let below = |dir: &str| super::mounted_types_below_in(mounts, std::path::Path::new(dir));
+        assert_eq!(below("/home/u/Pictures"), ["cifs"]);
+        assert_eq!(below("/home/u/Pictures/nas"), Vec::<String>::new());
+        assert_eq!(below("/home"), ["cifs", "ext4", "fuse.sshfs"]);
     }
 
     /// A listing of files in several folders parses the mount table once, however many folders
