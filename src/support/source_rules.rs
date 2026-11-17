@@ -6169,8 +6169,12 @@ fn functions_in(file: &str, lines: &[String]) -> Vec<Function> {
     let (mut functions, mut owner, mut i) = (Vec::new(), None, 0);
     while i < end {
         let line = &lines[i];
-        if indent(line) == 0 && line.ends_with('{') {
-            owner = block_owner(without_qualifiers(line));
+        // The owner is taken from the line that starts the item, also when a `where` clause
+        // puts its `{` on a line of its own, as rustfmt writes an `impl` with bounds.
+        let starts_a_block = line.ends_with('{') && line != "{";
+        let owner_here = block_owner(without_qualifiers(line));
+        if indent(line) == 0 && (starts_a_block || owner_here.is_some()) {
+            owner = owner_here;
         }
         let name = function_name(line).filter(|_| indent(line) <= 4 && !line.ends_with(';'));
         let Some(name) = name else {
@@ -6210,6 +6214,28 @@ fn block_owner(item: &str) -> Option<String> {
     let rest = rest.rsplit(" for ").next()?.split(" where").next()?;
     let name = rest.split('<').next()?.rsplit("::").next()?.trim();
     Some(name.to_owned())
+}
+
+/// The functions found keep the type of their `impl` block also when its head goes on over
+/// several lines, as rustfmt writes one with a `where` clause. Before, the `{` on a line of
+/// its own gave no owner, so a part of `App` written so had its methods taken for free
+/// functions, whose disk calls the window's rule did not look at.
+#[test]
+fn finds_the_owner_of_an_impl_with_a_where_clause() {
+    let text = "impl<T> Part<T>\nwhere\n    T: X,\n{\n    fn a(&self) {}\n}\n\
+        fn b<T>()\nwhere\n    T: X,\n{\n}\nimpl Other {\n    fn c(&self) {}\n}\n";
+    let found: Vec<(String, Option<String>)> = (functions_in("x.rs", &code_lines(text)).iter())
+        .map(|f| (f.name.clone(), f.owner.clone()))
+        .collect();
+    let owner = |o: &str| Some(o.to_owned());
+    assert_eq!(
+        found,
+        [
+            ("a".into(), owner("Part")),
+            ("b".into(), None),
+            ("c".into(), owner("Other")),
+        ]
+    );
 }
 
 /// Returns the type of each field of the crate's structs with named fields, by (struct, field),
