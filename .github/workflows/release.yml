@@ -74,9 +74,17 @@ jobs:
           echo "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c  zig.tar.xz" | sha256sum -c
           tar xJf zig.tar.xz && rm zig.tar.xz
           echo "$PWD/zig-x86_64-linux-0.14.1" >> "$GITHUB_PATH"
+      # The pin of install-action covers only the tools its own list holds with their checksums.
+      # Without a fallback, a tool it does not know fails here instead of being fetched as the
+      # newest build of a third party.
       - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
-          tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm,cargo-audit
+          tool: cargo-zigbuild,cargo-deb,cargo-audit
+          fallback: none
+      - name: cargo-generate-rpm, at a pinned version
+        # install-action does not know it, so it is built here from crates.io, whose checksums
+        # cargo checks against its Cargo.lock.
+        run: cargo install --locked cargo-generate-rpm@0.21.1
       - name: Known vulnerabilities in the crates (RustSec)
         run: cargo audit
       # The tagged code itself, with the toolchain of this day: a tag pushed by hand, or a
