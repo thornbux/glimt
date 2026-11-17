@@ -716,14 +716,21 @@ for v in new old; do
     config save_orientation=true auto_refresh=true
     start $d/a.png
     sleep 2
+    # The control that the turn was made: a.png's red left half at 400 410 before it, and the
+    # turned a.png, upright and narrow, leaving that place. A lost key leaves it red.
+    shot turn-gone-before-$v
     key bracketright                 # turned, not saved yet
+    shot turn-gone-turned-$v
     rm $d/a.png; sleep 3             # gone, and the folder read again
     shot turn-gone-$v
     key space; sleep 2               # moving on saves a turn, if one is kept
     quit
     got="$(identify -format '%wx%h' $d/b.png)"
     shown=$(colour turn-gone-$v 400 410)
+    turned="$(colour turn-gone-before-$v 400 410) $(colour turn-gone-turned-$v 400 410)"
     if [ $v = new ]; then
+        expect "a.png red at the left, then turned away from there (the control)" \
+            "${turned% *} $([ "${turned#* }" != red ] && echo turned)" "red turned"
         expect "b.png as it was" "$got" "400x200"
         expect "b.png shown unturned" "$shown" green
     else note "old: b.png $got, shown $shown"; fi
@@ -923,13 +930,17 @@ for v in new old; do
     start $d/one/a.png
     sleep 2
     key equal; key equal; sleep 1
+    # The control that the zoom was made: zoomed in, the red middle reaches 400 410.
+    settled same-name-zoomed-$v
     remote open $d/two/a.png >/dev/null 2>&1; until_current $d/two/a.png
     # A screen at rest: `current` is answered in the frame that opens two/a.png, before that
     # frame is drawn, so a shot at once still shows one/a.png zoomed in.
     settled same-name-$v
     quit
     got=$(colour same-name-$v 400 410)
-    if [ $v = new ]; then expect "fitted, not zoomed" "$got" blue
+    if [ $v = new ]; then
+        expect "one/a.png zoomed in (the control)" "$(colour same-name-zoomed-$v 400 410)" red
+        expect "fitted, not zoomed" "$got" blue
     else note "old: $got"; fi
 done
 
@@ -2501,10 +2512,13 @@ for v in new old; do
     shot graphics-tga-$v
     key space; sleep 3
     shot graphics-disguised-$v
+    # The control: the window still runs and shows c.tga, so "not red" is not a window gone.
+    disguised=$(remote current 2>/dev/null | tr -d '\0')
     quit
     if [ $v = new ]; then
         expect "a Photoshop file shown" "$(colour graphics-psd-new 760 412)" green
         expect "a TGA shown" "$(colour graphics-tga-new 760 412)" blue
+        expect "the window still runs, at c.tga (the control)" "$disguised" "$d/c.tga"
         differ "a PNG named .tga not read as PNG" "$(colour graphics-disguised-new 760 412)" red
     else note "old: $(colour graphics-psd-old 760 412) $(colour graphics-tga-old 760 412) $(colour graphics-disguised-old 760 412)"; fi
 done
@@ -4540,10 +4554,15 @@ for v in new old; do
     config info_panel=true
     start $d/a.jpg
     sleep 2
-    key space; sleep 2; key space; sleep 2
+    # The control that the browsing happened: b.jpg, the case of the comma in embedded XMP,
+    # shown after the first Space, and c.jpg after the second. A lost key writes nothing too.
+    key space; sleep 2; at_b=$(remote current 2>/dev/null | tr -d '\0')
+    key space; sleep 2; at_c=$(remote current 2>/dev/null | tr -d '\0')
     quit
     got="$(cmp -s $d/a.jpg.xmp /tmp/browse-a.xmp && echo same || echo changed) $(ls $d/b.jpg.xmp 2>/dev/null | wc -l)"
-    if [ $v = new ]; then expect "the sidecar kept, no new one" "$got" "same 0"
+    if [ $v = new ]; then
+        expect "b.jpg and then c.jpg shown (the control)" "$at_b $at_c" "$d/b.jpg $d/c.jpg"
+        expect "the sidecar kept, no new one" "$got" "same 0"
     else note "old: $got"; fi
 done
 
