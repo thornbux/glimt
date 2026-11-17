@@ -962,6 +962,10 @@ const IIM_NAMESPACES: [(&str, &str); 3] = [
 /// groups' (`Group::key`).
 pub(crate) const FILE_NAME_KEY: &str = "group:filename";
 
+/// How every word of the choice's file that is not a tag's name starts: the groups' keys and
+/// `FILE_NAME_KEY`. A later 1.x may add more such words to the file, which only grows.
+const GROUP_KEY_START: &str = "group:";
+
 /// A group of tags, which the dialog shows with a checkbox for all of them and a list of each.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Group {
@@ -1090,12 +1094,18 @@ pub(crate) struct LeftOut {
     /// Whether the copies are given neutral names instead of the originals' file names, which
     /// can hold the date (`PXL_20231004_142355.jpg`).
     is_file_name_left_out: bool,
+    /// The words read from the file that are written like a group's key ("group:…") but name
+    /// no group that this Glimt knows, such as one that a later 1.x adds. Each is still left
+    /// out as a tag of that name and written back, but counts for no group. Read as a tag of
+    /// every group, it made every group have a tag left out, and so every block left out.
+    later_keys: BTreeSet<String>,
 }
 
 impl LeftOut {
     /// Reads a choice from the text of its file, one word to a line: a group's key or a tag's
     /// name. A tag stored by its number is read under the name it has now
-    /// (`exif::shared_tag_name_now`).
+    /// (`exif::shared_tag_name_now`). A word written like a group's key that names no group
+    /// this Glimt knows is kept, but counts for no group (`later_keys`).
     pub(crate) fn parse(text: &str) -> LeftOut {
         let mut left_out = LeftOut::default();
         for word in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
@@ -1105,6 +1115,10 @@ impl LeftOut {
             }
             match Group::of_key(word) {
                 Some(group) => left_out.groups_left_out[group as usize] = true,
+                None if word.starts_with(GROUP_KEY_START) => {
+                    left_out.tags_left_out.insert(word.to_owned());
+                    left_out.later_keys.insert(word.to_owned());
+                }
                 None => {
                     let tag = crate::metadata::exif::shared_tag_name_now(word);
                     left_out.tags_left_out.insert(tag);
@@ -1118,7 +1132,7 @@ impl LeftOut {
     /// Counts again which groups have a tag left out (`has_left_out`).
     fn count_groups(&mut self) {
         self.has_left_out = self.groups_left_out;
-        for tag in &self.tags_left_out {
+        for tag in self.tags_left_out.difference(&self.later_keys) {
             for group in Group::groups_of(tag) {
                 self.has_left_out[group as usize] = true;
             }
@@ -1157,6 +1171,8 @@ impl LeftOut {
     /// Leaves the tag `tag` out, or keeps it. A tag of a group left out whole is kept in
     /// `kept_tags`, and the group stays left out for every other tag.
     pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool) {
+        // A tag ticked or unticked in the dialog is a tag, whatever the file said of its name.
+        self.later_keys.remove(tag);
         if left_out {
             self.kept_tags.remove(tag);
             self.tags_left_out.insert(tag.to_owned());
@@ -2335,6 +2351,38 @@ mod tests {
         all.remove_all();
         assert!(all.is_file_name_left_out());
         assert!(super::LeftOut::parse(&all.text()).is_file_name_left_out());
+    }
+
+    /// A word of the sharing file written like a group's key that this Glimt does not know, as
+    /// a later 1.x may add, is kept and written back, but leaves out no group's blocks. Before,
+    /// it was read as an unknown tag, of every group, so every block was left out of each copy
+    /// while the dialog showed no group ticked.
+    #[test]
+    fn a_later_group_word_leaves_out_no_group() {
+        let known = super::LeftOut::parse("group:date\n");
+        let later = super::LeftOut::parse("group:date\ngroup:faces\n");
+        for (block, _) in super::BLOCKS {
+            assert_eq!(
+                later.is_left_out(block),
+                known.is_left_out(block),
+                "{block}"
+            );
+        }
+        assert!(
+            super::BLOCKS
+                .iter()
+                .any(|(block, _)| !later.is_left_out(block))
+        );
+        assert!(later.is_group_left_out(super::Group::Date) && later.is_left_out("group:faces"));
+        assert_eq!(later.text(), "group:date\ngroup:faces\n");
+        // A tag of that name ticked in the dialog is a tag again.
+        let mut ticked = later.clone();
+        ticked.set_tag("group:faces", true);
+        assert!(
+            super::BLOCKS
+                .iter()
+                .all(|(block, _)| ticked.is_left_out(block))
+        );
     }
 
     /// The EXIF block of the tests, big-endian: Make "Canon", orientation 6, a body serial
