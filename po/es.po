@@ -4016,6 +4016,11 @@ msgstr "no se sabe si la imagen se escribió, y su archivo complementario {sidec
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "no se sabe si la copia tomó el nombre, así que el archivo complementario del archivo que había allí quedó como {aside}; si ese archivo sigue allí, devuelve a su archivo complementario el nombre {sidecar}"
 
+#: src/images/save.rs
+#, fuzzy
+msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
+msgstr "el archivo que había allí no se reemplazó, pero su archivo complementario {sidecar} puede haberse apartado como {aside}; si no tiene su propio nombre, devuélveselo ({e})"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

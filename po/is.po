@@ -4016,6 +4016,11 @@ msgstr "ekki er vitað hvort myndin var skrifuð, og hliðarskráin {sidecar} se
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "ekki er vitað hvort afritið fékk nafnið, svo hliðarskrá skrárinnar þar varð eftir sem {aside}; ef sú skrá er enn þar, gefðu hliðarskránni aftur nafnið {sidecar}"
 
+#: src/images/save.rs
+#, fuzzy
+msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
+msgstr "skránni þar var ekki skipt út, en hliðarskrá hennar {sidecar} kann að hafa verið lögð til hliðar sem {aside}; ef hún ber ekki eigið nafn, gefðu henni það aftur ({e})"
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"

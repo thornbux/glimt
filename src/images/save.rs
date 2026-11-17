@@ -818,6 +818,11 @@ pub(crate) fn save_copy_with_sidecar(
                         Ok(()) => true,
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
                         Err(e) if needs_no_sidecar_there(&e) => false,
+                        // A share may have set the sidecar aside and lost its answer. Nothing
+                        // is put back on a guess, so the user is told both of its names.
+                        Err(e) if crate::files::file_io::may_have_been_done(&e, &side) => {
+                            return Err(may_be_set_aside(e, &side, &aside));
+                        }
                         Err(e) => return Err(named(e)),
                     };
                     let (aside, side) = (&aside, &side);
@@ -873,6 +878,21 @@ pub(crate) fn save_copy_with_sidecar(
     // The copy has its name now, so a sidecar that fails is told with the copy saved.
     let written = crate::files::file_io::create_file(&side, derived_xmp(&xmp, Derived::Copy));
     Ok(written.err().map(|e| named(e).to_string()))
+}
+
+/// Returns the error of Save As when setting `side`, the sidecar of the file it replaces, aside
+/// at the hidden name `aside` failed with `e`, which may mean that it was set aside all the
+/// same (a share that lost its answer). It names both names, as nothing puts it back on a guess.
+fn may_be_set_aside(e: std::io::Error, side: &Path, aside: &Path) -> std::io::Error {
+    std::io::Error::new(
+        e.kind(),
+        crate::tf!(
+            "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})",
+            sidecar = side.display(),
+            aside = aside.display(),
+            e
+        ),
+    )
 }
 
 /// Returns what the window tells of the copy `new` saved: that it was saved, or, when its
@@ -3095,6 +3115,42 @@ mod tests {
             4,
             "a file was left"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Save As whose set-aside of the replaced file's sidecar was done on a share that lost its
+    /// answer, while the look at the sidecar's name fails too, leaves the file and names both the
+    /// sidecar and the hidden name it may be at. Before, the error named only the sidecar
+    /// ("b.png.xmp: Input/output error"), and the sidecar stayed hidden under a name no message
+    /// gave.
+    #[test]
+    fn a_save_as_whose_sidecar_set_aside_lost_its_answer_names_where_it_is() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL, fingerprint};
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-save-aside-lost-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(8, 8).save(&a).unwrap();
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let side = crate::metadata::xmp::sidecar(&b);
+        std::fs::write(&side, "b's").unwrap();
+        ANSWER_LOST_AT.set(Some(side.clone()));
+        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
+        ANSWER_LOST_AT.set(None);
+        let told = saved.unwrap_err();
+        assert_eq!(image::image_dimensions(&b).unwrap(), (4, 4));
+        let hidden: Vec<_> = (std::fs::read_dir(&dir).unwrap())
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.to_string_lossy().contains(".glimt-tmp-"))
+            .collect();
+        assert_eq!(hidden.len(), 1, "{hidden:?}");
+        assert_eq!(std::fs::read_to_string(&hidden[0]).unwrap(), "b's");
+        assert!(told.contains(&hidden[0].display().to_string()), "{told}");
+        assert!(told.contains(&side.display().to_string()), "{told}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
