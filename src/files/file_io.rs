@@ -100,6 +100,10 @@ thread_local! {
     // thread be done and then fail with EIO (`answer_lost_in_a_test`).
     pub(crate) static ANSWER_LOST_AT: std::cell::RefCell<Option<PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    // The names whose looks fail (`LOOKS_FAIL`) from the moment a delete for good on this
+    // thread has deleted a file, as on a share that drops right after it answered the delete.
+    pub(crate) static LOOKS_FAIL_ONCE_DELETED: std::cell::RefCell<Vec<PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
     // Makes a move by `put_file_until_stopped` on this thread a copy and an unlink, as a move
     // to another disk is, so that a test needs no second disk.
     pub(crate) static MOVES_CROSS_DEVICES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -959,6 +963,16 @@ pub(crate) fn answer_lost_in_a_test(
             Err(std::io::Error::from_raw_os_error(libc::EIO))
         }
         result => result,
+    }
+}
+
+/// Makes the looks at the names in `LOOKS_FAIL_ONCE_DELETED` fail from now on, when `removed`,
+/// the answer of a delete for good, says that the file was deleted.
+#[cfg(test)]
+pub(crate) fn looks_fail_once_deleted_in_a_test(removed: &std::io::Result<()>) {
+    if removed.is_ok() {
+        let names = LOOKS_FAIL_ONCE_DELETED.take();
+        lock_even_if_poisoned(&LOOKS_FAIL).extend(names);
     }
 }
 

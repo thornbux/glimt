@@ -349,7 +349,7 @@ impl DeleteLog {
     /// hidden sidecar. A write that fails is kept, as in `note`.
     pub fn keep_for_a_later_start(&mut self, photo: &Path) {
         use crate::files::file_io::sync_folder_of;
-        self.has_names_left = true;
+        self.keep_log_for_a_later_start();
         let mut name = photo.as_os_str().as_bytes().to_vec();
         name.push(0);
         let path = kept_path(&self.path);
@@ -360,6 +360,15 @@ impl DeleteLog {
         if let Err(e) = written {
             self.failure.get_or_insert(e);
         }
+    }
+
+    /// Keeps the log on disk after the job for a later start, without writing down a photo as
+    /// kept. A delete for good does this for a photo that it deleted when the look after the
+    /// delete failed and the rename back of a sidecar failed too, so that the sidecar may still
+    /// be hidden. The next start finds the photo gone, deletes its hidden sidecar and forgets
+    /// its marks, as the delete would have.
+    pub fn keep_log_for_a_later_start(&mut self) {
+        self.has_names_left = true;
     }
 
     /// Removes the log once the marks and stars of its files that went are forgotten. The window

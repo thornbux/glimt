@@ -2996,6 +2996,8 @@ fn delete_for_good(
             let removed = std::fs::remove_file(p);
             #[cfg(test)]
             let removed = crate::files::file_io::answer_lost_in_a_test(p, removed);
+            #[cfg(test)]
+            crate::files::file_io::looks_fail_once_deleted_in_a_test(&removed);
             // A delete that a share did and lost the answer of is done, so its sidecars go too.
             let removed = crate::files::file_io::done_after_all(removed, p, None);
             removed.map_err(|e| failed(p, e)).is_ok()
@@ -3004,8 +3006,12 @@ fn delete_for_good(
         if !(deleted && is_surely_gone(p)) {
             for (side, hidden) in aside.into_iter().rev() {
                 if let Err(e) = rename_never_over(&hidden, &side) {
-                    if let Some(log) = log.as_deref_mut() {
-                        log.keep_for_a_later_start(p);
+                    // A photo deleted all the same is not kept, so the next start, which finds
+                    // it gone, deletes its hidden sidecar and forgets its marks.
+                    match log.as_deref_mut() {
+                        Some(log) if deleted => log.keep_log_for_a_later_start(),
+                        Some(log) => log.keep_for_a_later_start(p),
+                        None => {}
                     }
                     failed(&side, journal::may_be_hidden(e, p, &hidden));
                 }
@@ -6393,6 +6399,45 @@ mod tests {
         let found = super::journal::deletes_cut_short(&logs);
         assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A Delete for good whose photo went, while the look after the delete and the rename back
+    /// of its sidecar failed, keeps its log without writing the photo down as kept. The next
+    /// start finds the photo gone, forgets its marks and deletes its hidden sidecar. Before, the
+    /// photo was written down as kept, so no start forgot its marks or deleted the hidden sidecar.
+    #[test]
+    fn a_delete_for_good_does_not_keep_a_photo_it_deleted() {
+        use crate::files::file_io::{LOOKS_FAIL, LOOKS_FAIL_ONCE_DELETED, RENAME_WAYS_MISSING};
+        let dir = contract_folder("delete-not-kept");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        // The rename back looks at the sidecar's name first, and that look fails.
+        RENAME_WAYS_MISSING.set(2);
+        LOOKS_FAIL_ONCE_DELETED.set(vec![a.clone(), side.clone()]);
+        let mut errors = Vec::new();
+        let how = (false, Some(&mut log));
+        let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a && *p != side);
+        RENAME_WAYS_MISSING.set(0);
+        assert!(gone.is_empty() && !a.exists(), "{errors:?}");
+        assert_eq!(hidden_names_in(&dir).len(), 1);
+        log.remove_once_forgotten();
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let _ = crate::files::file_io::take_saves_failed();
+        let found = super::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
+        assert_eq!(found[0].1, vec![a.clone()]);
+        assert!(hidden_names_in(&dir).is_empty());
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(told.is_empty(), "{told:?}");
         drop(found);
         std::fs::remove_dir_all(&dir).unwrap();
     }
