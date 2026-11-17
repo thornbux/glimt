@@ -705,6 +705,27 @@ const WRITING_WORK: &[&str] = &[
     "WRITING",
 ];
 
+/// What a thread does not do while it holds a lock (AGENTS.md, "Background work"): catch a
+/// panic, send a message, or wait for another thread or a program. Every other thread that
+/// takes the lock, the window's too, would wait as long. `locks_held_across_waits` finds them.
+const NOT_WHILE_LOCKED: &[&str] = &[
+    "catch_panic(",
+    ".send(",
+    ".join()",
+    "JoinHandle::join(",
+    ".recv()",
+    "Receiver::recv(",
+    "recv_timeout(",
+    ".wait(",
+    "wait_timeout(",
+    "wait_while(",
+    "wait_with_output(",
+    "run_limited(",
+    "output_of(",
+    "short_output_of(",
+    "sleep(",
+];
+
 /// The ways a text is searched for another in Rust, each as the call written and which of its
 /// arguments, counted from 0, is the text searched for: every method of `str` and of slices
 /// that looks for a pattern (also `split`, `starts_with`, `strip_prefix`, `replace`, `matches`
@@ -6212,6 +6233,189 @@ fn the_marks_lock_is_never_held_across_the_disk() {
         "the marks' lock is held across the disk:\n{}",
         wrong.join("\n")
     );
+}
+
+/// A lock is never held across a `catch_panic`, a channel's send or a wait (`NOT_WHILE_LOCKED`),
+/// as AGENTS.md says, in any file: a guard taken with `lock_even_if_poisoned`, or given by a
+/// function of the crate that returns one, such as the marks' `known_stamps`. Before, only the
+/// marks' lock was checked, and only against the disk.
+#[test]
+fn locks_are_never_held_across_a_wait() {
+    let sources = rust_sources();
+    let lockers = lock_calls(&sources);
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        let found = locks_held_across_waits(text, &lockers);
+        wrong.extend(
+            found
+                .iter()
+                .map(|(line, call)| format!("{file}:{line} {call}")),
+        );
+    }
+    assert!(
+        wrong.is_empty(),
+        "a lock is held across a catch_panic, a send or a wait (let it go first):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds a lock held across a send, a wait and a `catch_panic`: by a guard
+/// bound with `let`, up to the end of its block or its `drop`, by a temporary to the end of its
+/// statement and through the block of a `match` it starts, and through a function that returns
+/// a guard. It passes a guard dropped before, a `Condvar`'s wait that is given the guard, a wait
+/// on the locked receiver itself, the condition of a plain `if`, a guard whose block ended, work
+/// handed to another thread, and the tests.
+#[test]
+fn finds_a_lock_held_across_a_wait() {
+    let text = "fn guard() -> MutexGuard<'static, u8> {\n    lock_even_if_poisoned(&M)\n}\n\
+        fn a() {\n    let guard = lock_even_if_poisoned(&state);\n    tx.send(guard.clone());\n}\n\
+        fn b() {\n    let mut g = lock_even_if_poisoned(&s);\n    drop(g);\n    tx.send(1);\n}\n\
+        fn c() {\n    tx.send(lock_even_if_poisoned(&s).clone());\n}\n\
+        fn d() {\n    match lock_even_if_poisoned(&s).get(k) {\n        \
+        Some(x) => catch_panic(|| x),\n        None => 0,\n    };\n}\n\
+        fn e() {\n    let mut g = crate::support::threads::lock_even_if_poisoned(&s);\n    \
+        while g.is_none() {\n        g = CV.wait(g).unwrap_or_else(|e| e.into_inner());\n    \
+        }\n}\nfn f() {\n    if *lock_even_if_poisoned(&s) != 1 {\n        tx.send(1);\n    }\n}\n\
+        fn g() {\n    let g = guard();\n    handle.join();\n}\n\
+        fn h() {\n    {\n        let g = lock_even_if_poisoned(&s);\n        g.push(1);\n    }\n    \
+        rx.recv();\n}\nfn i() {\n    let g = lock_even_if_poisoned(&s);\n    \
+        std::thread::spawn(move || tx.send(1));\n}\n\
+        fn j() {\n    let Ok(job) = lock_even_if_poisoned(&jobs).recv() else {\n        \
+        return;\n    };\n    let rx = lock_even_if_poisoned(&shared);\n    \
+        let next = rx.recv_timeout(t);\n}\n\
+        #[cfg(test)]\nmod tests {\n    fn t() {\n        \
+        let g = lock_even_if_poisoned(&s);\n        rx.recv();\n    }\n}\n";
+    let lockers = lock_calls(&[("x.rs".into(), text.into())]);
+    assert_eq!(lockers, ["lock_even_if_poisoned(", "guard("]);
+    let found = locks_held_across_waits(text, &lockers);
+    let found: Vec<(usize, &str)> = found.iter().map(|(l, c)| (*l, c.as_str())).collect();
+    assert_eq!(
+        found,
+        [
+            (6, ".send("),
+            (14, ".send("),
+            (18, "catch_panic("),
+            (35, ".join()")
+        ]
+    );
+}
+
+/// Returns the calls that take a lock: `lock_even_if_poisoned(`, and each function of
+/// `sources` that returns the guard it took, such as `known_stamps(`.
+fn lock_calls(sources: &[(String, String)]) -> Vec<String> {
+    let mut lockers = vec!["lock_even_if_poisoned(".to_owned()];
+    for (file, text) in sources {
+        let lines = code_lines(text);
+        for f in functions_in(file, &lines) {
+            let lines = &lines[f.lines.clone()];
+            let head: String = (lines.iter())
+                .take_while(|l| !l.ends_with('{'))
+                .chain(lines.iter().find(|l| l.ends_with('{')))
+                .map(String::as_str)
+                .collect();
+            let returns = head.split_once("->").map_or("", |(_, r)| r);
+            if returns.contains("MutexGuard") && f.name != "lock_even_if_poisoned" {
+                lockers.push(format!("{}(", f.name));
+            }
+        }
+    }
+    lockers
+}
+
+/// Returns the lines of `text` outside the tests that hold a lock taken with one of `lockers`
+/// across a call of `NOT_WHILE_LOCKED`, each with that call. A guard bound by `let` is held up
+/// to the end of its block, or to a `drop` of it at the same depth. A temporary guard is held to
+/// the end of its statement, and through the block of a `match`, `if let` or `while let` that
+/// it starts, but not past the condition of a plain `if` or `while`. A `Condvar`'s wait that is
+/// given the guard lets the lock go while it waits, and the work handed to another thread runs
+/// without the lock. A call made on the locked value itself, such as a pool's workers taking
+/// turns at one receiver (`lock_even_if_poisoned(&jobs).recv()`), is what the lock is for: every
+/// thread that takes the lock waits for that same call.
+fn locks_held_across_waits(text: &str, lockers: &[String]) -> Vec<(usize, String)> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        let locks = lockers.iter().any(|l| mentions_call(line, l));
+        if !locks || function_name(line).is_some() {
+            continue;
+        }
+        let guard = bound_guard(line, lockers);
+        let trimmed = line.trim_start();
+        let is_condition = (trimmed.starts_with("if ") && !trimmed.starts_with("if let "))
+            || (trimmed.starts_with("while ") && !trimmed.starts_with("while let "));
+        let after = |j: &usize| !lines[*j].trim().is_empty() && indent(&lines[*j]) <= indent(line);
+        let last = match &guard {
+            Some(name) => {
+                let drops = format!("drop({name})");
+                let ends = |j: &usize| {
+                    indent(&lines[*j]) < indent(line)
+                        || (indent(&lines[*j]) == indent(line) && lines[*j].contains(&drops))
+                };
+                (i + 1..end).find(ends).unwrap_or(end)
+            }
+            None if is_condition => i,
+            // The statement goes on over the lines indented deeper, and its block ends with a
+            // closing brace at its own depth.
+            None => match (i + 1..end).find(after) {
+                Some(j) if lines[j].trim_start().starts_with('}') => j,
+                Some(j) => j - 1,
+                None => end - 1,
+            },
+        };
+        let mut handed_over = 0;
+        for (j, held) in lines.iter().enumerate().take(last.min(end - 1) + 1).skip(i) {
+            let code = code_of_this_thread(held, &mut handed_over, &[]);
+            let gives_the_guard = |at: usize, call: &str| {
+                let argument = code[at + call.len()..].trim_start();
+                guard.as_ref().is_some_and(|g| {
+                    argument.starts_with(g.as_str())
+                        && !argument[g.len()..].starts_with(is_word_char)
+                })
+            };
+            let is_on_the_lock = |at: usize| {
+                let before = code[..at].strip_suffix('.').unwrap_or(&code[..at]);
+                let is_the_guard = guard.as_ref().is_some_and(|g| {
+                    (before.strip_suffix(g.as_str())).is_some_and(|b| !b.ends_with(is_word_char))
+                });
+                let ends_in_a_lock = lockers.iter().any(|l| {
+                    (before.rfind(l.as_str())).is_some_and(|k| {
+                        call_text(&[before.to_owned()], 0, k).0.len() == before.len() - k
+                    })
+                });
+                is_the_guard || ends_in_a_lock
+            };
+            let waits = NOT_WHILE_LOCKED.iter().find(|call| {
+                (code.match_indices(**call)).any(|(at, _)| {
+                    let is_condvar_wait = call.contains("wait") && call.ends_with('(');
+                    !((is_condvar_wait && gives_the_guard(at, call)) || is_on_the_lock(at))
+                })
+            });
+            if let Some(call) = waits {
+                found.push((j + 1, (*call).to_owned()));
+            }
+        }
+    }
+    found
+}
+
+/// Returns the name that `line` binds a guard to, when it is a `let` of nothing but a call of
+/// one of `lockers`, such as `let mut held = lock_even_if_poisoned(&m);`. Returns `None` for
+/// another line.
+fn bound_guard(line: &str, lockers: &[String]) -> Option<String> {
+    let rest = line.trim_start().strip_prefix("let ")?;
+    let (name, expression) = rest.split_once(" = ")?;
+    let name = name.trim_start_matches("mut ").trim();
+    let expression = expression.trim_end_matches(';');
+    let is_the_call = |locker: &String| {
+        (expression.find(locker.as_str())).is_some_and(|at| {
+            let path = &expression[..at];
+            let (call, _) = call_text(&[expression.to_owned()], 0, at);
+            path.chars().all(|c| is_word_char(c) || c == ':') && at + call.len() == expression.len()
+        })
+    };
+    let is_name = !name.is_empty() && name.chars().all(is_word_char);
+    (is_name && lockers.iter().any(is_the_call)).then(|| name.to_owned())
 }
 
 /// Returns whether `text` calls `call` (`name(`, or a call of `DISK_CALLS`), not merely a
