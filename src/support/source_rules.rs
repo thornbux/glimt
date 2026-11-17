@@ -5424,10 +5424,10 @@ fn read_build_settings(path: &Path, into: &mut Vec<(String, String)>) {
         for entry in std::fs::read_dir(path).unwrap().flatten() {
             read_build_settings(&entry.path(), into);
         }
-    } else if path.file_name().is_some_and(|n| n != "cargo-sources.json") {
-        if let Ok(text) = std::fs::read_to_string(path) {
-            into.push((path.display().to_string(), text));
-        }
+    } else if path.file_name().is_some_and(|n| n != "cargo-sources.json")
+        && let Ok(text) = std::fs::read_to_string(path)
+    {
+        into.push((path.display().to_string(), text));
     }
 }
 
@@ -5492,7 +5492,7 @@ fn build_flags_that_turn_off_lints_or_unwinding(text: &str) -> Vec<usize> {
                 false => (LOWERING.iter()).find_map(|flag| {
                     let rest = word.strip_prefix(flag)?;
                     let rest = rest.strip_prefix('=').unwrap_or(rest);
-                    Some(rest).filter(|_| flag.len() == 2 || word.contains('='))
+                    (flag.len() == 2 || word.contains('=')).then_some(rest)
                 }),
             };
             word.starts_with("--cap-lints") || lint.is_some_and(holds_a_kept_lint)
