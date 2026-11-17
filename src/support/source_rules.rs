@@ -617,8 +617,10 @@ const REFUSED_CALLS: &[&str] = &[
 /// Glimt's own functions that make one of them, such as `read_limited` or the writers of
 /// file_io, are not listed: `the_window_thread_never_waits_for_the_disk` follows every call to
 /// the functions it reaches. Listed too are the other waits the window must not make: for a
-/// program (`run_limited`, `output_of`, `short_output_of`), and for a decode (the three ways
-/// into one, `from_decoder`, `scaled` and `from_memory`), which take as long without the disk.
+/// program (`run_limited`, `output_of`, `short_output_of`), for a decode (the three ways into
+/// one, `from_decoder`, `scaled` and `from_memory`), which take as long without the disk, and
+/// for another thread with no time limit, which may itself be waiting for the disk. The join of
+/// a scope's thread is no such wait, because the scope's work is checked as the caller's own.
 const DISK_CALLS: &[&str] = &[
     "run_limited(",
     "output_of(",
@@ -626,6 +628,12 @@ const DISK_CALLS: &[&str] = &[
     // A program waited for under a `Watchdog`, which may take minutes (`lp`, `gio mount`).
     "wait_with_output(",
     ".wait()",
+    // Another thread's end, its message, or what it signals.
+    ".join()",
+    "JoinHandle::join(",
+    ".recv()",
+    "Receiver::recv(",
+    "wait_while(",
     "from_decoder(",
     "scaled(",
     "from_memory(",
@@ -847,9 +855,20 @@ impl CallGraph {
         let signature = lines[*f.lines.start()..=opens.unwrap_or(*f.lines.start())].join(" ");
         let mut calls = Vec::new();
         let mut handed_over = 0usize;
+        // A scope's threads are joined at its end, and their work is checked as this
+        // function's own, so a join inside the scope is no wait for another thread.
+        let mut scopes = Vec::new();
+        let mut in_a_scope = std::collections::HashSet::new();
         for i in f.lines.clone() {
-            let code = code_of_this_thread(&lines[i], &mut handed_over);
-            let disk = DISK_CALLS.iter().find(|c| code.contains(**c));
+            scopes.extend(scope_names(&lines[i]));
+            for (at, _) in lines[i].match_indices("thread::scope(") {
+                in_a_scope.extend(i..=call_text(lines, i, at).1);
+            }
+        }
+        for i in f.lines.clone() {
+            let code = code_of_this_thread(&lines[i], &mut handed_over, &scopes);
+            let is_wait_in_scope = |c: &str| in_a_scope.contains(&i) && c.contains("join(");
+            let disk = (DISK_CALLS.iter()).find(|c| code.contains(**c) && !is_wait_in_scope(c));
             calls.extend(disk.map(|c| Call {
                 callee: None,
                 text: (*c).to_owned(),
@@ -6064,8 +6083,12 @@ fn the_marks_lock_is_never_held_across_the_disk() {
     }
     for f in (graph.functions.iter()).filter(|f| f.owner.as_deref() == Some("Marks")) {
         let mut handed_over = 0;
+        let scopes: Vec<String> = (f.lines.clone())
+            .flat_map(|i| scope_names(&lines[i]))
+            .collect();
         for i in f.lines.clone() {
-            if code_of_this_thread(&lines[i], &mut handed_over).contains("known_stamps()") {
+            let code = code_of_this_thread(&lines[i], &mut handed_over, &scopes);
+            if code.contains("known_stamps()") {
                 wrong.push(format!(
                     "{file}:{} the window locks it in {}",
                     i + 1,
@@ -6369,25 +6392,90 @@ fn written_type(text: &str, signature: &str, word: &str) -> Option<String> {
     })
 }
 
-/// Returns the part of `line` that runs in the thread the line runs in: all of it, the part
-/// before a call that hands work to another thread, or nothing while the parentheses of such a
-/// call on an earlier line are still open. `handed_over` counts how deep they still go.
-fn code_of_this_thread<'l>(line: &'l str, handed_over: &mut usize) -> &'l str {
-    let (mut own, mut handed) = ("", line);
-    if *handed_over == 0 {
-        match HANDED_TO_A_THREAD.iter().filter_map(|c| line.find(c)).min() {
-            None => return line,
-            Some(at) => (own, handed) = line.split_at(at),
+/// Returns the part of `line` that runs in the thread the line runs in: all of it but the calls
+/// that hand work to another thread, also the rest of such a call that an earlier line opened.
+/// What follows such a call on its line (`spawn(f).join()`) runs in this thread again, and so
+/// does the work of a scope's thread, started on one of the receivers in `scopes`, as this
+/// thread waits for it. `handed_over` counts how deep the parentheses of such a call still go
+/// at the end of the line.
+fn code_of_this_thread(line: &str, handed_over: &mut usize, scopes: &[String]) -> String {
+    let handed_at = |rest: &str| {
+        (HANDED_TO_A_THREAD.iter())
+            .flat_map(|c| rest.match_indices(c).map(|(at, _)| at))
+            .filter(|&at| !is_scoped(&rest[..at], scopes))
+            .min()
+    };
+    let (mut own, mut rest) = (String::new(), line);
+    loop {
+        if *handed_over == 0 {
+            match handed_at(rest) {
+                None => {
+                    own.push_str(rest);
+                    return own;
+                }
+                Some(at) => {
+                    own.push_str(&rest[..at]);
+                    rest = &rest[at..];
+                }
+            }
+        }
+        // The handed call runs up to the `)` that closes its parentheses.
+        let mut closed = None;
+        for (at, c) in rest.char_indices() {
+            match c {
+                '(' => *handed_over += 1,
+                ')' => *handed_over = handed_over.saturating_sub(1),
+                _ => continue,
+            }
+            if *handed_over == 0 {
+                closed = Some(at + 1);
+                break;
+            }
+        }
+        match closed {
+            Some(end) => rest = &rest[end..],
+            None => return own,
         }
     }
-    for c in handed.chars() {
-        match c {
-            '(' => *handed_over += 1,
-            ')' => *handed_over = handed_over.saturating_sub(1),
-            _ => {}
+}
+
+/// Returns whether a call whose text before it is `before` is made on one of the receivers in
+/// `scopes` (`s.spawn(`): a scope's thread, which ends before its scope does.
+fn is_scoped(before: &str, scopes: &[String]) -> bool {
+    let Some(receiver) = before.strip_suffix('.') else {
+        return false;
+    };
+    let start = (receiver.rfind(|c: char| !is_word_char(c))).map_or(0, |i| i + 1);
+    scopes.iter().any(|s| *s == receiver[start..])
+}
+
+/// Returns the names that `line` gives the scopes of threads it opens: `s` for
+/// `std::thread::scope(|s| …)`.
+fn scope_names(line: &str) -> Vec<String> {
+    (line.match_indices("thread::scope(|"))
+        .filter_map(|(at, found)| line[at + found.len()..].split('|').next())
+        .map(|name| name.trim().to_owned())
+        .collect()
+}
+
+/// Returns the text of the call that starts at column `at` of line `first` of `lines`, up to
+/// the `)` that closes it, and the line where that is: the last line when none closes it.
+fn call_text(lines: &[String], first: usize, at: usize) -> (String, usize) {
+    let (mut text, mut depth) = (String::new(), 0usize);
+    for (i, line) in lines.iter().enumerate().skip(first) {
+        let from = if i == first { at } else { 0 };
+        for c in line[from..].chars() {
+            text.push(c);
+            match c {
+                '(' => depth += 1,
+                ')' if depth <= 1 => return (text, i),
+                ')' => depth -= 1,
+                _ => {}
+            }
         }
+        text.push('\n');
     }
-    own
+    (text, lines.len().saturating_sub(1))
 }
 
 /// The check above finds a look at the disk or a change on it in the functions of `App` and of
@@ -6475,6 +6563,41 @@ fn finds_a_wait_for_a_program_in_the_window_thread() {
         .map(|(_, f, c, ..)| (f.as_str(), c.as_str()))
         .collect();
     assert_eq!(found, [("a", "send_to_printer("), ("b", "mount(")]);
+}
+
+/// `the_window_thread_never_waits_for_the_disk` also finds a wait without a time limit for
+/// another thread, which may itself wait for the disk: for its end, for its message and for a
+/// `Condvar`'s condition, also after the thread's call on the line that starts it. It passes
+/// such a wait inside the work handed to the thread, and the join of a scope's thread, whose
+/// work it checks as the caller's own. Before, only waits for the disk, a program and a decode
+/// were found, so the window could hand its look at the disk to a thread and wait for it, and
+/// the work of a scope's thread was not checked at all.
+#[test]
+fn finds_a_wait_for_another_thread_in_the_window_thread() {
+    let a = "impl crate::App {\n    fn a(&self) {\n        \
+        let m = std::thread::spawn(move || std::fs::metadata(&p)).join();\n    }\n    \
+        fn b(&self) {\n        std::thread::spawn(move || tx.send(1));\n        \
+        let m = rx.recv();\n    }\n    fn c(&self) {\n        \
+        ready.wait_while(guard, |g| g.is_none());\n    }\n    fn d(&self) {\n        \
+        std::thread::spawn(move || tx.send(rx.recv()));\n    }\n    \
+        fn e(&self) {\n        std::thread::JoinHandle::join(handle);\n    }\n    \
+        fn f(&self) {\n        std::thread::scope(|s| {\n            \
+        let h = s.spawn(|| std::fs::metadata(&p));\n            h.join();\n        });\n    \
+        }\n}\n";
+    let found = disk_calls_in_window_thread(&[("a.rs".into(), a.into())], &[]);
+    let found: Vec<(&str, &str, usize)> = (found.iter())
+        .map(|(_, f, c, l, _)| (f.as_str(), c.as_str(), *l))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("a", ".join()", 3),
+            ("b", ".recv()", 7),
+            ("c", "wait_while(", 10),
+            ("e", "JoinHandle::join(", 16),
+            ("f", "fs::metadata(", 20),
+        ]
+    );
 }
 
 /// An XMP property is found only as a top-level property of a Description
