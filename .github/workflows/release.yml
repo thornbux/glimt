@@ -173,6 +173,30 @@ jobs:
         run: cargo deb --no-build --target "$TARGET" -o "glimt_${VERSION}_amd64.deb"
       - name: .rpm
         run: cargo generate-rpm --target "$TARGET" -o "glimt-${VERSION}-1.x86_64.rpm"
+      - name: Smoke test of the .deb and the .rpm on the oldest systems
+        # Each package is installed in a bare container of the oldest system it is for, with
+        # only its own dependencies (no recommended ones, which would bring GTK and every X11
+        # library) and Mesa's driver, as a computer's graphics would. Glimt then shows an SVG
+        # on the runner's Xvfb, which the AppImage's smoke test above installed. The images are
+        # pinned by digest, as the actions are by their commits.
+        timeout-minutes: 15
+        run: |
+          docker run --name deb -v "$PWD:/pkg:ro" -e DEBIAN_FRONTEND=noninteractive \
+              ubuntu:20.04@sha256:8feb4d8ca5354def3d8fce243717141ce31e2c428701f6682bd2fafe15388214 \
+              sh -c "apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+                  /pkg/glimt_${VERSION}_amd64.deb libgl1-mesa-dri libegl-mesa0 libglx-mesa0"
+          docker commit deb glimt-deb
+          docker run --name rpm -v "$PWD:/pkg:ro" \
+              almalinux:8@sha256:768bedc30fe0a536adb0a65d2eddb7caad364e514fbddd0ae9e026975f590342 \
+              dnf install -y -q --setopt=install_weak_deps=False \
+                  "/pkg/glimt-${VERSION}-1.x86_64.rpm" mesa-dri-drivers mesa-libEGL mesa-libGL
+          docker commit rpm glimt-rpm
+          for image in glimt-deb glimt-rpm; do
+              echo "$image:"
+              # The host's IPC, for the X server's shared memory.
+              tools/package-smoke.sh docker run --rm --init --network host --ipc host -e DISPLAY \
+                  -v /tmp/.X11-unix:/tmp/.X11-unix -v "$PWD:$PWD:ro" "$image" glimt || exit 1
+          done
       - name: Release notes from CHANGELOG.md
         run: awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
       - if: ${{ !inputs.dry_run }}
