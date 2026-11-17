@@ -67,9 +67,16 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
 /// share serves Glimt's look at each file of a tree between the player's reads.
 const PROGRAM_STARTS_FOR: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// When a program was last started on a file, by Play Video or Open With.
+/// When a program was last started on the user's files: Play Video, Open With or a tool.
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
     std::sync::Mutex::new(None);
+
+#[cfg(test)]
+thread_local! {
+    // How many programs this thread noted as started (`program_started`), so that a test can see
+    // that a way to start a program on the user's files notes it, whatever other tests start.
+    pub(crate) static PROGRAMS_STARTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The folders a listing read, each with the modification time it had when it was read, so the
 /// folder watcher sees a change made after the reading. The time is `None` when it could not be
@@ -351,8 +358,11 @@ fn walk_by(
 }
 
 /// Notes that a program was just started on a file, so that the reading of a share that nobody
-/// waits for waits a moment for it (`wait_while_a_program_starts`).
+/// waits for waits a moment for it (`wait_while_a_program_starts`). A program of the user's is
+/// started through `external::start_users_program`, which calls it.
 pub(crate) fn program_started() {
+    #[cfg(test)]
+    PROGRAMS_STARTED.set(PROGRAMS_STARTED.get() + 1);
     *crate::support::threads::lock_even_if_poisoned(&PROGRAM_STARTED_AT) =
         Some(std::time::Instant::now());
 }
@@ -379,12 +389,18 @@ fn wait_while_a_program_starts(stop: &std::sync::atomic::AtomicBool) {
     }
 }
 
-/// Returns whether `dir` is on a share or another FUSE mount (`file_io::is_remote`), where
-/// each look at a file is a round trip over the network. A mount whose type cannot be read
-/// counts as none.
-pub(crate) fn is_on_a_share(dir: &Path) -> bool {
-    crate::files::file_ops::file_system_type_or_test(dir)
-        .is_some_and(|kind| crate::files::file_io::is_remote(&kind))
+/// Returns whether `dir` is on a share (`file_io::is_network`), where each look at a file is a
+/// round trip over the network. With `with_subfolders`, it is also whether a share is mounted
+/// in a folder below `dir`, such as a NAS at ~/Pictures/nas, as a walk of the tree goes into
+/// it. That is one read of the mount table, not a look at each folder. A mount whose type
+/// cannot be read counts as none.
+// shortcut: a share mounted in a hidden folder, which the walk leaves out, counts too; look at
+// the folders the walk reads if that leaves a tree's sizes uncounted for nothing.
+pub(crate) fn is_on_a_share(dir: &Path, with_subfolders: bool) -> bool {
+    use crate::files::{file_io::is_network, file_ops};
+    file_ops::file_system_type_or_test(dir).is_some_and(|kind| is_network(&kind))
+        || (with_subfolders
+            && (file_ops::mounted_types_below_or_test(dir).iter()).any(|kind| is_network(kind)))
 }
 
 /// Returns the path relative to the tree whose real path is `top` of a link's folder whose real
@@ -414,7 +430,7 @@ pub fn list_tree(
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
     let (mut read, mut left_out) = (Vec::new(), Vec::new());
-    let on_a_share = is_on_a_share(dir);
+    let on_a_share = is_on_a_share(dir, true);
     for walked in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
         let (rel, dirs, files, modified) = match walked {
             Ok(walked) => walked,
@@ -712,7 +728,45 @@ mod tests {
         crate::files::file_ops::test_mount(&dir, Some("fuse.gvfsd-fuse"));
         assert!(list() >= Duration::from_millis(200), "a share");
         crate::files::file_ops::test_mount(&dir, None);
+        // A share mounted in a folder of a tree on a disk of its own, such as ~/Pictures/nas.
+        // Before, only the tree's top folder was looked at.
+        let started = Instant::now().checked_sub(PROGRAM_STARTS_FOR - Duration::from_millis(400));
+        *crate::support::threads::lock_even_if_poisoned(&super::PROGRAM_STARTED_AT) = started;
+        crate::files::file_ops::test_mount(&dir.join("b"), Some("cifs"));
+        assert!(
+            list() >= Duration::from_millis(200),
+            "a share inside the tree"
+        );
+        crate::files::file_ops::test_mount(&dir.join("b"), None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A local FUSE folder, such as a KDE Vault, a mergerfs pool or the Flatpak's document
+    /// portal, is not a share, and keeps the sizes the status bar sums. Before, every FUSE mount
+    /// was one, and the status bar called such a folder a network folder.
+    #[test]
+    fn a_local_fuse_folder_is_not_a_share() {
+        use crate::files::file_ops::test_mount;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-local-fuse-{}", std::process::id()));
+        for (kind, is_share) in [
+            ("fuse.gocryptfs", false),
+            ("fuse.cryfs", false),
+            ("fuse.mergerfs", false),
+            ("fuse.bindfs", false),
+            ("fuse.portal", false),
+            ("fuseblk", false),
+            ("ext4", false),
+            ("fuse.sshfs", true),
+            ("fuse.rclone", true),
+            ("fuse.gvfsd-fuse", true),
+            ("cifs", true),
+            ("nfs4", true),
+        ] {
+            test_mount(&dir, Some(kind));
+            assert_eq!(super::is_on_a_share(&dir, false), is_share, "{kind}");
+        }
+        test_mount(&dir, None);
     }
 
     /// The images of a tree told after each folder with images, read in name order: the

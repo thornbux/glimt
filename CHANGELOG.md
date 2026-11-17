@@ -14,13 +14,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   also when the user left the date out.
 ### Fixed
 
-- On a network folder (SMB, NFS, a gvfs share), the status bar no longer sums the sizes of the
-  folder, its subfolders, the selection or the search's matches, and says "not counted on a
-  network folder" instead. Each sum looked at every file over the network, and a tree's read
-  the whole tree again after each listing. For a few seconds after Play Video or Open With
-  starts a program, the reading of the share's subfolders and the watch for its changes wait,
-  so the program reads the start of its file first. Before, a video started while Include
-  Subfolders still read a large tree on a share took long to start.
+- On a network folder (SMB, NFS, a gvfs share, sshfs, rclone), or a tree with one mounted in a
+  folder below it, such as a NAS at ~/Pictures/nas, the status bar no longer sums the sizes of
+  the folder, its subfolders, the selection or the search's matches, and says "not counted on a
+  network folder" instead. A local FUSE folder, such as a KDE Vault or a mergerfs pool, is
+  still summed. Each sum looked at every file over the network, and a tree's read the whole
+  tree again after each listing. For a few seconds after Play Video, Open With or a tool
+  starts a program, the reading of the tree and the watch for its changes wait, so the program
+  reads the start of its file first. Before, a video started while Include Subfolders still
+  read a large tree on a share took long to start.
 ### Fixed
 
 - Find Duplicates' Move to Trash keeps the checked files of a group, and says so, also when the

@@ -322,14 +322,20 @@ pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
     ]);
     use std::os::fd::AsFd;
     let body = ("", zbus::zvariant::Fd::from(file.as_fd()), options);
-    request(
+    let chosen = request(
         &conn,
         "org.freedesktop.portal.OpenURI",
         "OpenFile",
         &token,
         &body,
     )
-    .map(|r| r.is_some())
+    .map(|r| r.is_some());
+    // The portal starts the application chosen, not Glimt, so the start is noted here, as
+    // `external::start_users_program` notes the others.
+    if chosen == Ok(true) {
+        crate::model::listing::program_started();
+    }
+    chosen
 }
 
 #[cfg(test)]

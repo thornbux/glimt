@@ -3073,6 +3073,21 @@ pub(crate) fn mounted_type_or_test(dir: &Path) -> Option<String> {
     test_mount_of(dir).or_else(|| crate::files::file_io::mounted_type(dir))
 }
 
+/// Returns the types of the mounts in the folders below `dir`, as `file_io::mounted_types_below`
+/// does, with those that a test gave a folder below `dir` with `test_mount`.
+pub(crate) fn mounted_types_below_or_test(dir: &Path) -> Vec<String> {
+    #[cfg(test)]
+    let mut kinds: Vec<String> = (crate::support::threads::lock_even_if_poisoned(&TEST_MOUNTS))
+        .iter()
+        .filter(|(at, _)| at != dir && at.starts_with(dir))
+        .map(|(_, kind)| kind.clone())
+        .collect();
+    #[cfg(not(test))]
+    let mut kinds = Vec::new();
+    kinds.extend(crate::files::file_io::mounted_types_below(dir));
+    kinds
+}
+
 /// Returns the type that a test gave `dir` or a folder above it with `test_mount`, and `None`
 /// outside the tests.
 fn test_mount_of(dir: &Path) -> Option<String> {

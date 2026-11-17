@@ -591,7 +591,7 @@ impl Listing {
             let sizes = paths
                 .into_iter()
                 .filter_map(|p| Some(p.metadata().ok()?.len()));
-            send_sizes_unless_on_a_share(folders, sizes, self.size_tx, &self.ctx);
+            send_sizes_unless_on_a_share(folders, self.recursive, sizes, self.size_tx, &self.ctx);
         }
     }
 
@@ -773,7 +773,7 @@ impl Listing {
                     (files.into_iter())
                         .filter_map(move |f| Some(folder.join(f.0).metadata().ok()?.len()))
                 });
-            return send_sizes_unless_on_a_share(&places, sizes, self.size_tx, &self.ctx);
+            return send_sizes_unless_on_a_share(&places, true, sizes, self.size_tx, &self.ctx);
         }
         let images = std::fs::read_dir(&self.dir)
             .into_iter()
@@ -782,7 +782,7 @@ impl Listing {
             .filter(|e| listing::kind(e).0 && is_listed(&e.path(), self.types));
         // Through a link, the size of the file it points to, as the list shows that.
         let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
-        send_sizes_unless_on_a_share(&places, sizes, self.size_tx, &self.ctx);
+        send_sizes_unless_on_a_share(&places, false, sizes, self.size_tx, &self.ctx);
     }
 }
 
@@ -1414,6 +1414,7 @@ impl crate::App {
         let mut open_paths = self.folder.folders.clone();
         open_paths.extend(self.folder.collection.clone());
         open_paths.push(self.folder.dir.clone());
+        let with_subfolders = self.folder.recursive;
         let (watcher_generation, tx, ctx) = (
             self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
@@ -1425,7 +1426,7 @@ impl crate::App {
                 read.iter_mut()
                     .for_each(|(path, time)| *time = modified(path));
             }
-            let on_a_share = is_any_on_a_share(&open_paths);
+            let on_a_share = is_any_on_a_share(&open_paths, with_subfolders);
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
@@ -2151,35 +2152,43 @@ pub(crate) fn send_sizes(
 }
 
 /// Sends the sizes that `sizes` looks up a file at a time, as `send_sizes` does, unless a folder
-/// of `places` is on a share. Then it sends `NOT_COUNTED_ON_A_SHARE` alone and looks at no file,
+/// of `places` is on a share, or with `with_subfolders` has one mounted below it
+/// (`listing::is_on_a_share`). Then it sends `NOT_COUNTED_ON_A_SHARE` alone and looks at no file,
 /// because each look is a round trip over the network, which a program the user started on the
 /// share, such as a video player, would wait behind.
 pub(crate) fn send_sizes_unless_on_a_share(
     places: &[PathBuf],
+    with_subfolders: bool,
     sizes: impl Iterator<Item = u64>,
     tx: mpsc::Sender<u64>,
     ctx: &egui::Context,
 ) {
-    match is_any_on_a_share(places) {
+    match is_any_on_a_share(places, with_subfolders) {
         true => send_sizes(std::iter::once(NOT_COUNTED_ON_A_SHARE), tx, ctx),
         false => send_sizes(sizes, tx, ctx),
     }
 }
 
 /// Returns the sum of the sizes of `paths`, as `total_size` does, or `NOT_COUNTED_ON_A_SHARE`
-/// without a look at any file when a folder of `places` is on a share.
-pub(crate) fn total_size_unless_on_a_share(places: &[PathBuf], paths: &[PathBuf]) -> u64 {
-    match is_any_on_a_share(places) {
+/// without a look at any file when a folder of `places` is on a share, or with
+/// `with_subfolders` has one mounted below it.
+pub(crate) fn total_size_unless_on_a_share(
+    places: &[PathBuf],
+    with_subfolders: bool,
+    paths: &[PathBuf],
+) -> u64 {
+    match is_any_on_a_share(places, with_subfolders) {
         true => NOT_COUNTED_ON_A_SHARE,
         false => total_size(paths),
     }
 }
 
-/// Returns whether a folder of `places` is on a share, where the status bar sums no sizes.
+/// Returns whether a folder of `places` is on a share, or with `with_subfolders` has one mounted
+/// below it, where the status bar sums no sizes.
 // shortcut: a collection's list is under "/", so the sizes of its files on a share are still
 // summed; look at the folders of its entries if large collections on shares come up.
-fn is_any_on_a_share(places: &[PathBuf]) -> bool {
-    places.iter().any(|place| listing::is_on_a_share(place))
+fn is_any_on_a_share(places: &[PathBuf], with_subfolders: bool) -> bool {
+    (places.iter()).any(|place| listing::is_on_a_share(place, with_subfolders))
 }
 
 /// Adds the partial sums from `send_sizes` that have arrived. `rx` becomes `None` when the sum
@@ -3637,15 +3646,48 @@ mod tests {
         })
         .take(3);
         let (tx, rx) = std::sync::mpsc::channel();
-        super::send_sizes_unless_on_a_share(&app.folder.places(), sizes, tx, &ctx);
+        super::send_sizes_unless_on_a_share(&app.folder.places(), true, sizes, tx, &ctx);
         assert_eq!(rx.iter().collect::<Vec<_>>(), [NOT_COUNTED_ON_A_SHARE]);
         assert_eq!(looked.get(), 0);
         let paths = [dir.join("a.png")];
-        let total = super::total_size_unless_on_a_share(&app.folder.places(), &paths);
+        let total = super::total_size_unless_on_a_share(&app.folder.places(), true, &paths);
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
         // On a disk of its own they are summed.
         test_mount(&dir, None);
-        assert!(super::total_size_unless_on_a_share(&app.folder.places(), &paths) > 0);
+        assert!(super::total_size_unless_on_a_share(&app.folder.places(), true, &paths) > 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A share mounted in a folder of a tree on a disk of its own, such as a NAS at
+    /// ~/Pictures/nas, has its tree's sizes not summed either, while the folder alone, without
+    /// its subfolders, is summed. Before, only the top folder was looked at, and the sum read
+    /// the whole share again after each listing.
+    #[test]
+    fn a_share_mounted_inside_the_tree_is_not_summed() {
+        use crate::files::file_ops::test_mount;
+        use crate::support::format::NOT_COUNTED_ON_A_SHARE;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-share-inside-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("nas")).unwrap();
+        for name in ["a.png", "nas/b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let dir = crate::model::listing::real_dir(&dir);
+        test_mount(&dir.join("nas"), Some("cifs"));
+        let (mut app, ctx) = app_on(&dir);
+        app.config.show_subfolders = true;
+        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()
+            && a.status_bar.folder_total().is_some()));
+        assert_eq!(app.list.files(), ["a.png", "nas/b.png"]);
+        assert_eq!(app.status_bar.folder_total(), Some(NOT_COUNTED_ON_A_SHARE));
+        let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
+        let total = super::total_size_unless_on_a_share(&places, true, &paths);
+        assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
+        assert!(super::total_size_unless_on_a_share(&places, false, &paths) > 0);
+        test_mount(&dir.join("nas"), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

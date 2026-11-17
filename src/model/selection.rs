@@ -316,6 +316,7 @@ impl crate::App {
             .iter()
             .map(|&i| self.list.files()[i].clone())
             .collect();
+        let with_subfolders = self.folder.recursive();
         let (dir, places, ctx) = (
             self.folder.dir().to_path_buf(),
             self.folder.places(),
@@ -328,7 +329,11 @@ impl crate::App {
             let paths: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
             // The receiver is gone if the selection changed again; then the answer is dropped.
             if tx
-                .send(total_size_unless_on_a_share(&places, &paths))
+                .send(total_size_unless_on_a_share(
+                    &places,
+                    with_subfolders,
+                    &paths,
+                ))
                 .is_ok()
             {
                 ctx.request_repaint();
