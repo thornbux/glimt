@@ -1240,7 +1240,7 @@ impl Page {
 pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
     let Some(shown) = *page else { return };
     let mut open = true;
-    egui::Window::new(shown.title())
+    let drawn = egui::Window::new(shown.title())
         .id(egui::Id::unique("help"))
         .open(&mut open)
         .collapsible(false)
@@ -1255,6 +1255,10 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
                 Page::About => about(ui),
             });
         });
+    // Noted by its title, so the release tests see which help window is open.
+    if let Some(drawn) = drawn {
+        crate::support::test_hooks::noted(&drawn.response, shown.title());
+    }
     if !open {
         *page = None;
     }

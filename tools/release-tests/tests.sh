@@ -3473,18 +3473,25 @@ mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
 config
 start $d/a.png; sleep 2
-whole() { shot $1; md5sum </t/out/$1.png; }
-base=$(whole help-none)
-key F1; sleep 2; manual=$(whole help-manual); key Escape; sleep 1
-menu Help "Keyboard Shortcuts"; sleep 2; keys=$(whole help-keys); key Escape; sleep 1
-menu Help "Keyboard Map"; sleep 2; map=$(whole help-map); key Escape; sleep 1
-menu Help "About Glimt"; sleep 2; about=$(whole help-about)
+# The help windows open, each by the title it is noted by. A menu left open, or another help
+# window, would note one of the other titles too, so each check wants its own title alone.
+open_help() {
+    local title
+    for title in "Help Manual" "Keyboard Shortcuts" "Keyboard Map" "About Glimt"; do
+        [ -n "$(where "$title")" ] && printf '%s;' "$title"
+    done
+}
+base=$(open_help)
+key F1; sleep 2; manual=$(open_help); shot help-manual; key Escape; sleep 1
+menu Help "Keyboard Shortcuts"; sleep 2; keys=$(open_help); shot help-keys; key Escape; sleep 1
+menu Help "Keyboard Map"; sleep 2; map=$(open_help); shot help-map; key Escape; sleep 1
+menu Help "About Glimt"; sleep 2; about=$(open_help); shot help-about
 quit
-differ "F1 opens the manual" "$base" "$manual"
-differ "Keyboard Shortcuts opens" "$base" "$keys"
-differ "Keyboard Map opens" "$base" "$map"
-differ "About opens" "$base" "$about"
-differ "the four are different windows" "$manual$keys" "$map$about"
+expect_empty "no help window at the start" "$base"
+expect "F1 opens the manual, alone" "$manual" "Help Manual;"
+expect "Keyboard Shortcuts opens, alone" "$keys" "Keyboard Shortcuts;"
+expect "Keyboard Map opens, alone" "$map" "Keyboard Map;"
+expect "About opens, alone" "$about" "About Glimt;"
 
 section "Open With: the default application and one from the Open With list, both through gio"
 d=/tmp/open-with
