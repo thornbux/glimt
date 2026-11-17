@@ -302,6 +302,41 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A format whose program is not installed, or whose script lacks a module, fails with an
+    /// error that says nothing about the file. Before, the shell's "exec: convert: not found"
+    /// was taken for a broken file, and Check Images listed every such file as broken.
+    #[test]
+    fn a_missing_program_or_module_is_not_the_files_fault() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-no-program-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.xyz");
+        std::fs::write(&file, b"not read").unwrap();
+        let ten_seconds = Duration::from_secs(10);
+        let missing = [
+            "Exec=glimt-test-no-such-program %f",
+            "Exec=sh -c \"glimt-test-no-such-program\" %f",
+            "Exec=sh -c \"echo \\\"ModuleNotFoundError: No module named 'nibabel'\\\" >&2; \
+             exit 1\" %f",
+        ];
+        for exec in missing {
+            let format = super::parse(&format!("Name=X\nExtensions=xyz\n{exec}"), &dir).unwrap();
+            let error = format.run(&file, ten_seconds, 4096).unwrap_err();
+            assert!(
+                crate::images::decode::program_missing(&error),
+                "{exec}: {error}"
+            );
+        }
+        // A program that ran and found the file broken says so.
+        let broken =
+            "Name=X\nExtensions=xyz\nExec=sh -c \"echo 'IHDR chunk missing' >&2; exit 1\" %f";
+        let error = super::parse(broken, &dir)
+            .unwrap()
+            .run(&file, ten_seconds, 4096);
+        assert!(!crate::images::decode::program_missing(&error.unwrap_err()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A format's desktop files broken in thousands of ways: read without a panic.
     #[test]
     fn survives_broken_format_files() {

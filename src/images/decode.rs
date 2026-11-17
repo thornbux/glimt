@@ -1216,16 +1216,19 @@ fn needs_program(path: &Path) -> bool {
         || crate::images::added_formats::for_path(path).is_some()
 }
 
-/// Returns whether `error` says that the program was not found or may not run, not that the
-/// file is bad.
-fn program_missing(error: &str) -> bool {
-    [
+/// Returns whether `error` says that the program, or a part it needs, was not found or may not
+/// run, not that the file is bad. A shell says it in its own words: dash and busybox write
+/// "exec: convert: not found", bash "command not found". A Python script without a module it
+/// needs, as the examples' scripts are, says "ModuleNotFoundError" on its last line.
+pub(crate) fn program_missing(error: &str) -> bool {
+    let missing = [
         "No such file or directory",
         "command not found",
         "Permission denied",
-    ]
-    .iter()
-    .any(|m| error.contains(m))
+        "cannot execute",
+        "ModuleNotFoundError",
+    ];
+    missing.iter().any(|m| error.contains(m)) || error.trim_end().ends_with(": not found")
 }
 
 /// Returns whether a JPEG file's image data reaches its end marker (FF D9), which the data itself
