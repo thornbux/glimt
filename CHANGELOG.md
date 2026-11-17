@@ -12,6 +12,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   every file and leftover sidecar in the folder, and Remove All ticks it too. Before, a copy
   always kept the original's name, such as PXL_20231004_142355.jpg, and the date and time in it,
   also when the user left the date out.
+
 ### Fixed
 
 - On a network folder (SMB, NFS, a gvfs share, sshfs, rclone), or a tree with one mounted in a
@@ -37,23 +38,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the new files at once. With Include Subfolders on, one into a folder that is not shown no
   longer reads all the folders shown again. Before, the copies came only when the watch saw
   them, and every such copy read the whole trees again.
-### Fixed
-
-- On a network folder (SMB, NFS, a gvfs share), the status bar no longer sums the sizes of the
-  folder, its subfolders, the selection or the search's matches, and says "not counted on a
-  network folder" instead. Each sum looked at every file over the network, and a tree's read
-  the whole tree again after each listing. For a few seconds after Play Video or Open With
-  starts a program, the reading of the share's subfolders and the watch for its changes wait,
-  so the program reads the start of its file first. Before, a video started while Include
-  Subfolders still read a large tree on a share took long to start.
-### Fixed
-
 - Find Duplicates' Move to Trash keeps the checked files of a group, and says so, also when the
   group's unchecked file could not be looked at during the search, or is a link whose target
   was edited since. Before, such a file was taken as unchanged, and a copy that the edit had
   made the last of the original went to the trash.
-### Fixed
-
 - A `--remote` command that waits (for a folder being opened or read, or behind a Delete or
   Rename question) is never done once its client has stopped waiting: it is answered "not
   done" before then. Before, the client was told "no answer", and the command was done later,
@@ -67,8 +55,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   `open "/pics/Trip\r"` opened /pics/Trip.
 - A build without the release tests' hooks answers `--remote where` as a command it does not
   know. Before, it answered with the selected files' paths.
-### Fixed
-
 - Check Images lists a file that could not be checked apart from the broken ones, without a
   mark in the list, and Select Them leaves it out: ffmpeg not installed, a share away for a
   moment, a program that ran out of time, or a picture larger than Glimt decodes. Before, they
@@ -77,9 +63,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   ffmpeg or an added format, in the memory that decodes share. Before, only the pixels counted,
   and a downloaded folder of small JPEGs that each end in 500 MB of zeros took gigabytes, up to
   12 GB with CPU use "full" on 16 cores, until the system ended Glimt.
-
-### Fixed
-
 - Save As over a file, and a turn saved, keep the file's sidecar as it was when the file cannot
   be replaced at the last step, as when another computer holds it open on a share or it is
   another user's file in a shared folder. Before, Save As had already removed the sidecar with
@@ -93,9 +76,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   saved. Before, the crop was told as failed while it was saved without its sidecar and marks,
   a new copy on each try, and a photo whose sidecar's name would be too long could not be
   cropped or saved as a copy.
-
-### Fixed
-
 - Save As and a turn saved on a share that loses its answer at the last step look whether the
   file was replaced: a copy that took the name is saved with its own sidecar. When the share
   cannot say for sure that it was, nothing is put back, and the error says where the replaced
