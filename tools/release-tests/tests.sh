@@ -6227,16 +6227,26 @@ for s in range(10):
     # selected and the Delete dialog drawn in every frame. Processor time, not time on the
     # clock: that varied by 20 ms and more from run to run with threads summing file sizes.
     # 0 ms here; a build that made a path of each selected file in every frame took 22 ms.
+    # The controls that the median measured that state: the first image shown (frames are
+    # counted only after it), the dialog naming all 500,000 files after the moves, and more
+    # frames counted than the moves made. A key lost, or a refused Ctrl+A or Delete, otherwise
+    # leaves cheap frames, or none at all, which print median 0.
     config thumbnails=false
     start $big
     wait_first
+    shown=$(grep -c 'first image' /tmp/glimt.err)
     key ctrl+a                       # the whole list selected
     key ctrl+d                       # the Delete dialog drawn with it, in every frame
     for i in $(seq 100); do xdotool mousemove $((300 + 3 * i)) 400; sleep 0.05; done
+    asked=$(where "Move 500,000 files to the trash?")
     key Escape
     quit
     median=$(grep -o 'frames: median [0-9]*' /tmp/glimt.err | grep -o '[0-9]*$')
+    counted=$(grep -o '[0-9]* counted' /tmp/glimt.err | grep -o '^[0-9]*')
     note "new, 500,000 selected: $(grep -o 'frames: .*' /tmp/glimt.err)"
+    expect "the first image shown, and the dialog names 500,000 files (the controls)" \
+        "$shown $([ -n "$asked" ] && echo asked)" "1 asked"
+    expect "more frames counted than the 100 moves" "$([ "${counted:-0}" -ge 100 ] && echo yes)" yes
     expect "frames within 10 ms with 500,000 files selected" \
         "$([ "${median:-9999}" -le 10 ] && echo yes)" yes
 

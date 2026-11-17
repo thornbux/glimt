@@ -457,8 +457,11 @@ impl eframe::App for App {
             self.answer_awaited_outcomes(&ctx, true);
         });
         let at = |share| frame_at(self.decoding.frame_times(), share);
+        // The count tells the release tests that the median measured frames at all, as it is
+        // also 0 when no frame was counted.
+        let counted: u32 = self.decoding.frame_times().iter().sum();
         eprintln!(
-            "frames: median {} ms, 90% within {} ms, slowest {} ms",
+            "frames: median {} ms, 90% within {} ms, slowest {} ms, {counted} counted",
             at(0.5),
             at(0.9),
             at(1.0)
