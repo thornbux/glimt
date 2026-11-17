@@ -1774,6 +1774,20 @@ fn functions_stay_short() {
         ("ui/actions.rs", "target"),
         ("ui/actions.rs", "run"),
     ];
+    // AGENTS.md's paragraph on this test names each exception, such as `Action::english`.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    let paragraph = (agents.split("\n\n"))
+        .find(|p| p.contains("`source_rules::functions_stay_short`"))
+        .unwrap();
+    let unnamed: Vec<&str> = (TABLES.iter())
+        .map(|(_, name)| *name)
+        .filter(|name| !paragraph.contains(&format!("::{name}`")))
+        .collect();
+    assert!(
+        unnamed.is_empty(),
+        "AGENTS.md does not name these exceptions to functions_stay_short: {unnamed:?}"
+    );
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
@@ -2072,6 +2086,35 @@ fn agents_md_names_what_each_module_has() {
         wrong.is_empty(),
         "AGENTS.md's code layout names what is not defined in that file:\n{}",
         wrong.join("\n")
+    );
+}
+
+/// AGENTS.md's *Frozen in 1.x* names each kind of line that src/frozen-1.0.txt pins, in
+/// backticks, and each lock whose kind a `lock_kind` line pins. Its list once left out the
+/// delete log, which the frozen file pinned, so a reader did not learn that it was frozen.
+#[test]
+fn agents_md_names_every_kind_of_frozen_line() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    let frozen = std::fs::read_to_string(root.join("src/frozen-1.0.txt")).unwrap();
+    let section = agents.split("\n## Frozen in 1.x\n").nth(1).unwrap();
+    let section = section.split("\n## ").next().unwrap();
+    let mut unnamed = HashSet::new();
+    for line in frozen.lines().filter(|l| !l.starts_with('#')) {
+        let kind = line.split(' ').next().unwrap();
+        if !section.contains(&format!("`{kind}`")) {
+            unnamed.insert(kind.to_owned());
+        }
+        let lock = line
+            .strip_prefix("lock_kind ")
+            .and_then(|l| l.rsplit_once(' '));
+        if let Some((lock, _)) = lock.filter(|(lock, _)| !section.contains(lock)) {
+            unnamed.insert(format!("lock_kind {lock}"));
+        }
+    }
+    assert!(
+        unnamed.is_empty(),
+        "AGENTS.md's Frozen in 1.x does not name what src/frozen-1.0.txt pins: {unnamed:?}"
     );
 }
 
