@@ -153,8 +153,8 @@
       <text x="957" y="412">(test-hooks build), and reads</text>
       <text x="957" y="428">files and screenshot colours</text>
       <text x="957" y="454" font-weight="700">Timings and memory</text>
-      <text x="957" y="472">first image and RssAnon of</text>
-      <text x="957" y="488">both versions at 500,000 files</text>
+      <text x="957" y="472">first image, RssAnon, sort</text>
+      <text x="957" y="488">by date and frame time</text>
       <text x="957" y="514" font-weight="700">Known vulnerabilities</text>
       <text x="957" y="532">cargo audit in release.yml,</text>
       <text x="957" y="548">and weekly in audit.yml</text>
