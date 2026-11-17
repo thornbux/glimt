@@ -3791,8 +3791,8 @@ msgstr "Kunne ikkje gje vindauget eit namn: {why}"
 
 #: src/ui/dialogs.rs
 #, fuzzy
-msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
-msgstr "Kunne ikkje gje vindauget eit namn: eit namn har opptil 64 bokstavar, siffer, - og _, og ikkje berre siffer"
+msgid "Could not name this window: a name holds letters, digits, - and _, not only digits, and at most 64 bytes"
+msgstr "Kunne ikkje gje vindauget eit namn: eit namn har bokstavar, siffer, - og _, ikkje berre siffer, og høgst 64 byte"
 
 #: src/files/file_io.rs
 #, fuzzy

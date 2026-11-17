@@ -137,7 +137,8 @@ const OUTCOME_DONE: &str = "done\n";
 const OUTCOME_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Why a name cannot be a window's, as `--remote name` prints it.
-const NOT_A_NAME: &str = "a name holds up to 64 letters, digits, - and _, not only digits";
+const NOT_A_NAME: &str =
+    "a name holds letters, digits, - and _, not only digits, and at most 64 bytes";
 
 /// The keys of `--remote info`'s answer before the EXIF rows, in their order. Scripts read
 /// them, so they stay as they are, and a new one goes at the end, before the EXIF rows.
@@ -849,8 +850,8 @@ impl crate::App {
                 // the system, rarely, and are the English ones that `--remote name` prints too.
                 (NameAskedBy::Dialog, Err(None)) => self.notice.give(
                     tr(
-                        "Could not name this window: a name holds up to 64 letters, digits, \
-                        - and _, and not only digits",
+                        "Could not name this window: a name holds letters, digits, - and _, \
+                        not only digits, and at most 64 bytes",
                     )
                     .to_owned(),
                 ),
@@ -2668,6 +2669,10 @@ mod tests {
         for name in ["123", "a/b", "a.b"] {
             assert!(super::rename(Some(name)).is_err(), "{name}");
         }
+        // The limit counts bytes, as the answer says: 33 letters of two bytes each are too many.
+        assert!(super::valid_name(&"æ".repeat(32)));
+        let told = super::rename(Some(&"æ".repeat(33))).unwrap_err();
+        assert!(told.contains("at most 64 bytes"), "{told}");
     }
 
     /// `identify` shows the window's ID for a few seconds and is told as done, and the client
