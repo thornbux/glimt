@@ -4750,41 +4750,76 @@ fn gone_means_not_found() {
 }
 
 /// Returns the lines (from 1) of `text` outside the tests that ask whether a name is there in a
-/// way that takes every failed look for an answer. A call split over two lines is found too.
+/// way that takes every failed look for an answer. A call split over several lines is found too.
 fn looks_that_guess(text: &str) -> Vec<usize> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let guesses = |i: usize| {
         let line = &lines[i];
-        let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
-        let call = format!("{line}{}", if next.starts_with('.') { next } else { "" });
-        let asks_kind = [".is_file()", ".is_dir()", ".is_symlink()"]
-            .iter()
-            .any(|c| call.contains(c));
+        // A line that goes on with a method is read with the line before it.
+        let carried = match (line.trim_start().starts_with('.'), i.checked_sub(1)) {
+            (true, Some(above)) => lines[above].trim(),
+            _ => "",
+        };
         line.contains(".exists()")
-            || ["Path::exists", "Path::is_file", "Path::is_dir"]
-                .iter()
-                .any(|f| mentions(line, f))
-            || (line.contains("metadata(")
-                && ([".is_err()", ".is_ok()", "let Ok("]
-                    .iter()
-                    .any(|c| call.contains(c))
-                    || (asks_kind && !passes_each_error_on(&call))))
-            || asks_a_path_its_kind(line)
+            || [
+                "Path::exists",
+                "Path::is_file",
+                "Path::is_dir",
+                "Path::is_symlink",
+            ]
+            .iter()
+            .any(|f| mentions(line, f))
+            || drops_the_error_of_a_look(&statement_from(&lines, i))
+            || asks_a_path_its_kind(line, carried)
     };
     (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
 }
 
-/// Returns whether each look at the metadata in `call` passes its error on to the caller, with
-/// `?` right after it. A look whose kind is asked in any other way gives an answer for a failed
-/// look too (`is_ok_and`, `map_or`, `.ok().is_some_and`, `unwrap_or`, a `matches!` of
-/// `Ok(m)`), however it is spelled.
-fn passes_each_error_on(call: &str) -> bool {
-    (call.match_indices("metadata(")).all(|(at, _)| {
-        let mut depth = 0;
-        let close = call[at + "metadata".len()..]
-            .char_indices()
-            .find(|&(_, c)| {
+/// Returns line `at` of `lines` with the lines after it that go on with a method, and, when it
+/// matches on something, the lines up to the end of its arms.
+fn statement_from(lines: &[String], at: usize) -> String {
+    let mut statement = lines[at].clone();
+    let is_match = lines[at].contains("match ");
+    for line in &lines[at + 1..] {
+        let is_open = statement.matches('{').count() > statement.matches('}').count();
+        if !(line.trim_start().starts_with('.') || (is_match && is_open)) {
+            break;
+        }
+        statement = format!("{statement}\n{line}");
+    }
+    statement
+}
+
+/// Returns whether `statement` looks at a name (`metadata`, `symlink_metadata`, `try_exists`)
+/// and turns the look into a yes or no that a failed look answers too: it asks the result
+/// anything with an `is_` method, or matches its error as `Err(_)`, `Err(..)` or `_`, or takes
+/// only `Ok` with `let Ok(…)`. A `try_exists` is a yes or no itself. A look whose error goes on
+/// with `?` (or `.ok()?`) right after it, or is matched on NotFound, says which way a failed
+/// look counts.
+/// Before, only listed spellings were found, and `.ok().is_none()`, `if let Err(_) =` and
+/// `try_exists().unwrap_or(false)` passed.
+fn drops_the_error_of_a_look(statement: &str) -> bool {
+    if statement.contains("NotFound") {
+        return false;
+    }
+    // The methods called on the result (`.ok().is_none()`, `.map_or(…, |m| m.is_dir())`), or
+    // the rest of a `matches!`, are asked a yes or no. The arms of a `match` are read for how
+    // they take the error instead.
+    let asks_the_result =
+        |after: &str| after.trim_start().starts_with(['.', ',']) && after.contains(".is_");
+    let guesses_without_error = ["let Ok(", "Err(_", "Err(..)", "_ =>"]
+        .iter()
+        .any(|c| statement.contains(c));
+    ["metadata(", "try_exists("].iter().any(|look| {
+        (statement.match_indices(look)).any(|(at, found)| {
+            let before = &statement[..at];
+            if before.ends_with(is_word_char) && !before.ends_with("symlink_") {
+                return false;
+            }
+            let mut depth = 1;
+            let rest = &statement[at + found.len()..];
+            let close = rest.char_indices().find(|&(_, c)| {
                 depth += match c {
                     '(' => 1,
                     ')' => -1,
@@ -4792,19 +4827,22 @@ fn passes_each_error_on(call: &str) -> bool {
                 };
                 depth == 0
             });
-        let Some((close, _)) = close else {
-            return false;
-        };
-        let after = &call[at + "metadata".len() + close + 1..];
-        after.starts_with('?')
+            let after = close.map_or("", |(c, _)| &rest[c + 1..]);
+            let after = &after[..after.find(';').unwrap_or(after.len())];
+            // `.ok()?` passes the failure on as `None`.
+            let chained: String = after.chars().filter(|c| !c.is_whitespace()).collect();
+            !(chained.starts_with('?') || chained.starts_with(".ok()?"))
+                && (*look == "try_exists(" || asks_the_result(after) || guesses_without_error)
+        })
     })
 }
 
-/// Returns whether `line` asks a path whether it is a file or a folder (`Path::is_file` or
-/// `is_dir`), which answers no when the look fails. A metadata or a file type, which has been
-/// read already, is asked the same way, and is told apart by how it is named: a call of
-/// `metadata`, `symlink_metadata` or `file_type`, or a value named `m`, `meta` or `kind`.
-fn asks_a_path_its_kind(line: &str) -> bool {
+/// Returns whether `line` asks a path whether it is a file, a folder or a link (`Path::is_file`,
+/// `is_dir` or `is_symlink`), which answers no when the look fails. A metadata or a file type,
+/// which has been read already, is asked the same way, and is told apart by how it is named: a
+/// call of `metadata`, `symlink_metadata` or `file_type`, or a value named `m`, `meta` or
+/// `kind`. `carried` is the line before when `line` goes on with a method, where its receiver is.
+fn asks_a_path_its_kind(line: &str, carried: &str) -> bool {
     let is_read_already = |before: &str| {
         let before = before.trim_end_matches('?');
         let Some(inside) = before.strip_suffix(')') else {
@@ -4825,9 +4863,14 @@ fn asks_a_path_its_kind(line: &str) -> bool {
         let name = &called[called.trim_end_matches(is_word_char).len()..];
         ["metadata", "symlink_metadata", "file_type"].contains(&name)
     };
-    [".is_file()", ".is_dir()"]
+    [".is_file()", ".is_dir()", ".is_symlink()"]
         .iter()
-        .any(|ask| (line.match_indices(ask)).any(|(at, _)| !is_read_already(&line[..at])))
+        .any(|ask| {
+            (line.match_indices(ask)).any(|(at, _)| {
+                let before = line[..at].trim_start();
+                !is_read_already(&format!("{carried}{before}"))
+            })
+        })
 }
 
 /// The check above finds `exists`, also as a function value, and a look at the metadata whose
@@ -4840,7 +4883,7 @@ fn finds_a_look_that_guesses() {
     let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
         .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
         files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
-        let m = std::fs::metadata(p)?;\n    p.try_exists()\n    \
+        let m = std::fs::metadata(p)?;\n    p.try_exists()?;\n    \
         let Ok(old) = std::fs::metadata(p) else {\n    if let Ok(m) = p.metadata() {}\n}\n";
     assert_eq!(looks_that_guess(text), [2, 3, 5, 6, 10, 11]);
 }
@@ -4875,6 +4918,24 @@ fn finds_a_path_asked_its_kind() {
         e.file_type().is_ok_and(|t| t.is_file());\n    let f = lock.metadata()?.is_file();\n    \
         let x = is_surely_dir(p);\n}\n";
     assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9]);
+}
+
+/// The check above finds a look whose failure is taken for "gone" or "no link" in any spelling:
+/// a path asked `is_symlink`, `.ok().is_none()`, `if let Err(_) =`, a `match` with `Err(_)`, and
+/// `try_exists` turned into a yes or no. It passes a link asked of a metadata read already,
+/// also on the next line, a `try_exists` passed on, and a match on NotFound. Before, each of
+/// these found here passed.
+#[test]
+fn finds_a_failed_look_in_any_spelling() {
+    let text = "fn a() {\n    if path.is_symlink() {}\n    \
+        let gone = std::fs::symlink_metadata(p).ok().is_none();\n    \
+        if let Err(_) = std::fs::metadata(p) {}\n    match std::fs::metadata(p) {\n        \
+        Ok(_) => 1,\n        Err(_) => 2,\n    }\n    let t = p.try_exists().unwrap_or(false);\n    \
+        let t = p.try_exists().is_ok_and(|b| b);\n    let l = std::fs::symlink_metadata(p)?\n        \
+        .file_type()\n        .is_symlink();\n    let l = m.is_symlink();\n    \
+        let t = p.try_exists()?;\n    match std::fs::symlink_metadata(p) {\n        \
+        Ok(m) => m.is_dir(),\n        Err(e) => e.kind() == ErrorKind::NotFound,\n    }\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9, 10]);
 }
 
 /// A file is locked only through `file_io::open_and_lock` and `open_if_unlocked`, which open it

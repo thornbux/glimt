@@ -1559,7 +1559,9 @@ pub fn remove_own(path: &Path) -> std::io::Result<()> {
         // Glimt's own: a folder, such as the copy of a state folder in a backup.
         Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
         // Glimt's own: a plan, a log or a state file.
-        _ => std::fs::remove_file(path),
+        Ok(_) => std::fs::remove_file(path),
+        // A failed look says nothing of what is there, so nothing is removed.
+        Err(e) => Err(e),
     };
     match removed {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

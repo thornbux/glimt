@@ -657,11 +657,11 @@ impl Listing {
         let mut left_out: Vec<Unread> = Vec::new();
         let sizes = keep_files_with_size(&mut files, |(f, identity)| {
             let path = self.dir.join(f);
-            let own = looked_at(std::fs::symlink_metadata(&path), &path, &mut left_out)?;
-            *identity = crate::files::file_io::identity_from_metadata(&path, &own);
-            let meta = match own.is_symlink() {
+            let m = looked_at(std::fs::symlink_metadata(&path), &path, &mut left_out)?;
+            *identity = crate::files::file_io::identity_from_metadata(&path, &m);
+            let meta = match m.is_symlink() {
                 true => looked_at(path.metadata(), &path, &mut left_out)?,
-                false => own,
+                false => m,
             };
             meta.is_file().then_some(meta.len())
         });
