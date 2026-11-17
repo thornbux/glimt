@@ -4027,3 +4027,23 @@ msgstr "Uloženo {file}, ale bez doprovodného souboru: {e}"
 #, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "doprovodný soubor nebyl vrácen zpět: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does"
+msgstr "není známo, zda byl obrázek zapsán, a jeho doprovodný soubor {sidecar} už uvádí totéž co nový obrázek"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
+msgstr "není známo, zda kopie získala název, proto doprovodný soubor tamního souboru zůstal jako {aside}; pokud tam ten soubor stále je, vraťte jeho doprovodnému souboru název {sidecar}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} je doprovodný soubor, který tam zůstal bez svého obrázku, proto se název nepoužije; přesuňte ho nebo smažte, abyste název mohli použít"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "nelze se podívat na {name}: {e}"

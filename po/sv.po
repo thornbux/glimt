@@ -4005,3 +4005,23 @@ msgstr "Sparade {file}, men inte dess sidofil: {e}"
 #, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "sidofilen lades inte tillbaka: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does"
+msgstr "det är okänt om bilden skrevs, och dess sidofil {sidecar} säger redan samma sak som den nya bilden"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
+msgstr "det är okänt om kopian fick namnet, så sidofilen till filen där blev kvar som {aside}; om den filen fortfarande finns där, ge dess sidofil tillbaka namnet {sidecar}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} är en sidofil som ligger där utan sin bild, så namnet används inte; flytta eller ta bort den för att använda namnet"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "kunde inte titta på {name}: {e}"

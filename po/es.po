@@ -4005,3 +4005,23 @@ msgstr "Se guardó {file}, pero no su archivo complementario: {e}"
 #, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "su archivo complementario no se restauró: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does"
+msgstr "no se sabe si la imagen se escribió, y su archivo complementario {sidecar} ya dice lo mismo que la imagen nueva"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
+msgstr "no se sabe si la copia tomó el nombre, así que el archivo complementario del archivo que había allí quedó como {aside}; si ese archivo sigue allí, devuelve a su archivo complementario el nombre {sidecar}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} es un archivo complementario que quedó allí sin su imagen, así que el nombre no se usa; muévelo o elimínalo para usar el nombre"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "no se pudo consultar {name}: {e}"

@@ -4016,3 +4016,23 @@ msgstr "Zapisano {file}, ale bez pliku pobocznego: {e}"
 #, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "plik poboczny nie został przywrócony: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does"
+msgstr "nie wiadomo, czy obraz został zapisany, a jego plik poboczny {sidecar} mówi już to samo co nowy obraz"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
+msgstr "nie wiadomo, czy kopia przejęła nazwę, więc plik poboczny tamtego pliku został jako {aside}; jeśli ten plik nadal tam jest, przywróć jego plikowi pobocznemu nazwę {sidecar}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a sidecar left there without its image, so the name is not used; move or delete it to use the name"
+msgstr "{sidecar} to plik poboczny pozostawiony tam bez swojego obrazu, więc nazwa nie zostanie użyta; przenieś go lub usuń, aby użyć tej nazwy"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "could not look at {name}: {e}"
+msgstr "nie można sprawdzić {name}: {e}"

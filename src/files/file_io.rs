@@ -95,7 +95,8 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
-    // Makes a rename by `rename_never_over` from this name, or a delete for good of it, on this
+    // Makes a rename by `rename_never_over` from this name, a delete for good of it, or the
+    // rename by which `replace` or `replace_name_with` gives a new version this name, on this
     // thread be done and then fail with EIO (`answer_lost_in_a_test`).
     pub(crate) static ANSWER_LOST_AT: std::cell::RefCell<Option<PathBuf>> =
         const { std::cell::RefCell::new(None) };
@@ -662,6 +663,18 @@ impl std::fmt::Display for MayBeUnderBothNames {
 }
 
 impl std::error::Error for MayBeUnderBothNames {}
+
+/// What the names say of a replace's rename that failed, which `taken_back` hands to the undo
+/// of the step before the rename.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum RenameFailed {
+    /// The rename surely was not done, so the step is taken back.
+    NotDone,
+    /// The names could not tell whether the rename was done. The step is then left as it is,
+    /// as taking it back could be wrong either way, and the undo returns what the user must
+    /// know of it, such as where it put a file.
+    MayHaveBeenDone,
+}
 
 /// Returns whether nothing is at `path`: the system said that the name is not there (NotFound).
 /// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
@@ -1887,7 +1900,7 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 /// (`taken_back`). `read` is the fingerprint of the file that `bytes` were made from, taken
 /// before it was read (`fingerprint_before_reading`). A file that changed since (a copy still
 /// being written into it, another file given its name) is not written over.
-pub fn replace_existing<Undo: FnOnce() -> std::io::Result<()>>(
+pub fn replace_existing<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
     path: &Path,
     bytes: impl AsRef<[u8]>,
     read: FileFingerprint,
@@ -1915,7 +1928,7 @@ pub fn replace_name(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 /// that fails (a full disk) leaves the file and its sidecar as they were, and a sidecar that
 /// cannot be set aside leaves the file. The step returns how to take itself back, which runs
 /// when the rename after it surely was not done (`taken_back`).
-pub fn replace_name_with<Undo: FnOnce() -> std::io::Result<()>>(
+pub fn replace_name_with<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     before: impl FnOnce() -> std::io::Result<Undo>,
@@ -1926,9 +1939,9 @@ pub fn replace_name_with<Undo: FnOnce() -> std::io::Result<()>>(
         #[allow(clippy::disallowed_methods)]
         // replaces on purpose, the name and never a link's target
         let renamed = rename_failed_in_a_test(path)
-            .and_then(|()| std::fs::rename(tmp, path))
+            .and_then(|()| renamed_in_a_test(path, std::fs::rename(tmp, path)))
             .map_err(|e| explain_rename_error(e, path));
-        renamed.map_err(|e| taken_back(e, true, tmp, undo))
+        renamed.or_else(|e| taken_back(e, true, tmp, path, undo))
     };
     write_beside(&tmp_path(path), path, write, give_name)?;
     tell_other_names(path, has_other_names);
@@ -1961,7 +1974,7 @@ pub fn write_picked_name(
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
 /// Glimt's own files and a turned image are written so. A name the user chose for a new file,
 /// and a collection's file, go through `replace_name`, which never follows a link.
-fn replace<Undo: FnOnce() -> std::io::Result<()>>(
+fn replace<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
     path: &Path,
     bytes: impl AsRef<[u8]>,
     existing: Option<FileFingerprint>,
@@ -1986,20 +1999,20 @@ fn replace<Undo: FnOnce() -> std::io::Result<()>>(
         // `before` may take a while (a sidecar written under its lock), so the file is looked
         // at again after it: one deleted meanwhile must not come back under its old name.
         if let Err(e) = there() {
-            return Err(taken_back(e, false, tmp, undo));
+            return taken_back(e, false, tmp, path, undo);
         }
         #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
         let renamed = rename_failed_in_a_test(path)
-            .and_then(|()| std::fs::rename(tmp, path))
+            .and_then(|()| renamed_in_a_test(path, std::fs::rename(tmp, path)))
             .map_err(|e| explain_rename_error(e, path));
-        renamed.map_err(|e| taken_back(e, true, tmp, undo))
+        renamed.or_else(|e| taken_back(e, true, tmp, path, undo))
     })?;
     tell_other_names(path, has_other_names);
     Ok(())
 }
 
 /// The undo of a step before a replace's rename that has nothing to take back.
-pub(crate) fn nothing_to_undo() -> std::io::Result<()> {
+pub(crate) fn nothing_to_undo(_: RenameFailed) -> std::io::Result<()> {
     Ok(())
 }
 
@@ -2019,24 +2032,43 @@ fn rename_failed_in_a_test(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Returns `result`, of the rename by which `replace` or `replace_name_with` gives a new version
+/// the name `path`, as a lost answer in a test whose `ANSWER_LOST_AT` is `path`. Returns
+/// `result` as it is outside the tests.
+fn renamed_in_a_test(path: &Path, result: std::io::Result<()>) -> std::io::Result<()> {
+    #[cfg(test)]
+    let result = answer_lost_in_a_test(path, result);
+    #[cfg(not(test))]
+    let _ = path;
+    result
+}
+
 /// Takes back the step before a replace's rename with `undo`, after the replace failed with
-/// `e`, unless the rename may have been done all the same (`may_have_been_done`, of the new
-/// version `tmp`). `tried_rename` says whether the rename was tried, as a look that failed
-/// before it renamed nothing. Before, a Save As whose rename failed (a file held open on a
-/// share) had already removed the replaced file's sidecar, and a turn left a sidecar that said
-/// the image was turned. Returns the error to tell, with the undo's own failure after it.
+/// `e`, unless the rename was done all the same. `tried_rename` says whether the rename of the
+/// new version `tmp` to `path` was tried, as a look that failed before it renamed nothing. An
+/// error that may mean done (`may_have_been_done`, a share that lost its answer) is looked into
+/// as `done_after_all` does: `tmp` surely gone and `path` surely there is a rename done, and the
+/// replace goes on as saved, and `tmp` surely there is one not done, which is taken back. When
+/// the names cannot tell, the step is left and `undo` says what it left, such as the hidden name
+/// of a sidecar set aside. Before, every such error left the step without a word of it: Save As
+/// left the replaced file's sidecar under a hidden name, or told a copy saved as not saved.
+/// Returns the error to tell, with what the undo said after it, or `Ok` when the rename was done.
 fn taken_back(
     e: std::io::Error,
     tried_rename: bool,
     tmp: &Path,
-    undo: impl FnOnce() -> std::io::Result<()>,
-) -> std::io::Error {
-    if tried_rename && may_have_been_done(&e, tmp) {
-        return e;
-    }
-    match undo() {
-        Ok(()) => e,
-        Err(not_undone) => std::io::Error::new(e.kind(), format!("{e}; {not_undone}")),
+    path: &Path,
+    undo: impl FnOnce(RenameFailed) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let failed = match tried_rename && may_have_been_done(&e, tmp) {
+        false => RenameFailed::NotDone,
+        true if is_surely_gone(tmp) && is_surely_there(path) => return Ok(()),
+        true if is_surely_there(tmp) => RenameFailed::NotDone,
+        true => RenameFailed::MayHaveBeenDone,
+    };
+    match undo(failed) {
+        Ok(()) => Err(e),
+        Err(more) => Err(std::io::Error::new(e.kind(), format!("{e}; {more}"))),
     }
 }
 
@@ -2922,6 +2954,42 @@ mod tests {
         assert!(super::replace_name_with(&file, |f| f.write_all(b"new"), fails).is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A replace's rename that failed in a way that may have been done (EIO) is looked into: a
+    /// new version still beside the name was not renamed, and its step is taken back, while one
+    /// whose look fails leaves the step and tells what the undo says of it. A refusal (EBUSY) is
+    /// taken back without a look. Before, every EIO left the step without a word of it.
+    #[test]
+    fn a_rename_that_may_have_been_done_is_looked_into() {
+        use super::RenameFailed::{self, MayHaveBeenDone, NotDone};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-taken-back-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (tmp, path) = (dir.join(".new"), dir.join("a.png"));
+        std::fs::write(&tmp, "new").unwrap();
+        std::fs::write(&path, "old").unwrap();
+        let failed = |errno| std::io::Error::from_raw_os_error(errno);
+        let undo_told = |errno| {
+            let mut told = None;
+            let undo = |failed: RenameFailed| {
+                told = Some(failed);
+                match failed {
+                    NotDone => Ok(()),
+                    MayHaveBeenDone => Err(std::io::Error::other("left at .aside")),
+                }
+            };
+            let result = super::taken_back(failed(errno), true, &tmp, &path, undo);
+            (result.unwrap_err().to_string(), told)
+        };
+        assert_eq!(undo_told(libc::EBUSY).1, Some(NotDone));
+        assert_eq!(undo_told(libc::EIO).1, Some(NotDone));
+        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).push(tmp.clone());
+        let (text, told) = undo_told(libc::EIO);
+        crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).retain(|p| *p != tmp);
+        assert_eq!(told, Some(MayHaveBeenDone));
+        assert!(text.contains("left at .aside"), "{text}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
