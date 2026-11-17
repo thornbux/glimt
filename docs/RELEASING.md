@@ -141,8 +141,9 @@ These need a desktop, so no script checks them:
 The release workflow's smoke test, `tools/package-smoke.sh`, checks before each package is
 published that every package draws an SVG, and that the AppImage also draws it in a New Window
 after the first window closed. The `.deb` and the `.rpm` are installed for it in a bare Ubuntu
-20.04 and AlmaLinux 8, with only their own dependencies, so a library missing from their lists
-stops the release.
+20.04 and AlmaLinux 8, with only their own dependencies, so a library of X11 missing from
+their lists stops the release. The test runs on X11 alone, so a missing Wayland library is not
+seen; those names are kept by hand.
 
 ## Packages
 

@@ -12,8 +12,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   differences also names the `--remote` commands `name` and `identify`.
 - A sidecar or a collection that another program writes while Glimt changes it keeps what that
   program wrote, and Glimt says that its own change could not be saved. Before, Glimt wrote the
-  file it had read back over it, so a keyword added in another XMP editor, or a song a script
-  added to a list, was lost. A failed look at a Rename Many plan that was cut short now keeps
+  file it had read back over it, so a keyword added in another XMP editor, or an image a script
+  added to a collection, was lost. A failed look at a Rename Many plan that was cut short now keeps
   the plan and says why, instead of taking it for one another window had put right.
 - The `.deb` and the `.rpm` install the X11 and Wayland libraries that the window needs. Before,
   on a minimal system without a desktop, Glimt installed but could not open its window.
