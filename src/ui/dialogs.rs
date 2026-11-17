@@ -1071,7 +1071,9 @@ impl crate::App {
             let enter = enter_answers && self.answers(ctx, egui::Key::Enter);
             let modal = egui::Modal::new(egui::Id::unique("confirm-delete")).show(ctx, |ui| {
                 if trash {
-                    ui.label(tf!("Move {what} to the trash?", what));
+                    // Noted, so the release tests see how many files the dialog names.
+                    let question = tf!("Move {what} to the trash?", what);
+                    crate::support::test_hooks::noted(&ui.label(question.as_str()), &question);
                 } else {
                     if let Some(kind) = &self.dialogs.trash_refused {
                         ui.label(tf!(

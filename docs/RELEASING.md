@@ -57,6 +57,10 @@ Each container has its own display, `/tmp` and `HOME`, and the timings run alone
 part may start at any section, so a section makes what it needs itself (a function in the head
 of `tests.sh` for files that several sections use).
 
+A run needs about 25 GB free in Docker, and stops at the start when it has less. It removes no
+build folders itself: `tools/check.sh --clean` frees the room, but it also removes the build
+folders of other clones of the repository, so an agent asks the maintainer before it runs it.
+
 Each check prints PASS or FAIL. Timings and memory are printed for both versions, to compare.
 The rule for the timings and memory that fail a run is 1.5 times the last release (AGENTS.md,
 *Goals that decide every change*): the time to the first image and RssAnon in a folder of

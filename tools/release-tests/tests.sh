@@ -716,14 +716,21 @@ for v in new old; do
     config save_orientation=true auto_refresh=true
     start $d/a.png
     sleep 2
+    # The control that the turn was made: a.png's red left half at 400 410 before it, and the
+    # turned a.png, upright and narrow, leaving that place. A lost key leaves it red.
+    shot turn-gone-before-$v
     key bracketright                 # turned, not saved yet
+    shot turn-gone-turned-$v
     rm $d/a.png; sleep 3             # gone, and the folder read again
     shot turn-gone-$v
     key space; sleep 2               # moving on saves a turn, if one is kept
     quit
     got="$(identify -format '%wx%h' $d/b.png)"
     shown=$(colour turn-gone-$v 400 410)
+    turned="$(colour turn-gone-before-$v 400 410) $(colour turn-gone-turned-$v 400 410)"
     if [ $v = new ]; then
+        expect "a.png red at the left, then turned away from there (the control)" \
+            "${turned% *} $([ "${turned#* }" != red ] && echo turned)" "red turned"
         expect "b.png as it was" "$got" "400x200"
         expect "b.png shown unturned" "$shown" green
     else note "old: b.png $got, shown $shown"; fi
@@ -923,13 +930,17 @@ for v in new old; do
     start $d/one/a.png
     sleep 2
     key equal; key equal; sleep 1
+    # The control that the zoom was made: zoomed in, the red middle reaches 400 410.
+    settled same-name-zoomed-$v
     remote open $d/two/a.png >/dev/null 2>&1; until_current $d/two/a.png
     # A screen at rest: `current` is answered in the frame that opens two/a.png, before that
     # frame is drawn, so a shot at once still shows one/a.png zoomed in.
     settled same-name-$v
     quit
     got=$(colour same-name-$v 400 410)
-    if [ $v = new ]; then expect "fitted, not zoomed" "$got" blue
+    if [ $v = new ]; then
+        expect "one/a.png zoomed in (the control)" "$(colour same-name-zoomed-$v 400 410)" red
+        expect "fitted, not zoomed" "$got" blue
     else note "old: $got"; fi
 done
 
@@ -2501,10 +2512,13 @@ for v in new old; do
     shot graphics-tga-$v
     key space; sleep 3
     shot graphics-disguised-$v
+    # The control: the window still runs and shows c.tga, so "not red" is not a window gone.
+    disguised=$(remote current 2>/dev/null | tr -d '\0')
     quit
     if [ $v = new ]; then
         expect "a Photoshop file shown" "$(colour graphics-psd-new 760 412)" green
         expect "a TGA shown" "$(colour graphics-tga-new 760 412)" blue
+        expect "the window still runs, at c.tga (the control)" "$disguised" "$d/c.tga"
         differ "a PNG named .tga not read as PNG" "$(colour graphics-disguised-new 760 412)" red
     else note "old: $(colour graphics-psd-old 760 412) $(colour graphics-tga-old 760 412) $(colour graphics-disguised-old 760 412)"; fi
 done
@@ -3473,18 +3487,25 @@ mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
 config
 start $d/a.png; sleep 2
-whole() { shot $1; md5sum </t/out/$1.png; }
-base=$(whole help-none)
-key F1; sleep 2; manual=$(whole help-manual); key Escape; sleep 1
-menu Help "Keyboard Shortcuts"; sleep 2; keys=$(whole help-keys); key Escape; sleep 1
-menu Help "Keyboard Map"; sleep 2; map=$(whole help-map); key Escape; sleep 1
-menu Help "About Glimt"; sleep 2; about=$(whole help-about)
+# The help windows open, each by the title it is noted by. A menu left open, or another help
+# window, would note one of the other titles too, so each check wants its own title alone.
+open_help() {
+    local title
+    for title in "Help Manual" "Keyboard Shortcuts" "Keyboard Map" "About Glimt"; do
+        [ -n "$(where "$title")" ] && printf '%s;' "$title"
+    done
+}
+base=$(open_help)
+key F1; sleep 2; manual=$(open_help); shot help-manual; key Escape; sleep 1
+menu Help "Keyboard Shortcuts"; sleep 2; keys=$(open_help); shot help-keys; key Escape; sleep 1
+menu Help "Keyboard Map"; sleep 2; map=$(open_help); shot help-map; key Escape; sleep 1
+menu Help "About Glimt"; sleep 2; about=$(open_help); shot help-about
 quit
-differ "F1 opens the manual" "$base" "$manual"
-differ "Keyboard Shortcuts opens" "$base" "$keys"
-differ "Keyboard Map opens" "$base" "$map"
-differ "About opens" "$base" "$about"
-differ "the four are different windows" "$manual$keys" "$map$about"
+expect_empty "no help window at the start" "$base"
+expect "F1 opens the manual, alone" "$manual" "Help Manual;"
+expect "Keyboard Shortcuts opens, alone" "$keys" "Keyboard Shortcuts;"
+expect "Keyboard Map opens, alone" "$map" "Keyboard Map;"
+expect "About opens, alone" "$about" "About Glimt;"
 
 section "Open With: the default application and one from the Open With list, both through gio"
 d=/tmp/open-with
@@ -4533,10 +4554,15 @@ for v in new old; do
     config info_panel=true
     start $d/a.jpg
     sleep 2
-    key space; sleep 2; key space; sleep 2
+    # The control that the browsing happened: b.jpg, the case of the comma in embedded XMP,
+    # shown after the first Space, and c.jpg after the second. A lost key writes nothing too.
+    key space; sleep 2; at_b=$(remote current 2>/dev/null | tr -d '\0')
+    key space; sleep 2; at_c=$(remote current 2>/dev/null | tr -d '\0')
     quit
     got="$(cmp -s $d/a.jpg.xmp /tmp/browse-a.xmp && echo same || echo changed) $(ls $d/b.jpg.xmp 2>/dev/null | wc -l)"
-    if [ $v = new ]; then expect "the sidecar kept, no new one" "$got" "same 0"
+    if [ $v = new ]; then
+        expect "b.jpg and then c.jpg shown (the control)" "$at_b $at_c" "$d/b.jpg $d/c.jpg"
+        expect "the sidecar kept, no new one" "$got" "same 0"
     else note "old: $got"; fi
 done
 
@@ -6227,16 +6253,26 @@ for s in range(10):
     # selected and the Delete dialog drawn in every frame. Processor time, not time on the
     # clock: that varied by 20 ms and more from run to run with threads summing file sizes.
     # 0 ms here; a build that made a path of each selected file in every frame took 22 ms.
+    # The controls that the median measured that state: the first image shown (frames are
+    # counted only after it), the dialog naming all 500,000 files after the moves, and more
+    # frames counted than the moves made. A key lost, or a refused Ctrl+A or Delete, otherwise
+    # leaves cheap frames, or none at all, which print median 0.
     config thumbnails=false
     start $big
     wait_first
+    shown=$(grep -c 'first image' /tmp/glimt.err)
     key ctrl+a                       # the whole list selected
     key ctrl+d                       # the Delete dialog drawn with it, in every frame
     for i in $(seq 100); do xdotool mousemove $((300 + 3 * i)) 400; sleep 0.05; done
+    asked=$(where "Move 500,000 files to the trash?")
     key Escape
     quit
     median=$(grep -o 'frames: median [0-9]*' /tmp/glimt.err | grep -o '[0-9]*$')
+    counted=$(grep -o '[0-9]* counted' /tmp/glimt.err | grep -o '^[0-9]*')
     note "new, 500,000 selected: $(grep -o 'frames: .*' /tmp/glimt.err)"
+    expect "the first image shown, and the dialog names 500,000 files (the controls)" \
+        "$shown $([ -n "$asked" ] && echo asked)" "1 asked"
+    expect "more frames counted than the 100 moves" "$([ "${counted:-0}" -ge 100 ] && echo yes)" yes
     expect "frames within 10 ms with 500,000 files selected" \
         "$([ "${median:-9999}" -le 10 ] && echo yes)" yes
 
