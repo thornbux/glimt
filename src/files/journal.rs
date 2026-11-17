@@ -764,9 +764,9 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
     // Glimt's own: the sidecar it put aside under its temporary name, given back.
     let given_back = match rename_never_over(hidden, side) {
         Ok(()) => sync_folder_of(side),
+        // A second name of the sidecar, which `rename_step` takes away as Rename Many's does.
         Err(e) if e.kind() == AlreadyExists && same_file_by_opening(hidden, side) => {
-            #[allow(clippy::disallowed_methods)] // Glimt's own: a second name of the sidecar
-            std::fs::remove_file(hidden)
+            rename_step(hidden, side)
         }
         Err(e) if e.kind() == AlreadyExists => {
             save_failed(crate::tf!(
