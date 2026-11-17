@@ -4005,3 +4005,13 @@ msgstr "{file} opgeslagen, maar niet zijn sidecar-bestand: {e}"
 #, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "het sidecar-bestand is niet teruggezet: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does"
+msgstr "het is niet bekend of de afbeelding is geschreven, en het sidecar-bestand {sidecar} zegt al hetzelfde als de nieuwe afbeelding"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
+msgstr "het is niet bekend of de kopie de naam heeft gekregen, dus het sidecar-bestand van het bestand daar bleef staan als {aside}; staat dat bestand er nog, geef het sidecar-bestand dan zijn naam {sidecar} terug"

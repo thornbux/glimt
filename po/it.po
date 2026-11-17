@@ -4005,3 +4005,13 @@ msgstr "{file} salvato, ma non il suo file sidecar: {e}"
 #, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "il suo file sidecar non è stato rimesso a posto: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does"
+msgstr "non si sa se l'immagine è stata scritta, e il suo file sidecar {sidecar} dice già lo stesso della nuova immagine"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
+msgstr "non si sa se la copia ha preso il nome, quindi il file sidecar del file che c'era è rimasto come {aside}; se quel file c'è ancora, ridai al suo file sidecar il nome {sidecar}"

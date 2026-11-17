@@ -4005,3 +4005,13 @@ msgstr "Sparade {file}, men inte dess sidofil: {e}"
 #, fuzzy
 msgid "its sidecar was not put back: {e}"
 msgstr "sidofilen lades inte tillbaka: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does"
+msgstr "det är okänt om bilden skrevs, och dess sidofil {sidecar} säger redan samma sak som den nya bilden"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
+msgstr "det är okänt om kopian fick namnet, så sidofilen till filen där blev kvar som {aside}; om den filen fortfarande finns där, ge dess sidofil tillbaka namnet {sidecar}"

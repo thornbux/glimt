@@ -1,7 +1,7 @@
 //! Saving a turned image. The pixels are turned, the EXIF is kept with orientation 1, and the
 //! XMP is kept, all in the same format. (A lossy WebP gets them back in RIFF chunks.)
 
-use crate::files::file_io::FileFingerprint;
+use crate::files::file_io::{FileFingerprint, RenameFailed};
 use crate::images::decode::load_icc;
 use crate::metadata::exif;
 use crate::model::listing::has_ext;
@@ -96,9 +96,10 @@ thread_local! {
 }
 
 /// What writes a sidecar's old text back under its lock, after a step that changed it
-/// (`derive_sidecar`), when the image's rename after the step fails.
+/// (`derive_sidecar`), when the image's rename after the step surely was not done. When the
+/// rename may have been done, it writes nothing and says that the sidecar was changed.
 type SidecarUndo<'a> =
-    Box<dyn FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<(), String> + 'a>;
+    Box<dyn FnOnce(&crate::metadata::xmp::SidecarLock, RenameFailed) -> Result<(), String> + 'a>;
 
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
@@ -589,9 +590,12 @@ fn replace_with_sidecar_locked<'a>(
     let before = || {
         let lock = lock.get_or_init(|| crate::metadata::xmp::lock_sidecar(named));
         let undo = step(lock).map_err(std::io::Error::other)?;
-        Ok(move || {
-            undo(lock).map_err(|e| {
-                std::io::Error::other(crate::tf!("its sidecar was not put back: {e}", e))
+        Ok(move |failed| {
+            undo(lock, failed).map_err(|e| match failed {
+                RenameFailed::NotDone => {
+                    std::io::Error::other(crate::tf!("its sidecar was not put back: {e}", e))
+                }
+                RenameFailed::MayHaveBeenDone => std::io::Error::other(e),
             })
         })
     };
@@ -746,12 +750,13 @@ pub fn save_cropped(
 /// while the file there is still that one. The copy gets `path`'s sidecar, or none when
 /// `strip` or when `path` has none. A sidecar at `new`'s name belongs to the replaced file, and
 /// its keywords and comment are not the copy's. So it is set aside before the copy takes the
-/// name, put back when the rename fails, and removed after it. The copy's is made new, never
-/// written through a link there, which a downloaded folder may have pointed at any file of the
-/// user's (~/.bashrc). A name without a file but with a sidecar is not free: that sidecar was
-/// left without its image, and may be the only copy of its keywords. A copy whose sidecar is to
-/// be written is refused before it takes its name when the sidecar's name is too long. This is
-/// the one way a copy is saved, for Crop, Save As and Save This Frame. Returns, when the copy
+/// name, put back when the rename surely failed, and removed after it. When a share cannot tell
+/// whether the rename was done, the error names where it was set aside. The copy's is made new,
+/// never written through a link there, which a downloaded folder may have pointed at any file of
+/// the user's (~/.bashrc). A name without a file but with a sidecar is not free: that sidecar
+/// was left without its image, and may be the only copy of its keywords. A copy whose sidecar is
+/// to be written is refused before it takes its name when the sidecar's name is too long. This
+/// is the one way a copy is saved, for Crop, Save As and Save This Frame. Returns, when the copy
 /// was saved but its sidecar could not be written, why, as the copy is there all the same.
 pub(crate) fn save_copy_with_sidecar(
     path: &Path,
@@ -813,8 +818,10 @@ pub(crate) fn save_copy_with_sidecar(
                     };
                     let (aside, side) = (&aside, &side);
                     // The sidecar is put back, never over one another program wrote meanwhile.
-                    Ok(move || match is_set_aside {
-                        true => {
+                    // When the copy may have taken the name, it stays aside, and the user is
+                    // told where.
+                    Ok(move |failed| match (is_set_aside, failed) {
+                        (true, RenameFailed::NotDone) => {
                             crate::files::file_io::rename_never_over(aside, side).map_err(|e| {
                                 let e = format!("{}: {e}", aside.display());
                                 std::io::Error::other(crate::tf!(
@@ -823,7 +830,14 @@ pub(crate) fn save_copy_with_sidecar(
                                 ))
                             })
                         }
-                        false => Ok(()),
+                        (true, RenameFailed::MayHaveBeenDone) => {
+                            Err(std::io::Error::other(crate::tf!(
+                                "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
+                                aside = aside.display(),
+                                sidecar = side.display()
+                            )))
+                        }
+                        (false, _) => Ok(()),
                     })
                 },
             )?;
@@ -1190,9 +1204,15 @@ fn derive_sidecar<'a>(
             String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
         })?;
     }
-    Ok(Box::new(move |lock| match changed {
-        Some(old) => update_locked_sidecar(lock, path, true, |_| Some(old)),
-        None => Ok(()),
+    Ok(Box::new(move |lock, failed| match (changed, failed) {
+        (Some(old), RenameFailed::NotDone) => {
+            update_locked_sidecar(lock, path, true, |_| Some(old))
+        }
+        (Some(_), RenameFailed::MayHaveBeenDone) => Err(crate::tf!(
+            "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does",
+            sidecar = crate::metadata::xmp::sidecar(path).display()
+        )),
+        (None, _) => Ok(()),
     }))
 }
 
@@ -2971,8 +2991,9 @@ mod tests {
     }
 
     /// A turn saved whose rename fails after its sidecar was set (a file held open on a share,
-    /// EBUSY) leaves the image and its sidecar byte for byte as they were. Before, the JPEG's
-    /// sidecar said it was turned while the JPEG was not, and the PNG's lost its thumbnail.
+    /// EBUSY, or a share that failed before it renamed, EIO) leaves the image and its sidecar
+    /// byte for byte as they were. Before, the JPEG's sidecar said it was turned while the JPEG
+    /// was not, and the PNG's lost its thumbnail, and after EIO the sidecar stayed changed.
     #[test]
     fn a_turn_whose_rename_fails_leaves_its_sidecar() {
         use crate::files::file_io::REPLACE_FAILS;
@@ -2983,10 +3004,14 @@ mod tests {
         image::RgbImage::new(8, 4).save(&jpeg).unwrap();
         std::fs::write(&png, black_png(8, 4)).unwrap();
         let side = BRIDGE_XMP.replace("Orientation=\"6\"", "Orientation=\"1\"");
-        for file in [&jpeg, &png] {
+        for (file, errno) in [
+            (&jpeg, libc::EBUSY),
+            (&png, libc::EBUSY),
+            (&jpeg, libc::EIO),
+        ] {
             std::fs::write(crate::metadata::xmp::sidecar(file), &side).unwrap();
             let image = std::fs::read(file).unwrap();
-            REPLACE_FAILS.set(Some((file.clone(), libc::EBUSY)));
+            REPLACE_FAILS.set(Some((file.clone(), errno)));
             let turned = match file == &jpeg {
                 true => crate::metadata::exif::write_orientation(file, 1, false, true),
                 false => super::save_rotated(file, true, 1, false, 90),
@@ -3005,10 +3030,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Save As over a file whose rename fails (a file held open on a share, EBUSY, or another
-    /// user's file in a folder with the sticky bit, EPERM) leaves that file and its sidecar as
-    /// they were, with nothing hidden left beside them. Before, the sidecar was removed before
-    /// the rename, and lost for good.
+    /// Save As over a file whose rename fails (a file held open on a share, EBUSY, another
+    /// user's file in a folder with the sticky bit, EPERM, or a share that failed before it
+    /// renamed, EIO) leaves that file and its sidecar as they were, with nothing hidden left
+    /// beside them. Before, the sidecar was removed before the rename, and lost for good, and
+    /// after EIO it stayed under a hidden name.
     #[test]
     fn a_save_as_whose_rename_fails_keeps_the_sidecar() {
         use crate::files::file_io::{REPLACE_FAILS, fingerprint};
@@ -3022,7 +3048,7 @@ mod tests {
         std::fs::write(side(&a), "a's").unwrap();
         std::fs::write(side(&b), "b's").unwrap();
         let image = std::fs::read(&b).unwrap();
-        for errno in [libc::EBUSY, libc::EPERM] {
+        for errno in [libc::EBUSY, libc::EPERM, libc::EIO] {
             REPLACE_FAILS.set(Some((b.clone(), errno)));
             let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
             REPLACE_FAILS.set(None);
@@ -3035,6 +3061,36 @@ mod tests {
                 "a file was left"
             );
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Save As over a file on a share that renamed the copy over it and lost its answer (EIO)
+    /// is saved: the copy has its own sidecar, and the replaced file's is not left hidden.
+    /// Before, the copy was told as not saved, without its sidecar, and the replaced file's
+    /// sidecar stayed under a hidden name.
+    #[test]
+    fn a_save_as_whose_rename_lost_its_answer_is_saved() {
+        use crate::files::file_io::{ANSWER_LOST_AT, fingerprint};
+        let dir = std::env::temp_dir().join(format!("glimt-save-as-lost-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(8, 8).save(&a).unwrap();
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let side = |p: &std::path::Path| crate::metadata::xmp::sidecar(p);
+        std::fs::write(side(&a), "a's").unwrap();
+        std::fs::write(side(&b), "b's").unwrap();
+        ANSWER_LOST_AT.set(Some(b.clone()));
+        let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
+        ANSWER_LOST_AT.set(None);
+        assert_eq!(saved, Ok((b.clone(), None)));
+        assert_eq!(image::image_dimensions(&b).unwrap(), (8, 8));
+        assert_eq!(std::fs::read_to_string(side(&b)).unwrap(), "a's");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            4,
+            "a file was left"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4035,7 +4091,7 @@ mod tests {
             go.send(()).unwrap();
             // A move that is not held back lands now, before the image is looked at again.
             let _ = moved.recv_timeout(std::time::Duration::from_millis(200));
-            Ok(Box::new(|_: &_| Ok(())) as super::SidecarUndo)
+            Ok(Box::new(|_: &_, _| Ok(())) as super::SidecarUndo)
         };
         let read = crate::files::file_io::fingerprint(&a).unwrap();
         let replaced = super::replace_with_sidecar_locked(&a, &a, read, b"new".to_vec(), step);
