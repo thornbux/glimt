@@ -835,8 +835,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Remote control",
         "glimt --remote with next, previous, first, last, slideshow, random, fullscreen (each also \
-         with on or off), subfolders on|off, open, title, quit, current, selection, select, \
-         info or run ACTION (an action that changes no file); --remote-all sends it to every window",
+         with on or off), subfolders on|off, open, title, name, identify, quit, current, \
+         selection, select, info or run ACTION (an action that changes no file); --remote-all sends it to every window",
         "The options themselves go to the running Geeqie (geeqie --next, --tell, \
          --get-selection, --file= …), and there are many more",
     ),
@@ -1570,6 +1570,24 @@ mod tests {
             "{}",
             row.1
         );
+    }
+
+    /// The Remote control row of DIFFERENCES names every command of `remote::COMMANDS`, so a
+    /// new command is not left out of it, as `name` and `identify` once were.
+    #[test]
+    fn the_remote_control_row_names_every_command() {
+        let row = super::DIFFERENCES
+            .iter()
+            .find(|r| r.0 == "Remote control")
+            .unwrap();
+        let words: Vec<&str> = (row.1.split(|c: char| !c.is_ascii_alphabetic()))
+            .filter(|w| !w.is_empty())
+            .collect();
+        let missing: Vec<&str> = (crate::features::remote::COMMANDS.iter())
+            .map(|c| c.0.split(' ').next().unwrap())
+            .filter(|c| *c != "where" && !words.contains(c))
+            .collect();
+        assert!(missing.is_empty(), "the row lacks {missing:?}");
     }
 
     /// The manual's sort sentence names every order of the Sort menu, so a new order is not
