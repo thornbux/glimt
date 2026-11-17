@@ -620,7 +620,13 @@ method.
 These rules are enforced: `Cargo.toml`'s `[lints]` deny `unsafe_code`,
 `clippy::undocumented_unsafe_blocks`, `clippy::unwrap_used` and `clippy::expect_used`, and
 `source_rules::the_lints_stay_on` fails when one is taken out, lowered, or turned off for a
-whole module. The tests may unwrap (main.rs allows it for them).
+whole module, `impl`, `trait` or `mod`, also by a lint group (`clippy::style` holds
+`disallowed_methods`, `clippy::restriction` the others), in an attribute rustfmt split over
+lines, or behind a `cfg_attr` that holds outside the tests. Every line of `[lints]` is deny or
+forbid, at any priority, and no `.cargo/config`, workflow or script of the tools lowers them with
+a flag (`-A`, `-W`, `--cap-lints`). Every build unwinds a panic: a `panic` setting other than
+unwind, which `cargo test` would not notice, fails too, as `catch_panic` catches nothing in a
+build that aborts. The tests may unwrap (main.rs allows it for them).
 
 - **A failure is told, never swallowed.** A failed write of the user's data or of Glimt's own
   files goes to `file_io::save_failed`, which prints it and shows it once in the window. The

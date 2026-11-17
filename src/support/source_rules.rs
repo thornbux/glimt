@@ -5040,11 +5040,15 @@ fn finds_a_rename_without_its_folder_synced() {
 
 /// The lints in Cargo.toml's `[lints]` that hold Glimt's rules on unsafe code and on errors.
 /// Each must stay at deny: one taken out or lowered to warn lets an undocumented unsafe block or
-/// a panic on an error back in without a word from `cargo clippy`. No module, `impl` or `mod`
-/// turns one off for all its code either, nor clippy's `disallowed_methods`, which refuses the
-/// raw calls of clippy.toml: an exception is an allow on the narrowest statement or function,
-/// with its reason. Every call of `REFUSED_CALLS` stays in clippy.toml, `Mutex::lock` among
-/// them, so a lock goes through `threads::lock_even_if_poisoned`.
+/// a panic on an error back in without a word from `cargo clippy`. Every line of `[lints]` is
+/// deny or forbid, so no lint group lowered at a higher priority wins over them. No module,
+/// `impl`, `trait` or `mod` turns one off for all its code either, nor clippy's
+/// `disallowed_methods`, which refuses the raw calls of clippy.toml: an exception is an allow on
+/// the narrowest statement or function, with its reason. No build setting of the repository (a
+/// `.cargo/config`, a workflow, a script of the tools) lowers them with a flag. Every call of
+/// `REFUSED_CALLS` stays in clippy.toml, `Mutex::lock` among them, so a lock goes through
+/// `threads::lock_even_if_poisoned`. And every build unwinds a panic, as `catch_panic` can
+/// catch nothing in a build that aborts, and `cargo test` unwinds whatever the profile says.
 #[test]
 fn the_lints_stay_on() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -5068,10 +5072,34 @@ fn the_lints_stay_on() {
             ));
         }
     }
+    for line in lints_lowered_in_cargo_toml(&cargo) {
+        wrong.push(format!(
+            "Cargo.toml:{line}: a lint or lint group below deny"
+        ));
+    }
+    let mut builds = Vec::new();
+    for part in [
+        "Cargo.toml",
+        ".cargo",
+        ".github/workflows",
+        "tools",
+        "flatpak",
+    ] {
+        read_build_settings(&root.join(part), &mut builds);
+    }
+    for (file, text) in builds {
+        let file = Path::new(&file).strip_prefix(root).unwrap().display();
+        for line in build_flags_that_turn_off_lints_or_unwinding(&text) {
+            wrong.push(format!(
+                "{file}:{line}: a flag that lowers a held lint, or a panic that aborts"
+            ));
+        }
+    }
     for (file, text) in rust_sources() {
         for line in lints_turned_off_widely(&text) {
             wrong.push(format!(
-                "{file}:{line}: a lint turned off for a whole module or block"
+                "{file}:{line}: a lint turned off for a whole module or block, or a lint group \
+                 that holds one turned off"
             ));
         }
     }
@@ -5082,6 +5110,139 @@ fn the_lints_stay_on() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Adds the text of each file under `path` (or of `path` itself) to `into`, with its name. The
+/// crates' checksums in `cargo-sources.json` are left out, as no build reads a setting there.
+/// A path that is not there adds nothing.
+fn read_build_settings(path: &Path, into: &mut Vec<(String, String)>) {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).unwrap().flatten() {
+            read_build_settings(&entry.path(), into);
+        }
+    } else if path.file_name().is_some_and(|n| n != "cargo-sources.json") {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            into.push((path.display().to_string(), text));
+        }
+    }
+}
+
+/// Returns whether turning off the lint `name` turns off one that `the_lints_stay_on` holds:
+/// the lint itself, or a group that has it (`style` has `disallowed_methods`, `restriction` has
+/// the others, and `all` has `style`).
+fn holds_a_kept_lint(name: &str) -> bool {
+    const KEPT: [&str; 9] = [
+        "unsafe_code",
+        "clippy",
+        "clippy::all",
+        "clippy::style",
+        "clippy::restriction",
+        "clippy::undocumented_unsafe_blocks",
+        "clippy::unwrap_used",
+        "clippy::expect_used",
+        "clippy::disallowed_methods",
+    ];
+    KEPT.contains(&name.replace('-', "_").as_str())
+}
+
+/// Returns the lines of Cargo.toml's text `cargo` that set a lint or a lint group to anything
+/// but deny or forbid, in a `[lints…]` table or through a dotted `lints.` key. A group allowed
+/// at a higher priority than the lints at deny turns them off, so every level counts.
+fn lints_lowered_in_cargo_toml(cargo: &str) -> Vec<usize> {
+    let mut is_lints = false;
+    let mut found = Vec::new();
+    for (i, line) in cargo.lines().enumerate() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            let table = line.trim_matches(|c| c == '[' || c == ']').trim();
+            is_lints = table.starts_with("lints") || table.starts_with("workspace.lints");
+            continue;
+        }
+        if !is_lints && !line.starts_with("lints.") {
+            continue;
+        }
+        let mut levels = line.split('"').skip(1).step_by(2);
+        if levels.any(|level| !matches!(level, "deny" | "forbid")) {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// Returns the lines of `text`, a build setting (Cargo.toml, a `.cargo/config`, a workflow or a
+/// script), that lower a lint `holds_a_kept_lint` names with a flag of rustc or clippy (`-A`,
+/// `-W`, `--allow`, `--warn`, `--force-warn`, or any `--cap-lints`), or that set a panic to
+/// anything but unwind (`panic = "abort"`, `-C panic=abort`, `CARGO_PROFILE_RELEASE_PANIC`).
+fn build_flags_that_turn_off_lints_or_unwinding(text: &str) -> Vec<usize> {
+    const LOWERING: [&str; 5] = ["-A", "-W", "--allow", "--warn", "--force-warn"];
+    let mut found = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let is_flag = |c: char| c.is_alphanumeric() || "_:-=.".contains(c);
+        let words: Vec<&str> = line
+            .split(|c| !is_flag(c))
+            .filter(|w| !w.is_empty())
+            .collect();
+        let lowers = words.iter().enumerate().any(|(n, word)| {
+            let lint = match LOWERING.contains(word) {
+                true => words.get(n + 1).copied(),
+                false => (LOWERING.iter()).find_map(|flag| {
+                    let rest = word.strip_prefix(flag)?;
+                    let rest = rest.strip_prefix('=').unwrap_or(rest);
+                    Some(rest).filter(|_| flag.len() == 2 || word.contains('='))
+                }),
+            };
+            word.starts_with("--cap-lints") || lint.is_some_and(holds_a_kept_lint)
+        });
+        let lower = line.to_lowercase();
+        let aborts = lower.match_indices("panic").any(|(at, _)| {
+            let quotes = |c: char| c == ' ' || c == '"' || c == '\'';
+            let rest = lower[at + "panic".len()..].trim_start_matches(quotes);
+            let Some(value) = rest.strip_prefix(['=', ':']) else {
+                return false;
+            };
+            !value.trim_start_matches(quotes).starts_with("unwind")
+        });
+        if lowers || aborts {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds each flag or setting that lowers a held lint or aborts on a panic, and
+/// leaves a flag that lowers another lint, `ls -A`, and a panic that unwinds.
+#[test]
+fn finds_build_flags_that_turn_off_lints_or_unwinding() {
+    let text = "RUSTFLAGS: -A linker-messages\n\
+        RUSTFLAGS: -A clippy::unwrap_used\n\
+        rustflags = [\"-Aclippy::restriction\"]\n\
+        cargo clippy -- --cap-lints warn\n\
+        ls -A $d\n\
+        [profile.release]\npanic = \"abort\"\n\
+        CARGO_PROFILE_RELEASE_PANIC: abort\n\
+        rustflags = [\"-C\", \"panic=abort\"]\n\
+        panic = \"unwind\"\n\
+        cargo --config 'profile.release.panic=\"abort\"' build\n\
+        cargo clippy -- -W clippy::style -D warnings\n\
+        cargo clippy -- --allow=unsafe_code\n";
+    assert_eq!(
+        build_flags_that_turn_off_lints_or_unwinding(text),
+        [2, 3, 4, 7, 8, 9, 11, 12, 13]
+    );
+}
+
+/// The check above finds a lint or a group below deny, at any priority, in a table of its own
+/// and through a dotted key, and leaves the lints at deny or forbid.
+#[test]
+fn finds_lints_lowered_in_cargo_toml() {
+    let cargo = "lints.clippy.unwrap_used = \"warn\"\n\
+        [lints.rust]\nunsafe_code = \"forbid\" # a comment\n\
+        [lints.clippy]\nunwrap_used = \"deny\"\n\
+        restriction = { level = \"allow\", priority = 1 }\n\
+        style = \"warn\"\n\
+        [lints.clippy.all]\nlevel = \"allow\"\npriority = 2\n\
+        [profile.quick]\ninherits = \"release\"\n";
+    assert_eq!(lints_lowered_in_cargo_toml(cargo), [1, 6, 7, 9]);
 }
 
 /// Returns whether clippy.toml's text `clippy` refuses the call `call`, on a line that is not
@@ -5101,33 +5262,61 @@ fn a_call_commented_out_of_clippy_toml_is_not_refused() {
 }
 
 /// Returns the lines of `text` that turn off one of the lints of `the_lints_stay_on` for a
-/// whole module (`#![allow(…)]`, outside the tests), or for a whole `impl` or `mod`.
+/// whole module (`#![allow(…)]`, unless only for the tests), or for a whole `impl`, `trait` or
+/// `mod`, or that turn off a lint group that holds one of them anywhere. An attribute is read
+/// whole, also when rustfmt has split it over several lines, and a `cfg_attr` counts as being
+/// only for the tests when its condition is just `test`.
 fn lints_turned_off_widely(text: &str) -> Vec<usize> {
-    const LINTS: [&str; 5] = [
-        "unsafe_code",
-        "undocumented_unsafe",
-        "unwrap_used",
-        "expect_used",
-        "disallowed_methods",
+    const GROUPS: [&str; 4] = [
+        "clippy",
+        "clippy::all",
+        "clippy::style",
+        "clippy::restriction",
     ];
     let lines = code_lines(text);
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let line = line.trim_start();
-        if !line.starts_with("#") || !LINTS.iter().any(|lint| line.contains(lint)) {
+        if !line.starts_with('#') {
             continue;
         }
+        // The attribute whole, up to the `]` that closes it.
+        let mut attribute = String::new();
+        let mut depth = 0;
+        let mut last = i;
+        for (n, part) in lines[i..].iter().enumerate() {
+            attribute.push_str(part);
+            attribute.push(' ');
+            depth += part.matches('[').count() as i64 - part.matches(']').count() as i64;
+            last = i + n;
+            if depth <= 0 {
+                break;
+            }
+        }
+        let is_name = |c: char| c.is_alphanumeric() || c == '_' || c == ':';
+        let words: Vec<&str> = (attribute.split(|c| !is_name(c)))
+            .filter(|w| !w.is_empty())
+            .collect();
+        let lowers = words
+            .iter()
+            .any(|w| matches!(*w, "allow" | "expect" | "warn"));
+        if !lowers || !words.iter().any(|w| holds_a_kept_lint(w)) {
+            continue;
+        }
+        let is_only_for_tests = (attribute.split_once("cfg_attr("))
+            .and_then(|(_, rest)| rest.split_once(','))
+            .is_some_and(|(condition, _)| condition.trim() == "test");
         // The item the attribute stands on, after any other attributes.
-        let item = (lines[i + 1..].iter())
+        let item = (lines[last + 1..].iter())
             .map(|l| without_qualifiers(l.trim_start()))
             .find(|l| !l.is_empty() && !l.starts_with('#'))
             .unwrap_or("");
-        let is_for_a_block = item.starts_with("impl") || item.starts_with("mod ");
-        let is_wide = match line.starts_with("#![") {
-            true => !line.contains("(test,"),
-            false => is_for_a_block,
-        };
-        if is_wide {
+        let is_for_a_block = ["impl", "trait ", "mod "]
+            .iter()
+            .any(|k| item.starts_with(k));
+        let is_wide = line.starts_with("#![") || is_for_a_block;
+        let is_group = words.iter().any(|w| GROUPS.contains(w));
+        if !is_only_for_tests && (is_wide || is_group) {
             found.push(i + 1);
         }
     }
@@ -5135,8 +5324,10 @@ fn lints_turned_off_widely(text: &str) -> Vec<usize> {
 }
 
 /// The check above finds a lint turned off for a module, for an `impl` (also behind another
-/// attribute) and for a `mod`. It leaves one turned off for a statement or a function, and the
-/// tests' own `cfg_attr(test, …)`.
+/// attribute), for a `trait` and for a `mod`, one in an attribute split over several lines, one
+/// behind a `cfg_attr` that holds outside the tests too, and a lint group that holds one of them
+/// turned off even for a function. It leaves one turned off for a statement or a function, and
+/// the tests' own `cfg_attr(test, …)`.
 #[test]
 fn finds_a_lint_turned_off_widely() {
     let text = "#![allow(clippy::disallowed_methods)]\n\
@@ -5145,8 +5336,17 @@ fn finds_a_lint_turned_off_widely() {
         #[allow(clippy::unwrap_used)]\n#[cfg(unix)]\nunsafe impl Send for A {\n}\n\
         #[allow(clippy::expect_used)]\nmod inner {\n}\n\
         #[allow(clippy::disallowed_methods)] // a reason\nfn f() {\n    \
-        #[allow(clippy::unwrap_used)] // a reason\n    let x = y.unwrap();\n}\n";
-    assert_eq!(lints_turned_off_widely(text), [1, 3, 6, 10]);
+        #[allow(clippy::unwrap_used)] // a reason\n    let x = y.unwrap();\n}\n\
+        #![allow(\n    clippy::too_many_lines,\n    clippy::expect_used\n)]\n\
+        #![cfg_attr(any(test, unix), allow(clippy::unwrap_used))]\n\
+        #[allow(clippy::unwrap_used)]\npub trait T {\n}\n\
+        #[allow(clippy::style)] // a reason\nfn g() {\n}\n\
+        #![allow(clippy::restriction)]\n\
+        #![deny(clippy::all)]\n";
+    assert_eq!(
+        lints_turned_off_widely(text),
+        [1, 3, 6, 10, 18, 22, 23, 26, 29]
+    );
 }
 
 /// Every `#[allow(…)]` or `#[expect(…)]` outside the tests says why it is there, in a comment on
