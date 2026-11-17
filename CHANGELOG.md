@@ -14,6 +14,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
   also when the user left the date out.
 ### Fixed
 
+- An added format whose program is not installed (the shell's "exec: convert: not found"), or
+  whose Python script lacks a module, is no longer called broken: Check Images lists its files
+  as not checked, and their thumbnails come once the program is installed. Before, every .xcf
+  or .psd was listed as broken, for Select Them to select.
+- In a folder of an added format, the shown image no longer waits behind the thumbnails and the
+  images read ahead. Each of their programs held 512 MB of the memory that decodes share for
+  its whole run, up to 30 seconds; now only what it wrote, once it has written it.
+- Sorting by date, the "exif:" search, the info panel, Copy for Sharing and a turned save count
+  a file they read whole in the memory that decodes share. Before, a RAW or HEIC whose EXIF is
+  not near its start was read whole outside it, up to 512 MB in each thread of the pass.
+### Fixed
+
 - On a network folder (SMB, NFS, a gvfs share), the status bar no longer sums the sizes of the
   folder, its subfolders, the selection or the search's matches, and says "not counted on a
   network folder" instead. Each sum looked at every file over the network, and a tree's read
