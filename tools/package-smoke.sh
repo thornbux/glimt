@@ -1,7 +1,7 @@
 #!/bin/bash
 # A smoke test of a package as a user starts it: Glimt shows an SVG, which it draws in a child
-# process started from /proc/self/exe (src/images/svg.rs). The release workflow runs it on the
-# AppImage and the Flatpak bundle before they are published.
+# process started from /proc/self/exe (src/images/svg.rs). The release workflow runs it on
+# every package before they are published: the .deb and the .rpm each in a container of its own.
 #
 #   tools/package-smoke.sh COMMAND...                  COMMAND starts Glimt, such as
 #                                                      ./glimt.AppImage or flatpak run APP-ID
