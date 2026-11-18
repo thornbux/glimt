@@ -57,7 +57,7 @@ It reads JPEG, PNG, WebP, GIF (also animated), TIFF (also with several pages), B
 (each size as a page), QOI, PNM (PBM, PGM, PPM, PAM), Radiance HDR (tone-mapped) and TIFF
 under other names (Zeiss LSM, gel scans; also grey TIFFs of floats, stretched), and camera RAW
 files by their embedded preview. Builds with optional features also read videos, HEIC, AVIF, JPEG XL and SVG. Other
-formats (DICOM, FITS, microscope files …) are read through formats you add (see FILES).
+formats (DICOM, FITS, microscope files \[u2026]) are read through formats you add (see FILES).
 .SH OPTIONS
 The options that start Glimt a certain way
 .RB ( \-\-slideshow ", " \-\-random ", " \-\-fullscreen ", " \-\-kiosk ,
@@ -244,7 +244,8 @@ for
 with the value used instead, and an own key in
 .B keys=
 that names no action or a key that cannot be read (such as
-.BR Next=ctrl+N ). Prints OK and exits with 0 when nothing is wrong, and also
+.BR Next=ctrl+N ).
+Prints OK and exits with 0 when nothing is wrong, and also
 when there is no settings file yet, as Glimt then uses the defaults; else exits with 1, also
 when the file cannot be read or a
 .I FILE
@@ -355,7 +356,7 @@ window has it. Without
 the window has no name, and its process ID reaches it. A window that did not listen, with
 remote control off, starts to when it is given a name, as with
 .B \-\-name
-at start, and stops again when its name is taken away. Window \(-> Set Window Name… does
+at start, and stops again when its name is taken away. Window \(-> Set Window Name\[u2026] does
 the same.
 .TP
 .B identify
@@ -653,7 +654,7 @@ for one in the collections folder.
 The lock that a window holds while it takes over the socket of a Glimt gone, or while it
 links its socket to a new name
 .RB ( "\-\-remote name"
-or Window \(-> Set Window Name…),
+or Window \(-> Set Window Name\[u2026]),
 and the 64 locks
 of the
 .I .xmp
