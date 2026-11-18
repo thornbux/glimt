@@ -3027,6 +3027,7 @@ fn delete_for_good(
         };
         // A look that failed (a share that dropped for a moment) counts the file as there.
         if !(deleted && is_surely_gone(p)) {
+            let has_any_aside = !aside.is_empty();
             for (side, hidden) in aside.into_iter().rev() {
                 if let Err(e) = rename_never_over(&hidden, &side) {
                     // A photo deleted all the same is not kept, so the next start, which finds
@@ -3038,6 +3039,11 @@ fn delete_for_good(
                     }
                     failed(&side, journal::may_be_hidden(e, p, &hidden));
                 }
+            }
+            // The renames back are made lasting before the job ends and its log goes, as the
+            // log may be on another disk, whose removal could reach it before them.
+            if has_any_aside && let Err(e) = crate::files::file_io::sync_folder_of(p) {
+                failed(p, e);
             }
             leaving.remove(p);
             continue;
@@ -6511,6 +6517,36 @@ mod tests {
         let told = crate::files::file_io::take_saves_failed();
         assert!(told.is_empty(), "{told:?}");
         drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A Delete for good whose photo is not surely gone after its delete gives its sidecar back
+    /// its own name, and makes that rename lasting before the job ends and its log goes. Before,
+    /// it was not synced, so with the log on another disk a power cut could leave the sidecar
+    /// hidden with no log that names it.
+    #[test]
+    fn a_delete_for_good_syncs_the_sidecar_it_gives_back() {
+        use crate::files::file_io::{FOLDERS_SYNCED, LOOKS_FAIL, LOOKS_FAIL_ONCE_DELETED};
+        let dir = contract_folder("delete-back-synced");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        LOOKS_FAIL_ONCE_DELETED.set(vec![a.clone()]);
+        FOLDERS_SYNCED.take();
+        let mut errors = Vec::new();
+        let how = (false, None);
+        let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
+        let synced = FOLDERS_SYNCED.take();
+        assert!(gone.is_empty(), "{errors:?}");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
+        // Once before the photo's delete, and once after the sidecar came back.
+        assert_eq!(
+            synced.iter().filter(|f| **f == dir).count(),
+            2,
+            "{synced:?}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
