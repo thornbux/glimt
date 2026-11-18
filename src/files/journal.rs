@@ -1085,8 +1085,12 @@ fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
     // two windows saving photos of one plan at once both keep their change. It is not the plan's
     // own lock, which a running Rename Many holds for its whole run, while its sidecar locks
     // wait for the save that called this.
+    // The photo's fingerprint is taken before the lock, because the look at a photo on a share
+    // that stopped answering would hold every other window's save at the lock with it.
+    let Some(now) = crate::files::file_io::fingerprint(path) else {
+        return;
+    };
     let _held = crate::files::file_io::lock_or_tell(&lists_lock(dir));
-    let mut now = None;
     for entry in lists.flatten() {
         if entry
             .file_type()
@@ -1110,10 +1114,7 @@ fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
             if !was_it || (a != path && b != path) {
                 continue;
             }
-            now = now.or_else(|| crate::files::file_io::fingerprint(path));
-            if now.is_some() {
-                (*known, changed) = (now, true);
-            }
+            (*known, changed) = (Some(now), true);
         }
         if !changed {
             continue;
@@ -2393,6 +2394,41 @@ mod tests {
             "the list was changed under another window's lock"
         );
         assert_ne!(std::fs::read_to_string(&list).unwrap(), listed);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The photo written anew is looked at before the lists' lock is taken, because a look at
+    /// a photo on a share that stopped answering would hold every other window's save at the
+    /// lock with it. The photo changes while another window holds the lock, and the list must
+    /// have the photo as it was before.
+    #[test]
+    fn a_photo_is_looked_at_before_the_lists_lock() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-plan-list-look-first-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        let plan = super::start_journal(&plans, &moves).unwrap();
+        let list = super::known_path(&plan.path);
+        plan.keep_on_disk();
+        let before = crate::files::file_io::fingerprint(&p("a.jpg")).unwrap();
+        std::fs::write(p("a.jpg"), "written anew").unwrap();
+        let lock = plans.join(super::KNOWN_FOLDER).join(super::LISTS_LOCK);
+        let other_windows_lock = crate::files::file_io::open_and_lock(&lock).unwrap();
+        let (plans_too, a) = (plans.clone(), p("a.jpg"));
+        let noting =
+            std::thread::spawn(move || super::note_written_anew_in(&plans_too, &a, before));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        std::fs::write(p("a.jpg"), "written by another program since").unwrap();
+        drop(other_windows_lock);
+        noting.join().unwrap();
+        let size = "written anew".len();
+        let listed = std::fs::read_to_string(&list).unwrap();
+        assert_eq!(listed.split(' ').nth(2), Some(size.to_string().as_str()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
