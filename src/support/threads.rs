@@ -83,7 +83,8 @@ pub(crate) struct Progress {
     used: u64,
     /// When the job started, or last made progress.
     since: std::time::Instant,
-    /// When the job started.
+    /// When the job started, or last waited for room in the decode budget. The ceiling counts
+    /// from here, so that a long wait for another job does not use up the time of its own work.
     started: std::time::Instant,
 }
 
@@ -122,6 +123,7 @@ impl Progress {
     fn idle_for(&mut self) -> std::time::Duration {
         if self.is_waiting_for_room.load(Ordering::Relaxed) {
             self.since = std::time::Instant::now();
+            self.started = self.since;
         } else if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
             && used >= self.used + Self::PROGRESS
         {
@@ -934,6 +936,30 @@ mod tests {
             next,
             Ok(PathBuf::from("/other/next.jpg")),
             "the endless job was kept"
+        );
+    }
+
+    /// A job that waited for room in the decode budget for longer than the ceiling is not
+    /// stuck when its wait ends, because the ceiling counts from the end of the wait. Before,
+    /// a preload that waited long for another job was given up as soon as it began to decode.
+    #[test]
+    fn the_ceiling_counts_from_the_end_of_a_wait_for_room() {
+        use std::time::Duration;
+        let stuck_after = Duration::from_millis(50);
+        let mut progress = super::Progress::of_this_thread();
+        let waiting = super::WaitingForRoom::start();
+        let start = std::time::Instant::now();
+        while start.elapsed() < stuck_after * (super::Progress::CEILING + 2) {
+            assert!(
+                !progress.is_stuck(stuck_after),
+                "a job waiting for room was stuck"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(waiting);
+        assert!(
+            !progress.is_stuck(stuck_after),
+            "the wait for room counted against the ceiling"
         );
     }
 
