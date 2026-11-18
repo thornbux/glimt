@@ -32,8 +32,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A sidecar left hidden by a killed Delete for good is named when its photo changed since, and
   its log stays when the sidecar cannot be looked at. A lasting refusal to give it back is told
   once, not at every start.
-- A delete's log kept for a later start keeps only the names it could not tell about, so later
-  starts no longer look at every file of it again.
 - Delete for good makes a sidecar given back after a failed delete lasting before its log goes,
   and syncs the folder of its log's sidecar note once instead of once per photo.
 
