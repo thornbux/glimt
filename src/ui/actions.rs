@@ -398,7 +398,10 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
 /// the panels and windows, the settings and the clipboard. None of them changes a file, a
 /// sidecar, a mark or star, or a collection, not even through a dialog or panel the user then
 /// answers or clicks in, and none starts a program of the user's. So a program that reaches
-/// Glimt's socket still cannot delete, move, rename or rewrite anything.
+/// Glimt's socket still cannot delete, move, rename or rewrite anything. A panel that the
+/// window offers anyway does not count: the file list and the folder tree, which HideFileList,
+/// ThumbnailGrid and FolderTree bring back, have menus that change files, but the user can
+/// always open them, so a script that shows them opens no new way to a change.
 /// `every_action_is_decided_for_scripts` makes each new action be put here or left out on
 /// purpose.
 pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
@@ -1151,9 +1154,9 @@ impl std::fmt::Display for Keys {
 impl crate::App {
     // ---- Keys and actions ----
 
-    /// Preferences or a modal dialog is open: keys go there.
-    /// A question about the selection on screen (Delete, Rename): what it acts on must stay as
-    /// it was when asked. Preferences and the like do not count: a script would wait on them.
+    /// Whether a question about the selection is on screen, such as a prompt or the delete
+    /// question. What it acts on must stay as it was when asked. Preferences and the other
+    /// dialogs do not count, because a script would wait on them.
     pub(crate) fn asking_about_selection(&self) -> bool {
         self.dialogs.asks_about_files()
     }
