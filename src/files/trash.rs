@@ -101,6 +101,18 @@ pub(crate) fn restore(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
 ) -> (Vec<PathBuf>, Option<String>) {
+    restore_until(trash_move, dirs_of, std::time::SystemTime::now())
+}
+
+/// Puts back what `trash_move` moved to the trash, as `restore` does, but only what went to the
+/// trash by the time `latest`, give or take the hour that local time goes back in autumn.
+/// A start that takes back the sidecars of a delete cut short by a kill knows when the delete
+/// ended, and a sidecar trashed later is one the user trashed on purpose.
+pub(crate) fn restore_until(
+    trash_move: &TrashMove,
+    dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
+    latest: std::time::SystemTime,
+) -> (Vec<PathBuf>, Option<String>) {
     // Each trash folder is read, and its files put back, through the folder that `dirs_of`
     // opened and checked, which stays open until the end.
     type Read = (Option<std::fs::File>, HashMap<PathBuf, TrashEntry>);
@@ -114,13 +126,13 @@ pub(crate) fn restore(
     // trashed just before the move is another file's.
     let at = crate::support::format::local_time(secs as i64).replacen(' ', "T", 1);
     let rank = |t: &TrashEntry| (t.date < at, t.date.clone());
-    // Nor one dated later than now: a trash folder on a stick from someone else (FAT and exFAT
-    // give every file to whoever mounts it) may hold an entry of the same name dated in the
-    // future, which would else come back where the user's own is gone. An hour and a minute
-    // ahead: local time, which goes back an hour in autumn. The first since the move, so one
-    // dated within that hour comes after the user's own.
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    let until = now.map_or(0, |d| d.as_secs()) as i64 + 3660;
+    // Nor one dated later than `latest`, which for an Undo is now. A trash folder on a stick
+    // from someone else (FAT and exFAT give every file to whoever mounts it) may hold an entry
+    // of the same name dated in the future, which would else come back where the user's own is
+    // gone. An hour and a minute ahead: local time, which goes back an hour in autumn. The first
+    // since the move, so one dated within that hour comes after the user's own.
+    let latest = latest.duration_since(std::time::UNIX_EPOCH);
+    let until = latest.map_or(0, |d| d.as_secs()) as i64 + 3660;
     let until = crate::support::format::local_time(until).replacen(' ', "T", 1);
     // A file is looked up as the list named it, and by its real path. The home trash keeps the
     // path as it was given, but gio records one in a trash at the top of a file system by its

@@ -829,11 +829,12 @@ fn is_as_known(path: &Path, known: Option<FileFingerprint>) -> bool {
 }
 
 /// Takes back from the trash the sidecars of the files `stayed`, which a delete's log names and
-/// which are still there as they were, when they went to the trash after `since`. A Move to
-/// Trash sends each photo's sidecars just before the photo, so Glimt killed between the two
-/// left the photo without its keywords, comment and alt text. Only a sidecar whose name is
-/// surely free is looked for, and none comes back over a file (`trash::restore`). One that
-/// cannot come back is told.
+/// which are still there as they were, when they went to the trash about the time `since`, when
+/// the log was last written. A Move to Trash sends each photo's sidecars just before the photo,
+/// so Glimt killed between the two left the photo without its keywords, comment and alt text.
+/// One trashed later is one the user trashed on purpose, also when the log is read again at a
+/// start weeks later (`trash::restore_until`). Only a sidecar whose name is surely free is
+/// looked for, and none comes back over a file. One that cannot come back is told.
 fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime) {
     use crate::metadata::xmp;
     // Adobe's sidecar has the RAW file's name stem, with the extension in either case.
@@ -857,7 +858,8 @@ fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime
         collection: None,
     };
     let trash_dirs = crate::files::trash::trash_dirs;
-    if let (_, Some(error)) = crate::files::trash::restore(&trash_move, trash_dirs) {
+    let restored = crate::files::trash::restore_until(&trash_move, trash_dirs, since);
+    if let (_, Some(error)) = restored {
         crate::files::file_io::save_failed(error);
     }
 }
@@ -3181,6 +3183,37 @@ mod tests {
         assert!(told.is_empty(), "told again: {told:?}");
         assert_eq!(std::fs::read_to_string(&hidden).unwrap(), "a");
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "another");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Returns the path of the one log in the folder of logs `logs`.
+    fn the_log_in(logs: &std::path::Path) -> std::path::PathBuf {
+        (std::fs::read_dir(logs).unwrap().flatten())
+            .map(|e| e.path())
+            .find(|p| p.is_file())
+            .unwrap()
+    }
+
+    /// A start long after the delete of a log takes back from the trash only a sidecar that went
+    /// there about the time of the delete. Before, it took back any sidecar of a photo that
+    /// stayed trashed since then, so one the user trashed on purpose weeks after the kill came
+    /// back, also at every start of a log kept for a later one.
+    #[test]
+    fn a_late_start_takes_back_no_sidecar_trashed_after_the_delete() {
+        let dir = crate::support::test_support::contract_folder("start-late-trash");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let mut log = super::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        drop(log);
+        // The kill was two hours ago, and the user trashed the sidecar now.
+        let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        let opened = std::fs::File::options().write(true).open(the_log_in(&logs));
+        opened.unwrap().set_modified(two_hours_ago).unwrap();
+        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert!(!side.exists(), "the sidecar trashed on purpose came back");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
