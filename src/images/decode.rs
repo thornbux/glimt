@@ -11,7 +11,8 @@ use eframe::egui;
 use image::ImageDecoder;
 use image::metadata::Orientation;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 /// How many bytes of decoded frames are kept of one animation. A longer one loops its first
 /// part.
@@ -47,12 +48,26 @@ const CHANGED_WHILE_READ: &str = "the file changed while it was read";
 /// `is_counted_input`). It is a fault in Glimt, never in the file (`failure_of`).
 const NOT_COUNTED: &str = "the bytes to decode are not counted in the decode budget";
 
+/// How long a decode job may hold bytes of the budget while another decode waits for room,
+/// before the budget takes them back: as long as a worker of a pool may take over one job. A
+/// read from a share that stopped answering waits for ever, and before, two large images there
+/// held the whole budget, and no other image was decoded until a restart. The tests wait less.
+#[cfg(not(test))]
+const HELD_TOO_LONG: Duration = crate::support::threads::STUCK_AFTER;
+#[cfg(test)]
+const HELD_TOO_LONG: Duration = Duration::from_secs(1);
+
 /// The shared budget that every decode takes its bytes from (`reserve_from_budget`).
 static BUDGET: DecodeBudget = DecodeBudget::new(DECODE_BUDGET);
+
+/// The number of the next decode job, by which the budget knows what each job holds.
+static NEXT_JOB: AtomicU64 = AtomicU64::new(1);
 
 thread_local! {
     /// The bytes of the budget that this thread's decode job holds, or `None` outside a job.
     static JOB_HOLDS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+    /// The number of this thread's decode job (`NEXT_JOB`), or 0 outside a job.
+    static JOB_NUMBER: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Whether this thread's decodes take their bytes before the others that wait, because
     /// they are of the shown image (`let_this_thread_go_first`).
     static GOES_FIRST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -155,6 +170,7 @@ impl DecodeBudget {
                 free: total,
                 turns_given: [0; 2],
                 turns_served: [0; 2],
+                holds: Vec::new(),
             }),
             freed: std::sync::Condvar::new(),
             total,
@@ -167,34 +183,46 @@ impl DecodeBudget {
     /// theirs before every other that waits. Returns an error when `bytes` alone is more than
     /// the whole budget, because no wait makes room then.
     ///
-    /// The `held` bytes that the caller holds are given back first, in the same step as its
-    /// turn is taken, so that no other decode takes them between the two. A decode that needs
-    /// more than it holds would else lose them to one that came after it.
-    fn take(&self, held: u64, bytes: u64, goes_first: bool) -> Result<(), String> {
+    /// The bytes that the caller's job `job` holds are given back first, in the same step as
+    /// its turn is taken, so that no other decode takes them between the two. A decode that
+    /// needs more than it holds would else lose them to one that came after it.
+    ///
+    /// A job that has held its bytes for `HELD_TOO_LONG` while this one waits for room is taken
+    /// to be stuck, and its bytes are taken back (`BudgetState::take_back_stuck`).
+    fn take(&self, job: u64, bytes: u64, goes_first: bool) -> Result<(), String> {
         if bytes > self.total {
-            self.give_back(held);
+            self.give_back(job);
             return Err(format!("image too large ({})", human_size(bytes)));
         }
         let line = usize::from(!goes_first);
         let mut state = lock_even_if_poisoned(&self.state);
-        state.free += held;
+        state.let_go(job);
         let turn = state.turns_given[line];
         state.turns_given[line] += 1;
         while !state.is_turn_of(line, turn, bytes) {
-            state = self.freed.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = (self.freed.wait_timeout(state, HELD_TOO_LONG / 4))
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+            if state.free < bytes && state.take_back_stuck() {
+                self.freed.notify_all();
+            }
         }
         state.free -= bytes;
         state.turns_served[line] += 1;
+        state.holds.push(Hold {
+            job,
+            bytes,
+            since: Instant::now(),
+        });
         drop(state);
         // The next in line may fit in what is left.
         self.freed.notify_all();
         Ok(())
     }
 
-    /// Gives back `bytes`, and wakes the decodes that wait for room.
-    fn give_back(&self, bytes: u64) {
-        if bytes > 0 {
-            lock_even_if_poisoned(&self.state).free += bytes;
+    /// Gives back the bytes that job `job` holds, and wakes the decodes that wait for room.
+    fn give_back(&self, job: u64) {
+        if lock_even_if_poisoned(&self.state).let_go(job) {
             self.freed.notify_all();
         }
     }
@@ -207,15 +235,51 @@ struct BudgetState {
     /// The number of turns given in each line, and of those served, which took their bytes.
     turns_given: [u64; 2],
     turns_served: [u64; 2],
+    /// What each decode job holds, and since when.
+    holds: Vec<Hold>,
 }
 
 impl BudgetState {
+    /// Frees what job `job` holds. Returns whether it held anything. A job whose bytes were
+    /// taken back while it was stuck holds nothing, so they are not freed twice when it wakes.
+    fn let_go(&mut self, job: u64) -> bool {
+        let Some(at) = self.holds.iter().position(|h| h.job == job) else {
+            return false;
+        };
+        self.free += self.holds.swap_remove(at).bytes;
+        true
+    }
+
+    /// Takes back the bytes of every job that has held them for `HELD_TOO_LONG`, such as one
+    /// whose read from a stalled share never returns. Returns whether it took any. What such a
+    /// job has made of them lies outside the budget from then on, as its worker lies outside
+    /// its pool (`spawn_worker_pool`), which gives it up after as long.
+    fn take_back_stuck(&mut self) -> bool {
+        let stuck = |h: &Hold| h.since.elapsed() >= HELD_TOO_LONG;
+        let freed: u64 = self
+            .holds
+            .iter()
+            .filter(|h| stuck(h))
+            .map(|h| h.bytes)
+            .sum();
+        self.holds.retain(|h| !stuck(h));
+        self.free += freed;
+        freed > 0
+    }
+
     /// Returns whether turn `turn` in line `line` may take `bytes` now: it is the first in its
     /// line, the bytes are free, and no decode of the shown image waits before the others.
     fn is_turn_of(&self, line: usize, turn: u64, bytes: u64) -> bool {
         let shown_waits = self.turns_served[0] < self.turns_given[0];
         self.turns_served[line] == turn && self.free >= bytes && (line == 0 || !shown_waits)
     }
+}
+
+/// The bytes of the budget that a decode job holds (`BudgetState::holds`).
+struct Hold {
+    job: u64,
+    bytes: u64,
+    since: Instant,
 }
 
 /// What a decode took from the budget (`reserve_from_budget`). Outside a decode job it holds the
@@ -238,7 +302,8 @@ impl Drop for DecodeJobBudget {
     fn drop(&mut self) {
         if self.is_outermost {
             INPUT_HOLDS.set(INPUT_HOLDS.get() - JOB_INPUT.take());
-            budget().give_back(JOB_HOLDS.take().unwrap_or(0));
+            JOB_HOLDS.take();
+            budget().give_back(JOB_NUMBER.take());
         }
     }
 }
@@ -280,25 +345,19 @@ impl DecodeInput {
         Ok(self)
     }
 
-    /// Takes `bytes` that were read before their length was known, such as what a program
-    /// wrote, from the budget, and holds them. They are in memory already, so they are taken
-    /// before the decodes that wait, as the pixels of a decode that holds its input are
-    /// (`reserve_from_budget`). Returns an error when they are more than the whole budget with
-    /// what this thread holds already.
-    pub fn counting(bytes: Vec<u8>) -> Result<DecodeInput, String> {
-        let length = bytes.len() as u64;
-        INPUT_HOLDS.set(INPUT_HOLDS.get() + length);
-        match reserve_from_budget(0) {
-            Ok(reservation) => Ok(DecodeInput {
-                bytes,
-                reserved: length,
-                _reservation: reservation,
-            }),
-            Err(e) => {
-                INPUT_HOLDS.set(INPUT_HOLDS.get() - length);
-                Err(e)
-            }
+    /// Takes more of the budget for input that grows past the room reserved while it is read,
+    /// such as what a program still writes, so that it counts in the budget all the while.
+    /// It takes at least twice the room it had, so that a large output asks only a few times.
+    /// Returns an error when `length` with what this thread holds already is more than the
+    /// whole budget.
+    pub fn grow_to(&mut self, length: u64) -> Result<(), String> {
+        if length <= self.reserved {
+            return Ok(());
         }
+        let more = length.max(self.reserved * 2) - self.reserved;
+        INPUT_HOLDS.set(INPUT_HOLDS.get() + more);
+        self.reserved += more;
+        reserve_from_budget(0).map(drop)
     }
 
     /// Reads the whole of `path`, as `read_limited` does, after its size is taken from the
@@ -373,6 +432,7 @@ pub fn start_decode_job() -> DecodeJobBudget {
     let is_outermost = JOB_HOLDS.get().is_none();
     if is_outermost {
         JOB_HOLDS.set(Some(0));
+        JOB_NUMBER.set(NEXT_JOB.fetch_add(1, Ordering::Relaxed));
     }
     DecodeJobBudget {
         is_outermost,
@@ -401,7 +461,7 @@ pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
     let bytes = bytes.saturating_add(input);
     if bytes > held {
         JOB_HOLDS.set(Some(0));
-        budget().take(held, bytes, GOES_FIRST.get() || input > 0)?;
+        budget().take(JOB_NUMBER.get(), bytes, GOES_FIRST.get() || input > 0)?;
         JOB_HOLDS.set(Some(bytes));
     }
     Ok(BudgetReservation { _job: job })
@@ -1330,6 +1390,12 @@ pub(crate) fn share_this_threads_budget() -> impl Fn() + Send + Clone + 'static 
     move || TEST_BUDGET.set(Some(budget))
 }
 
+/// Returns the bytes free in this thread's budget, for a test of another module.
+#[cfg(test)]
+pub(crate) fn free_in_this_threads_budget() -> u64 {
+    lock_even_if_poisoned(&budget().state).free
+}
+
 /// Returns whether the EXIF orientation turns the image a quarter, so its width and height swap. It
 /// is the one list of those orientations, for the view, the JPEG scaling and the save.
 pub fn is_quarter_turn(o: Orientation) -> bool {
@@ -1584,35 +1650,35 @@ mod tests {
         use std::time::Duration;
         let budget = Arc::new(super::DecodeBudget::new(1000));
         let (running, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        let start_large = || {
+        let start_large = |job| {
             let (budget, running, most) = (budget.clone(), running.clone(), most.clone());
             std::thread::spawn(move || {
-                budget.take(0, 600, false).unwrap();
+                budget.take(job, 600, false).unwrap();
                 most.fetch_max(running.fetch_add(1, SeqCst) + 1, SeqCst);
                 std::thread::sleep(Duration::from_millis(300));
                 running.fetch_sub(1, SeqCst);
-                budget.give_back(600);
+                budget.give_back(job);
             })
         };
-        let first = start_large();
+        let first = start_large(1);
         std::thread::sleep(Duration::from_millis(20));
         // One large decode holds 600 now. Thirty small ones of 10 still pass without waiting.
         let (done, small_done) = mpsc::channel();
         let small = budget.clone();
         std::thread::spawn(move || {
             for _ in 0..30 {
-                small.take(0, 10, false).unwrap();
-                small.give_back(10);
+                small.take(3, 10, false).unwrap();
+                small.give_back(3);
             }
             done.send(()).unwrap();
         });
         assert!(small_done.recv_timeout(Duration::from_millis(250)).is_ok());
-        let second = start_large();
+        let second = start_large(2);
         for thread in [first, second] {
             thread.join().unwrap();
         }
         assert_eq!(most.load(SeqCst), 1);
-        assert!(budget.take(0, 1001, false).is_err());
+        assert!(budget.take(4, 1001, false).is_err());
         assert_eq!(lock_even_if_poisoned(&budget.state).free, 1000);
     }
 
@@ -1630,7 +1696,7 @@ mod tests {
         let start = |name: &'static str, bytes: u64, goes_first: bool| {
             let (budget, taken) = (budget.clone(), taken.clone());
             let thread = std::thread::spawn(move || {
-                budget.take(0, bytes, goes_first).unwrap();
+                budget.take(bytes, bytes, goes_first).unwrap();
                 lock_even_if_poisoned(&taken).push(name);
             });
             std::thread::sleep(Duration::from_millis(50));
@@ -1643,7 +1709,7 @@ mod tests {
         ];
         // 400 are free: the small decode would fit, but it waits behind the large one.
         assert!(lock_even_if_poisoned(&taken).is_empty());
-        budget.give_back(600);
+        budget.give_back(0);
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(*lock_even_if_poisoned(&taken), ["shown"]);
         budget.give_back(500);
@@ -1712,6 +1778,41 @@ mod tests {
 
     /// `bytes` held as a decode's input, which the budget counts, as `from_memory` and
     /// `scaled` want them.
+    /// A decode stuck with its bytes, such as a read from a share that stopped answering, is
+    /// given them up once another decode has waited for room long enough, and gives back
+    /// nothing more when it wakes. Before, two large images on such a share held the whole
+    /// budget, and no other image was decoded until a restart.
+    #[test]
+    fn a_decode_stuck_with_its_bytes_lets_the_others_go_on() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let total = super::DECODE_BUDGET;
+        let budget = super::budget();
+        let (taken, stuck_holds) = mpsc::channel();
+        let (wake, stuck) = mpsc::channel::<()>();
+        let stuck_one = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total).unwrap();
+            taken.send(()).unwrap();
+            stuck.recv().unwrap();
+            drop(held);
+        });
+        stuck_holds.recv().unwrap();
+        let (done, waited) = mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total / 2).unwrap();
+            done.send(()).unwrap();
+            drop(held);
+        });
+        let went_on = waited.recv_timeout(Duration::from_secs(5));
+        wake.send(()).unwrap();
+        stuck_one.join().unwrap();
+        waiting.join().unwrap();
+        assert!(went_on.is_ok(), "the stuck decode held the budget");
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
+    }
+
     fn counted(bytes: Vec<u8>) -> super::DecodeInput {
         let input = super::DecodeInput::reserve(bytes.len() as u64).unwrap();
         input.holding(bytes).unwrap()

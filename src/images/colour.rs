@@ -254,8 +254,8 @@ pub enum Transform {
 thread_local! {
     static PARSING: std::cell::Cell<Option<fn(&Colour)>> =
         const { std::cell::Cell::new(None) };
-    // What a test runs where colour_source is about to read the image file, to see that the
-    // colour settings are not locked then.
+    // What a test runs where colour_source is about to read the image file, or rgb_profile a
+    // profile, to see that the colour settings and the start's wait are not locked then.
     static READING: std::cell::Cell<Option<fn()>> = const { std::cell::Cell::new(None) };
 }
 
@@ -397,6 +397,10 @@ pub fn profile_fits(icc: &[u8], pixels: image::ColorType) -> bool {
 /// costs nothing); an error for one that cannot be read or is not RGB.
 pub fn rgb_profile(path: &str) -> Result<Option<moxcms::ColorProfile>, String> {
     use moxcms::{ColorProfile, DataColorSpace};
+    #[cfg(test)]
+    if let Some(hook) = READING.get() {
+        hook();
+    }
     let bytes = crate::images::decode::read_limited(path).map_err(|e| format!("{path}: {e}"))?;
     let profile = ColorProfile::new_from_slice(&bytes)
         .ok()
@@ -441,12 +445,19 @@ pub fn set_screen(path: &str) -> Result<bool, String> {
         "" => None,
         path => rgb_profile(path)?,
     };
+    Ok(use_screen_profile(path, profile, was))
+}
+
+/// Makes `profile`, read from `path`, the screen profile. Returns whether the images must be
+/// shown again, which they need not when `was`, whether a screen profile was used, and the new
+/// one are both sRGB.
+fn use_screen_profile(path: &str, profile: Option<moxcms::ColorProfile>, was: bool) -> bool {
     let changed = was || profile.is_some();
     set_colour(|c| {
         c.screen = profile;
         c.screen_path = path.to_owned();
     });
-    Ok(changed)
+    changed
 }
 
 /// Wait while the desktop's screen profile is being read at start, at most until the deadline.
@@ -543,21 +554,32 @@ pub fn read_desktop_screen(ctx: &egui::Context) -> mpsc::Receiver<Option<String>
     // images wait for it a short while on their own (`SCREEN_WAIT`).
     std::thread::spawn(move || {
         let path = desktop_screen_profile();
-        let (lock, ready) = &SCREEN_WAIT;
-        let mut until = lock_even_if_poisoned(lock);
-        if until.is_some_and(|t| Instant::now() < t) {
-            // An error is shown when the window takes it up.
-            if let Some(path) = &path {
-                let _ = set_screen(path);
-            }
-        }
-        *until = None;
-        ready.notify_all();
-        drop(until);
+        take_desktop_screen(path.as_deref());
         let _ = tx.send(path);
         ctx.request_repaint();
     });
     rx
+}
+
+/// Uses the desktop's screen profile at `path` at once if it came before the start's deadline,
+/// and lets the images that wait for it go on. The file is read before `SCREEN_WAIT` is locked,
+/// because every decoding thread waits on that lock, and a read from a stalled home share
+/// would hold them all past the deadline.
+fn take_desktop_screen(path: Option<&str>) {
+    // An error is shown when the window takes the path up.
+    let profile = path.map(|path| (path, rgb_profile(path)));
+    let (lock, ready) = &SCREEN_WAIT;
+    let mut until = lock_even_if_poisoned(lock);
+    if until.is_some_and(|t| Instant::now() < t)
+        && let Some((path, Ok(profile))) = profile
+    {
+        let was = crate::support::threads::read_even_if_poisoned(&COLOUR)
+            .screen
+            .is_some();
+        use_screen_profile(path, profile, was);
+    }
+    *until = None;
+    ready.notify_all();
 }
 
 /// The file of the default profile of the first screen in colord, which GNOME and KDE set, on
@@ -1109,6 +1131,30 @@ mod tests {
         super::colour_source(std::path::Path::new("/nonexistent/glimt.jpg"));
         super::READING.set(None);
         assert!(READ.load(Ordering::Relaxed));
+    }
+
+    /// The start's wait for the screen profile is free while the desktop's profile file is
+    /// read, so that a stalled home share holds no decoding thread past the deadline. Before,
+    /// the file was read under the lock that every decode waits on.
+    #[test]
+    fn reads_the_desktop_screen_profile_with_the_wait_free() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static READ: AtomicBool = AtomicBool::new(false);
+        fn check() {
+            assert!(
+                soon(|| super::SCREEN_WAIT.0.try_lock().is_ok()),
+                "the wait is locked"
+            );
+            READ.store(true, Ordering::Relaxed);
+        }
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        *lock_even_if_poisoned(&super::SCREEN_WAIT.0) =
+            Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
+        super::READING.set(Some(check));
+        super::take_desktop_screen(Some("/nonexistent/glimt-screen.icc"));
+        super::READING.set(None);
+        assert!(READ.load(Ordering::Relaxed));
+        assert!(lock_even_if_poisoned(&super::SCREEN_WAIT.0).is_none());
     }
 
     /// The wait for the desktop's screen profile starts where colord is asked, not when the
