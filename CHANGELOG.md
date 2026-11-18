@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Save As over a file writes down the sidecar it sets aside, so that the next start gives it
+  back when Glimt was killed, or a share lost the rename's answer, before the copy took the name.
+- When a share cannot tell whether Save As's copy took the name, the message also says that the
+  replaced file's marks and stars were left at the name.
+- Rename Many's repair after a crash renames nothing when its list of the files cannot be read,
+  rather than renaming by the names alone without checking each file.
+
 ## [0.89.0] - 2026-11-18
 
 ### Fixed
