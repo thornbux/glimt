@@ -3103,6 +3103,10 @@ mod tests {
         /// Not at all: the second image's XMP names Ultra HDR's namespace only in a comment
         /// and inside xmpMM:Pantry, with the main XMP of `UltraHdr`.
         NamespaceOnly,
+        /// As `UltraHdr`, with Ultra HDR's namespace bound to the prefix gm instead of hdrgm.
+        OtherPrefix,
+        /// Not at all: as `UltraHdr`, but with the prefix hdrgm bound to another namespace.
+        OtherNamespace,
     }
 
     /// The maker note of the Apple test file, as an iPhone writes it, big-endian with offsets
@@ -3212,17 +3216,21 @@ mod tests {
             </rdf:Description></rdf:RDF></x:xmpmeta>";
         let iso =
             |values: &[u8]| super::jpeg_segment(0xe2, &[super::ISO_GAIN_MAP_NAME, values].concat());
-        let marked = match marking {
-            Marking::Iso => iso(b"\0\0\0\0ISO-GAIN-MAP-VALUES"),
-            Marking::UltraHdr => xmp(&gain_map_xmp),
-            Marking::NamespaceOnly => xmp(&format!(
-                "<!-- xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" -->{rdf} \
+        let marked =
+            match marking {
+                Marking::Iso => iso(b"\0\0\0\0ISO-GAIN-MAP-VALUES"),
+                Marking::UltraHdr => xmp(&gain_map_xmp),
+                Marking::NamespaceOnly => xmp(&format!(
+                    "<!-- xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" -->{rdf} \
                  xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\"><xmpMM:Pantry><rdf:Bag>\
                  <rdf:li><rdf:Description hdrgm:Version=\"1.0\"/></rdf:li></rdf:Bag>\
                  </xmpMM:Pantry></rdf:Description></rdf:RDF></x:xmpmeta>"
-            )),
-            Marking::Apple => xmp(apple_xmp),
-        };
+                )),
+                Marking::Apple => xmp(apple_xmp),
+                Marking::OtherPrefix => xmp(&gain_map_xmp.replace("hdrgm", "gm")),
+                Marking::OtherNamespace => xmp(&gain_map_xmp
+                    .replace("http://ns.adobe.com/hdr-gain-map/1.0/", "urn:not-ultra-hdr")),
+            };
         let gain_map = [&gain_map[..2], &exif, &marked, &gain_map[2..]].concat();
         let main_xmp = format!(
             "{rdf} xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" \
@@ -3245,9 +3253,10 @@ mod tests {
         );
         let head = match marking {
             Marking::Iso => [&main[..2], &exif, &iso(b"\0\0\0\0")].concat(),
-            Marking::UltraHdr | Marking::NamespaceOnly => {
-                [&main[..2], &exif, &xmp(&main_xmp)].concat()
-            }
+            Marking::UltraHdr
+            | Marking::NamespaceOnly
+            | Marking::OtherPrefix
+            | Marking::OtherNamespace => [&main[..2], &exif, &xmp(&main_xmp)].concat(),
             Marking::Apple => [
                 &main[..2],
                 &exif_of(apple_exif_block()),
@@ -3278,6 +3287,22 @@ mod tests {
         assert!(walked.gain_map.is_none());
         let (ultra_hdr, _) = hdr_jpeg(Marking::UltraHdr);
         assert!(super::walk_jpeg(&ultra_hdr).unwrap().gain_map.is_some());
+    }
+
+    /// A gain map is known by the namespace its XMP's prefix is bound to, not by the prefix as
+    /// written: Ultra HDR's namespace under the prefix gm marks one, and the prefix hdrgm bound
+    /// to another namespace marks none.
+    #[test]
+    fn a_gain_map_is_known_by_its_namespace_not_its_prefix() {
+        let (other_prefix, _) = hdr_jpeg(Marking::OtherPrefix);
+        assert!(super::walk_jpeg(&other_prefix).unwrap().gain_map.is_some());
+        let (other_namespace, _) = hdr_jpeg(Marking::OtherNamespace);
+        assert!(
+            super::walk_jpeg(&other_namespace)
+                .unwrap()
+                .gain_map
+                .is_none()
+        );
     }
 
     /// An Ultra HDR photo keeps its gain map, the second image that brightens it on an HDR
