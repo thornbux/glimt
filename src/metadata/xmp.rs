@@ -126,7 +126,7 @@ thread_local! {
     /// How many times this thread read a sidecar (`own_sidecar`), for the test that a writer
     /// reads it once.
     #[cfg(test)]
-    static SIDECAR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static SIDECAR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -615,7 +615,14 @@ pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 /// for a sidecar has none there, which leaves the name free unless `will_have_one`, a new image
 /// that gets a sidecar of its own. Returns the error to tell: `AlreadyExists` for a sidecar
 /// there, or the look's own error when it failed, which says nothing either way.
-pub(crate) fn check_no_sidecar(path: &Path, will_have_one: bool) -> std::io::Result<()> {
+///
+/// The caller holds the sidecar's lock `_sidecar_lock` (`lock_sidecar`) from this look until
+/// the new image has its name, so that no sidecar is written at that name in between.
+pub(crate) fn check_no_sidecar(
+    path: &Path,
+    will_have_one: bool,
+    _sidecar_lock: &SidecarLock,
+) -> std::io::Result<()> {
     let side = sidecar(path);
     let named = side.display();
     match crate::files::file_io::check_free(&side) {

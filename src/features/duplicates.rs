@@ -1,8 +1,7 @@
 //! Find Duplicates, as in Geeqie: groups of images that are the same file, have the same name,
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
-use crate::files::file_io::{FileFingerprint, fingerprint, fingerprint_of_file_read};
-use crate::files::file_ops::LookUpStep;
+use crate::files::file_io::{AsSeen, FileFingerprint, fingerprint, fingerprint_of_file_read};
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
@@ -69,7 +68,7 @@ type Seen = HashMap<PathBuf, SeenAs>;
 /// A group's checked files, and its unchecked ones with their fingerprints as the search saw
 /// them (`FindDuplicates::kept_beside_checked`). An unchecked file has `None` when the search
 /// has no fingerprint of it.
-type CheckedAndKept = (Vec<PathBuf>, Vec<(PathBuf, Option<FileFingerprint>)>);
+type CheckedAndKept = (Vec<PathBuf>, crate::files::file_io::KeptBeside);
 
 /// The fingerprints a file of the groups had when the search saw it. The two differ only for a
 /// link: the trash takes the link itself, and the bytes compared are those of the file the link
@@ -400,53 +399,20 @@ impl crate::App {
     /// confirmation. A file that is no longer as the search saw it (`Seen`) is left out and told,
     /// as one edited since may no longer be a copy. So are the checked files of a group whose
     /// unchecked file is no longer as seen, as an edit of that one may have made it the last
-    /// copy of the original. That file is looked at in the background first.
+    /// copy of the original. Both are looked at in the delete's thread, just before each file
+    /// goes (`PickedFingerprints::still_the_one_picked`), so an edit made while the question
+    /// is open counts too.
     fn trash_checked(&mut self, ctx: &egui::Context, find_duplicates: &FindDuplicates) {
-        let groups = find_duplicates.kept_beside_checked();
-        let Some(folder) = (groups.iter())
-            .flat_map(|(_, kept)| kept.first())
-            .find_map(|(path, _)| path.parent().map(Path::to_path_buf))
-        else {
-            return self.trash_now(ctx, &find_duplicates.checked, &find_duplicates.seen);
+        let names = (find_duplicates.seen.iter()).map(|(path, seen)| (path.clone(), seen.name));
+        let mut as_seen = AsSeen {
+            names: names.collect(),
+            kept_beside: HashMap::new(),
         };
-        let (checked, seen) = (
-            find_duplicates.checked.clone(),
-            find_duplicates.seen.clone(),
-        );
-        let held_back = checked.iter().cloned().collect();
-        let (found_tx, found) = std::sync::mpsc::channel();
-        let kept: Vec<_> = groups.iter().map(|(_, kept)| kept.clone()).collect();
-        // No busy pointer: the look, whose answer `wait_for_look_up_before_the_job` holds the
-        // pointer for. One given up ends when the share answers, or never.
-        std::thread::spawn(move || look_at_kept_files(&kept, &found_tx));
-        self.wait_for_look_up_before_the_job(
-            folder,
-            (held_back, true),
-            found,
-            move |app, ctx, changed: Vec<bool>| {
-                let left_out: HashSet<PathBuf> = (groups.into_iter().zip(changed))
-                    .filter(|(_, changed)| *changed)
-                    .flat_map(|((checked_in_group, _), _)| checked_in_group)
-                    .collect();
-                let checked: HashSet<PathBuf> = checked.difference(&left_out).cloned().collect();
-                if !checked.is_empty() {
-                    app.trash_now(ctx, &checked, &seen);
-                }
-                if !left_out.is_empty() {
-                    let files = count(left_out.len(), "file");
-                    app.notice.give(tf!(
-                        "{files} not moved to the trash: another file of their group changed after the search",
-                        files
-                    ));
-                }
-            },
-        );
-    }
-
-    /// Moves the files `checked` of the list to the trash, each only while its name is as `seen`.
-    fn trash_now(&mut self, ctx: &egui::Context, checked: &HashSet<PathBuf>, seen: &Seen) {
-        let names = (seen.iter()).map(|(path, seen)| (path.clone(), seen.name));
-        let seen: HashMap<PathBuf, FileFingerprint> = names.collect();
+        for (checked, kept) in find_duplicates.kept_beside_checked() {
+            let kept = Arc::new(kept);
+            (as_seen.kept_beside).extend(checked.into_iter().map(|path| (path, kept.clone())));
+        }
+        let checked = &find_duplicates.checked;
         let checked_rows = (0..self.list.files().len())
             .filter(|&i| checked.contains(&self.path(i)))
             .collect();
@@ -456,41 +422,12 @@ impl crate::App {
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
         if self.list.selected().len() == checked.len() {
-            self.request_delete_as_seen(ctx, true, Some(&seen));
+            self.request_delete_as_seen(ctx, true, Some(&as_seen));
         } else {
             self.notice
                 .give(tr("The checked files are no longer all in the list").into());
         }
     }
-}
-
-/// Looks at the unchecked files of each group, `kept`, and sends whether any of a group's is no
-/// longer as the search saw it. A file without a fingerprint counts as changed, as nothing can
-/// tell that it is still a copy. Each file looked at first sends a sign that the look goes on, so
-/// a look at many files on a share that answers is not given up after a minute in all. It waits
-/// for the disk.
-fn look_at_kept_files(
-    kept: &[Vec<(PathBuf, Option<FileFingerprint>)>],
-    found_tx: &std::sync::mpsc::Sender<LookUpStep<Vec<bool>>>,
-) {
-    let changed: Vec<bool> = (kept.iter())
-        .map(|files| {
-            (files.iter()).any(|(path, seen)| {
-                let changed = !seen.is_some_and(|seen| is_as_seen(path, seen));
-                drop(found_tx.send(LookUpStep::GoesOn));
-                changed
-            })
-        })
-        .collect();
-    drop(found_tx.send(LookUpStep::Answered(changed)));
-}
-
-/// Whether the file read at `path`, through a link the file it points to, still has the
-/// fingerprint `seen` that the search took of it. A look that fails counts as a change. It waits
-/// for the disk.
-fn is_as_seen(path: &Path, seen: FileFingerprint) -> bool {
-    fingerprint_of_file_read(path)
-        .is_some_and(|now| crate::files::file_io::same_fingerprint(seen, now))
 }
 
 /// Returns the fingerprints of the name `path` and of the file read through it, or `None` when
@@ -997,36 +934,6 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// The look at the unchecked files sends a sign that it goes on for each file it looks at,
-    /// and then its answer, so a look at many files is not given up while it answers (A-1 of
-    /// the audit of 0.83). Without the signs, nothing told the wait that the look went on.
-    #[test]
-    fn the_look_at_kept_files_says_it_goes_on_for_each_file() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-dup-signs-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let files: Vec<PathBuf> = ["a.png", "b.png", "c.png"].map(|n| dir.join(n)).into();
-        for f in &files {
-            image::RgbImage::new(2, 2).save(f).unwrap();
-        }
-        let seen = |f: &PathBuf| (f.clone(), super::fingerprint_of_file_read(f));
-        let kept = vec![
-            vec![seen(&files[0])],
-            vec![seen(&files[1]), seen(&files[2])],
-        ];
-        let (tx, rx) = std::sync::mpsc::channel();
-        super::look_at_kept_files(&kept, &tx);
-        drop(tx);
-        let (mut signs, mut answer) = (0, None);
-        for step in rx {
-            match step {
-                super::LookUpStep::GoesOn => signs += 1,
-                super::LookUpStep::Answered(changed) => answer = Some(changed),
-            }
-        }
-        assert_eq!((signs, answer), (3, Some(vec![false, false])));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
     /// A group whose unchecked file the search has no fingerprint of keeps its checked files,
     /// as nothing can tell that the unchecked one is still a copy (F1-2 of round 3 of the review
     /// before 1.0). Before, that file was left out of the look, and with no other unchecked
@@ -1042,14 +949,7 @@ mod tests {
         find_duplicates.checked = [b.clone()].into();
         let groups = find_duplicates.kept_beside_checked();
         assert_eq!(groups.len(), 1, "the group is not looked at");
-        let kept: Vec<_> = groups.into_iter().map(|(_, kept)| kept).collect();
-        let (tx, rx) = std::sync::mpsc::channel();
-        super::look_at_kept_files(&kept, &tx);
-        let answer = rx.into_iter().find_map(|step| match step {
-            super::LookUpStep::Answered(changed) => Some(changed),
-            super::LookUpStep::GoesOn => None,
-        });
-        assert_eq!(answer, Some(vec![true]));
+        assert!(!crate::files::file_io::are_as_seen(&groups[0].1));
     }
 
     /// The look at an unchecked file that is a link looks at the file the link points to, whose
@@ -1076,22 +976,15 @@ mod tests {
         (find_duplicates.groups, find_duplicates.seen) = (groups, seen);
         find_duplicates.checked = [copy.clone()].into();
         std::fs::write(&original, "edited by its own path").unwrap();
-        let kept: Vec<_> = (find_duplicates.kept_beside_checked().into_iter())
-            .map(|(_, kept)| kept)
-            .collect();
-        let (tx, rx) = std::sync::mpsc::channel();
-        super::look_at_kept_files(&kept, &tx);
-        let answer = rx.into_iter().find_map(|step| match step {
-            super::LookUpStep::Answered(changed) => Some(changed),
-            super::LookUpStep::GoesOn => None,
-        });
-        assert_eq!(answer, Some(vec![true]));
+        let groups = find_duplicates.kept_beside_checked();
+        assert!(!crate::files::file_io::are_as_seen(&groups[0].1));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Move to Trash leaves out the checked copy of a group whose unchecked file was edited
-    /// after the search, and says so, as the copy may now be the last of the original. Before,
-    /// only the checked files were looked at, so the copy went to the trash.
+    /// after the search, also while the question was open, and says so, as the copy may now be
+    /// the last of the original. Before, only the checked files were looked at, so the copy went
+    /// to the trash, and then the unchecked one was looked at before the question only.
     #[test]
     fn a_copy_whose_original_was_edited_is_not_trashed() {
         use crate::support::test_support::{app_on, run_background_until};
@@ -1112,21 +1005,22 @@ mod tests {
         };
         drop(pointer);
         (find_duplicates.groups, find_duplicates.seen) = (groups, seen);
-        std::fs::write(&a, "edited").unwrap();
         find_duplicates.checked = [b.clone()].into();
-        app.config.confirm_trash = false;
+        app.config.confirm_trash = true;
         app.trash_checked(&ctx, &find_duplicates);
+        assert!(app.modal_open(), "no question");
+        // The original is edited while the question is open.
+        std::fs::write(&a, "edited").unwrap();
+        let (found, picked) = app.asked_targets().unwrap();
+        app.delete_now(&ctx, true, found, picked);
         let told = |app: &crate::App| {
-            (app.notice.text()).is_some_and(|n| n.contains("another file of their group"))
+            (app.notice.text()).is_some_and(|n| n.contains("another file of its group"))
         };
         assert!(
             run_background_until(&mut app, &ctx, told),
             "{:?}",
             app.notice.text()
         );
-        // The look's thread holds the busy pointer until it has ended, a moment after the
-        // notice is shown, so the test waits for that too. Before, it asked at once, and under
-        // the load of the whole test run it failed now and then.
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
         assert!(b.exists());
         std::fs::remove_dir_all(dir).unwrap();

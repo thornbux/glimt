@@ -444,6 +444,21 @@ enum Compared {
 /// flag of that list's window (`ListIsOld`).
 type Listed = (Vec<Identity>, ListIsOld);
 
+/// The files that a search found to be copies of a picked file and that stay, each with the
+/// fingerprint of the file read through it as the search saw it, or `None` when it had none
+/// (Find Duplicates' unchecked files of a group).
+pub(crate) type KeptBeside = Vec<(PathBuf, Option<FileFingerprint>)>;
+
+/// What a search saw of the files it found (Find Duplicates), for an act on them after a
+/// question: the fingerprint of each file's name, and for each picked file the files kept
+/// beside it. The act leaves out a file that changed since, and a file whose kept copy
+/// changed, as the picked file may then be the last copy of the original.
+#[derive(Default)]
+pub(crate) struct AsSeen {
+    pub(crate) names: std::collections::HashMap<PathBuf, FileFingerprint>,
+    pub(crate) kept_beside: std::collections::HashMap<PathBuf, std::sync::Arc<KeptBeside>>,
+}
+
 /// Files the user picked before a wait: a confirmation, a prompt or the file chooser. Their
 /// fingerprints are taken in a thread of their own while the user waits, as 500,000 files on a
 /// share would hold the window. The act runs in a thread too, and it leaves alone each file that
@@ -464,6 +479,8 @@ pub(crate) struct PickedFiles {
     /// Whether the paths are folders, which are told apart by their inode or their time
     /// (`is_still_the_folder`), not by their size, which changes with every file put into them.
     are_folders: bool,
+    /// The files kept beside each picked file, which the act looks at too (`AsSeen`).
+    kept_beside: std::collections::HashMap<PathBuf, std::sync::Arc<KeptBeside>>,
 }
 
 impl PickedFiles {
@@ -480,16 +497,23 @@ impl PickedFiles {
         PickedFiles::taken_in_background(paths, listed, false)
     }
 
-    /// The files `files`, picked now in the list, with the fingerprints `seen` that a search
-    /// took when it found them (Find Duplicates). A file changed since, or one the search has
-    /// no fingerprint of, is left alone, as it may no longer be what the search found.
-    pub(crate) fn listed_as_seen(
-        files: Vec<ListedFile>,
-        seen: &std::collections::HashMap<PathBuf, FileFingerprint>,
-    ) -> PickedFiles {
+    /// The files `files`, picked now in the list, with what a search saw of them when it found
+    /// them (Find Duplicates). A file changed since, or one the search has no fingerprint of, is
+    /// left alone, as it may no longer be what the search found. So is one whose kept copy
+    /// changed (`AsSeen`), looked at in the act's thread, after the question.
+    pub(crate) fn listed_as_seen(files: Vec<ListedFile>, seen: &AsSeen) -> PickedFiles {
         let (paths, listed) = paths_and_identities(files);
-        let seen = paths.iter().map(|path| seen.get(path).copied()).collect();
-        PickedFiles::with_fingerprints(paths, listed, seen)
+        let fingerprints = paths
+            .iter()
+            .map(|path| seen.names.get(path).copied())
+            .collect();
+        let kept_beside = (paths.iter())
+            .filter_map(|path| Some((path.clone(), seen.kept_beside.get(path)?.clone())))
+            .collect();
+        PickedFiles {
+            kept_beside,
+            ..PickedFiles::with_fingerprints(paths, listed, fingerprints)
+        }
     }
 
     /// Starts taking the device and inode of the folder `dir`, picked now.
@@ -524,6 +548,7 @@ impl PickedFiles {
             list_is_old,
             fingerprints: crate::support::threads::Receiving::of(rx),
             are_folders: false,
+            kept_beside: Default::default(),
         }
     }
 
@@ -554,6 +579,7 @@ impl PickedFiles {
             list_is_old,
             fingerprints: crate::support::threads::Receiving::of(rx),
             are_folders,
+            kept_beside: Default::default(),
         }
     }
 
@@ -583,6 +609,7 @@ impl PickedFiles {
             taken,
             list_is_old: self.list_is_old,
             are_folders: self.are_folders,
+            kept_beside: self.kept_beside,
         };
         // The thread that took them has let go of the paths once it sent the last one, or it
         // is about to, and only then are they copied.
@@ -610,6 +637,8 @@ pub(crate) struct PickedFingerprints {
     taken: std::collections::HashMap<PathBuf, (FileFingerprint, Identity)>,
     list_is_old: ListIsOld,
     are_folders: bool,
+    /// The files kept beside each picked file (`AsSeen`).
+    kept_beside: std::collections::HashMap<PathBuf, std::sync::Arc<KeptBeside>>,
 }
 
 impl PickedFingerprints {
@@ -619,10 +648,24 @@ impl PickedFingerprints {
         self.taken.get(path).map(|(picked, _)| *picked)
     }
 
-    /// Looks whether the file at `path` is still the one picked there. Returns the error to tell
-    /// when it is not: another file has its name, it was written since, it is gone, or its
-    /// fingerprint did not come in time.
+    /// Looks whether the file at `path` is still the one picked there, and the files kept
+    /// beside it as the search saw them (`AsSeen`). Returns the error to tell when it is not:
+    /// another file has its name, it was written since, it is gone, its fingerprint did not come
+    /// in time, or a file kept beside it changed.
     pub(crate) fn still_the_one_picked(&self, path: &Path) -> std::io::Result<()> {
+        self.still_the_file_picked(path)?;
+        let kept = self.kept_beside.get(path).map_or(&[][..], |kept| &kept[..]);
+        match are_as_seen(kept) {
+            true => Ok(()),
+            false => Err(std::io::Error::other(crate::support::lang::tr(
+                "another file of its group changed after the search",
+            ))),
+        }
+    }
+
+    /// Looks whether the file at `path` is still the one picked there, as
+    /// `still_the_one_picked` does, without the files kept beside it.
+    fn still_the_file_picked(&self, path: &Path) -> std::io::Result<()> {
         let (picked, listed) = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
         if self.are_folders {
             let kind = file_system_type(path);
@@ -2354,6 +2397,18 @@ pub(crate) fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerpri
     fingerprint_looked(path, false)
 }
 
+/// Returns whether each of the files `kept` is as the search saw it: the file read through its
+/// name, through a link the file it points to, still has the fingerprint the search took. A
+/// file without a fingerprint, or one whose look failed, counts as changed, as nothing can tell
+/// that it is still a copy. It waits for the disk.
+pub(crate) fn are_as_seen(kept: &[(PathBuf, Option<FileFingerprint>)]) -> bool {
+    (kept.iter()).all(|(path, seen)| {
+        seen.is_some_and(|seen| {
+            fingerprint_of_file_read(path).is_some_and(|now| same_fingerprint(seen, now))
+        })
+    })
+}
+
 /// Returns the fingerprint of the file whose bytes are read at `path`: through a link, the file
 /// the link points to. Returns `None` when nothing is there or the look failed.
 pub(crate) fn fingerprint_of_file_read(path: &Path) -> Option<FileFingerprint> {
@@ -2670,13 +2725,19 @@ pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::F
             .create_new(true)
             .clone()
     };
-    let old = match look(path, true) {
+    // A link at `path` is replaced itself (`replace_name`), so the new file takes nothing of the
+    // file it points to, which a downloaded folder may link to any file. A writer that writes
+    // through a link (`replace_file`) passes the file the link points to.
+    let old = match look(path, false) {
+        Ok(old) if old.file_type().is_symlink() => return new().open(tmp),
         Ok(old) => old,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return new().open(tmp),
         Err(e) => return Err(e),
     };
     let file = new().mode(0o600).open(tmp)?;
-    file.set_permissions(old.permissions())?;
+    // The set-ID and sticky bits are left out, as `put_file_until_stopped` leaves them.
+    let mode = std::os::unix::fs::PermissionsExt::mode(&old.permissions()) & 0o777;
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(mode))?;
     copy_extended_attributes(path, &file, true);
     Ok(file)
 }
@@ -3333,6 +3394,7 @@ mod tests {
             taken: [(dir.clone(), (picked, None))].into(),
             list_is_old: Default::default(),
             are_folders: true,
+            kept_beside: Default::default(),
         };
         if super::file_system_type(&dir).is_some_and(|kind| super::has_lasting_inodes(&kind)) {
             fingerprints.still_the_one_picked(&dir).unwrap();
@@ -3702,6 +3764,33 @@ mod tests {
         assert!(super::is_surely_gone(&tmp));
         let made = super::create_temp_beside(&tmp, &path).unwrap();
         assert_eq!(made.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file written at a name where a link is, as `replace_name` replaces the link, takes
+    /// nothing of the file the link points to, and a file written again keeps no set-ID bit.
+    /// Before, a link in a downloaded folder to a file of mode 0666 gave a new sidecar 0666, and
+    /// a set-ID bit went along.
+    #[test]
+    fn a_file_written_at_a_link_takes_not_the_mode_of_its_target() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-temp-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (target, link, tmp) = (dir.join("open"), dir.join("a.xmp"), dir.join(".a.tmp"));
+        std::fs::write(&target, "").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o6666)).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let fresh = dir.join("fresh");
+        let new_mode = std::fs::File::create(&fresh).unwrap().metadata().unwrap();
+        let made = super::create_temp_beside(&tmp, &link).unwrap();
+        let mode = made.metadata().unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, new_mode.permissions().mode() & 0o7777);
+        std::fs::remove_file(&tmp).unwrap();
+        let made = super::create_temp_beside(&tmp, &target).unwrap();
+        assert_eq!(
+            made.metadata().unwrap().permissions().mode() & 0o7777,
+            0o666
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

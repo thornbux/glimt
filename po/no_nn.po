@@ -3974,10 +3974,10 @@ msgstr "{sidecar} kunne ikkje flyttast ({e}), så ho vart kopiert til {copy} og 
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} svarte ikkje innan eitt minutt, så ingenting vart gjort"
 
-#: src/features/duplicates.rs
+#: src/files/file_io.rs
 #, fuzzy
-msgid "{files} not moved to the trash: another file of their group changed after the search"
-msgstr "{files} ikkje flytte til papirkorga: ei anna fil i gruppa er endra etter søket"
+msgid "another file of its group changed after the search"
+msgstr "ei anna fil i gruppa er endra etter søket"
 #: src/features/copy_for_sharing.rs
 #, fuzzy
 msgid "Same name as another image picked, from another folder: {images}"

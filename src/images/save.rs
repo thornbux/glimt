@@ -877,8 +877,8 @@ pub(crate) fn save_copy_with_sidecar(
                 new,
                 |f| f.write_all(out),
                 |tmp| {
-                    lock = Some(crate::metadata::xmp::lock_sidecar(new));
-                    crate::metadata::xmp::check_no_sidecar(new, source.is_some())?;
+                    let sidecar_lock = lock.insert(crate::metadata::xmp::lock_sidecar(new));
+                    crate::metadata::xmp::check_no_sidecar(new, source.is_some(), sidecar_lock)?;
                     crate::files::file_io::rename_never_over(tmp, new)
                 },
             );

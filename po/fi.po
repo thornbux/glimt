@@ -3963,10 +3963,10 @@ msgstr "Kohdetta {sidecar} ei voitu siirtää ({e}), joten se kopioitiin kohtees
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} ei vastannut minuutin kuluessa, joten mitään ei tehty"
 
-#: src/features/duplicates.rs
+#: src/files/file_io.rs
 #, fuzzy
-msgid "{files} not moved to the trash: another file of their group changed after the search"
-msgstr "Ei siirretty roskakoriin: {files}, toinen ryhmän tiedosto muuttui haun jälkeen"
+msgid "another file of its group changed after the search"
+msgstr "toinen ryhmän tiedosto muuttui haun jälkeen"
 #: src/features/copy_for_sharing.rs
 #, fuzzy
 msgid "Same name as another image picked, from another folder: {images}"
