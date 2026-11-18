@@ -90,4 +90,7 @@ disallowed-methods = [
     { path = "std::sync::Mutex::lock", reason = "threads::lock_even_if_poisoned: a panic caught in one thread must not stop the others at the lock" },
     { path = "std::sync::RwLock::read", reason = "threads::read_even_if_poisoned: a panic caught in one thread must not stop the others at the lock" },
     { path = "std::sync::RwLock::write", reason = "threads::write_even_if_poisoned: a panic caught in one thread must not drop what the others write" },
+    { path = "std::sync::Mutex::try_lock", reason = "threads::lock_even_if_poisoned: a poisoned lock refused drops the work without a word" },
+    { path = "std::sync::RwLock::try_read", reason = "threads::read_even_if_poisoned: a poisoned lock refused drops the work without a word" },
+    { path = "std::sync::RwLock::try_write", reason = "threads::write_even_if_poisoned: a poisoned lock refused drops what is written without a word" },
 ]

@@ -666,6 +666,9 @@ const REFUSED_CALLS: &[&str] = &[
     "std::sync::Mutex::lock",
     "std::sync::RwLock::read",
     "std::sync::RwLock::write",
+    "std::sync::Mutex::try_lock",
+    "std::sync::RwLock::try_read",
+    "std::sync::RwLock::try_write",
 ];
 
 /// The standard library's calls that look at or change the disk, and the system's that Glimt
