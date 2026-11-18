@@ -355,12 +355,14 @@ impl crate::App {
         );
     }
 
-    /// Saves keywords typed and takes the file jobs' last reports, before `on_exit` writes the
-    /// state and waits for the writer. A job can send its report after `guard_close` took
-    /// them, in a close that came in a pass without `ui`. Without this, the marks and the saved
-    /// collections would not follow the files that job moved.
+    /// Saves keywords typed and a setting changed during a drag, and takes the file jobs' last
+    /// reports, before `on_exit` writes the state and waits for the writer. A job can send its
+    /// report after `guard_close` took them, in a close that came in a pass without `ui`.
+    /// Without this, the marks and the saved collections would not follow the files that job
+    /// moved.
     pub(crate) fn take_last_reports_before_exit(&mut self, ctx: &egui::Context) {
         self.save_metadata_edit(ctx);
+        self.save_unsaved_preferences();
         self.receive_operation_report(ctx);
         self.receive_renames(ctx);
     }

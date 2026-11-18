@@ -309,19 +309,27 @@ impl crate::App {
                         section(ui, theme::icon::DESKTOP, tr(START[0]));
                         changed |= self.window_settings(ui, ctx);
                     }
-                    // Saved once a slider is let go, not in every frame it is dragged.
                     self.preferences.has_unsaved |= changed;
-                    if self.preferences.has_unsaved && !ctx.input(|i| i.pointer.any_down()) {
-                        self.preferences.has_unsaved = false;
-                        self.config.save();
-                    }
                 });
             });
         self.preferences.open = open;
+        // Saved once a slider is let go, not in every frame it is dragged. Outside the window,
+        // so that an Esc that closes it during a drag still saves.
+        if !open || !ctx.input(|i| i.pointer.any_down()) {
+            self.save_unsaved_preferences();
+        }
         // A key is chosen only while its row is drawn. Closing the window or the header ends
         // the choosing, so a key pressed later in another field is not taken for the action.
         if !keys_drawn {
             self.preferences.key_being_chosen_for = None;
+        }
+    }
+
+    /// Saves the settings that Preferences changed while the pointer was down, if any. A quit
+    /// during a drag calls it too.
+    pub(crate) fn save_unsaved_preferences(&mut self) {
+        if std::mem::take(&mut self.preferences.has_unsaved) {
+            self.config.save();
         }
     }
 
@@ -1513,6 +1521,39 @@ mod tests {
         app.dialogs.ask_trash_folder(&dir);
         escape(&mut app);
         assert!(app.preferences.open);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A setting changed during a drag is saved when Esc closes Preferences before the
+    /// pointer is let go. It was lost, as only the window's own closure saved it.
+    #[test]
+    fn a_change_during_a_drag_is_saved_when_preferences_closes() {
+        use eframe::egui::{Event, Key, PointerButton, RawInput, pos2};
+        let dir = std::env::temp_dir().join(format!("glimt-test-drag-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.preferences.show();
+        app.preferences.has_unsaved = true;
+        let input = RawInput {
+            events: vec![
+                Event::PointerButton {
+                    pos: pos2(1.0, 1.0),
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+                Event::Key {
+                    key: Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
+        assert!(!app.preferences.open && !app.preferences.has_unsaved);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
