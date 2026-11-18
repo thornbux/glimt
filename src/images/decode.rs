@@ -5,14 +5,14 @@
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::model::listing::has_ext;
 use crate::support::format::human_size;
-use crate::support::threads::{ThreadClock, lock_even_if_poisoned};
+use crate::support::threads::{Progress, lock_even_if_poisoned};
 use crate::{images::raw, metadata::exif};
 use eframe::egui;
 use image::ImageDecoder;
 use image::metadata::Orientation;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// How many bytes of decoded frames are kept of one animation. A longer one loops its first
 /// part.
@@ -211,14 +211,10 @@ impl DecodeBudget {
         }
         state.free -= bytes;
         state.turns_served[line] += 1;
-        let clock = ThreadClock::of_this_thread();
-        let used = clock.as_ref().and_then(ThreadClock::used).unwrap_or(0);
         state.holds.push(Hold {
             job,
             bytes,
-            since: Instant::now(),
-            clock,
-            used,
+            progress: Progress::of_this_thread(),
         });
         drop(state);
         // The next in line may fit in what is left.
@@ -258,21 +254,18 @@ impl BudgetState {
 
     /// Takes back the bytes of every job that has made no progress for `HELD_TOO_LONG`, such
     /// as one whose read from a stalled share never returns. A job that is only slow uses the
-    /// processor, and keeps its bytes (`Hold::note_progress`). Returns whether it took any.
+    /// processor, and keeps its bytes (`Progress`). Returns whether it took any.
     /// What such a job has made of them lies outside the budget from then on, as its worker
     /// lies outside its pool (`spawn_worker_pool`), which gives it up after as long.
     fn take_back_stuck(&mut self) -> bool {
-        for hold in &mut self.holds {
-            hold.note_progress();
-        }
-        let stuck = |h: &Hold| h.since.elapsed() >= HELD_TOO_LONG;
-        let freed: u64 = self
-            .holds
-            .iter()
-            .filter(|h| stuck(h))
-            .map(|h| h.bytes)
-            .sum();
-        self.holds.retain(|h| !stuck(h));
+        let mut freed = 0;
+        self.holds.retain_mut(|h| {
+            let is_stuck = h.progress.idle_for() >= HELD_TOO_LONG;
+            if is_stuck {
+                freed += h.bytes;
+            }
+            !is_stuck
+        });
         self.free += freed;
         freed > 0
     }
@@ -289,24 +282,8 @@ impl BudgetState {
 struct Hold {
     job: u64,
     bytes: u64,
-    /// When the job last made progress: took the bytes, or used the processor.
-    since: Instant,
-    /// The processor clock of the job's thread, and the time it had used at `since`.
-    clock: Option<ThreadClock>,
-    used: u64,
-}
-
-impl Hold {
-    /// Moves `since` to now when the job's thread has used the processor since it was last
-    /// looked at, so that only a job that makes no progress at all is taken to be stuck.
-    fn note_progress(&mut self) {
-        if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
-            && used > self.used
-        {
-            self.used = used;
-            self.since = Instant::now();
-        }
-    }
+    /// Whether the job still uses the processor, since it took the bytes.
+    progress: Progress,
 }
 
 /// What a decode took from the budget (`reserve_from_budget`). Outside a decode job it holds the

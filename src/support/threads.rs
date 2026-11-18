@@ -16,9 +16,9 @@ pub(crate) static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) =
 /// Glimt runs with one malloc arena (`one_malloc_arena`): set at startup.
 pub(crate) static HAS_ONE_MALLOC_ARENA: AtomicBool = AtomicBool::new(false);
 
-/// How long a worker of a pool may take over one job before the pool gives it up and starts
-/// another worker in its place (`spawn_worker_pool`). A read from a share that stopped
-/// answering waits for ever, and a large image on a slow share is read within this.
+/// How long a worker of a pool may go without progress in one job before the pool gives it up
+/// and starts another worker in its place (`spawn_worker_pool`). A read from a share that
+/// stopped answering waits for ever and uses no processor time (`Progress`).
 pub(crate) const STUCK_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The most workers of one pool that are given up and still stuck at the same time. A folder
@@ -33,15 +33,12 @@ const MOST_STUCK: usize = 32;
 #[cfg(test)]
 pub(crate) static BREAKING_FILES: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
 
-/// The processor clock of a thread, which another thread may read. A thread that waits for a
-/// share that stopped answering uses no processor time, and one that is only slow (a large
-/// decode, a read over a slow network) does. So it tells a stuck job from a slow one, where
-/// the time a job has taken alone does not.
-pub(crate) struct ThreadClock(libc::clockid_t);
+/// The processor clock of a thread, which another thread may read (`Progress`).
+struct ThreadClock(libc::clockid_t);
 
 impl ThreadClock {
     /// Returns the clock of the thread that calls it, or `None` when the system has none.
-    pub(crate) fn of_this_thread() -> Option<ThreadClock> {
+    fn of_this_thread() -> Option<ThreadClock> {
         let mut clock: libc::clockid_t = 0;
         #[allow(unsafe_code)]
         // SAFETY: `pthread_self` is always a valid thread, and `clock` is valid for the call
@@ -52,7 +49,7 @@ impl ThreadClock {
 
     /// Returns the processor time its thread has used, in nanoseconds, or `None` when it
     /// cannot be read, such as after the thread ended.
-    pub(crate) fn used(&self) -> Option<u64> {
+    fn used(&self) -> Option<u64> {
         #[allow(unsafe_code)]
         // SAFETY: A timespec may be all zero, and `t` is valid for the call to fill.
         let (failed, t) = unsafe {
@@ -60,6 +57,46 @@ impl ThreadClock {
             (libc::clock_gettime(self.0, &mut t), t)
         };
         (failed == 0).then(|| t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64)
+    }
+}
+
+/// Whether the job of a thread still makes progress, told by the processor time its thread
+/// uses. A thread that waits for a share that stopped answering uses none, and one that is
+/// only slow (a large decode, a read over a slow network) does. So it tells a stuck job from a
+/// slow one, where the time a job has taken alone does not. A thread that only wakes now and
+/// then to look whether it may go on uses less than `PROGRESS`, which is not counted.
+pub(crate) struct Progress {
+    clock: Option<ThreadClock>,
+    /// The processor time the thread had used at `since`, in nanoseconds.
+    used: u64,
+    /// When the job started, or last made progress.
+    since: std::time::Instant,
+}
+
+impl Progress {
+    /// The processor time, in nanoseconds, that counts as progress.
+    const PROGRESS: u64 = 1_000_000;
+
+    /// Returns the progress of the job that the calling thread starts now.
+    pub(crate) fn of_this_thread() -> Progress {
+        let clock = ThreadClock::of_this_thread();
+        Progress {
+            used: clock.as_ref().and_then(ThreadClock::used).unwrap_or(0),
+            clock,
+            since: std::time::Instant::now(),
+        }
+    }
+
+    /// Returns how long the job has made no progress. Without a clock to read, that is how
+    /// long it has run.
+    pub(crate) fn idle_for(&mut self) -> std::time::Duration {
+        if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
+            && used >= self.used + Self::PROGRESS
+        {
+            self.used = used;
+            self.since = std::time::Instant::now();
+        }
+        self.since.elapsed()
     }
 }
 
@@ -218,11 +255,11 @@ impl<T> AnswerSender<T> {
     }
 }
 
-/// When the worker in each place of a pool started the job it does, and the folder of the job's
-/// file, `None` while it waits for a job. A worker given up leaves its place to a new worker
+/// The progress of the job that the worker in each place of a pool does, and the folder of the
+/// job's file, `None` while it waits for a job. A worker given up leaves its place to a new worker
 /// with a new `JobStart`, and ends once its job returns, when it finds that its place is no
 /// longer its own.
-type JobStart = Arc<Mutex<Option<(std::time::Instant, PathBuf)>>>;
+type JobStart = Arc<Mutex<Option<(Progress, PathBuf)>>>;
 
 /// What the workers of a pool share (`spawn_worker_pool`).
 struct WorkerPool<J> {
@@ -372,7 +409,7 @@ pub(crate) fn spawn_worker_pool<J: JobOfAFile + Send + 'static>(
     });
 }
 
-/// Gives up each worker of `pool` whose job has taken longer than `stuck_after`, and starts a
+/// Gives up each worker of `pool` whose job has made no progress for `stuck_after`, and starts a
 /// new worker in its place, while fewer than `MOST_STUCK` are stuck. The later jobs in the
 /// given-up worker's folder are put aside from then on (`Stalled`).
 fn replace_stuck_workers<J: JobOfAFile + Send + 'static>(
@@ -381,9 +418,9 @@ fn replace_stuck_workers<J: JobOfAFile + Send + 'static>(
 ) {
     let mut places = lock_even_if_poisoned(&pool.places);
     for (place, start) in places.iter_mut().enumerate() {
-        let stuck_in = (lock_even_if_poisoned(start).as_ref())
-            .filter(|(started, _)| started.elapsed() >= stuck_after)
-            .map(|(_, folder)| folder.clone());
+        let stuck_in = (lock_even_if_poisoned(start).as_mut()).and_then(|(progress, folder)| {
+            (progress.idle_for() >= stuck_after).then(|| folder.clone())
+        });
         if let Some(folder) = stuck_in
             && pool.stuck.load(Ordering::Relaxed) < MOST_STUCK
         {
@@ -420,7 +457,7 @@ fn start_worker<J: JobOfAFile + Send + 'static>(
                 }
                 job
             };
-            *lock_even_if_poisoned(&start) = Some((std::time::Instant::now(), folder.clone()));
+            *lock_even_if_poisoned(&start) = Some((Progress::of_this_thread(), folder.clone()));
             (pool.work)(job);
             *lock_even_if_poisoned(&start) = None;
             if !Arc::ptr_eq(&lock_even_if_poisoned(&pool.places)[place], &start) {
@@ -779,6 +816,44 @@ mod tests {
         assert_eq!(local, Ok(PathBuf::from("/local/a.jpg")));
         assert_eq!(stuck, 2, "workers stuck in the stalled folder");
         assert_eq!(rest, 40, "the jobs put aside were not done");
+    }
+
+    /// A worker that is slow, not stuck, holds back no later job of its folder. It uses the
+    /// processor all the while, as a large image decoded on a slow computer does. Before, its
+    /// folder was taken to be stalled after `stuck_after`, and the next image of the folder
+    /// waited until the slow one was done.
+    #[test]
+    fn a_slow_job_holds_back_no_other_job_of_its_folder() {
+        use std::path::PathBuf;
+        use std::time::{Duration, Instant};
+        let stuck_after = Duration::from_millis(200);
+        let (jobs, rx) = std::sync::mpsc::channel::<PathBuf>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let (slow_started, started) = std::sync::mpsc::channel::<()>();
+        let work = move |job: PathBuf| {
+            if job.ends_with("slow.jpg") {
+                slow_started.send(()).unwrap();
+                let start = Instant::now();
+                while start.elapsed() < stuck_after * 10 {
+                    std::hint::black_box(start.elapsed());
+                }
+            }
+            done_tx.send(job).unwrap();
+        };
+        super::spawn_worker_pool(2, stuck_after, rx, |_| {}, work);
+        jobs.send(PathBuf::from("/folder/slow.jpg")).unwrap();
+        started.recv().unwrap();
+        std::thread::sleep(stuck_after * 3);
+        jobs.send(PathBuf::from("/folder/next.jpg")).unwrap();
+        assert_eq!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(PathBuf::from("/folder/next.jpg")),
+            "the next job waited behind a slow one"
+        );
+        assert_eq!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(PathBuf::from("/folder/slow.jpg"))
+        );
     }
 
     /// CPU use: thumbnails and background threads for each level.
