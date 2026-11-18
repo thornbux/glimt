@@ -674,6 +674,19 @@ impl std::fmt::Display for MayBeUnderBothNames {
 
 impl std::error::Error for MayBeUnderBothNames {}
 
+/// The error of a write that gave the file its name, after which the sync of its folder failed.
+/// The file is there under its name, but the name may not be on the disk yet.
+#[derive(Debug)]
+struct NamedButNotOnDisk(String);
+
+impl std::fmt::Display for NamedButNotOnDisk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NamedButNotOnDisk {}
+
 /// What the names say of a replace's rename that failed, which `taken_back` hands to the undo
 /// of the step before the rename.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -913,7 +926,7 @@ fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<Strin
         return kind().is_none_or(|kind| is_remote(&kind));
     }
     e.get_ref()
-        .is_some_and(|inner| inner.is::<MayBeUnderBothNames>())
+        .is_some_and(|inner| inner.is::<MayBeUnderBothNames>() || inner.is::<NamedButNotOnDisk>())
         || matches!(
             e.raw_os_error(),
             Some(
@@ -2504,7 +2517,30 @@ pub fn write_beside(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    write_beside_without_folder_sync(tmp, path, write, give_name).and_then(|_| sync_folder_of(path))
+    write_beside_without_folder_sync(tmp, path, write, give_name)?;
+    // The file has its name now, which its error says, so that a save can go on with what
+    // follows the name (`named_but_not_on_disk`).
+    sync_folder_of(path)
+        .map_err(|e| std::io::Error::new(e.kind(), NamedButNotOnDisk(e.to_string())))
+}
+
+/// Returns `Ok(None)` when `result`, of `write_beside` or a writer through it, is a file saved,
+/// and `Ok(Some(e))` when the file took its name and only the sync of its folder failed with `e`.
+/// The file is then there, and what follows its name (its sidecar) is still to be done, with `e`
+/// told. Any other error is passed on.
+pub(crate) fn named_but_not_on_disk(
+    result: std::io::Result<()>,
+) -> std::io::Result<Option<std::io::Error>> {
+    match result {
+        Ok(()) => Ok(None),
+        Err(e)
+            if e.get_ref()
+                .is_some_and(|inner| inner.is::<NamedButNotOnDisk>()) =>
+        {
+            Ok(Some(e))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Writes a file as `write_beside` does, without syncing its folder after the rename. This is

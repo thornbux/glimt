@@ -798,7 +798,9 @@ pub(crate) fn save_copy_with_sidecar(
     // none. A copy that needs one is refused before it takes its name.
     let needs_no_sidecar_there =
         |e: &std::io::Error| e.raw_os_error() == Some(libc::ENAMETOOLONG) && source.is_none();
-    match replace {
+    // A copy that took its name is saved, also when its folder's sync failed after that. Its
+    // sidecar is still written and the replaced file's put away, and the sync is told.
+    let not_on_disk = match replace {
         // The replaced file's sidecar is set aside after the image is written beside it and
         // before the image takes the name, and put back when the rename surely failed (a file
         // held open on a share). A failed write leaves the file and its sidecar, and a sidecar
@@ -807,7 +809,7 @@ pub(crate) fn save_copy_with_sidecar(
         // Another file put at the name since the dialog asked is left alone.
         Some(asked_about) => {
             let aside = crate::files::file_io::tmp_path(&side);
-            crate::files::file_io::replace_name_with(
+            let replaced = crate::files::file_io::replace_name_with(
                 new,
                 |f| f.write_all(out),
                 || {
@@ -856,18 +858,20 @@ pub(crate) fn save_copy_with_sidecar(
                         (false, _) => Ok(()),
                     })
                 },
-            )?;
+            );
+            let not_on_disk = crate::files::file_io::named_but_not_on_disk(replaced)?;
             crate::files::journal::note_written_anew(new, asked_about);
             #[allow(clippy::disallowed_methods)] // the replaced file's sidecar, set aside
             // Not told: the replaced file's sidecar left under a hidden name takes no file's
             // place, and the copy is saved.
             let _ = std::fs::remove_file(&aside);
+            not_on_disk
         }
         // A file of that name is not touched, nor a sidecar there, because the copy is refused
         // first.
         None => {
             let tmp = crate::files::file_io::tmp_path(new);
-            crate::files::file_io::write_beside(
+            let written = crate::files::file_io::write_beside(
                 &tmp,
                 new,
                 |f| f.write_all(out),
@@ -876,15 +880,38 @@ pub(crate) fn save_copy_with_sidecar(
                     crate::metadata::xmp::check_no_sidecar(new, source.is_some())?;
                     crate::files::file_io::rename_never_over(tmp, new)
                 },
-            )?;
+            );
+            crate::files::file_io::named_but_not_on_disk(written)?
         }
-    }
-    let Some(xmp) = source else {
-        return Ok(None);
     };
-    // The copy has its name now, so a sidecar that fails is told with the copy saved.
-    let written = crate::files::file_io::create_file(&side, derived_xmp(&xmp, Derived::Copy));
-    Ok(written.err().map(|e| named(e).to_string()))
+    Ok(write_copys_sidecar(new, &side, source, not_on_disk))
+}
+
+/// Writes `xmp`, the sidecar of the image a copy is made from, as `side`, the sidecar of the
+/// copy `new`, which has its name now. A copy or a sidecar whose folder's sync failed
+/// (`not_on_disk`) is there, and the sync is told. Returns why the sidecar could not be written,
+/// which is told with the copy saved.
+fn write_copys_sidecar(
+    new: &Path,
+    side: &Path,
+    xmp: Option<Vec<u8>>,
+    not_on_disk: Option<std::io::Error>,
+) -> Option<String> {
+    let written =
+        xmp.map(|xmp| crate::files::file_io::create_file(side, derived_xmp(&xmp, Derived::Copy)));
+    let (sidecar_not_on_disk, sidecar_failed) =
+        match crate::files::file_io::named_but_not_on_disk(written.unwrap_or(Ok(()))) {
+            Ok(not_on_disk) => (not_on_disk, None),
+            Err(e) => (None, Some(format!("{}: {e}", side.display()))),
+        };
+    if let Some(e) = not_on_disk.or(sidecar_not_on_disk) {
+        crate::files::file_io::save_failed(crate::tf!(
+            "{file} was saved, but it may not be on the disk yet: {e}",
+            file = new.display(),
+            e
+        ));
+    }
+    sidecar_failed
 }
 
 /// Returns the error of Save As when setting `side`, the sidecar of the file it replaces, aside
@@ -4137,6 +4164,28 @@ mod tests {
             (shown.dimensions(), shown.get_pixel(0, 0).0),
             ((2, 6), [0, 0, 255])
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy whose folder's sync fails after it took its name is saved: it gets its sidecar,
+    /// and the failed sync is told. Before, it was told as not saved, without its sidecar.
+    #[test]
+    fn a_copy_whose_folder_sync_failed_is_saved_with_its_sidecar() {
+        use crate::files::file_io::{FOLDER_SYNC_FAILS_IN, take_saves_failed};
+        let dir = std::env::temp_dir().join(format!("glimt-copy-unsynced-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        std::fs::write(&a, b"a").unwrap();
+        std::fs::write(crate::metadata::xmp::sidecar(&a), "a's").unwrap();
+        take_saves_failed();
+        FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
+        let saved = super::save_copy_with_sidecar(&a, &b, b"x", None, false);
+        FOLDER_SYNC_FAILS_IN.set(None);
+        assert_eq!(saved.unwrap(), None);
+        assert_eq!(std::fs::read(&b).unwrap(), b"x");
+        let side = std::fs::read_to_string(crate::metadata::xmp::sidecar(&b)).unwrap();
+        assert_eq!(side, "a's");
+        assert_eq!(take_saves_failed().len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

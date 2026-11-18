@@ -4045,3 +4045,8 @@ msgstr "{sidecar} er en sidefil, der ligger der uden sit billede, så navnet bru
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "kunne ikke se på {name}: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} blev gemt, men er måske ikke på disken endnu: {e}"

@@ -4045,3 +4045,8 @@ msgstr "{sidecar} est un fichier annexe resté là sans son image, donc le nom n
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "impossible de consulter {name} : {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} a été enregistré, mais n'est peut-être pas encore sur le disque : {e}"

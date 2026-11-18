@@ -4045,3 +4045,8 @@ msgstr "{sidecar} is een sidecar-bestand dat daar zonder zijn afbeelding staat, 
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "kon {name} niet bekijken: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} is opgeslagen, maar staat misschien nog niet op de schijf: {e}"

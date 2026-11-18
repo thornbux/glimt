@@ -4045,3 +4045,8 @@ msgstr "{sidecar} er hliðarskrá sem varð eftir þar án myndar sinnar, svo na
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "ekki tókst að skoða {name}: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} var vistað, en er ef til vill ekki enn komið á diskinn: {e}"

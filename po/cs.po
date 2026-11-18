@@ -4067,3 +4067,8 @@ msgstr "{sidecar} je doprovodný soubor, který tam zůstal bez svého obrázku,
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "nelze se podívat na {name}: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} byl uložen, ale možná ještě není na disku: {e}"

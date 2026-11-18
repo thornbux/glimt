@@ -3248,3 +3248,7 @@ msgstr "{sidecar} er en sidefil som ligger der uten bildet sitt, så navnet bruk
 #: src/metadata/xmp.rs
 msgid "could not look at {name}: {e}"
 msgstr "kunne ikke se på {name}: {e}"
+
+#: src/images/save.rs
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} ble lagret, men er kanskje ikke på disken ennå: {e}"
