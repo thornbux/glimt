@@ -197,6 +197,10 @@ impl SharingDialog {
     }
 }
 
+/// Looks whether the file at a path is still the one the user picked, and returns the error to
+/// tell when it is not (`PickedFingerprints::still_the_one_picked`).
+type StillTheOnePicked<'a> = dyn Fn(&Path) -> std::io::Result<()> + 'a;
+
 /// What a Copy for Sharing job did, counted file by file, for its notice at the end.
 #[derive(Default)]
 struct SharingOutcome {
@@ -222,7 +226,18 @@ impl SharingOutcome {
     /// its own too, is free only when no sidecar of that name is left there either, which would
     /// give the copy a stranger's keywords and comment. With `Naming::Own`, such a sidecar and a
     /// look that failed are told as errors that say so, not as a file of that name.
-    fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>, naming: Naming) {
+    ///
+    /// `still_the_one_picked` looks whether the file at `path` is still the one the user picked.
+    /// It is asked after the last read of the file, its sidecar's too, and before the copy is
+    /// written. Asked before the reads, a photo that took the name in between gave the copy its
+    /// EXIF and XMP.
+    fn copy_into(
+        &mut self,
+        (path, still_the_one_picked): (&Path, &StillTheOnePicked),
+        folder: &Path,
+        kept: &HashSet<String>,
+        naming: Naming,
+    ) {
         let name = path.file_name().unwrap_or_default();
         if naming == Naming::Own {
             match is_name_free(&folder.join(name)) {
@@ -237,6 +252,10 @@ impl SharingOutcome {
             Ok(Some(bytes)) => bytes,
             Err(e) => return self.errors.push(format!("{}: {e}", path.display())),
         };
+        // Another window or program may have given the name to another photo meanwhile.
+        if let Err(e) = still_the_one_picked(path) {
+            return self.errors.push(format!("{}: {e}", path.display()));
+        }
         // Only the looks that fail count against a bound, so a folder whose names cannot be
         // looked at does not keep it trying. Names surely taken do not, as the copies are
         // numbered past every name in the folder. Before, a folder with image-1 to image-1000
@@ -434,11 +453,8 @@ impl crate::App {
                 if job.is_stopped() {
                     break;
                 }
-                // Another window or program may have given the name to another photo meanwhile.
-                match picked.still_the_one_picked(path) {
-                    Ok(()) => outcome.copy_into(path, &folder, &kept, naming),
-                    Err(e) => outcome.errors.push(format!("{}: {e}", path.display())),
-                }
+                let still_the_one_picked = |p: &Path| picked.still_the_one_picked(p);
+                outcome.copy_into((path, &still_the_one_picked), &folder, &kept, naming);
                 job.count_done(1);
             }
             let stopped = job.is_stopped().then(|| job.stopped_text());
@@ -564,6 +580,34 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The look that the image is still the one picked comes after the last read of it and of
+    /// its sidecar, and a refusal leaves no copy. Before, it came before the reads, and a photo
+    /// that took the name in between gave the copy its EXIF and XMP.
+    #[test]
+    fn the_image_is_looked_at_after_it_is_read() {
+        use crate::metadata::xmp::SIDECAR_READS;
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-sharing-read-first-{}",
+            std::process::id()
+        ));
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        SIDECAR_READS.set(0);
+        let reads_before_the_look = std::cell::Cell::new(None);
+        let refuse = |_: &std::path::Path| {
+            reads_before_the_look.set(Some(SIDECAR_READS.get()));
+            Err(crate::files::file_io::changed_meanwhile())
+        };
+        let mut outcome = super::SharingOutcome::default();
+        outcome.copy_into((&a, &refuse), &out, &Default::default(), super::Naming::Own);
+        assert_eq!(reads_before_the_look.get(), Some(1));
+        assert_eq!((outcome.copied, outcome.errors.len()), (0, 1));
+        assert!(!out.join("a.png").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The notice at the end tells how many were copied where, and why the others were not.
     #[test]
     fn the_notice_says_what_was_not_copied() {
@@ -614,13 +658,13 @@ mod tests {
         assert_eq!(super::name_clashes(&[a.clone(), b.clone()]), 1);
         let kept = Default::default();
         let mut skipped = super::SharingOutcome::default();
-        skipped.copy_into(&a, &out, &kept, super::Naming::Own);
-        skipped.copy_into(&b, &out, &kept, super::Naming::Own);
+        skipped.copy_into((&a, &|_| Ok(())), &out, &kept, super::Naming::Own);
+        skipped.copy_into((&b, &|_| Ok(())), &out, &kept, super::Naming::Own);
         assert_eq!((skipped.copied, skipped.names_taken), (1, 1));
         std::fs::remove_file(out.join("x.png")).unwrap();
         let mut renamed = super::SharingOutcome::default();
-        renamed.copy_into(&a, &out, &kept, super::Naming::OwnOrNumbered);
-        renamed.copy_into(&b, &out, &kept, super::Naming::OwnOrNumbered);
+        renamed.copy_into((&a, &|_| Ok(())), &out, &kept, super::Naming::OwnOrNumbered);
+        renamed.copy_into((&b, &|_| Ok(())), &out, &kept, super::Naming::OwnOrNumbered);
         assert_eq!(
             (renamed.copied, renamed.renamed, renamed.names_taken),
             (2, 1, 0)
@@ -633,7 +677,7 @@ mod tests {
         // A sidecar left at the next name without its image keeps that name taken, so its
         // keywords never show on the copy.
         std::fs::write(out.join("x-3.png.xmp"), "left").unwrap();
-        renamed.copy_into(&b, &out, &kept, super::Naming::OwnOrNumbered);
+        renamed.copy_into((&b, &|_| Ok(())), &out, &kept, super::Naming::OwnOrNumbered);
         assert!(out.join("x-4.png").exists() && !out.join("x-3.png").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -660,7 +704,12 @@ mod tests {
         for job in [1001, 1002] {
             let mut outcome = super::SharingOutcome::default();
             crate::files::file_io::LOOKS_MADE.set(0);
-            outcome.copy_into(&a, &out, &Default::default(), super::Naming::Neutral);
+            outcome.copy_into(
+                (&a, &|_| Ok(())),
+                &out,
+                &Default::default(),
+                super::Naming::Neutral,
+            );
             let looks = crate::files::file_io::LOOKS_MADE.get();
             assert!(looks < 10, "{looks} looks");
             assert_eq!((outcome.copied, outcome.names_taken), (1, 0));
@@ -691,8 +740,18 @@ mod tests {
         std::fs::write(&leftover, "left").unwrap();
         lock_even_if_poisoned(&LOOKS_FAIL).push(out.join("b.png"));
         let mut outcome = super::SharingOutcome::default();
-        outcome.copy_into(&a, &out, &Default::default(), super::Naming::Own);
-        outcome.copy_into(&b, &out, &Default::default(), super::Naming::Own);
+        outcome.copy_into(
+            (&a, &|_| Ok(())),
+            &out,
+            &Default::default(),
+            super::Naming::Own,
+        );
+        outcome.copy_into(
+            (&b, &|_| Ok(())),
+            &out,
+            &Default::default(),
+            super::Naming::Own,
+        );
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| !p.starts_with(&out));
         assert_eq!((outcome.copied, outcome.names_taken), (0, 0));
         let told = outcome.errors.join("\n");
@@ -723,8 +782,18 @@ mod tests {
         std::fs::write(out.join("image-1.png"), b"someone else's").unwrap();
         std::fs::write(out.join("image-2.png.xmp"), b"a leftover sidecar").unwrap();
         let mut outcome = super::SharingOutcome::default();
-        outcome.copy_into(&a, &out, &Default::default(), super::Naming::Neutral);
-        outcome.copy_into(&b, &out, &Default::default(), super::Naming::Neutral);
+        outcome.copy_into(
+            (&a, &|_| Ok(())),
+            &out,
+            &Default::default(),
+            super::Naming::Neutral,
+        );
+        outcome.copy_into(
+            (&b, &|_| Ok(())),
+            &out,
+            &Default::default(),
+            super::Naming::Neutral,
+        );
         assert_eq!(
             (outcome.copied, outcome.renamed, outcome.names_taken),
             (2, 0, 0)

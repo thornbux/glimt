@@ -126,7 +126,7 @@ thread_local! {
     /// How many times this thread read a sidecar (`own_sidecar`), for the test that a writer
     /// reads it once.
     #[cfg(test)]
-    static SIDECAR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static SIDECAR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
