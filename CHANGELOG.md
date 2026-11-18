@@ -20,6 +20,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   its place empty.
 - A page of thumbnails on a share that stopped answering no longer uses up the thumbnail workers.
   Its later thumbnails wait until the share answers, and other folders' thumbnails go on.
+  This holds also with Include Subfolders, however many subfolders the thumbnails come from.
 ### Fixed
 
 - A random slideshow with the subfolders starts at once with the images already listed,
