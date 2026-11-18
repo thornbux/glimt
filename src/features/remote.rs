@@ -196,8 +196,8 @@ const CUT_OFF: &str = "the command did not come whole";
 const MOST_CLIENTS: usize = 16;
 
 /// The most clients accepted that wait for a place among `MOST_CLIENTS`. One more waits in the
-/// socket's queue, unaccepted, until one of them is served. A client that waited past its time
-/// limit is let go at once when it is served, without its command.
+/// socket's queue, unaccepted, until one of them is served. Its command is read when it is
+/// served, and one whose time has run out by then is told so (`serve`).
 const MOST_ACCEPTED_WAITING: usize = 64;
 
 /// The most commands sent with `--wait` whose work is waited for at once. Such a command gives
@@ -1963,6 +1963,7 @@ fn serve(
     waiting_places: &WaitingPlaces,
 ) {
     let accepted_at = place.accepted;
+    let served = std::time::Instant::now();
     let mut place = Some(place);
     let mut waiting_place = None;
     // A client that does not read its answer holds its thread no longer than this either.
@@ -1973,16 +1974,21 @@ fn serve(
     // One byte more than a line may have, so that a line over it is told "too long" and not
     // taken for one that the client ended by closing its side.
     let most = MOST_FILES_LINE + 1;
-    // The first command's time is counted from when the client was accepted, which is about
-    // when it connected and started to wait, not from when this thread took it.
-    let mut accepted = Some(accepted_at);
-    let until = accepted_at + wait;
-    let stream = std::io::Read::take(ReadBefore { stream, until }, most);
-    let mut reader = std::io::BufReader::new(stream);
+    // The client's time starts when it has sent its command. A command that was here whole when
+    // the client got its place may have been sent at any time since it was accepted, so its time
+    // is counted from then. A client still sending (a long select, blocked while it waited)
+    // starts its time after now. Before, a client that waited past `wait` for a place was closed
+    // without an answer, which it read as done.
+    let (came, came_whole) = read_what_came(&stream, most);
+    let mut client_started = Some(if came_whole { accepted_at } else { served });
+    let until = served + wait;
+    let stream = std::io::Read::chain(std::io::Cursor::new(came), ReadBefore { stream, until });
+    let mut reader = std::io::BufReader::new(std::io::Read::take(stream, most));
     loop {
         // Each command has `wait` from when its reading starts to its end.
-        let read_started = accepted.take().unwrap_or_else(std::time::Instant::now);
-        reader.get_mut().get_mut().until = read_started + wait;
+        let read_started = std::time::Instant::now();
+        let client_started = client_started.take().unwrap_or(read_started);
+        reader.get_mut().get_mut().get_mut().1.until = read_started + wait;
         reader.get_mut().set_limit(most);
         let Some(line) = read_command(&mut reader) else {
             return;
@@ -2022,7 +2028,7 @@ fn serve(
         let client_waits = client_waits(&line, wait);
         let limit = client_waits + std::time::Duration::from_secs(1);
         let kept_open = kept_open_when_dropped(&line, wait);
-        let time_to_do = time_to_do(read_started, client_waits);
+        let time_to_do = time_to_do(client_started, client_waits);
         if tx.send((line, Some(reply), time_to_do)).is_err() {
             return;
         }
@@ -2065,6 +2071,35 @@ fn serve(
         }
         drop(answering);
     }
+}
+
+/// Reads what the client on `stream` has sent so far, without waiting, up to `most` bytes.
+/// Returns it, and whether it holds the first command whole: its line break, or the client's
+/// end.
+fn read_what_came(stream: &UnixStream, most: u64) -> (Vec<u8>, bool) {
+    let mut came = Vec::new();
+    if stream.set_nonblocking(true).is_err() {
+        return (came, false);
+    }
+    let mut part = [0; 64 * 1024];
+    let mut is_whole = false;
+    while !is_whole && (came.len() as u64) < most {
+        match std::io::Read::read(&mut &*stream, &mut part) {
+            Ok(0) => is_whole = true,
+            Ok(n) => {
+                came.extend_from_slice(&part[..n]);
+                is_whole = part[..n].contains(&b'\n');
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            // Nothing more has come yet.
+            Err(_) => break,
+        }
+    }
+    // A stream left non-blocking makes the reads that follow fail at once, which ends the
+    // command as one cut off by its time, and is told.
+    let _ = stream.set_nonblocking(false);
+    came.truncate(most as usize);
+    (came, is_whole)
 }
 
 /// Returns how long `serve` keeps the connection of the command `line` open when the window
@@ -3609,9 +3644,11 @@ mod tests {
         }
     }
 
-    /// A client that waited for a place while others were served has its time counted from when
-    /// it connected, so its command is not done after the client gave up. Before, its time was
-    /// counted from when a thread took it.
+    /// A client that waited for a place, longer than its time, while another was served has its
+    /// command passed on with its time counted from when it connected, so the window answers it
+    /// "not done" and never does it after the client gave up. Before #214 its time was counted
+    /// from when a thread took it, and after it the client was closed without an answer, which
+    /// it read as done.
     #[test]
     fn a_client_that_waited_for_a_place_is_not_served_past_its_time() {
         use std::io::Write;
@@ -3636,12 +3673,21 @@ mod tests {
         let connected = std::time::Instant::now();
         let mut second = connect();
         writeln!(second, "current").unwrap();
-        if let Ok((_, _, time_to_do)) = rx.recv_timeout(five_seconds) {
-            assert!(
-                time_to_do <= connected + wait,
-                "the second client's time was counted from when it was served"
-            );
-        }
+        let (_, reply, time_to_do) = rx
+            .recv_timeout(five_seconds)
+            .expect("the second client was closed without its command");
+        assert!(
+            time_to_do <= connected + wait,
+            "the second client's time was counted from when it was served"
+        );
+        // As the window answers a command whose time has run out.
+        let not_done = super::not_done_answer(super::TIME_RAN_OUT);
+        reply.unwrap().send(not_done).unwrap();
+        second.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut got = Vec::new();
+        std::io::Read::read_to_end(&mut second, &mut got).unwrap();
+        let why = super::not_done_reason(&got);
+        assert_eq!(why.as_deref(), Some(super::TIME_RAN_OUT));
         drop(first_reply);
         std::fs::remove_file(path).unwrap();
     }
@@ -3742,20 +3788,17 @@ mod tests {
         };
         std::thread::spawn(move || super::serve_clients(listener, 1, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
-        let mut first = connect();
+        let (mut first, mut second) = (connect(), connect());
         writeln!(first, "current").unwrap();
+        writeln!(second, "current").unwrap();
         let five_seconds = std::time::Duration::from_secs(5);
         // Both replies are kept, as the window keeps a waiting command's, and never answered.
         let first_reply = rx.recv_timeout(five_seconds).unwrap();
+        let second_reply = rx.recv_timeout(five_seconds);
+        assert!(second_reply.is_ok(), "the second client was not served");
         let mut got = Vec::new();
         first.read_to_end(&mut got).unwrap();
         assert_eq!(super::not_done_reason(&got).as_deref(), Some("no answer"));
-        // The one place is free again. A client that waited for it all this while would have
-        // given up, so the next connects now.
-        let mut second = connect();
-        writeln!(second, "current").unwrap();
-        let second_reply = rx.recv_timeout(five_seconds);
-        assert!(second_reply.is_ok(), "the second client was not served");
         drop((first_reply, second_reply));
         std::fs::remove_file(path).unwrap();
     }
