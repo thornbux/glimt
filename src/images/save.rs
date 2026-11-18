@@ -93,6 +93,10 @@ const DROPPED_PHOTOSHOP_RESOURCES: [u16; 4] = [0x0409, 0x040C, 0x0422, 0x0424];
 thread_local! {
     pub(crate) static GONE_FROM_THE_SERVER: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    /// Makes a look at this name in `same_file` on this thread fail with an error other than
+    /// NotFound, as on a share that drops for a moment.
+    pub(crate) static LOOK_FAILS: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// What writes a sidecar's old text back under its lock, after a step that changed it
@@ -915,20 +919,32 @@ pub(crate) fn told_saved(
 
 /// Whether `a` and `b` are names of one file, also through a link or a hard link. A copy is
 /// never saved over the image it is made from (Save As, Save This Frame), and Rename Many's
-/// repair tells a step done from one not done by it.
-pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
+/// repair tells a step done from one not done by it. Returns `Ok(false)` when either name is
+/// not there, and an error when a look fails otherwise, because a share that drops for a moment
+/// says nothing about whether the names are one file.
+pub(crate) fn same_file(a: &Path, b: &Path) -> std::io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
-    let named = |p: &Path| {
-        let m = std::fs::metadata(p).ok()?;
-        Some((
+    let named = |p: &Path| match look_in_same_file(p) {
+        Ok(m) => Ok(Some((
             file_id_from_metadata(p, &m),
             (m.len(), m.mtime(), m.mtime_nsec()),
-        ))
+        ))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
     };
-    match (named(a), named(b)) {
+    Ok(match (named(a)?, named(b)?) {
         (Some(x), Some(y)) => same_named(x, y),
         _ => false,
+    })
+}
+
+/// Looks at `p` for `same_file`, which a test can make fail (`LOOK_FAILS`).
+fn look_in_same_file(p: &Path) -> std::io::Result<std::fs::Metadata> {
+    #[cfg(test)]
+    if LOOK_FAILS.with_borrow(|fails| fails.as_deref() == Some(p)) {
+        return Err(std::io::Error::other("the share stopped answering"));
     }
+    std::fs::metadata(p)
 }
 
 /// Whether `a` and `b` are names of one file, as `same_file` says, but by opening each name
@@ -1078,7 +1094,7 @@ pub fn save_as(
             to.with_file_name(name)
         }
     };
-    if same_file(path, &to) {
+    if same_file(path, &to).map_err(|e| format!("{}: {e}", to.display()))? {
         return Err(tr("choose another name: the image itself is not changed").into());
     }
     let (out, _) = copy_bytes(path, how)?;
@@ -2840,6 +2856,37 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Save As refuses when the look at whether the chosen name is the image itself fails.
+    /// Before, the failure was taken for another file, and the image was written over.
+    #[test]
+    fn save_as_refuses_when_the_look_at_the_name_fails() {
+        use crate::files::file_io::fingerprint;
+        let dir = std::env::temp_dir().join(format!("glimt-save-as-look-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let before = std::fs::read(&a).unwrap();
+        let how = super::CopyAs {
+            read: None,
+            page: 0,
+            rotate: true,
+            turns: 1,
+            mirrored: false,
+            crop: None,
+            long_side: None,
+            format: None,
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip: true,
+        };
+        super::LOOK_FAILS.with(|f| *f.borrow_mut() = Some(a.clone()));
+        let saved = super::save_as(&a, &how, &a, fingerprint(&a));
+        super::LOOK_FAILS.with(|f| *f.borrow_mut() = None);
+        assert!(saved.is_err());
+        assert_eq!(std::fs::read(&a).unwrap(), before);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Save As replaces only the file the chooser let it replace. A file put at a name that was
     /// free at the pick, or put in the place of the file picked, stays as it is.
     #[test]
@@ -4182,7 +4229,11 @@ mod tests {
             super::file_id_from_inode(&a, (1, 7)),
             super::file_id_from_inode(&b, (1, 7))
         );
-        assert!(super::same_file(&a, &link) && !super::same_file(&a, &b));
+        assert!(super::same_file(&a, &link).unwrap() && !super::same_file(&a, &b).unwrap());
+        // Only a name that is not there answers "not the same". A look that fails otherwise
+        // (here ENOTDIR) is no answer, so Save As refuses rather than write over the image.
+        assert!(!super::same_file(&a, &dir.join("none.jpg")).unwrap());
+        assert!(super::same_file(&a, &a.join("x.jpg")).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
