@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.89.0] - 2026-11-18
+
 ### Fixed
 
 - A save whose look at the file failed on a share before the rename leaves no hidden copy of the
@@ -4364,7 +4366,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.88.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.89.0...HEAD
+[0.89.0]: https://github.com/thornbux/glimt/compare/v0.88.0...v0.89.0
 [0.88.0]: https://github.com/thornbux/glimt/compare/v0.87.0...v0.88.0
 [0.87.0]: https://github.com/thornbux/glimt/compare/v0.86.0...v0.87.0
 [0.86.0]: https://github.com/thornbux/glimt/compare/v0.85.0...v0.86.0
