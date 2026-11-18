@@ -663,7 +663,9 @@ impl Listing {
                 true => looked_at(path.metadata(), &path, &mut left_out)?,
                 false => m,
             };
-            meta.is_file().then_some(meta.len())
+            // The file types and hidden names shown in a folder are those shown in a list too.
+            // A `.m3u` or downloaded list named music, documents and dot files.
+            (meta.is_file() && is_listed(&path, self.types)).then_some(meta.len())
         });
         if sort {
             // Sorted by name with Case on, sort_files keeps the order as listed. For a folder
@@ -3368,6 +3370,25 @@ mod tests {
             .map(std::path::Path::new)
             .collect();
         assert_eq!(files, [dir.join("a.png").strip_prefix("/").unwrap()]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A plain list lists only the files a folder would: a `.m3u` or a downloaded list that names
+    /// a document or a dot file shows neither, for Select All and Delete to act on.
+    #[test]
+    fn a_list_shows_only_the_files_a_folder_would() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-list-types-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", ".b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        std::fs::write(dir.join("thesis.odt"), "x").unwrap();
+        std::fs::write(dir.join("show.m3u"), "a.png\n.b.png\nthesis.odt\n").unwrap();
+        let (app, _ctx) = app_on(&dir.join("show.m3u"));
+        let real = dir.canonicalize().unwrap().join("a.png");
+        assert_eq!(app.list.files().len(), 1);
+        assert_eq!(app.path(0), real);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
