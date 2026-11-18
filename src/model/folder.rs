@@ -1169,7 +1169,10 @@ impl crate::App {
             pan.forget_dates();
         }
         // A list's entries not yet checked are the old list's. A folder opened now is listed
-        // whole, and open_collection marks its own entries again.
+        // whole, and open_collection marks its own entries again. An edit that waits for the
+        // old list to be checked is dropped and told. Sent once the new list is checked, it
+        // went by the new list's names and could write over a newer edit of the same file.
+        self.drop_sidecar_writes_waiting_for_the_list();
         self.list.set_unchecked_entries(false);
     }
 
@@ -1566,7 +1569,7 @@ impl crate::App {
         let took = read_in + listed_from.elapsed();
         self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
         self.list.set_unchecked_entries(false);
-        self.send_sidecar_writes_waiting_for_the_list(ctx);
+        self.settle_sidecar_writes_waiting_for_the_list(ctx);
         let c = &self.config;
         self.folder.listed_as = (self.folder.collection.is_none()
             && self.folder.folders.is_empty()
@@ -2644,6 +2647,35 @@ mod tests {
         assert_eq!(app.list.selected(), &[0, 1].into());
         let told = app.notice.text().unwrap_or_default();
         assert!(told.ends_with("the share failed"), "{told}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An edit that waits for a collection's listing is dropped and told as a failed write
+    /// when the listing fails, so that a `--remote … --wait` answers "not done". Before, it
+    /// waited for F5 with nothing told, and the `--wait` answered done.
+    #[test]
+    fn a_failed_listing_tells_the_edits_that_waited_for_it() {
+        let dir = contract_folder("unchecked-listing-fails");
+        std::fs::write(dir.join("show.m3u"), "a.png\n").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, dir.join("show.m3u"));
+        assert!(app.list.has_unchecked_entries());
+        let files = vec![(app.listed_file(0), ())];
+        app.write_sidecars(&ctx, "Keywords", files, |_, ()| Ok(()), |_, _| None);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.folder.hold_listing(rx);
+        let failed = Err((dir.clone(), std::io::Error::other("the share failed")));
+        let no_time = std::time::Duration::ZERO;
+        let listed = super::Listed {
+            dirs: Vec::new(),
+            files: failed,
+            left_out: Vec::new(),
+            read: Vec::new(),
+            read_in: no_time,
+        };
+        tx.send(listed).unwrap();
+        app.receive_answers(&ctx);
+        assert_eq!(app.window.failed_writes_told(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

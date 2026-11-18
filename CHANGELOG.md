@@ -12,6 +12,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   dav:// and davs:// as network locations Glimt can open.
 ### Fixed
 
+- An edit made on a collection before its entries were checked is no longer written to a folder
+  entry when Rename Many ends, or over a newer edit when another folder opens first. When the
+  collection's listing fails or another folder opens, the edit is told as not saved, and
+  `--remote … --wait` answers "not done".
 - A delete log that a later start must finish keeps only the files still to be done, so each
   start no longer looks at every file of a long delete again.
 - A sidecar that is a symbolic link and cannot be moved with its photo is now told, and stays

@@ -259,8 +259,8 @@ impl crate::App {
         self.receive_file_work(ctx);
         // An edit that waits for the list to be checked is not written by a close, so it is
         // told as a failed write: the window stays open once, and the next close goes on.
-        if close && let Some(dropped) = self.drop_sidecar_writes_waiting_for_the_list() {
-            self.tell_failed_write(dropped);
+        if close {
+            self.drop_sidecar_writes_waiting_for_the_list();
         }
         // A write that failed keeps the window open, with the failure on screen. Closing then
         // would hide it within a frame, and the user would believe the keywords or the turn
@@ -1345,7 +1345,8 @@ mod tests {
         app.write_sidecars(&ctx, "Keywords", files, |_, ()| Ok(()), |_, _| None);
         assert!(!close_pass(&mut app, &ctx, true));
         assert_eq!(app.window.failed_writes_told, 1);
-        assert!(app.drop_sidecar_writes_waiting_for_the_list().is_none());
+        app.drop_sidecar_writes_waiting_for_the_list();
+        assert_eq!(app.window.failed_writes_told, 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

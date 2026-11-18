@@ -2415,27 +2415,54 @@ impl crate::App {
             });
         };
         let moved = moves_by_source(renamed);
-        // Each file keeps its place in the write, by which the write finds what it writes, and
-        // its identity, which a rename keeps.
-        for waiting in waiting {
-            let files = (waiting.files.iter().enumerate())
-                .map(|(k, f)| {
+        // Each write goes back in the queue, in its order, with its files at their new names
+        // and what it knew of the list kept. `settle_sidecar_writes_waiting_for_the_list` then
+        // sends them, or keeps them for the listing, as any write that waits for the list.
+        // Sent from here as it was, an unchecked entry of a collection, such as a folder, got
+        // a sidecar.
+        let is_unchecked = self.list.has_unchecked_entries();
+        for mut waiting in waiting {
+            waiting.files = (waiting.files.iter())
+                .map(|f| {
                     let path = new_place(f.path(), &moved).unwrap_or_else(|| f.path().into());
-                    (ListedFile::new(path, f.identity(), f.list_is_old()), k)
+                    ListedFile::new(path, f.identity(), f.list_is_old())
                 })
                 .collect();
-            let write = waiting.write;
-            let write = move |path: &Path, &k: &usize| write(k, path);
-            self.write_sidecars(ctx, waiting.activity, files, write, waiting.report);
+            // A write left to wait for a listing does not hold a close, as that listing may
+            // fail and wait for F5.
+            if is_unchecked {
+                waiting._writing = None;
+            }
+            self.file_operations.sidecar_writes_waiting.push(waiting);
         }
+        self.settle_sidecar_writes_waiting_for_the_list(ctx);
         None
     }
 
-    /// Drops the sidecar writes that wait for the list's entries to be checked, as a close
-    /// does not wait for them: a listing that broke waits for F5. Returns the text that tells
-    /// the user so, or `None` when no write waited for the list.
-    #[must_use]
-    pub(crate) fn drop_sidecar_writes_waiting_for_the_list(&mut self) -> Option<String> {
+    /// Settles the sidecar writes that wait for the list's entries to be checked. This is the
+    /// one place they are sent or dropped: the window calls it every frame (`receive_answers`),
+    /// and the end of a listing and of Rename Many call it at once. When the list is checked
+    /// and no rename runs, they are sent. When the list stays unchecked with no listing coming,
+    /// as after a listing that failed, they are dropped and told, so that a `--wait` does not
+    /// answer done for an edit that is never written. A new list drops them
+    /// (`forget_old_list`), and so does a close (`guard_close`).
+    pub(crate) fn settle_sidecar_writes_waiting_for_the_list(&mut self, ctx: &egui::Context) {
+        if self.file_operations.sidecar_writes_waiting.is_empty()
+            || self.file_operations.renaming.is_some()
+        {
+            return;
+        }
+        if !self.list.has_unchecked_entries() {
+            self.send_sidecar_writes_waiting_for_the_list(ctx);
+        } else if !self.folder.is_listing() {
+            self.drop_sidecar_writes_waiting_for_the_list();
+        }
+    }
+
+    /// Drops the sidecar writes that wait for the list's entries to be checked, and tells the
+    /// user so as a failed write. A close, a new list and a listing that failed drop them,
+    /// because the list they were asked on will not be checked.
+    pub(crate) fn drop_sidecar_writes_waiting_for_the_list(&mut self) {
         let waiting = &mut self.file_operations.sidecar_writes_waiting;
         let files_waiting = |w: &Vec<WaitingSidecarWrite>| -> usize {
             (w.iter().filter(|w| w._writing.is_none()))
@@ -2444,12 +2471,12 @@ impl crate::App {
         };
         let files = files_waiting(waiting);
         waiting.retain(|w| w._writing.is_some());
-        (files > 0).then(|| {
-            tf!(
+        if files > 0 {
+            self.tell_failed_write(tf!(
                 "The list is not yet read, so the metadata edited for {count} was not saved",
                 count = count(files, "file")
-            )
-        })
+            ));
+        }
     }
 
     /// Returns, for each of `files`, whether the list has it as an entry.
@@ -2465,7 +2492,7 @@ impl crate::App {
     /// are and no rename runs. An entry that the checked list no longer has, such as a folder,
     /// is left out and told. One it has is sent with the identity the listing gave it, which
     /// the write's thread checks (`ListedFile::check`).
-    pub(crate) fn send_sidecar_writes_waiting_for_the_list(&mut self, ctx: &egui::Context) {
+    fn send_sidecar_writes_waiting_for_the_list(&mut self, ctx: &egui::Context) {
         if self.file_operations.renaming.is_some() || self.list.has_unchecked_entries() {
             return;
         }
@@ -4073,6 +4100,71 @@ mod tests {
         }));
         assert!(std::fs::symlink_metadata(edited(&dir.join("a.png"))).is_ok());
         assert!(std::fs::symlink_metadata(edited(&dir.join("sub"))).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Opens the collection "show.m3u" of `sub` and `a.png` in `dir`, and asks for a sidecar
+    /// write of every entry while the list is not yet checked. The write leaves a file
+    /// "<name>.edited" beside each file it writes.
+    fn edit_an_unchecked_collection(dir: &std::path::Path) -> (crate::App, eframe::egui::Context) {
+        std::fs::write(dir.join("show.m3u"), "sub\na.png\n").unwrap();
+        let (mut app, ctx) = app_on(dir);
+        crate::support::test_support::open_now(&mut app, &ctx, dir.join("show.m3u"));
+        assert!(app.list.has_unchecked_entries());
+        let files = (0..app.list.files().len())
+            .map(|i| (app.listed_file(i), ()))
+            .collect();
+        let edited = |p: &std::path::Path| PathBuf::from(format!("{}.edited", p.display()));
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            files,
+            move |p, ()| std::fs::write(edited(p), "").map_err(|e| e.to_string()),
+            |_, _| None,
+        );
+        (app, ctx)
+    }
+
+    /// An edit that waits for a collection's listing is dropped and told when another folder
+    /// opens before the listing came. Before, the new folder's listing sent it by the new
+    /// list's names, after any edit made since, which it then wrote over.
+    #[test]
+    fn a_new_list_drops_the_edits_that_wait_for_the_old_one() {
+        let dir = contract_folder("sidecar-unchecked-left");
+        let (mut app, ctx) = edit_an_unchecked_collection(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+        assert!(run_background_until(&mut app, &ctx, |app| {
+            !app.folder.is_listing() && !app.file_operations.is_writing_sidecars()
+        }));
+        assert!(std::fs::symlink_metadata(dir.join("a.png.edited")).is_err());
+        assert_eq!(app.window.failed_writes_told(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An edit that waited for both a collection's listing and Rename Many is not sent by the
+    /// rename's end as a plain write. Before, the end of the rename sent it to the old entries
+    /// once another folder had been opened, and the folder `sub` got a sidecar (#193).
+    #[test]
+    fn the_end_of_a_rename_keeps_the_checks_of_an_unchecked_list() {
+        let dir = contract_folder("sidecar-unchecked-rename");
+        let (mut app, ctx) = edit_an_unchecked_collection(&dir);
+        app.file_operations.renaming = Some(super::RenameJob {
+            folder: dir.with_extension("apart"),
+            from: Vec::new(),
+            to: Vec::new(),
+            shown: None,
+            undoing: false,
+        });
+        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .folder
+            .is_listing()));
+        app.file_operations.renaming = None;
+        assert!(app.send_waiting_sidecar_writes(&ctx, Some(&[])).is_none());
+        assert!(run_background_until(&mut app, &ctx, |app| {
+            !app.file_operations.is_writing_sidecars()
+        }));
+        assert!(std::fs::symlink_metadata(dir.join("sub.edited")).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

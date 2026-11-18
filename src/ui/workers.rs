@@ -99,6 +99,8 @@ impl crate::App {
         self.receive_renames(ctx);
         self.receive_picked(ctx);
         self.receive_saved_theme(ctx);
+        // After the listing and the renames, which may have checked the list or failed.
+        self.settle_sidecar_writes_waiting_for_the_list(ctx);
     }
 
     /// Takes the marks file read again, and runs a search by marks or stars again when the
