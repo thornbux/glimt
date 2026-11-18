@@ -281,10 +281,10 @@ pub(crate) fn spawn_thumbnailers(
     on_screen: &OnScreenFiles,
     save: &Arc<AtomicBool>,
 ) -> (
-    mpsc::Sender<(PathBuf, u64)>,
+    mpsc::Sender<(PathBuf, PathBuf, u64)>,
     mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
 ) {
-    let (thumb_jobs, thumb_rx) = mpsc::channel::<(PathBuf, u64)>();
+    let (thumb_jobs, thumb_rx) = mpsc::channel::<(PathBuf, PathBuf, u64)>();
     let (tx, thumbs_done) = mpsc::channel();
     let (on_screen, rotate, save, ctx) =
         (on_screen.clone(), rotate.clone(), save.clone(), ctx.clone());
@@ -300,10 +300,10 @@ pub(crate) fn spawn_thumbnailers(
                 idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
             }
         },
-        |(path, _): &(PathBuf, u64)| thumbnail_set_aside_by(path),
+        |(path, listed, _): &(PathBuf, PathBuf, u64)| thumbnail_set_aside_by(path, listed),
         // A job goes by its file, as the decoders' do, because a listing (a tree's next part)
         // moves the files while the jobs wait.
-        move |(path, n): (PathBuf, u64)| {
+        move |(path, _, n): (PathBuf, PathBuf, u64)| {
             let wanted =
                 (lock_even_if_poisoned(&on_screen).iter()).any(|v| v.binary_search(&path).is_ok());
             let result = wanted.then(|| {
@@ -327,12 +327,16 @@ pub(crate) fn spawn_thumbnailers(
 }
 
 /// Returns the folder a thumbnail of `path` is set aside by while a worker is stuck there
-/// (`spawn_worker_pool`), or `None` when its folder holds a link, which may lead elsewhere than
-/// the share that stopped answering. Before, a local file beside a link into a stalled share
-/// waited for that share.
-fn thumbnail_set_aside_by(path: &std::path::Path) -> Option<PathBuf> {
+/// (`spawn_worker_pool`): `listed`, the folder opened, of which a tree (Include Subfolders) is
+/// on one share, or the file's own folder in a collection or several folders, listed under "/".
+/// Returns `None` when the file's folder holds a link, which may lead elsewhere than the share
+/// that stopped answering. Before, a local file beside a link into a stalled share waited for
+/// that share. Before, too, a tree was set aside by each subfolder, so thumbnails from more
+/// than `MOST_STUCK` subfolders of a stalled share gave up every worker (#154).
+fn thumbnail_set_aside_by(path: &std::path::Path, listed: &std::path::Path) -> Option<PathBuf> {
     let folder = path.parent()?;
-    (!listing::holds_links(folder)).then(|| folder.to_owned())
+    let is_tree = listed.parent().is_some() && folder.starts_with(listed);
+    (!listing::holds_links(folder)).then(|| if is_tree { listed } else { folder }.to_owned())
 }
 
 #[cfg(test)]
@@ -356,12 +360,36 @@ mod tests {
         list_folder(&plain, types).unwrap();
         list_folder(&linked, types).unwrap();
         assert_eq!(
-            super::thumbnail_set_aside_by(&plain.join("a.png")),
+            super::thumbnail_set_aside_by(&plain.join("a.png"), &plain),
             Some(plain.clone())
         );
-        assert_eq!(super::thumbnail_set_aside_by(&linked.join("a.png")), None);
+        assert_eq!(
+            super::thumbnail_set_aside_by(&linked.join("a.png"), &linked),
+            None
+        );
         std::fs::remove_dir_all(plain).unwrap();
         std::fs::remove_dir_all(linked).unwrap();
+    }
+
+    /// The thumbnails of a tree (Include Subfolders) are set aside by the folder opened, so a
+    /// stalled share gives up one worker however many subfolders the thumbnails come from. Those
+    /// of a collection, listed under "/", go by their own folders. Before, each subfolder gave
+    /// up a worker of its own, until `MOST_STUCK` were stuck (#154).
+    #[test]
+    fn a_trees_thumbnails_are_set_aside_by_the_folder_opened() {
+        use std::path::{Path, PathBuf};
+        let share = Path::new("/set-aside-share-not-listed");
+        for n in 0..40 {
+            let path = share.join(format!("d{n}/x.jpg"));
+            assert_eq!(
+                super::thumbnail_set_aside_by(&path, share),
+                Some(share.to_owned())
+            );
+        }
+        assert_eq!(
+            super::thumbnail_set_aside_by(&share.join("d1/x.jpg"), Path::new("/")),
+            Some(PathBuf::from("/set-aside-share-not-listed/d1"))
+        );
     }
 
     /// A minimized window runs `logic` but no `ui`, and takes there every answer of the
