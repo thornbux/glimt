@@ -306,7 +306,8 @@ type FileStamp = (u64, std::time::SystemTime);
 // the shared file would change what the others read back.
 #[cfg(test)]
 thread_local! {
-    static TEST_FILE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    pub(crate) static TEST_FILE: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
     static SENT: std::cell::RefCell<Vec<Edit>> = const { std::cell::RefCell::new(Vec::new()) };
     static TEST_FILE_IN_MEMORY: std::cell::RefCell<HashMap<PathBuf, (u8, u8)>> =
         std::cell::RefCell::new(HashMap::new());
