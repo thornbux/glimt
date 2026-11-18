@@ -7,6 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A save whose look at the file failed on a share before the rename leaves no hidden copy of the
+  image in its folder. When a rename may have been done and the new version is kept, the error
+  names where.
+- A second click on Remove thumbnails of deleted files while one runs says so. Before, nothing
+  happened, and after a crash of the removal no later click did anything.
+- The notice that a place is still opening goes when it opens, also with a warning under it.
 - A `keys=` item without "=" in the settings is kept, and `--check-config` tells it. Before, it
   was dropped without a word at the next save.
 - Showing the shown image again tries its full-resolution decode again when that failed.
