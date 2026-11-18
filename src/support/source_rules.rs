@@ -664,6 +664,8 @@ const REFUSED_CALLS: &[&str] = &[
     "std::os::unix::fs::DirEntryExt::ino",
     "glimt::files::file_io::file_lock",
     "std::sync::Mutex::lock",
+    "std::sync::RwLock::read",
+    "std::sync::RwLock::write",
 ];
 
 /// The standard library's calls that look at or change the disk, and the system's that Glimt
@@ -2371,8 +2373,10 @@ fn images_are_turned_after_they_shrink() {
 /// fixed three times for the user's own keys.
 #[test]
 fn copies_of_settings_have_one_writer() {
-    const WRITERS: &[(&str, &[(&str, &str)])] =
-        &[("USER_KEYS.write()", &[("ui/actions.rs", "use_user_keys")])];
+    const WRITERS: &[(&str, &[(&str, &str)])] = &[(
+        "write_even_if_poisoned(&USER_KEYS)",
+        &[("ui/actions.rs", "use_user_keys")],
+    )];
     // The atomic copies, each written by `store`, `swap`, a `fetch_` or a `compare_exchange`.
     const ATOMICS: &[(&str, &[(&str, &str)])] = &[
         (
