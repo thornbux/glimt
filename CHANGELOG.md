@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   replaced file's marks and stars were left at the name.
 - Rename Many's repair after a crash renames nothing when its list of the files cannot be read,
   rather than renaming by the names alone without checking each file.
+- Undo of a Move keeps a log as a Move does, so that the marks and collections of the files
+  moved back follow them at the next start when Glimt is killed before they followed.
 
 ## [0.89.0] - 2026-11-18
 
