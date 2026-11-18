@@ -5,7 +5,7 @@
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::model::listing::has_ext;
 use crate::support::format::human_size;
-use crate::support::threads::{Progress, lock_even_if_poisoned};
+use crate::support::threads::{Progress, WaitingForRoom, lock_even_if_poisoned};
 use crate::{images::raw, metadata::exif};
 use eframe::egui;
 use image::ImageDecoder;
@@ -201,6 +201,7 @@ impl DecodeBudget {
         state.let_go(job);
         let turn = state.turns_given[line];
         state.turns_given[line] += 1;
+        let _waiting = WaitingForRoom::start();
         while !state.is_turn_of(line, turn, bytes) {
             state = (self.freed.wait_timeout(state, HELD_TOO_LONG / 4))
                 .unwrap_or_else(|e| e.into_inner())
@@ -254,13 +255,14 @@ impl BudgetState {
 
     /// Takes back the bytes of every job that has made no progress for `HELD_TOO_LONG`, such
     /// as one whose read from a stalled share never returns. A job that is only slow uses the
-    /// processor, and keeps its bytes (`Progress`). Returns whether it took any.
+    /// processor, and keeps its bytes, unless it runs past the ceiling (`Progress::is_stuck`).
+    /// Returns whether it took any.
     /// What such a job has made of them lies outside the budget from then on, as its worker
     /// lies outside its pool (`spawn_worker_pool`), which gives it up after as long.
     fn take_back_stuck(&mut self) -> bool {
         let mut freed = 0;
         self.holds.retain_mut(|h| {
-            let is_stuck = h.progress.idle_for() >= HELD_TOO_LONG;
+            let is_stuck = h.progress.is_stuck(HELD_TOO_LONG);
             if is_stuck {
                 freed += h.bytes;
             }
@@ -1852,6 +1854,100 @@ mod tests {
         slow_one.join().unwrap();
         waiting.join().unwrap();
         assert_eq!(first, Ok("slow"), "a slow decode lost its bytes");
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
+    }
+
+    /// A worker of a pool that waits for room in the budget is not given up, as it is not
+    /// stuck: the slow decode that holds the room is. Before, it used no processor time while
+    /// it waited, the pool took its folder to be stalled, and the folder's next job was put
+    /// aside until the slow decode was done.
+    #[test]
+    fn a_worker_that_waits_for_room_is_not_stuck() {
+        use std::path::PathBuf;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let total = super::DECODE_BUDGET;
+        let budget = super::budget();
+        let stuck_after = Duration::from_millis(200);
+        let stop = Arc::new(AtomicBool::new(false));
+        let (taken, slow_holds) = mpsc::channel();
+        let stop_spinning = stop.clone();
+        let slow_one = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total).unwrap();
+            taken.send(()).unwrap();
+            while !stop_spinning.load(Ordering::SeqCst) {
+                std::hint::black_box(0);
+            }
+            drop(held);
+        });
+        slow_holds.recv().unwrap();
+        let (jobs, rx) = mpsc::channel::<PathBuf>();
+        let (done_tx, done) = mpsc::channel();
+        let work = move |job: PathBuf| {
+            if job.ends_with("waits.jpg") {
+                super::TEST_BUDGET.set(Some(budget));
+                drop(super::reserve_from_budget(total / 2).unwrap());
+            }
+            done_tx.send(job).unwrap();
+        };
+        crate::support::threads::spawn_worker_pool(2, stuck_after, rx, |_| {}, work);
+        jobs.send(PathBuf::from("/folder/waits.jpg")).unwrap();
+        std::thread::sleep(stuck_after * 3);
+        jobs.send(PathBuf::from("/folder/next.jpg")).unwrap();
+        let next = done.recv_timeout(Duration::from_secs(5));
+        stop.store(true, Ordering::SeqCst);
+        slow_one.join().unwrap();
+        assert_eq!(
+            next,
+            Ok(PathBuf::from("/folder/next.jpg")),
+            "the waiting worker was given up"
+        );
+        assert_eq!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(PathBuf::from("/folder/waits.jpg"))
+        );
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
+    }
+
+    /// A decode that runs on the processor for ever, as one sent into an endless loop by a
+    /// crafted file does, loses its bytes after `Progress::CEILING` times `HELD_TOO_LONG`.
+    /// Before, it counted as slow, not stuck, and held them until a restart.
+    #[test]
+    fn a_decode_that_never_ends_loses_its_bytes() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        let total = super::DECODE_BUDGET;
+        let budget = super::budget();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_spinning = stop.clone();
+        let (taken, endless_holds) = mpsc::channel();
+        let endless = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total).unwrap();
+            taken.send(()).unwrap();
+            while !stop_spinning.load(Ordering::SeqCst) {
+                std::hint::black_box(0);
+            }
+            drop(held);
+        });
+        endless_holds.recv().unwrap();
+        let (done, went_on) = mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total / 2).unwrap();
+            done.send(()).unwrap();
+            drop(held);
+        });
+        let ceiling = super::HELD_TOO_LONG * crate::support::threads::Progress::CEILING;
+        let got_room = went_on.recv_timeout(ceiling * 2);
+        stop.store(true, Ordering::SeqCst);
+        endless.join().unwrap();
+        waiting.join().unwrap();
+        assert!(got_room.is_ok(), "the endless decode kept its bytes");
         assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
     }
 

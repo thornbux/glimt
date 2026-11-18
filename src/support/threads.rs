@@ -33,6 +33,12 @@ const MOST_STUCK: usize = 32;
 #[cfg(test)]
 pub(crate) static BREAKING_FILES: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
 
+thread_local! {
+    /// Whether this thread waits for room in the decode budget (`WaitingForRoom`). The
+    /// `Progress` of its job, which another thread reads, holds it too.
+    static WAITING_FOR_ROOM: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+}
+
 /// The processor clock of a thread, which another thread may read (`Progress`).
 struct ThreadClock(libc::clockid_t);
 
@@ -62,20 +68,34 @@ impl ThreadClock {
 
 /// Whether the job of a thread still makes progress, told by the processor time its thread
 /// uses. A thread that waits for a share that stopped answering uses none, and one that is
-/// only slow (a large decode, a read over a slow network) does. So it tells a stuck job from a
-/// slow one, where the time a job has taken alone does not. A thread that only wakes now and
-/// then to look whether it may go on uses less than `PROGRESS`, which is not counted.
+/// only slow in its own work (a large decode) does. So it tells a stuck job from a slow one,
+/// where the time a job has taken alone does not. A read over a slow network or FUSE share
+/// spends its time asleep in the system and may use none either, so it is taken to be stuck as
+/// before. A thread that only wakes now and then to look whether it may go on uses less than
+/// `PROGRESS`, which is not counted. A thread that waits for room in the decode budget
+/// (`WaitingForRoom`) waits for another job, not for the disk, and so counts as making
+/// progress.
 pub(crate) struct Progress {
     clock: Option<ThreadClock>,
+    /// Whether the thread waits for room in the decode budget now (`WAITING_FOR_ROOM`).
+    is_waiting_for_room: Arc<AtomicBool>,
     /// The processor time the thread had used at `since`, in nanoseconds.
     used: u64,
     /// When the job started, or last made progress.
     since: std::time::Instant,
+    /// When the job started.
+    started: std::time::Instant,
 }
 
 impl Progress {
     /// The processor time, in nanoseconds, that counts as progress.
     const PROGRESS: u64 = 1_000_000;
+
+    /// How many times the time without progress that makes a job stuck a job may run in all,
+    /// with progress or not. A decoder that a crafted file sent into an endless loop uses the
+    /// processor for ever, and without this ceiling it would keep its worker and its bytes until
+    /// a restart.
+    pub(crate) const CEILING: u32 = 12;
 
     /// Returns the progress of the job that the calling thread starts now.
     pub(crate) fn of_this_thread() -> Progress {
@@ -83,20 +103,49 @@ impl Progress {
         Progress {
             used: clock.as_ref().and_then(ThreadClock::used).unwrap_or(0),
             clock,
+            is_waiting_for_room: WAITING_FOR_ROOM.with(Arc::clone),
             since: std::time::Instant::now(),
+            started: std::time::Instant::now(),
         }
+    }
+
+    /// Returns whether the job is stuck: it has made no progress for `after`, or has run for
+    /// `CEILING` times as long, unless it waits for room in the decode budget now.
+    pub(crate) fn is_stuck(&mut self, after: std::time::Duration) -> bool {
+        self.idle_for() >= after
+            || (!self.is_waiting_for_room.load(Ordering::Relaxed)
+                && self.started.elapsed() >= after * Self::CEILING)
     }
 
     /// Returns how long the job has made no progress. Without a clock to read, that is how
     /// long it has run.
-    pub(crate) fn idle_for(&mut self) -> std::time::Duration {
-        if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
+    fn idle_for(&mut self) -> std::time::Duration {
+        if self.is_waiting_for_room.load(Ordering::Relaxed) {
+            self.since = std::time::Instant::now();
+        } else if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
             && used >= self.used + Self::PROGRESS
         {
             self.used = used;
             self.since = std::time::Instant::now();
         }
         self.since.elapsed()
+    }
+}
+
+/// The mark that the calling thread waits for room in the decode budget, while it lives
+/// (`Progress`).
+pub(crate) struct WaitingForRoom;
+
+impl WaitingForRoom {
+    pub(crate) fn start() -> WaitingForRoom {
+        WAITING_FOR_ROOM.with(|waits| waits.store(true, Ordering::Relaxed));
+        WaitingForRoom
+    }
+}
+
+impl Drop for WaitingForRoom {
+    fn drop(&mut self) {
+        WAITING_FOR_ROOM.with(|waits| waits.store(false, Ordering::Relaxed));
     }
 }
 
@@ -409,7 +458,7 @@ pub(crate) fn spawn_worker_pool<J: JobOfAFile + Send + 'static>(
     });
 }
 
-/// Gives up each worker of `pool` whose job has made no progress for `stuck_after`, and starts a
+/// Gives up each worker of `pool` whose job is stuck (`Progress::is_stuck`), and starts a
 /// new worker in its place, while fewer than `MOST_STUCK` are stuck. The later jobs in the
 /// given-up worker's folder are put aside from then on (`Stalled`).
 fn replace_stuck_workers<J: JobOfAFile + Send + 'static>(
@@ -418,9 +467,8 @@ fn replace_stuck_workers<J: JobOfAFile + Send + 'static>(
 ) {
     let mut places = lock_even_if_poisoned(&pool.places);
     for (place, start) in places.iter_mut().enumerate() {
-        let stuck_in = (lock_even_if_poisoned(start).as_mut()).and_then(|(progress, folder)| {
-            (progress.idle_for() >= stuck_after).then(|| folder.clone())
-        });
+        let stuck_in = (lock_even_if_poisoned(start).as_mut())
+            .and_then(|(progress, folder)| progress.is_stuck(stuck_after).then(|| folder.clone()));
         if let Some(folder) = stuck_in
             && pool.stuck.load(Ordering::Relaxed) < MOST_STUCK
         {
@@ -853,6 +901,39 @@ mod tests {
         assert_eq!(
             done.recv_timeout(Duration::from_secs(5)),
             Ok(PathBuf::from("/folder/slow.jpg"))
+        );
+    }
+
+    /// A worker whose job runs on the processor for ever, as a decoder sent into an endless
+    /// loop by a crafted file does, is given up after `Progress::CEILING` times `stuck_after`,
+    /// and the next job is done by a new worker. Before, it counted as slow, not stuck, and was
+    /// never given up.
+    #[test]
+    fn a_job_that_never_ends_is_given_up() {
+        use std::path::PathBuf;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+        let stuck_after = Duration::from_millis(50);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_spinning = stop.clone();
+        let (jobs, rx) = std::sync::mpsc::channel::<PathBuf>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let work = move |job: PathBuf| {
+            while job.ends_with("endless.jpg") && !stop_spinning.load(Ordering::SeqCst) {
+                std::hint::black_box(0);
+            }
+            done_tx.send(job).unwrap();
+        };
+        super::spawn_worker_pool(1, stuck_after, rx, |_| {}, work);
+        jobs.send(PathBuf::from("/crafted/endless.jpg")).unwrap();
+        jobs.send(PathBuf::from("/other/next.jpg")).unwrap();
+        let next = done.recv_timeout(Duration::from_secs(10));
+        stop.store(true, Ordering::SeqCst);
+        assert_eq!(
+            next,
+            Ok(PathBuf::from("/other/next.jpg")),
+            "the endless job was kept"
         );
     }
 
