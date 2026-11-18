@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Copy for Sharing looks that each image is still the one picked after it has read it, so a
+  photo given its name meanwhile no longer gives the copy its EXIF and XMP, and a sidecar
+  written at a copy's name while it is made no longer goes to the copy.
+- A sidecar written where a link was no longer takes the permissions of the file the link
+  points to, and a file written again keeps no set-ID bit.
+- A keyword or star set on a collection's entry before its listing has checked it waits, as
+  other operations do, so a folder named there gets no sidecar.
+- Find Duplicates' Move to Trash looks at each group's unchecked files just before the trash, so
+  an original edited while the question is open keeps its copy.
+
 ## [0.90.0] - 2026-11-18
 
 ### Fixed
