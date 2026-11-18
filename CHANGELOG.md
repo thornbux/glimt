@@ -5,6 +5,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `keys=` item without "=" in the settings is kept, and `--check-config` tells it. Before, it
+  was dropped without a word at the next save.
+- Showing the shown image again tries its full-resolution decode again when that failed.
+- Add to Collection on a collection that another window renamed or moved to the trash says it
+  is gone. Before, it made the collection again under its old name.
+- A click on Save… in Save As is kept while the original's format is still looked up, and
+  saves when it is known. Before, it was forgotten.
+- A setting changed while a slider is dragged is saved also when Esc or a quit closes
+  Preferences before the button is let go.
+- `glimt *` in a folder with a file named like an option, such as `--kiosk`, opens that file
+  instead of taking it as the option.
+- Copy for Sharing remembers a left-out PNG keyword with a space at either end under its own
+  name.
+- A lock warning or a failed write stays under later notices for a few seconds, so that it can
+  be read. Before, a notice that came a moment later hid it.
+- The user's own keys are kept after a panic that was caught while they were being set.
+
 ## [0.88.0] - 2026-11-18
 
 ### Fixed
