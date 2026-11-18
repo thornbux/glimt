@@ -2223,7 +2223,9 @@ mod tests {
             "ask_about_targets_as_seen",
         ];
         /// Returns whether `code` binds what one of the givers gives back to a name, as in
-        /// `let Some(name) = self.targets()`, and uses that name after.
+        /// `let Some(name) = self.targets()`, and uses that name after for more than a look:
+        /// a `name.is_empty()` or `name.len()`, a `drop(name)` or a `let _ = name` passes no
+        /// file on, so the act after it may still take the shown image.
         fn uses_targets(code: &str) -> bool {
             let flat = code.split_whitespace().collect::<Vec<_>>().join(" ");
             let flat = flat.replace(" .", ".");
@@ -2247,8 +2249,14 @@ mod tests {
                     let after = &flat[at + s.len()..];
                     let used = (after.match_indices(name)).any(|(i, _)| {
                         let before = after[..i].chars().next_back();
-                        let next = after[i + name.len()..].chars().next();
-                        !before.is_some_and(is_name_char) && !next.is_some_and(is_name_char)
+                        let rest = &after[i + name.len()..];
+                        let next = rest.chars().next();
+                        let is_look = [".is_empty(", ".len("].iter().any(|m| rest.starts_with(m))
+                            || after[..i].ends_with("drop(")
+                            || after[..i].ends_with("let _ = ");
+                        !before.is_some_and(is_name_char)
+                            && !next.is_some_and(is_name_char)
+                            && !is_look
                     });
                     !name.is_empty() && !name.starts_with('_') && used
                 })
@@ -2328,6 +2336,19 @@ mod tests {
             (
                 "let Some(found) = self.asked_targets() else { return }; self.act(found)",
                 false,
+            ),
+            (
+                "let Some(t) = self.targets() else { return }; if t.is_empty() { return } \
+                 self.act(self.list.shown())",
+                false,
+            ),
+            (
+                "let Some(t) = self.targets() else { return }; drop(t); self.act(self.list.shown())",
+                false,
+            ),
+            (
+                "let Some(t) = self.targets() else { return }; say(t.len()); self.act(&t)",
+                true,
             ),
             (
                 "if let Some(asked) = self.ask_about_targets_as_seen(seen) { self.ask(asked) }",

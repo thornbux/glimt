@@ -1582,10 +1582,10 @@ fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
 }
 
 /// Returns the HDR gain map of the JPEG `data`, walked as `walked`: the first image after the
-/// main one that its MPF index names and that is marked as a gain map, by its XMP (Ultra HDR's
-/// `GAIN_MAP_NAMESPACE`, or Apple's `APPLE_GAIN_MAP_VERSION`) or by an APP2 segment of
-/// ISO 21496-1 (`ISO_GAIN_MAP_NAME`). Returns `None` when it has none, or when the index or
-/// that image cannot be read.
+/// main one that its MPF index names and that is marked as a gain map, by a top-level property
+/// of its XMP (one in Ultra HDR's `GAIN_MAP_NAMESPACE`, or Apple's `APPLE_GAIN_MAP_VERSION`)
+/// or by an APP2 segment of ISO 21496-1 (`ISO_GAIN_MAP_NAME`). Returns `None` when it has none,
+/// or when the index or that image cannot be read.
 fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
     let is_index = |p: &&Part| p.tag.as_deref() == Some(MPF) && p.bytes.get(4..8) == Some(b"MPF\0");
     let index = walked.parts.iter().find(is_index)?;
@@ -1604,13 +1604,14 @@ fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
             }
             let image = walk_jpeg_segments(bytes)?;
             let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok());
-            let is_ultra_hdr = xmp.is_some_and(|x| x.contains(GAIN_MAP_NAMESPACE));
-            let is_apple = xmp.is_some_and(|x| {
-                let properties = crate::metadata::xmp::properties(x).list;
-                properties
-                    .iter()
-                    .any(|(name, ..)| name == APPLE_GAIN_MAP_VERSION)
-            });
+            // Each is decided by a property at the top of the gain map's XMP, never by its
+            // namespace found anywhere in the packet, such as in a comment or in xmpMM:Pantry.
+            let properties = xmp.map(|x| crate::metadata::xmp::properties(x).list);
+            let has = |is: &dyn Fn(&str) -> bool| {
+                (properties.iter().flatten()).any(|(name, ..)| is(name))
+            };
+            let is_ultra_hdr = has(&|name| name.starts_with("hdrgm:"));
+            let is_apple = has(&|name| name == APPLE_GAIN_MAP_VERSION);
             let is_iso_segment = |p: &Part| {
                 p.bytes.starts_with(&[0xff, 0xe2])
                     && (p.bytes.get(4..)).is_some_and(|b| b.starts_with(ISO_GAIN_MAP_NAME))
@@ -3099,6 +3100,9 @@ mod tests {
         /// As an iPhone marks it: by Apple's XMP in the gain map, and by the HDR headroom and
         /// gain in the main image's maker note (`apple_exif_block`).
         Apple,
+        /// Not at all: the second image's XMP names Ultra HDR's namespace only in a comment
+        /// and inside xmpMM:Pantry, with the main XMP of `UltraHdr`.
+        NamespaceOnly,
     }
 
     /// The maker note of the Apple test file, as an iPhone writes it, big-endian with offsets
@@ -3211,6 +3215,12 @@ mod tests {
         let marked = match marking {
             Marking::Iso => iso(b"\0\0\0\0ISO-GAIN-MAP-VALUES"),
             Marking::UltraHdr => xmp(&gain_map_xmp),
+            Marking::NamespaceOnly => xmp(&format!(
+                "<!-- xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" -->{rdf} \
+                 xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\"><xmpMM:Pantry><rdf:Bag>\
+                 <rdf:li><rdf:Description hdrgm:Version=\"1.0\"/></rdf:li></rdf:Bag>\
+                 </xmpMM:Pantry></rdf:Description></rdf:RDF></x:xmpmeta>"
+            )),
             Marking::Apple => xmp(apple_xmp),
         };
         let gain_map = [&gain_map[..2], &exif, &marked, &gain_map[2..]].concat();
@@ -3235,7 +3245,9 @@ mod tests {
         );
         let head = match marking {
             Marking::Iso => [&main[..2], &exif, &iso(b"\0\0\0\0")].concat(),
-            Marking::UltraHdr => [&main[..2], &exif, &xmp(&main_xmp)].concat(),
+            Marking::UltraHdr | Marking::NamespaceOnly => {
+                [&main[..2], &exif, &xmp(&main_xmp)].concat()
+            }
             Marking::Apple => [
                 &main[..2],
                 &exif_of(apple_exif_block()),
@@ -3254,6 +3266,18 @@ mod tests {
         let original = [&head, &mpf, &main[2..], &gain_map].concat();
         assert_eq!(mp_images(&original)[1], (gain_map.len(), primary_size));
         (original, gain_map_scans)
+    }
+
+    /// A second image whose XMP names Ultra HDR's namespace only in a comment and inside
+    /// xmpMM:Pantry is no gain map, so a copy without its extra images does not carry it.
+    /// Before, a search of the packet for the namespace took it for one.
+    #[test]
+    fn a_namespace_named_only_in_passing_marks_no_gain_map() {
+        let (original, _) = hdr_jpeg(Marking::NamespaceOnly);
+        let walked = super::walk_jpeg(&original).unwrap();
+        assert!(walked.gain_map.is_none());
+        let (ultra_hdr, _) = hdr_jpeg(Marking::UltraHdr);
+        assert!(super::walk_jpeg(&ultra_hdr).unwrap().gain_map.is_some());
     }
 
     /// An Ultra HDR photo keeps its gain map, the second image that brightens it on an HDR
