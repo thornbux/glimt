@@ -4141,30 +4141,38 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// An edit that waited for both a collection's listing and Rename Many is not sent by the
-    /// rename's end as a plain write. Before, the end of the rename sent it to the old entries
-    /// once another folder had been opened, and the folder `sub` got a sidecar (#193).
+    /// An edit that waited for both a collection's listing and Rename Many keeps, at the
+    /// rename's end, which of its files were unchecked entries. A collection's listing waits
+    /// while any rename runs, so the list is still unchecked then. Before, the end of the rename
+    /// sent the write again by the new names, and the folder entry `sub`, renamed to `sub2`,
+    /// was no entry of the list any more, so it counted as checked and got a sidecar (#193).
     #[test]
     fn the_end_of_a_rename_keeps_the_checks_of_an_unchecked_list() {
         let dir = contract_folder("sidecar-unchecked-rename");
         let (mut app, ctx) = edit_an_unchecked_collection(&dir);
         app.file_operations.renaming = Some(super::RenameJob {
-            folder: dir.with_extension("apart"),
+            folder: dir.clone(),
             from: Vec::new(),
             to: Vec::new(),
             shown: None,
             undoing: false,
         });
-        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
-        assert!(run_background_until(&mut app, &ctx, |app| !app
+        assert!(!run_background_until(&mut app, &ctx, |app| !app
             .folder
             .is_listing()));
+        assert_eq!(app.file_operations.sidecar_writes_waiting.len(), 1);
+        std::fs::rename(dir.join("sub"), dir.join("sub2")).unwrap();
         app.file_operations.renaming = None;
-        assert!(app.send_waiting_sidecar_writes(&ctx, Some(&[])).is_none());
+        let renamed = [(dir.join("sub"), dir.join("sub2"))];
+        assert!(
+            app.send_waiting_sidecar_writes(&ctx, Some(&renamed))
+                .is_none()
+        );
         assert!(run_background_until(&mut app, &ctx, |app| {
-            !app.file_operations.is_writing_sidecars()
+            !app.folder.is_listing() && !app.file_operations.is_writing_sidecars()
         }));
-        assert!(std::fs::symlink_metadata(dir.join("sub.edited")).is_err());
+        assert!(std::fs::symlink_metadata(dir.join("sub2.edited")).is_err());
+        assert!(std::fs::symlink_metadata(dir.join("a.png.edited")).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
