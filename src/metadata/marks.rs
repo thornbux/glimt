@@ -150,6 +150,11 @@ impl Marks {
         }
     }
 
+    /// Whether a read of the marks file that `refresh` queued has not come back yet.
+    pub fn is_reading(&self) -> bool {
+        self.read_again.is_some()
+    }
+
     /// Returns whether the marks or stars this window holds changed since this was last asked,
     /// so that a search by them is run again.
     pub fn take_changed(&mut self) -> bool {
@@ -1022,6 +1027,35 @@ mod tests {
         lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).retain(|f| *f != file);
         let shown = [&a, &c, &d].map(|p| marks.get(p));
         assert_eq!(shown, [(0, 0), (0, 0), (0, 1)], "put back on other files");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Select Mark selects the files that another window marked meanwhile too, once the marks
+    /// file read again has come back. Before, it selected by the marks held before the read.
+    #[test]
+    fn select_mark_counts_the_marks_read_again() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-select-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        // Another window marks b.jpg after this one read the marks.
+        std::fs::write(&file, format!("1\t0\t{}\n", dir.join("b.jpg").display())).unwrap();
+        app.list
+            .set_files(["a.jpg", "b.jpg"].iter().map(Into::into).collect());
+        app.run(&ctx, crate::ui::actions::Action::SelectMark1);
+        crate::files::file_io::flush();
+        app.receive_answers(&ctx);
+        assert_eq!(app.list.selected(), &[1].into());
+        // A selection the user changed before the read came back is left as it is.
+        std::fs::write(&file, format!("1\t0\t{}\n", dir.join("a.jpg").display())).unwrap();
+        app.run(&ctx, crate::ui::actions::Action::SelectMark1);
+        app.list.select([0, 1].into());
+        crate::files::file_io::flush();
+        app.receive_answers(&ctx);
+        assert_eq!(app.list.selected(), &[0, 1].into());
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }

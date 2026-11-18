@@ -1495,22 +1495,33 @@ impl crate::App {
         }
     }
 
+    /// Selects the shown files with mark `n` (1–6), as this window holds the marks now.
+    #[cfg(feature = "marks")]
+    pub(crate) fn select_marked(&mut self, ctx: &egui::Context, n: u8) {
+        let bit = 1 << (n - 1);
+        let names = self.marked_names(|(bits, _)| bits & bit != 0);
+        let picked = (self.shown_files().into_iter())
+            .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
+            .collect();
+        self.list.set_anchor(None);
+        self.set_selection(ctx, picked);
+    }
+
     /// A mark, a star rating or selecting by mark, from Edit → Marks and Stars or its keys.
     #[cfg(feature = "marks")]
     pub(crate) fn apply_mark(&mut self, ctx: &egui::Context, action: Action) {
         let Some((kind, n)) = action.mark() else {
             return;
         };
-        // What another window marked meanwhile counts too.
+        // What another window marked meanwhile counts too. The read runs in the writer's
+        // thread, so the files are selected by the marks held now, and again when the read
+        // comes back with other marks (`receive_marks`).
         self.marks.refresh();
         if kind == 's' {
-            let bit = 1 << (n - 1);
-            let names = self.marked_names(|(bits, _)| bits & bit != 0);
-            let picked = (self.shown_files().into_iter())
-                .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
-                .collect();
-            self.list.set_anchor(None);
-            self.set_selection(ctx, picked);
+            self.select_marked(ctx, n);
+            if self.marks.is_reading() {
+                self.list.note_selected_by_mark(n);
+            }
             return;
         }
         let Some(targets) = self.targets() else {
