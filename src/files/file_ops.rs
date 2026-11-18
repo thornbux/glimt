@@ -2563,10 +2563,8 @@ impl crate::App {
         let Some(targets) = self.targets() else {
             return;
         };
-        let paths: Vec<String> = targets
-            .iter()
-            .map(|&i| self.path(i).to_string_lossy().into_owned())
-            .map(|p| if quote { quoted_for_shell(&p) } else { p })
+        let paths: Vec<String> = (targets.iter())
+            .map(|&i| copied_path(&self.path(i), quote))
             .collect();
         ctx.copy_text(paths.join(" "));
     }
@@ -2598,23 +2596,39 @@ impl crate::App {
     }
 }
 
+/// Returns `path` as Copy Path puts it on the clipboard, quoted for a shell when `quote`.
+/// Unquoted, a name that is not UTF-8 has a replacement character, as the clipboard holds only
+/// text. Quoted, its bytes are written so that a shell gives the name back.
+fn copied_path(path: &Path, quote: bool) -> String {
+    match quote {
+        true => quoted_for_shell(path.as_os_str().as_encoded_bytes()),
+        false => path.to_string_lossy().into_owned(),
+    }
+}
+
 /// Returns `path` in double quotes, as Geeqie's Copy Path gives it, with a backslash before each
 /// `$`, `` ` ``, `"` and `\`. A shell still reads those inside double quotes, so a file name
 /// such as `$(command).jpg` would run its command when the path is pasted into a terminal. A `!`
 /// is put in single quotes between the double-quoted parts, because an interactive bash or zsh
 /// expands it to an earlier command line inside double quotes, and a backslash there would stay
-/// in the name.
-fn quoted_for_shell(path: &str) -> String {
+/// in the name. A byte that is not UTF-8 is written as `$'\xNN'` between the double-quoted
+/// parts, which bash and zsh read as that byte, because the clipboard holds only text.
+fn quoted_for_shell(path: &[u8]) -> String {
     let mut quoted = String::from('"');
-    for c in path.chars() {
-        if c == '!' {
-            quoted.push_str("\"'!'\"");
-            continue;
+    for chunk in path.utf8_chunks() {
+        for c in chunk.valid().chars() {
+            if c == '!' {
+                quoted.push_str("\"'!'\"");
+                continue;
+            }
+            if matches!(c, '$' | '`' | '"' | '\\') {
+                quoted.push('\\');
+            }
+            quoted.push(c);
         }
-        if matches!(c, '$' | '`' | '"' | '\\') {
-            quoted.push('\\');
+        for byte in chunk.invalid() {
+            quoted.push_str(&format!("\"$'\\x{byte:02x}'\""));
         }
-        quoted.push(c);
     }
     quoted.push('"');
     quoted
@@ -7431,14 +7445,27 @@ mod tests {
     /// is not expanded to an earlier command line either.
     #[test]
     fn copy_path_quotes_what_a_shell_reads() {
-        assert_eq!(super::quoted_for_shell("/p/a b.jpg"), r#""/p/a b.jpg""#);
+        assert_eq!(super::quoted_for_shell(b"/p/a b.jpg"), r#""/p/a b.jpg""#);
         assert_eq!(
-            super::quoted_for_shell(r#"/p/$(id)`id`"x\.jpg"#),
+            super::quoted_for_shell(br#"/p/$(id)`id`"x\.jpg"#),
             r#""/p/\$(id)\`id\`\"x\\.jpg""#
         );
         assert_eq!(
-            super::quoted_for_shell("/p/a!-1.jpg"),
+            super::quoted_for_shell(b"/p/a!-1.jpg"),
             r#""/p/a"'!'"-1.jpg""#
+        );
+        // A Latin-1 name, which is no UTF-8, keeps its byte.
+        assert_eq!(
+            super::quoted_for_shell(b"/p/r\xf8ntgen.jpg"),
+            r#""/p/r"$'\xf8'"ntgen.jpg""#
+        );
+        // Copy Path takes the name's bytes from the path itself, not from a lossy text of it.
+        let latin1 = std::path::Path::new(
+            <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(b"/p/r\xf8ntgen.jpg"),
+        );
+        assert_eq!(
+            super::copied_path(latin1, true),
+            r#""/p/r"$'\xf8'"ntgen.jpg""#
         );
     }
 
