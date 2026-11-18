@@ -2043,6 +2043,11 @@ msgstr "{removed} van {seen} miniaturen verwijderd"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "De miniaturen van verwijderde bestanden worden al verwijderd"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Weergave-intentie:"
 
@@ -3577,6 +3582,11 @@ msgstr "het bestandssysteem hier ({kind}) staat deze naamswijziging niet toe, zo
 #, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} kon niet worden verwijderd nadat het naar {to} was gezet, dus het bestand kan beide namen hebben of alleen op {to} staan; controleer beide voordat je er een verwijdert ({e})"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; de nieuwe versie is bewaard als {tmp}, omdat het de enige kopie kan zijn"
 
 #: src/files/file_io.rs
 #, fuzzy

@@ -805,14 +805,7 @@ impl crate::App {
             // No busy pointer: a look at a thumbnail's file on a share that stopped answering
             // waits for ever, and the user can go on meanwhile. Its notice tells when it ends.
             std::thread::spawn(move || {
-                let Some((removed, seen)) = thumbs::remove_orphaned_thumbnails() else {
-                    return;
-                };
-                let _ = tx.send(tf!(
-                    "Removed {removed} of {seen} thumbnails",
-                    removed = thousands(removed),
-                    seen = thousands(seen)
-                ));
+                let _ = tx.send(remove_orphaned_thumbnails_told());
                 ctx.request_repaint();
             });
         }
@@ -1218,6 +1211,19 @@ fn sections_shown(query: &str, theme_names: &[String]) -> [bool; 10] {
         cfg!(feature = "video") && shows(VIDEO, &[]),
         shows(START, &[]),
     ]
+}
+
+/// Removes the thumbnails of deleted files, and returns the notice that tells how many. A
+/// second click while one removal runs is told too, as nothing else would show it.
+fn remove_orphaned_thumbnails_told() -> String {
+    match thumbs::remove_orphaned_thumbnails() {
+        Some((removed, seen)) => tf!(
+            "Removed {removed} of {seen} thumbnails",
+            removed = thousands(removed),
+            seen = thousands(seen)
+        ),
+        None => tr("The thumbnails of deleted files are being removed already").to_owned(),
+    }
 }
 
 #[cfg(test)]

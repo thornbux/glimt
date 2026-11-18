@@ -1787,6 +1787,10 @@ msgid "Removed {removed} of {seen} thumbnails"
 msgstr "Fjernet {removed} av {seen} miniatyrbilder"
 
 #: src/ui/preferences.rs
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Miniatyrbildene av slettede filer blir fjernet allerede"
+
+#: src/ui/preferences.rs
 msgid "Rendering intent:"
 msgstr "Gjengivelsesmåte:"
 
@@ -2874,6 +2878,10 @@ msgstr "filsystemet her ({kind}) tillater ikke denne omdøpingen, slik som på e
 #: src/files/file_io.rs
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} kunne ikke fjernes etter at den ble lagt på {to}, så filen kan ha begge navnene eller bare ligge på {to}; sjekk begge før du fjerner noen av dem ({e})"
+
+#: src/files/file_io.rs
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; den nye versjonen er beholdt som {tmp}, da den kan være den eneste kopien"
 
 #: src/files/file_io.rs
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"

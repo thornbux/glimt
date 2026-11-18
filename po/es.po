@@ -2043,6 +2043,11 @@ msgstr "Se quitaron {removed} de {seen} miniaturas"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Ya se están quitando las miniaturas de los archivos eliminados"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Intención de renderizado:"
 
@@ -3577,6 +3582,11 @@ msgstr "el sistema de archivos de aquí ({kind}) no permite este cambio de nombr
 #, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "no se pudo quitar {from} después de ponerlo en {to}, así que el archivo puede tener ambos nombres o estar solo en {to}; comprueba los dos antes de quitar cualquiera ({e})"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; la nueva versión se conserva como {tmp}, ya que puede ser la única copia"
 
 #: src/files/file_io.rs
 #, fuzzy

@@ -666,6 +666,9 @@ const REFUSED_CALLS: &[&str] = &[
     "std::sync::Mutex::lock",
     "std::sync::RwLock::read",
     "std::sync::RwLock::write",
+    "std::sync::Mutex::try_lock",
+    "std::sync::RwLock::try_read",
+    "std::sync::RwLock::try_write",
 ];
 
 /// The standard library's calls that look at or change the disk, and the system's that Glimt
@@ -5165,16 +5168,23 @@ fn drops_the_error_of_a_look(statement: &str) -> bool {
     // they take the error instead.
     let asks_the_result =
         |after: &str| after.trim_start().starts_with(['.', ',']) && after.contains(".is_");
-    // A number given in the place of a failed look's (`map_or(0, …)`, `unwrap_or((0, 0))`). An
-    // empty text in its place (`unwrap_or_default` of a `String`) is shown as unknown, and passes.
+    // A value given in the place of a failed look's: any default of `map_or`, a number, a
+    // constant or a path in `unwrap_or` (`unwrap_or((0, 0))`, `unwrap_or(UNIX_EPOCH)`,
+    // `unwrap_or(u64::MAX)`), and `unwrap_or_default`. An empty text in its place is shown as
+    // unknown, and passes when the look's value is made into text before the default.
+    let makes_text = ["format!(", "human_size(", ".to_string()"];
     let gives_a_value_of_its_own = |after: &str| {
+        let is_a_value = |(at, found): (usize, &str)| {
+            let value = after[at + found.len()..].trim_start_matches(['(', ' ']);
+            let token = &value[..value.find([',', ')']).unwrap_or(value.len())];
+            value.starts_with(|c: char| c.is_ascii_digit() || c.is_ascii_uppercase())
+                || token.contains("::")
+        };
         after.trim_start().starts_with('.')
-            && [".map_or(", ".unwrap_or("].iter().any(|default| {
-                (after.match_indices(default)).any(|(at, _)| {
-                    let value = after[at + default.len()..].trim_start_matches(['(', ' ']);
-                    value.starts_with(|c: char| c.is_ascii_digit())
-                })
-            })
+            && (after.contains(".map_or(")
+                || after.match_indices(".unwrap_or(").any(is_a_value)
+                || (after.contains(".unwrap_or_default()")
+                    && !makes_text.iter().any(|text| after.contains(text))))
     };
     let guesses_without_error = ["let Ok(", "Err(_", "Err(..)", "_ =>"]
         .iter()
@@ -5267,9 +5277,10 @@ fn finds_a_look_that_guesses() {
 /// folder", also when its default comes first (`map_or`) or it is filtered (`.ok().filter`),
 /// and in any other spelling that does not pass the error on (`.ok().is_some_and`, `unwrap_or`,
 /// `matches!`). It finds a size whose failed look gives 0, which was shown as a file of 0 bytes
-/// and passed before. It leaves a size kept as an `Option`, and a look whose error goes to the
-/// caller. Before, only the listed spellings were found, and `matches!(metadata(p), Ok(m) if …)`
-/// passed.
+/// and passed before, also through `unwrap_or_default`, a constant or a path (`u64::MAX`,
+/// `UNIX_EPOCH`), which passed until 0.89.0. A size made into text first passes. It leaves a
+/// size kept as an `Option`, and a look whose error goes to the caller. Before, only the
+/// listed spellings were found, and `matches!(metadata(p), Ok(m) if …)` passed.
 #[test]
 fn finds_a_failed_look_taken_for_its_kind() {
     let text = "fn a() {\n    let l = std::fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink());\n    \
@@ -5282,8 +5293,17 @@ fn finds_a_failed_look_taken_for_its_kind() {
         let f = matches!(std::fs::metadata(p), Ok(m) if m.is_file());\n    \
         let d = std::fs::metadata(&p.join(q))?.is_dir();\n    \
         let t = std::fs::metadata(p).map(|m| m.mtime()).unwrap_or(0);\n    \
-        let t = std::fs::metadata(p).ok().map(|m| m.mtime());\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3, 4, 6, 8, 9, 10, 12]);
+        let t = std::fs::metadata(p).ok().map(|m| m.mtime());\n    \
+        let s = std::fs::metadata(p).map(|m| m.len()).unwrap_or_default();\n    \
+        let s = std::fs::metadata(p).map_or(u64::MAX, |m| m.len());\n    \
+        let t = std::fs::metadata(p).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);\n    \
+        let t = std::fs::metadata(p).map_or(SystemTime::UNIX_EPOCH, |m| m.mtime());\n    \
+        let t = std::fs::metadata(p).map(|m| m.mtime()).unwrap_or(std::time::ZERO);\n    \
+        let s = std::fs::metadata(p).map(|m| human_size(m.len())).unwrap_or_default();\n}\n";
+    assert_eq!(
+        looks_that_guess(text),
+        [2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 17, 18]
+    );
 }
 
 /// The check above finds a path asked whether it is a file or a folder, also as a function value

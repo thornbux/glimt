@@ -2233,6 +2233,11 @@ msgstr "Odstraněno {removed} z {seen} náhledů"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Náhledy smazaných souborů se již odstraňují"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Účel vykreslování:"
 
@@ -3599,6 +3604,11 @@ msgstr "souborový systém zde ({kind}) toto přejmenování nepovoluje, stejně
 #, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} se nepodařilo odstranit poté, co byl umístěn do {to}, takže soubor může mít obě jména, nebo být jen v {to}; před odstraněním kteréhokoli z nich zkontrolujte obě ({e})"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; nová verze je ponechána jako {tmp}, protože může být jedinou kopií"
 
 #: src/files/file_io.rs
 #, fuzzy

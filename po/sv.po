@@ -2043,6 +2043,11 @@ msgstr "Tog bort {removed} av {seen} miniatyrer"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Miniatyrerna av borttagna filer tas redan bort"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Återgivningsavsikt:"
 
@@ -3577,6 +3582,11 @@ msgstr "filsystemet här ({kind}) tillåter inte det här namnbytet, som på vis
 #, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} kunde inte tas bort efter att den lagts på {to}, så filen kan ha båda namnen eller bara finnas på {to}; kontrollera båda innan du tar bort någon av dem ({e})"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; den nya versionen är kvar som {tmp}, eftersom den kan vara den enda kopian"
 
 #: src/files/file_io.rs
 #, fuzzy

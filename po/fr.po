@@ -2043,6 +2043,11 @@ msgstr "{removed} vignettes supprimées sur {seen}"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Les vignettes des fichiers supprimés sont déjà en cours de suppression"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Intention de rendu :"
 
@@ -3577,6 +3582,11 @@ msgstr "le système de fichiers ici ({kind}) ne permet pas ce renommage, comme s
 #, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} n'a pas pu être supprimé après avoir été placé en {to}, le fichier peut donc porter les deux noms ou n'être qu'en {to} ; vérifiez les deux avant de supprimer l'un d'eux ({e})"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e} ; la nouvelle version est conservée sous {tmp}, car elle peut être la seule copie"
 
 #: src/files/file_io.rs
 #, fuzzy

@@ -2043,6 +2043,11 @@ msgstr "Fjarlægði {removed} af {seen} smámyndum"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Verið er að fjarlægja smámyndir eyddra skráa nú þegar"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Birtingaráætlun:"
 
@@ -3577,6 +3582,11 @@ msgstr "skráakerfið hér ({kind}) leyfir ekki þessa nafnbreytingu, eins og á
 #, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "ekki tókst að fjarlægja {from} eftir að það var sett á {to}, svo skráin getur borið bæði nöfnin eða aðeins verið á {to}; athugaðu hvort tveggja áður en þú fjarlægir annað hvort ({e})"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; nýja útgáfan er geymd sem {tmp}, þar sem hún gæti verið eina afritið"
 
 #: src/files/file_io.rs
 #, fuzzy

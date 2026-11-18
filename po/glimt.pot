@@ -1797,6 +1797,10 @@ msgid "Removed {removed} of {seen} thumbnails"
 msgstr ""
 
 #: src/ui/preferences.rs
+msgid "The thumbnails of deleted files are being removed already"
+msgstr ""
+
+#: src/ui/preferences.rs
 msgid "Rendering intent:"
 msgstr ""
 
@@ -2883,6 +2887,10 @@ msgstr ""
 
 #: src/files/file_io.rs
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
+msgstr ""
+
+#: src/files/file_io.rs
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
 msgstr ""
 
 #: src/files/file_io.rs

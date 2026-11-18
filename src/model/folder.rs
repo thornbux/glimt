@@ -1000,8 +1000,12 @@ impl crate::App {
     /// its look-up started.
     fn clear_still_opening(&mut self) {
         self.folder.looking_up_since = None;
-        let told = self.folder.still_opening_notice.take();
-        if told.is_some() && self.notice.text() == told.as_deref() {
+        let Some(told) = self.folder.still_opening_notice.take() else {
+            return;
+        };
+        // A warning kept under the notice adds lines after its own, which stay after the clear.
+        let is_shown = |text: &str| text == told || text.starts_with(&format!("{told}\n"));
+        if self.notice.text().is_some_and(is_shown) {
             self.notice.clear();
         }
     }
@@ -3544,6 +3548,14 @@ mod tests {
         );
         app.open(&ctx, dir.clone());
         assert!(app.notice.text().is_none());
+        // A warning kept under the notice leaves only itself shown when the place opens.
+        // Before, the notice that the place is still opening stayed up with it.
+        app.open(&ctx, share.clone());
+        app.folder.looking_up_since.as_mut().unwrap().0 = long_ago.unwrap();
+        app.receive_looked_up(&ctx, std::time::Duration::ZERO);
+        app.notice.keep_until_drawn("a warning".to_owned());
+        app.open(&ctx, dir.clone());
+        assert_eq!(app.notice.text(), Some("a warning"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

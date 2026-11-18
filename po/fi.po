@@ -2043,6 +2043,11 @@ msgstr "Poistettiin {removed}/{seen} pienoiskuvaa"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Poistettujen tiedostojen pienoiskuvia poistetaan jo"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Renderöintitapa:"
 
@@ -3577,6 +3582,11 @@ msgstr "tämä tiedostojärjestelmä ({kind}) ei salli tätä uudelleennimeämis
 #, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "kohdetta {from} ei voitu poistaa sen jälkeen, kun se oli viety kohteeseen {to}, joten tiedostolla voi olla molemmat nimet tai se voi olla vain kohteessa {to}; tarkista molemmat ennen kuin poistat kumpaakaan ({e})"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; uusi versio säilytetään nimellä {tmp}, koska se voi olla ainoa kopio"
 
 #: src/files/file_io.rs
 #, fuzzy
