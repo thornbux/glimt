@@ -174,12 +174,31 @@ pub const MAX_SELECT: usize = 100_000;
 const TOO_MANY_FILES: &str = "more than 100000 files";
 
 /// The longest line of a command other than `select` and `info`, in bytes: room for a path or
-/// a title. Only those two may be as long as their files take.
+/// a title. Only those two may be as long as their files take, up to `MOST_FILES_LINE`.
 const MOST_LINE: u64 = 64 * 1024;
+
+/// The longest line of a `select` or `info`, in bytes, and the most a client sends for one
+/// command. It holds `MAX_SELECT` files of 670 bytes on average, and one client, of the
+/// `MOST_CLIENTS` served at once, holds no more memory than about twice this.
+const MOST_FILES_LINE: u64 = 64 << 20;
+
+/// The longest answer the client reads, in bytes, so that a program on the socket that sends
+/// without end does not fill the memory. It holds the `info` of `MAX_SELECT` files.
+const MOST_ANSWER: u64 = 1 << 30;
+
+/// Why a command whose line was cut off before its line break by the end of the client's time
+/// is not done. The part that came is never run. A line that the client ended by closing its
+/// side is whole, and runs.
+const CUT_OFF: &str = "the command did not come whole";
 
 /// The most clients served at once, each by a thread of its own. Another waits in the socket's
 /// queue until one is done, or until its time limit tells it "no answer".
 const MOST_CLIENTS: usize = 16;
+
+/// The most clients accepted that wait for a place among `MOST_CLIENTS`. One more waits in the
+/// socket's queue, unaccepted, until one of them is served. A client that waited past its time
+/// limit is let go at once when it is served, without its command.
+const MOST_ACCEPTED_WAITING: usize = 64;
 
 /// The most commands sent with `--wait` whose work is waited for at once. Such a command gives
 /// its client's place among `MOST_CLIENTS` to the next client and takes one of these instead,
@@ -316,12 +335,16 @@ impl std::io::Read for ReadBefore {
     }
 }
 
-/// A client's place among those served at once (`serve_clients`), given back when it is dropped.
-struct ClientPlace(mpsc::Sender<()>);
+/// A client's place among those served at once (`serve_clients`), given back when it is dropped,
+/// and when the client was accepted.
+struct ClientPlace {
+    free: mpsc::Sender<()>,
+    accepted: std::time::Instant,
+}
 
 impl Drop for ClientPlace {
     fn drop(&mut self) {
-        let _ = self.0.send(());
+        let _ = self.free.send(());
     }
 }
 
@@ -999,13 +1022,14 @@ fn not_done_reason(answer: &[u8]) -> Option<String> {
 /// Returns why a command sent with `--wait` was not done, from the answer `answer`, which is no
 /// `NOT_DONE_ANSWER`, of the window at the socket `path`. Returns `None` for `OUTCOME_DONE`. An
 /// empty answer from a window that has gone, which crashed or was killed while its work ran,
-/// tells that it closed before the outcome. Any other answer, also an empty one from a window
+/// tells that it closed before the outcome. The look waits no longer than `answers` does, for a
+/// window whose queue of clients is full. Any other answer, also an empty one from a window
 /// that still runs, is that of a window older than `--wait`, which did nothing.
 fn waited_outcome_reason(answer: &[u8], path: &Path) -> Option<String> {
     if answer == OUTCOME_DONE.as_bytes() {
         return None;
     }
-    let has_gone = || !is_answered(UnixStream::connect(path));
+    let has_gone = || !answers(path);
     Some(match answer.is_empty() && has_gone() {
         true => "the window closed before it told whether its work was done".to_owned(),
         false => "this Glimt does not know --wait".to_owned(),
@@ -1495,12 +1519,22 @@ fn client_limit(command: &str) -> std::time::Duration {
 /// Reads the window's answer to `command` on `s` until the window closes the connection.
 /// Returns the bytes that came, with the error when the answer did not end within the time
 /// limit or the connection failed.
-fn read_answer(mut s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
-    use std::io::Read;
+fn read_answer(s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
     let _ = s.set_read_timeout(Some(client_limit(command)));
+    read_answer_up_to(s, MOST_ANSWER)
+}
+
+/// Reads from `s` until it is closed, but at most `most` bytes. Returns the bytes that came,
+/// with an error when they were more than `most` or the reading failed.
+fn read_answer_up_to(mut s: UnixStream, most: u64) -> (Vec<u8>, std::io::Result<usize>) {
     let mut answer = Vec::new();
-    #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
-    let read = s.read_to_end(&mut answer);
+    let read = copy_limited(&mut s, &mut answer, most + 1).and_then(|n| match n > most {
+        true => Err(std::io::Error::other(format!(
+            "an answer longer than {most} bytes"
+        ))),
+        false => Ok(n as usize),
+    });
+    answer.truncate(most as usize);
     (answer, read)
 }
 
@@ -1841,36 +1875,55 @@ fn stop_listening() {
 /// folder of 500,000 files still being read, a dialog open) holds up no other. The window's
 /// answer is waited for as long as it takes, and the client has the one time limit, so there is
 /// one outcome when it runs out: "no answer" and exit 1, never an empty answer taken for "all
-/// found". A client over `most` waits in the socket's queue, so clients that never end cannot
-/// take a thread each. `serve` is given the client's place, which it may give back before it
-/// ends, as a command sent with `--wait` does.
+/// found". A client over `most` waits, accepted (up to `MOST_ACCEPTED_WAITING`) and then in the
+/// socket's queue, so clients that never end cannot take a thread each. `serve` is given the
+/// client's place, which it may give back before it ends, as a command sent with `--wait` does.
 fn serve_clients(
     listener: UnixListener,
     most: usize,
     serve: impl Fn(UnixStream, ClientPlace) + Clone + Send + 'static,
 ) {
-    // A free place is a message in this channel: taken before a client is accepted, and given
+    // Each client is accepted as soon as it connects, so that its time is counted from then
+    // (`ClientPlace::accepted`), also while it waits for a place. Before, a client waited for a
+    // place in the socket's queue, and its time was counted from when a thread took it, so its
+    // command could be done after the client had been told "no answer".
+    let (accepted, waiting) = mpsc::sync_channel(MOST_ACCEPTED_WAITING);
+    // No busy pointer: the listener, which lasts as long as the window. A command counts as
+    // work once the window takes it.
+    std::thread::spawn(move || {
+        loop {
+            let Ok((stream, _)) = listener.accept() else {
+                // A lasting error, such as too many open files, would otherwise be a busy loop.
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            };
+            // The client is counted from here, before its query is read, so a client that came
+            // just before the socket went is waited for at closing too.
+            let client = UnfinishedAnswer::new();
+            if accepted
+                .send((stream, std::time::Instant::now(), client))
+                .is_err()
+            {
+                return;
+            }
+        }
+    });
+    // A free place is a message in this channel: taken before a client is served, and given
     // back when its thread is done, or earlier by a command sent with `--wait`, which takes a
     // place of `waiting_places` instead.
     let (free, places) = mpsc::channel();
     for _ in 0..most {
         let _ = free.send(());
     }
-    while places.recv().is_ok() {
-        let Ok((stream, _)) = listener.accept() else {
-            let _ = free.send(());
-            // A lasting error, such as too many open files, would otherwise be a busy loop.
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            continue;
-        };
-        // The client is counted from here, before its query is read, so a client that came
-        // just before the socket went is waited for at closing too.
-        let client = UnfinishedAnswer::new();
+    while let Ok((stream, accepted, client)) = waiting.recv() {
+        if places.recv().is_err() {
+            return;
+        }
         let (serve, free) = (serve.clone(), free.clone());
         // No busy pointer: a client's connection. Its command counts as work once the
         // window takes it.
         std::thread::spawn(move || {
-            serve(stream, ClientPlace(free));
+            serve(stream, ClientPlace { free, accepted });
             drop(client);
         });
     }
@@ -1909,6 +1962,7 @@ fn serve(
     wait: std::time::Duration,
     waiting_places: &WaitingPlaces,
 ) {
+    let accepted_at = place.accepted;
     let mut place = Some(place);
     let mut waiting_place = None;
     // A client that does not read its answer holds its thread no longer than this either.
@@ -1916,14 +1970,20 @@ fn serve(
     let mut out = stream.try_clone().ok();
     // A client may send as much as `select` may, and no more, so a client that sends without
     // end does not fill the memory.
-    let most = MAX_SELECT as u64 * 4096 + 64;
-    let until = std::time::Instant::now() + wait;
+    // One byte more than a line may have, so that a line over it is told "too long" and not
+    // taken for one that the client ended by closing its side.
+    let most = MOST_FILES_LINE + 1;
+    // The first command's time is counted from when the client was accepted, which is about
+    // when it connected and started to wait, not from when this thread took it.
+    let mut accepted = Some(accepted_at);
+    let until = accepted_at + wait;
     let stream = std::io::Read::take(ReadBefore { stream, until }, most);
     let mut reader = std::io::BufReader::new(stream);
     loop {
         // Each command has `wait` from when its reading starts to its end.
-        let read_started = std::time::Instant::now();
+        let read_started = accepted.take().unwrap_or_else(std::time::Instant::now);
         reader.get_mut().get_mut().until = read_started + wait;
+        reader.get_mut().set_limit(most);
         let Some(line) = read_command(&mut reader) else {
             return;
         };
@@ -1933,6 +1993,7 @@ fn serve(
             // sends is read first, up to `most`, because closing with bytes unread resets the
             // connection, and the client then reads no answer.
             Err(why) => {
+                reader.get_mut().set_limit(most);
                 let _ = copy_limited(&mut reader, &mut std::io::sink(), most);
                 if let Some(out) = out.as_mut() {
                     let _ = out.write_all(&not_done_answer(why));
@@ -1960,6 +2021,7 @@ fn serve(
         let comes_in_parts = is_info(&line);
         let client_waits = client_waits(&line, wait);
         let limit = client_waits + std::time::Duration::from_secs(1);
+        let kept_open = kept_open_when_dropped(&line, wait);
         let time_to_do = time_to_do(read_started, client_waits);
         if tx.send((line, Some(reply), time_to_do)).is_err() {
             return;
@@ -1994,57 +2056,72 @@ fn serve(
                 return;
             }
             // When the window dropped the answer (too many waiting, or closing), closing the
-            // connection now would make the client read nothing, "all found" or "done". Held
-            // open, its time limit says "no answer".
+            // connection now would make the client read nothing, "all found" or "done". Kept
+            // open until after the client stops waiting, its time limit says "no answer".
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 drop(answering);
-                return std::thread::sleep(limit);
+                return std::thread::sleep(kept_open);
             }
         }
         drop(answering);
     }
 }
 
+/// Returns how long `serve` keeps the connection of the command `line` open when the window
+/// dropped its answer, where a client of a command without `--wait` waits `wait`: until after
+/// the client stops waiting (`client_limit`), which is up to 2 s later than `client_waits`
+/// counts. Before, a command sent with `--wait` was closed a second before its client's limit,
+/// which then read an empty answer as "this Glimt does not know --wait".
+fn kept_open_when_dropped(line: &str, wait: std::time::Duration) -> std::time::Duration {
+    client_waits(line, wait) + std::time::Duration::from_secs(3)
+}
+
 /// Reads the next command, one line, from `reader`. A `select` or `info` may be as long as its
-/// files take, and any other command at most `MOST_LINE` bytes, so a client that sends without
-/// a line break holds no more memory than that. Returns the reason for a line too long or not
-/// UTF-8, which the client is told, and `None` at the end and when the client sends nothing
-/// within its time limit.
+/// files take, up to `MOST_FILES_LINE` bytes, and any other command at most `MOST_LINE` bytes,
+/// so a client that sends without a line break holds no more memory than that. A line that the
+/// client ended by closing its side is whole. Returns the reason for a line too long, not UTF-8
+/// or cut off by the time limit before its line break (`CUT_OFF`), which the client is told,
+/// and `None` when the client sent nothing more, at its end or within its time limit.
 fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str>> {
     let mut line = Vec::new();
-    read_line_limited(&mut *reader, MOST_LINE, &mut line).ok()?;
-    let ended = line.ends_with(b"\n");
+    let mut read = read_line_limited(&mut *reader, MOST_LINE, &mut line);
+    let ended = |line: &[u8]| line.ends_with(b"\n");
     let takes_files = |line: &[u8]| line.starts_with(b"select ") || line.starts_with(b"info ");
-    if !ended && takes_files(line.trim_ascii_start()) {
+    if takes_files(line.trim_ascii_start()) {
         // The rest is read in parts, and the files counted, so that a select of more files than
         // `MAX_SELECT` is refused here, and not split into a list on the window thread.
         let mut files = line.iter().filter(|&&b| b == 0).count();
-        loop {
+        while matches!(read, Ok(n) if n > 0) && !ended(&line) {
             let start = line.len();
-            read_line_limited(&mut *reader, MOST_LINE, &mut line).ok()?;
+            read = read_line_limited(&mut *reader, MOST_LINE, &mut line);
             files += line[start..].iter().filter(|&&b| b == 0).count();
             if files > MAX_SELECT {
                 return Some(Err(TOO_MANY_FILES));
             }
-            if line.len() == start || line.ends_with(b"\n") {
-                break;
+            if line.len() as u64 > MOST_FILES_LINE {
+                return Some(Err("too long"));
             }
         }
-    } else if !ended && line.len() as u64 >= MOST_LINE {
+    } else if read.is_ok() && !ended(&line) && line.len() as u64 >= MOST_LINE {
         return Some(Err("too long"));
     }
     if line.is_empty() {
         return None;
     }
-    let line = line.strip_suffix(b"\n").unwrap_or(&line);
+    // A line cut off by the time limit is never run, as what came of it may be cut in a path.
+    if !ended(&line) && read.is_err() {
+        return Some(Err(CUT_OFF));
+    }
+    if ended(&line) {
+        line.pop();
+    }
     // A "\r" before the line break is taken off, for a client that ends its lines with
     // "\r\n", but not from the end of a path, where it is part of the file's name.
-    let line = match line.strip_suffix(b"\r") {
-        Some(cut) if !ends_in_a_path(cut) => cut,
-        _ => line,
-    };
+    if line.ends_with(b"\r") && !ends_in_a_path(&line[..line.len() - 1]) {
+        line.pop();
+    }
     // Told, as an end without an answer would read as done.
-    Some(String::from_utf8(line.to_vec()).map_err(|_| "not UTF-8"))
+    Some(String::from_utf8(line).map_err(|_| "not UTF-8"))
 }
 
 /// Whether `line` ends in a path: it is an `open`, `select` or `info` with files, and its last
@@ -3423,8 +3500,16 @@ mod tests {
             read(format!("{select}\r\nnext\n")),
             [Ok(select.clone()), Ok("next".into())]
         );
+        // A line that the client ended by closing its side is whole, and runs.
         assert_eq!(read("next".into()), [Ok("next".into())]);
         assert!(read(String::new()).is_empty());
+        // A select longer than `MOST_FILES_LINE`, also of few files, is refused when it is
+        // read. Before, one line of up to 400 MB was held whole and copied.
+        let one_long_path = format!(
+            "select /{}\0\n",
+            "x".repeat(super::MOST_FILES_LINE as usize)
+        );
+        assert_eq!(read(one_long_path), [Err("too long")]);
         // A select or info of more files than `MAX_SELECT` is refused when it is read, from
         // any program on the socket. Before, only Glimt's own client counted them.
         let files = |n: usize| "/x\0".repeat(n);
@@ -3434,6 +3519,131 @@ mod tests {
             let more = format!("{command} {}\nnext\n", files(super::MAX_SELECT + 1));
             assert_eq!(read(more), [Err(super::TOO_MANY_FILES)]);
         }
+    }
+
+    /// A command that does not come whole within the client's time is told so, and never run.
+    /// Before, the bytes that came were dropped and the connection closed without an answer,
+    /// which the client read as done.
+    #[test]
+    fn a_command_that_does_not_come_in_time_is_told_not_done() {
+        use std::io::{Read, Write};
+        let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, commands) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let place = super::ClientPlace {
+                free: std::sync::mpsc::channel().0,
+                accepted: std::time::Instant::now(),
+            };
+            let ctx = eframe::egui::Context::default();
+            let wait = std::time::Duration::from_millis(300);
+            super::serve(server, place, &tx, &ctx, wait, &super::WAITING_PLACES);
+        });
+        client.write_all(b"open /tmp/a.p").unwrap();
+        let mut got = Vec::new();
+        client.read_to_end(&mut got).unwrap();
+        assert_eq!(
+            super::not_done_reason(&got).as_deref(),
+            Some(super::CUT_OFF)
+        );
+        assert!(commands.try_recv().is_err(), "a command cut off was run");
+    }
+
+    /// A select longer than `MOST_FILES_LINE` sent on the socket is told "too long" and never
+    /// run, though the most read for a command ends it where a closed side would. Before, it
+    /// was cut at the most and run, a path cut short among its files.
+    #[test]
+    fn a_select_cut_by_the_most_read_is_told_too_long() {
+        use std::io::{Read, Write};
+        let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, commands) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let place = super::ClientPlace {
+                free: std::sync::mpsc::channel().0,
+                accepted: std::time::Instant::now(),
+            };
+            let ctx = eframe::egui::Context::default();
+            super::serve(
+                server,
+                place,
+                &tx,
+                &ctx,
+                super::WAIT,
+                &super::WAITING_PLACES,
+            );
+        });
+        let mut line = b"select /".to_vec();
+        line.resize(super::MOST_FILES_LINE as usize + 100, b'x');
+        line.push(b'\n');
+        let mut writer = client.try_clone().unwrap();
+        std::thread::spawn(move || {
+            let _ = writer.write_all(&line);
+            let _ = writer.shutdown(std::net::Shutdown::Write);
+        });
+        let mut got = Vec::new();
+        client.read_to_end(&mut got).unwrap();
+        assert_eq!(super::not_done_reason(&got).as_deref(), Some("too long"));
+        assert!(commands.try_recv().is_err(), "a select cut short was run");
+    }
+
+    /// The client reads no more of an answer than it takes, from a program on the socket that
+    /// sends without end, and tells that the answer was too long.
+    #[test]
+    fn the_client_reads_an_answer_up_to_its_most() {
+        use std::io::Write;
+        let (mut window, client) = std::os::unix::net::UnixStream::pair().unwrap();
+        std::thread::spawn(move || while window.write_all(&[b'x'; 4096]).is_ok() {});
+        let (answer, read) = super::read_answer_up_to(client, 10_000);
+        assert_eq!(answer.len(), 10_000);
+        assert!(read.is_err());
+    }
+
+    /// A connection whose answer the window dropped is kept open until after its client stops
+    /// waiting, so the client says "no answer". Before, a command sent with `--wait` was closed
+    /// a second before its client's limit, and the client said that the window did not know
+    /// `--wait`.
+    #[test]
+    fn a_dropped_answer_is_kept_open_past_the_clients_limit() {
+        for line in ["next", "wait next", "current"] {
+            let kept_open = super::kept_open_when_dropped(line, super::WAIT);
+            assert!(kept_open > super::client_limit(line), "{line}");
+        }
+    }
+
+    /// A client that waited for a place while others were served has its time counted from when
+    /// it connected, so its command is not done after the client gave up. Before, its time was
+    /// counted from when a thread took it.
+    #[test]
+    fn a_client_that_waited_for_a_place_is_not_served_past_its_time() {
+        use std::io::Write;
+        let path =
+            std::env::temp_dir().join(format!("glimt-placewait-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let wait = std::time::Duration::from_millis(1500);
+        static WAITING_PLACES: super::WaitingPlaces = super::WaitingPlaces::new(1);
+        let serve = move |stream, place| {
+            let ctx = eframe::egui::Context::default();
+            super::serve(stream, place, &tx, &ctx, wait, &WAITING_PLACES);
+        };
+        std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+        let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let mut first = connect();
+        writeln!(first, "current").unwrap();
+        let five_seconds = std::time::Duration::from_secs(5);
+        // The first is never answered, so it holds the one place for `wait` and a second more.
+        let first_reply = rx.recv_timeout(five_seconds).unwrap();
+        let connected = std::time::Instant::now();
+        let mut second = connect();
+        writeln!(second, "current").unwrap();
+        if let Ok((_, _, time_to_do)) = rx.recv_timeout(five_seconds) {
+            assert!(
+                time_to_do <= connected + wait,
+                "the second client's time was counted from when it was served"
+            );
+        }
+        drop(first_reply);
+        std::fs::remove_file(path).unwrap();
     }
 
     /// A line that is not UTF-8 is refused, and the client told so. Before, the window closed
@@ -3532,17 +3742,20 @@ mod tests {
         };
         std::thread::spawn(move || super::serve_clients(listener, 1, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
-        let (mut first, mut second) = (connect(), connect());
+        let mut first = connect();
         writeln!(first, "current").unwrap();
-        writeln!(second, "current").unwrap();
         let five_seconds = std::time::Duration::from_secs(5);
         // Both replies are kept, as the window keeps a waiting command's, and never answered.
         let first_reply = rx.recv_timeout(five_seconds).unwrap();
-        let second_reply = rx.recv_timeout(five_seconds);
-        assert!(second_reply.is_ok(), "the second client was not served");
         let mut got = Vec::new();
         first.read_to_end(&mut got).unwrap();
         assert_eq!(super::not_done_reason(&got).as_deref(), Some("no answer"));
+        // The one place is free again. A client that waited for it all this while would have
+        // given up, so the next connects now.
+        let mut second = connect();
+        writeln!(second, "current").unwrap();
+        let second_reply = rx.recv_timeout(five_seconds);
+        assert!(second_reply.is_ok(), "the second client was not served");
         drop((first_reply, second_reply));
         std::fs::remove_file(path).unwrap();
     }
@@ -3606,7 +3819,10 @@ mod tests {
         let (ended_tx, ended) = std::sync::mpsc::channel();
         let wait = std::time::Duration::from_millis(300);
         std::thread::spawn(move || {
-            let place = super::ClientPlace(std::sync::mpsc::channel().0);
+            let place = super::ClientPlace {
+                free: std::sync::mpsc::channel().0,
+                accepted: std::time::Instant::now(),
+            };
             let ctx = eframe::egui::Context::default();
             super::serve(server, place, &tx, &ctx, wait, &super::WAITING_PLACES);
             ended_tx.send(()).unwrap();
@@ -3633,7 +3849,10 @@ mod tests {
         let (ended_tx, ended) = std::sync::mpsc::channel();
         let wait = std::time::Duration::from_millis(300);
         std::thread::spawn(move || {
-            let place = super::ClientPlace(std::sync::mpsc::channel().0);
+            let place = super::ClientPlace {
+                free: std::sync::mpsc::channel().0,
+                accepted: std::time::Instant::now(),
+            };
             let ctx = eframe::egui::Context::default();
             super::serve(server, place, &tx, &ctx, wait, &super::WAITING_PLACES);
             ended_tx.send(()).unwrap();
@@ -4218,7 +4437,10 @@ mod tests {
         tx: &std::sync::mpsc::Sender<super::Sent>,
         ctx: &eframe::egui::Context,
     ) {
-        let place = super::ClientPlace(std::sync::mpsc::channel().0);
+        let place = super::ClientPlace {
+            free: std::sync::mpsc::channel().0,
+            accepted: std::time::Instant::now(),
+        };
         super::serve(stream, place, tx, ctx, super::WAIT, &super::WAITING_PLACES);
     }
 

@@ -762,15 +762,21 @@ fn too_large_animation((w, h): (u32, u32)) -> bool {
     !fits_decode_limit(w, h, 8)
 }
 
+/// Returns how many frames of an animation with a canvas of `w` by `h` are read: at most
+/// `MAX_FRAMES`, and fewer of a large canvas, because each frame is drawn on a whole canvas
+/// however little of it the frame covers.
+fn most_frames((w, h): (u32, u32)) -> usize {
+    let canvas = u64::from(w) * u64::from(h) * 4;
+    (MAX_ANIMATION_CANVAS_BYTES / canvas.max(1)).clamp(1, MAX_FRAMES as u64) as usize
+}
+
 /// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which
 /// `decode` decodes.
 pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     let _job = start_decode_job();
     // One too large is shown by `decode` as a still image, instead of asking for gigabytes here.
-    let (frames, (w, h)) = animated_frames(path)?.ok()?;
-    let canvas = u64::from(w) * u64::from(h) * 4;
-    let most_frames = (MAX_ANIMATION_CANVAS_BYTES / canvas.max(1)).clamp(1, MAX_FRAMES as u64);
-    let most_frames = most_frames as usize;
+    let (frames, canvas) = animated_frames(path)?.ok()?;
+    let most_frames = most_frames(canvas);
     let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
     for frame in frames {
         // A GIF cut short in a download keeps the frames that came, as browsers show them.
@@ -814,10 +820,11 @@ pub fn each_frame(
     {
         return Err(e.clone());
     }
-    if let Some(Ok((frames, _))) = animated {
-        // Only as many frames are given as the view keeps, so an animation of a million frames
-        // is not hours of work and gigabytes of files.
-        for (k, frame) in frames.enumerate().take(MAX_FRAMES) {
+    if let Some(Ok((frames, canvas))) = animated {
+        // Only as many frames are given as the view keeps, so an animation of a million frames,
+        // or of a thousand tiny frames on a large canvas, is not hours of work and gigabytes of
+        // canvases.
+        for (k, frame) in frames.enumerate().take(most_frames(canvas)) {
             if only.is_some_and(|o| k > o) {
                 break;
             }
@@ -2408,12 +2415,13 @@ mod tests {
         gif.push(0x3b);
         std::fs::write(&file, gif).unwrap();
         let (frames, _) = super::animation(&file, [64, 64]).unwrap();
+        // Save This Frame and Export Frames read no more of them than the view.
+        let given = super::each_frame(&file, None, false, |_, _| Ok(())).unwrap();
         std::fs::remove_file(file).unwrap();
         let canvas = 2000 * 2000 * 4;
-        assert_eq!(
-            frames.len() as u64,
-            super::MAX_ANIMATION_CANVAS_BYTES / canvas
-        );
+        let most = super::MAX_ANIMATION_CANVAS_BYTES / canvas;
+        assert_eq!(frames.len() as u64, most);
+        assert_eq!(given as u64, most);
     }
 
     /// A JPEG far larger than the window is decoded scaled, turned upright by its EXIF, with

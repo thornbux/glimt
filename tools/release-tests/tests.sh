@@ -2373,11 +2373,19 @@ with h5py.File(f"{d}/a.h5", "w") as f:
     f.create_virtual_dataset("c_virtual", layout)
     f["d_soft"] = h5py.SoftLink("/a_external")
     f.create_dataset("own", data=numpy.ones((30, 40), numpy.uint8))
+# A group hard-linked into itself, which the old example followed until Python's recursion
+# limit stopped it, or for up to 30 s.
+with h5py.File(f"{d}/loop.h5", "w") as f:
+    g = f.create_group("a_loop")
+    g["self"] = g
+    f.create_dataset("own", data=numpy.ones((30, 40), numpy.uint8))
 PY
 for v in new old; do
     got=$(python3 /t/$v/examples/formats/glimt-hdf5 $d/a.h5 2>&1 | head -c 12 | head -1)
+    loop=$(timeout 30 python3 /t/$v/examples/formats/glimt-hdf5 $d/loop.h5 2>&1 | head -c 12 | head -1)
     if [ $v = new ]; then expect "the file's own dataset, 40 by 30" "$got" "P5 40 30 255"
-    else note "old: $got"; fi
+        expect "a group linked into itself is read once" "$loop" "P5 40 30 255"
+    else note "old: $got; a loop: $loop"; fi
 done
 rm -rf $d
 

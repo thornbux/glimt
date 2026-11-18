@@ -1597,48 +1597,65 @@ fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
     // The offsets count from the index's TIFF header, after its marker, length and "MPF\0".
     let tiff_header = index.from + 8;
     let image_end = walked.image_end?;
-    entries
-        .iter()
-        .skip(1)
-        .find_map(|&[attribute, size, offset]| {
-            let start = tiff_header.checked_add(offset as usize)?;
-            let bytes = data.get(start..start.checked_add(size as usize)?)?;
-            if start < image_end || container_of(bytes) != Some(Container::Jpeg) {
-                return None;
-            }
-            let image = walk_jpeg_segments(bytes)?;
-            let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok());
-            // Each is decided by a property at the top of the gain map's XMP, never by its
-            // namespace found anywhere in the packet, such as in a comment or in xmpMM:Pantry.
-            let properties = xmp.map(|x| crate::metadata::xmp::properties(x).list);
-            let has = |is: &dyn Fn(&str) -> bool| {
-                (properties.iter().flatten()).any(|(name, ..)| is(name))
-            };
-            let is_ultra_hdr = has(&|name| name.starts_with("hdrgm:"));
-            let is_apple = has(&|name| name == APPLE_GAIN_MAP_VERSION);
-            let is_iso_segment = |p: &Part| {
-                p.bytes.starts_with(&[0xff, 0xe2])
-                    && (p.bytes.get(4..)).is_some_and(|b| b.starts_with(ISO_GAIN_MAP_NAME))
-            };
-            let is_iso = image.parts.iter().any(is_iso_segment);
-            let attributes = [entries[0][0], attribute];
-            (is_ultra_hdr || is_iso || is_apple).then_some(GainMap {
-                image,
-                attributes,
-                is_apple,
-            })
+    images_after(data, &entries, tiff_header, image_end).find_map(|(attribute, bytes)| {
+        let image = walk_jpeg_segments(bytes)?;
+        let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok());
+        // Each is decided by a property at the top of the gain map's XMP, never by its
+        // namespace found anywhere in the packet, such as in a comment or in xmpMM:Pantry.
+        let properties = xmp.map(|x| crate::metadata::xmp::properties(x).list);
+        let has =
+            |is: &dyn Fn(&str) -> bool| (properties.iter().flatten()).any(|(name, ..)| is(name));
+        let is_ultra_hdr = has(&|name| name.starts_with("hdrgm:"));
+        let is_apple = has(&|name| name == APPLE_GAIN_MAP_VERSION);
+        let is_iso_segment = |p: &Part| {
+            p.bytes.starts_with(&[0xff, 0xe2])
+                && (p.bytes.get(4..)).is_some_and(|b| b.starts_with(ISO_GAIN_MAP_NAME))
+        };
+        let is_iso = image.parts.iter().any(is_iso_segment);
+        let attributes = [entries[0][0], attribute];
+        (is_ultra_hdr || is_iso || is_apple).then_some(GainMap {
+            image,
+            attributes,
+            is_apple,
         })
+    })
+}
+
+/// Returns the JPEGs after the main image `data[..image_end]` that the MPF index `entries`
+/// names, whose offsets count from `tiff_header`, each with its attribute. Together they are no
+/// longer than `data`, so a crafted index that names one large region thousands of times is
+/// walked no further than the file is long, and the copy's Stop is not kept waiting.
+fn images_after<'a>(
+    data: &'a [u8],
+    entries: &[[u32; 3]],
+    tiff_header: usize,
+    image_end: usize,
+) -> impl Iterator<Item = (u32, &'a [u8])> {
+    let mut left = data.len();
+    (entries.iter().skip(1)).filter_map(move |&[attribute, size, offset]| {
+        let start = tiff_header.checked_add(offset as usize)?;
+        let bytes = data.get(start..start.checked_add(size as usize)?)?;
+        if start < image_end || container_of(bytes) != Some(Container::Jpeg) {
+            return None;
+        }
+        left = left.checked_sub(bytes.len())?;
+        Some((attribute, bytes))
+    })
 }
 
 /// Walks a JPEG: each segment up to the end of its image (EOI), each scan with its data, and
 /// what follows the image. Bytes between segments that are no marker, which some phones and
 /// editors write, are skipped to the next marker as decoders skip them, and are not copied.
-/// Returns `None` when a segment's length runs past the file.
+/// Returns `None` when a segment's length runs past the file, or after `MAX_JPEG_SEGMENTS`
+/// segments.
 fn walk_jpeg_segments(data: &[u8]) -> Option<Walked<'_>> {
     let mut walked = Walked::new(Container::Jpeg);
     walked.add(data, 0, 2, None);
     let (mut at, mut has_mpf) = (2, false);
     while at < data.len() {
+        if walked.parts.len() > crate::metadata::exif::MAX_JPEG_SEGMENTS {
+            return None;
+        }
         // A marker may follow any number of fill bytes (0xff).
         while data.get(at) == Some(&0xff) && data.get(at + 1) == Some(&0xff) {
             at += 1;
@@ -1667,7 +1684,12 @@ fn walk_jpeg_segments(data: &[u8]) -> Option<Walked<'_>> {
         }
         if marker == 0xda {
             let scan_end = entropy_end(data, end);
-            walked.add(data, at, scan_end, None);
+            let bytes = tables_only(data, at, end, scan_end);
+            walked.parts.push(Part {
+                bytes,
+                from: at,
+                tag: None,
+            });
             at = scan_end;
             continue;
         }
@@ -1747,11 +1769,76 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
         // tables (DHT, DAC, DQT), the restart interval (DRI), the number of lines (DNL), which
         // gives the height when the frame says 0, and hierarchical JPEG's DHP and EXP. A tagged
         // marker after the first scan is never listed, so it would go from every copy.
-        0xc0..=0xc7 | 0xc9..=0xcf | 0xdb..=0xdf => None,
+        0xc0..=0xc7 | 0xc9..=0xcf | 0xdb..=0xdf => {
+            return walked.parts.push(Part {
+                bytes: tables_only(data, at, end, end),
+                from: at,
+                tag: None,
+            });
+        }
         // Any other marker (JPG0 to JPG13, the reserved ones) can hold any text.
         _ => Some(format!("JPEG marker 0x{marker:02x}")),
     };
     walked.add(data, at, end, tag.as_deref());
+}
+
+/// Returns the JPEG segment `data[at..end]`, a frame, scan header or tables that every copy
+/// keeps, cut to what its tables describe, and followed by `data[end..to]` (a scan's data).
+/// Bytes after the tables, inside the segment's length, are left out, as they would be carried
+/// with no tag to leave out.
+fn tables_only(data: &[u8], at: usize, end: usize, to: usize) -> Cow<'_, [u8]> {
+    let (marker, body) = (data[at + 1], &data[at + 4..end]);
+    let described = tables_length(marker, body);
+    match described < body.len() {
+        true => Cow::Owned(
+            [
+                &jpeg_segment(marker, &body[..described])[..],
+                &data[end..to],
+            ]
+            .concat(),
+        ),
+        false => Cow::Borrowed(&data[at..to]),
+    }
+}
+
+/// Returns how many bytes of `body`, the contents of a JPEG segment with `marker`, its tables
+/// describe, by ITU T.81 (B.2 and B.3), and at most `body.len()`. A table that does not fit
+/// whole, or whose kind no decoder knows, is no table, and it and what follows are not counted.
+fn tables_length(marker: u8, body: &[u8]) -> usize {
+    let at = |i: usize| body.get(i).copied().map_or(0, usize::from);
+    let fixed = match marker {
+        0xdb | 0xc4 | 0xcc => None,
+        // DNL and DRI hold two bytes, and EXP one.
+        0xdc | 0xdd => Some(2),
+        0xdf => Some(1),
+        // SOS holds the number of components, two bytes for each, and three more.
+        0xda => Some(1 + 2 * at(0) + 3),
+        // SOFn and DHP hold six bytes, and three for each component.
+        _ => Some(6 + 3 * at(5)),
+    };
+    if let Some(fixed) = fixed {
+        return fixed.min(body.len());
+    }
+    // Returns the length of the table that starts at `i`, or `None` for no table.
+    let table = |i: usize| match marker {
+        // DQT: a byte of precision and number, and 64 values of one or two bytes.
+        0xdb => (at(i) >> 4 <= 1).then(|| 1 + 64 * (1 + (at(i) >> 4))),
+        // DHT: a byte of class and number, 16 counts, and as many values as they count.
+        0xc4 => {
+            let counts = body.get(i + 1..i + 17)?;
+            (at(i) >> 4 <= 1).then(|| 17 + counts.iter().map(|&n| usize::from(n)).sum::<usize>())
+        }
+        // DAC: two bytes for each table.
+        _ => Some(2),
+    };
+    let mut length = 0;
+    while let Some(next) = table(length).map(|t| length + t) {
+        if next > body.len() {
+            break;
+        }
+        length = next;
+    }
+    length
 }
 
 /// Adds a JPEG's JFIF segment `data[at..end]` to `walked`. Its header decides how the image is
@@ -4029,5 +4116,81 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Text hidden after the tables inside a frame, a scan header or a table segment, which
+    /// every copy keeps, is left out of the copy, also of one that keeps no tag, and the copy
+    /// decodes to the same pixels. Before, a segment was copied as long as its length said.
+    #[test]
+    fn text_after_a_segments_tables_is_left_out() {
+        let dir = folder("aftertables");
+        let mut original = Vec::new();
+        let pixels = image::RgbImage::from_fn(16, 16, |x, y| image::Rgb([x as u8 * 9, y as u8, 7]));
+        image::codecs::jpeg::JpegEncoder::new(&mut original)
+            .encode_image(&pixels)
+            .unwrap();
+        let clean = original.clone();
+        let hidden = |marker: u8| format!("SECRET-AFTER-{marker:02x}").into_bytes();
+        for marker in [0xdb, 0xc0, 0xc4, 0xda] {
+            let at = original
+                .windows(2)
+                .position(|w| w == [0xff, marker])
+                .unwrap();
+            let len = u16::from_be_bytes([original[at + 2], original[at + 3]]) as usize;
+            let text = hidden(marker);
+            let new_len = (len + text.len()) as u16;
+            original[at + 2..at + 4].copy_from_slice(&new_len.to_be_bytes());
+            original.splice(at + 2 + len..at + 2 + len, text);
+        }
+        let path = dir.join("tables.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let copy = super::copy(&path, &std::collections::HashSet::new())
+            .unwrap()
+            .unwrap();
+        let has = |bytes: &[u8], text: &[u8]| bytes.windows(text.len()).any(|w| w == text);
+        for marker in [0xdb, 0xc0, 0xc4, 0xda] {
+            assert!(has(&original, &hidden(marker)));
+            assert!(!has(&copy, &hidden(marker)), "{marker:02x}");
+        }
+        let decoded = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgb8();
+        assert!(decoded(&clean) == decoded(&copy));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A JPEG of more segments than `MAX_JPEG_SEGMENTS`, tiny ones that a crafted file holds by
+    /// the million, is not walked to its end into a list many times its size.
+    #[test]
+    fn a_jpeg_of_too_many_segments_is_not_walked() {
+        let segments = crate::metadata::exif::MAX_JPEG_SEGMENTS + 10;
+        let mut data = vec![0xff, 0xd8];
+        data.extend([0xff, 0xfe, 0, 2].repeat(segments));
+        data.extend([0xff, 0xd9]);
+        assert!(super::walk_jpeg_segments(&data).is_none());
+        let fewer = [
+            &[0xff, 0xd8][..],
+            &[0xff, 0xfe, 0, 2].repeat(1000),
+            &[0xff, 0xd9],
+        ]
+        .concat();
+        assert!(super::walk_jpeg_segments(&fewer).is_some());
+    }
+
+    /// An MPF index that names one large region thousands of times has its images walked no
+    /// further than the file is long. Before, each entry walked the region again, for minutes.
+    #[test]
+    fn images_after_the_main_one_are_walked_once_at_most() {
+        let mut data = vec![0xff, 0xd8, 0xff, 0xd9];
+        let image_end = data.len();
+        data.extend([0xff, 0xd8, 0xff, 0xd9]);
+        data.resize(1000, 0);
+        let region = [0, 996, image_end as u32];
+        let entries = [[0, 4, 0]]
+            .into_iter()
+            .chain(std::iter::repeat_n(region, 4000));
+        let entries: Vec<_> = entries.collect();
+        let walked: usize = super::images_after(&data, &entries, 0, image_end)
+            .map(|(_, bytes)| bytes.len())
+            .sum();
+        assert!(walked > 0 && walked <= data.len(), "{walked}");
     }
 }

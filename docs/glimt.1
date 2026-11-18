@@ -187,8 +187,9 @@ refused while a dialog asks the user or a text field has the focus, or by a kios
 .BR fullscreen ),
 or with no
 image to act on, a command that waited (for a folder being opened or read, or a dialog) until
-its time ran out, which is then never done, or a command that window does not know, as an
-older Glimt; the reason is printed on standard error. A Glimt older than
+its time ran out, which is then never done, a command that window does not know, as an
+older Glimt, or a line sent by another program that is too long or cut off by the time limit;
+the reason is printed on standard error. A Glimt older than
 0.76.0 answers nothing to a command, which counts as done.
 .TP
 .BI \-\-remote\-all " COMMAND"
@@ -412,7 +413,7 @@ or
 what came is printed and the exit status is 3.
 .TP
 .BI select " PATH ..."
-Select these files of the list (at most 100,000) and show the first; print those that are not
+Select these files of the list (at most 100,000, and 64 MB of paths) and show the first; print those that are not
 in it. Sent right after
 .BR open ,
 it waits until the folder is read, up to nine seconds; after that, or when the window closes
@@ -422,7 +423,7 @@ selected and every path is printed. It only selects: deleting or moving is left 
 .TP
 .BI info " [FILE ...]"
 Print what Glimt knows about the image shown, or about the files named, listed or not (at most
-100,000). Each file is a record of lines of a key, a tab and a value, and a blank line ends it.
+100,000, and 64 MB of paths). Each file is a record of lines of a key, a tab and a value, and a blank line ends it.
 The keys are always all there, in this order, with an empty value where the file has none:
 .BR path ,
 .B size
