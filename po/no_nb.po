@@ -2884,8 +2884,8 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "«{name}»: et {kind}-filsystem, som på minnekortet i et kamera, tillater ingen av : ? * \" < > | \\ i et navn. Ingenting fikk nytt navn."
 
 #: src/files/file_ops.rs
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "Papirkurven tok ikke imot {count} ({kind}). Ingenting ble slettet, fordi lista ikke viser det lenger."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "Papirkurven tok ikke imot {count} ({kind}) som lista ikke lenger viser. Ingenting ble slettet."
 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."

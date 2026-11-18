@@ -3590,8 +3590,8 @@ msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, 
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "Il cestino ha rifiutato {count} ({kind}). Non è stato eliminato nulla, perché l'elenco non lo mostra più."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "Il cestino ha rifiutato {count} ({kind}) che l'elenco non mostra più. Non è stato eliminato nulla."
 
 #: src/ui/dialogs.rs
 #, fuzzy

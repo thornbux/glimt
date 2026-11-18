@@ -3601,8 +3601,8 @@ msgstr "«{name}»: eit {kind}-filsystem, som på minnekortet i eit kamera, till
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "Papirkorga tok ikkje imot {count} ({kind}). Ingenting vart sletta, fordi lista ikkje viser det lenger."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "Papirkorga tok ikkje imot {count} ({kind}) som lista ikkje lenger viser. Ingenting vart sletta."
 
 #: src/ui/dialogs.rs
 #, fuzzy

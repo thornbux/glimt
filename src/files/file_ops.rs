@@ -1151,7 +1151,7 @@ impl crate::App {
         let left = files.len() - names.len();
         if left > 0 {
             self.notice.give(tf!(
-                "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it.",
+                "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted.",
                 count = count(left, "file"),
                 kind
             ));
@@ -3931,7 +3931,8 @@ mod tests {
 
     /// A file the trash refused that the list no longer shows is told of without a cause the
     /// notice cannot know. Before, it said that another folder was open, also when the same
-    /// folder was open and only Include Subfolders had been turned off.
+    /// folder was open and only Include Subfolders had been turned off. The text holds no "it",
+    /// so it reads right for one file and for many.
     #[test]
     fn a_refused_file_the_list_no_longer_shows_names_no_false_cause() {
         let dir = contract_folder("refused-not-listed");
@@ -3941,7 +3942,10 @@ mod tests {
         let seen = crate::files::file_io::fingerprint(&hidden).unwrap();
         app.ask_delete_instead("cifs".to_owned(), &[(hidden, seen)]);
         let told = app.notice.text().unwrap_or_default().to_owned();
-        assert!(told.contains("the list no longer shows it"), "{told}");
+        assert!(
+            told.contains("that the list no longer shows. Nothing was deleted."),
+            "{told}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

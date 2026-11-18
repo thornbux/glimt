@@ -3601,8 +3601,8 @@ msgstr "“{name}”: um sistema de arquivos {kind}, como o de um cartão de câ
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "A lixeira recusou {count} ({kind}). Nada foi excluído, porque a lista não o mostra mais."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "A lixeira recusou {count} ({kind}) que a lista não mostra mais. Nada foi excluído."
 
 #: src/ui/dialogs.rs
 #, fuzzy

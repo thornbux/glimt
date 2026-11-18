@@ -3590,8 +3590,8 @@ msgstr "»{name}«: et {kind}-filsystem, som på hukommelseskortet i et kamera, 
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "Papirkurven tog ikke imod {count} ({kind}). Intet blev slettet, fordi listen ikke længere viser det."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "Papirkurven tog ikke imod {count} ({kind}), som listen ikke længere viser. Intet blev slettet."
 
 #: src/ui/dialogs.rs
 #, fuzzy

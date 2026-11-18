@@ -3590,8 +3590,8 @@ msgstr "“{name}”: een {kind}-bestandssysteem, zoals op de geheugenkaart van 
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "De prullenbak weigerde {count} ({kind}). Er is niets verwijderd, omdat de lijst het niet meer toont."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "De prullenbak weigerde {count} ({kind}) die de lijst niet meer toont. Er is niets verwijderd."
 
 #: src/ui/dialogs.rs
 #, fuzzy

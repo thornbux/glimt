@@ -3590,8 +3590,8 @@ msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, le
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "Ruslið tók ekki við þessum skrám ({kind}): {count}. Engu var eytt, því listinn sýnir það ekki lengur."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "Ruslið tók ekki við skrám sem listinn sýnir ekki lengur ({kind}): {count}. Engu var eytt."
 
 #: src/ui/dialogs.rs
 #, fuzzy
