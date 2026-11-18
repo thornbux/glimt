@@ -79,8 +79,11 @@ fn thumbnail_in(
         && !path.starts_with(cache)
     {
         match &made {
+            // Not told: a thumbnail not saved to the shared cache is made again next time,
+            // and a cache that cannot be written would otherwise be told at every image.
             Ok(img) if rotate => drop(write_thumbnail(file, img, &uri, stamp)),
             Ok(_) => {}
+            // Not told: the failure mark is made again next time, as the thumbnail above is.
             Err(e) if should_mark_failed(path, e) => drop(write_thumbnail(
                 failed,
                 &image::RgbaImage::new(1, 1),

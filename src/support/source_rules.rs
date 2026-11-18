@@ -530,6 +530,50 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("viewer/view.rs", "wheel"),            // wheel_notches
 ];
 
+/// The raw changes on the disk and image encodes that `dropped_writes_in` finds dropped.
+/// `create(` is any create, by its path or its receiver: `File::create`, and `DirBuilder`'s,
+/// which makes a folder as `create_dir_all` does.
+const RAW_WRITES: [&str; 13] = [
+    "create(",
+    "create_buffered(",
+    "remove_file(",
+    "remove_dir(",
+    "remove_dir_all(",
+    "create_dir(",
+    "create_dir_all(",
+    "set_permissions(",
+    "hard_link(",
+    "fs::symlink(",
+    "encode_image(",
+    "write_image(",
+    "write_to(",
+];
+/// The writers of file_io and the crate whose results `dropped_writes_in` finds dropped,
+/// besides the crate's functions that pass one of these on (`writers_through_wrappers`).
+const FILE_IO_WRITERS: [&str; 18] = [
+    // collections::edit and edit_open_collection, which write through replace_name.
+    "edit(",
+    "edit_open_collection(",
+    "sync_folder_of(",
+    "sync_folder(",
+    "write_beside_without_folder_sync(",
+    "write_beside_without_sync(",
+    "sync_file_system_of(",
+    "rename_never_over(",
+    "put_file(",
+    "edit_shared(",
+    "replace_file(",
+    "replace_existing(",
+    "replace_name(",
+    "replace_name_with(",
+    "replace_what_was_read(",
+    "write_beside(",
+    "create_file(",
+    // A removal of Glimt's own plan, log or state file, which the next start would act on
+    // again if it stayed.
+    "remove_own(",
+];
+
 /// The calls that clippy.toml refuses (`disallowed-methods`), each kept there: the rules of
 /// AGENTS.md on touching the disk, starting programs, decoding, locks and drawing a button
 /// rest on them, so a line taken out of clippy.toml fails `the_lints_stay_on`.
@@ -547,6 +591,9 @@ const REFUSED_CALLS: &[&str] = &[
     "std::fs::write",
     "std::fs::File::create",
     "std::fs::File::create_new",
+    "std::fs::File::create_buffered",
+    "std::fs::File::open_buffered",
+    "std::fs::exists",
     "std::fs::OpenOptions::open",
     "std::fs::rename",
     "std::fs::copy",
@@ -5115,7 +5162,8 @@ fn drops_the_error_of_a_look(statement: &str) -> bool {
     let guesses_without_error = ["let Ok(", "Err(_", "Err(..)", "_ =>"]
         .iter()
         .any(|c| statement.contains(c));
-    ["metadata(", "try_exists("].iter().any(|look| {
+    // `exists(` is `std::fs::exists`, by its path or imported, a yes or no as `try_exists` is.
+    ["metadata(", "try_exists(", "exists("].iter().any(|look| {
         (statement.match_indices(look)).any(|(at, found)| {
             let before = &statement[..at];
             if before.ends_with(is_word_char) && !before.ends_with("symlink_") {
@@ -5136,7 +5184,7 @@ fn drops_the_error_of_a_look(statement: &str) -> bool {
             // `.ok()?` passes the failure on as `None`.
             let chained: String = after.chars().filter(|c| !c.is_whitespace()).collect();
             !(chained.starts_with('?') || chained.starts_with(".ok()?"))
-                && (*look == "try_exists(" || asks_the_result(after) || guesses_without_error)
+                && (look.ends_with("exists(") || asks_the_result(after) || guesses_without_error)
         })
     })
 }
@@ -5182,14 +5230,17 @@ fn asks_a_path_its_kind(line: &str, carried: &str) -> bool {
 /// metadata read that passes its error on, and `try_exists`, whose `Ok(false)` is NotFound only.
 /// A `let Ok(…) = metadata(…) else`, which takes every failed look for no file, is found too:
 /// `create_temp_beside` made a new file so, without the mode of the file it replaced.
+/// `std::fs::exists` turned into a yes or no is found as `try_exists` is, which before passed.
 #[test]
 fn finds_a_look_that_guesses() {
     let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
         .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
         files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
         let m = std::fs::metadata(p)?;\n    p.try_exists()?;\n    \
-        let Ok(old) = std::fs::metadata(p) else {\n    if let Ok(m) = p.metadata() {}\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3, 5, 6, 10, 11]);
+        let Ok(old) = std::fs::metadata(p) else {\n    if let Ok(m) = p.metadata() {}\n    \
+        if !std::fs::exists(&p).unwrap_or(false) {}\n    let t = exists(p)?;\n    \
+        let u = fs::exists(p).is_ok_and(|b| b);\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 5, 6, 10, 11, 12, 14]);
 }
 
 /// The check above finds a look whose failure is taken for "no link" or "neither a file nor a
@@ -5862,46 +5913,7 @@ fn finds_an_allow_without_its_reason() {
 /// so is found too, unless a comment in the statement or in the comment lines just above it
 /// says why its failure is not told, with "Not told:". An encoder's failure dropped left a
 /// printed page blank without a word.
-fn dropped_writes_in(text: &str) -> Vec<usize> {
-    // `create(` is any create, by its path or its receiver: `File::create`, and `DirBuilder`'s,
-    // which makes a folder as `create_dir_all` does.
-    const RAW_WRITES: [&str; 12] = [
-        "create(",
-        "remove_file(",
-        "remove_dir(",
-        "remove_dir_all(",
-        "create_dir(",
-        "create_dir_all(",
-        "set_permissions(",
-        "hard_link(",
-        "fs::symlink(",
-        "encode_image(",
-        "write_image(",
-        "write_to(",
-    ];
-    const WRITERS: [&str; 18] = [
-        // collections::edit and edit_open_collection, which write through replace_name.
-        "edit(",
-        "edit_open_collection(",
-        "sync_folder_of(",
-        "sync_folder(",
-        "write_beside_without_folder_sync(",
-        "write_beside_without_sync(",
-        "sync_file_system_of(",
-        "rename_never_over(",
-        "put_file(",
-        "edit_shared(",
-        "replace_file(",
-        "replace_existing(",
-        "replace_name(",
-        "replace_name_with(",
-        "replace_what_was_read(",
-        "write_beside(",
-        "create_file(",
-        // A removal of Glimt's own plan, log or state file, which the next start would act on
-        // again if it stayed.
-        "remove_own(",
-    ];
+fn dropped_writes_in(text: &str, wrappers: &[String]) -> Vec<usize> {
     const KEYWORDS: [&str; 7] = ["if", "while", "match", "return", "let", "else", "for"];
     let lines = code_lines(text);
     let comments = comment_lines(text);
@@ -5928,10 +5940,14 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                 found.push(line);
             }
             let is_writer = |writer: &&str| words.contains(writer);
+            let is_wrapper = |wrapper: &String| mentions_call(words, wrapper);
             match c {
                 '{' => {
                     depth += 1;
-                    if words.starts_with("if let Ok(") && WRITERS.iter().any(is_writer) {
+                    if words.starts_with("if let Ok(")
+                        && (FILE_IO_WRITERS.iter().any(is_writer)
+                            || wrappers.iter().any(is_wrapper))
+                    {
                         if_ok_blocks.push((depth, first_line));
                     }
                 }
@@ -5961,10 +5977,14 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                     .unwrap_or(first_line.saturating_sub(1));
                 (above..=i).any(|j| comments.get(j).is_some_and(|c| c.contains("Not told:")))
             };
-            let drops_a_raw_write = (dropped && RAW_WRITES.iter().any(is_writer))
-                || RAW_WRITES.iter().any(|w| is_dropped(words, w));
-            if (dropped && WRITERS.iter().any(is_writer))
-                || WRITERS.iter().any(|w| is_dropped(words, w))
+            // A wrapper of the crate's is held as a raw write is: a comment may say why its
+            // failure is not told, as for a thumbnail of the shared cache.
+            let drops_a_raw_write = (dropped
+                && (RAW_WRITES.iter().any(is_writer) || wrappers.iter().any(is_wrapper)))
+                || RAW_WRITES.iter().any(|w| is_dropped(words, w))
+                || wrappers.iter().any(|w| is_dropped(words, w));
+            if (dropped && FILE_IO_WRITERS.iter().any(is_writer))
+                || FILE_IO_WRITERS.iter().any(|w| is_dropped(words, w))
                 || (drops_a_raw_write && !says_why())
             {
                 found.push(first_line);
@@ -5973,6 +5993,44 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         }
     }
     found
+}
+
+/// Returns the calls (`name(`) of the crate's functions outside the tests that return a
+/// `Result` with nothing in it but the outcome (`Result<()`, `Result<(), E>`) and make a write
+/// of `FILE_IO_WRITERS` or `RAW_WRITES`, or call another such function, so that a wrapper such
+/// as `trash::trash` or a thumbnail's write is held as its writer is. Before, a writer had to
+/// be listed by hand, and a dropped `write_picked_name`, `put_file_back` or `trash` passed.
+fn writers_through_wrappers(sources: &[(String, String)]) -> Vec<String> {
+    let mut functions = Vec::new();
+    for (file, text) in sources {
+        let lines = code_lines(text);
+        for f in functions_in(file, &lines) {
+            let body: Vec<&String> = lines[f.lines.clone()].iter().collect();
+            let signature_end = body.iter().position(|l| l.contains('{')).unwrap_or(0);
+            // A result that holds a value, such as the lock file of `open_and_lock`, is kept for
+            // that value, and its name bound only to hold it is no dropped write.
+            let returns_result = (body[..=signature_end].iter())
+                .any(|l| l.contains("Result<()") || l.contains("Result<(),"));
+            if returns_result {
+                let body = body[signature_end + 1..].iter().map(|l| l.as_str());
+                functions.push((format!("{}(", f.name), body.collect::<Vec<_>>().join("\n")));
+            }
+        }
+    }
+    let mut writers: Vec<String> = Vec::new();
+    loop {
+        let known = writers.len();
+        for (call, body) in &functions {
+            let is_writer = (RAW_WRITES.iter().chain(&FILE_IO_WRITERS)).any(|w| body.contains(w))
+                || writers.iter().any(|w| mentions_call(body, w));
+            if is_writer && !writers.contains(call) {
+                writers.push(call.clone());
+            }
+        }
+        if writers.len() == known {
+            return writers;
+        }
+    }
 }
 
 /// Returns `statement` without the attributes in front of it (`#[allow(…)]`, `#[cfg(…)]`), so
@@ -6089,10 +6147,11 @@ fn is_dropped(statement: &str, writer: &str) -> bool {
 /// themselves.
 #[test]
 fn write_results_are_not_dropped() {
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
+    let (mut wrong, sources) = (Vec::new(), rust_sources());
+    let wrappers = writers_through_wrappers(&sources);
+    for (file, text) in &sources {
         wrong.extend(
-            dropped_writes_in(&text)
+            dropped_writes_in(text, &wrappers)
                 .iter()
                 .map(|line| format!("{file}:{line}")),
         );
@@ -6123,12 +6182,12 @@ fn finds_a_dropped_write() {
         if let Ok(()) = replace_file(p, b) {\n        noted();\n    } else {\n        \
         say();\n    }\n    let n = text.len().unwrap_or_default();\n}\n";
     assert_eq!(
-        dropped_writes_in(text),
+        dropped_writes_in(text, &[]),
         [2, 3, 4, 6, 14, 15, 20, 23, 26, 27]
     );
     // A removal of Glimt's own file, whose failure must be told too.
     let removals = "fn a() {\n    let _ = remove_own(plan);\n    remove_own_or_tell(plan);\n}\n";
-    assert_eq!(dropped_writes_in(removals), [2]);
+    assert_eq!(dropped_writes_in(removals, &[]), [2]);
     // A raw change on the disk, dropped in each form, unless a comment says why it is not told.
     let raw = "fn a() {\n    let _ = std::fs::remove_file(p);\n    \
         drop(std::fs::create_dir_all(d));\n    std::fs::set_permissions(p, m).ok();\n    \
@@ -6141,11 +6200,11 @@ fn finds_a_dropped_write() {
         let _ = std::fs::remove_file(plan);\n    #[cfg(unix)]\n    \
         let _ = replace_file(p, b);\n    #[allow(clippy::disallowed_methods)]\n    \
         // Not told: a folder of its own\n    let _ = std::fs::remove_dir_all(d);\n}\n";
-    assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9, 10, 12]);
+    assert_eq!(dropped_writes_in(raw, &[]), [2, 3, 4, 9, 10, 12]);
     // A folder made with a DirBuilder, by its path or through a name, over several lines.
     let builder = "fn a() {\n    let _ = std::fs::DirBuilder::new()\n        .recursive(true)\n        \
         .create(d);\n    let b = DirBuilder::new();\n    b.create(d).ok();\n}\n";
-    assert_eq!(dropped_writes_in(builder), [2, 6]);
+    assert_eq!(dropped_writes_in(builder, &[]), [2, 6]);
     // A statement that ends in a method that takes no error, and a `_name` used only in another
     // function, which before passed. A closure that names the error passes.
     let more = "fn a() {\n    \
@@ -6155,7 +6214,27 @@ fn finds_a_dropped_write() {
         replace_file(p, b).unwrap_or_else(|e| save_failed(e));\n    \
         let _done = replace_file(p, b);\n    if a == b {\n        tell(replace_file(p, b));\n    \
         }\n}\nfn b() {\n    say(_done);\n}\n";
-    assert_eq!(dropped_writes_in(more), [2, 3, 4, 6]);
+    assert_eq!(dropped_writes_in(more, &[]), [2, 3, 4, 6]);
+}
+
+/// The check above finds a dropped write through a function of the crate that passes a writer's
+/// result on, also through two of them, and leaves a function that writes nothing or returns
+/// no result. Before, `drop(write_thumbnail(…))` and `let _ = trash::trash(&paths)` passed.
+#[test]
+fn finds_a_write_dropped_through_a_wrapper() {
+    let library = "pub fn trash(p: &[PathBuf]) -> Result<(), String> {\n    \
+        put_file(a, b, false).map_err(|e| e.to_string())\n}\nfn thumb(p: &Path)\n    \
+        -> std::io::Result<()> {\n    write_beside_without_folder_sync(p, b)\n}\n\
+        fn outer() -> std::io::Result<()> {\n    thumb(p)\n}\n\
+        fn count() -> Result<usize, ()> {\n    Ok(1)\n}\n\
+        fn opened() -> Result<File> {\n    o.create(true).open(p)\n}\nfn quiet() {\n    let _ = 1;\n}\n";
+    let wrappers = writers_through_wrappers(&[("lib.rs".to_string(), library.to_string())]);
+    assert_eq!(wrappers, ["trash(", "thumb(", "outer("]);
+    let text = "fn a() {\n    let _ = trash::trash(&paths);\n    drop(thumb(p));\n    \
+        outer().ok();\n    let _ = count();\n    let _ = move_to_trash_bin(p);\n    \
+        trash(&paths)?;\n    let _held = opened();\n    \
+        drop(thumb(p)); // Not told: a cache that others fill too\n}\n";
+    assert_eq!(dropped_writes_in(text, &wrappers), [2, 3, 4]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
