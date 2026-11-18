@@ -722,6 +722,9 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     // A script or a music player may write the file after it is read here, and its change is
     // then not written over (`replace_what_was_read`).
     let read = crate::files::file_io::fingerprint_if_there(file)?;
+    // Through a link, the list is read from the file the link points to, which the link's own
+    // fingerprint does not show. That file's is taken too, and looked at again before the write.
+    let target_read = crate::files::file_io::fingerprint_of_file_read(file);
     let (text, was_new) = match crate::images::decode::read_limited(file) {
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
         read => (read?, false),
@@ -757,6 +760,10 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     match was_new {
         true => crate::files::file_io::create_file(file, out),
         false => {
+            let is_link = crate::files::file_io::is_link(file)?;
+            if is_link && crate::files::file_io::fingerprint_of_file_read(file) != target_read {
+                return Err(crate::files::file_io::changed_meanwhile());
+            }
             let write = |f: &mut std::fs::File| std::io::Write::write_all(f, &out);
             crate::files::file_io::replace_what_was_read(file, read, write)
         }
@@ -944,6 +951,29 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 
 #[cfg(test)]
 mod tests {
+    /// A collection that is a link, whose target another program writes between Glimt's read
+    /// and its write, is not written: the change since the read would be lost from the list
+    /// Glimt shows. Before, only the link's own fingerprint was looked at, which such a write
+    /// does not change.
+    #[test]
+    fn a_linked_collection_changed_meanwhile_is_not_written() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-linked-gqv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (target, link) = (dir.join("target.gqv"), dir.join("link.gqv"));
+        std::fs::write(&target, "\"/a.png\"\n").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let edited = super::edit(&link, false, |all| {
+            std::fs::write(&target, "\"/a.png\"\n\"/other.png\"\n").unwrap();
+            all.push("/b.png".into());
+        });
+        assert!(edited.is_err());
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        let kept = std::fs::read_to_string(&target).unwrap();
+        assert!(kept.contains("other.png"), "{kept}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Move Collection to Trash, answered after another file took the collection file's name,
     /// leaves that file where it is.
     #[test]
