@@ -4037,6 +4037,10 @@ msgstr "não se sabe se a imagem foi gravada, e seu arquivo XMP associado {sidec
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "não se sabe se a cópia ficou com o nome, então o arquivo XMP associado do arquivo que estava lá ficou como {aside}; se esse arquivo ainda estiver lá, devolva ao arquivo XMP associado o nome {sidecar}"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "não se sabe se a cópia ficou com o nome, então as marcas e estrelas do arquivo que estava lá ficaram no nome; se a cópia ficou com ele, elas não são da cópia"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

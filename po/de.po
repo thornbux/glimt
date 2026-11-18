@@ -4026,6 +4026,10 @@ msgstr "es ist nicht bekannt, ob das Bild geschrieben wurde, und seine Begleitda
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "es ist nicht bekannt, ob die Kopie den Namen bekommen hat, daher blieb die Begleitdatei der Datei dort als {aside} liegen; ist diese Datei noch da, gib ihrer Begleitdatei den Namen {sidecar} zurück"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "es ist nicht bekannt, ob die Kopie den Namen bekommen hat, daher blieben die Markierungen und Sterne der Datei dort beim Namen; hat die Kopie ihn bekommen, gehören sie nicht zur Kopie"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

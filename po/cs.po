@@ -4048,6 +4048,10 @@ msgstr "není známo, zda byl obrázek zapsán, a jeho doprovodný soubor {sidec
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "není známo, zda kopie získala název, proto doprovodný soubor tamního souboru zůstal jako {aside}; pokud tam ten soubor stále je, vraťte jeho doprovodnému souboru název {sidecar}"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "není známo, zda kopie získala název, proto značky a hvězdičky tamního souboru zůstaly u názvu; pokud jej kopie získala, nepatří kopii"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

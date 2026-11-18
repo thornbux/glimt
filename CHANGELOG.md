@@ -10,6 +10,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A keyword or alt-text edit no longer holds up other sidecar writes while it reads the image's
   own XMP, and a save after a Rename Many no longer holds up other windows' saves while it looks
   at the photo on a share.
+- Save As over a file writes down the sidecar it sets aside, so that the next start gives it
+  back when Glimt was killed, or a share lost the rename's answer, before the copy took the name.
+- When a share cannot tell whether Save As's copy took the name, the message also says that the
+  replaced file's marks and stars were left at the name.
+- Rename Many's repair after a crash renames nothing when its list of the files cannot be read,
+  rather than renaming by the names alone without checking each file.
 
 ## [0.89.0] - 2026-11-18
 

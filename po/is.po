@@ -4026,6 +4026,10 @@ msgstr "ekki er vitað hvort myndin var skrifuð, og hliðarskráin {sidecar} se
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "ekki er vitað hvort afritið fékk nafnið, svo hliðarskrá skrárinnar þar varð eftir sem {aside}; ef sú skrá er enn þar, gefðu hliðarskránni aftur nafnið {sidecar}"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "ekki er vitað hvort afritið fékk nafnið, svo merki og stjörnur skrárinnar þar urðu eftir á nafninu; ef afritið fékk það eiga þau ekki við afritið"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

@@ -98,6 +98,10 @@ pub(crate) static LOOK_FAILS: std::sync::Mutex<Option<std::path::PathBuf>> =
 // as on a share whose cache still shows a name that the server removed.
 #[cfg(test)]
 thread_local! {
+    // The folder of the delete logs that Save As writes on this thread, as the tests share one
+    // state folder. Without it no log is written in a test.
+    pub(crate) static ASIDE_LOG_DIR: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
     pub(crate) static GONE_FROM_THE_SERVER: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
 }
@@ -809,6 +813,7 @@ pub(crate) fn save_copy_with_sidecar(
         // Another file put at the name since the dialog asked is left alone.
         Some(asked_about) => {
             let aside = crate::files::file_io::tmp_path(&side);
+            let mut aside_log = None;
             let replaced = crate::files::file_io::replace_name_with(
                 new,
                 |f| f.write_all(out),
@@ -822,13 +827,16 @@ pub(crate) fn save_copy_with_sidecar(
                     if crate::files::file_io::is_surely_dir(&side) {
                         return Err(named(std::io::Error::from_raw_os_error(libc::EISDIR)));
                     }
+                    // A kill before the sidecar is back or removed would leave it hidden for
+                    // good, so it is written down first, as a delete for good does.
+                    if !crate::files::file_io::is_surely_gone(&side) {
+                        aside_log = log_set_aside(new, &side, &aside);
+                    }
                     let set_aside = crate::files::file_io::rename_never_over(&side, &aside);
                     let is_set_aside =
                         is_set_aside(set_aside, &side, &aside, needs_no_sidecar_there)?;
                     let (aside, side) = (&aside, &side);
                     // The sidecar is put back, never over one another program wrote meanwhile.
-                    // When the copy may have taken the name, it stays aside, and the user is
-                    // told where.
                     Ok(move |failed| match (is_set_aside, failed) {
                         (true, RenameFailed::NotDone) => {
                             crate::files::file_io::rename_never_over(aside, side).map_err(|e| {
@@ -839,14 +847,10 @@ pub(crate) fn save_copy_with_sidecar(
                                 ))
                             })
                         }
-                        (true, RenameFailed::MayHaveBeenDone) => {
-                            Err(std::io::Error::other(crate::tf!(
-                                "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
-                                aside = aside.display(),
-                                sidecar = side.display()
-                            )))
+                        (false, RenameFailed::NotDone) => Ok(()),
+                        (is_set_aside, RenameFailed::MayHaveBeenDone) => {
+                            Err(left_as_it_is(is_set_aside, aside, side))
                         }
-                        (false, _) => Ok(()),
                     })
                 },
             );
@@ -856,6 +860,11 @@ pub(crate) fn save_copy_with_sidecar(
             // Not told: the replaced file's sidecar left under a hidden name takes no file's
             // place, and the copy is saved.
             let _ = std::fs::remove_file(&aside);
+            // A Save As that fails drops its log instead, which stays for the next start: it
+            // gives the sidecar back when the replaced file is still there as it was.
+            if let Some(log) = aside_log {
+                log.remove_once_forgotten();
+            }
             not_on_disk
         }
         // A file of that name is not touched, nor a sidecar there, because the copy is refused
@@ -876,6 +885,62 @@ pub(crate) fn save_copy_with_sidecar(
         }
     };
     Ok(write_copys_sidecar(new, &side, source, not_on_disk))
+}
+
+/// Returns what Save As tells when it is not known whether the copy took the name of the file
+/// it replaces. Nothing is moved on a guess: the marks and stars of that file stay at the name,
+/// and its sidecar `side`, when it was set aside (`is_set_aside`), stays at the hidden name
+/// `aside`.
+fn left_as_it_is(is_set_aside: bool, aside: &Path, side: &Path) -> std::io::Error {
+    let marks = marks_left_at_the_name();
+    std::io::Error::other(match is_set_aside {
+        true => format!(
+            "{}; {marks}",
+            crate::tf!(
+                "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
+                aside = aside.display(),
+                sidecar = side.display()
+            )
+        ),
+        false => marks.to_owned(),
+    })
+}
+
+/// Returns what Save As tells when it is not known whether the copy took the name of the file
+/// it replaces, whose marks and stars are then left at that name.
+fn marks_left_at_the_name() -> &'static str {
+    tr(
+        "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's",
+    )
+}
+
+/// Writes down in a delete's log, before it is done, that Save As sets `side`, the sidecar of
+/// the file at `new` that it replaces, aside under the hidden name `aside`. The next start
+/// gives it back when Glimt was killed while the file there is still as the log knew it
+/// (`journal::deletes_cut_short`). Returns the log, held until the sidecar is back or removed,
+/// and `None` when it could not be written, which is told, as the Save As goes on without it as
+/// a delete does.
+fn log_set_aside(
+    new: &Path,
+    side: &Path,
+    aside: &Path,
+) -> Option<crate::files::journal::DeleteLog> {
+    #[cfg(not(test))]
+    let dir = crate::files::journal::delete_log_dir()?;
+    #[cfg(test)]
+    let dir = ASIDE_LOG_DIR.with_borrow(Clone::clone)?;
+    let told = |e: std::io::Error| {
+        crate::files::file_io::save_failed(format!("{}: {e}", dir.display()));
+    };
+    let mut log = crate::files::journal::start_delete_log(&dir, None)
+        .map_err(told)
+        .ok()?;
+    log.note(&[new.to_path_buf()]);
+    log.note_aside(new, &[(side.to_path_buf(), aside.to_path_buf())]);
+    if let Some(e) = log.take_failure() {
+        told(e);
+    }
+    Some(log)
 }
 
 /// Writes `xmp`, the sidecar of the image a copy is made from, as `side`, the sidecar of the
@@ -3312,6 +3377,63 @@ mod tests {
             assert_ne!(std::fs::read_to_string(side(&jpeg)).unwrap(), once_turned);
             assert_eq!(std::fs::read(&jpeg).unwrap().len(), image.len());
             std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    /// Save As over a file whose sidecar it set aside, when it is not known whether the copy
+    /// took the name, leaves a delete's log by which the next start gives the sidecar back to
+    /// the file, still there as it was. A kill between the set-aside and the image's rename
+    /// leaves the same log. Before, nothing was written down, and the sidecar stayed under its
+    /// hidden name for good.
+    #[test]
+    fn the_next_start_gives_back_a_sidecar_save_as_left_aside() {
+        use crate::files::file_io::{REPLACE_FAILS, fingerprint};
+        let dir = std::env::temp_dir().join(format!("glimt-save-aside-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let (a, b, logs) = (dir.join("a.png"), dir.join("b.png"), dir.join("deletes"));
+        image::RgbImage::new(8, 8).save(&a).unwrap();
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let side = crate::metadata::xmp::sidecar(&b);
+        std::fs::write(&side, "b's").unwrap();
+        super::ASIDE_LOG_DIR.set(Some(logs.clone()));
+        REPLACE_FAILS.set(Some((b.clone(), libc::EIO)));
+        let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
+        REPLACE_FAILS.set(None);
+        super::ASIDE_LOG_DIR.set(None);
+        assert!(saved.is_err());
+        assert!(!side.exists());
+        let found = crate::files::journal::deletes_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        for (log, gone) in found {
+            assert!(gone.is_empty());
+            log.remove_once_forgotten();
+        }
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "b's");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Save As over a file, when it is not known whether the copy took the name, says that the
+    /// marks and stars of the file there were left at the name, with a sidecar set aside and
+    /// without one. Before, it spoke only of the sidecar, and without one it told nothing.
+    #[test]
+    fn a_save_as_of_unknown_result_tells_where_the_marks_stay() {
+        use crate::files::file_io::{REPLACE_FAILS, fingerprint};
+        let dir = std::env::temp_dir().join(format!("glimt-save-marks-{}", std::process::id()));
+        for has_sidecar in [true, false] {
+            std::fs::create_dir_all(&dir).unwrap();
+            let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+            image::RgbImage::new(8, 8).save(&a).unwrap();
+            image::RgbImage::new(4, 4).save(&b).unwrap();
+            if has_sidecar {
+                std::fs::write(crate::metadata::xmp::sidecar(&b), "b's").unwrap();
+            }
+            REPLACE_FAILS.set(Some((b.clone(), libc::EIO)));
+            let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
+            REPLACE_FAILS.set(None);
+            let told = saved.unwrap_err();
+            assert!(told.contains("marks and stars"), "{has_sidecar}: {told}");
+            std::fs::remove_dir_all(&dir).unwrap();
         }
     }
 

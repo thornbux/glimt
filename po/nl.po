@@ -4026,6 +4026,10 @@ msgstr "het is niet bekend of de afbeelding is geschreven, en het sidecar-bestan
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "het is niet bekend of de kopie de naam heeft gekregen, dus het sidecar-bestand van het bestand daar bleef staan als {aside}; staat dat bestand er nog, geef het sidecar-bestand dan zijn naam {sidecar} terug"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "het is niet bekend of de kopie de naam heeft gekregen, dus de markeringen en sterren van het bestand daar bleven bij de naam; heeft de kopie hem gekregen, dan zijn ze niet van de kopie"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

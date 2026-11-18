@@ -4026,6 +4026,10 @@ msgstr "on ne sait pas si l'image a été écrite, et son fichier annexe {sideca
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "on ne sait pas si la copie a pris le nom, donc le fichier annexe du fichier qui s'y trouvait est resté sous {aside} ; si ce fichier est toujours là, redonnez à son fichier annexe le nom {sidecar}"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "on ne sait pas si la copie a pris le nom, donc les marques et les étoiles du fichier qui s'y trouvait sont restées sur le nom ; si la copie l'a pris, elles ne sont pas celles de la copie"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

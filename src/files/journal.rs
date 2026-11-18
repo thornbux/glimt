@@ -1179,6 +1179,17 @@ fn another_file_at<'a>(
     })
 }
 
+/// Reads the fingerprints of the `steps` files of the plan `plan` from its list. Returns an
+/// empty list when the plan has none, as a plan of a Glimt before the lists has none, and the
+/// error when the list is there but cannot be read. A list that a share could not read, or that
+/// is damaged, is no reason to rename by the names alone, without the check of each file.
+fn read_plan_known(plan: &Path, steps: usize) -> std::io::Result<Vec<Option<FileFingerprint>>> {
+    match crate::images::decode::read_text(known_path(plan)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        read => Ok(parse_known(&read?, steps)),
+    }
+}
+
 /// Returns a name for a new plan or log. It is a name of its own, never one that is there, so a
 /// plan left by a crash, of a Glimt that had the same process ID before a restart, is not
 /// written over and lost.
@@ -1368,8 +1379,13 @@ pub fn repair_cut_short(
     // question waited for "Later") is not taken. Nothing is renamed then, so that a photo and its
     // sidecar are not split, and the plan is asked about again. A sidecar is not looked at, as it
     // follows its photo by name (`known_text`).
-    let known = crate::images::decode::read_text(known_path(plan))
-        .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
+    let known = match read_plan_known(plan, moves.len()) {
+        Ok(known) => known,
+        Err(e) => {
+            crate::files::file_io::save_failed(format!("{}: {e}", known_path(plan).display()));
+            return Some((0, 1));
+        }
+    };
     let taken = match (undo_them, done) {
         (_, _) if known.is_empty() => Vec::new(),
         (true, done) => (0..done.unwrap_or(moves.len()).min(moves.len()))
@@ -1424,9 +1440,11 @@ pub fn names_left(
     undo_them: bool,
 ) -> String {
     use crate::files::file_io::{KnownAs, is_still_the_file};
-    let known = crate::images::decode::read_text(known_path(plan))
-        .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
-    let mut text = String::new();
+    let (known, unread) = match read_plan_known(plan, moves.len()) {
+        Ok(known) => (known, String::new()),
+        Err(e) => (Vec::new(), format!("{}: {e}\n", known_path(plan).display())),
+    };
+    let mut text = unread;
     for (first, now, last, known) in files_of(moves, done, &known) {
         let meant = if undo_them { first } else { last };
         if now == meant || is_surely_gone(now) {
@@ -1473,8 +1491,7 @@ pub fn leave_names(
     // where the file may be there (`is_followed`). Taken from the count alone, a repair that
     // stopped half way gave a photo that went back to its old name the marks of a name where
     // nothing was. The files' fingerprints of the plan tell a photo that went back.
-    let known = crate::images::decode::read_text(known_path(plan))
-        .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
+    let known = read_plan_known(plan, moves.len()).map_err(Some)?;
     let followed = (files_of(moves, done, &known).into_iter())
         .filter(|&(first, now, _, known)| first != now && is_followed((first, now), known))
         .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
@@ -2326,6 +2343,39 @@ mod tests {
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|f| *f != p("b.jpg"));
         assert_eq!(repaired, Some((0, 1)));
         assert_eq!(std::fs::read_to_string(p("b.jpg")).unwrap(), "a");
+        assert_eq!(super::cut_short_plans(&plans).len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A plan whose list of files is there but cannot be read (not UTF-8 here, a share's EIO
+    /// alike) renames nothing and is left as it is, as the files cannot be checked. Before, the
+    /// list counted as none, and the steps were taken by the names alone.
+    #[test]
+    fn a_plans_list_that_cannot_be_read_stops_the_repair() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-unread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        super::rename_step(&moves[0].0, &moves[0].1).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        std::fs::write(super::known_path(&plan), [0xff, 0xfe]).unwrap();
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((0, 1))
+        );
+        assert_eq!(std::fs::read_to_string(p("b.jpg")).unwrap(), "a");
+        let list = super::known_path(&plan).display().to_string();
+        assert!(super::names_left(&plan, &moves, done, true).starts_with(&list));
+        assert!(matches!(
+            super::leave_names(&plan, &moves, done),
+            Err(Some(_))
+        ));
         assert_eq!(super::cut_short_plans(&plans).len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
