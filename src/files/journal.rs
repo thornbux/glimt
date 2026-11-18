@@ -74,7 +74,18 @@ thread_local! {
     // that the note came before the rename and not only before the test's kill.
     pub(crate) static SYNCED_AT_PUT_ASIDE: std::cell::RefCell<Vec<(PathBuf, Vec<PathBuf>)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // The step of `write_untold_names` on this thread after which Glimt is taken to be killed,
+    // so that a test can look at the log at each point a kill may leave it.
+    static KILLED_AFTER_STEP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
+
+/// The names of a delete's log that a start could not tell about, each with its fingerprint
+/// from the log's list of files, and the time of the log (`log_time`), which the log and its
+/// list keep when they are written anew (`DeleteLog::untold_names`).
+type UntoldNames = (
+    std::time::SystemTime,
+    Vec<(PathBuf, Option<FileFingerprint>)>,
+);
 
 /// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
@@ -254,6 +265,10 @@ pub struct DeleteLog {
     /// the rename that hides it or gives it back failed (`keep_for_a_later_start`). Such a log
     /// stays on disk for a later start.
     has_names_left: bool,
+    /// The names that a start could not tell about, when the log holds more. The log and its
+    /// list are written anew with only these as the log is let go, so that a later start does
+    /// not look again at every name that this one could tell about.
+    untold_names: Option<UntoldNames>,
 }
 
 impl DeleteLog {
@@ -394,7 +409,15 @@ impl DeleteLog {
     /// forgets again only the marks of the names that are surely gone then.
     pub fn remove_once_forgotten(self) {
         if self.has_names_left {
-            crate::files::file_io::write_later(move || drop(self.file));
+            let (path, file, untold_names) = (self.path, self.file, self.untold_names);
+            crate::files::file_io::write_later(move || {
+                if let Some((time, untold_names)) = untold_names
+                    && let Err(e) = write_untold_names(&path, &file, &untold_names, time)
+                {
+                    crate::files::file_io::save_failed(format!("{}: {e}", path.display()));
+                }
+                drop(file);
+            });
         } else {
             remove_after_the_writes(self.path, self.file);
         }
@@ -515,6 +538,7 @@ pub fn start_delete_log(dir: &Path, collection: Option<&Path>) -> std::io::Resul
         failure: None,
         is_on_disk: false,
         has_names_left: false,
+        untold_names: None,
     })
 }
 
@@ -541,6 +565,157 @@ fn remove_after_the_writes(path: PathBuf, file: File) {
             drop(file);
         });
     });
+}
+
+/// Returns the names of a delete's log, `names`, that a start could not tell about,
+/// `untold`, each with its fingerprint from the log's list `known`, when the log is to be
+/// written anew with only these (`write_untold_names`). That is when they are fewer than the
+/// log's, or when the log's `length` in bytes shows the empty names that a kill during such a
+/// write left. Returns `None` when there is none, or when the list is not in step with the
+/// log, as only names with their own lines are written anew.
+fn untold_names_to_write(
+    names: &[PathBuf],
+    known: &[Option<FileFingerprint>],
+    untold: &std::collections::HashSet<PathBuf>,
+    length: usize,
+) -> Option<Vec<(PathBuf, Option<FileFingerprint>)>> {
+    let untold_names: Vec<_> = (names.iter().enumerate())
+        .filter(|(_, name)| untold.contains(*name))
+        .map(|(i, name)| (name.clone(), known.get(i).copied().flatten()))
+        .collect();
+    let is_padded = length > names.iter().map(|n| n.as_os_str().len() + 1).sum();
+    let is_to_write = (untold_names.len() < names.len() || is_padded)
+        && known.len() >= names.len()
+        && !untold_names.is_empty();
+    is_to_write.then_some(untold_names)
+}
+
+/// Returns the time the delete's log at `path`, held as `file`, was last written: the earlier
+/// of its own time and its list's, as a kill while they were written anew
+/// (`write_untold_names`) may have left one of them with the time of that write. Returns `None`
+/// when either cannot be read, or the log has no list.
+fn log_time(path: &Path, file: &File) -> Option<std::time::SystemTime> {
+    let log = file.metadata().and_then(|m| m.modified()).ok()?;
+    let list = std::fs::symlink_metadata(known_path(path)).and_then(|m| m.modified());
+    Some(log.min(list.ok()?))
+}
+
+/// Writes the delete's log at `path`, held locked as `file`, and its list of files anew, in
+/// place, with only the names `untold_names`, each with its line of the list. They keep their
+/// names, their inodes and the lock, and both get the log's time `time` (`log_time`), by which
+/// a later start tells a sidecar that the delete trashed from one the user trashed after it.
+///
+/// No kill leaves the log empty, nor its names out of step with the list. The new text is
+/// written over the old from the start, with the rest of the old length made empty: NUL bytes
+/// in the log, which every Glimt that reads delete logs passes over as empty names, and empty
+/// lines in the list, which come after every name's line. The list goes first, and a list with
+/// fewer lines than the log has names is not taken for the log's (`deletes_cut_short`). Only
+/// then are both cut to their new length. Each write is synced and given back the time before
+/// the other file is touched, so a kill leaves at most one of the two with a new time, and
+/// `log_time` takes the earlier one. A log that a kill left with empty names is written anew
+/// by the next start.
+fn write_untold_names(
+    path: &Path,
+    file: &File,
+    untold_names: &[(PathBuf, Option<FileFingerprint>)],
+    time: std::time::SystemTime,
+) -> std::io::Result<()> {
+    let (mut lines, mut names) = (String::new(), Vec::new());
+    for (name, known) in untold_names {
+        lines += &known_line(*known);
+        names.extend(name.as_os_str().as_bytes());
+        names.push(0);
+    }
+    let list = open_to_write_over(&known_path(path))?;
+    let log = open_to_write_over(path)?;
+    if !is_same_open_file(path, &log, file)? {
+        return Err(std::io::Error::other(
+            "the log was replaced while it was held",
+        ));
+    }
+    write_over(&list, lines.as_bytes(), b'\n', time, 1)?;
+    write_over(&log, &names, 0, time, 3)?;
+    cut_to(&list, lines.len(), time, 5)?;
+    cut_to(&log, names.len(), time, 7)
+}
+
+/// Writes `bytes` over `file` from its start, with the rest of its length filled with
+/// `padding`, and gives it the time `time`, each step on disk before the next. `step` numbers
+/// the first of the two steps for the tests' kills.
+fn write_over(
+    file: &File,
+    bytes: &[u8],
+    padding: u8,
+    time: std::time::SystemTime,
+    step: usize,
+) -> std::io::Result<()> {
+    use std::os::unix::fs::FileExt;
+    let mut all = bytes.to_vec();
+    let length = file.metadata()?.len();
+    if all.len() as u64 > length {
+        return Err(std::io::Error::other(
+            "the names left are more than the log's",
+        ));
+    }
+    all.resize(length as usize, padding);
+    file.write_all_at(&all, 0)?;
+    file.sync_data()?;
+    killed_after(step)?;
+    keep_time(file, time)?;
+    killed_after(step + 1)
+}
+
+/// Cuts `file` to `length`, and gives it the time `time`, each step on disk before the next.
+/// `step` numbers the first of the two steps for the tests' kills.
+fn cut_to(
+    file: &File,
+    length: usize,
+    time: std::time::SystemTime,
+    step: usize,
+) -> std::io::Result<()> {
+    file.set_len(length as u64)?;
+    file.sync_data()?;
+    killed_after(step)?;
+    keep_time(file, time)?;
+    killed_after(step + 1)
+}
+
+/// Gives `file`, one of a delete log's own, the time `time` that its delete wrote it last, on
+/// disk.
+fn keep_time(file: &File, time: std::time::SystemTime) -> std::io::Result<()> {
+    #[allow(clippy::disallowed_methods)] // a delete log's own file, which keeps its delete's time
+    file.set_modified(time)?;
+    file.sync_all()
+}
+
+/// Returns an error, as a kill would stop the write there, when a test asked for a kill after
+/// step `step` of `write_untold_names`.
+fn killed_after(step: usize) -> std::io::Result<()> {
+    #[cfg(test)]
+    if KILLED_AFTER_STEP.get() == Some(step) {
+        return Err(std::io::Error::other(format!("killed after step {step}")));
+    }
+    #[cfg(not(test))]
+    let _ = step;
+    Ok(())
+}
+
+/// Returns whether `a` and `b`, both opened at `path`, are open on the same file.
+fn is_same_open_file(path: &Path, a: &File, b: &File) -> std::io::Result<bool> {
+    use crate::images::save::file_id_from_metadata;
+    let (a, b) = (a.metadata()?, b.metadata()?);
+    Ok(file_id_from_metadata(path, &a) == file_id_from_metadata(path, &b))
+}
+
+/// Opens the file at `path`, one of a delete log's own in Glimt's state folder, to write over
+/// it in place (`write_untold_names`). It is never made, cut or opened through a link.
+fn open_to_write_over(path: &Path) -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    #[allow(clippy::disallowed_methods)] // a delete log's own file, written over in place
+    std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
 }
 
 /// The logs in `dir` of Moves that Glimt was killed during, which are those no running window
@@ -582,15 +757,23 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
 /// (`sidecars_back_from_the_trash`). A sidecar put aside of a file that went goes too. A photo
 /// that the delete kept (`DeleteLog::keep_for_a_later_start`) never counts as one that went,
 /// because the user may have moved it away after the delete. Each log is held locked until it
-/// is removed, or until it is let go for a later start (`DeleteLog::has_names_left`).
+/// is removed, or until it is let go for a later start (`DeleteLog::has_names_left`), written
+/// anew with only the names left (`DeleteLog::untold_names`). The trash is looked in for what
+/// went to it by the time of the log (`log_time`).
 pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
     (logs_left_by_a_kill(dir).into_iter())
         .filter_map(|(path, file, bytes)| {
-            let known = read_move_known(&known_path(&path)).unwrap_or_default();
+            let names = parse_names(&bytes);
+            let mut known = read_move_known(&known_path(&path)).unwrap_or_default();
+            // A list with fewer lines than the log has names was cut short by a kill while
+            // both were written anew (`write_untold_names`), and its lines are not the names'.
+            if known.len() < names.len() {
+                known.clear();
+            }
             let kept = read_kept(&path)?;
             let (mut gone, mut stayed, mut not_as_left) = (Vec::new(), Vec::new(), Vec::new());
-            let mut has_names_left = false;
-            for (i, name) in parse_names(&bytes).into_iter().enumerate() {
+            let mut untold = std::collections::HashSet::new();
+            for (i, name) in names.iter().cloned().enumerate() {
                 match went_before_the_kill(&name) {
                     Some(true) if kept.contains(&name) => not_as_left.push(name),
                     Some(true) => gone.push(name),
@@ -598,17 +781,23 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
                         stayed.push(name);
                     }
                     Some(false) => not_as_left.push(name),
-                    None => has_names_left = true,
+                    None => {
+                        untold.insert(name);
+                    }
                 }
             }
             forget_in_the_collection_shown(&path, &gone);
             // Before the trash is looked in, where a sidecar put aside is not.
             let (still_hidden, unseen) =
                 sidecars_back_from_hiding(&path, &gone, &stayed, &not_as_left);
+            untold.extend(still_hidden.iter().chain(&unseen).cloned());
             // The log was last written just before the last of its files went. A log whose time
             // cannot be read takes no sidecar back, as it cannot tell which went after it.
-            let written = file.metadata().and_then(|m| m.modified());
-            (written.into_iter()).for_each(|since| sidecars_back_from_the_trash(&stayed, since));
+            let time = log_time(&path, &file);
+            let since = time.or_else(|| file.metadata().and_then(|m| m.modified()).ok());
+            (since.into_iter()).for_each(|since| sidecars_back_from_the_trash(&stayed, since));
+            let untold_names = untold_names_to_write(&names, &known, &untold, bytes.len());
+            let untold_names = time.zip(untold_names);
             let mut log = DeleteLog {
                 path,
                 file,
@@ -616,7 +805,8 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
                 aside: None,
                 failure: None,
                 is_on_disk: true,
-                has_names_left: has_names_left || !unseen.is_empty() || !still_hidden.is_empty(),
+                has_names_left: !untold.is_empty(),
+                untold_names,
             };
             (still_hidden.iter())
                 .filter(|photo| !kept.contains(*photo))
@@ -944,9 +1134,13 @@ fn read_move_known(path: &Path) -> Option<Vec<Option<FileFingerprint>>> {
 }
 
 /// Returns the fingerprint of the file each pair of a Move's log moved, from `text`: one line
-/// for each pair (`known_line`), and `None` for a line that names none or is damaged.
+/// for each pair (`known_line`), and `None` for a line that names none or is damaged. Empty
+/// lines are passed over, as no pair's line is empty: they end a delete log's list written
+/// anew (`write_untold_names`).
 fn parse_move_known(text: &str) -> Vec<Option<FileFingerprint>> {
-    text.lines().map(parse_known_line).collect()
+    (text.lines().filter(|line| !line.is_empty()))
+        .map(parse_known_line)
+        .collect()
 }
 
 /// Returns whether the file at `to` is the file that the pair `step` of a Move's log moved
@@ -3341,6 +3535,82 @@ mod tests {
     }
 
     /// Returns the path of the one log in the folder of logs `logs`.
+    /// A log let go for a later start is written anew with only the names that the start could
+    /// not tell about, each with its own line of the list, and keeps its time. Before, every
+    /// later start looked again at every name of the log, three looks for each of the 500,000
+    /// files of a killed delete. A kill at any step of the rewrite leaves a log that is not
+    /// empty, whose names each have their own fingerprint or none, and whose time for the
+    /// trash is no later than the delete's, and the next start finishes the rewrite.
+    #[test]
+    fn a_log_let_go_for_a_later_start_keeps_only_the_names_left() {
+        use std::os::unix::ffi::OsStrExt;
+        for kill in (1..=8).map(Some).chain([None]) {
+            let dir = crate::support::test_support::contract_folder("start-names-left");
+            let logs = dir.join("logs");
+            let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+            let stick = dir.join("stick");
+            std::fs::create_dir(&stick).unwrap();
+            let on_stick = stick.join("c.png");
+            std::fs::write(&on_stick, "c").unwrap();
+            let fingerprints: std::collections::HashMap<_, _> = [&a, &b, &on_stick]
+                .map(|p| (p.clone(), crate::files::file_io::fingerprint(p)))
+                .into();
+            let mut log = super::start_delete_log(&logs, None).unwrap();
+            log.note(&[a.clone(), b.clone(), on_stick.clone()]);
+            drop(log);
+            std::fs::remove_file(&b).unwrap();
+            // The stick is not plugged in at the start.
+            std::fs::rename(&stick, dir.join("stick-away")).unwrap();
+            let path = the_log_in(&logs);
+            let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let mut found = super::deletes_cut_short(&logs);
+            assert_eq!(found[0].1, std::slice::from_ref(&b));
+            let (log, _) = found.pop().unwrap();
+            let (time, names) = log.untold_names.clone().unwrap();
+            super::KILLED_AFTER_STEP.set(kill);
+            let rewritten = super::write_untold_names(&log.path, &log.file, &names, time);
+            super::KILLED_AFTER_STEP.set(None);
+            assert_eq!(rewritten.is_ok(), kill.is_none(), "{kill:?}");
+            drop(log);
+            // What the kill left: names, each with its own fingerprint or none, and a time.
+            let left = super::parse_names(&std::fs::read(&path).unwrap());
+            assert!(!left.is_empty(), "{kill:?}");
+            let known = super::read_move_known(&super::known_path(&path)).unwrap();
+            if known.len() >= left.len() {
+                for (name, known) in left.iter().zip(&known) {
+                    assert_eq!(*known, fingerprints[name], "{kill:?} {name:?}");
+                }
+            }
+            let file = std::fs::File::open(&path).unwrap();
+            assert!(
+                super::log_time(&path, &file).unwrap() <= written,
+                "{kill:?}"
+            );
+            // The next start, with the stick still away, finishes what the kill cut short.
+            let found = super::deletes_cut_short(&logs);
+            assert!(found[0].1.iter().all(|gone| *gone == b), "{kill:?}");
+            assert_eq!(let_go(found), 1);
+            let after = std::fs::read(&path).unwrap();
+            // A kill before the list was on disk leaves a list not in step with the log, which
+            // no later start writes anew.
+            if let Some(1 | 2) = kill {
+                assert_eq!(super::parse_names(&after).len(), 3, "{kill:?}");
+            } else {
+                let mut c = on_stick.as_os_str().as_bytes().to_vec();
+                c.push(0);
+                assert_eq!(after, c, "{kill:?}");
+                let list = std::fs::read_to_string(super::known_path(&path)).unwrap();
+                assert_eq!(list.lines().count(), 1, "{kill:?} {list}");
+            }
+            assert!(
+                super::log_time(&path, &file).unwrap() <= written,
+                "{kill:?}"
+            );
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
     fn the_log_in(logs: &std::path::Path) -> std::path::PathBuf {
         (std::fs::read_dir(logs).unwrap().flatten())
             .map(|e| e.path())
