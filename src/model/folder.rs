@@ -2126,7 +2126,9 @@ fn keep_files_with_size(
 }
 
 /// Returns the metadata that a look at `path` gave, or `None` when the look failed. A failure
-/// other than a file that is gone is kept in `left_out`, to be told.
+/// other than a file that cannot be reached (`file_io::names_no_file`) is kept in `left_out`, to
+/// be told. Before, an entry under a folder replaced by a file, or a loop of links, was kept
+/// as a broken row until the collection was opened again.
 fn looked_at(
     look: std::io::Result<std::fs::Metadata>,
     path: &Path,
@@ -2134,7 +2136,7 @@ fn looked_at(
 ) -> Option<std::fs::Metadata> {
     match look {
         Ok(meta) => Some(meta),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) if crate::files::file_io::names_no_file(&e) => None,
         Err(e) => {
             left_out.push((path.to_path_buf(), e));
             None
@@ -2258,6 +2260,25 @@ pub(crate) fn read_sort_folders() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    /// A collection's entry that no file can be reached at is left out as gone, not kept to be
+    /// told: one under a folder replaced by a file (ENOTDIR), and a loop of links (ELOOP).
+    /// Before, either stayed as a broken row until the collection was opened again.
+    #[test]
+    fn an_entry_that_names_no_file_is_gone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-no-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("f"), "").unwrap();
+        std::os::unix::fs::symlink(dir.join("loop"), dir.join("loop")).unwrap();
+        let mut left_out = Vec::new();
+        let under_a_file = dir.join("f").join("a.png");
+        let look = std::fs::symlink_metadata(&under_a_file);
+        assert!(super::looked_at(look, &under_a_file, &mut left_out).is_none());
+        let link = dir.join("loop");
+        assert!(super::looked_at(link.metadata(), &link, &mut left_out).is_none());
+        assert!(left_out.is_empty(), "{left_out:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
 
     /// A listing that finds another file under a name the list showed (another window's Rename
@@ -2659,8 +2680,8 @@ mod tests {
         app.refresh(&ctx);
         listed(&mut app);
         assert!(app.notice.text().unwrap_or_default().starts_with(&start));
-        // An entry of a collection that names a path through a file is left out, and the
-        // collection's files can be worked on.
+        // An entry of a collection that names a path through a file is left out as gone,
+        // without a word, as no file can be there, and the collection's files can be worked on.
         let list = dir.join("show.m3u");
         std::fs::write(&list, "a/1.png\na/1.png/x.png\n").unwrap();
         app.notice.clear();
@@ -2668,9 +2689,7 @@ mod tests {
         listed(&mut app);
         assert_eq!(app.list.files(), [in_root("a/1.png")]);
         assert!(!app.list.has_unchecked_entries());
-        let start = format!("Could not open {}:\n", real.join("a/1.png/x.png").display());
-        let told = app.notice.text().unwrap_or_default().to_owned();
-        assert!(told.starts_with(&start), "{told}");
+        assert_eq!(app.notice.text(), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

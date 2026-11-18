@@ -697,6 +697,15 @@ pub(crate) fn is_surely_gone(path: &Path) -> bool {
     look(path, false).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
 }
 
+/// Returns whether the error `e` of a look at a name says that no file can be reached there:
+/// nothing at the name (NotFound), a file where a folder of its path should be (ENOTDIR), or a
+/// loop of links (ELOOP). Each is the answer of the file system itself, never of a share that
+/// dropped for a moment, so a list leaves such an entry out rather than show it broken.
+pub(crate) fn names_no_file(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::NotFound
+        || matches!(e.raw_os_error(), Some(libc::ENOTDIR | libc::ELOOP))
+}
+
 /// Looks whether a new file may take the name `path`: nothing is there (NotFound). Returns
 /// `AlreadyExists` when something is there, a link too, and the look's own error when it failed,
 /// which says nothing either way. A name longer than its file system takes fails with
