@@ -35,8 +35,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   written at a copy's name while it is made no longer goes to the copy.
 - A sidecar written where a link was no longer takes the permissions of the file the link
   points to, and a file written again keeps no set-ID bit.
-- A keyword or star set on a collection's entry before its listing has checked it waits, as
-  other operations do, so a folder named there gets no sidecar.
+- A keyword, star, comment or alt text set on a collection's entry before its listing has checked
+  it is written once the listing has, so a folder named there gets no sidecar and the edit is
+  kept.
 - Find Duplicates' Move to Trash looks at each group's unchecked files just before the trash, so
   an original edited while the question is open keeps its copy.
 
