@@ -69,6 +69,11 @@ pub const HIDDEN_NAME: &str = ".glimt-rename-";
 thread_local! {
     pub(crate) static LOG_FILES_SYNCED: std::cell::RefCell<Vec<PathBuf>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // Each sidecar that a delete for good on this thread put aside, with the files of the log
+    // and the folders synced on this thread by the moment of its rename, so that a test can see
+    // that the note came before the rename and not only before the test's kill.
+    pub(crate) static SYNCED_AT_PUT_ASIDE: std::cell::RefCell<Vec<(PathBuf, Vec<PathBuf>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The renames in the order they are done, as (from, to).

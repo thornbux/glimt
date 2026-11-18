@@ -2986,6 +2986,12 @@ fn delete_for_good(
             log.note_aside(p, &to_put_aside);
         }
         for (side, hidden) in to_put_aside {
+            #[cfg(test)]
+            journal::SYNCED_AT_PUT_ASIDE.with_borrow_mut(|at| {
+                let mut synced = journal::LOG_FILES_SYNCED.with_borrow(Clone::clone);
+                synced.extend(crate::files::file_io::FOLDERS_SYNCED.with_borrow(Clone::clone));
+                at.push((side.clone(), synced));
+            });
             match rename_never_over(&side, &hidden) {
                 Ok(()) => aside.push((side, hidden)),
                 // A share may have hidden it and lost its answer. Nothing guesses, so the user
@@ -6366,6 +6372,10 @@ mod tests {
             !sides[1].exists(),
             "the new b.png got the sidecar of the one deleted"
         );
+        // It stays hidden, as the doc of `sidecars_back_from_hiding` promises.
+        let hidden = hidden_names_in(&dir);
+        assert_eq!(hidden.len(), 1, "{hidden:?}");
+        assert_eq!(std::fs::read_to_string(&hidden[0]).unwrap(), "b");
         drop(found);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -6582,11 +6592,12 @@ mod tests {
     /// goes. Its note in the log's file of the sidecars put aside, and the log's names and list
     /// of files that the next start reads with it, were not synced, so a power cut there could
     /// leave the sidecar hidden for good with no note of it on disk. They are now on disk, with
-    /// their folders, by the time the sidecar is put aside: the test's kill comes after that.
-    /// A photo without a sidecar costs no sync of the log.
+    /// their folders, by the time the sidecar is put aside. The test reads what was synced at
+    /// the rename itself, as its kill comes only after it. A photo without a sidecar costs no
+    /// sync of the log.
     #[test]
     fn a_delete_for_good_has_its_note_of_a_sidecar_on_disk_before_it_puts_it_aside() {
-        use super::journal::{LOG_FILES_SYNCED, aside_path, known_path};
+        use super::journal::{LOG_FILES_SYNCED, SYNCED_AT_PUT_ASIDE, aside_path, known_path};
         use crate::files::file_io::FOLDERS_SYNCED;
         use crate::support::threads::{BREAKING_FILES, catch_panic};
         let dir = contract_folder("aside-note-on-disk");
@@ -6622,21 +6633,25 @@ mod tests {
             .map(|e| e.path())
             .find(|p| p.is_file())
             .unwrap();
-        let synced = LOG_FILES_SYNCED.take();
+        // As the sidecar was put aside, not only by the test's kill after it.
+        let at_put_aside = SYNCED_AT_PUT_ASIDE.take();
+        let synced = (at_put_aside.iter())
+            .find(|(put_aside, _)| *put_aside == side)
+            .map(|(_, synced)| synced.clone())
+            .unwrap_or_default();
         for file in [
             known_path(&log_path),
             log_path.clone(),
             aside_path(&log_path),
+            logs.clone(),
+            logs.join("files"),
+            logs.join("aside"),
         ] {
             assert!(
                 synced.contains(&file),
                 "{} not synced: {synced:?}",
                 file.display()
             );
-        }
-        let folders = FOLDERS_SYNCED.take();
-        for folder in [logs.clone(), logs.join("files"), logs.join("aside")] {
-            assert!(folders.contains(&folder), "{} not synced", folder.display());
         }
         drop(log);
         std::fs::remove_dir_all(&dir).unwrap();
