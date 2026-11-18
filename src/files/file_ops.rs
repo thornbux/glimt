@@ -6814,6 +6814,37 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    /// Save This Frame refuses to save over a name whose look failed, as on a share that drops
+    /// for a moment, and tells it. Before, the failure was taken for another file, and one still
+    /// frame replaced the animation.
+    #[test]
+    fn a_frame_is_not_saved_when_the_look_at_the_name_fails() {
+        let d = contract_folder("frame-look-fails");
+        let gif = d.join("g.gif");
+        let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
+        for c in [10u8, 200] {
+            let pixel = image::Rgba([c, c, c, 255]);
+            enc.encode_frame(image::Frame::new(image::RgbaImage::from_pixel(4, 2, pixel)))
+                .unwrap();
+        }
+        drop(enc);
+        let before = std::fs::read(&gif).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        let how = crate::images::save::CopyAs {
+            read: None,
+            ..app.shown_copy()
+        };
+        let at_pick = crate::files::file_io::fingerprint(&gif);
+        *crate::support::threads::lock_even_if_poisoned(&crate::images::save::LOOK_FAILS) =
+            Some(gif.clone());
+        app.export_frames(&ctx, gif.clone(), Some(0), (gif.clone(), at_pick), how);
+        let told = run_background_until(&mut app, &ctx, |app| app.window.failed_writes_told() > 0);
+        *crate::support::threads::lock_even_if_poisoned(&crate::images::save::LOOK_FAILS) = None;
+        assert!(told);
+        assert_eq!(std::fs::read(&gif).unwrap(), before);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     /// Export Frames of a TIFF whose first page is 32-bit float RGB writes that page in 16 bits,
     /// as Save As does, because PNG holds no floats. Before, the export stopped at that page.
     #[test]
