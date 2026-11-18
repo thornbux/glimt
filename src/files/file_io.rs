@@ -2661,13 +2661,19 @@ pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::F
             .create_new(true)
             .clone()
     };
-    let old = match look(path, true) {
+    // A link at `path` is replaced itself (`replace_name`), so the new file takes nothing of the
+    // file it points to, which a downloaded folder may link to any file. A writer that writes
+    // through a link (`replace_file`) passes the file the link points to.
+    let old = match look(path, false) {
+        Ok(old) if old.file_type().is_symlink() => return new().open(tmp),
         Ok(old) => old,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return new().open(tmp),
         Err(e) => return Err(e),
     };
     let file = new().mode(0o600).open(tmp)?;
-    file.set_permissions(old.permissions())?;
+    // The set-ID and sticky bits are left out, as `put_file_until_stopped` leaves them.
+    let mode = std::os::unix::fs::PermissionsExt::mode(&old.permissions()) & 0o777;
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(mode))?;
     copy_extended_attributes(path, &file, true);
     Ok(file)
 }
@@ -3684,6 +3690,33 @@ mod tests {
         assert!(super::is_surely_gone(&tmp));
         let made = super::create_temp_beside(&tmp, &path).unwrap();
         assert_eq!(made.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file written at a name where a link is, as `replace_name` replaces the link, takes
+    /// nothing of the file the link points to, and a file written again keeps no set-ID bit.
+    /// Before, a link in a downloaded folder to a file of mode 0666 gave a new sidecar 0666, and
+    /// a set-ID bit went along.
+    #[test]
+    fn a_file_written_at_a_link_takes_not_the_mode_of_its_target() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-temp-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (target, link, tmp) = (dir.join("open"), dir.join("a.xmp"), dir.join(".a.tmp"));
+        std::fs::write(&target, "").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o6666)).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let fresh = dir.join("fresh");
+        let new_mode = std::fs::File::create(&fresh).unwrap().metadata().unwrap();
+        let made = super::create_temp_beside(&tmp, &link).unwrap();
+        let mode = made.metadata().unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, new_mode.permissions().mode() & 0o7777);
+        std::fs::remove_file(&tmp).unwrap();
+        let made = super::create_temp_beside(&tmp, &target).unwrap();
+        assert_eq!(
+            made.metadata().unwrap().permissions().mode() & 0o7777,
+            0o666
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
