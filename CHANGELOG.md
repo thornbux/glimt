@@ -5,6 +5,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A share that stops answering no longer stops the decoding of other images: a decode stuck
+  there gives its part of the memory budget back after 10 seconds, and a stuck folder no longer
+  takes a new thumbnail worker for each of its files.
+- An added format's program counts what it writes in the memory budget while it runs.
+- At start, a screen profile on a home folder that stopped answering no longer holds up the
+  first images.
+- In the Flatpak, a desktop portal that stops answering ends Print and Open With after 30
+  seconds instead of holding them for good.
+
 ## [0.89.0] - 2026-11-18
 
 ### Fixed
