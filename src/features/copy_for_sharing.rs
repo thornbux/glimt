@@ -240,7 +240,8 @@ impl SharingOutcome {
     ) {
         let name = path.file_name().unwrap_or_default();
         if naming == Naming::Own {
-            match is_name_free(&folder.join(name)) {
+            let target = folder.join(name);
+            match is_name_free(&target, &crate::metadata::xmp::lock_sidecar(&target)) {
                 Ok(true) => {}
                 Ok(false) => return self.names_taken += 1,
                 Err(e) => return self.errors.push(e.to_string()),
@@ -273,7 +274,10 @@ impl SharingOutcome {
                 _ if n == 1 => name.to_owned(),
                 _ => numbered(path, n),
             });
-            match is_name_free(&target) {
+            // The sidecar's lock is held from the look until the copy has its name, so that no
+            // sidecar is written at that name in between.
+            let sidecar_lock = crate::metadata::xmp::lock_sidecar(&target);
+            match is_name_free(&target, &sidecar_lock) {
                 Ok(true) => {}
                 Ok(false) => continue,
                 // A sidecar left without its image keeps its name taken.
@@ -488,10 +492,16 @@ fn numbered(path: &Path, n: usize) -> std::ffi::OsString {
 
 /// Looks whether a copy may take the name `target`: no file is there, nor a sidecar left
 /// without its image (`xmp::check_no_sidecar`). Returns `Ok(false)` when a file is there, and the
-/// error to tell when only such a sidecar is there (`AlreadyExists`) or a look failed.
-fn is_name_free(target: &Path) -> std::io::Result<bool> {
+/// error to tell when only such a sidecar is there (`AlreadyExists`) or a look failed. The
+/// caller holds the sidecar's lock `sidecar_lock` (`xmp::check_no_sidecar`).
+fn is_name_free(
+    target: &Path,
+    sidecar_lock: &crate::metadata::xmp::SidecarLock,
+) -> std::io::Result<bool> {
     match crate::files::file_io::check_free(target) {
-        Ok(()) => crate::metadata::xmp::check_no_sidecar(target, false).map(|()| true),
+        Ok(()) => {
+            crate::metadata::xmp::check_no_sidecar(target, false, sidecar_lock).map(|()| true)
+        }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(e) => Err(std::io::Error::new(
             e.kind(),
@@ -605,6 +615,40 @@ mod tests {
         assert_eq!(reads_before_the_look.get(), Some(1));
         assert_eq!((outcome.copied, outcome.errors.len()), (0, 1));
         assert!(!out.join("a.png").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy takes its name only under the lock of the sidecar of that name, held from the look
+    /// that no sidecar is there. A sidecar written meanwhile, under that lock, keeps the name
+    /// taken. Before, the look and the copy were made without the lock, and a sidecar written
+    /// in between went to the copy.
+    #[test]
+    fn a_copy_takes_its_name_under_the_sidecars_lock() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-sharing-sidecar-lock-{}",
+            std::process::id()
+        ));
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let target = out.join("a.png");
+        let sidecar_lock = crate::metadata::xmp::lock_sidecar(&target);
+        let copying = std::thread::spawn({
+            let (a, out) = (a.clone(), out.clone());
+            move || {
+                let mut outcome = super::SharingOutcome::default();
+                let kept = Default::default();
+                outcome.copy_into((&a, &|_| Ok(())), &out, &kept, super::Naming::Own);
+                (outcome.copied, outcome.errors.len())
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!target.exists(), "copied while the sidecar's lock was held");
+        std::fs::write(crate::metadata::xmp::sidecar(&target), "another photo's").unwrap();
+        drop(sidecar_lock);
+        assert_eq!(copying.join().unwrap(), (0, 1));
+        assert!(!target.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
