@@ -437,8 +437,10 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
 /// window saved after the panel read the file is not written over by an edit of the alt text.
 /// Fields the image holds itself and that were cleared are written empty, as the comment is.
 pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), String> {
-    let _lock = lock_sidecar(path);
+    // The image's own XMP is read before the lock, because its read may wait for the decodes'
+    // budget, and every other write of a sidecar under this lock would wait with it.
     let inside = embedded(path);
+    let _lock = lock_sidecar(path);
     let own = (inside.as_deref()).is_some_and(|x| parse_alt_text(x) != AltText::default());
     let fields = [&change.text, &change.extended_description];
     let clears_only = fields
@@ -676,7 +678,6 @@ pub fn write_changed(
     keywords: Option<KeywordChange>,
     comment: Option<String>,
 ) -> Result<KeywordsAndComment, String> {
-    let _lock = lock_sidecar(path);
     let edited = match (&keywords, &comment) {
         (_, None) => Edited::Keywords,
         (None, Some(_)) => Edited::Comment,
@@ -703,7 +704,6 @@ pub fn add_to(have: &mut Vec<String>, keywords: &[String]) {
 
 /// Add `keywords` to those `path` has, read and written as one change.
 pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
-    let _lock = lock_sidecar(path);
     let added = write_keywords(path, Edited::Keywords, |meta, _| {
         add_to(&mut meta.keywords, keywords)
     });
@@ -711,7 +711,7 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 }
 
 /// Changes the keywords, comment and keyword tree paths of `path` with `edit`, and writes the
-/// fields that were `edited` and the paths to its sidecar, with its lock held by the caller.
+/// fields that were `edited` and the paths to its sidecar, under the sidecar's lock.
 /// Returns the keywords and comment as written. It is the one way keywords are written. `edit`
 /// is given them as read from the sidecar that is written, when that has keywords or a comment,
 /// and otherwise from the image, so the sidecar is read once. Before, the writers read the
@@ -727,7 +727,9 @@ fn write_keywords(
     edited: Edited,
     edit: impl FnOnce(&mut KeywordsAndComment, &mut Vec<String>),
 ) -> Result<KeywordsAndComment, String> {
+    // The image's own XMP is read before the lock, as `write_alt_text` reads it.
     let inside = embedded(path);
+    let _lock = lock_sidecar(path);
     let own = inside
         .as_deref()
         .is_some_and(|x| parse(x) != KeywordsAndComment::default());
@@ -1761,7 +1763,6 @@ pub(crate) fn prefix_in_force(
 /// name (Oslo) goes among the keywords, and the whole path in lr:hierarchicalSubject, where
 /// darktable, digiKam and Lightroom keep the tree's place of a keyword.
 pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
-    let _lock = lock_sidecar(path);
     let tagged = write_keywords(path, Edited::Keywords, |meta, paths| {
         set_tag(&mut meta.keywords, paths, tag, on)
     });
@@ -1772,7 +1773,6 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
 /// among its keywords and each path in lr:hierarchicalSubject, beside what it has, which stays.
 /// Nothing is written when it has them all.
 pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
-    let _lock = lock_sidecar(path);
     let tagged = write_keywords(path, Edited::Keywords, |meta, paths| {
         for t in tags {
             set_tag(&mut meta.keywords, paths, t, true);
@@ -3189,6 +3189,45 @@ mod tests {
             let (keywords, paths) = (read(file).keywords, tree_paths(file));
             assert!(has_tag(&keywords, &paths, "Places|Norway|Oslo"));
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The keyword and alt-text writers read the image's own XMP before they take the sidecar's
+    /// lock, because that read may wait for the decodes' budget, and every other sidecar write
+    /// under the lock would wait with it. The image is changed while another writer holds the
+    /// lock, and the writers must have read it before.
+    #[test]
+    fn the_images_own_xmp_is_read_before_the_sidecar_lock() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-embedded-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let packet = |word: &str| {
+            format!(
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+                 xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+                 xmlns:Iptc4xmpCore=\"http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/\">\
+                 <dc:subject><rdf:Bag><rdf:li>{word}</rdf:li></rdf:Bag></dc:subject>\
+                 <Iptc4xmpCore:ExtDescrAccessibility><rdf:Alt><rdf:li xml:lang=\"x-default\">{word}</rdf:li></rdf:Alt></Iptc4xmpCore:ExtDescrAccessibility>\
+                 </rdf:Description></rdf:RDF></x:xmpmeta>"
+            )
+        };
+        let a = dir.join("a.jpg");
+        jpeg_with_xmp(&a, &packet("old"));
+        let other_writers_lock = lock_sidecar(&a);
+        let (a_too, b_too) = (a.clone(), a.clone());
+        let keywords = std::thread::spawn(move || add_keywords(&a_too, &["new".into()]));
+        let change = AltTextChange {
+            text: Some("alt".into()),
+            extended_description: None,
+        };
+        let alt_text = std::thread::spawn(move || write_alt_text(&b_too, &change));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        jpeg_with_xmp(&a, &packet("changed"));
+        drop(other_writers_lock);
+        keywords.join().unwrap().unwrap();
+        alt_text.join().unwrap().unwrap();
+        assert_eq!(read(&a).keywords, ["old", "new"]);
+        assert_eq!(read_all(&a).2.extended_description, "old");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
