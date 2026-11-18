@@ -286,9 +286,10 @@ impl DeleteLog {
     /// Unlike `note`, this note is synced, and so are the log's names and its list of files,
     /// which the next start needs to tell whether the photo stayed. The rename that puts a
     /// sidecar aside is made lasting before the photo goes, so a power cut could otherwise
-    /// leave the sidecar hidden with no note of it on disk. The cost is one sync for each photo
-    /// with a sidecar, beside the folder sync that its rename has already, and a delete of files
-    /// without sidecars has none.
+    /// leave the sidecar hidden with no note of it on disk. The cost is one sync of the file of
+    /// the sidecars put aside for each photo with a sidecar, beside the folder sync that its
+    /// rename has already. The folder of that file is synced only once, when the file is made,
+    /// and a delete of files without sidecars has no sync of the log at all.
     pub fn note_aside(&mut self, photo: &Path, aside: &[(PathBuf, PathBuf)]) {
         if self.known.is_none() || self.failure.is_some() || aside.is_empty() {
             return;
@@ -305,15 +306,20 @@ impl DeleteLog {
             .err();
     }
 
-    /// Adds `names` to the file of the sidecars put aside, made when it is not there yet.
+    /// Adds `names` to the file of the sidecars put aside, made when it is not there yet. The
+    /// folder of a file made here is synced at once, as the file's name in it does not change
+    /// later.
     fn write_aside(&mut self, names: &[u8]) -> std::io::Result<()> {
         if self.aside.is_none() {
-            self.aside = Some(open_to_add_to(&aside_path(&self.path), true)?);
+            let path = aside_path(&self.path);
+            let aside = open_to_add_to(&path, true)?;
+            crate::files::file_io::sync_folder_of(&path)?;
+            self.aside = Some(aside);
         }
         (self.aside.as_mut()).map_or(Ok(()), |aside| aside.write_all(names))
     }
 
-    /// Syncs the file of the sidecars put aside to disk, with its folder. The log's names and
+    /// Syncs the file of the sidecars put aside to disk. The log's names and
     /// its list of files are synced too, with their folders, when a name was noted since they
     /// last were, which is once for each chunk of the delete.
     fn put_on_disk(&mut self) -> std::io::Result<()> {
@@ -332,7 +338,12 @@ impl DeleteLog {
             sync_folder_of(self.path.parent().unwrap_or(Path::new("")))?;
             self.is_on_disk = true;
         }
-        (self.aside.as_ref()).map_or(Ok(()), |aside| synced(aside, aside_path(&self.path)))
+        let Some(aside) = &self.aside else {
+            return Ok(());
+        };
+        #[cfg(test)]
+        LOG_FILES_SYNCED.with_borrow_mut(|synced| synced.push(aside_path(&self.path)));
+        aside.sync_data()
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.

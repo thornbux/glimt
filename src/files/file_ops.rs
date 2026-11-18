@@ -6550,6 +6550,34 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A Delete for good syncs the folder of its file of the sidecars put aside once, when it
+    /// makes the file, not again for each photo with a sidecar, where it cost a flush of the disk
+    /// each time.
+    #[test]
+    fn a_delete_for_good_syncs_the_folder_of_its_sidecars_put_aside_once() {
+        use crate::files::file_io::FOLDERS_SYNCED;
+        let dir = contract_folder("aside-folder-once");
+        let logs = dir.join("logs");
+        let both = [dir.join("a.png"), dir.join("b.png")];
+        let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        log.note(&both);
+        FOLDERS_SYNCED.take();
+        let mut errors = Vec::new();
+        let how = (false, Some(&mut log));
+        let (gone, _, _) = super::delete_chunk(&both, &picked, how, &mut errors);
+        assert_eq!(gone, both, "{errors:?}");
+        let synced = FOLDERS_SYNCED.take();
+        let aside_folder = super::journal::asides_folder(&logs);
+        let times = synced.iter().filter(|f| **f == aside_folder).count();
+        assert_eq!(times, 1, "{synced:?}");
+        log.remove_once_forgotten();
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A Delete for good makes the rename that puts a sidecar aside lasting before the photo
     /// goes. Its note in the log's file of the sidecars put aside, and the log's names and list
     /// of files that the next start reads with it, were not synced, so a power cut there could
