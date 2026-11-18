@@ -66,12 +66,6 @@ pub(crate) struct DecodeJob {
     pub(crate) max_box: [u32; 2],
 }
 
-impl crate::support::threads::JobOfAFile for DecodeJob {
-    fn file(&self) -> &Path {
-        &self.path
-    }
-}
-
 /// The decoding of the shown image and its neighbours. It holds the workers, the images they
 /// keep, and the size they decode to.
 pub(crate) struct Decoding {
