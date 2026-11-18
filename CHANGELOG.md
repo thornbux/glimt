@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `glimt --wait --remote prev` and the other old command words work with `--wait` too. Before,
+  the window answered that it did not know the command.
+- A collection or a plain list (such as a `.m3u`) shows only the files a folder would: images of
+  the types shown, and no hidden names unless Show Hidden is on. Before, it showed every file it
+  named, music, documents and dot files among them.
+- Copy Path to Clipboard keeps a name that is not UTF-8, such as one in Latin-1, so that the
+  path pasted into a terminal names the file.
+
 ## [0.87.0] - 2026-11-17
 
 ### Fixed
