@@ -3601,8 +3601,8 @@ msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie d
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
-msgstr "Kosz odrzucił {count} ({kind}). Nic nie zostało usunięte, bo lista już tego nie pokazuje."
+msgid "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted."
+msgstr "Kosz odrzucił {count} ({kind}) spoza listy. Nic nie zostało usunięte."
 
 #: src/ui/dialogs.rs
 #, fuzzy

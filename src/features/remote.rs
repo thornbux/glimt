@@ -578,7 +578,16 @@ impl crate::App {
         // Whether files are written is read before the failures are taken, as `guard_close`
         // does: a write tells its failure before it stops counting as writing.
         let is_writing = self.is_writing();
-        let at_rest = !is_writing && !self.folder.is_opening() && !self.working_besides_image();
+        // A marks file read again (Select Mark) stops counting as writing once it has sent its
+        // answer, before `receive_marks` takes it and selects again, so it is waited for too.
+        #[cfg(feature = "marks")]
+        let is_reading_marks = self.marks.is_reading();
+        #[cfg(not(feature = "marks"))]
+        let is_reading_marks = false;
+        let at_rest = !is_writing
+            && !is_reading_marks
+            && !self.folder.is_opening()
+            && !self.working_besides_image();
         let folder_unread = self.folder.is_opening() || self.folder.is_listing();
         self.take_saves(ctx);
         let failed_writes = self.window.failed_writes_told();
@@ -4049,6 +4058,49 @@ mod tests {
 
     /// Returns a time by which a command sent in a test must be done, far enough off for any
     /// test.
+    /// `run SelectMark1` with `--wait` is answered only once the marks file read again has come
+    /// back and its files are selected. Before, the read stopped counting as writing as soon as
+    /// it had sent its answer, and the window could answer done before it selected again.
+    #[cfg(feature = "marks")]
+    #[test]
+    fn select_mark_with_wait_answers_after_the_marks_read_again() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-wait-mark-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        crate::metadata::marks::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (mut app, ctx) = app_on(&dir);
+        // Another window marks b.jpg after this one read the marks.
+        std::fs::write(&file, format!("1\t0\t{}\n", dir.join("b.jpg").display())).unwrap();
+        app.list
+            .set_files(["a.jpg", "b.jpg"].iter().map(Into::into).collect());
+        let (reply, answer) = std::sync::mpsc::channel();
+        let command = "wait run SelectMark1".to_owned();
+        app.remote.tx.send((command, Some(reply), later())).unwrap();
+        app.receive_remote(&ctx);
+        // The read has sent its answer and no longer counts as writing, but the window has
+        // not taken it yet.
+        crate::files::file_io::flush();
+        app.answer_awaited_outcomes(&ctx, false);
+        assert!(
+            answer.try_recv().is_err(),
+            "answered before the marks were read again"
+        );
+        app.receive_remote(&ctx);
+        assert_eq!(app.list.selected(), &[1].into());
+        let start = std::time::Instant::now();
+        let got = loop {
+            if let Ok(got) = answer.try_recv() {
+                break got;
+            }
+            assert!(start.elapsed() < std::time::Duration::from_secs(20));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            app.receive_remote(&ctx);
+        };
+        assert_eq!(got, super::OUTCOME_DONE.as_bytes());
+        crate::metadata::marks::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     fn later() -> std::time::Instant {
         std::time::Instant::now() + super::OUTCOME_WAIT
     }

@@ -1151,7 +1151,7 @@ impl crate::App {
         let left = files.len() - names.len();
         if left > 0 {
             self.notice.give(tf!(
-                "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it.",
+                "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted.",
                 count = count(left, "file"),
                 kind
             ));
@@ -3931,7 +3931,8 @@ mod tests {
 
     /// A file the trash refused that the list no longer shows is told of without a cause the
     /// notice cannot know. Before, it said that another folder was open, also when the same
-    /// folder was open and only Include Subfolders had been turned off.
+    /// folder was open and only Include Subfolders had been turned off. The text holds no "it",
+    /// so it reads right for one file and for many.
     #[test]
     fn a_refused_file_the_list_no_longer_shows_names_no_false_cause() {
         let dir = contract_folder("refused-not-listed");
@@ -3941,7 +3942,10 @@ mod tests {
         let seen = crate::files::file_io::fingerprint(&hidden).unwrap();
         app.ask_delete_instead("cifs".to_owned(), &[(hidden, seen)]);
         let told = app.notice.text().unwrap_or_default().to_owned();
-        assert!(told.contains("the list no longer shows it"), "{told}");
+        assert!(
+            told.contains("that the list no longer shows. Nothing was deleted."),
+            "{told}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -6807,6 +6811,37 @@ mod tests {
         app.export_frames(&ctx, gif, Some(1), (out.clone(), None), how);
         assert!(run_background_until(&mut app, &ctx, |_| out.exists()));
         assert_eq!(image::image_dimensions(&out).unwrap(), (2, 4));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Save This Frame refuses to save over a name whose look failed, as on a share that drops
+    /// for a moment, and tells it. Before, the failure was taken for another file, and one still
+    /// frame replaced the animation.
+    #[test]
+    fn a_frame_is_not_saved_when_the_look_at_the_name_fails() {
+        let d = contract_folder("frame-look-fails");
+        let gif = d.join("g.gif");
+        let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
+        for c in [10u8, 200] {
+            let pixel = image::Rgba([c, c, c, 255]);
+            enc.encode_frame(image::Frame::new(image::RgbaImage::from_pixel(4, 2, pixel)))
+                .unwrap();
+        }
+        drop(enc);
+        let before = std::fs::read(&gif).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        let how = crate::images::save::CopyAs {
+            read: None,
+            ..app.shown_copy()
+        };
+        let at_pick = crate::files::file_io::fingerprint(&gif);
+        *crate::support::threads::lock_even_if_poisoned(&crate::images::save::LOOK_FAILS) =
+            Some(gif.clone());
+        app.export_frames(&ctx, gif.clone(), Some(0), (gif.clone(), at_pick), how);
+        let told = run_background_until(&mut app, &ctx, |app| app.window.failed_writes_told() > 0);
+        *crate::support::threads::lock_even_if_poisoned(&crate::images::save::LOOK_FAILS) = None;
+        assert!(told);
+        assert_eq!(std::fs::read(&gif).unwrap(), before);
         std::fs::remove_dir_all(d).unwrap();
     }
 

@@ -87,15 +87,18 @@ pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
 /// hold the old orientation.
 const DROPPED_PHOTOSHOP_RESOURCES: [u16; 4] = [0x0409, 0x040C, 0x0422, 0x0424];
 
+/// Makes a look at this name in `same_file` fail with an error other than NotFound, as on a
+/// share that drops for a moment. It holds for every thread, so that it also reaches the
+/// background thread of Save This Frame, and each test names a file of its own.
+#[cfg(test)]
+pub(crate) static LOOK_FAILS: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
+
 // Makes `same_file_by_opening` on this thread find this name gone, while a look still finds it,
 // as on a share whose cache still shows a name that the server removed.
 #[cfg(test)]
 thread_local! {
     pub(crate) static GONE_FROM_THE_SERVER: std::cell::RefCell<Option<std::path::PathBuf>> =
-        const { std::cell::RefCell::new(None) };
-    /// Makes a look at this name in `same_file` on this thread fail with an error other than
-    /// NotFound, as on a share that drops for a moment.
-    pub(crate) static LOOK_FAILS: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -941,7 +944,7 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> std::io::Result<bool> {
 /// Looks at `p` for `same_file`, which a test can make fail (`LOOK_FAILS`).
 fn look_in_same_file(p: &Path) -> std::io::Result<std::fs::Metadata> {
     #[cfg(test)]
-    if LOOK_FAILS.with_borrow(|fails| fails.as_deref() == Some(p)) {
+    if crate::support::threads::lock_even_if_poisoned(&LOOK_FAILS).as_deref() == Some(p) {
         return Err(std::io::Error::other("the share stopped answering"));
     }
     std::fs::metadata(p)
@@ -2879,9 +2882,9 @@ mod tests {
             webp_quality: 90,
             strip: true,
         };
-        super::LOOK_FAILS.with(|f| *f.borrow_mut() = Some(a.clone()));
+        *crate::support::threads::lock_even_if_poisoned(&super::LOOK_FAILS) = Some(a.clone());
         let saved = super::save_as(&a, &how, &a, fingerprint(&a));
-        super::LOOK_FAILS.with(|f| *f.borrow_mut() = None);
+        *crate::support::threads::lock_even_if_poisoned(&super::LOOK_FAILS) = None;
         assert!(saved.is_err());
         assert_eq!(std::fs::read(&a).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();
