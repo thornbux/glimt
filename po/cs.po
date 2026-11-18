@@ -3985,10 +3985,10 @@ msgstr "{sidecar} nešlo přesunout ({e}), proto byl zkopírován do {copy} a je
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} neodpověděl do minuty, takže se nic neprovedlo"
 
-#: src/features/duplicates.rs
+#: src/files/file_io.rs
 #, fuzzy
-msgid "{files} not moved to the trash: another file of their group changed after the search"
-msgstr "Nepřesunuto do koše: {files}, jiný soubor ze skupiny se po hledání změnil"
+msgid "another file of its group changed after the search"
+msgstr "jiný soubor ze skupiny se po hledání změnil"
 #: src/features/copy_for_sharing.rs
 #, fuzzy
 msgid "Same name as another image picked, from another folder: {images}"

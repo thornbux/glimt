@@ -3974,10 +3974,10 @@ msgstr "Nie można przenieść {sidecar} ({e}), więc skopiowano go do {copy}, a
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} nie odpowiedział w ciągu minuty, więc nic nie zostało zrobione"
 
-#: src/features/duplicates.rs
+#: src/files/file_io.rs
 #, fuzzy
-msgid "{files} not moved to the trash: another file of their group changed after the search"
-msgstr "Nie przeniesiono do kosza: {files}, inny plik z grupy zmienił się po wyszukiwaniu"
+msgid "another file of its group changed after the search"
+msgstr "inny plik z grupy zmienił się po wyszukiwaniu"
 #: src/features/copy_for_sharing.rs
 #, fuzzy
 msgid "Same name as another image picked, from another folder: {images}"

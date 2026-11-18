@@ -58,14 +58,6 @@ thread_local! {
     static REAL_PATHS_LOOKED_UP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// What a look before a job sends `wait_for_look_up_before_the_job`: that it goes on, after each
-/// file of a look at many files, or its answer. The wait gives up only when neither has come for
-/// `LOOK_UP_GIVEN_UP_AFTER`, so a look at many files on a share that answers is not given up.
-pub(crate) enum LookUpStep<T> {
-    GoesOn,
-    Answered(T),
-}
-
 /// A Rename Many running in the background. It holds the files renamed with their new names,
 /// and which of them was shown.
 pub(crate) struct RenameJob {
@@ -668,7 +660,7 @@ impl crate::App {
         &mut self,
         ctx: &egui::Context,
         trash: bool,
-        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+        seen: Option<&crate::files::file_io::AsSeen>,
     ) {
         if self.list.files().is_empty() {
             return;
@@ -691,7 +683,7 @@ impl crate::App {
     fn picked_targets(
         &self,
         targets: &[usize],
-        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+        seen: Option<&crate::files::file_io::AsSeen>,
     ) -> PickedFiles {
         let files = targets.iter().map(|&i| self.listed_file(i)).collect();
         match seen {
@@ -726,7 +718,7 @@ impl crate::App {
     /// (`request_delete_as_seen`).
     fn ask_about_targets_as_seen(
         &mut self,
-        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+        seen: Option<&crate::files::file_io::AsSeen>,
     ) -> Option<Asked> {
         let targets = self.targets()?;
         Some(self.ask_about_files(&targets, seen))
@@ -738,7 +730,7 @@ impl crate::App {
     fn ask_about_files(
         &mut self,
         targets: &[usize],
-        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+        seen: Option<&crate::files::file_io::AsSeen>,
     ) -> Asked {
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
         let picked = self.picked_targets(targets, seen);
@@ -901,7 +893,7 @@ impl crate::App {
         ctx: &egui::Context,
         trash: bool,
         targets: Vec<usize>,
-        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+        seen: Option<&crate::files::file_io::AsSeen>,
     ) {
         let picked = self.picked_targets(&targets, seen);
         self.delete_now(ctx, trash, targets, picked);
@@ -1165,9 +1157,12 @@ impl crate::App {
             .iter()
             .map(|&i| self.list.files()[i].clone())
             .collect();
-        let seen: HashMap<PathBuf, FileFingerprint> = (as_picked.values())
-            .map(|(p, picked_as)| ((*p).clone(), **picked_as))
-            .collect();
+        let seen = crate::files::file_io::AsSeen {
+            names: (as_picked.values())
+                .map(|(p, picked_as)| ((*p).clone(), **picked_as))
+                .collect(),
+            kept_beside: HashMap::new(),
+        };
         let left = files.len() - names.len();
         if left > 0 {
             self.notice.give(tf!(
@@ -1336,7 +1331,7 @@ impl crate::App {
         std::thread::spawn(move || {
             let real = crate::model::listing::real_dir(&looked_at);
             let file_system = file_system_type_or_test(&real);
-            drop(found_tx.send(LookUpStep::Answered((real, file_system))));
+            drop(found_tx.send((real, file_system)));
         });
         self.wait_for_look_up_before_the_job(
             folder,
@@ -1352,17 +1347,16 @@ impl crate::App {
     /// one (a Copy, say). The files `held_back_files` that its job will change are held back
     /// from now on, and let go just before `then` starts the job that holds them in turn.
     /// Nothing is waited for, and a notice says so, while other work changes them. A look-up
-    /// that sends neither its answer nor a sign that it goes on (`LookUpStep`) for
-    /// `LOOK_UP_GIVEN_UP_AFTER` (a share that stopped answering) is given up: the files are let
-    /// go, `then` never runs, and a notice says so. Before, the files stayed held until Glimt
-    /// ended, and a delete or rename of them was refused. When the job
-    /// `leaves_undo`, Ctrl+Z waits from now on, as it does while the job runs, so it does not
+    /// that sends no answer for `LOOK_UP_GIVEN_UP_AFTER` (a share that stopped answering) is
+    /// given up: the files are let go, `then` never runs, and a notice says so. Before, the
+    /// files stayed held until Glimt ended, and a delete or rename of them was refused. When the
+    /// job `leaves_undo`, Ctrl+Z waits from now on, as it does while the job runs, so it does not
     /// undo the operation before it. Before, it waited only from the job's start.
     pub(crate) fn wait_for_look_up_before_the_job<T: Send + 'static>(
         &mut self,
         folder: PathBuf,
         (held_back_files, leaves_undo): (Vec<PathBuf>, bool),
-        found: mpsc::Receiver<LookUpStep<T>>,
+        found: mpsc::Receiver<T>,
         then: impl FnOnce(&mut crate::App, &egui::Context, T) + Send + 'static,
     ) {
         // Before, the files were held only from the job's start, so a delete and a rename in
@@ -1375,15 +1369,7 @@ impl crate::App {
         let awaited = Working::new(&self.file_operations.real_folders_awaited);
         let undo_on_the_way = leaves_undo.then(|| self.file_operations.undo_on_the_way());
         let wait = move || {
-            // Each sign that the look goes on starts the time again. Before, the time counted
-            // from the start only, and a look at many files was given up while it answered.
-            let found = loop {
-                match found.recv_timeout(LOOK_UP_GIVEN_UP_AFTER) {
-                    Ok(LookUpStep::GoesOn) => continue,
-                    Ok(LookUpStep::Answered(found)) => break Ok(found),
-                    Err(e) => break Err(e),
-                }
-            };
+            let found = found.recv_timeout(LOOK_UP_GIVEN_UP_AFTER);
             // The close waits until `then` has run, and the job it starts holds the close
             // from then on.
             let _ = tx.send(Box::new(
@@ -1630,10 +1616,7 @@ impl crate::App {
         // No busy pointer: the look-up, whose answer `wait_for_look_up_before_the_job` holds
         // the pointer for. One given up ends when the share answers, or never.
         std::thread::spawn(move || {
-            drop(found_tx.send(LookUpStep::Answered(refused_on_fat(
-                &names,
-                file_system_type_or_test,
-            ))));
+            drop(found_tx.send(refused_on_fat(&names, file_system_type_or_test)));
         });
         self.wait_for_look_up_before_the_job(
             folder,
@@ -7502,42 +7485,6 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A look that sends a sign after each file is waited for as long as it goes on, also
-    /// past `LOOK_UP_GIVEN_UP_AFTER` in all. Before, the time counted from the start, so Find
-    /// Duplicates' look at many files on a share that answered was given up and nothing was
-    /// moved to the trash.
-    #[test]
-    fn a_look_up_that_goes_on_is_waited_for() {
-        use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
-        let dir = std::env::temp_dir().join(format!("glimt-test-lookon-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        let (tx, found) = std::sync::mpsc::channel();
-        let step = super::LOOK_UP_GIVEN_UP_AFTER / 2;
-        std::thread::spawn(move || {
-            for _ in 0..3 {
-                std::thread::sleep(step);
-                drop(tx.send(super::LookUpStep::GoesOn));
-            }
-            drop(tx.send(super::LookUpStep::Answered(())));
-        });
-        let ran = std::sync::Arc::new(AtomicBool::new(false));
-        let then = ran.clone();
-        app.wait_for_look_up_before_the_job(
-            dir.clone(),
-            (Vec::new(), false),
-            found,
-            move |_, _, ()| then.store(true, SeqCst),
-        );
-        // The look answers after one and a half times the limit, which is longer than one wait.
-        let answered = |_: &crate::App| ran.load(SeqCst);
-        assert!(
-            run_background_until(&mut app, &ctx, answered)
-                || run_background_until(&mut app, &ctx, answered)
-        );
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
     /// A look at a folder before its job that does not answer (a share that stopped answering)
     /// is given up: the files it held are let go, its job never starts, and a notice says so.
     /// Before, they stayed held until Glimt ended, and a delete or rename of them was refused.
@@ -7552,7 +7499,7 @@ mod tests {
         image::RgbImage::new(4, 4).save(&a).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         // A look at a folder on the share, which never answers.
-        let (_never_sent, found) = std::sync::mpsc::channel::<super::LookUpStep<()>>();
+        let (_never_sent, found) = std::sync::mpsc::channel::<()>();
         let ran = std::sync::Arc::new(AtomicBool::new(false));
         let then = ran.clone();
         app.wait_for_look_up_before_the_job(
