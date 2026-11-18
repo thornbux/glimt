@@ -1114,12 +1114,11 @@ impl std::str::FromStr for Keys {
     type Err = ();
     fn from_str(text: &str) -> Result<Self, ()> {
         let mut keys = Keys::default();
-        for item in text.split(';') {
-            let Some((name, combo)) = item.split_once('=') else {
-                continue;
-            };
-            // An item this build cannot use, for an action it does not know or with a key it
-            // cannot read, is kept as it is for the build that wrote it.
+        for item in text.split(';').filter(|item| !item.is_empty()) {
+            // An item this build cannot use, for an action it does not know, with a key it
+            // cannot read or without "=", is kept as it is for the build that wrote it, and
+            // `--check-config` tells it.
+            let (name, combo) = item.split_once('=').unwrap_or((item, ""));
             let name = action_name_now(name);
             match (
                 ALL.iter().find(|a| format!("{a:?}") == name),
@@ -2577,6 +2576,10 @@ mod tests {
             .parse()
             .unwrap();
         assert_eq!(keys.unusable_items(), ["Bogus=X", "Next=ctrl+N"]);
+        // An item without "=" is kept and told too, and an empty one between ";;" is no item.
+        let keys: Keys = "Next=Ctrl+N;;ZoomIn".parse().unwrap();
+        assert_eq!(keys.unusable_items(), ["ZoomIn"]);
+        assert!(keys.to_string().ends_with("ZoomIn"), "{keys}");
     }
 
     /// A dialog in the main window holds the keys of every window. The projector once browsed
