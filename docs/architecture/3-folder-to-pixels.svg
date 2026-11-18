@@ -175,7 +175,7 @@
       <text x="44" y="804">one shared DECODE_BUDGET, 4 × MAX_DECODE_BYTES.</text>
       <text x="44" y="824"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">DecodeInput</tspan>: what a decode reads whole counts beside its pixels:</text>
       <text x="44" y="840">a file before it is read (read), ffmpeg's frame before ffmpeg</text>
-      <text x="44" y="856">starts (reserve), an added format's image once written (counting).</text>
+      <text x="44" y="856">starts (reserve), an added format's image as written (grow_to).</text>
       <text x="44" y="876"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">catch_panic_as_error</tspan>: a decoder that panics fails one image, not its worker thread.</text>
     </g>
 

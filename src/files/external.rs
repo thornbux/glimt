@@ -382,6 +382,19 @@ pub fn output_of(
     max: u64,
     limit: std::time::Duration,
 ) -> (Option<Vec<u8>>, String, bool) {
+    counted_output_of(child, max, limit, |_| true)
+}
+
+/// What `child` writes, as `output_of` gives it, with `count` told the length of the output
+/// each time it grows. When `count` refuses it, the program is stopped and the output is
+/// `None`, as when it writes too much. A decode counts the output in its budget this way while
+/// the program still writes.
+pub fn counted_output_of(
+    child: &mut std::process::Child,
+    max: u64,
+    limit: std::time::Duration,
+    mut count: impl FnMut(u64) -> bool,
+) -> (Option<Vec<u8>>, String, bool) {
     use std::io::Read;
     let group = -(child.id() as i32);
     let watchdog = Watchdog::new(child.id(), limit);
@@ -391,12 +404,23 @@ pub fn output_of(
         std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
         rx
     });
-    let mut out = Vec::new();
-    if let Some(stdout) = child.stdout.take() {
-        #[allow(clippy::disallowed_methods)] // bounded by take
-        let _ = stdout.take(max + 1).read_to_end(&mut out);
+    let (mut out, mut refused) = (Vec::new(), false);
+    if let Some(mut stdout) = child.stdout.take() {
+        let mut chunk = vec![0u8; 64 << 10];
+        loop {
+            match stdout.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => out.extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+            if out.len() as u64 > max || !count(out.len() as u64) {
+                refused = true;
+                break;
+            }
+        }
     }
-    let large = out.len() as u64 > max;
+    let large = refused;
     if large {
         stop_group(group, || false);
     }

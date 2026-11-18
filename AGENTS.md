@@ -537,8 +537,8 @@ arm becomes a method.
     a program's output, is held in a `decode::DecodeInput`, which takes it from the decodes'
     budget and counts it beside the pixels: a file before it is read (`DecodeInput::read`),
     ffmpeg's frame, capped by the box shown, before ffmpeg starts (`DecodeInput::reserve`), and
-    an added format's image once its program has written it (`DecodeInput::counting`), so that
-    no program holds the budget while it runs. `from_memory` and `scaled` refuse bytes
+    an added format's image as its program writes it (`DecodeInput::grow_to`), so that no
+    program holds more of the budget than it has written. `from_memory` and `scaled` refuse bytes
     that no `DecodeInput` of their thread holds, and `from_decoder` a decoder over a `Cursor`
     while the thread holds no counted input. A file of an image read whole for anything else,
     its metadata or a copy, is read in a decode job (`start_decode_job`): there `read_limited`

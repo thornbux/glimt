@@ -345,25 +345,19 @@ impl DecodeInput {
         Ok(self)
     }
 
-    /// Takes `bytes` that were read before their length was known, such as what a program
-    /// wrote, from the budget, and holds them. They are in memory already, so they are taken
-    /// before the decodes that wait, as the pixels of a decode that holds its input are
-    /// (`reserve_from_budget`). Returns an error when they are more than the whole budget with
-    /// what this thread holds already.
-    pub fn counting(bytes: Vec<u8>) -> Result<DecodeInput, String> {
-        let length = bytes.len() as u64;
-        INPUT_HOLDS.set(INPUT_HOLDS.get() + length);
-        match reserve_from_budget(0) {
-            Ok(reservation) => Ok(DecodeInput {
-                bytes,
-                reserved: length,
-                _reservation: reservation,
-            }),
-            Err(e) => {
-                INPUT_HOLDS.set(INPUT_HOLDS.get() - length);
-                Err(e)
-            }
+    /// Takes more of the budget for input that grows past the room reserved while it is read,
+    /// such as what a program still writes, so that it counts in the budget all the while.
+    /// It takes at least twice the room it had, so that a large output asks only a few times.
+    /// Returns an error when `length` with what this thread holds already is more than the
+    /// whole budget.
+    pub fn grow_to(&mut self, length: u64) -> Result<(), String> {
+        if length <= self.reserved {
+            return Ok(());
         }
+        let more = length.max(self.reserved * 2) - self.reserved;
+        INPUT_HOLDS.set(INPUT_HOLDS.get() + more);
+        self.reserved += more;
+        reserve_from_budget(0).map(drop)
     }
 
     /// Reads the whole of `path`, as `read_limited` does, after its size is taken from the
@@ -1394,6 +1388,12 @@ pub(crate) fn held_by_this_job() -> Option<u64> {
 pub(crate) fn share_this_threads_budget() -> impl Fn() + Send + Clone + 'static {
     let budget = budget();
     move || TEST_BUDGET.set(Some(budget))
+}
+
+/// Returns the bytes free in this thread's budget, for a test of another module.
+#[cfg(test)]
+pub(crate) fn free_in_this_threads_budget() -> u64 {
+    lock_even_if_poisoned(&budget().state).free
 }
 
 /// Returns whether the EXIF orientation turns the image a quarter, so its width and height swap. It

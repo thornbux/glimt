@@ -85,11 +85,11 @@ impl AddedFormat {
             false => local,
         };
         // The image it writes stays in memory while its pixels are decoded, so it is taken from
-        // the decodes' budget once it is written (`DecodeInput::counting`). Before, the most it
+        // the decodes' budget as it is written (`DecodeInput::grow_to`). Before, the most it
         // may write was taken before it started and held for its whole run, up to 30 seconds,
-        // so three programs that made thumbnails or read ahead made the shown image wait. While
-        // the program runs, what it writes lies outside the budget, as its own memory does: at
-        // most one output for each thread that decodes.
+        // so three programs that made thumbnails or read ahead made the shown image wait. Then
+        // it was taken only once the program had ended, and what it wrote meanwhile lay
+        // outside the budget. The program's own memory still does.
         // shortcut: the program writes the whole picture also for a thumbnail, so it may write
         // the most for each; tell it the size shown (a new %-code or variable, which freezes)
         // if a folder of an added format takes too much memory for its thumbnails.
@@ -104,7 +104,12 @@ impl AddedFormat {
             .args(&args[1..])
             .spawn()
             .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
-        let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
+        let named = |e| format!("{}: {e}", self.name);
+        let mut input = crate::images::decode::DecodeInput::reserve(0).map_err(named)?;
+        let (image, err, ok) =
+            crate::files::external::counted_output_of(&mut child, max, limit, |length| {
+                input.grow_to(length).is_ok()
+            });
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
             let error = crate::files::external::last_line(&err, "no image");
@@ -120,8 +125,7 @@ impl AddedFormat {
             }
             return Err(format!("{}: {error}", self.name));
         }
-        let named = |e| format!("{}: {e}", self.name);
-        let image = crate::images::decode::DecodeInput::counting(image).map_err(named)?;
+        let image = input.holding(image).map_err(named)?;
         crate::images::decode::from_memory(&image).map_err(named)
     }
 
@@ -338,6 +342,32 @@ mod tests {
         drop(whole);
         assert_eq!(thumbnail.join().unwrap(), Ok(6));
         assert!(waited < Duration::from_secs(1), "waited {waited:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// What an added format's program writes counts in the decodes' budget while the program
+    /// still runs. Before, it counted only once the program had ended, and meanwhile each
+    /// decoding thread could hold up to 512 MB outside the budget.
+    #[test]
+    fn a_running_programs_output_counts_in_the_budget() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-format-output-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("writes.xyz");
+        std::fs::write(&file, b"x").unwrap();
+        let writes = "Name=Writes\nExtensions=xyz\n\
+                      Exec=sh -c \"head -c 3000000 /dev/zero; sleep 2\" %f";
+        let writes = super::parse(writes, &dir).unwrap();
+        let share_budget = crate::images::decode::share_this_threads_budget();
+        let decode = std::thread::spawn(move || {
+            share_budget();
+            writes.decode(&file).is_err()
+        });
+        std::thread::sleep(Duration::from_secs(1));
+        let free = crate::images::decode::free_in_this_threads_budget();
+        assert!(decode.join().unwrap());
+        let total = crate::images::decode::DECODE_BUDGET;
+        assert!(free <= total - 3_000_000, "{} bytes counted", total - free);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
