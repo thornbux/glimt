@@ -33,6 +33,36 @@ const MOST_STUCK: usize = 32;
 #[cfg(test)]
 pub(crate) static BREAKING_FILES: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
 
+/// The processor clock of a thread, which another thread may read. A thread that waits for a
+/// share that stopped answering uses no processor time, and one that is only slow (a large
+/// decode, a read over a slow network) does. So it tells a stuck job from a slow one, where
+/// the time a job has taken alone does not.
+pub(crate) struct ThreadClock(libc::clockid_t);
+
+impl ThreadClock {
+    /// Returns the clock of the thread that calls it, or `None` when the system has none.
+    pub(crate) fn of_this_thread() -> Option<ThreadClock> {
+        let mut clock: libc::clockid_t = 0;
+        #[allow(unsafe_code)]
+        // SAFETY: `pthread_self` is always a valid thread, and `clock` is valid for the call
+        // to fill.
+        let failed = unsafe { libc::pthread_getcpuclockid(libc::pthread_self(), &mut clock) };
+        (failed == 0).then_some(ThreadClock(clock))
+    }
+
+    /// Returns the processor time its thread has used, in nanoseconds, or `None` when it
+    /// cannot be read, such as after the thread ended.
+    pub(crate) fn used(&self) -> Option<u64> {
+        #[allow(unsafe_code)]
+        // SAFETY: A timespec may be all zero, and `t` is valid for the call to fill.
+        let (failed, t) = unsafe {
+            let mut t: libc::timespec = std::mem::zeroed();
+            (libc::clock_gettime(self.0, &mut t), t)
+        };
+        (failed == 0).then(|| t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64)
+    }
+}
+
 /// What a background thread's receiver has: nothing yet, its answer, or the thread ended. For
 /// `take` and `wait`, `Gone` means the thread ended without its answer (it panicked); for `next`
 /// and `latest`, a stream that ended as it should gives `Gone` too. With `Gone` the receiver is

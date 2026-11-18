@@ -5,7 +5,7 @@
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::model::listing::has_ext;
 use crate::support::format::human_size;
-use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{ThreadClock, lock_even_if_poisoned};
 use crate::{images::raw, metadata::exif};
 use eframe::egui;
 use image::ImageDecoder;
@@ -48,10 +48,11 @@ const CHANGED_WHILE_READ: &str = "the file changed while it was read";
 /// `is_counted_input`). It is a fault in Glimt, never in the file (`failure_of`).
 const NOT_COUNTED: &str = "the bytes to decode are not counted in the decode budget";
 
-/// How long a decode job may hold bytes of the budget while another decode waits for room,
-/// before the budget takes them back: as long as a worker of a pool may take over one job. A
-/// read from a share that stopped answering waits for ever, and before, two large images there
-/// held the whole budget, and no other image was decoded until a restart. The tests wait less.
+/// How long a decode job may hold bytes of the budget without using the processor while
+/// another decode waits for room, before the budget takes them back: as long as a worker of a
+/// pool may take over one job. A read from a share that stopped answering waits for ever, and
+/// before, two large images there held the whole budget, and no other image was decoded until
+/// a restart. The tests wait less.
 #[cfg(not(test))]
 const HELD_TOO_LONG: Duration = crate::support::threads::STUCK_AFTER;
 #[cfg(test)]
@@ -187,8 +188,9 @@ impl DecodeBudget {
     /// its turn is taken, so that no other decode takes them between the two. A decode that
     /// needs more than it holds would else lose them to one that came after it.
     ///
-    /// A job that has held its bytes for `HELD_TOO_LONG` while this one waits for room is taken
-    /// to be stuck, and its bytes are taken back (`BudgetState::take_back_stuck`).
+    /// A job that has held its bytes for `HELD_TOO_LONG` without using the processor while this
+    /// one waits for room is taken to be stuck, and its bytes are taken back
+    /// (`BudgetState::take_back_stuck`).
     fn take(&self, job: u64, bytes: u64, goes_first: bool) -> Result<(), String> {
         if bytes > self.total {
             self.give_back(job);
@@ -209,10 +211,14 @@ impl DecodeBudget {
         }
         state.free -= bytes;
         state.turns_served[line] += 1;
+        let clock = ThreadClock::of_this_thread();
+        let used = clock.as_ref().and_then(ThreadClock::used).unwrap_or(0);
         state.holds.push(Hold {
             job,
             bytes,
             since: Instant::now(),
+            clock,
+            used,
         });
         drop(state);
         // The next in line may fit in what is left.
@@ -250,11 +256,15 @@ impl BudgetState {
         true
     }
 
-    /// Takes back the bytes of every job that has held them for `HELD_TOO_LONG`, such as one
-    /// whose read from a stalled share never returns. Returns whether it took any. What such a
-    /// job has made of them lies outside the budget from then on, as its worker lies outside
-    /// its pool (`spawn_worker_pool`), which gives it up after as long.
+    /// Takes back the bytes of every job that has made no progress for `HELD_TOO_LONG`, such
+    /// as one whose read from a stalled share never returns. A job that is only slow uses the
+    /// processor, and keeps its bytes (`Hold::note_progress`). Returns whether it took any.
+    /// What such a job has made of them lies outside the budget from then on, as its worker
+    /// lies outside its pool (`spawn_worker_pool`), which gives it up after as long.
     fn take_back_stuck(&mut self) -> bool {
+        for hold in &mut self.holds {
+            hold.note_progress();
+        }
         let stuck = |h: &Hold| h.since.elapsed() >= HELD_TOO_LONG;
         let freed: u64 = self
             .holds
@@ -279,7 +289,24 @@ impl BudgetState {
 struct Hold {
     job: u64,
     bytes: u64,
+    /// When the job last made progress: took the bytes, or used the processor.
     since: Instant,
+    /// The processor clock of the job's thread, and the time it had used at `since`.
+    clock: Option<ThreadClock>,
+    used: u64,
+}
+
+impl Hold {
+    /// Moves `since` to now when the job's thread has used the processor since it was last
+    /// looked at, so that only a job that makes no progress at all is taken to be stuck.
+    fn note_progress(&mut self) {
+        if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
+            && used > self.used
+        {
+            self.used = used;
+            self.since = Instant::now();
+        }
+    }
 }
 
 /// What a decode took from the budget (`reserve_from_budget`). Outside a decode job it holds the
@@ -1810,6 +1837,44 @@ mod tests {
         stuck_one.join().unwrap();
         waiting.join().unwrap();
         assert!(went_on.is_ok(), "the stuck decode held the budget");
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
+    }
+
+    /// A decode that is slow, not stuck, keeps its bytes while another waits for room. It uses
+    /// the processor all the while, as a large image decoded on a slow computer does. Before,
+    /// its bytes were taken back after `HELD_TOO_LONG` while its pixels were still in memory,
+    /// and the decodes together took about twice the budget.
+    #[test]
+    fn a_slow_decode_keeps_its_bytes() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+        let total = super::DECODE_BUDGET;
+        let budget = super::budget();
+        let (taken, slow_holds) = mpsc::channel();
+        let (done, waited) = mpsc::channel();
+        let done_too = done.clone();
+        let slow_one = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total).unwrap();
+            taken.send(()).unwrap();
+            let start = Instant::now();
+            while start.elapsed() < super::HELD_TOO_LONG * 3 {
+                std::hint::black_box(start.elapsed());
+            }
+            done.send("slow").unwrap();
+            drop(held);
+        });
+        slow_holds.recv().unwrap();
+        let waiting = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total / 2).unwrap();
+            done_too.send("waiting").unwrap();
+            drop(held);
+        });
+        let first = waited.recv_timeout(Duration::from_secs(30));
+        slow_one.join().unwrap();
+        waiting.join().unwrap();
+        assert_eq!(first, Ok("slow"), "a slow decode lost its bytes");
         assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
     }
 
