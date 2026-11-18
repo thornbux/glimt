@@ -1221,12 +1221,42 @@ pub(crate) fn adobe_sidecars_of(
     let Some(stem) = names.of_stem(path).filter(|s| !s.sidecars.is_empty()) else {
         return Vec::new();
     };
+    if has_another_raw(path, dir, stem, ours) || another_arriving {
+        return Vec::new();
+    }
+    // The folder was read once for the whole operation, so each sidecar is looked at again.
+    (stem.sidecars.iter())
+        .map(|n| dir.join(n))
+        .filter(|p| !crate::files::file_io::is_surely_gone(p))
+        .collect()
+}
+
+/// Returns whether the folder of the RAW file `path` holds a RAW file of its name stem, as
+/// `names` has read the folder, that may own Adobe's sidecar of that stem as well
+/// (`adobe_sidecars_of`). A file that is not a RAW file shares no stem.
+pub(crate) fn shares_its_adobe_stem(path: &Path, names: &mut AdobeNames) -> bool {
+    let Some((dir, _)) = adobe_stem(path).filter(|_| is_adobe_raw(path)) else {
+        return false;
+    };
+    let dir = dir.to_owned();
+    let ours = std::collections::HashSet::new();
+    (names.of_stem(path)).is_some_and(|stem| has_another_raw(path, &dir, stem, &ours))
+}
+
+/// Returns whether `stem`, the names of one name stem in the folder `dir`, holds another RAW
+/// file than `path`, not among the files `ours` that leave with the operation.
+fn has_another_raw(
+    path: &Path,
+    dir: &Path,
+    stem: &StemNames,
+    ours: &std::collections::HashSet<&PathBuf>,
+) -> bool {
     let own_name = path.file_name();
     let mut others = (stem.raw_files.iter())
         .filter(|n| Some(n.as_os_str()) != own_name)
         .map(|n| dir.join(n))
         .filter(|p| !ours.contains(p));
-    let another_raw = match stem
+    match stem
         .raw_files
         .iter()
         .any(|n| Some(n.as_os_str()) == own_name)
@@ -1242,15 +1272,7 @@ pub(crate) fn adobe_sidecars_of(
             let own = identity(path);
             others.any(|other| identity(&other).is_some_and(|i| Some(i) != own))
         }
-    };
-    if another_raw || another_arriving {
-        return Vec::new();
     }
-    // The folder was read once for the whole operation, so each sidecar is looked at again.
-    (stem.sidecars.iter())
-        .map(|n| dir.join(n))
-        .filter(|p| !crate::files::file_io::is_surely_gone(p))
-        .collect()
 }
 
 /// Returns each sidecar of `path` that is there, Glimt's own and Adobe's, paired with its name
