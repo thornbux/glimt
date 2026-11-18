@@ -3519,14 +3519,9 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Words the warning that the log of a Move or a delete in `dir` could not be made or written,
-/// `failure`, and prints it. The job goes on without the log, as in Glimt 0.80.0: a Move or a
-/// delete is how a full disk is cleared, and a kill halfway then only leaves the marks of the
-/// files that went behind. It is no failed write, because the job itself works, so a close does
-/// not wait.
-/// Returns the folder of the log that an Undo of a Move or from the trash keeps, which is that
-/// of the Moves' logs. The tests share one state folder, and a test's Undo would leave its log
-/// there when the test does not take the report, so they test the log on folders of their own.
+/// Returns the folder of the log that an Undo of a Move keeps, which is that of the Moves' logs.
+/// The tests share one state folder, and a test's Undo would leave its log there when the test
+/// does not take the report, so they test the log on folders of their own.
 fn undo_move_log_dir() -> Option<PathBuf> {
     #[cfg(not(test))]
     return journal::move_log_dir();
@@ -3534,6 +3529,11 @@ fn undo_move_log_dir() -> Option<PathBuf> {
     return None;
 }
 
+/// Words the warning that the log of a Move or a delete in `dir` could not be made or written,
+/// `failure`, and prints it. The job goes on without the log, as in Glimt 0.80.0: a Move or a
+/// delete is how a full disk is cleared, and a kill halfway then only leaves the marks of the
+/// files that went behind. It is no failed write, because the job itself works, so a close does
+/// not wait.
 fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> String {
     let warning = tf!(
         "Could not save {name}: {e}",
