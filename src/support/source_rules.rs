@@ -7803,6 +7803,12 @@ fn finds_a_search_for_an_xmp_property_in_every_spelling() {
 /// name the constant of any file.
 #[test]
 fn finds_a_property_in_a_static_another_module_or_a_regex() {
+    // A namespace searched for, as Ultra HDR's gain map once was found, and RDF's, which passes.
+    let namespace = "const GAIN: &str = \"http://ns.adobe.com/hdr-gain-map/1.0/\";\n\
+        fn g(x: &str) -> bool {\n    x.contains(GAIN)\n        \
+        || x.contains(\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\")\n}\n";
+    let sources = [("g.rs".to_owned(), namespace.to_owned())];
+    assert_eq!(searches_for_xmp_properties(&sources), ["g.rs:3"]);
     let names = "pub(crate) const RATING: &str = \"xmp:Rating\";\n\
         pub static LABEL: &str = \"xmp:Label\";\nconst LIST: &str = \"<rdf:li\";\n";
     let a = "use crate::names::RATING;\nconst LIST: &str = \"dc:subject\";\n\
@@ -8214,8 +8220,17 @@ fn quoted_text(text: &str) -> Option<String> {
 /// Returns whether `text` starts with the name of an XMP property, after a "<" or "</" when it
 /// has one: a prefix, a ':' and a name that starts with a letter. The names of the RDF and XML
 /// namespaces (rdf:li, xml:lang, xmlns:dc) are no property's. Nor is a name with a second ':'
-/// in it, such as a URN ("urn:iso:std:…"), as an XML name has one ':' at most.
+/// in it, such as a URN ("urn:iso:std:…"), as an XML name has one ':' at most. A namespace's
+/// URI counts too, but for those of RDF and XML at w3.org: a search for it finds it in a
+/// comment or in xmpMM:Pantry as well, where it says nothing of the photo's own properties.
+/// A URI that ends in a NUL is a JPEG segment's name ("http://ns.adobe.com/xap/1.0/\0"), which
+/// is looked for at a segment's start, not in a packet.
 fn names_a_property(text: &str) -> bool {
+    let is_uri = text.starts_with("http://") || text.starts_with("https://");
+    let is_segment_name = text.ends_with("\\0") || text.ends_with('\0');
+    if is_uri && !is_segment_name && !text.contains("w3.org") {
+        return true;
+    }
     let text = text
         .strip_prefix("</")
         .or(text.strip_prefix('<'))
