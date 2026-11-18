@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A decode or thumbnail worker that a broken file ends is replaced at once, rather than leaving
+  its place empty.
+
 ## [0.90.0] - 2026-11-18
 
 ### Fixed
