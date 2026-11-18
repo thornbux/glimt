@@ -5,7 +5,7 @@
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::model::listing::has_ext;
 use crate::support::format::human_size;
-use crate::support::threads::{Progress, lock_even_if_poisoned};
+use crate::support::threads::{Progress, WaitingForRoom, lock_even_if_poisoned};
 use crate::{images::raw, metadata::exif};
 use eframe::egui;
 use image::ImageDecoder;
@@ -201,6 +201,7 @@ impl DecodeBudget {
         state.let_go(job);
         let turn = state.turns_given[line];
         state.turns_given[line] += 1;
+        let _waiting = WaitingForRoom::start();
         while !state.is_turn_of(line, turn, bytes) {
             state = (self.freed.wait_timeout(state, HELD_TOO_LONG / 4))
                 .unwrap_or_else(|e| e.into_inner())
@@ -1852,6 +1853,61 @@ mod tests {
         slow_one.join().unwrap();
         waiting.join().unwrap();
         assert_eq!(first, Ok("slow"), "a slow decode lost its bytes");
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
+    }
+
+    /// A worker of a pool that waits for room in the budget is not given up, as it is not
+    /// stuck: the slow decode that holds the room is. Before, it used no processor time while
+    /// it waited, the pool took its folder to be stalled, and the folder's next job was put
+    /// aside until the slow decode was done.
+    #[test]
+    fn a_worker_that_waits_for_room_is_not_stuck() {
+        use std::path::PathBuf;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let total = super::DECODE_BUDGET;
+        let budget = super::budget();
+        let stuck_after = Duration::from_millis(200);
+        let stop = Arc::new(AtomicBool::new(false));
+        let (taken, slow_holds) = mpsc::channel();
+        let stop_spinning = stop.clone();
+        let slow_one = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total).unwrap();
+            taken.send(()).unwrap();
+            while !stop_spinning.load(Ordering::SeqCst) {
+                std::hint::black_box(0);
+            }
+            drop(held);
+        });
+        slow_holds.recv().unwrap();
+        let (jobs, rx) = mpsc::channel::<PathBuf>();
+        let (done_tx, done) = mpsc::channel();
+        let work = move |job: PathBuf| {
+            if job.ends_with("waits.jpg") {
+                super::TEST_BUDGET.set(Some(budget));
+                drop(super::reserve_from_budget(total / 2).unwrap());
+            }
+            done_tx.send(job).unwrap();
+        };
+        crate::support::threads::spawn_worker_pool(2, stuck_after, rx, |_| {}, work);
+        jobs.send(PathBuf::from("/folder/waits.jpg")).unwrap();
+        std::thread::sleep(stuck_after * 3);
+        jobs.send(PathBuf::from("/folder/next.jpg")).unwrap();
+        let next = done.recv_timeout(Duration::from_secs(5));
+        stop.store(true, Ordering::SeqCst);
+        slow_one.join().unwrap();
+        assert_eq!(
+            next,
+            Ok(PathBuf::from("/folder/next.jpg")),
+            "the waiting worker was given up"
+        );
+        assert_eq!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(PathBuf::from("/folder/waits.jpg"))
+        );
         assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
     }
 

@@ -33,6 +33,12 @@ const MOST_STUCK: usize = 32;
 #[cfg(test)]
 pub(crate) static BREAKING_FILES: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
 
+thread_local! {
+    /// Whether this thread waits for room in the decode budget (`WaitingForRoom`). The
+    /// `Progress` of its job, which another thread reads, holds it too.
+    static WAITING_FOR_ROOM: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+}
+
 /// The processor clock of a thread, which another thread may read (`Progress`).
 struct ThreadClock(libc::clockid_t);
 
@@ -62,11 +68,17 @@ impl ThreadClock {
 
 /// Whether the job of a thread still makes progress, told by the processor time its thread
 /// uses. A thread that waits for a share that stopped answering uses none, and one that is
-/// only slow (a large decode, a read over a slow network) does. So it tells a stuck job from a
-/// slow one, where the time a job has taken alone does not. A thread that only wakes now and
-/// then to look whether it may go on uses less than `PROGRESS`, which is not counted.
+/// only slow in its own work (a large decode) does. So it tells a stuck job from a slow one,
+/// where the time a job has taken alone does not. A read over a slow network or FUSE share
+/// spends its time asleep in the system and may use none either, so it is taken to be stuck as
+/// before. A thread that only wakes now and then to look whether it may go on uses less than
+/// `PROGRESS`, which is not counted. A thread that waits for room in the decode budget
+/// (`WaitingForRoom`) waits for another job, not for the disk, and so counts as making
+/// progress.
 pub(crate) struct Progress {
     clock: Option<ThreadClock>,
+    /// Whether the thread waits for room in the decode budget now (`WAITING_FOR_ROOM`).
+    is_waiting_for_room: Arc<AtomicBool>,
     /// The processor time the thread had used at `since`, in nanoseconds.
     used: u64,
     /// When the job started, or last made progress.
@@ -83,6 +95,7 @@ impl Progress {
         Progress {
             used: clock.as_ref().and_then(ThreadClock::used).unwrap_or(0),
             clock,
+            is_waiting_for_room: WAITING_FOR_ROOM.with(Arc::clone),
             since: std::time::Instant::now(),
         }
     }
@@ -90,13 +103,32 @@ impl Progress {
     /// Returns how long the job has made no progress. Without a clock to read, that is how
     /// long it has run.
     pub(crate) fn idle_for(&mut self) -> std::time::Duration {
-        if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
+        if self.is_waiting_for_room.load(Ordering::Relaxed) {
+            self.since = std::time::Instant::now();
+        } else if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
             && used >= self.used + Self::PROGRESS
         {
             self.used = used;
             self.since = std::time::Instant::now();
         }
         self.since.elapsed()
+    }
+}
+
+/// The mark that the calling thread waits for room in the decode budget, while it lives
+/// (`Progress`).
+pub(crate) struct WaitingForRoom;
+
+impl WaitingForRoom {
+    pub(crate) fn start() -> WaitingForRoom {
+        WAITING_FOR_ROOM.with(|waits| waits.store(true, Ordering::Relaxed));
+        WaitingForRoom
+    }
+}
+
+impl Drop for WaitingForRoom {
+    fn drop(&mut self) {
+        WAITING_FOR_ROOM.with(|waits| waits.store(false, Ordering::Relaxed));
     }
 }
 
