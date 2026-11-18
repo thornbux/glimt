@@ -197,10 +197,13 @@ impl FindDuplicates {
                         if crate::ui::menus::link(ui, &name).clicked() {
                             *show = Some(path.clone());
                         }
-                        let size = self.sizes.get(path).copied().unwrap_or(0);
+                        let size = self
+                            .sizes
+                            .get(path)
+                            .map_or_else(String::new, |&s| human_size(s));
                         ui.weak(format!(
                             "{}  {}",
-                            human_size(size),
+                            size,
                             path.parent().unwrap_or(path).display()
                         ));
                     });
@@ -384,7 +387,8 @@ impl crate::App {
         std::thread::spawn(move || {
             let (groups, seen) = find(paths, by, rotate, save, &progress);
             let sizes = (groups.iter().flatten())
-                .map(|p| (p.clone(), p.metadata().map_or(0, |m| m.len())))
+                // A size that could not be looked at is left out, never shown as 0 bytes.
+                .filter_map(|p| Some((p.clone(), p.metadata().ok()?.len())))
                 .collect();
             let _ = sender.send((groups, sizes, seen));
             drop(pointer);
