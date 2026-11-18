@@ -136,6 +136,11 @@ pub(crate) struct List {
     /// collection puts the same names in another order. The whole listing clears it, and so
     /// does another folder opened.
     has_unchecked_entries: bool,
+    /// The mark that Select Mark selected by and the selection it made, kept while the marks
+    /// file is read again, so that it selects again by the marks read only when the user has
+    /// not changed the selection meanwhile.
+    #[cfg(feature = "marks")]
+    selected_by_mark: Option<(u8, std::collections::BTreeSet<usize>)>,
 }
 
 impl List {
@@ -399,6 +404,10 @@ impl List {
         self.rubber_band = None;
         self.dragging = None;
         self.decodes_pending.clear();
+        #[cfg(feature = "marks")]
+        {
+            self.selected_by_mark = None;
+        }
     }
 
     /// Returns whether the list shows the file at `i`. While searching, that is whether the
@@ -412,6 +421,20 @@ impl List {
     pub(crate) fn select(&mut self, places: std::collections::BTreeSet<usize>) {
         (self.selected, self.hidden_selected) =
             places.into_iter().partition(|&i| self.shows_file(i));
+    }
+
+    /// Notes that the selection now is the one Select Mark made for `mark`.
+    #[cfg(feature = "marks")]
+    pub(crate) fn note_selected_by_mark(&mut self, mark: u8) {
+        self.selected_by_mark = Some((mark, self.selected.clone()));
+    }
+
+    /// Returns the mark that Select Mark selected by, once, when the selection is still the
+    /// one it made. Returns `None` when the user changed it since, or when none was noted.
+    #[cfg(feature = "marks")]
+    pub(crate) fn take_selected_by_mark(&mut self) -> Option<u8> {
+        let (mark, made) = self.selected_by_mark.take()?;
+        (made == self.selected).then_some(mark)
     }
 
     /// Selects the file at `i` alone, and starts a Shift selection there.
@@ -750,6 +773,7 @@ mod tests {
             ),
             ("version", "goes up in List::replacing"),
             ("has_unchecked_entries", "carried by List::replacing"),
+            ("selected_by_mark", "reset"),
         ];
         let sources = crate::support::source_rules::sources();
         let text = &sources
@@ -797,6 +821,7 @@ mod tests {
             ("sizes_and_dates", "not a place: by name"),
             ("version", "forget_places"),
             ("has_unchecked_entries", "not a place"),
+            ("selected_by_mark", "forget_places"),
         ];
         let sources = crate::support::source_rules::sources();
         let text = &sources

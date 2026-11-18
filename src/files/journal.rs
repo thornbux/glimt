@@ -1567,7 +1567,8 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
         // count before it, and its new name too, the same file as its old one. `repair_cut_short`
         // takes that name away.
         let (from, to) = (&moves[k].0, &moves[k].1);
-        let fits = wrong == 0 || (wrong == 1 && !there[b] && on_disk[b] && same_file(from, to));
+        let fits = wrong == 0
+            || (wrong == 1 && !there[b] && on_disk[b] && same_file(from, to).unwrap_or(false));
         match (fits, k >= done) {
             (true, true) => return k,
             (true, false) => earlier = Some(k),

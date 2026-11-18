@@ -22,6 +22,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   an image whose XMP named the gain map's namespace only in a comment or in another document's
   part was taken for one, and its pixels went into the copy also when the extra images were left
   out.
+- Save As and Save This Frame refuse to save when a look at the chosen name fails, such as on a
+  share that drops for a moment. Before, such a failure was taken for another file, so the image
+  itself could be written over and its sidecar lost.
+- A search with an `exif:` term that is not known yet, such as `-exif:canon` before the EXIF of
+  the folder has been read, shows no files until it is. Before, it showed every file, also those
+  it hides.
+- Select Mark also selects the files that another window marked a moment before, once the marks
+  have been read again. Before, it selected by the marks this window held.
 
 ## [0.87.0] - 2026-11-17
 

@@ -343,13 +343,21 @@ impl crate::App {
     ) -> Option<Vec<usize>> {
         match parse(query)? {
             Query::Term(term) => self.term_matches(ctx, &term, 3),
-            tree => Some(self.query_matches(ctx, &tree)),
+            // While a term is not known yet, the whole search finds nothing, as one `exif:` term
+            // does. Taken as "no match", a `-exif:` term showed every file.
+            tree => Some(self.query_matches(ctx, &tree).unwrap_or_default()),
         }
     }
 
     /// The files a part of a combined search finds, in order. An and keeps the order of its
     /// first part that is no "not", and an or keeps the order of its parts one after the other.
-    pub(crate) fn query_matches(&mut self, ctx: &egui::Context, query: &Query) -> Vec<usize> {
+    /// Returns `None` while a term in it is not known yet (an `exif:` term before its index has
+    /// read every file).
+    pub(crate) fn query_matches(
+        &mut self,
+        ctx: &egui::Context,
+        query: &Query,
+    ) -> Option<Vec<usize>> {
         use Query;
         let n = self.list.files().len();
         let mask = |hits: &[usize]| {
@@ -358,27 +366,30 @@ impl crate::App {
             mask
         };
         match query {
-            Query::Term(term) => self.term_matches(ctx, term, 1).unwrap_or_default(),
+            Query::Term(term) => match term.strip_prefix("exif:") {
+                Some(words) => self.exif_matches(ctx, words),
+                None => Some(self.term_matches(ctx, term, 1).unwrap_or_default()),
+            },
             Query::Not(inner) => {
-                let out = mask(&self.query_matches(ctx, inner));
-                (0..n).filter(|&i| !out[i]).collect()
+                let out = mask(&self.query_matches(ctx, inner)?);
+                Some((0..n).filter(|&i| !out[i]).collect())
             }
             Query::Or(parts) => {
                 let mut seen = vec![false; n];
                 let mut found = Vec::new();
                 for part in parts {
-                    for i in self.query_matches(ctx, part) {
+                    for i in self.query_matches(ctx, part)? {
                         if !std::mem::replace(&mut seen[i], true) {
                             found.push(i);
                         }
                     }
                 }
-                found
+                Some(found)
             }
             Query::And(parts) => {
                 let lead = parts.iter().position(|p| !matches!(p, Query::Not(_)));
                 let mut found: Vec<usize> = match lead {
-                    Some(at) => self.query_matches(ctx, &parts[at]),
+                    Some(at) => self.query_matches(ctx, &parts[at])?,
                     None => (0..n).collect(),
                 };
                 for (at, part) in parts.iter().enumerate() {
@@ -390,10 +401,10 @@ impl crate::App {
                         Query::Not(inner) => (inner.as_ref(), false),
                         part => (part, true),
                     };
-                    let hit = mask(&self.query_matches(ctx, inner));
+                    let hit = mask(&self.query_matches(ctx, inner)?);
                     found.retain(|&i| hit[i] == keep);
                 }
-                found
+                Some(found)
             }
         }
     }
@@ -416,7 +427,7 @@ impl crate::App {
             }
         };
         match (term.strip_prefix("exif:"), term.strip_prefix("re:")) {
-            (Some(words), _) => Some(self.exif_matches(ctx, words)),
+            (Some(words), _) => Some(self.exif_matches(ctx, words).unwrap_or_default()),
             (_, Some(pattern)) if !pattern.is_empty() => Some(regex(self, pattern)),
             _ => {
                 self.mark_matches(term)
@@ -434,12 +445,13 @@ impl crate::App {
 
     /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
     /// list order. The first such search in a folder reads the EXIF of all files in the
-    /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
-    pub(crate) fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
+    /// background (the busy pointer shows meanwhile). Returns `None` until the index has read
+    /// every file in the list, as a file it has not read may match or not.
+    pub(crate) fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Option<Vec<usize>> {
         let re = match words.strip_prefix("re:").map(|p| regex(p, false)) {
             Some(Err(e)) => {
                 self.search.error = Some(e);
-                return Vec::new();
+                return Some(Vec::new());
             }
             Some(Ok(re)) => Some(re),
             None => None,
@@ -489,7 +501,7 @@ impl crate::App {
                 });
                 self.search.exif_index_rx = Receiving::of(rx);
             }
-            return Vec::new();
+            return None;
         };
         // The index is lowercase, and the words are made so too, while a regular expression
         // ignores case.
@@ -499,17 +511,25 @@ impl crate::App {
             Some(re) => re.is_match(text.as_bytes()),
             None => words.iter().all(|w| text.contains(w)),
         };
+        // A name the index lacks is read later (`index_new_names`), and until then is unknown.
+        let is_unknown = std::sync::atomic::AtomicBool::new(false);
         // This runs in parallel, because it is 500,000 lookups at each letter typed.
-        in_parts(
+        let hits = in_parts(
             self.list.files(),
             background_threads().min(8),
             |part, at| {
-                (part.iter().enumerate())
-                    .filter(|(_, f)| index.get(*f).is_some_and(found))
-                    .map(|(i, _)| at + i)
-                    .collect()
+                let mut hits = Vec::new();
+                for (i, f) in part.iter().enumerate() {
+                    match index.get(f) {
+                        Some(text) if found(text) => hits.push(at + i),
+                        Some(_) => {}
+                        None => is_unknown.store(true, std::sync::atomic::Ordering::Relaxed),
+                    }
+                }
+                hits
             },
-        )
+        );
+        (!is_unknown.into_inner()).then_some(hits)
     }
 
     /// "mark:2" shows the files with mark 2, "stars:3" those with three stars or more.
@@ -897,6 +917,43 @@ mod tests {
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, read
         ));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A combined search finds nothing while an `exif:` term in it is not known yet, before the
+    /// index is read or for a name it has not read. Before, a term not known yet counted as no
+    /// match, so `-exif:canon` showed every file, the Canon photos too.
+    #[test]
+    fn a_term_not_known_yet_hides_every_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-unknown-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.jpg", "b.jpg"].iter().map(Into::into).collect());
+        let shown = |app: &mut crate::App, query: &str| {
+            app.search.set_query(query);
+            app.update_search(&ctx);
+            app.list.matches().map(<[usize]>::to_vec)
+        };
+        for query in [
+            "-exif:canon",
+            "a ( exif:canon | re:b )",
+            "re:jpg -exif:canon",
+        ] {
+            assert_eq!(shown(&mut app, query), Some(Vec::new()), "{query}");
+        }
+        let read = |a: &crate::App| a.search.exif_index.is_some();
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, read
+        ));
+        assert_eq!(shown(&mut app, "-exif:canon"), Some(vec![0, 1]));
+        // A name the index has not read yet is not known either.
+        app.search
+            .exif_index
+            .as_mut()
+            .unwrap()
+            .remove(std::ffi::OsStr::new("b.jpg"));
+        assert_eq!(shown(&mut app, "-exif:canon"), Some(Vec::new()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

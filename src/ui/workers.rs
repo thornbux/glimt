@@ -105,8 +105,18 @@ impl crate::App {
     #[cfg(feature = "marks")]
     fn receive_marks(&mut self, ctx: &egui::Context) {
         self.marks.receive();
-        if self.marks.take_changed() && self.search.is_about_marks() {
+        let changed = self.marks.take_changed();
+        // Select Mark selected by the marks held before the read, which came back with others.
+        // It selects again only when the user has not changed the selection meanwhile.
+        let select_again = match self.marks.is_reading() {
+            true => None,
+            false => self.list.take_selected_by_mark().filter(|_| changed),
+        };
+        if changed && self.search.is_about_marks() {
             self.update_search(ctx);
+        }
+        if let Some(n) = select_again {
+            self.select_marked(ctx, n);
         }
     }
 

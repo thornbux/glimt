@@ -469,7 +469,9 @@ pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Op
         use crate::files::file_ops::{moves_by_source, new_place};
         let moved = moves_by_source(&pairs);
         let is_open = |file: &Path| {
-            (open.as_deref()).is_some_and(|o| crate::images::save::same_file(o, file))
+            // A failed look counts as the open one, which is then left alone.
+            (open.as_deref())
+                .is_some_and(|o| crate::images::save::same_file(o, file).unwrap_or(true))
         };
         for (_, file) in saved_collections().into_iter().filter(|(_, f)| !is_open(f)) {
             let follow = |all: &mut Vec<PathBuf>| {

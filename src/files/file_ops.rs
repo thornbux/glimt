@@ -2427,9 +2427,17 @@ impl crate::App {
             // the animation's sidecar, marks and stars with it. It is refused, as Save As
             // refuses it. The check is made here in the background, because a file on a share
             // that stalls would hold the window.
-            if only.is_some() && crate::images::save::same_file(&path, &to) {
-                let e = tr("choose another name: the image itself is not changed");
-                return Some(Told::FailedWrite(tf!("Could not save the image: {e}", e)));
+            if only.is_some() {
+                let e = match crate::images::save::same_file(&path, &to) {
+                    Ok(false) => None,
+                    Ok(true) => {
+                        Some(tr("choose another name: the image itself is not changed").into())
+                    }
+                    Err(e) => Some(format!("{}: {e}", to.display())),
+                };
+                if let Some(e) = e {
+                    return Some(Told::FailedWrite(tf!("Could not save the image: {e}", e)));
+                }
             }
             // The chooser waited, and another file may have taken the name meanwhile. Its
             // frames are not saved as the ones shown.
