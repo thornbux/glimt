@@ -325,9 +325,23 @@ struct Stalled<J> {
     ready: std::collections::VecDeque<J>,
 }
 
+/// What a worker of a pool waits for (`next_job`).
+enum Next<J> {
+    /// A new job.
+    Job(J),
+    /// A job set aside is ready, sent once for each job, so a worker that waits takes it.
+    Ready,
+    /// The pool's jobs have ended. Each worker that takes it sends it on to the next one.
+    End,
+}
+
 /// What the workers of a pool share (`spawn_worker_pool`).
 struct WorkerPool<J> {
-    jobs: Mutex<mpsc::Receiver<J>>,
+    /// The new jobs, and the word that a job set aside is ready. The workers wait here
+    /// without waking, also while nothing is set aside, so an idle pool costs nothing.
+    jobs: Mutex<mpsc::Receiver<Next<J>>>,
+    /// The sending half of `jobs`.
+    wake: mpsc::Sender<Next<J>>,
     /// The `JobStart` of the worker that has each place now.
     places: Mutex<Vec<JobStart>>,
     /// How many workers are given up and still stuck in their job.
@@ -339,6 +353,9 @@ struct WorkerPool<J> {
     set_aside_by: SetAsideBy<J>,
     stalled: Mutex<Stalled<J>>,
     work: Box<dyn Fn(J) + Send + Sync>,
+    /// How often a worker woke from its wait for a job, which a test counts.
+    #[cfg(test)]
+    wakeups: AtomicUsize,
 }
 
 /// The note in its `JobStart` that a worker of a pool does a job, made when the job starts
@@ -376,6 +393,7 @@ impl<J: Send + 'static> Drop for JobNote<J> {
     fn drop(&mut self) {
         *lock_even_if_poisoned(&self.start) = None;
         let is_given_up = !is_place_of(&self.pool, self.place, &self.start);
+        let mut now_ready = 0;
         if is_given_up && let Some(folder) = &self.folder {
             let mut stalled = lock_even_if_poisoned(&self.pool.stalled);
             if let Some(i) = stalled.folders.iter().position(|f| f == folder) {
@@ -386,8 +404,13 @@ impl<J: Send + 'static> Drop for JobNote<J> {
                     .into_iter()
                     .partition(|(f, _)| f == folder);
                 stalled.set_aside = still;
+                now_ready = back.len();
                 stalled.ready.extend(back.into_iter().map(|(_, job)| job));
             }
+        }
+        for _ in 0..now_ready {
+            // A pool whose workers have all ended has no one to wake.
+            let _ = self.pool.wake.send(Next::Ready);
         }
         if std::thread::panicking() {
             if is_given_up {
@@ -473,9 +496,35 @@ pub(crate) fn spawn_worker_pool<J: Send + 'static>(
     set_aside_by: impl Fn(&J) -> Option<PathBuf> + Send + Sync + 'static,
     work: impl Fn(J) + Send + Sync + 'static,
 ) {
+    start_pool(places, stuck_after, jobs, wait_for_turn, set_aside_by, work);
+}
+
+/// Starts a pool as `spawn_worker_pool` does. Returns the pool, which a test looks into.
+fn start_pool<J: Send + 'static>(
+    places: usize,
+    stuck_after: std::time::Duration,
+    jobs: mpsc::Receiver<J>,
+    wait_for_turn: impl Fn(usize) + Send + Sync + 'static,
+    set_aside_by: impl Fn(&J) -> Option<PathBuf> + Send + Sync + 'static,
+    work: impl Fn(J) + Send + Sync + 'static,
+) -> Arc<WorkerPool<J>> {
     let starts: Vec<JobStart> = (0..places).map(|_| JobStart::default()).collect();
+    let (wake, next) = mpsc::channel();
+    let handed_on = wake.clone();
+    // No busy pointer: it only hands the pool's jobs on to its workers, through the channel
+    // that also says when a job set aside is ready. It ends with the sending half of `jobs`.
+    std::thread::spawn(move || {
+        while let Ok(job) = jobs.recv() {
+            if handed_on.send(Next::Job(job)).is_err() {
+                return;
+            }
+        }
+        // The workers may be gone already.
+        let _ = handed_on.send(Next::End);
+    });
     let pool = Arc::new(WorkerPool {
-        jobs: Mutex::new(jobs),
+        jobs: Mutex::new(next),
+        wake,
         places: Mutex::new(starts.clone()),
         stuck: AtomicUsize::new(0),
         wait_for_turn: Box::new(wait_for_turn),
@@ -486,22 +535,25 @@ pub(crate) fn spawn_worker_pool<J: Send + 'static>(
             ready: Default::default(),
         }),
         work: Box::new(work),
+        #[cfg(test)]
+        wakeups: AtomicUsize::new(0),
     });
     for (place, start) in starts.into_iter().enumerate() {
         start_worker(&pool, place, start);
     }
-    let pool = Arc::downgrade(&pool);
+    let watched = Arc::downgrade(&pool);
     // No busy pointer: the watch over a pool's workers, which only starts workers. It ends
     // with the pool, once its workers have ended.
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(stuck_after / 4);
-            let Some(pool) = pool.upgrade() else {
+            let Some(pool) = watched.upgrade() else {
                 return;
             };
             replace_stuck_workers(&pool, stuck_after);
         }
     });
+    pool
 }
 
 /// Gives up each worker of `pool` whose job is stuck (`Progress::is_stuck`), and starts a
@@ -557,18 +609,25 @@ fn start_worker<J: Send + 'static>(pool: &Arc<WorkerPool<J>>, place: usize, star
 }
 
 /// Returns the next job of `pool`: a job set aside whose folder answers again, or else a new
-/// one. Returns `None` when the sending half is gone. A job set aside is taken within a quarter
-/// of a second of its folder answering, also while no new job comes.
+/// one. Returns `None` when the sending half is gone. Each job set aside that is ready sends a
+/// `Next::Ready`, so a worker that waits wakes for it, and one that took it already finds
+/// nothing and waits again.
 fn next_job<J>(pool: &WorkerPool<J>) -> Option<J> {
     loop {
         if let Some(job) = lock_even_if_poisoned(&pool.stalled).ready.pop_front() {
             return Some(job);
         }
-        let quarter = std::time::Duration::from_millis(250);
-        match lock_even_if_poisoned(&pool.jobs).recv_timeout(quarter) {
-            Ok(job) => return Some(job),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+        let received = lock_even_if_poisoned(&pool.jobs).recv();
+        #[cfg(test)]
+        pool.wakeups.fetch_add(1, Ordering::Relaxed);
+        match received {
+            Ok(Next::Job(job)) => return Some(job),
+            Ok(Next::Ready) => {}
+            Ok(Next::End) | Err(_) => {
+                // The next worker that waits ends too.
+                let _ = pool.wake.send(Next::End);
+                return None;
+            }
         }
     }
 }
@@ -914,6 +973,19 @@ mod tests {
             let job = done.recv_timeout(ten_seconds).unwrap();
             assert!(job.starts_with("/share"), "{job:?}");
         }
+    }
+
+    /// An idle pool waits for a job without waking, as nothing is set aside. Before, every
+    /// pool woke four times a second for ever, also those that never set a job aside.
+    #[test]
+    fn an_idle_pool_does_not_wake() {
+        use std::sync::atomic::Ordering;
+        let (jobs, rx) = std::sync::mpsc::channel::<std::path::PathBuf>();
+        let stuck_after = std::time::Duration::from_secs(3600);
+        let pool = super::start_pool(2, stuck_after, rx, |_| {}, |_| None, |_| {});
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(pool.wakeups.load(Ordering::Relaxed), 0, "an idle pool woke");
+        drop(jobs);
     }
 
     /// The jobs set aside are done also when the job that stalled their folder ends in a
