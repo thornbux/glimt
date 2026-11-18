@@ -12,6 +12,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   dav:// and davs:// as network locations Glimt can open.
 ### Fixed
 
+- A delete log that a later start must finish keeps only the files still to be done, so each
+  start no longer looks at every file of a long delete again.
 - A decode or thumbnail worker that a broken file ends is replaced at once, rather than leaving
   its place empty.
 ### Fixed
