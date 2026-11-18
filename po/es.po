@@ -3813,6 +3813,14 @@ msgstr "Todavía se está abriendo {name}… Abra otra carpeta para dejar de esp
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Renombrar varios se detuvo, así que los metadatos editados de {count} no se guardaron"
 
+#, fuzzy
+msgid "The metadata edited for {count} was not saved, as the list no longer has them"
+msgstr "Los metadatos editados de {count} no se guardaron, porque la lista ya no los tiene"
+
+#, fuzzy
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr "La lista aún no se ha leído, así que los metadatos editados de {count} no se guardaron"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"
