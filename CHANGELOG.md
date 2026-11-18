@@ -5,6 +5,24 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A file that cannot be looked at for a moment, such as on a share that drops, shows no size and
+  no date in the list, the info panel and Find Duplicates until it can. Before, it showed as 0
+  bytes from 1970 until the folder was read again.
+- A collection entry under a folder that was replaced by a file, or through a loop of links, is
+  left out as gone. Before, it stayed as a broken row until the collection was opened again.
+- A copy saved whose folder could not be synced to disk afterwards gets its sidecar, and the
+  notice says it may not be on the disk yet. Before, it was told as not saved, without its
+  sidecar.
+- On a share that loses its answers, a save keeps its temporary file when the rename may have
+  been done, Save As tells where the replaced file's sidecar may be instead of taking it for none,
+  and Delete without the trash no longer says that a sidecar it removed could not be deleted.
+- Remove thumbnails of deleted files no longer keeps the busy pointer on for ever when a share
+  stops answering, starts no second run while one runs, and skips a broken thumbnail.
+- A collection that is a link to another file is not written when another program changed that
+  file since Glimt read it.
+
 ## [0.88.0] - 2026-11-18
 
 ### Fixed
