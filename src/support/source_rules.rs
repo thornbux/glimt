@@ -5913,7 +5913,7 @@ fn finds_an_allow_without_its_reason() {
 /// so is found too, unless a comment in the statement or in the comment lines just above it
 /// says why its failure is not told, with "Not told:". An encoder's failure dropped left a
 /// printed page blank without a word.
-fn dropped_writes_in(text: &str, wrappers: &[String]) -> Vec<usize> {
+fn dropped_writes_in(text: &str, wrappers: &[(String, bool)]) -> Vec<usize> {
     const KEYWORDS: [&str; 7] = ["if", "while", "match", "return", "let", "else", "for"];
     let lines = code_lines(text);
     let comments = comment_lines(text);
@@ -5940,7 +5940,7 @@ fn dropped_writes_in(text: &str, wrappers: &[String]) -> Vec<usize> {
                 found.push(line);
             }
             let is_writer = |writer: &&str| words.contains(writer);
-            let is_wrapper = |wrapper: &String| mentions_call(words, wrapper);
+            let is_wrapper = |(wrapper, _): &(String, bool)| mentions_call(words, wrapper);
             match c {
                 '{' => {
                     depth += 1;
@@ -5960,14 +5960,14 @@ fn dropped_writes_in(text: &str, wrappers: &[String]) -> Vec<usize> {
                 _ => {}
             }
             let starts_with_keyword = KEYWORDS.contains(&words.split(' ').next().unwrap_or(""));
-            let dropped = words.starts_with("let _ =")
+            let dropped_outright = words.starts_with("let _ =")
                 || words.starts_with("let _:")
                 || words.starts_with("_ =")
                 || (c == ';'
                     && (words.ends_with(".unwrap_or_default()")
                         || words.ends_with(".unwrap_or(())")))
-                || is_unused_binding(words, &lines[..end], i)
                 || (c == ';' && !starts_with_keyword && last_method_drops_its_receiver(words));
+            let dropped = dropped_outright || is_unused_binding(words, &lines[..end], i);
             // The statement's lines, and the lines of comment alone just above it.
             let says_why = || {
                 let above = (0..first_line.saturating_sub(1))
@@ -5979,10 +5979,15 @@ fn dropped_writes_in(text: &str, wrappers: &[String]) -> Vec<usize> {
             };
             // A wrapper of the crate's is held as a raw write is: a comment may say why its
             // failure is not told, as for a thumbnail of the shared cache.
+            // A result that holds a value, such as a lock file, may be bound to a name only to
+            // be held, so only a drop outright counts for it.
+            let holds_nothing = |w: &(String, bool)| !w.1 && is_wrapper(w);
+            let holds_a_value = |w: &(String, bool)| w.1 && is_wrapper(w);
             let drops_a_raw_write = (dropped
-                && (RAW_WRITES.iter().any(is_writer) || wrappers.iter().any(is_wrapper)))
+                && (RAW_WRITES.iter().any(is_writer) || wrappers.iter().any(holds_nothing)))
+                || (dropped_outright && wrappers.iter().any(holds_a_value))
                 || RAW_WRITES.iter().any(|w| is_dropped(words, w))
-                || wrappers.iter().any(|w| is_dropped(words, w));
+                || wrappers.iter().any(|(w, _)| is_dropped(words, w));
             if (dropped && FILE_IO_WRITERS.iter().any(is_writer))
                 || FILE_IO_WRITERS.iter().any(|w| is_dropped(words, w))
                 || (drops_a_raw_write && !says_why())
@@ -5995,42 +6000,103 @@ fn dropped_writes_in(text: &str, wrappers: &[String]) -> Vec<usize> {
     found
 }
 
-/// Returns the calls (`name(`) of the crate's functions outside the tests that return a
-/// `Result` with nothing in it but the outcome (`Result<()`, `Result<(), E>`) and make a write
-/// of `FILE_IO_WRITERS` or `RAW_WRITES`, or call another such function, so that a wrapper such
-/// as `trash::trash` or a thumbnail's write is held as its writer is. Before, a writer had to
-/// be listed by hand, and a dropped `write_picked_name`, `put_file_back` or `trash` passed.
-fn writers_through_wrappers(sources: &[(String, String)]) -> Vec<String> {
+/// Returns the calls (`name(`) of the crate's functions outside the tests whose `Result` carries
+/// the error of a write, each with whether the result holds a value. A function that returns
+/// nothing but the outcome (`Result<()`, `Result<(), E>`) counts when it makes a write of
+/// `FILE_IO_WRITERS` or `RAW_WRITES`, or calls another such function. A function whose result
+/// holds a value counts when it passes such a call's result on (`passes_on_the_result_of`), so
+/// that `save_copy_with_sidecar` is held too, but `open_and_lock`, whose `create(true)` only
+/// says how the file is opened, is not. Before, only a function that returned nothing counted,
+/// so `let _ = save_copy_with_sidecar(…)` passed.
+fn writers_through_wrappers(sources: &[(String, String)]) -> Vec<(String, bool)> {
     let mut functions = Vec::new();
     for (file, text) in sources {
         let lines = code_lines(text);
         for f in functions_in(file, &lines) {
-            let body: Vec<&String> = lines[f.lines.clone()].iter().collect();
+            let body: Vec<&str> = lines[f.lines.clone()].iter().map(|l| l.as_str()).collect();
             let signature_end = body.iter().position(|l| l.contains('{')).unwrap_or(0);
-            // A result that holds a value, such as the lock file of `open_and_lock`, is kept for
-            // that value, and its name bound only to hold it is no dropped write.
-            let returns_result = (body[..=signature_end].iter())
-                .any(|l| l.contains("Result<()") || l.contains("Result<(),"));
-            if returns_result {
-                let body = body[signature_end + 1..].iter().map(|l| l.as_str());
-                functions.push((format!("{}(", f.name), body.collect::<Vec<_>>().join("\n")));
+            let signature = body[..=signature_end].join(" ");
+            if !signature.contains("Result<") {
+                continue;
             }
+            let holds_a_value =
+                !(signature.contains("Result<()") || signature.contains("Result<(),"));
+            let body = body[signature_end + 1..].join("\n");
+            functions.push((format!("{}(", f.name), body, holds_a_value));
         }
     }
-    let mut writers: Vec<String> = Vec::new();
+    let mut writers: Vec<(String, bool)> = Vec::new();
     loop {
         let known = writers.len();
-        for (call, body) in &functions {
-            let is_writer = (RAW_WRITES.iter().chain(&FILE_IO_WRITERS)).any(|w| body.contains(w))
-                || writers.iter().any(|w| mentions_call(body, w));
-            if is_writer && !writers.contains(call) {
-                writers.push(call.clone());
+        for (call, body, holds_a_value) in &functions {
+            let makes_a_write = (RAW_WRITES.iter().chain(&FILE_IO_WRITERS)).any(|w| {
+                if *holds_a_value {
+                    passes_on_the_result_of(body, w)
+                } else {
+                    body.contains(w)
+                }
+            });
+            let calls_a_writer = writers.iter().any(|(w, value)| {
+                if *holds_a_value || *value {
+                    passes_on_the_result_of(body, w)
+                } else {
+                    mentions_call(body, w)
+                }
+            });
+            if (makes_a_write || calls_a_writer) && !writers.iter().any(|(w, _)| w == call) {
+                writers.push((call.clone(), *holds_a_value));
             }
         }
         if writers.len() == known {
             return writers;
         }
     }
+}
+
+/// Returns whether `body` passes on the result of a call of `call` (`name(`): the call, with
+/// any methods chained after it (`.map_err(…)`), is followed by `?`, or ends the body, a
+/// block or a `return`.
+fn passes_on_the_result_of(body: &str, call: &str) -> bool {
+    // Returns where the parenthesis closes that is open at `from`.
+    let after_parentheses = |from: usize| {
+        let mut depth = 1;
+        let close = body[from..].char_indices().find(|&(_, c)| {
+            depth += match c {
+                '(' => 1,
+                ')' => -1,
+                _ => 0,
+            };
+            depth == 0
+        });
+        close.map(|(at, _)| from + at + 1)
+    };
+    let starts_a_name = call.starts_with(is_word_char);
+    body.match_indices(call).any(|(at, _)| {
+        if starts_a_name && body[..at].ends_with(is_word_char) {
+            return false;
+        }
+        let Some(mut end) = after_parentheses(at + call.len()) else {
+            return false;
+        };
+        while let Some(rest) = body[end..].trim_start().strip_prefix('.') {
+            let method_start = body.len() - rest.len();
+            let name_length = rest.find(|c: char| !is_word_char(c)).unwrap_or(rest.len());
+            if !rest[name_length..].starts_with('(') {
+                break;
+            }
+            match after_parentheses(method_start + name_length + 1) {
+                Some(next) => end = next,
+                None => return false,
+            }
+        }
+        let rest = body[end..].trim_start();
+        let statement_start = body[..at].rfind([';', '{', '}']).map_or(0, |s| s + 1);
+        let is_returned = body[statement_start..at].trim_start().starts_with("return");
+        rest.starts_with('?')
+            || rest.is_empty()
+            || rest.starts_with('}')
+            || (rest.starts_with(';') && is_returned)
+    })
 }
 
 /// Returns `statement` without the attributes in front of it (`#[allow(…)]`, `#[cfg(…)]`), so
@@ -6227,14 +6293,34 @@ fn finds_a_write_dropped_through_a_wrapper() {
         -> std::io::Result<()> {\n    write_beside_without_folder_sync(p, b)\n}\n\
         fn outer() -> std::io::Result<()> {\n    thumb(p)\n}\n\
         fn count() -> Result<usize, ()> {\n    Ok(1)\n}\n\
-        fn opened() -> Result<File> {\n    o.create(true).open(p)\n}\nfn quiet() {\n    let _ = 1;\n}\n";
+        fn opened() -> Result<File> {\n    o.create(true).open(p)\n}\nfn quiet() {\n    let _ = 1;\n}\n\
+        fn locked() -> Result<File> {\n    let f = open(p, o.create(true))?;\n    Ok(f)\n}\n\
+        fn saved() -> io::Result<Option<String>> {\n    \
+        replace_name(p, b).map_err(|e| e.to_string())?;\n    Ok(None)\n}\n\
+        fn copied() -> io::Result<u64> {\n    if a {\n        return put_file(a, b, true);\n    \
+        }\n    Ok(0)\n}\n";
     let wrappers = writers_through_wrappers(&[("lib.rs".to_string(), library.to_string())]);
-    assert_eq!(wrappers, ["trash(", "thumb(", "outer("]);
+    let names: Vec<(&str, bool)> = wrappers.iter().map(|(w, v)| (w.as_str(), *v)).collect();
+    assert_eq!(
+        names,
+        [
+            ("trash(", false),
+            ("thumb(", false),
+            ("outer(", false),
+            ("opened(", true),
+            ("saved(", true),
+            ("copied(", true)
+        ]
+    );
+    // A result that holds a value is found dropped outright, but a name bound to hold it, such
+    // as a lock, is left alone.
     let text = "fn a() {\n    let _ = trash::trash(&paths);\n    drop(thumb(p));\n    \
         outer().ok();\n    let _ = count();\n    let _ = move_to_trash_bin(p);\n    \
         trash(&paths)?;\n    let _held = opened();\n    \
-        drop(thumb(p)); // Not told: a cache that others fill too\n}\n";
-    assert_eq!(dropped_writes_in(text, &wrappers), [2, 3, 4]);
+        drop(thumb(p)); // Not told: a cache that others fill too\n    \
+        let _ = save::saved();\n    copied().ok();\n    drop(saved());\n    \
+        let _lock = locked();\n    let _ = locked();\n    let _copy = copied();\n}\n";
+    assert_eq!(dropped_writes_in(text, &wrappers), [2, 3, 4, 10, 11, 12]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
