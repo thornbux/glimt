@@ -783,28 +783,46 @@ impl crate::App {
         // Otherwise a step would find its file gone, and its undo could not put the others
         // back.
         let renaming = self.file_operations.renaming.is_some();
-        // A list just opened shows the names in its file until they are checked to be files.
-        // A folder named there was moved to the trash as one of its entries. A listing that
-        // broke checked nothing either, so the list waits for one that comes whole (F5).
-        let reading = self.list.has_unchecked_entries();
-        let busy =
-            !saving && !writing && !renaming && (reading || self.is_changed_by_running_work(paths));
-        if saving {
+        let refused = if saving {
             self.notice
                 .give(tr("Still saving a rotation: try again in a moment").into());
+            true
         } else if writing {
             self.notice
                 .give(tr("Still writing keywords: try again in a moment").into());
+            true
         } else if renaming {
             self.notice.give(tr("Rename Many is still renaming").into());
-        } else if reading && !self.folder.is_listing() {
-            // No listing runs that would check the list in a moment, so waiting would not help.
-            self.tell_background_stopped(tr("Reading the folder"));
-        } else if busy {
+            true
+        } else if !self.is_list_checked() {
+            true
+        } else if self.is_changed_by_running_work(paths) {
             self.notice
                 .give(tr("Still working on these files: try again in a moment").into());
+            true
+        } else {
+            false
+        };
+        !refused
+    }
+
+    /// Returns whether the list's entries are checked to be files. Otherwise it shows a notice.
+    /// A list just opened shows the names in its file until they are checked to be files. A
+    /// folder named there was moved to the trash as one of its entries, and got a sidecar. A
+    /// listing that broke checked nothing either, so the list waits for one that comes whole
+    /// (F5). Every job asks it, also one that writes sidecars (`start_job_of`).
+    fn is_list_checked(&mut self) -> bool {
+        if !self.list.has_unchecked_entries() {
+            return true;
         }
-        !saving && !writing && !renaming && !busy
+        if self.folder.is_listing() {
+            self.notice
+                .give(tr("Still working on these files: try again in a moment").into());
+        } else {
+            // No listing runs that would check the list in a moment, so waiting would not help.
+            self.tell_background_stopped(tr("Reading the folder"));
+        }
+        false
     }
 
     /// Returns whether a job or background work that still runs changes a file of `paths`, a folder
@@ -858,14 +876,16 @@ impl crate::App {
         writes_sidecars: bool,
         held_back_files: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
-        // Keywords and stars are never refused, because an edit made in the panel would be
-        // lost. Instead, their job holds back every other operation (`are_free_to_change`'s
-        // `writing`). A job that changes none of the user's files, such as a backup, is not
-        // refused either.
-        if !writes_sidecars
-            && !held_back_files.is_empty()
-            && !self.are_free_to_change(&held_back_files)
-        {
+        // Keywords and stars are refused only while the list's entries are not yet checked to be
+        // files, as one may be a folder. Otherwise they are never refused, because an edit made
+        // in the panel would be lost. Instead, their job holds back every other operation
+        // (`are_free_to_change`'s `writing`). A job that changes none of the user's files, such
+        // as a backup, is not refused either.
+        let refused = match writes_sidecars {
+            true => !self.is_list_checked(),
+            false => !held_back_files.is_empty() && !self.are_free_to_change(&held_back_files),
+        };
+        if refused {
             return None;
         }
         let job = Arc::new(Job::new(activity, total, writes_sidecars, held_back_files));
@@ -3955,6 +3975,25 @@ mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
     use crate::support::threads::{Told, lock_even_if_poisoned};
     use std::path::PathBuf;
+
+    /// A sidecar write waits, like every other job, until the list's entries are checked to be
+    /// files, as an entry of a collection just opened may be a folder. Before, sidecar jobs
+    /// skipped that guard, and a keyword ticked on such an entry wrote "Documents.xmp".
+    #[test]
+    fn sidecar_writes_wait_for_a_checked_list() {
+        let dir = contract_folder("sidecar-unchecked");
+        let (mut app, _ctx) = app_on(&dir);
+        app.list.set_unchecked_entries(true);
+        let paths = vec![dir.join("a.png")];
+        assert!(
+            app.start_job_of("Tagging", 1, true, paths.clone())
+                .is_none()
+        );
+        assert!(app.notice.text().is_some());
+        app.list.set_unchecked_entries(false);
+        assert!(app.start_job_of("Tagging", 1, true, paths).is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// The renames found cut short at the start are added to the plans that a refused repair
     /// asked about again before they came. Before, they replaced them, and a test that put
