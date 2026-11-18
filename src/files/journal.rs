@@ -588,23 +588,22 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
         .filter_map(|(path, file, bytes)| {
             let known = read_move_known(&known_path(&path)).unwrap_or_default();
             let kept = read_kept(&path)?;
-            let (mut gone, mut stayed, mut kept_away) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut gone, mut stayed, mut not_as_left) = (Vec::new(), Vec::new(), Vec::new());
             let mut has_names_left = false;
             for (i, name) in parse_names(&bytes).into_iter().enumerate() {
                 match went_before_the_kill(&name) {
-                    Some(true) if kept.contains(&name) => kept_away.push(name),
+                    Some(true) if kept.contains(&name) => not_as_left.push(name),
                     Some(true) => gone.push(name),
                     Some(false) if is_as_known(&name, known.get(i).copied().flatten()) => {
                         stayed.push(name);
                     }
-                    Some(false) if kept.contains(&name) => kept_away.push(name),
-                    Some(false) => {}
+                    Some(false) => not_as_left.push(name),
                     None => has_names_left = true,
                 }
             }
             forget_in_the_collection_shown(&path, &gone);
             // Before the trash is looked in, where a sidecar put aside is not.
-            let still_hidden = sidecars_back_from_hiding(&path, &gone, &stayed, &kept_away);
+            let still_hidden = sidecars_back_from_hiding(&path, &gone, &stayed, &not_as_left);
             // The log was last written just before the last of its files went. A log whose time
             // cannot be read takes no sidecar back, as it cannot tell which went after it.
             let written = file.metadata().and_then(|m| m.modified());
@@ -704,17 +703,18 @@ fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
 /// look that takes a sidecar back from the trash. It is deleted when the photo is among those
 /// `gone`, as the delete would have done. Any other stays hidden: a photo that cannot be told
 /// about yet, whose log stays too, and a different file that took the photo's name since,
-/// which must not get the keywords of the photo deleted. A photo that the delete kept and that
-/// is not there as the log knew it any more, among those `kept_away`, keeps its sidecar hidden,
-/// and the hidden name is told, once, as the log goes. Only a hidden name that
-/// `file_io::tmp_path` gives, beside the photo, is touched. A failure is told. Returns the photos
-/// whose sidecar may still be hidden, as its rename back failed in a way that a later start may
-/// not meet, so that the log stays for them.
+/// which must not get the keywords of the photo deleted. A photo that is not there as the
+/// delete left it any more, among those `not_as_left`, keeps its sidecar hidden, and the hidden
+/// name is told, once, as the log goes: a photo the delete kept and the user moved away since,
+/// and a photo changed or written anew since. Only a hidden name that `file_io::tmp_path`
+/// gives, beside the photo, is touched. A failure is told. Returns the photos whose sidecar may
+/// still be hidden, as its rename back failed in a way that a later start may not meet, so that
+/// the log stays for them.
 fn sidecars_back_from_hiding(
     log: &Path,
     gone: &[PathBuf],
     stayed: &[PathBuf],
-    kept_away: &[PathBuf],
+    not_as_left: &[PathBuf],
 ) -> Vec<PathBuf> {
     use crate::files::file_io::{TMP_PREFIX, save_failed};
     use std::collections::HashSet;
@@ -722,10 +722,10 @@ fn sidecars_back_from_hiding(
     let Ok(bytes) = crate::images::decode::read_limited(aside_path(log)) else {
         return still_hidden;
     };
-    let (gone, stayed, kept_away): (HashSet<&PathBuf>, HashSet<&PathBuf>, HashSet<&PathBuf>) = (
+    let (gone, stayed, not_as_left): (HashSet<&PathBuf>, HashSet<&PathBuf>, HashSet<&PathBuf>) = (
         gone.iter().collect(),
         stayed.iter().collect(),
-        kept_away.iter().collect(),
+        not_as_left.iter().collect(),
     );
     let names = parse_names(&bytes);
     let noted = names.as_chunks::<3>().0;
@@ -748,7 +748,7 @@ fn sidecars_back_from_hiding(
         } else if gone.contains(photo) {
             #[allow(clippy::disallowed_methods)] // Glimt's own: put aside, of a photo deleted
             std::fs::remove_file(hidden)
-        } else if kept_away.contains(photo) {
+        } else if not_as_left.contains(photo) {
             save_failed(crate::tf!(
                 "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}",
                 photo = photo.display(),
@@ -3201,6 +3201,18 @@ mod tests {
             .unwrap()
     }
 
+    /// Leaves in `logs` the log of a Delete for good of the photo `a` that Glimt was killed
+    /// during, after it put the photo's sidecar aside at the name `hidden` and before it deleted
+    /// the photo.
+    fn leave_a_killed_log(logs: &std::path::Path, a: &std::path::Path, hidden: &std::path::Path) {
+        let side = crate::metadata::xmp::sidecar(a);
+        let mut log = super::start_delete_log(logs, None).unwrap();
+        log.note(&[a.to_path_buf()]);
+        log.note_aside(a, &[(side.clone(), hidden.to_path_buf())]);
+        std::fs::rename(&side, hidden).unwrap();
+        drop(log);
+    }
+
     /// A start long after the delete of a log takes back from the trash only a sidecar that went
     /// there about the time of the delete. Before, it took back any sidecar of a photo that
     /// stayed trashed since then, so one the user trashed on purpose weeks after the kill came
@@ -3247,6 +3259,27 @@ mod tests {
             !side.exists(),
             "the sidecar of two RAW files came back to one"
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A start after a killed Delete for good, whose photo stayed but was changed before it, as
+    /// a JPEG turned in another program, keeps the photo's sidecar under its hidden name and
+    /// tells that name, once. Before, the log went without a word, and the sidecar stayed
+    /// hidden.
+    #[test]
+    fn a_killed_delete_for_good_tells_the_hidden_sidecar_of_a_photo_changed_since() {
+        let dir = crate::support::test_support::contract_folder("start-changed-hidden");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let hidden = crate::files::file_io::tmp_path(&crate::metadata::xmp::sidecar(&a));
+        leave_a_killed_log(&logs, &a, &hidden);
+        std::fs::write(&a, "turned, of another size").unwrap();
+        let _ = crate::files::file_io::take_saves_failed();
+        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert_eq!(std::fs::read_to_string(&hidden).unwrap(), "a");
+        let told = crate::files::file_io::take_saves_failed().join("\n");
+        assert!(told.contains(&hidden.display().to_string()), "{told}");
+        assert_eq!(let_go(super::deletes_cut_short(&logs)), 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
