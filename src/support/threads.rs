@@ -83,11 +83,19 @@ pub(crate) struct Progress {
     used: u64,
     /// When the job started, or last made progress.
     since: std::time::Instant,
+    /// When the job started.
+    started: std::time::Instant,
 }
 
 impl Progress {
     /// The processor time, in nanoseconds, that counts as progress.
     const PROGRESS: u64 = 1_000_000;
+
+    /// How many times the time without progress that makes a job stuck a job may run in all,
+    /// with progress or not. A decoder that a crafted file sent into an endless loop uses the
+    /// processor for ever, and without this ceiling it would keep its worker and its bytes until
+    /// a restart.
+    pub(crate) const CEILING: u32 = 12;
 
     /// Returns the progress of the job that the calling thread starts now.
     pub(crate) fn of_this_thread() -> Progress {
@@ -97,12 +105,21 @@ impl Progress {
             clock,
             is_waiting_for_room: WAITING_FOR_ROOM.with(Arc::clone),
             since: std::time::Instant::now(),
+            started: std::time::Instant::now(),
         }
+    }
+
+    /// Returns whether the job is stuck: it has made no progress for `after`, or has run for
+    /// `CEILING` times as long, unless it waits for room in the decode budget now.
+    pub(crate) fn is_stuck(&mut self, after: std::time::Duration) -> bool {
+        self.idle_for() >= after
+            || (!self.is_waiting_for_room.load(Ordering::Relaxed)
+                && self.started.elapsed() >= after * Self::CEILING)
     }
 
     /// Returns how long the job has made no progress. Without a clock to read, that is how
     /// long it has run.
-    pub(crate) fn idle_for(&mut self) -> std::time::Duration {
+    fn idle_for(&mut self) -> std::time::Duration {
         if self.is_waiting_for_room.load(Ordering::Relaxed) {
             self.since = std::time::Instant::now();
         } else if let Some(used) = self.clock.as_ref().and_then(ThreadClock::used)
@@ -441,7 +458,7 @@ pub(crate) fn spawn_worker_pool<J: JobOfAFile + Send + 'static>(
     });
 }
 
-/// Gives up each worker of `pool` whose job has made no progress for `stuck_after`, and starts a
+/// Gives up each worker of `pool` whose job is stuck (`Progress::is_stuck`), and starts a
 /// new worker in its place, while fewer than `MOST_STUCK` are stuck. The later jobs in the
 /// given-up worker's folder are put aside from then on (`Stalled`).
 fn replace_stuck_workers<J: JobOfAFile + Send + 'static>(
@@ -450,9 +467,8 @@ fn replace_stuck_workers<J: JobOfAFile + Send + 'static>(
 ) {
     let mut places = lock_even_if_poisoned(&pool.places);
     for (place, start) in places.iter_mut().enumerate() {
-        let stuck_in = (lock_even_if_poisoned(start).as_mut()).and_then(|(progress, folder)| {
-            (progress.idle_for() >= stuck_after).then(|| folder.clone())
-        });
+        let stuck_in = (lock_even_if_poisoned(start).as_mut())
+            .and_then(|(progress, folder)| progress.is_stuck(stuck_after).then(|| folder.clone()));
         if let Some(folder) = stuck_in
             && pool.stuck.load(Ordering::Relaxed) < MOST_STUCK
         {
@@ -885,6 +901,39 @@ mod tests {
         assert_eq!(
             done.recv_timeout(Duration::from_secs(5)),
             Ok(PathBuf::from("/folder/slow.jpg"))
+        );
+    }
+
+    /// A worker whose job runs on the processor for ever, as a decoder sent into an endless
+    /// loop by a crafted file does, is given up after `Progress::CEILING` times `stuck_after`,
+    /// and the next job is done by a new worker. Before, it counted as slow, not stuck, and was
+    /// never given up.
+    #[test]
+    fn a_job_that_never_ends_is_given_up() {
+        use std::path::PathBuf;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+        let stuck_after = Duration::from_millis(50);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_spinning = stop.clone();
+        let (jobs, rx) = std::sync::mpsc::channel::<PathBuf>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let work = move |job: PathBuf| {
+            while job.ends_with("endless.jpg") && !stop_spinning.load(Ordering::SeqCst) {
+                std::hint::black_box(0);
+            }
+            done_tx.send(job).unwrap();
+        };
+        super::spawn_worker_pool(1, stuck_after, rx, |_| {}, work);
+        jobs.send(PathBuf::from("/crafted/endless.jpg")).unwrap();
+        jobs.send(PathBuf::from("/other/next.jpg")).unwrap();
+        let next = done.recv_timeout(Duration::from_secs(10));
+        stop.store(true, Ordering::SeqCst);
+        assert_eq!(
+            next,
+            Ok(PathBuf::from("/other/next.jpg")),
+            "the endless job was kept"
         );
     }
 

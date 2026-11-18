@@ -255,13 +255,14 @@ impl BudgetState {
 
     /// Takes back the bytes of every job that has made no progress for `HELD_TOO_LONG`, such
     /// as one whose read from a stalled share never returns. A job that is only slow uses the
-    /// processor, and keeps its bytes (`Progress`). Returns whether it took any.
+    /// processor, and keeps its bytes, unless it runs past the ceiling (`Progress::is_stuck`).
+    /// Returns whether it took any.
     /// What such a job has made of them lies outside the budget from then on, as its worker
     /// lies outside its pool (`spawn_worker_pool`), which gives it up after as long.
     fn take_back_stuck(&mut self) -> bool {
         let mut freed = 0;
         self.holds.retain_mut(|h| {
-            let is_stuck = h.progress.idle_for() >= HELD_TOO_LONG;
+            let is_stuck = h.progress.is_stuck(HELD_TOO_LONG);
             if is_stuck {
                 freed += h.bytes;
             }
@@ -1908,6 +1909,45 @@ mod tests {
             done.recv_timeout(Duration::from_secs(5)),
             Ok(PathBuf::from("/folder/waits.jpg"))
         );
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
+    }
+
+    /// A decode that runs on the processor for ever, as one sent into an endless loop by a
+    /// crafted file does, loses its bytes after `Progress::CEILING` times `HELD_TOO_LONG`.
+    /// Before, it counted as slow, not stuck, and held them until a restart.
+    #[test]
+    fn a_decode_that_never_ends_loses_its_bytes() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+        let total = super::DECODE_BUDGET;
+        let budget = super::budget();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_spinning = stop.clone();
+        let (taken, endless_holds) = mpsc::channel();
+        let endless = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total).unwrap();
+            taken.send(()).unwrap();
+            while !stop_spinning.load(Ordering::SeqCst) {
+                std::hint::black_box(0);
+            }
+            drop(held);
+        });
+        endless_holds.recv().unwrap();
+        let (done, went_on) = mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            super::TEST_BUDGET.set(Some(budget));
+            let held = super::reserve_from_budget(total / 2).unwrap();
+            done.send(()).unwrap();
+            drop(held);
+        });
+        let ceiling = super::HELD_TOO_LONG * crate::support::threads::Progress::CEILING;
+        let got_room = went_on.recv_timeout(ceiling * 2);
+        stop.store(true, Ordering::SeqCst);
+        endless.join().unwrap();
+        waiting.join().unwrap();
+        assert!(got_room.is_ok(), "the endless decode kept its bytes");
         assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
     }
 
