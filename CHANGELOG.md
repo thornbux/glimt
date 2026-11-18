@@ -5,6 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- After Glimt was killed during a delete, the next start takes back from the trash only the
+  sidecars trashed at the time of the delete, and Adobe's sidecar only to a RAW file that owns
+  it alone. Before, a sidecar the user trashed on purpose later could come back.
+- A sidecar left hidden by a killed Delete for good is named when its photo changed since, and
+  its log stays when the sidecar cannot be looked at. A lasting refusal to give it back is told
+  once, not at every start.
+- A delete's log kept for a later start keeps only the names it could not tell about, so later
+  starts no longer look at every file of it again.
+- Delete for good makes a sidecar given back after a failed delete lasting before its log goes,
+  and syncs the folder of its log's sidecar note once instead of once per photo.
+
 ## [0.89.0] - 2026-11-18
 
 ### Fixed
