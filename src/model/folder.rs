@@ -1566,6 +1566,7 @@ impl crate::App {
         let took = read_in + listed_from.elapsed();
         self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
         self.list.set_unchecked_entries(false);
+        self.send_sidecar_writes_waiting_for_the_list(ctx);
         let c = &self.config;
         self.folder.listed_as = (self.folder.collection.is_none()
             && self.folder.folders.is_empty()

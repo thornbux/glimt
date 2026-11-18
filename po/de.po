@@ -3813,6 +3813,10 @@ msgstr "{name} wird noch geöffnet… Einen anderen Ordner öffnen, um nicht lä
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Mehrere umbenennen hat aufgehört, daher wurden die für {count} bearbeiteten Metadaten nicht gespeichert"
 
+#, fuzzy
+msgid "The metadata edited for {count} was not saved, as the list no longer has them"
+msgstr "Die für {count} bearbeiteten Metadaten wurden nicht gespeichert, da die Liste sie nicht mehr enthält"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"

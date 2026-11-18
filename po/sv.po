@@ -3813,6 +3813,10 @@ msgstr "Öppnar fortfarande {name}… Öppna en annan mapp för att sluta vänta
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Byt namn på flera stoppade, så metadata som redigerades för {count} sparades inte"
 
+#, fuzzy
+msgid "The metadata edited for {count} was not saved, as the list no longer has them"
+msgstr "Metadata som redigerades för {count} sparades inte, eftersom listan inte längre har dem"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"

@@ -3813,6 +3813,10 @@ msgstr "{name} avautuu yhä… Avaa toinen kansio, niin odotus loppuu."
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Nimeä useita uudelleen pysähtyi, joten muokattuja metatietoja ei tallennettu: {count}"
 
+#, fuzzy
+msgid "The metadata edited for {count} was not saved, as the list no longer has them"
+msgstr "Muokattuja metatietoja ei tallennettu, koska luettelossa ei enää ole niitä: {count}"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"

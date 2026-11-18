@@ -115,15 +115,20 @@ type SidecarReport = Box<dyn FnOnce(usize, &Job) -> Option<String> + Send>;
 /// the file's name now (`write_sidecars`). Returns the text of its failure.
 type SidecarWrite = Box<dyn Fn(usize, &Path) -> Result<(), String> + Send>;
 
-/// A sidecar write asked for while a rename runs (`write_sidecars`). It is sent once the rename
-/// is over, to the names its files have then.
+/// A sidecar write asked for while a rename runs or the list's entries are not yet checked to
+/// be files (`write_sidecars`). It is sent once the rename is over, to the names its files have
+/// then, and once the list is checked.
 struct WaitingSidecarWrite {
     activity: &'static str,
     files: Vec<ListedFile>,
+    /// For each file, whether it was an entry of the list while the list was unchecked. Such
+    /// an entry is written only when the checked list still has it, as one may be a folder.
+    is_unchecked_entry: Vec<bool>,
     write: SidecarWrite,
     report: SidecarReport,
-    /// Closing waits for the write while it waits, as for one that was sent.
-    _writing: Working,
+    /// Closing waits for a write that waits for a rename, as for one that was sent. A write
+    /// that waits for the list does not hold it, because a listing that broke waits for F5.
+    _writing: Option<Working>,
 }
 
 /// What a delete, move, copy or tool reports, in one message. It holds the files it was asked
@@ -802,7 +807,8 @@ impl crate::App {
     /// A list just opened shows the names in its file until they are checked to be files. A
     /// folder named there was moved to the trash as one of its entries, and got a sidecar. A
     /// listing that broke checked nothing either, so the list waits for one that comes whole
-    /// (F5). Every job asks it, also one that writes sidecars (`start_job_of`).
+    /// (F5). Every job asks it. A sidecar write waits for the checked list instead
+    /// (`write_sidecars`), as the edit it writes is already shown as made.
     fn is_list_checked(&mut self) -> bool {
         if !self.list.has_unchecked_entries() {
             return true;
@@ -868,16 +874,14 @@ impl crate::App {
         writes_sidecars: bool,
         held_back_files: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
-        // Keywords and stars are refused only while the list's entries are not yet checked to be
-        // files, as one may be a folder. Otherwise they are never refused, because an edit made
-        // in the panel would be lost. Instead, their job holds back every other operation
-        // (`are_free_to_change`'s `writing`). A job that changes none of the user's files, such
-        // as a backup, is not refused either.
-        let refused = match writes_sidecars {
-            true => !self.is_list_checked(),
-            false => !held_back_files.is_empty() && !self.are_free_to_change(&held_back_files),
-        };
-        if refused {
+        // Keywords and stars are never refused, because an edit made in the panel would be lost.
+        // They wait for a checked list in `write_sidecars` instead, and their job holds back
+        // every other operation (`are_free_to_change`'s `writing`). A job that changes none of
+        // the user's files, such as a backup, is not refused either.
+        if !writes_sidecars
+            && !held_back_files.is_empty()
+            && !self.are_free_to_change(&held_back_files)
+        {
             return None;
         }
         let job = Arc::new(Job::new(activity, total, writes_sidecars, held_back_files));
@@ -2306,13 +2310,22 @@ impl crate::App {
             let d = data.get(k).ok_or_else(broke_here)?;
             write(path, d)
         };
-        if self.file_operations.renaming.is_some() {
+        // An entry of a list not yet checked may be a folder, which must get no sidecar. So the
+        // write waits for the listing that checks the list, rather than being refused after the
+        // panel has counted the edit as saved.
+        let is_unchecked = self.list.has_unchecked_entries();
+        if self.file_operations.renaming.is_some() || is_unchecked {
+            let is_unchecked_entry = match is_unchecked {
+                true => self.are_list_entries(&files),
+                false => vec![false; files.len()],
+            };
             let waiting = WaitingSidecarWrite {
                 activity,
                 files,
+                is_unchecked_entry,
                 write: Box::new(write),
                 report: Box::new(report),
-                _writing: Working::new(&crate::files::file_io::WRITING),
+                _writing: (!is_unchecked).then(|| Working::new(&crate::files::file_io::WRITING)),
             };
             return self.file_operations.sidecar_writes_waiting.push(waiting);
         }
@@ -2416,6 +2429,58 @@ impl crate::App {
             self.write_sidecars(ctx, waiting.activity, files, write, waiting.report);
         }
         None
+    }
+
+    /// Returns, for each of `files`, whether the list has it as an entry.
+    fn are_list_entries(&self, files: &[ListedFile]) -> Vec<bool> {
+        let names: HashSet<&OsStr> = self.list.files().iter().map(OsString::as_os_str).collect();
+        let dir = self.folder.dir();
+        (files.iter())
+            .map(|f| (f.path().strip_prefix(dir)).is_ok_and(|n| names.contains(n.as_os_str())))
+            .collect()
+    }
+
+    /// Sends the sidecar writes that waited for the list's entries to be checked, once they
+    /// are and no rename runs. An entry that the checked list no longer has, such as a folder,
+    /// is left out and told. One it has is sent with the identity the listing gave it, which
+    /// the write's thread checks (`ListedFile::check`).
+    pub(crate) fn send_sidecar_writes_waiting_for_the_list(&mut self, ctx: &egui::Context) {
+        if self.file_operations.renaming.is_some() || self.list.has_unchecked_entries() {
+            return;
+        }
+        let waiting = std::mem::take(&mut self.file_operations.sidecar_writes_waiting);
+        let places: HashMap<&OsStr, usize> = (self.list.files().iter().enumerate())
+            .map(|(i, n)| (n.as_os_str(), i))
+            .collect();
+        let mut left_out = 0;
+        let mut writes = Vec::new();
+        for waiting in waiting {
+            let mut files = Vec::new();
+            for (k, (file, &is_entry)) in waiting
+                .files
+                .iter()
+                .zip(&waiting.is_unchecked_entry)
+                .enumerate()
+            {
+                let name = file.path().strip_prefix(self.folder.dir()).ok();
+                match (is_entry, name.and_then(|n| places.get(n.as_os_str()))) {
+                    (false, _) => files.push((file.clone(), k)),
+                    (true, Some(&i)) => files.push((self.listed_file(i), k)),
+                    (true, None) => left_out += 1,
+                }
+            }
+            writes.push((waiting.activity, files, waiting.write, waiting.report));
+        }
+        for (activity, files, write, report) in writes {
+            let write = move |path: &Path, &k: &usize| write(k, path);
+            self.write_sidecars(ctx, activity, files, write, report);
+        }
+        if left_out > 0 {
+            self.tell_failed_write(tf!(
+                "The metadata edited for {count} was not saved, as the list no longer has them",
+                count = count(left_out, "file")
+            ));
+        }
     }
 
     /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
@@ -3959,22 +4024,34 @@ mod tests {
     use crate::support::threads::{Told, lock_even_if_poisoned};
     use std::path::PathBuf;
 
-    /// A sidecar write waits, like every other job, until the list's entries are checked to be
-    /// files, as an entry of a collection just opened may be a folder. Before, sidecar jobs
-    /// skipped that guard, and a keyword ticked on such an entry wrote "Documents.xmp".
+    /// A sidecar write asked for while the list's entries are not yet checked to be files waits
+    /// for the listing that checks them, as an entry of a collection just opened may be a
+    /// folder. The folder then gets no sidecar, and the file gets its edit. Before #193, a
+    /// keyword ticked on such an entry wrote "Documents.xmp". After its first fix, the write
+    /// was refused, and a comment typed in the panel, already counted as saved, was lost.
     #[test]
     fn sidecar_writes_wait_for_a_checked_list() {
         let dir = contract_folder("sidecar-unchecked");
-        let (mut app, _ctx) = app_on(&dir);
-        app.list.set_unchecked_entries(true);
-        let paths = vec![dir.join("a.png")];
-        assert!(
-            app.start_job_of("Tagging", 1, true, paths.clone())
-                .is_none()
+        std::fs::write(dir.join("show.m3u"), "sub\na.png\n").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, dir.join("show.m3u"));
+        assert!(app.list.has_unchecked_entries());
+        let files = (0..app.list.files().len())
+            .map(|i| (app.listed_file(i), ()))
+            .collect();
+        let edited = |p: &std::path::Path| PathBuf::from(format!("{}.edited", p.display()));
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            files,
+            move |p, ()| std::fs::write(edited(p), "").map_err(|e| e.to_string()),
+            |_, _| None,
         );
-        assert!(app.notice.text().is_some());
-        app.list.set_unchecked_entries(false);
-        assert!(app.start_job_of("Tagging", 1, true, paths).is_some());
+        assert!(run_background_until(&mut app, &ctx, |app| {
+            !app.list.has_unchecked_entries() && !app.file_operations.is_writing_sidecars()
+        }));
+        assert!(std::fs::symlink_metadata(edited(&dir.join("a.png"))).is_ok());
+        assert!(std::fs::symlink_metadata(edited(&dir.join("sub"))).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
