@@ -353,14 +353,15 @@ impl DecodeInput {
 
     /// Takes more of the budget for input that grows past the room reserved while it is read,
     /// such as what a program still writes, so that it counts in the budget all the while.
-    /// It takes at least twice the room it had, so that a large output asks only a few times.
-    /// Returns an error when `length` with what this thread holds already is more than the
-    /// whole budget.
-    pub fn grow_to(&mut self, length: u64) -> Result<(), String> {
+    /// It takes at least twice the room it had, so that a large output asks only a few times,
+    /// but never more than `cap`, the most the input may grow to. Before, the doubling could
+    /// take nearly twice the cap, which other decodes then waited for. Returns an error when
+    /// `length` with what this thread holds already is more than the whole budget.
+    pub fn grow_to(&mut self, length: u64, cap: u64) -> Result<(), String> {
         if length <= self.reserved {
             return Ok(());
         }
-        let more = length.max(self.reserved * 2) - self.reserved;
+        let more = length.max((self.reserved * 2).min(cap)) - self.reserved;
         INPUT_HOLDS.set(INPUT_HOLDS.get() + more);
         self.reserved += more;
         reserve_from_budget(0).map(drop)
@@ -1949,6 +1950,17 @@ mod tests {
         waiting.join().unwrap();
         assert!(got_room.is_ok(), "the endless decode kept its bytes");
         assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
+    }
+
+    /// An added format's output that grows takes no more of the budget than the most that the
+    /// program may write. Before, its room doubled past that cap, nearly twice 512 MB, and
+    /// other decodes waited for room that was never used.
+    #[test]
+    fn a_growing_input_takes_no_more_than_its_cap() {
+        let mut input = super::DecodeInput::reserve(0).unwrap();
+        input.grow_to(600, 1000).unwrap();
+        input.grow_to(601, 1000).unwrap();
+        assert_eq!(input.reserved, 1000);
     }
 
     fn counted(bytes: Vec<u8>) -> super::DecodeInput {

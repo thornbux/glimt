@@ -108,7 +108,7 @@ impl AddedFormat {
         let mut input = crate::images::decode::DecodeInput::reserve(0).map_err(named)?;
         let (image, err, ok) =
             crate::files::external::counted_output_of(&mut child, max, limit, |length| {
-                input.grow_to(length).is_ok()
+                input.grow_to(length, max).is_ok()
             });
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
