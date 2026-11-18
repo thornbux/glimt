@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A save no longer looks at the photo for Rename Many's plans when no plan moves it, and no
+  longer holds the photo's sidecar lock while it notes the plans.
+- An added format's program is no longer stopped as too slow while Glimt waits for room in the
+  memory budget, and its output takes no more of the budget than the most it may write.
+
 ## [0.90.0] - 2026-11-18
 
 ### Fixed
