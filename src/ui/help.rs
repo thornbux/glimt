@@ -305,7 +305,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          which keeps a copy of its own. Ctrl+Shift+C copies the image \
          itself to the clipboard, to paste into other programs. Select → Copy Files to Clipboard \
          copies the files, to paste in a file manager, and Copy Path to Clipboard their paths, \
-         quoted for a terminal or unquoted.\n\n\
+         quoted for a terminal or unquoted. The quoted paths keep every byte of a name, also \
+         of one that is not UTF-8; the unquoted ones put the replacement character in place \
+         of such a byte.\n\n\
          Right-click a folder, in the list or the tree, to rename it or move it and all in it to \
          the trash; File → New Folder (Ctrl+F) makes one.",
     ),
@@ -475,8 +477,11 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          - File → Add to Collection (also in the right-click menu) adds to one\n\
          - File → Collections or O opens one.\n\n\
          The file list then shows its images, which browse, sort and play as a slideshow like a \
-         folder. Delete takes the shown or selected images out of the collection, leaving the \
-         files.\n\n\
+         folder. As in a folder, it shows only the files of the types the window lists (the \
+         types menu beside the sort menu), and names that start with a dot only with View → \
+         Show Hidden Files; the entries left \
+         out stay in the collection. Delete takes the shown or selected images out of the \
+         collection, leaving the files.\n\n\
          Drag them in the file list to another place (a line shows where they go), or Ctrl+Shift+↑ \
          and ↓ move them one place earlier or later, Ctrl+Shift+Home and End to the start or end \
          (File → Move in Collection), and the slideshow plays that order. Renaming and moving in \
