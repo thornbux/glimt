@@ -3817,6 +3817,10 @@ msgstr "Renommer plusieurs s'est arrêté, donc les métadonnées modifiées pou
 msgid "The metadata edited for {count} was not saved, as the list no longer has them"
 msgstr "Les métadonnées modifiées pour {count} n'ont pas été enregistrées, car la liste ne les contient plus"
 
+#, fuzzy
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr "La liste n'est pas encore lue, donc les métadonnées modifiées pour {count} n'ont pas été enregistrées"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"

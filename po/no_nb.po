@@ -3067,6 +3067,10 @@ msgstr "Gi mange nye navn stoppet, så metadataene som ble redigert for {count},
 msgid "The metadata edited for {count} was not saved, as the list no longer has them"
 msgstr "Metadataene som ble redigert for {count}, ble ikke lagret, fordi listen ikke lenger har dem"
 
+#: src/files/file_ops.rs
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr "Listen er ikke lest ennå, så metadataene som ble redigert for {count}, ble ikke lagret"
+
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"

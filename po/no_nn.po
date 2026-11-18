@@ -3828,6 +3828,10 @@ msgstr "Endra mange namn stoppa, så metadataa som vart redigerte for {count}, v
 msgid "The metadata edited for {count} was not saved, as the list no longer has them"
 msgstr "Metadataa som vart redigerte for {count}, vart ikkje lagra, fordi lista ikkje lenger har dei"
 
+#, fuzzy
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr "Lista er ikkje lesen enno, så metadataa som vart redigerte for {count}, vart ikkje lagra"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"

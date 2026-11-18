@@ -3828,6 +3828,10 @@ msgstr "Zmień wiele nazw się zatrzymało, więc zmienione metadane nie został
 msgid "The metadata edited for {count} was not saved, as the list no longer has them"
 msgstr "Zmienione metadane nie zostały zapisane, bo lista już ich nie zawiera: {count}"
 
+#, fuzzy
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr "Lista nie została jeszcze odczytana, więc zmienione metadane nie zostały zapisane: {count}"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"

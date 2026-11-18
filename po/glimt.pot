@@ -3077,6 +3077,10 @@ msgstr ""
 msgid "The metadata edited for {count} was not saved, as the list no longer has them"
 msgstr ""
 
+#: src/files/file_ops.rs
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr ""
+
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr ""

@@ -3817,6 +3817,10 @@ msgstr "Byt namn på flera stoppade, så metadata som redigerades för {count} s
 msgid "The metadata edited for {count} was not saved, as the list no longer has them"
 msgstr "Metadata som redigerades för {count} sparades inte, eftersom listan inte längre har dem"
 
+#, fuzzy
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr "Listan är inte läst än, så metadata som redigerades för {count} sparades inte"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"

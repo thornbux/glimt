@@ -2431,6 +2431,27 @@ impl crate::App {
         None
     }
 
+    /// Drops the sidecar writes that wait for the list's entries to be checked, as a close
+    /// does not wait for them: a listing that broke waits for F5. Returns the text that tells
+    /// the user so, or `None` when no write waited for the list.
+    #[must_use]
+    pub(crate) fn drop_sidecar_writes_waiting_for_the_list(&mut self) -> Option<String> {
+        let waiting = &mut self.file_operations.sidecar_writes_waiting;
+        let files_waiting = |w: &Vec<WaitingSidecarWrite>| -> usize {
+            (w.iter().filter(|w| w._writing.is_none()))
+                .map(|w| w.files.len())
+                .sum()
+        };
+        let files = files_waiting(waiting);
+        waiting.retain(|w| w._writing.is_some());
+        (files > 0).then(|| {
+            tf!(
+                "The list is not yet read, so the metadata edited for {count} was not saved",
+                count = count(files, "file")
+            )
+        })
+    }
+
     /// Returns, for each of `files`, whether the list has it as an entry.
     fn are_list_entries(&self, files: &[ListedFile]) -> Vec<bool> {
         let names: HashSet<&OsStr> = self.list.files().iter().map(OsString::as_os_str).collect();

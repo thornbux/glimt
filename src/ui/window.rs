@@ -257,6 +257,11 @@ impl crate::App {
         self.receive_operation_report(ctx);
         self.receive_renames(ctx);
         self.receive_file_work(ctx);
+        // An edit that waits for the list to be checked is not written by a close, so it is
+        // told as a failed write: the window stays open once, and the next close goes on.
+        if close && let Some(dropped) = self.drop_sidecar_writes_waiting_for_the_list() {
+            self.tell_failed_write(dropped);
+        }
         // A write that failed keeps the window open, with the failure on screen. Closing then
         // would hide it within a frame, and the user would believe the keywords or the turn
         // saved. Telling it also forgot a close that waited, so the next close closes. A close
@@ -1324,6 +1329,23 @@ mod tests {
         let shown = app.window.take_failed_writes_to_show().unwrap_or_default();
         assert_eq!(shown, "Could not crop the image: test");
         assert_eq!(app.window.close_requests, 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A close while an edit waits for a collection's listing tells that the edit was not
+    /// saved and keeps the window open once. Before, the close dropped the edit without a word.
+    #[test]
+    fn a_close_tells_the_edits_that_wait_for_the_list() {
+        let dir = contract_folder("close-unchecked");
+        std::fs::write(dir.join("show.m3u"), "a.png\n").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, dir.join("show.m3u"));
+        assert!(app.list.has_unchecked_entries());
+        let files = vec![(app.listed_file(0), ())];
+        app.write_sidecars(&ctx, "Keywords", files, |_, ()| Ok(()), |_, _| None);
+        assert!(!close_pass(&mut app, &ctx, true));
+        assert_eq!(app.window.failed_writes_told, 1);
+        assert!(app.drop_sidecar_writes_waiting_for_the_list().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

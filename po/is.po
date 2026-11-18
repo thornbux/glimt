@@ -3817,6 +3817,10 @@ msgstr "Endurnefna margar stöðvaðist, svo breytt lýsigögn fyrir {count} vor
 msgid "The metadata edited for {count} was not saved, as the list no longer has them"
 msgstr "Breytt lýsigögn fyrir {count} voru ekki vistuð, þar sem listinn hefur þær ekki lengur"
 
+#, fuzzy
+msgid "The list is not yet read, so the metadata edited for {count} was not saved"
+msgstr "Listinn hefur ekki enn verið lesinn, svo breytt lýsigögn fyrir {count} voru ekki vistuð"
+
 #: src/ui/file_list.rs
 #, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"
