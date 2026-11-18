@@ -3958,6 +3958,11 @@ msgstr "den är inte satt, eller är inte en mapp som tillhör den här använda
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunde inte flyttas ({e}), så den kopierades till {copy} och ligger fortfarande kvar under det gamla namnet också"
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} är en länk och kunde inte flyttas ({e}), så den ligger kvar under det gamla namnet"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

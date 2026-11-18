@@ -3969,6 +3969,11 @@ msgstr "não está definida, ou não é uma pasta própria deste usuário"
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} não pôde ser movido ({e}), então foi copiado para {copy} e continua também com o nome antigo"
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} é um link e não pôde ser movido ({e}), então continua com o nome antigo"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

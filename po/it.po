@@ -3958,6 +3958,11 @@ msgstr "non è impostata, o non è una cartella propria di questo utente"
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} non è stato spostato ({e}), quindi è stato copiato in {copy} ed è ancora anche con il suo vecchio nome"
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} è un collegamento e non è stato possibile spostarlo ({e}), quindi resta con il suo vecchio nome"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"
