@@ -14,6 +14,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - A decode or thumbnail worker that a broken file ends is replaced at once, rather than leaving
   its place empty.
+### Fixed
+
+- A random slideshow with the subfolders starts at once with the images already listed,
+  instead of showing no slide until the whole tree is read, which on a share can take minutes.
 
 ## [0.90.0] - 2026-11-18
 
