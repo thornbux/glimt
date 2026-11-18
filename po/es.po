@@ -2043,6 +2043,11 @@ msgstr "Se quitaron {removed} de {seen} miniaturas"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Ya se están quitando las miniaturas de los archivos eliminados"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Intención de renderizado:"
 

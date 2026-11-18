@@ -14,12 +14,22 @@ const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
 /// version, or when the file changes.
 const FAILED_DIR: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));
 
-/// The files whose thumbnail ran out of time once since Glimt started (`should_mark_failed`).
 /// Whether a removal of the thumbnails of deleted files runs, so that a second click waits for
 /// it rather than start a second walk over the cache.
 static REMOVING_ORPHANS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The files whose thumbnail ran out of time once since Glimt started (`should_mark_failed`).
 static TIMED_OUT_ONCE: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
     std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// The removal of orphaned thumbnails that runs. Dropped, also by a panic in the walk, it lets
+/// the next removal start. Before, a panic left every later click ignored.
+struct RemovingOrphans;
+
+impl Drop for RemovingOrphans {
+    fn drop(&mut self) {
+        REMOVING_ORPHANS.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
 
 /// The thumbnail of `path`: from the cache if it is newer than the file, else made from the image.
 pub fn thumbnail(
@@ -202,10 +212,8 @@ pub fn remove_orphaned_thumbnails() -> Option<(usize, usize)> {
     if REMOVING_ORPHANS.swap(true, Ordering::AcqRel) {
         return None;
     }
-    let cache = cache_dir();
-    let done = cache.map_or((0, 0), |cache| remove_orphaned_thumbnails_in(&cache));
-    REMOVING_ORPHANS.store(false, Ordering::Release);
-    Some(done)
+    let _running = RemovingOrphans;
+    Some(cache_dir().map_or((0, 0), |cache| remove_orphaned_thumbnails_in(&cache)))
 }
 
 /// `remove_orphaned_thumbnails` in the thumbnail cache `cache`. Older Glimts' folders of failure
@@ -365,6 +373,15 @@ mod tests {
         let second = super::remove_orphaned_thumbnails();
         super::REMOVING_ORPHANS.store(false, Ordering::Release);
         assert_eq!(second, None);
+        // A removal cut short by a panic lets the next one start. Before, the flag stayed set
+        // and every later click was ignored. One test, as both use the one flag.
+        let cut_short = std::panic::catch_unwind(|| {
+            super::REMOVING_ORPHANS.store(true, Ordering::Release);
+            let _running = super::RemovingOrphans;
+            panic!("the walk broke");
+        });
+        assert!(cut_short.is_err());
+        assert!(!super::REMOVING_ORPHANS.load(Ordering::Acquire));
     }
 
     #[test]

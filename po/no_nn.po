@@ -2233,6 +2233,11 @@ msgstr "Fjerna {removed} av {seen} miniatyrbilete"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Miniatyrbileta av sletta filer vert fjerna alt"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Gjengivingsmåte:"
 

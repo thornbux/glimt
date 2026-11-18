@@ -2043,6 +2043,11 @@ msgstr "Usunięto {removed} z {seen} miniatur"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Miniatury usuniętych plików są już usuwane"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Metoda renderowania:"
 

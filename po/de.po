@@ -2043,6 +2043,11 @@ msgstr "{removed} von {seen} Vorschaubildern entfernt"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Die Vorschaubilder gelöschter Dateien werden bereits entfernt"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Wiedergabeabsicht:"
 

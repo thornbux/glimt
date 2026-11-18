@@ -1797,6 +1797,10 @@ msgid "Removed {removed} of {seen} thumbnails"
 msgstr ""
 
 #: src/ui/preferences.rs
+msgid "The thumbnails of deleted files are being removed already"
+msgstr ""
+
+#: src/ui/preferences.rs
 msgid "Rendering intent:"
 msgstr ""
 

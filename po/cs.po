@@ -2233,6 +2233,11 @@ msgstr "Odstraněno {removed} z {seen} náhledů"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "The thumbnails of deleted files are being removed already"
+msgstr "Náhledy smazaných souborů se již odstraňují"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Účel vykreslování:"
 
