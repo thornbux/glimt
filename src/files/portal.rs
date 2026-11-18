@@ -14,6 +14,12 @@ const PORTAL_OBJECT_PATH: &str = "/org/freedesktop/portal/desktop";
 /// the busy pointer and keeps the window from closing.
 const ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
+/// How long a call of a portal's method waits for its reply. A portal replies at once, also
+/// when it shows a dialog, whose answer comes later (`ANSWER_LIMIT`), and the bus gives a
+/// portal that it starts 25 seconds. Before, a portal that stopped answering held Print and
+/// Open With for good, with the busy pointer, and kept the window from closing.
+const CALL_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 type Results = HashMap<String, OwnedValue>;
 
 /// `method` of the portal `interface` called with `body`, whose options carry `token` as their
@@ -178,6 +184,24 @@ fn with_time_limit<T: Send + 'static>(
     answer
 }
 
+/// Returns a connection to the session bus, on which every call of a method waits at most
+/// `CALL_LIMIT` for its reply.
+fn session_bus() -> Result<Connection, String> {
+    let e = |e: zbus::Error| e.to_string();
+    let builder = zbus::blocking::connection::Builder::session().map_err(e)?;
+    calls_limited(builder, CALL_LIMIT).build().map_err(e)
+}
+
+/// Returns `builder` with every call of a method on its connection limited to `limit`. The
+/// Hello that the connection sends to the bus first is not such a call, as zbus waits for its
+/// reply while it connects.
+fn calls_limited(
+    builder: zbus::blocking::connection::Builder<'_>,
+    limit: std::time::Duration,
+) -> zbus::blocking::connection::Builder<'_> {
+    builder.method_timeout(limit)
+}
+
 /// Returns a token for a request, new for each.
 fn request_token() -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -217,7 +241,7 @@ pub fn print(
     title: &str,
     write: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
 ) -> Result<Option<String>, String> {
-    let conn = Connection::session().map_err(|e| e.to_string())?;
+    let conn = session_bus()?;
     const PRINT: &str = "org.freedesktop.portal.Print";
     // GtkPrintSettings, whose values are all strings.
     let duplex = match sides {
@@ -273,7 +297,7 @@ pub fn print(
 /// until the sender returned is dropped: the request is closed then.
 pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String> {
     let e = |e: zbus::Error| e.to_string();
-    let conn = Connection::session().map_err(e)?;
+    let conn = session_bus()?;
     let token = request_token();
     let options = HashMap::from([
         ("handle_token", Value::from(token.as_str())),
@@ -311,7 +335,7 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
 /// portal, asked to ask): Open With in the Flatpak, which cannot list the host's applications.
 /// Waits for the choice: false when the user cancelled.
 pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
-    let conn = Connection::session().map_err(|e| e.to_string())?;
+    let conn = session_bus()?;
     // Only for its descriptor, which says which file: the portal opens it itself. It is
     // opened as every file is, so a pipe named in a collection is refused rather than waited on.
     let file = crate::images::decode::open_regular(path).map_err(|e| e.to_string())?;
@@ -430,6 +454,54 @@ mod tests {
         assert_eq!(wait(&mut later(), vec![false, false], false), Ok(Some(7)));
         assert_eq!(wait(&mut stream::iter([7]), vec![true], false), Ok(Some(7)));
         assert_eq!(wait(&mut stream::empty(), vec![], false), Ok(None));
+    }
+
+    /// A call of a method ends at its limit when it is never answered. The bus here lets the
+    /// connection in and gives it a name, and then answers nothing more, as a portal that
+    /// stopped answering would not.
+    #[test]
+    fn a_call_that_is_never_answered_ends() {
+        use std::io::{Read, Write};
+        // The bus's reply to the Hello that every connection sends first: a method return
+        // (little-endian) to serial 1, of the string ":1.1".
+        const NAMED: [u8; 41] = [
+            b'l', 2, 1, 1, 9, 0, 0, 0, 1, 0, 0, 0, 15, 0, 0, 0, 5, 1, b'u', 0, 1, 0, 0, 0, 8, 1,
+            b'g', 0, 1, b's', 0, 0, 4, 0, 0, 0, b':', b'1', b'.', b'1', 0,
+        ];
+        let at = std::env::temp_dir().join(format!("glimt-test-bus-{}", std::process::id()));
+        let listener = std::os::unix::net::UnixListener::bind(&at).unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let (mut said, mut chunk, mut logged_in) = (Vec::new(), [0u8; 256], false);
+            while let Ok(n @ 1..) = stream.read(&mut chunk) {
+                said.extend_from_slice(&chunk[..n]);
+                while !logged_in && let Some(end) = said.windows(2).position(|w| w == b"\r\n") {
+                    let line = String::from_utf8_lossy(&said[..end]).into_owned();
+                    said.drain(..end + 2);
+                    let line = line.trim_start_matches('\0');
+                    logged_in = line.starts_with("BEGIN");
+                    let reply: &[u8] = match line {
+                        _ if logged_in => &NAMED,
+                        l if l.starts_with("AUTH") => b"OK 0123456789abcdef0123456789abcdef\r\n",
+                        l if l.starts_with("NEGOTIATE_UNIX_FD") => b"AGREE_UNIX_FD\r\n",
+                        _ => b"ERROR\r\n",
+                    };
+                    stream.write_all(reply).unwrap();
+                }
+            }
+        });
+        let address = format!("unix:path={}", at.display());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let builder = zbus::blocking::connection::Builder::address(address.as_str()).unwrap();
+            let limit = std::time::Duration::from_millis(300);
+            let conn = super::calls_limited(builder, limit).build().unwrap();
+            let call = conn.call_method(Some("org.example"), "/", Some("org.example"), "M", &());
+            let _ = tx.send(call.is_err());
+        });
+        let ended = rx.recv_timeout(std::time::Duration::from_secs(5));
+        std::fs::remove_file(&at).unwrap();
+        assert_eq!(ended, Ok(true), "the call waited past its limit");
     }
 
     /// A wait for a portal's answer ends at its limit, also when the answer never comes, and
