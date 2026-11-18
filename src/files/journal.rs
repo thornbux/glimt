@@ -773,7 +773,9 @@ fn sidecars_back_from_hiding(
 /// One whose own name another file has taken since, such as a sidecar written for the photo
 /// after the delete, stays hidden, and both names are told. Returns whether the sidecar may
 /// still be hidden after an error that a later start may not meet, such as a share that did not
-/// answer, so that the log stays for it. Each failure is told.
+/// answer (`may_have_been_done`), so that the log stays for it. A lasting refusal, such as a
+/// disk mounted read-only, is told once with the hidden name, as every later start would only
+/// tell it again until the user gives the sidecar back by hand. Each failure is told.
 fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
     use crate::files::file_io::{rename_never_over, save_failed, sync_folder_of};
     use std::io::ErrorKind::AlreadyExists;
@@ -793,9 +795,10 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
             return false;
         }
         Err(e) => {
+            let may_have_been_done = crate::files::file_io::may_have_been_done(&e, hidden);
             let e = may_be_hidden(e, photo, hidden);
             save_failed(format!("{}: {e}", side.display()));
-            return true;
+            return may_have_been_done;
         }
     };
     if let Err(e) = given_back {
@@ -3243,6 +3246,38 @@ mod tests {
         assert!(
             !side.exists(),
             "the sidecar of two RAW files came back to one"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A kept log whose sidecar's rename back the disk refuses for good, as one mounted
+    /// read-only, tells the hidden name once, and the log goes. Before, the log stayed, and every
+    /// start told the same failure again until the user gave the sidecar back by hand.
+    #[test]
+    fn a_hidden_sidecar_refused_for_good_is_told_once() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = crate::support::test_support::contract_folder("start-kept-refused");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let hidden = crate::files::file_io::tmp_path(&crate::metadata::xmp::sidecar(&a));
+        leave_a_kept_log(&logs, &a, &hidden, |side, hidden| {
+            std::fs::rename(side, hidden).unwrap();
+        });
+        // The link at the sidecar's name is made, and the unlink of the hidden one refused.
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((hidden.clone(), libc::EACCES)));
+        let _ = crate::files::file_io::take_saves_failed();
+        let found = super::deletes_cut_short(&logs);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert_eq!(let_go(found), 1);
+        let told = crate::files::file_io::take_saves_failed().join("\n");
+        assert!(told.contains(&hidden.display().to_string()), "{told}");
+        assert_eq!(std::fs::read_to_string(&hidden).unwrap(), "a");
+        assert_eq!(
+            let_go(super::deletes_cut_short(&logs)),
+            0,
+            "the log stayed to tell it again"
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }
