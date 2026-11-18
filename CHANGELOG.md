@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A keyword or alt-text edit no longer holds up other sidecar writes while it reads the image's
+  own XMP, and a save after a Rename Many no longer holds up other windows' saves while it looks
+  at the photo on a share.
+
 ## [0.89.0] - 2026-11-18
 
 ### Fixed
