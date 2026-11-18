@@ -3958,6 +3958,11 @@ msgstr "deze is niet ingesteld, of is geen eigen map van deze gebruiker"
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kon niet worden verplaatst ({e}), dus het is gekopieerd naar {copy} en staat ook nog onder de oude naam"
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} is een koppeling en kon niet worden verplaatst ({e}), dus blijft hij onder zijn oude naam staan"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

@@ -3958,6 +3958,11 @@ msgstr "sitä ei ole asetettu, tai se ei ole tämän käyttäjän oma kansio"
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "Kohdetta {sidecar} ei voitu siirtää ({e}), joten se kopioitiin kohteeseen {copy}, ja se on yhä myös vanhalla nimellään"
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} on linkki eikä sitä voitu siirtää ({e}), joten se jää vanhalle nimelleen"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

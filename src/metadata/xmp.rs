@@ -349,14 +349,15 @@ pub struct NotFollowed {
     pub left_behind: Vec<LeftBehind>,
 }
 
-/// A sidecar that could not be moved with its file and was copied to its new name instead
-/// (`follow`), as a sidecar of someone else's in a shared folder cannot be moved. It also stays
-/// at its old name, where the next file of that name would read it as its own, so the user is
-/// told.
+/// A sidecar that could not be moved with its file (`follow`). One of someone else's in a shared
+/// folder was copied to its new name instead. A symbolic link is never copied, so it has no
+/// copy. Either way it stays at its old name, where the next file of that name would read it as
+/// its own, so the user is told.
 #[derive(Debug)]
 pub struct LeftBehind {
     pub sidecar: PathBuf,
-    pub copy: PathBuf,
+    /// The copy at the new name, or `None` for a link, which was not copied.
+    pub copy: Option<PathBuf>,
     /// Why it could not be moved.
     pub error: std::io::Error,
 }
@@ -364,7 +365,15 @@ pub struct LeftBehind {
 impl LeftBehind {
     /// Returns the text that tells the user where the sidecar is still, and why.
     pub fn told(&self) -> String {
-        let (sidecar, copy, e) = (self.sidecar.display(), self.copy.display(), &self.error);
+        let (sidecar, e) = (self.sidecar.display(), &self.error);
+        let Some(copy) = &self.copy else {
+            return crate::tf!(
+                "{sidecar} is a link and could not be moved ({e}), so it stays at its old name",
+                sidecar,
+                e
+            );
+        };
+        let copy = copy.display();
         crate::tf!(
             "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too",
             sidecar,
@@ -1337,15 +1346,17 @@ pub fn follow(
     // put at its new name.
     type Followed = Option<(bool, Option<std::io::Error>)>;
     let follow_one = |side: &Path, to: &Path| -> std::io::Result<Followed> {
-        // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
+        // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays
+        // and the caller tells it (`LeftBehind` without a copy). The photo's move goes on.
         // One that cannot be looked at may be a link, so it is not copied, and its failure is
         // told as the sidecar's.
         if crate::files::file_io::is_link(side)? {
             return match is_copy {
                 true => Ok(None),
-                false => Ok(crate::files::file_io::rename_never_over(side, to)
-                    .ok()
-                    .map(|()| (false, None))),
+                false => match crate::files::file_io::rename_never_over(side, to) {
+                    Ok(()) => Ok(Some((false, None))),
+                    Err(error) => Ok(Some((false, Some(error)))),
+                },
             };
         }
         // The sidecar goes as the file went. It is on disk before the original goes, and never
@@ -1367,14 +1378,20 @@ pub fn follow(
     for (side, to) in sidecars_moving_with(from, to, moving, names) {
         match follow_one(&side, &to) {
             Ok(Some((was_copy, not_moved))) => {
-                if let Some(error) = not_moved {
-                    left_behind.push(LeftBehind {
-                        sidecar: side.clone(),
-                        copy: to.clone(),
-                        error,
-                    });
+                let Some(error) = not_moved else {
+                    followed.push((side, to, was_copy));
+                    continue;
+                };
+                // A link that stayed was not copied, so nothing of it is at `to`.
+                let copy = was_copy.then(|| to.clone());
+                left_behind.push(LeftBehind {
+                    sidecar: side.clone(),
+                    copy,
+                    error,
+                });
+                if was_copy {
+                    followed.push((side, to, was_copy));
                 }
-                followed.push((side, to, was_copy));
             }
             Ok(None) => {}
             Err(error) => failed.push((side, to, error)),

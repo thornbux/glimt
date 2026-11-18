@@ -3958,6 +3958,11 @@ msgstr "hún er ekki stillt, eða er ekki eigin mappa þessa notanda"
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "Ekki tókst að færa {sidecar} ({e}), svo hún var afrituð í {copy} og er enn líka undir gamla nafninu"
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} er tengill og ekki var hægt að færa hann ({e}), svo hann er áfram undir gamla nafninu"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

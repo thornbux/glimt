@@ -3958,6 +3958,11 @@ msgstr "no está definida, o no es una carpeta propia de este usuario"
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} no se pudo mover ({e}), así que se copió a {copy} y sigue también con su nombre anterior"
 
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} es un enlace y no se pudo mover ({e}), así que se queda con su nombre anterior"
+
 #: src/files/file_ops.rs
 #, fuzzy
 msgid "{folder} did not answer within a minute, so nothing was done"

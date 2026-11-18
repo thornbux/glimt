@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - A delete log that a later start must finish keeps only the files still to be done, so each
   start no longer looks at every file of a long delete again.
+- A sidecar that is a symbolic link and cannot be moved with its photo is now told, and stays
+  at its old name. Before, the failure was dropped without a word.
 - A decode or thumbnail worker that a broken file ends is replaced at once, rather than leaving
   its place empty.
 ### Fixed

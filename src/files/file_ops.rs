@@ -4959,6 +4959,40 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A sidecar that is a symbolic link is never copied, so when it cannot be moved with its
+    /// file (here a name taken at the new place) it stays at its old name, and the move tells
+    /// it. The photo stays moved. Before, the failure was dropped without a word.
+    #[test]
+    fn a_linked_sidecar_that_cannot_follow_is_told() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-left-link-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("a.jpg"), "photo").unwrap();
+        std::fs::write(dir.join("target.xmp"), "keywords").unwrap();
+        std::os::unix::fs::symlink(dir.join("target.xmp"), from.join("a.jpg.xmp")).unwrap();
+        std::fs::write(to.join("a.jpg.xmp"), "other").unwrap();
+        let photo = from.join("a.jpg");
+        let result = super::follow_or_go_back(
+            (&photo, &to.join("a.jpg")),
+            false,
+            &std::collections::HashSet::from([&photo]),
+            &mut Default::default(),
+        );
+        let Err((false, told)) = &result else {
+            panic!("{result:?}")
+        };
+        assert!(told[0].contains("is a link"), "{told:?}");
+        assert!(
+            std::fs::symlink_metadata(from.join("a.jpg.xmp"))
+                .unwrap()
+                .is_symlink()
+        );
+        assert_eq!(std::fs::read(to.join("a.jpg.xmp")).unwrap(), b"other");
+        assert_eq!(std::fs::read(to.join("a.jpg")).unwrap(), b"photo");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// An Undo of a Move whose file went back to its sidecars keeps the Undo when the look at
     /// the file then fails, and does not count the file as moved back. Before, the file was
     /// counted at its old name, where its marks would have followed it, or its Undo was lost.

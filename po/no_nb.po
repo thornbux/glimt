@@ -3179,6 +3179,10 @@ msgstr "den er ikke satt, eller er ikke en mappe som tilhører denne brukeren"
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunne ikke flyttes ({e}), så den ble kopiert til {copy} og ligger fortsatt under det gamle navnet også"
 
+#: src/metadata/xmp.rs
+msgid "{sidecar} is a link and could not be moved ({e}), so it stays at its old name"
+msgstr "{sidecar} er en lenke og kunne ikke flyttes ({e}), så den ligger fortsatt under det gamle navnet"
+
 #: src/files/file_ops.rs
 msgid "{folder} did not answer within a minute, so nothing was done"
 msgstr "{folder} svarte ikke innen ett minutt, så ingenting ble gjort"
