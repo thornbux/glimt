@@ -837,8 +837,6 @@ pub(crate) fn save_copy_with_sidecar(
                         is_set_aside(set_aside, &side, &aside, needs_no_sidecar_there)?;
                     let (aside, side) = (&aside, &side);
                     // The sidecar is put back, never over one another program wrote meanwhile.
-                    // When the copy may have taken the name, it stays aside, and the user is
-                    // told where.
                     Ok(move |failed| match (is_set_aside, failed) {
                         (true, RenameFailed::NotDone) => {
                             crate::files::file_io::rename_never_over(aside, side).map_err(|e| {
@@ -849,14 +847,10 @@ pub(crate) fn save_copy_with_sidecar(
                                 ))
                             })
                         }
-                        (true, RenameFailed::MayHaveBeenDone) => {
-                            Err(std::io::Error::other(crate::tf!(
-                                "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
-                                aside = aside.display(),
-                                sidecar = side.display()
-                            )))
+                        (false, RenameFailed::NotDone) => Ok(()),
+                        (is_set_aside, RenameFailed::MayHaveBeenDone) => {
+                            Err(left_as_it_is(is_set_aside, aside, side))
                         }
-                        (false, _) => Ok(()),
                     })
                 },
             );
@@ -891,6 +885,33 @@ pub(crate) fn save_copy_with_sidecar(
         }
     };
     Ok(write_copys_sidecar(new, &side, source, not_on_disk))
+}
+
+/// Returns what Save As tells when it is not known whether the copy took the name of the file
+/// it replaces. Nothing is moved on a guess: the marks and stars of that file stay at the name,
+/// and its sidecar `side`, when it was set aside (`is_set_aside`), stays at the hidden name
+/// `aside`.
+fn left_as_it_is(is_set_aside: bool, aside: &Path, side: &Path) -> std::io::Error {
+    let marks = marks_left_at_the_name();
+    std::io::Error::other(match is_set_aside {
+        true => format!(
+            "{}; {marks}",
+            crate::tf!(
+                "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
+                aside = aside.display(),
+                sidecar = side.display()
+            )
+        ),
+        false => marks.to_owned(),
+    })
+}
+
+/// Returns what Save As tells when it is not known whether the copy took the name of the file
+/// it replaces, whose marks and stars are then left at that name.
+fn marks_left_at_the_name() -> &'static str {
+    tr(
+        "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's",
+    )
 }
 
 /// Writes down in a delete's log, before it is done, that Save As sets `side`, the sidecar of
@@ -3390,6 +3411,30 @@ mod tests {
         }
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "b's");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Save As over a file, when it is not known whether the copy took the name, says that the
+    /// marks and stars of the file there were left at the name, with a sidecar set aside and
+    /// without one. Before, it spoke only of the sidecar, and without one it told nothing.
+    #[test]
+    fn a_save_as_of_unknown_result_tells_where_the_marks_stay() {
+        use crate::files::file_io::{REPLACE_FAILS, fingerprint};
+        let dir = std::env::temp_dir().join(format!("glimt-save-marks-{}", std::process::id()));
+        for has_sidecar in [true, false] {
+            std::fs::create_dir_all(&dir).unwrap();
+            let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+            image::RgbImage::new(8, 8).save(&a).unwrap();
+            image::RgbImage::new(4, 4).save(&b).unwrap();
+            if has_sidecar {
+                std::fs::write(crate::metadata::xmp::sidecar(&b), "b's").unwrap();
+            }
+            REPLACE_FAILS.set(Some((b.clone(), libc::EIO)));
+            let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
+            REPLACE_FAILS.set(None);
+            let told = saved.unwrap_err();
+            assert!(told.contains("marks and stars"), "{has_sidecar}: {told}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 
     /// Save As to a name where only a sidecar is, left without its image, is refused with that

@@ -4026,6 +4026,10 @@ msgstr "non si sa se l'immagine è stata scritta, e il suo file sidecar {sidecar
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "non si sa se la copia ha preso il nome, quindi il file sidecar del file che c'era è rimasto come {aside}; se quel file c'è ancora, ridai al suo file sidecar il nome {sidecar}"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "non si sa se la copia ha preso il nome, quindi i segni e le stelle del file che c'era sono rimasti sul nome; se la copia l'ha preso, non sono della copia"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

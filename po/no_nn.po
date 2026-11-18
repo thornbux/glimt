@@ -4037,6 +4037,10 @@ msgstr "det er ukjent om biletet vart skrive, og sidefila {sidecar} seier alt de
 msgid "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}"
 msgstr "det er ukjent om kopien fekk namnet, så sidefila til fila der vart liggjande som {aside}; om den fila framleis er der, gje sidefila namnet {sidecar} tilbake"
 
+#, fuzzy
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr "det er ukjent om kopien fekk namnet, så merka og stjernene til fila der vart liggjande på namnet; om kopien fekk det, er dei ikkje kopien sine"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"

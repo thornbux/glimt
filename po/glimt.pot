@@ -3244,6 +3244,10 @@ msgid "it is not known whether the copy took the name, so the sidecar of the fil
 msgstr ""
 
 #: src/images/save.rs
+msgid "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's"
+msgstr ""
+
+#: src/images/save.rs
 msgid "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})"
 msgstr ""
 
