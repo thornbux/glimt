@@ -2107,7 +2107,17 @@ impl crate::App {
                 self.rename_files_of(ctx, (now, before), picked, Some(undo));
             }
             Undo::Move(pairs) => drop(self.run_in_background(ctx, undone, move || {
-                let (back, left, errors) = move_back(pairs);
+                // A log as a Move's, for the marks and collections at the next start after a
+                // kill. A log that cannot be started is told, and the files go back all the same.
+                let log_dir = undo_move_log_dir();
+                let started = log_dir.as_deref().map(journal::start_move_log).transpose();
+                let (mut move_log, start_failure) = match started {
+                    Ok(log) => (log, None),
+                    Err(e) => (None, Some(e)),
+                };
+                let (back, left, mut errors) = move_back(pairs, move_log.as_mut());
+                let log_failure = start_failure.or_else(|| move_log.as_mut()?.take_failure());
+                errors.extend(log_dir.zip(log_failure).map(log_not_saved));
                 let files = count(back.len(), "file");
                 // Those that did not go back stay to be undone again, as the trash's do.
                 let _ = report_tx.send(OperationReport {
@@ -2115,6 +2125,7 @@ impl crate::App {
                     read_folder_again: true,
                     undo: (!left.is_empty()).then_some(Undo::Move(left)),
                     is_undo_remainder: true,
+                    move_log,
                     ..Default::default()
                 });
                 Some(match errors.first() {
@@ -3501,6 +3512,16 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
 /// delete is how a full disk is cleared, and a kill halfway then only leaves the marks of the
 /// files that went behind. It is no failed write, because the job itself works, so a close does
 /// not wait.
+/// Returns the folder of the log that an Undo of a Move or from the trash keeps, which is that
+/// of the Moves' logs. The tests share one state folder, and a test's Undo would leave its log
+/// there when the test does not take the report, so they test the log on folders of their own.
+fn undo_move_log_dir() -> Option<PathBuf> {
+    #[cfg(not(test))]
+    return journal::move_log_dir();
+    #[cfg(test)]
+    return None;
+}
+
 fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> String {
     let warning = tf!(
         "Could not save {name}: {e}",
@@ -3644,7 +3665,10 @@ fn is_another_of_its_stem_to_come(
 /// that cannot go back. Returns the pairs moved back, `(now, before)`, the files left to be
 /// undone again (a name taken, a share that did not answer), and the errors to tell. A file
 /// that another file has replaced is not among those left, as no later Undo can take it back.
-fn move_back(pairs: Vec<Moved>) -> MovedBack {
+/// Each file is written down in `move_log` before it goes back, as a Move writes its files, so
+/// that the marks and collections of the files moved back before a kill follow them at the
+/// next start.
+fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> MovedBack {
     let (mut errors, mut back, mut left) = (Vec::new(), Vec::new(), Vec::new());
     let mut names = xmp::AdobeNames::arriving(pairs.iter().map(|(from, _, _)| from.clone()));
     let moving_back: Vec<PathBuf> = pairs.iter().map(|(_, now, _)| now.clone()).collect();
@@ -3667,7 +3691,12 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
         }
         let result = match name_in_the_way(&from, &HashSet::new(), &mut names) {
             Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
-            None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
+            None => {
+                if let Some(log) = move_log.as_deref_mut() {
+                    log.note(&to, &from);
+                }
+                put_file(&to, &from, false).map_err(|e| (from.clone(), e))
+            }
         };
         // As in `put_files`, Adobe's sidecar of a stem goes with the last of its RAW files.
         let leaving = match another_to_come {
@@ -4615,7 +4644,7 @@ mod tests {
         RENAME_WAYS_MISSING.set(1);
         UNLINK_FAILS.set(Some((to.join("a.xmp"), libc::EPERM)));
         let (back, left, errors) =
-            super::move_back(vec![(from.join("a.cr2"), to.join("a.cr2"), now)]);
+            super::move_back(vec![(from.join("a.cr2"), to.join("a.cr2"), now)], None);
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
         assert!(back.is_empty() && left.len() == 1, "{errors:?}");
@@ -4671,7 +4700,7 @@ mod tests {
             (from.join(n), to.join(n), now)
         };
         UNLINK_FAILS.set(Some((to.join("a.cr2.xmp"), libc::EPERM)));
-        let (back, left, errors) = super::move_back(vec![moved("a.cr2"), moved("a.nef")]);
+        let (back, left, errors) = super::move_back(vec![moved("a.cr2"), moved("a.nef")], None);
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
         assert_eq!(back, [(to.join("a.nef"), from.join("a.nef"))], "{errors:?}");
@@ -4685,6 +4714,28 @@ mod tests {
     /// A Move of many files of one folder, and its Undo, read the mount table for the sidecars'
     /// locks once each, not once for each file. Before, each file's lock read and parsed
     /// /proc/self/mountinfo again, which for 500,000 files took tens of seconds more.
+    /// An Undo of a Move writes each file down in a Move's log before it goes back, so that a
+    /// kill before the marks and collections followed leaves a log that the next start finds.
+    /// Before, it kept no log, and the marks stayed at the names the files had left.
+    #[test]
+    fn an_undo_of_a_move_keeps_a_log_that_outlives_a_kill() {
+        let dir = contract_folder("undo-move-log");
+        let (moved, before, logs) = (dir.join("sub/a.png"), dir.join("a.png"), dir.join("logs"));
+        std::fs::rename(&before, &moved).unwrap();
+        std::fs::rename(dir.join("a.png.xmp"), dir.join("sub/a.png.xmp")).unwrap();
+        let now = crate::files::file_io::fingerprint(&moved).unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let (back, _, errors) =
+            super::move_back(vec![(before.clone(), moved.clone(), now)], Some(&mut log));
+        assert_eq!(back, vec![(moved.clone(), before.clone())], "{errors:?}");
+        // Killed before the report was taken: the log is let go, not removed.
+        drop(log);
+        let found = super::journal::moves_cut_short(&logs);
+        let went: Vec<_> = found.into_iter().flat_map(|(_, went)| went).collect();
+        assert_eq!(went, vec![(moved, before)]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn a_move_and_its_undo_read_the_mount_table_once() {
         use crate::files::file_io::MOUNT_TABLES_PARSED;
@@ -4719,7 +4770,7 @@ mod tests {
             })
             .collect();
         MOUNT_TABLES_PARSED.set(0);
-        let (back, _, errors) = super::move_back(moved);
+        let (back, _, errors) = super::move_back(moved, None);
         assert_eq!(back.len(), paths.len(), "{errors:?}");
         assert!(
             MOUNT_TABLES_PARSED.get() <= 2,
@@ -4901,7 +4952,7 @@ mod tests {
             // The look before the move back answers, and the one after it does not.
             LOOK_FAILS.set(Some((to.join("a.cr2"), 1)));
             let at_move = pairs[0].2;
-            let (back, left, errors) = super::move_back(pairs);
+            let (back, left, errors) = super::move_back(pairs, None);
             LOOK_FAILS.set(None);
             UNLINK_FAILS.set(None);
             RENAME_WAYS_MISSING.set(0);
@@ -6975,7 +7026,7 @@ mod tests {
         let now = crate::files::file_io::fingerprint(&to.join("a.jpg")).unwrap();
         ANSWER_LOST_AT.set(Some(to.join("a.jpg")));
         let (back, left, errors) =
-            super::move_back(vec![(from.join("a.jpg"), to.join("a.jpg"), now)]);
+            super::move_back(vec![(from.join("a.jpg"), to.join("a.jpg"), now)], None);
         ANSWER_LOST_AT.set(None);
         assert!(
             back.len() == 1 && left.is_empty() && errors.is_empty(),
@@ -7814,7 +7865,7 @@ mod tests {
         std::fs::write(&moved, "x").unwrap();
         let pair = super::with_fingerprint(&(a.clone(), moved)).unwrap();
         crate::files::file_io::FOLDERS_SYNCED.take();
-        let (back, left, errors) = super::move_back(vec![pair]);
+        let (back, left, errors) = super::move_back(vec![pair], None);
         assert_eq!((back.len(), left.len(), errors.len()), (1, 0, 0));
         assert!(a.exists());
         assert!(crate::files::file_io::FOLDERS_SYNCED.take().contains(&dir));

@@ -24,6 +24,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   first images.
 - In the Flatpak, a desktop portal that stops answering ends Print and Open With after 30
   seconds instead of holding them for good.
+- Undo of a Move keeps a log as a Move does, so that the marks and collections of the files
+  moved back follow them at the next start when Glimt is killed before they followed.
 
 ## [0.89.0] - 2026-11-18
 
