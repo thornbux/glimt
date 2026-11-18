@@ -603,7 +603,8 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
             }
             forget_in_the_collection_shown(&path, &gone);
             // Before the trash is looked in, where a sidecar put aside is not.
-            let still_hidden = sidecars_back_from_hiding(&path, &gone, &stayed, &not_as_left);
+            let (still_hidden, unseen) =
+                sidecars_back_from_hiding(&path, &gone, &stayed, &not_as_left);
             // The log was last written just before the last of its files went. A log whose time
             // cannot be read takes no sidecar back, as it cannot tell which went after it.
             let written = file.metadata().and_then(|m| m.modified());
@@ -615,7 +616,7 @@ pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
                 aside: None,
                 failure: None,
                 is_on_disk: true,
-                has_names_left: has_names_left || !still_hidden.is_empty(),
+                has_names_left: has_names_left || !unseen.is_empty() || !still_hidden.is_empty(),
             };
             (still_hidden.iter())
                 .filter(|photo| !kept.contains(*photo))
@@ -709,18 +710,20 @@ fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
 /// and a photo changed or written anew since. Only a hidden name that `file_io::tmp_path`
 /// gives, beside the photo, is touched. A failure is told. Returns the photos whose sidecar may
 /// still be hidden, as its rename back failed in a way that a later start may not meet, so that
-/// the log stays for them.
+/// the log stays for them. Returns too the photos, among those that went or are not as left,
+/// whose hidden name could not be looked at, as on a share that stopped answering for a moment,
+/// so that the log stays for a later start that can.
 fn sidecars_back_from_hiding(
     log: &Path,
     gone: &[PathBuf],
     stayed: &[PathBuf],
     not_as_left: &[PathBuf],
-) -> Vec<PathBuf> {
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
     use crate::files::file_io::{TMP_PREFIX, save_failed};
     use std::collections::HashSet;
-    let mut still_hidden = Vec::new();
+    let (mut still_hidden, mut unseen) = (Vec::new(), Vec::new());
     let Ok(bytes) = crate::images::decode::read_limited(aside_path(log)) else {
-        return still_hidden;
+        return (still_hidden, unseen);
     };
     let (gone, stayed, not_as_left): (HashSet<&PathBuf>, HashSet<&PathBuf>, HashSet<&PathBuf>) = (
         gone.iter().collect(),
@@ -737,7 +740,19 @@ fn sidecars_back_from_hiding(
             .is_some_and(|name| name.as_bytes().starts_with(TMP_PREFIX.as_bytes()))
             && hidden.parent() == folder
             && side.parent() == folder;
-        if !is_hidden_beside || !is_surely_there(hidden) {
+        if !is_hidden_beside {
+            continue;
+        }
+        if !is_surely_there(hidden) {
+            // A look that failed is no answer. A photo that stayed is written down as kept, so
+            // that a later start that finds it moved away does not delete its sidecar.
+            if !is_surely_gone(hidden) {
+                if stayed.contains(photo) {
+                    still_hidden.push(photo.clone());
+                } else if gone.contains(photo) || not_as_left.contains(photo) {
+                    unseen.push(photo.clone());
+                }
+            }
             continue;
         }
         let put_right = if stayed.contains(photo) {
@@ -763,7 +778,7 @@ fn sidecars_back_from_hiding(
             save_failed(format!("{}: {e}", side.display()));
         }
     }
-    still_hidden
+    (still_hidden, unseen)
 }
 
 /// Gives the sidecar `side` of `photo`, a photo that stayed, back its own name from the name
@@ -3280,6 +3295,28 @@ mod tests {
         let told = crate::files::file_io::take_saves_failed().join("\n");
         assert!(told.contains(&hidden.display().to_string()), "{told}");
         assert_eq!(let_go(super::deletes_cut_short(&logs)), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A start whose look at a hidden sidecar fails, as on a share that stopped answering for a
+    /// moment, keeps the log, and a later start gives the sidecar back. Before, the start passed
+    /// over the sidecar and the log went, so it stayed hidden for good without a word.
+    #[test]
+    fn a_hidden_sidecar_that_cannot_be_looked_at_keeps_its_log() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = crate::support::test_support::contract_folder("start-hidden-unseen");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let hidden = crate::files::file_io::tmp_path(&side);
+        leave_a_killed_log(&logs, &a, &hidden);
+        lock_even_if_poisoned(&LOOKS_FAIL).push(hidden.clone());
+        let found = super::deletes_cut_short(&logs);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != hidden);
+        assert_eq!(let_go(found), 1);
+        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1, "the log went");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
