@@ -93,8 +93,8 @@ pub(crate) struct Thumbs {
     pending: HashMap<OsString, (u64, Identity)>,
     /// The number of the last request made.
     last_request_number: u64,
-    /// (file, request number)
-    requests: mpsc::Sender<(PathBuf, u64)>,
+    /// (file, the folder opened, request number)
+    requests: mpsc::Sender<(PathBuf, PathBuf, u64)>,
     /// The answers as (file, request number, thumbnail). The outer `None` means it was skipped
     /// because it scrolled out of view.
     answers: mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
@@ -176,13 +176,16 @@ impl Thumbs {
     }
 
     /// Asks the workers for the thumbnail of the file at `path`, named `name` in the list with
-    /// the identity `identity`, unless it is being made already.
-    fn ask(&mut self, name: &OsStr, path: PathBuf, identity: Identity) {
+    /// the identity `identity`, unless it is being made already. `listed` is the folder opened,
+    /// by which a tree's thumbnails are set aside while its share does not answer.
+    fn ask(&mut self, name: &OsStr, path: PathBuf, listed: &Path, identity: Identity) {
         let asked = self.pending.get(name);
         if asked.is_none_or(|&(_, asked)| is_another_file(asked, identity)) {
             self.last_request_number += 1;
             (self.pending).insert(name.to_owned(), (self.last_request_number, identity));
-            let _ = self.requests.send((path, self.last_request_number));
+            let _ = self
+                .requests
+                .send((path, listed.to_owned(), self.last_request_number));
         }
     }
 
@@ -982,7 +985,7 @@ impl crate::App {
             Some(None) => {}
             None => {
                 let path = self.path(i);
-                self.thumbs.ask(name, path, identity);
+                self.thumbs.ask(name, path, self.folder.dir(), identity);
             }
         }
     }
@@ -2342,10 +2345,10 @@ mod tests {
         let ctx = eframe::egui::Context::default();
         let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
         let name = std::ffi::OsStr::new("a.jpg");
-        thumbs.ask(name, "a.jpg".into(), None);
+        thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), None);
         let old = thumbs.last_request_number;
         thumbs.forget(name);
-        thumbs.ask(name, "a.jpg".into(), None);
+        thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), None);
         let new = thumbs.last_request_number;
         assert!(
             thumbs.answered(name, new).is_some(),
@@ -2357,7 +2360,7 @@ mod tests {
         );
         // In the other order, the old answer neither shows nor ends the new request.
         thumbs.forget(name);
-        thumbs.ask(name, "a.jpg".into(), None);
+        thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), None);
         assert!(thumbs.answered(name, new).is_none());
         assert!(thumbs.answered(name, thumbs.last_request_number).is_some());
     }
@@ -2371,7 +2374,7 @@ mod tests {
         let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
         let name = std::ffi::OsStr::new("a.jpg");
         let (first, second) = (std::num::NonZeroU64::new(1), std::num::NonZeroU64::new(2));
-        thumbs.ask(name, "a.jpg".into(), first);
+        thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), first);
         let identity = thumbs.answered(name, thumbs.last_request_number).unwrap();
         let image = eframe::egui::ColorImage::new([1, 1], vec![eframe::egui::Color32::RED]);
         let texture = ctx.load_texture("t", image, Default::default());
@@ -2382,9 +2385,9 @@ mod tests {
         // An identity not known, as after Glimt's own write, takes it for the same file.
         assert!(thumbs.thumbnail_of(name, None).is_some());
         assert!(thumbs.thumbnail_of(name, second).is_none());
-        thumbs.ask(name, "a.jpg".into(), second);
+        thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), second);
         let asked = thumbs.last_request_number;
-        thumbs.ask(name, "a.jpg".into(), second);
+        thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), second);
         assert_eq!(thumbs.last_request_number, asked, "asked for twice");
     }
 
