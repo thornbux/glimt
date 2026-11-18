@@ -71,7 +71,8 @@ impl crate::App {
 
     /// Shows file `idx`. When it is the image shown already, its zoom, turn and page stay. This
     /// holds for every caller: a click, a pane, a slide or a remote command. Only a decode that
-    /// failed (a share away for a moment) is tried again, as when it is shown anew.
+    /// failed (a share away for a moment), at the size shown or at full resolution, is tried
+    /// again, as when it is shown anew.
     pub(crate) fn show_file(&mut self, ctx: &egui::Context, idx: usize) {
         if self.list.files().is_empty() {
             return;
@@ -79,7 +80,9 @@ impl crate::App {
         let idx = idx.min(self.list.files().len() - 1);
         if idx != self.list.shown() {
             self.show_file_anew(ctx, idx);
-        } else if self.list.decode_errors().contains_key(&idx) {
+        } else if self.list.decode_errors().contains_key(&idx)
+            || self.list.has_full_resolution_failed(idx)
+        {
             self.list.forget_decode_error(idx);
             self.refill_preload();
         }
@@ -479,6 +482,12 @@ mod tests {
         app.list.decode_failed(0, "the share is away".into());
         app.show_file(&ctx, 0);
         assert!(!app.list.decode_errors().contains_key(&0));
+        assert_eq!(app.viewing.turn(), (1, false));
+        // So is a full-resolution decode that failed.
+        app.list
+            .full_resolution_failed(0, "the share is away".into());
+        app.show_file(&ctx, 0);
+        assert!(!app.list.has_full_resolution_failed(0));
         assert_eq!(app.viewing.turn(), (1, false));
         std::fs::remove_dir_all(dir).unwrap();
     }
