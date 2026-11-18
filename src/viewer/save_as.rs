@@ -70,6 +70,18 @@ pub struct SaveAs {
     /// and the image may be on a share that stopped answering. Save… waits for it, so it keeps
     /// the busy pointer until the dialog has taken its answer.
     original_format_answer: Receiving<(Format, Working)>,
+    /// Whether Save… was clicked. A click while `original_format` is still looked up waits
+    /// here for the answer, so it is not forgotten.
+    is_save_asked: bool,
+}
+
+impl SaveAs {
+    /// Notes a click on Save… (`clicked`). Returns the format to save in once Save… was clicked
+    /// and the format is known, and `None` until then.
+    fn format_once_asked(&mut self, clicked: bool) -> Option<Format> {
+        self.is_save_asked |= clicked;
+        (self.choice.format.or(self.original_format)).filter(|_| self.is_save_asked)
+    }
 }
 
 impl crate::App {
@@ -114,6 +126,7 @@ impl crate::App {
             choice,
             original_format: None,
             original_format_answer: Receiving::of(rx),
+            is_save_asked: false,
         });
     }
 
@@ -182,9 +195,7 @@ impl crate::App {
             });
         });
         self.save_as_choices = dialog.choice;
-        // Until the original's format is known, Save… waits for it.
-        let format = dialog.choice.format.or(dialog.original_format);
-        if let Some(format) = format.filter(|_| go) {
+        if let Some(format) = dialog.format_once_asked(go) {
             let c = dialog.choice;
             let [w, h] = dialog.original_size;
             let copy_as = CopyAs {
@@ -362,6 +373,30 @@ mod tests {
         image::RgbImage::new(6, 3).save(&other).unwrap();
         std::fs::rename(&other, &path).unwrap();
         assert!(crate::images::save::shown_image(&path, &app.shown_copy()).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A click on Save… while the original's format is still looked up (a share that answers
+    /// slowly) is kept, and saves once the answer comes. It was forgotten without a word.
+    #[test]
+    fn save_waits_for_the_original_format() {
+        use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        let dir = contract_folder("save-as-waits");
+        let (mut app, ctx) = app_on(&dir);
+        app.refill_preload();
+        let shown = app.list.shown();
+        let decoded = |app: &crate::App| app.list.loaded_images().contains_key(&shown);
+        assert!(run_background_until(&mut app, &ctx, decoded));
+        app.start_save_as(&ctx);
+        let mut dialog = app.save_as.take().unwrap();
+        dialog.choice.format = None;
+        dialog.original_format = None;
+        assert_eq!(dialog.format_once_asked(true), None);
+        dialog.original_format = Some(crate::images::save::Format::Png);
+        assert_eq!(
+            dialog.format_once_asked(false),
+            Some(crate::images::save::Format::Png)
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
