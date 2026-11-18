@@ -234,6 +234,11 @@ impl crate::App {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
             self.folder.set_recursive(true);
+            // The images already listed play in random order at once, while the whole tree is
+            // read again, which on a share can take minutes.
+            if self.config.slideshow_random && !self.slideshow.shuffled {
+                self.shuffle_list(ctx, true);
+            }
             self.slideshow.shuffled = self.config.slideshow_random;
             self.slideshow.shuffle_next_listing_whole = self.slideshow.shuffled;
             self.start_listing(ctx);
@@ -272,11 +277,6 @@ impl crate::App {
         let Some(last) = self.slideshow.shown_at else {
             return;
         };
-        // The list to show (with the subfolders, shuffled) is still being read: a step in the
-        // list before it would end a round without Repeat at once on the last image.
-        if self.slideshow.shuffle_next_listing_whole && self.folder.is_listing() {
-            return;
-        }
         // Waits while Rename or a delete asks about the shown image.
         if self.list.files().is_empty() || self.slideshow.paused || self.dialogs.asks_about_files()
         {
@@ -318,6 +318,11 @@ impl crate::App {
             self.slideshow.shuffled,
             pending,
         ) {
+            // The whole list to show (with the subfolders, shuffled) is still being read. The
+            // slideshow steps through the images already listed, but the end of their round is
+            // not the end of the slideshow, nor a reason to shuffle again.
+            SlideStep::Stop | SlideStep::Shuffle
+                if self.slideshow.shuffle_next_listing_whole && self.folder.is_listing() => {}
             SlideStep::Stop => self.stop_slideshow(ctx),
             SlideStep::Shuffle => self.shuffle_list(ctx, true),
             SlideStep::Wait => {}
@@ -441,12 +446,16 @@ mod tests {
             app.config.slideshow_subfolders = true;
             app.config.slideshow_random = true;
             app.config.slideshow_repeat = false;
+            // The first slide may come at once, and the next not before the list is in.
+            app.config.slideshow_delay = 3600;
             app.start_slideshow(&ctx);
             app.slideshow_tick(&ctx);
             assert!(
                 app.slideshow.shown_at.is_some(),
                 "ended before its list came"
             );
+            app.slideshow.shown_at = Some(std::time::Instant::now());
+            let shown = app.list.files()[app.list.shown()].clone();
             if stop {
                 app.stop_slideshow(&ctx);
             } else {
@@ -460,21 +469,53 @@ mod tests {
             if stop {
                 assert_eq!(app.list.files(), sorted);
             } else {
-                // Shuffled, its round starting at the image shown (the first slide may have
-                // come since).
-                assert_eq!(
-                    (app.list.files().len(), app.list.files()[0].to_str()),
-                    (10, Some("4.png"))
-                );
+                // Shuffled, its round starting at the image shown.
+                assert_eq!((app.list.files().len(), &app.list.files()[0]), (10, &shown));
                 // Not the sort order with the shown image put first.
                 let mut sorted = app.list.files().to_vec();
                 sorted.sort();
-                let at = sorted.iter().position(|f| f == "4.png").unwrap();
+                let at = sorted.iter().position(|f| *f == shown).unwrap();
                 sorted.swap(0, at);
                 assert_ne!(app.list.files(), sorted, "shuffled");
             }
             std::fs::remove_dir_all(&d).unwrap();
         }
+    }
+
+    /// A random slideshow with subfolders steps through the images already listed while the
+    /// whole tree is read again, instead of waiting for it (#256).
+    #[test]
+    fn a_random_slideshow_steps_while_its_list_is_read() {
+        let d = std::env::temp_dir().join(format!("glimt-test-slides-step-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for i in 0..5 {
+            image::RgbImage::new(2, 2)
+                .save(d.join(format!("{i}.png")))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = true;
+        app.config.slideshow_repeat = false;
+        app.start_slideshow(&ctx);
+        let first = app.list.files()[app.list.shown()].clone();
+        // The listing's answer stays in its channel, as only the decodes are taken here.
+        let stepped = (0..100).any(|_| {
+            app.receive_decoded(&ctx);
+            app.slideshow.shown_at =
+                Some(std::time::Instant::now() - std::time::Duration::from_secs(99));
+            app.slideshow_tick(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            app.list.files()[app.list.shown()] != first
+        });
+        assert!(app.folder.is_listing(), "the list is still being read");
+        assert!(stepped, "no slide while the list is read");
+        assert!(
+            app.slideshow.shown_at.is_some(),
+            "ended before its list came"
+        );
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     /// A playlist back in its own order when random is turned off while it is read again: the
@@ -535,8 +576,13 @@ mod tests {
             if shuffled_first {
                 app.shuffle_list(&ctx, true);
             }
-            let shown = app.list.files()[app.list.shown()].clone();
+            // The first slide comes at once, while the list is read, and the next not before
+            // the list is in.
+            app.config.slideshow_delay = 3600;
             app.start_slideshow(&ctx);
+            app.slideshow_tick(&ctx);
+            app.slideshow.shown_at = Some(std::time::Instant::now());
+            let shown = app.list.files()[app.list.shown()].clone();
             assert!(run_background_until(&mut app, &ctx, |a| !a
                 .folder
                 .is_listing()));
@@ -544,8 +590,8 @@ mod tests {
                 app.slideshow.shuffled && app.list.files() != order,
                 "R first: {shuffled_first}"
             );
-            // The round starts at the image shown (the first slide may have come since): without
-            // Repeat it shows every image.
+            // The round starts at the image shown when the list came: without Repeat it shows
+            // every image.
             assert_eq!(app.list.files()[0], shown);
             // Again, and random off before the list comes: the saved order, and its size.
             app.stop_slideshow(&ctx);
