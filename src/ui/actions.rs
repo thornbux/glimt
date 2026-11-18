@@ -1114,12 +1114,11 @@ impl std::str::FromStr for Keys {
     type Err = ();
     fn from_str(text: &str) -> Result<Self, ()> {
         let mut keys = Keys::default();
-        for item in text.split(';') {
-            let Some((name, combo)) = item.split_once('=') else {
-                continue;
-            };
-            // An item this build cannot use, for an action it does not know or with a key it
-            // cannot read, is kept as it is for the build that wrote it.
+        for item in text.split(';').filter(|item| !item.is_empty()) {
+            // An item this build cannot use, for an action it does not know, with a key it
+            // cannot read or without "=", is kept as it is for the build that wrote it, and
+            // `--check-config` tells it.
+            let (name, combo) = item.split_once('=').unwrap_or((item, ""));
             let name = action_name_now(name);
             match (
                 ALL.iter().find(|a| format!("{a:?}") == name),
@@ -1748,9 +1747,7 @@ impl crate::App {
 /// Preferences. The settings hold them, and `USER_KEYS` holds the copy the key handling reads.
 /// Every change goes through this function, so the copy cannot fall behind the settings.
 pub(crate) fn use_user_keys(keys: &Keys) {
-    if let Ok(mut own) = USER_KEYS.write() {
-        own.clone_from(&keys.0);
-    }
+    crate::support::threads::write_even_if_poisoned(&USER_KEYS).clone_from(&keys.0);
 }
 
 /// Whether two shortcuts are the same keys. Not by `ctrl`: the defaults say Ctrl as `command`
@@ -1766,7 +1763,7 @@ pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {
 pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     type Made = Option<(Vec<Shortcut>, std::sync::Arc<[Shortcut]>)>;
     static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(None);
-    let own = USER_KEYS.read().map(|o| o.clone()).unwrap_or_default();
+    let own = crate::support::threads::read_even_if_poisoned(&USER_KEYS).clone();
     let mut made = lock_even_if_poisoned(&MADE);
     if let Some((from, all)) = made.as_ref()
         && *from == own
@@ -2579,6 +2576,10 @@ mod tests {
             .parse()
             .unwrap();
         assert_eq!(keys.unusable_items(), ["Bogus=X", "Next=ctrl+N"]);
+        // An item without "=" is kept and told too, and an empty one between ";;" is no item.
+        let keys: Keys = "Next=Ctrl+N;;ZoomIn".parse().unwrap();
+        assert_eq!(keys.unusable_items(), ["ZoomIn"]);
+        assert!(keys.to_string().ends_with("ZoomIn"), "{keys}");
     }
 
     /// A dialog in the main window holds the keys of every window. The projector once browsed
@@ -2622,7 +2623,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         // Own keys that a test set in USER_KEYS took Space from Next in this window now and
         // then, as the tests run at once: only `use_user_keys` writes them, also in the tests.
-        let writes_keys = ["USER_KEYS", ".write()"].concat();
+        let writes_keys = ["write_even_if_poisoned(", "&USER_KEYS)"].concat();
         let mut writers = Vec::new();
         for (file, text) in crate::support::source_rules::rust_sources() {
             if file != "support/source_rules.rs" {

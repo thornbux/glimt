@@ -110,9 +110,8 @@ fn plural_form(code: &str, n: usize) -> usize {
 
 /// Use the language of `setting` (a code of `LANGUAGES`, "en"), or with "" the system's.
 pub fn set_language(setting: &str) {
-    *CURRENT_TRANSLATION
-        .write()
-        .unwrap_or_else(|e| e.into_inner()) = chosen_translation(setting);
+    *crate::support::threads::write_even_if_poisoned(&CURRENT_TRANSLATION) =
+        chosen_translation(setting);
 }
 
 /// Makes `tr` on this thread use the language of `setting`, as `set_language` does for the
@@ -202,9 +201,7 @@ pub fn tr(en: &'static str) -> &'static str {
     if let Some(translation) = LANGUAGE_OF_THIS_TEST.get() {
         return translation.texts.get(en).map_or(en, |t| t.as_str());
     }
-    let current = CURRENT_TRANSLATION
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
+    let current = crate::support::threads::read_even_if_poisoned(&CURRENT_TRANSLATION);
     match *current {
         Some(translation) => translation.texts.get(en).map_or(en, |t| t.as_str()),
         None => en,
@@ -214,9 +211,7 @@ pub fn tr(en: &'static str) -> &'static str {
 /// Returns the group separator and the decimal mark of the language in use, for numbers such
 /// as "1.200 Dateien" and "2,3 MB".
 pub fn number_separators() -> (&'static str, &'static str) {
-    let current = CURRENT_TRANSLATION
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
+    let current = crate::support::threads::read_even_if_poisoned(&CURRENT_TRANSLATION);
     number_separators_of((*current).map_or("en", |t| t.code))
 }
 
@@ -232,9 +227,7 @@ fn number_separators_of(code: &str) -> (&'static str, &'static str) {
 
 /// The form of `noun` for `n` of it: "image" or "images", or the translation's form.
 pub fn plural(noun: &'static str, n: usize) -> std::borrow::Cow<'static, str> {
-    let current = CURRENT_TRANSLATION
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
+    let current = crate::support::threads::read_even_if_poisoned(&CURRENT_TRANSLATION);
     if let Some(translation) = *current
         && let Some(forms) = translation.plurals.get(noun)
         && let Some(form) = forms.get(plural_form(translation.code, n))

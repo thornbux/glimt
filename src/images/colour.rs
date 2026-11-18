@@ -333,7 +333,7 @@ fn convert(
     // The settings are copied and their lock let go at once. A large or crafted profile can take
     // long to parse, and with the lock held a change in Preferences would wait for it, and every
     // other decoding thread would wait behind that change.
-    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let c = crate::support::threads::read_even_if_poisoned(&COLOUR).clone();
     converted(&c, img, icc, screen, srgb)
 }
 
@@ -421,7 +421,7 @@ pub fn is_like_srgb(profile: &moxcms::ColorProfile) -> bool {
 
 /// Change the colour settings with `change`, and make the transforms again.
 pub fn set_colour(change: impl FnOnce(&mut Colour)) {
-    let mut c = COLOUR.write().unwrap_or_else(|e| e.into_inner());
+    let mut c = crate::support::threads::write_even_if_poisoned(&COLOUR);
     change(&mut c);
     c.transforms = Arc::default();
 }
@@ -431,7 +431,7 @@ pub fn set_colour(change: impl FnOnce(&mut Colour)) {
 /// again.
 pub fn set_screen(path: &str) -> Result<bool, String> {
     let was = {
-        let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
+        let c = crate::support::threads::read_even_if_poisoned(&COLOUR);
         if c.screen_path == path {
             return Ok(false);
         }
@@ -524,7 +524,7 @@ pub fn colour_source(path: &Path) -> String {
             None => tr("unnamed").to_owned(),
         }
     }
-    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
+    let c = crate::support::threads::read_even_if_poisoned(&COLOUR);
     let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
     match own {
         Some(own) if c.use_image_profile => own,
@@ -857,7 +857,11 @@ mod tests {
         assert!(super::set_screen(&junk).is_err());
         assert_eq!(shown(), on_p3);
         super::set_screen(&srgb).unwrap();
-        assert!(super::COLOUR.read().unwrap().screen.is_none());
+        assert!(
+            crate::support::threads::read_even_if_poisoned(&super::COLOUR)
+                .screen
+                .is_none()
+        );
         assert_eq!(super::to_display(red(), None), red());
         // Images without a profile taken as Adobe RGB: in sRGB the same numbers mean another
         // colour.
@@ -891,7 +895,7 @@ mod tests {
             own_srgb.as_slice().hash(&mut h);
             h.finish().max(2)
         };
-        let c = super::COLOUR.read().unwrap();
+        let c = crate::support::threads::read_even_if_poisoned(&super::COLOUR);
         assert!(matches!(
             lock_even_if_poisoned(&c.transforms).get(&(key, false, super::Form::of(&grey()))),
             Some(None)
@@ -903,7 +907,7 @@ mod tests {
             dated[30] = day;
             super::to_display(grey(), Some(&dated));
         }
-        let c = super::COLOUR.read().unwrap();
+        let c = crate::support::threads::read_even_if_poisoned(&super::COLOUR);
         assert!(lock_even_if_poisoned(&c.transforms).len() <= 64);
         drop(c);
         super::set_screen("").unwrap();

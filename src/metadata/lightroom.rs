@@ -549,7 +549,7 @@ impl crate::App {
             let failed: Vec<&str> = (all.iter())
                 .filter(|(name, paths)| {
                     (dir.as_ref()).is_none_or(|d| {
-                        collections::append(&d.join(format!("{name}.gqv")), paths).is_err()
+                        collections::append(&d.join(format!("{name}.gqv")), paths, true).is_err()
                     })
                 })
                 .map(|(name, _)| name.as_str())

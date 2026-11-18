@@ -319,18 +319,27 @@ impl crate::App {
         let mut paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let left_out = crate::files::config::keep_those_that_fit_on_a_line(&mut paths);
         self.run_in_background(ctx, Vec::new(), move || {
-            let file = match added_to {
-                CollectionAddedTo::Saved(file) => file,
+            // Only a new collection is made. One the menu listed may have been renamed or
+            // trashed in another window since, and is then not made again under its old name.
+            let (file, new) = match added_to {
+                CollectionAddedTo::Saved(file) => (file, false),
                 CollectionAddedTo::New(name) => match new_file(&name) {
-                    Ok(file) => file,
+                    Ok(file) => (file, true),
                     Err(why) => return Some(crate::support::threads::Told::FailedWrite(why)),
                 },
             };
             let name = file.file_stem().unwrap_or_default().to_string_lossy();
-            let (told, failed) = match append(&file, &paths) {
+            let (told, failed) = match append(&file, &paths, new) {
                 Ok(n) => (
                     tf!("{n} added to the collection \"{name}\"", n, name),
                     false,
+                ),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+                    tf!(
+                        "The collection {file} is gone (renamed or removed in another window): not saved",
+                        file = file.display()
+                    ),
+                    true,
                 ),
                 Err(e) => (tf!("Could not save the collection: {e}", e), true),
             };
@@ -842,14 +851,15 @@ pub fn in_saved_order(saved: &[PathBuf], files: Vec<PathBuf>) -> Vec<PathBuf> {
     ordered
 }
 
-/// Add `paths` to the collection in `file` (made if new), leaving out those it has.
-pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
+/// Adds `paths` to the collection in `file`, leaving out those it has. With `new` a collection
+/// not there yet is made, and without it that is a NotFound error, as `edit` says.
+pub fn append(file: &Path, paths: &[PathBuf], new: bool) -> std::io::Result<usize> {
     // The first collection of a new install: its folder is not there yet.
-    if let Some(dir) = file.parent() {
+    if let Some(dir) = file.parent().filter(|_| new) {
         std::fs::create_dir_all(dir)?;
     }
     let mut added = 0;
-    edit(file, true, |all| added = add(all, paths))?;
+    edit(file, new, |all| added = add(all, paths))?;
     Ok(added)
 }
 
@@ -1103,6 +1113,7 @@ mod tests {
             |a| !a.folder.is_listing()
         ));
         let file = dir.join("trip.gqv");
+        std::fs::write(&file, b"").unwrap();
         app.add_to_collection(&ctx, super::CollectionAddedTo::Saved(file.clone()));
         let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::run_background_until(
@@ -1124,6 +1135,7 @@ mod tests {
             .set_files(["a\nb.png", "c.png"].map(Into::into).to_vec());
         app.list.select([0, 1].into());
         let file = dir.join("trip.gqv");
+        std::fs::write(&file, b"").unwrap();
         app.add_to_collection(&ctx, super::CollectionAddedTo::Saved(file.clone()));
         let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::run_background_until(
@@ -1428,14 +1440,19 @@ mod tests {
         // that cannot be read is left as it is.
         let dir = std::env::temp_dir().join(format!("glimt-test-gqv-{}", std::process::id()));
         let file = dir.join("a.gqv");
-        assert_eq!(super::append(&file, &paths).unwrap(), 2);
-        assert_eq!(super::append(&file, &paths[..1]).unwrap(), 0);
+        assert_eq!(super::append(&file, &paths, true).unwrap(), 2);
+        assert_eq!(super::append(&file, &paths[..1], false).unwrap(), 0);
         let new = PathBuf::from("/n.jpg");
-        assert_eq!(super::append(&file, &[new.clone(), new]).unwrap(), 1);
+        assert_eq!(super::append(&file, &[new.clone(), new], false).unwrap(), 1);
+        // A collection picked from the menu that was renamed or trashed since is not made again.
+        let gone = dir.join("gone.gqv");
+        let e = super::append(&gone, &paths, false).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+        assert!(crate::files::file_io::is_surely_gone(&gone));
         // A link to itself: reading fails, though not as missing.
         let unreadable = dir.join("b.gqv");
         std::os::unix::fs::symlink(&unreadable, &unreadable).unwrap();
-        assert!(super::append(&unreadable, &paths).is_err());
+        assert!(super::append(&unreadable, &paths, true).is_err());
         assert!(unreadable.symlink_metadata().unwrap().is_symlink());
         std::fs::remove_dir_all(&dir).unwrap();
     }

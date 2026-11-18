@@ -402,8 +402,8 @@ impl App {
             self.projector_window(ctx);
         }
         self.note_focus(ctx);
-        // This frame drew the notice, so the warnings kept under it until then may go.
-        self.notice.frame_drawn();
+        // This frame drew the notice, so the warnings kept under it long enough may go.
+        self.notice.frame_drawn(std::time::Instant::now());
     }
 }
 

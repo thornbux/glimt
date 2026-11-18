@@ -3,7 +3,7 @@
 //! (`Working`) and until the window has handled its answer (`AnswerSender`).
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, mpsc};
 
 /// The CPU use level (index in CPU_LEVELS), for the worker threads, and the signal that wakes
 /// the thumbnail workers it leaves idle when it changes.
@@ -484,8 +484,40 @@ pub(crate) fn lock_even_if_poisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Locks `lock` for reading and returns its guard, also when a thread panicked while it held
+/// the lock, as `lock_even_if_poisoned` does for a mutex. This is the one way Glimt reads
+/// through a `RwLock` (clippy.toml).
+pub(crate) fn read_even_if_poisoned<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    #[allow(clippy::disallowed_methods)] // the one place that reads, recovering a poisoned lock
+    lock.read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Locks `lock` for writing and returns its guard, also when a thread panicked while it held
+/// the lock. A write that a poisoned lock refused dropped the user's own keys without a word.
+/// This is the one way Glimt writes through a `RwLock` (clippy.toml).
+pub(crate) fn write_even_if_poisoned<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    #[allow(clippy::disallowed_methods)] // the one place that writes, recovering a poisoned lock
+    lock.write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[cfg(test)]
 mod tests {
+    /// A `RwLock` that a caught panic poisoned is still written and read. The user's own keys
+    /// were dropped without a word, as their write took only a lock that was not poisoned.
+    #[test]
+    fn a_poisoned_rwlock_is_still_written() {
+        let lock = std::sync::RwLock::new(1);
+        let poisoned = super::catch_panic(|| {
+            let _held = super::write_even_if_poisoned(&lock);
+            panic!("a broken file");
+        });
+        assert!(poisoned.is_none() && lock.is_poisoned());
+        *super::write_even_if_poisoned(&lock) = 2;
+        assert_eq!(*super::read_even_if_poisoned(&lock), 2);
+    }
+
     /// A notice sent from a background thread asks the window for a frame, so it shows at
     /// once, not when the mouse next moves.
     #[test]

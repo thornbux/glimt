@@ -1105,10 +1105,14 @@ impl LeftOut {
     /// Reads a choice from the text of its file, one word to a line: a group's key or a tag's
     /// name. A tag stored by its number is read under the name it has now
     /// (`exif::shared_tag_name_now`). A word written like a group's key that names no group
-    /// this Glimt knows is kept, but counts for no group (`later_keys`).
+    /// this Glimt knows is kept, but counts for no group (`later_keys`). A tag's name is read
+    /// as it is written, with a space at either end, as a PNG keyword can have one. When it has
+    /// one, the name without it is left out too, so that a line edited by hand leaves out no
+    /// less than it did when lines were trimmed.
     pub(crate) fn parse(text: &str) -> LeftOut {
         let mut left_out = LeftOut::default();
-        for word in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let words = (text.lines()).flat_map(|line| [line, line.trim()]);
+        for word in words.filter(|w| !w.trim().is_empty()) {
             if word == FILE_NAME_KEY {
                 left_out.is_file_name_left_out = true;
                 continue;
@@ -2943,6 +2947,17 @@ mod tests {
         let mut left_out = super::LeftOut::default();
         left_out.set_tag(Place.key(), true);
         assert!(!left_out.is_group_left_out(Place) && left_out.is_left_out(Place.key()));
+    }
+
+    /// A left-out PNG keyword with a space at either end is read back under its own name.
+    /// The lines were trimmed, so the next dialog kept it.
+    #[test]
+    fn a_name_with_spaces_at_its_ends_is_kept_left_out() {
+        let mut left_out = super::LeftOut::default();
+        left_out.set_tag(" keyword ", true);
+        let saved = super::LeftOut::parse(&left_out.text());
+        assert!(saved.is_left_out(" keyword ") && saved.is_left_out("keyword"));
+        assert!(super::LeftOut::parse("  group:place \n").is_group_left_out(super::Group::Place));
     }
 
     /// A PNG keyword with a line break is listed without it, so unticking it under a ticked
