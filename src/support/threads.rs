@@ -335,7 +335,8 @@ struct WorkerPool<J> {
 /// folder before it ends.
 struct Stalled<J> {
     folders: Vec<PathBuf>,
-    jobs: Vec<J>,
+    /// The jobs put aside, each with the folder where its file really is (`real_folder_of`).
+    jobs: Vec<(PathBuf, J)>,
 }
 
 /// A job of a worker pool, which is about one file. Its file's folder tells the pool which
@@ -343,11 +344,6 @@ struct Stalled<J> {
 pub(crate) trait JobOfAFile {
     /// Returns the file the job is about.
     fn file(&self) -> &Path;
-
-    /// Returns the folder of the job's file.
-    fn folder(&self) -> PathBuf {
-        self.file().parent().unwrap_or(Path::new("")).to_owned()
-    }
 }
 
 impl JobOfAFile for PathBuf {
@@ -498,16 +494,23 @@ fn start_worker<J: JobOfAFile + Send + 'static>(
             let Ok(job) = lock_even_if_poisoned(&pool.jobs).recv() else {
                 return;
             };
-            let folder = job.folder();
+            // The link's own folder is noted first, so that a look at the link that stalls
+            // there counts as stuck in that folder.
+            let listed_in = job.file().parent().unwrap_or(Path::new("")).to_owned();
+            *lock_even_if_poisoned(&start) = Some((Progress::of_this_thread(), listed_in));
+            let folder = real_folder_of(job.file());
             let job = {
                 let mut stalled = lock_even_if_poisoned(&pool.stalled);
                 if stalled.folders.contains(&folder) {
-                    stalled.jobs.push(job);
+                    stalled.jobs.push((folder, job));
+                    *lock_even_if_poisoned(&start) = None;
                     continue;
                 }
                 job
             };
-            *lock_even_if_poisoned(&start) = Some((Progress::of_this_thread(), folder.clone()));
+            if let Some((_, noted)) = lock_even_if_poisoned(&start).as_mut() {
+                noted.clone_from(&folder);
+            }
             (pool.work)(job);
             *lock_even_if_poisoned(&start) = None;
             if !Arc::ptr_eq(&lock_even_if_poisoned(&pool.places)[place], &start) {
@@ -534,9 +537,21 @@ fn jobs_put_aside_in<J: JobOfAFile>(pool: &WorkerPool<J>, folder: &Path) -> Vec<
     }
     let (here, elsewhere) = std::mem::take(&mut stalled.jobs)
         .into_iter()
-        .partition(|job| job.folder() == folder);
+        .partition(|(job_folder, _)| job_folder == folder);
     stalled.jobs = elsewhere;
-    here
+    here.into_iter().map(|(_, job)| job).collect()
+}
+
+/// Returns the folder where `file` really is: for a symbolic link, the folder of the file it
+/// points to, so that a link into a share that stopped answering puts aside the jobs of that
+/// share, not those of the files beside the link. Before, an image beside such a link was
+/// put aside until the share answered, and the view never showed it.
+/// shortcut: only the link's first step is followed; follow a chain if one is ever reported.
+fn real_folder_of(file: &Path) -> PathBuf {
+    let listed_in = file.parent().unwrap_or(Path::new(""));
+    // A file that is no link, or whose link cannot be read, is judged by its own folder.
+    let real = std::fs::read_link(file).map_or_else(|_| file.to_owned(), |to| listed_in.join(to));
+    real.parent().unwrap_or(Path::new("")).to_owned()
 }
 
 pub(crate) fn set_cpu_use(level: usize) {
@@ -866,6 +881,42 @@ mod tests {
         assert_eq!(local, Ok(PathBuf::from("/local/a.jpg")));
         assert_eq!(stuck, 2, "workers stuck in the stalled folder");
         assert_eq!(rest, 40, "the jobs put aside were not done");
+    }
+
+    /// A link into a share that stopped answering stalls the folder the link points into, not
+    /// the folder that holds the link. Before, with one worker, as the view decodes, the image
+    /// beside such a link was put aside until the share answered, and was never shown.
+    #[test]
+    fn a_link_into_a_stalled_share_holds_back_no_file_beside_it() {
+        use std::path::PathBuf;
+        use std::time::Duration;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-stalled-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let link = dir.join("c4.png");
+        std::os::unix::fs::symlink("/glimt-stalled-share/c4.png", &link).unwrap();
+        let (jobs, rx) = std::sync::mpsc::channel::<PathBuf>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let held = std::sync::Mutex::new(held);
+        let work = move |job: PathBuf| {
+            if job.ends_with("c4.png") {
+                let _ = super::lock_even_if_poisoned(&held).recv();
+            }
+            let _ = done_tx.send(job);
+        };
+        super::spawn_worker_pool(1, Duration::from_millis(200), rx, |_| {}, work);
+        jobs.send(link.clone()).unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+        jobs.send(dir.join("z.jpg")).unwrap();
+        let beside = done.recv_timeout(Duration::from_secs(5));
+        release.send(()).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            beside,
+            Ok(dir.join("z.jpg")),
+            "the file beside the link was put aside"
+        );
     }
 
     /// A worker that is slow, not stuck, holds back no later job of its folder. It uses the
