@@ -321,6 +321,42 @@ struct WorkerPool<J> {
     work: Box<dyn Fn(J) + Send + Sync>,
 }
 
+/// The note in its `JobStart` that a worker of a pool does a job, made when the job starts
+/// and taken away when it is dropped, also as a panic that escaped the job ends the worker.
+/// A note left behind would read a thread clock of a thread that is gone, which the system may
+/// give to another thread, so that its processor time counted as the job's progress and the
+/// place was never filled again. A worker that a panic ends starts another in its place, or,
+/// when it was given up, lets go of its count of the stuck.
+struct JobNote<J: Send + 'static> {
+    pool: Arc<WorkerPool<J>>,
+    place: usize,
+    start: JobStart,
+}
+
+impl<J: Send + 'static> JobNote<J> {
+    fn new(pool: &Arc<WorkerPool<J>>, place: usize, start: &JobStart) -> JobNote<J> {
+        *lock_even_if_poisoned(start) = Some(Progress::of_this_thread());
+        JobNote {
+            pool: pool.clone(),
+            place,
+            start: start.clone(),
+        }
+    }
+}
+
+impl<J: Send + 'static> Drop for JobNote<J> {
+    fn drop(&mut self) {
+        *lock_even_if_poisoned(&self.start) = None;
+        if std::thread::panicking() {
+            if is_place_of(&self.pool, self.place, &self.start) {
+                start_worker(&self.pool, self.place, self.start.clone());
+            } else {
+                self.pool.stuck.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
 /// What a background thread tells the window through a `NoticeSender`.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Told {
@@ -444,15 +480,21 @@ fn start_worker<J: Send + 'static>(pool: &Arc<WorkerPool<J>>, place: usize, star
             let Ok(job) = lock_even_if_poisoned(&pool.jobs).recv() else {
                 return;
             };
-            *lock_even_if_poisoned(&start) = Some(Progress::of_this_thread());
+            let note = JobNote::new(&pool, place, &start);
             (pool.work)(job);
-            *lock_even_if_poisoned(&start) = None;
-            if !Arc::ptr_eq(&lock_even_if_poisoned(&pool.places)[place], &start) {
+            drop(note);
+            if !is_place_of(&pool, place, &start) {
                 pool.stuck.fetch_sub(1, Ordering::Relaxed);
                 return;
             }
         }
     });
+}
+
+/// Returns whether the worker that notes its jobs in `start` still has place `place` of `pool`,
+/// and was not given up.
+fn is_place_of<J>(pool: &WorkerPool<J>, place: usize, start: &JobStart) -> bool {
+    Arc::ptr_eq(&lock_even_if_poisoned(&pool.places)[place], start)
 }
 
 pub(crate) fn set_cpu_use(level: usize) {
@@ -736,6 +778,31 @@ mod tests {
         assert_eq!(done.recv_timeout(five_seconds), Ok(PathBuf::from("/c/2")));
         release.send(()).unwrap();
         assert_eq!(done.recv_timeout(five_seconds), Ok(PathBuf::from("/a/0")));
+    }
+
+    /// A worker that a panic in its job ends takes away its note of the job and starts another
+    /// worker in its place at once. Before, its note stayed and read the clock of a thread
+    /// that was gone, which the system may give to another thread. The place was then filled
+    /// only when that clock had shown no progress for `stuck_after`, or never.
+    #[test]
+    fn a_worker_ended_by_a_panic_is_replaced_at_once() {
+        use std::path::PathBuf;
+        use std::time::Duration;
+        let (jobs, rx) = std::sync::mpsc::channel::<PathBuf>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let work = move |job: PathBuf| {
+            assert!(!job.ends_with("panics"), "a broken file");
+            done_tx.send(job).unwrap();
+        };
+        super::spawn_worker_pool(1, Duration::from_secs(3600), rx, |_| {}, work);
+        for name in ["/a/panics", "/b/next"] {
+            jobs.send(PathBuf::from(name)).unwrap();
+        }
+        assert_eq!(
+            done.recv_timeout(Duration::from_secs(5)),
+            Ok(PathBuf::from("/b/next")),
+            "the place of a worker ended by a panic was not filled"
+        );
     }
 
     /// A worker whose job runs on the processor for ever, as a decoder sent into an endless

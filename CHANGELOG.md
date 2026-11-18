@@ -10,6 +10,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A folder on simple-mtpfs, jmtpfs, onedriver, google-drive-ocamlfuse, goofys or juicefs counts
   as a network folder, whose sizes the status bar no longer sums. The Help Manual names ftp://,
   dav:// and davs:// as network locations Glimt can open.
+### Fixed
+
+- A decode or thumbnail worker that a broken file ends is replaced at once, rather than leaving
+  its place empty.
 
 ## [0.90.0] - 2026-11-18
 

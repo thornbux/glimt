@@ -1858,9 +1858,10 @@ mod tests {
     }
 
     /// A worker of a pool that waits for room in the budget is not given up, as it is not
-    /// stuck: the slow decode that holds the room is. Before, it used no processor time while
-    /// it waited, the pool took its folder to be stalled, and the folder's next job was put
-    /// aside until the slow decode was done.
+    /// stuck: the slow decode that holds the room is. Without the mark of `WaitingForRoom`, it
+    /// used no processor time while it waited, so the pool gave it up and started another
+    /// worker in its place, one more thread for each wait. The pool here has one place, so a
+    /// worker given up shows as the next job done while the first still waits.
     #[test]
     fn a_worker_that_waits_for_room_is_not_stuck() {
         use std::path::PathBuf;
@@ -1893,21 +1894,19 @@ mod tests {
             }
             done_tx.send(job).unwrap();
         };
-        crate::support::threads::spawn_worker_pool(2, stuck_after, rx, |_| {}, work);
+        crate::support::threads::spawn_worker_pool(1, stuck_after, rx, |_| {}, work);
         jobs.send(PathBuf::from("/folder/waits.jpg")).unwrap();
-        std::thread::sleep(stuck_after * 3);
         jobs.send(PathBuf::from("/folder/next.jpg")).unwrap();
-        let next = done.recv_timeout(Duration::from_secs(5));
+        let while_waiting = done.recv_timeout(stuck_after * 5);
         stop.store(true, Ordering::SeqCst);
         slow_one.join().unwrap();
+        assert!(while_waiting.is_err(), "the waiting worker was given up");
+        let in_order: Vec<PathBuf> = (0..2)
+            .map(|_| done.recv_timeout(Duration::from_secs(5)).unwrap())
+            .collect();
         assert_eq!(
-            next,
-            Ok(PathBuf::from("/folder/next.jpg")),
-            "the waiting worker was given up"
-        );
-        assert_eq!(
-            done.recv_timeout(Duration::from_secs(5)),
-            Ok(PathBuf::from("/folder/waits.jpg"))
+            in_order,
+            ["/folder/waits.jpg", "/folder/next.jpg"].map(PathBuf::from)
         );
         assert_eq!(lock_even_if_poisoned(&budget.state).free, total);
     }
