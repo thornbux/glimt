@@ -1175,7 +1175,10 @@ pub(crate) fn is_remote(kind: &str) -> bool {
 /// one left out only has its sizes summed, as before 0.86.0, while a local one taken for a
 /// network one would lose them and be called a network folder.
 pub(crate) fn is_network(kind: &str) -> bool {
-    const NETWORK_FUSE: [&str; 10] = [
+    // Each name is the subtype its program gives the mount: libfuse's default, the program's
+    // own name, or the one it sets itself (onedriver, goofys, juicefs). davfs2, go-mtpfs and
+    // blobfuse2 mount as plain "fuse" with no subtype, so they cannot be named here.
+    const NETWORK_FUSE: [&str; 16] = [
         "sshfs",
         "rclone",
         "gvfsd-fuse",
@@ -1186,6 +1189,12 @@ pub(crate) fn is_network(kind: &str) -> bool {
         "smbnetfs",
         "glusterfs",
         "ceph-fuse",
+        "simple-mtpfs",
+        "jmtpfs",
+        "onedriver",
+        "google-drive-ocamlfuse",
+        "goofys",
+        "juicefs",
     ];
     (kind.strip_prefix("fuse.")).map_or(is_remote(kind), |name| NETWORK_FUSE.contains(&name))
 }
@@ -2961,6 +2970,15 @@ mod tests {
         assert_eq!(kind("/home/me/a.jpg").as_deref(), Some("ext4"));
         let gvfs = "/run/user/1000/gvfs/sftp:host=nas/a.jpg";
         assert_eq!(kind(gvfs).as_deref(), Some("fuse.gvfsd-fuse"));
+        // A phone (mtp://) or a camera (gphoto2://) opened through gvfs is on its FUSE mount
+        // too, so it counts as a network folder, and no trash is offered there.
+        for device in ["mtp:host=SAMSUNG_123/Phone/DCIM", "gphoto2:host=Canon/DCIM"] {
+            let found = kind(&format!("/run/user/1000/gvfs/{device}/a.jpg")).unwrap();
+            assert!(
+                super::is_network(&found) && super::is_remote(&found),
+                "{device}"
+            );
+        }
         assert_eq!(kind("/media/me/CARD ONE/DCIM").as_deref(), Some("vfat"));
         assert_eq!(kind("/media/me/CARD").as_deref(), Some("ext4"));
         assert_eq!(kind("/mnt/cloud/a.jpg").as_deref(), Some("cifs"));

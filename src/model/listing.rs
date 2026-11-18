@@ -760,6 +760,12 @@ mod tests {
             ("fuse.sshfs", true),
             ("fuse.rclone", true),
             ("fuse.gvfsd-fuse", true),
+            ("fuse.simple-mtpfs", true),
+            ("fuse.jmtpfs", true),
+            ("fuse.onedriver", true),
+            ("fuse.google-drive-ocamlfuse", true),
+            ("fuse.goofys", true),
+            ("fuse.juicefs", true),
             ("cifs", true),
             ("nfs4", true),
         ] {

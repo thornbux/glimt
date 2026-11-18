@@ -121,9 +121,10 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
         "Start Glimt with a folder or an image (glimt ~/Pictures), drop one on the window, use \
          File → Open Folder…, type a path in the folder field above the folder list and press \
          Enter, or click a folder in the list. ⬆ .. goes to the parent folder.\n\n\
-         Network shares work too: type smb://server/share (or sftp://…) and Glimt mounts it with \
-         gio, asking for user, domain and password if the share needs them (a password saved in \
-         the keyring from Files is used without asking).\n\n\
+         Network shares work too: type smb://server/share (or sftp://…, ftp://… or WebDAV's \
+         dav://… and davs://…) and Glimt mounts it with gio, asking for user, domain and password \
+         if the share needs them (a password saved in the keyring from Files is used without \
+         asking).\n\n\
          A folder on another computer or in a cloud (a share, an rclone or s3fs mount) is slow the \
          first time, while its images and their thumbnails come over the network. A change made \
          there from another computer shows by itself within seconds, as Glimt looks at the open \
