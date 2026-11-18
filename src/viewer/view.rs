@@ -2039,6 +2039,9 @@ pub(crate) fn spawn_decoders(
         STUCK_AFTER,
         job_rx,
         |_| {},
+        // The shown image and its preloads are never set aside, also when a link in their
+        // folder leads to a share that stopped answering.
+        |_| None,
         move |job: DecodeJob| {
             let DecodeJob {
                 full_resolution,

@@ -4,6 +4,7 @@
 use crate::files::external::{is_heif, is_video};
 use crate::files::file_io::Identity;
 use crate::images::save::FileId;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::{images::raw, metadata::exif};
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -66,6 +67,12 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
 /// (`program_started`). A video player on a share reads the start of its file then, and the
 /// share serves Glimt's look at each file of a tree between the player's reads.
 const PROGRAM_STARTS_FOR: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The folders where a listing found a link to a file (`holds_links`).
+/// shortcut: it only grows, by one path for each such folder listed; forget a folder at its
+/// next listing when a session lists very many of them.
+static FOLDERS_WITH_LINKS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
 
 /// When a program was last started on the user's files: Play Video, Open With or a tool.
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
@@ -501,6 +508,12 @@ pub fn real_path(path: &Path) -> PathBuf {
     }
 }
 
+/// Returns whether a listing found a link to a file in `folder`. Its thumbnails are then never
+/// set aside (`spawn_worker_pool`), because the folder's name does not tell where a link leads.
+pub fn holds_links(folder: &Path) -> bool {
+    lock_even_if_poisoned(&FOLDERS_WITH_LINKS).contains(folder)
+}
+
 /// Whether a folder entry is a file and whether a folder, from the entry's own type (no `stat`),
 /// a link as what it points to. Only files are images: a folder named 2019.jpg is a folder, and
 /// a pipe or a link to /dev/zero named a.jpg would block or fill memory when read.
@@ -510,6 +523,9 @@ pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
         Ok(kind) if kind.is_symlink() => {
             let path = entry.path();
             let is_file = crate::files::file_io::is_surely_file(&path);
+            if is_file && let Some(folder) = path.parent() {
+                lock_even_if_poisoned(&FOLDERS_WITH_LINKS).insert(folder.to_owned());
+            }
             (
                 is_file,
                 !is_file && crate::files::file_io::is_surely_dir(&path),

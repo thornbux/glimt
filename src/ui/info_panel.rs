@@ -910,6 +910,8 @@ pub(crate) fn spawn_exif_reader(
         STUCK_AFTER,
         paths_rx,
         |_| {},
+        // The info of the shown image is never set aside.
+        |_| None,
         move |path: PathBuf| {
             if *lock_even_if_poisoned(&newest_request) != path {
                 return;
