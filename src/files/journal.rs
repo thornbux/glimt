@@ -1121,6 +1121,28 @@ fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
     let Ok(lists) = std::fs::read_dir(lists_folder(dir)) else {
         return;
     };
+    let lists: Vec<_> = (lists.flatten())
+        .filter(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|kind| kind.is_file())
+                .is_some()
+        })
+        .collect();
+    let plan_of = |entry: &std::fs::DirEntry| {
+        read_limited(dir.join(entry.file_name()))
+            .ok()
+            .and_then(|bytes| parse(&bytes))
+    };
+    // The photo is looked at, and the lock taken, only when a plan moves it. Before, every save
+    // looked at it, one more wait on a share that stopped answering.
+    let is_in_a_plan = |entry: &std::fs::DirEntry| {
+        plan_of(entry).is_some_and(|(moves, _)| moves.iter().any(|(a, b)| a == path || b == path))
+    };
+    if !lists.iter().any(is_in_a_plan) {
+        return;
+    }
     // Each list is read, changed and written under one lock that every window takes for it, so
     // two windows saving photos of one plan at once both keep their change. It is not the plan's
     // own lock, which a running Rename Many holds for its whole run, while its sidecar locks
@@ -1131,17 +1153,8 @@ fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
         return;
     };
     let _held = crate::files::file_io::lock_or_tell(&lists_lock(dir));
-    for entry in lists.flatten() {
-        if entry
-            .file_type()
-            .ok()
-            .filter(|kind| kind.is_file())
-            .is_none()
-        {
-            continue;
-        }
-        let plan = dir.join(entry.file_name());
-        let Some((moves, _)) = read_limited(&plan).ok().and_then(|bytes| parse(&bytes)) else {
+    for entry in lists {
+        let Some((moves, _)) = plan_of(&entry) else {
             continue;
         };
         let Ok(text) = read_text(entry.path()) else {
@@ -2519,6 +2532,39 @@ mod tests {
         let size = "written anew".len();
         let listed = std::fs::read_to_string(&list).unwrap();
         assert_eq!(listed.split(' ').nth(2), Some(size.to_string().as_str()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A save of a photo that no plan moves neither looks at the photo nor waits for the
+    /// lists' lock. Before, every save looked at it and waited for the lock, so a share that
+    /// stopped answering or another window that held the lock held up every save.
+    #[test]
+    fn a_photo_no_plan_moves_waits_for_no_lock() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-plan-list-not-listed-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("c.jpg"), "c").unwrap();
+        let plan = super::start_journal(&plans, &[(p("a.jpg"), p("b.jpg"))]).unwrap();
+        plan.keep_on_disk();
+        let before = crate::files::file_io::fingerprint(&p("c.jpg")).unwrap();
+        let lock = plans.join(super::KNOWN_FOLDER).join(super::LISTS_LOCK);
+        let other_windows_lock = crate::files::file_io::open_and_lock(&lock).unwrap();
+        let (plans_too, c) = (plans.clone(), p("c.jpg"));
+        let noting =
+            std::thread::spawn(move || super::note_written_anew_in(&plans_too, &c, before));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let has_ended = noting.is_finished();
+        drop(other_windows_lock);
+        noting.join().unwrap();
+        assert!(
+            has_ended,
+            "a save of a photo no plan moves waited for the lists' lock"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

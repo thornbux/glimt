@@ -615,6 +615,8 @@ fn replace_with_sidecar_locked<'a>(
         })
     };
     crate::files::file_io::replace_existing(real, out, read, before).map_err(|e| e.to_string())?;
+    // Without the sidecar's lock, as in `save_copy_with_sidecar`.
+    drop(lock);
     crate::files::journal::note_written_anew(named, read);
     Ok(())
 }
@@ -855,7 +857,6 @@ pub(crate) fn save_copy_with_sidecar(
                 },
             );
             let not_on_disk = crate::files::file_io::named_but_not_on_disk(replaced)?;
-            crate::files::journal::note_written_anew(new, asked_about);
             #[allow(clippy::disallowed_methods)] // the replaced file's sidecar, set aside
             // Not told: the replaced file's sidecar left under a hidden name takes no file's
             // place, and the copy is saved.
@@ -884,7 +885,13 @@ pub(crate) fn save_copy_with_sidecar(
             crate::files::file_io::named_but_not_on_disk(written)?
         }
     };
-    Ok(write_copys_sidecar(new, &side, source, not_on_disk))
+    let sidecar_failed = write_copys_sidecar(new, &side, source, not_on_disk);
+    // Without the sidecar's lock, which another window's write of the sidecar waits for.
+    drop(lock);
+    if let Some(asked_about) = replace {
+        crate::files::journal::note_written_anew(new, asked_about);
+    }
+    Ok(sidecar_failed)
 }
 
 /// Returns what Save As tells when it is not known whether the copy took the name of the file
@@ -3378,6 +3385,67 @@ mod tests {
             assert_eq!(std::fs::read(&jpeg).unwrap().len(), image.len());
             std::fs::remove_dir_all(dir).unwrap();
         }
+    }
+
+    /// A copy saved over a photo, and a turn saved, let go of the photo's sidecar lock before
+    /// they note the photo in the plans of Rename Many, whose lock another window may hold.
+    /// Before, the sidecar's lock was held across the look at the photo and the wait for that
+    /// lock, and another window's write of the sidecar waited as long.
+    #[test]
+    fn a_save_lets_go_of_the_sidecar_lock_before_the_plans() {
+        use crate::files::journal;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-save-plans-unlocked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (b, x) = (dir.join("b.png"), dir.join("x.png"));
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let png = || {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::RgbImage::new(2, 2)
+                .write_to(&mut bytes, image::ImageFormat::Png)
+                .unwrap();
+            bytes.into_inner()
+        };
+        let plans = journal::journal_dir().unwrap();
+        let plan = journal::start_journal(&plans, &[(b.clone(), dir.join("c.png"))]).unwrap();
+        let saves: [Box<dyn FnOnce() + Send>; 2] = [
+            Box::new({
+                let (b, x, out) = (b.clone(), x.clone(), png());
+                move || {
+                    let asked = crate::files::file_io::fingerprint(&b);
+                    super::save_copy_with_sidecar(&x, &b, &out, asked, true).unwrap();
+                }
+            }),
+            Box::new({
+                let (b, out) = (b.clone(), png());
+                move || {
+                    let read = crate::files::file_io::fingerprint_before_reading(&b).unwrap();
+                    let turned = super::Derived::Turned;
+                    super::replace_with_sidecar(&b, &b, read, out, turned).unwrap();
+                }
+            }),
+        ];
+        for save in saves {
+            let other_windows_lock =
+                crate::files::file_io::open_and_lock(&journal::lists_lock(&plans)).unwrap();
+            let saving = std::thread::spawn(save);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let side = b.clone();
+            let writing =
+                std::thread::spawn(move || drop(crate::metadata::xmp::lock_sidecar(&side)));
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let has_written = writing.is_finished();
+            drop(other_windows_lock);
+            saving.join().unwrap();
+            writing.join().unwrap();
+            assert!(
+                has_written,
+                "the sidecar's lock was held while the save waited"
+            );
+        }
+        drop(plan);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Save As over a file whose sidecar it set aside, when it is not known whether the copy

@@ -45,6 +45,7 @@ impl Watchdog {
         let state = std::sync::Arc::new(WatchdogState {
             ended: false.into(),
             gave_up: false.into(),
+            is_paused: false.into(),
             fed: std::time::Instant::now().into(),
         });
         let watchdog_state = state.clone();
@@ -56,7 +57,12 @@ impl Watchdog {
                 if watchdog_state.ended.load(Relaxed) {
                     return;
                 }
-                if lock_even_if_poisoned(&watchdog_state.fed).elapsed() >= limit {
+                // The pause is read under the lock that `paused_while` sets it under, so the
+                // watchdog never gives up just as a pause begins.
+                let fed = lock_even_if_poisoned(&watchdog_state.fed);
+                let is_due = !watchdog_state.is_paused.load(Relaxed) && fed.elapsed() >= limit;
+                drop(fed);
+                if is_due {
                     watchdog_state.gave_up.store(true, Relaxed);
                     stop_group(-(pid as i32), || watchdog_state.ended.load(Relaxed));
                     return;
@@ -69,6 +75,23 @@ impl Watchdog {
     /// Tells the watchdog that the program made progress, so its `limit` starts again.
     pub fn feed(&self) {
         *lock_even_if_poisoned(&self.state.fed) = std::time::Instant::now();
+    }
+
+    /// Runs `work` with the watchdog held, and gives the program the time `work` took on top
+    /// of its `limit`, because the program waits for Glimt meanwhile, not Glimt for it: its
+    /// output waits to be read while a decode waits for room in the budget.
+    pub fn paused_while<T>(&self, work: impl FnOnce() -> T) -> T {
+        use std::sync::atomic::Ordering::Relaxed;
+        let fed = lock_even_if_poisoned(&self.state.fed);
+        self.state.is_paused.store(true, Relaxed);
+        drop(fed);
+        let started = std::time::Instant::now();
+        let result = work();
+        let mut fed = lock_even_if_poisoned(&self.state.fed);
+        *fed += started.elapsed();
+        self.state.is_paused.store(false, Relaxed);
+        drop(fed);
+        result
     }
 
     pub fn gave_up(&self) -> bool {
@@ -87,6 +110,9 @@ impl Drop for Watchdog {
 struct WatchdogState {
     ended: std::sync::atomic::AtomicBool,
     gave_up: std::sync::atomic::AtomicBool,
+    /// Whether the program waits for Glimt (`Watchdog::paused_while`), when its time is not
+    /// counted.
+    is_paused: std::sync::atomic::AtomicBool,
     fed: std::sync::Mutex<std::time::Instant>,
 }
 
@@ -414,7 +440,7 @@ pub fn counted_output_of(
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             }
-            if out.len() as u64 > max || !count(out.len() as u64) {
+            if out.len() as u64 > max || !watchdog.paused_while(|| count(out.len() as u64)) {
                 refused = true;
                 break;
             }
@@ -1101,6 +1127,28 @@ mod tests {
         let (out, _, ok) = super::output_of(&mut child, 1024, super::PROGRAM_TIME_LIMIT);
         assert!(ok);
         assert_eq!(String::from_utf8_lossy(&out.unwrap()), "/dev/null\nown\n");
+    }
+
+    /// A program whose output waits to be read while Glimt waits, as a decode does for room in
+    /// the budget, is not stopped by its watchdog meanwhile. Before, the time Glimt waited
+    /// counted as the program's, and a good image of an added format was told as failed.
+    #[test]
+    fn a_program_is_not_stopped_while_its_output_waits_for_glimt() {
+        let mut child = super::stoppable_command("head")
+            .args(["-c", "200000", "/dev/zero"])
+            .spawn()
+            .unwrap();
+        let mut has_waited = false;
+        let limit = std::time::Duration::from_millis(500);
+        let (out, err, ok) = super::counted_output_of(&mut child, 1 << 20, limit, |_| {
+            if !has_waited {
+                has_waited = true;
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+            }
+            true
+        });
+        assert!(ok, "{err}");
+        assert_eq!(out.map(|out| out.len()), Some(200_000));
     }
 
     /// A helper that a program left behind holding its errors open is not signalled once the
