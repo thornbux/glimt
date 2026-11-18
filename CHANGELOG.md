@@ -5,6 +5,26 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `--remote` command whose line is cut off by its time limit before its line break is
+  answered "not done" and never run, and so is a `select` longer than the window takes. Before,
+  the window closed without an answer, which read as done, or ran the part that came.
+- A `--remote` client that waited for its turn behind sixteen others has its time counted from
+  when it connected, so the window never does its command after the client gave up.
+- `glimt --wait --remote` says "no answer" when the window let go of a command it could not
+  wait for. Before, it said that the window did not know `--wait`.
+- The window takes a `select` or `info` of at most 64 MB of paths, and the `--remote` client
+  reads an answer of at most 1 GB, so a program on the socket cannot fill the memory.
+- Copy for Sharing leaves out bytes hidden after the tables of a JPEG's frame, scan header or
+  tables, which it kept also when every tag was left out.
+- A crafted JPEG of millions of tiny segments, or whose index names one large image thousands
+  of times, no longer takes gigabytes of memory or minutes of work.
+- Save This Frame and Export Frames read no more frames of an animation with a large canvas
+  than the view does, instead of up to 1,000 whole canvases.
+- The example HDF5 format reads a group linked into itself once, instead of following it until
+  Python stops it.
+
 ## [0.88.0] - 2026-11-18
 
 ### Fixed
