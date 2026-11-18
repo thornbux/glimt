@@ -6265,10 +6265,9 @@ mod tests {
         for kept in &all[1..] {
             assert_eq!(stars(&app, kept), marked, "{kept:?}");
         }
-        // At a later start the stick is back, without d.png, which went before the kill. The
-        // log holds only d.png then, the one name the first start could not tell about.
+        // At a later start the stick is back, without d.png, which went before the kill.
         std::fs::create_dir(&stick).unwrap();
-        start(&mut app, std::slice::from_ref(&d));
+        start(&mut app, &[a.clone(), d.clone()]);
         let no_log_left = |_: &crate::App| {
             let left = std::fs::read_dir(&logs).unwrap().flatten();
             left.filter(|e| e.path().is_file()).count() == 0
