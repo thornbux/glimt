@@ -3607,6 +3607,11 @@ msgstr "{from} se nepodařilo odstranit poté, co byl umístěn do {to}, takže 
 
 #: src/files/file_io.rs
 #, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; nová verze je ponechána jako {tmp}, protože může být jedinou kopií"
+
+#: src/files/file_io.rs
+#, fuzzy
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
 msgstr "{from} zůstal na svém místě poté, co byl zkopírován do {to}, takže soubor má oba názvy: {e}"
 

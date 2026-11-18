@@ -2880,6 +2880,10 @@ msgid "{from} could not be removed after it was put at {to}, so the file may be 
 msgstr "{from} kunne ikke fjernes etter at den ble lagt på {to}, så filen kan ha begge navnene eller bare ligge på {to}; sjekk begge før du fjerner noen av dem ({e})"
 
 #: src/files/file_io.rs
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; den nye versjonen er beholdt som {tmp}, da den kan være den eneste kopien"
+
+#: src/files/file_io.rs
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
 msgstr "{from} ble latt der den var etter at den ble kopiert til {to}, så filen har begge navnene: {e}"
 

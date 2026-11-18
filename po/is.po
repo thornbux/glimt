@@ -3585,6 +3585,11 @@ msgstr "ekki tókst að fjarlægja {from} eftir að það var sett á {to}, svo 
 
 #: src/files/file_io.rs
 #, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; nýja útgáfan er geymd sem {tmp}, þar sem hún gæti verið eina afritið"
+
+#: src/files/file_io.rs
+#, fuzzy
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
 msgstr "{from} var skilin eftir þar sem hún var eftir að hún var afrituð í {to}, svo skráin ber bæði nöfnin: {e}"
 

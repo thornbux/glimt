@@ -3585,6 +3585,11 @@ msgstr "kohdetta {from} ei voitu poistaa sen jälkeen, kun se oli viety kohteese
 
 #: src/files/file_io.rs
 #, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; uusi versio säilytetään nimellä {tmp}, koska se voi olla ainoa kopio"
+
+#: src/files/file_io.rs
+#, fuzzy
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
 msgstr "{from} jätettiin paikalleen sen jälkeen, kun se kopioitiin kohteeseen {to}, joten tiedostolla on molemmat nimet: {e}"
 

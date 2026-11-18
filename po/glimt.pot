@@ -2890,6 +2890,10 @@ msgid "{from} could not be removed after it was put at {to}, so the file may be 
 msgstr ""
 
 #: src/files/file_io.rs
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr ""
+
+#: src/files/file_io.rs
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
 msgstr ""
 

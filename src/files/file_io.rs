@@ -2152,13 +2152,23 @@ fn taken_back(
         true if is_gone_by_opening() && is_surely_there(path) => return Ok(()),
         true => RenameFailed::MayHaveBeenDone,
     };
-    // The error still says that the rename may have been done, also with the undo's words.
+    // A rename that may have been done keeps `tmp` (`write_beside_without_sync`), so its error
+    // says so by its type, and names `tmp`, also with the undo's words.
     match (undo(failed), failed) {
-        (Ok(()), _) => Err(e),
-        (Err(more), RenameFailed::MayHaveBeenDone) => Err(std::io::Error::new(
-            e.kind(),
-            MayBeUnderBothNames(format!("{e}; {more}")),
-        )),
+        (undone, RenameFailed::MayHaveBeenDone) => {
+            let tmp = shown_path(tmp);
+            let kept = crate::tf!(
+                "{e}; the new version is kept as {tmp}, as it may be the only copy",
+                e,
+                tmp
+            );
+            let text = match undone {
+                Ok(()) => kept,
+                Err(more) => format!("{kept}; {more}"),
+            };
+            Err(std::io::Error::new(e.kind(), MayBeUnderBothNames(text)))
+        }
+        (Ok(()), RenameFailed::NotDone) => Err(e),
         (Err(more), RenameFailed::NotDone) => {
             Err(std::io::Error::new(e.kind(), format!("{e}; {more}")))
         }
@@ -2571,15 +2581,18 @@ pub fn write_beside_without_sync(
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     let written = create_temp_beside(tmp, path).and_then(|mut f| write(&mut f));
-    let is_written = written.is_ok();
     let result = written.and_then(|_| give_name(tmp));
     // A rename that may have been done is no reason to remove `tmp`. On cifs, a rename over a
     // file it refuses deletes that file and tries again, and when that try loses its answer,
-    // `tmp` may be the last copy of the file.
-    if result
-        .as_ref()
-        .is_err_and(|e| !(is_written && may_have_been_done(e, tmp)))
-    {
+    // `tmp` may be the last copy of the file. Only the rename itself says so, by the error's
+    // type, which also names `tmp` (`taken_back`, `unlink_linked`). A step before the rename
+    // that failed, even with a share's error, left the file as it was. Before, any such error
+    // kept a hidden copy of the image in the user's folder, and its error did not name it.
+    let is_kept = |e: &std::io::Error| {
+        e.get_ref()
+            .is_some_and(|inner| inner.is::<MayBeUnderBothNames>())
+    };
+    if result.as_ref().is_err_and(|e| !is_kept(e)) {
         #[allow(clippy::disallowed_methods)] // Glimt's own: the temporary file, not finished
         // Not told: the write's own failure is returned, and a hidden name left takes no file's
         // place.
@@ -3602,6 +3615,7 @@ mod tests {
     /// removed after any failed rename.
     #[test]
     fn a_rename_that_may_have_been_done_keeps_the_temporary_file() {
+        use std::io::Write;
         let dir = std::env::temp_dir().join(format!("glimt-test-keep-tmp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (path, tmp) = (dir.join("a.png"), dir.join(".a.png.tmp"));
@@ -3630,6 +3644,24 @@ mod tests {
             .is_err()
         );
         assert!(super::is_surely_gone(&tmp2));
+        // A share's error in a step before the rename (a look at the file) left the file as it
+        // was, so `tmp` goes. Before, any such error kept a hidden copy in the user's folder.
+        let tmp3 = dir.join(".a.png.tmp3");
+        let look_failed = |_: &std::path::Path| Err(std::io::Error::from_raw_os_error(libc::EIO));
+        let written = super::write_beside(&tmp3, &path, |f| f.write_all(b"new"), look_failed);
+        assert!(written.is_err());
+        assert!(super::is_surely_gone(&tmp3));
+        // A rename that may have been done keeps `tmp` and names it, also when the undo did
+        // nothing. Before, the error did not say where the copy was.
+        let tmp4 = dir.join(".a.png.tmp4");
+        let lost = |_: &std::path::Path| -> std::io::Result<()> {
+            let eio = std::io::Error::from_raw_os_error(libc::EIO);
+            super::taken_back(eio, true, (&tmp4, &path), |_| Ok(()))
+        };
+        let written = super::write_beside(&tmp4, &path, |f| f.write_all(b"new"), lost);
+        let e = written.unwrap_err().to_string();
+        assert!(e.contains(&tmp4.display().to_string()), "{e}");
+        assert_eq!(std::fs::read_to_string(&tmp4).unwrap(), "new");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

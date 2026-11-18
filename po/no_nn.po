@@ -3596,6 +3596,11 @@ msgstr "{from} kunne ikkje fjernast etter at han vart lagd på {to}, så fila ka
 
 #: src/files/file_io.rs
 #, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; den nye versjonen er halden på som {tmp}, då han kan vere den einaste kopien"
+
+#: src/files/file_io.rs
+#, fuzzy
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
 msgstr "{from} vart late vere der han var etter at han vart kopiert til {to}, så fila har begge namna: {e}"
 

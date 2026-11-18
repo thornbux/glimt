@@ -3585,6 +3585,11 @@ msgstr "{from} kunde inte tas bort efter att den lagts på {to}, så filen kan h
 
 #: src/files/file_io.rs
 #, fuzzy
+msgid "{e}; the new version is kept as {tmp}, as it may be the only copy"
+msgstr "{e}; den nya versionen är kvar som {tmp}, eftersom den kan vara den enda kopian"
+
+#: src/files/file_io.rs
+#, fuzzy
 msgid "{from} was left where it was after it was copied to {to}, so the file is under both names: {e}"
 msgstr "{from} lämnades där den var efter att den kopierats till {to}, så filen har båda namnen: {e}"
 
