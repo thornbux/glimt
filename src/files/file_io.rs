@@ -2139,9 +2139,16 @@ fn taken_back(
         true if is_gone_by_opening() && is_surely_there(path) => return Ok(()),
         true => RenameFailed::MayHaveBeenDone,
     };
-    match undo(failed) {
-        Ok(()) => Err(e),
-        Err(more) => Err(std::io::Error::new(e.kind(), format!("{e}; {more}"))),
+    // The error still says that the rename may have been done, also with the undo's words.
+    match (undo(failed), failed) {
+        (Ok(()), _) => Err(e),
+        (Err(more), RenameFailed::MayHaveBeenDone) => Err(std::io::Error::new(
+            e.kind(),
+            MayBeUnderBothNames(format!("{e}; {more}")),
+        )),
+        (Err(more), RenameFailed::NotDone) => {
+            Err(std::io::Error::new(e.kind(), format!("{e}; {more}")))
+        }
     }
 }
 
@@ -2527,10 +2534,16 @@ pub fn write_beside_without_sync(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let result = create_temp_beside(tmp, path)
-        .and_then(|mut f| write(&mut f))
-        .and_then(|_| give_name(tmp));
-    if result.is_err() {
+    let written = create_temp_beside(tmp, path).and_then(|mut f| write(&mut f));
+    let is_written = written.is_ok();
+    let result = written.and_then(|_| give_name(tmp));
+    // A rename that may have been done is no reason to remove `tmp`. On cifs, a rename over a
+    // file it refuses deletes that file and tries again, and when that try loses its answer,
+    // `tmp` may be the last copy of the file.
+    if result
+        .as_ref()
+        .is_err_and(|e| !(is_written && may_have_been_done(e, tmp)))
+    {
         #[allow(clippy::disallowed_methods)] // Glimt's own: the temporary file, not finished
         // Not told: the write's own failure is returned, and a hidden name left takes no file's
         // place.
@@ -3544,6 +3557,43 @@ mod tests {
         super::MOVES_CROSS_DEVICES.set(false);
         moved.unwrap();
         assert!(super::is_surely_gone(&a));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file whose rename to its name may have been done, as on a share that lost the answer,
+    /// keeps its temporary file, also when the step before the rename adds its own words to the
+    /// error. On cifs the name may be gone and the temporary file the last copy. Before, it was
+    /// removed after any failed rename.
+    #[test]
+    fn a_rename_that_may_have_been_done_keeps_the_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-keep-tmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, tmp) = (dir.join("a.png"), dir.join(".a.png.tmp"));
+        std::fs::write(&path, "old").unwrap();
+        let lost = |_: &std::path::Path| -> std::io::Result<()> {
+            super::taken_back(
+                std::io::Error::from_raw_os_error(libc::EIO),
+                true,
+                (&tmp, &path),
+                |_| Err(std::io::Error::other("the sidecar stays aside")),
+            )
+        };
+        let written =
+            super::write_beside(&tmp, &path, |f| std::io::Write::write_all(f, b"new"), lost);
+        assert!(written.is_err());
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "new");
+        let refused = |_: &std::path::Path| Err(std::io::Error::from_raw_os_error(libc::EACCES));
+        let tmp2 = dir.join(".a.png.tmp2");
+        assert!(
+            super::write_beside(
+                &tmp2,
+                &path,
+                |f| std::io::Write::write_all(f, b"new"),
+                refused
+            )
+            .is_err()
+        );
+        assert!(super::is_surely_gone(&tmp2));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
