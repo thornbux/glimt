@@ -29,6 +29,10 @@ pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
     ("2x2", "Four (2 × 2)", [2, 2]),
 ];
 
+/// How long a warning that must reach the user stays under every later notice once a frame has
+/// drawn it, so that it can be read, and read out, before another notice takes its place.
+const READ_TIME: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// A texture shown and its image's size, which a fade goes from.
 pub(crate) type ShownTexture = (egui::TextureHandle, [usize; 2]);
 
@@ -391,10 +395,10 @@ pub(crate) struct Notice {
     shown: Option<(String, u64)>,
     /// How many notices were given, so the next one gets a number of its own.
     given: u64,
-    /// The warnings that must reach the user, kept until a frame has drawn them. Every notice
-    /// given meanwhile shows them under its own text, so a notice of the same frame cannot
-    /// hide them.
-    kept_until_drawn: Vec<String>,
+    /// The warnings that must reach the user, each with when a frame first drew it. Every
+    /// notice given meanwhile shows them under its own text, until they have been on the
+    /// screen for `READ_TIME`, so a notice that comes soon after cannot hide them.
+    kept_until_drawn: Vec<(String, Option<Instant>)>,
 }
 
 impl Notice {
@@ -410,7 +414,11 @@ impl Notice {
     /// Shows `text`, as a new notice, also when the same text is shown already. The warnings
     /// that no frame has drawn yet are shown under it.
     pub(crate) fn give(&mut self, text: String) {
-        let lines = std::iter::once(text).chain(self.kept_until_drawn.iter().cloned());
+        let kept = self
+            .kept_until_drawn
+            .iter()
+            .map(|(warning, _)| warning.clone());
+        let lines = std::iter::once(text).chain(kept);
         let text = lines
             .filter(|l| !l.is_empty())
             .collect::<Vec<_>>()
@@ -419,9 +427,10 @@ impl Notice {
         self.shown = Some((text, self.given));
     }
 
-    /// Shows `warning` under the notice shown, and under every notice given after it until a
-    /// frame has drawn it (`frame_drawn`). A warning given as a plain notice was hidden by
-    /// the next notice of the same frame, and so never shown nor read out.
+    /// Shows `warning` under the notice shown, and under every notice given after it until it
+    /// has been drawn for `READ_TIME` (`frame_drawn`). A warning given as a plain notice was
+    /// hidden by the next notice of the same frame, and so never shown nor read out. One kept
+    /// for a single frame was hidden by a notice a few milliseconds later.
     pub(crate) fn keep_until_drawn(&mut self, warning: String) {
         let shown = self.shown.take().map(|(text, _)| text).unwrap_or_default();
         let lines = [shown, warning.clone()];
@@ -431,13 +440,15 @@ impl Notice {
             .collect::<Vec<_>>();
         self.given += 1;
         self.shown = Some((text.join("\n"), self.given));
-        self.kept_until_drawn.push(warning);
+        self.kept_until_drawn.push((warning, None));
     }
 
-    /// Lets the warnings kept until a frame has drawn them go, because this frame drew them.
-    /// They stay shown until the next notice takes their place.
-    pub(crate) fn frame_drawn(&mut self) {
-        self.kept_until_drawn.clear();
+    /// Notes that a frame drew the notice at `now`, and lets the warnings go that have been
+    /// drawn for `READ_TIME`. They stay shown until the next notice takes their place.
+    pub(crate) fn frame_drawn(&mut self, now: Instant) {
+        self.kept_until_drawn.retain_mut(|(_, drawn)| {
+            now.saturating_duration_since(*drawn.get_or_insert(now)) < READ_TIME
+        });
     }
 
     /// Takes the notice away. The warnings that no frame has drawn yet stay shown.

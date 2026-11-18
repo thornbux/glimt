@@ -58,9 +58,11 @@ impl crate::App {
         if let Some(all) = self.folder.take_together() {
             self.open_folders(ctx, all);
         }
-        // The failed writes go last, so that no other notice of this frame hides them.
+        // The failed writes go last, so that no other notice of this frame hides them, and
+        // they stay under the later notices until they have been on the screen long enough.
         if let Some(failed) = self.window.take_failed_writes_to_show() {
-            self.notice.give(failed);
+            self.notice.clear();
+            self.notice.keep_until_drawn(failed);
         }
     }
 
@@ -415,8 +417,10 @@ mod tests {
 
     /// The warning of an edit without its lock stays under every notice of the frame that takes
     /// it, the "Saved" of the same work, a failed write and a key's notice after them among
-    /// them, until that frame is drawn. Before, it was given as a plain notice, and the notice
-    /// that came with it in the same frame took its place before it was ever shown.
+    /// them, and under a notice soon after that frame is drawn. Before, it was given as a plain
+    /// notice, and the notice that came with it in the same frame took its place before it was
+    /// ever shown. Later it was kept for one drawn frame, and a notice some milliseconds after
+    /// hid it, as it did a failed write.
     #[test]
     fn a_lock_warning_is_not_hidden_by_a_notice_of_the_same_frame() {
         let dir = contract_folder("lock-warning-not-hidden");
@@ -441,7 +445,19 @@ mod tests {
         app.notice.give("A key's notice".into());
         let shown = app.notice.text().unwrap_or_default().to_owned();
         assert!(shown.contains("Could not lock"), "hidden later: {shown:?}");
-        app.notice.frame_drawn();
+        // A frame drew them, and a notice soon after still shows them. Only one that comes
+        // when they have been on the screen long enough to read takes their place.
+        let drawn = std::time::Instant::now();
+        app.notice.frame_drawn(drawn);
+        app.notice.give("A notice soon after".into());
+        let shown = app.notice.text().unwrap_or_default().to_owned();
+        assert!(
+            shown.contains("Could not lock"),
+            "hidden soon after: {shown:?}"
+        );
+        assert!(shown.contains("Could not save the keywords"), "{shown:?}");
+        app.notice
+            .frame_drawn(drawn + std::time::Duration::from_secs(6));
         app.notice.give("The next frame's notice".into());
         assert_eq!(app.notice.text(), Some("The next frame's notice"));
         std::fs::remove_dir_all(dir).unwrap();
