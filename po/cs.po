@@ -3612,8 +3612,8 @@ msgstr "„{name}“: souborový systém {kind}, jako na paměťové kartě foto
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
-msgstr "Koš odmítl {count} ({kind}). Nic nebylo smazáno, protože je nyní otevřená jiná složka."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
+msgstr "Koš odmítl {count} ({kind}). Nic nebylo smazáno, protože to seznam už nezobrazuje."
 
 #: src/ui/dialogs.rs
 #, fuzzy

@@ -3590,8 +3590,8 @@ msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una 
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
-msgstr "La papelera no aceptó {count} ({kind}). No se borró nada, porque ahora hay otra carpeta abierta."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
+msgstr "La papelera no aceptó {count} ({kind}). No se borró nada, porque la lista ya no lo muestra."
 
 #: src/ui/dialogs.rs
 #, fuzzy

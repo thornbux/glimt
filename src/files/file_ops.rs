@@ -1123,11 +1123,12 @@ impl crate::App {
     /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
     /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
     /// a download of each file. It asks only about files the list shows, by their names there.
-    /// A notice tells of the others, which are left as they are: another folder was opened
-    /// before the question, or the file is in a subfolder the list does not show. The delete
-    /// acts only on a file that still has the fingerprint it had when it was first picked, and
-    /// the identity the list knows it by now, as another program may have given its name to
-    /// another file since.
+    /// A notice tells of the others, which are left as they are. The list may no longer show
+    /// such a file for several reasons: another folder was opened before the question,
+    /// Include Subfolders was turned off, or another program removed the file. So the notice
+    /// names none of them. The delete acts only on a file that still has the fingerprint it had
+    /// when it was first picked, and the identity the list knows it by now, as another program
+    /// may have given its name to another file since.
     fn ask_delete_instead(&mut self, kind: String, files: &[PickedAs]) {
         // Only files the list shows are asked about: a subfolder's file strips the folder's
         // prefix too, but is not in the list with Include Subfolders off.
@@ -1150,7 +1151,7 @@ impl crate::App {
         let left = files.len() - names.len();
         if left > 0 {
             self.notice.give(tf!(
-                "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now.",
+                "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it.",
                 count = count(left, "file"),
                 kind
             ));
@@ -3903,6 +3904,22 @@ mod tests {
         let found = |a: &crate::App| a.file_operations.cut_short_rx.is_none();
         assert!(run_background_until(&mut app, &ctx, found));
         assert_eq!(app.file_operations.cut_short().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file the trash refused that the list no longer shows is told of without a cause the
+    /// notice cannot know. Before, it said that another folder was open, also when the same
+    /// folder was open and only Include Subfolders had been turned off.
+    #[test]
+    fn a_refused_file_the_list_no_longer_shows_names_no_false_cause() {
+        let dir = contract_folder("refused-not-listed");
+        let (mut app, _ctx) = app_on(&dir);
+        let hidden = dir.join("sub/x.png");
+        std::fs::write(&hidden, b"refused").unwrap();
+        let seen = crate::files::file_io::fingerprint(&hidden).unwrap();
+        app.ask_delete_instead("cifs".to_owned(), &[(hidden, seen)]);
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(told.contains("the list no longer shows it"), "{told}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
