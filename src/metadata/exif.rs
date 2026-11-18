@@ -33,6 +33,11 @@ pub const EXTENDED_XMP: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
 /// up to 512 MiB, and the memory and the reading of it would grow with it.
 pub const MAX_EXTENDED_XMP: usize = 16 << 20;
 
+/// The most segments a JPEG is walked for, far more than any camera or editor writes (an
+/// extended XMP of `MAX_EXTENDED_XMP` takes about 260). A crafted file of tiny segments would
+/// otherwise make a list of them that is many times larger than the file.
+pub const MAX_JPEG_SEGMENTS: usize = 1 << 16;
+
 /// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
 const ORIENTATION: u16 = 0x0112;
 
@@ -770,7 +775,8 @@ fn clear_thumbnail(block: &mut [u8]) {
 }
 
 /// Returns the segments of a JPEG before its image data, and whether the image data was
-/// reached. Returns `None` when a segment's length is cut off. Bytes between segments that are
+/// reached. Returns `None` when a segment's length is cut off, or after `MAX_JPEG_SEGMENTS`
+/// segments. Bytes between segments that are
 /// no marker, which some phones and editors write, are skipped to the next 0xff, as decoders
 /// and Copy for Sharing's walk (`shared_copy::walk_jpeg_segments`) skip them.
 fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
@@ -798,6 +804,9 @@ fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
             continue;
         }
         let len = u16::from_be_bytes([*data.get(i + 2)?, *data.get(i + 3)?]) as usize;
+        if segments.len() == MAX_JPEG_SEGMENTS {
+            return None;
+        }
         segments.push((marker, i + 4, len.saturating_sub(2)));
         i += 2 + len;
     }
@@ -2665,5 +2674,18 @@ mod tests {
             }
             let _ = super::oriented(data, 1, false, true);
         }
+    }
+
+    /// A JPEG of more segments than `MAX_JPEG_SEGMENTS`, tiny ones that a crafted file holds by
+    /// the million, is not read into a list many times its size.
+    #[test]
+    fn a_jpeg_of_too_many_segments_is_not_listed() {
+        let segments = super::MAX_JPEG_SEGMENTS + 10;
+        let mut data = vec![0xff, 0xd8];
+        data.extend([0xff, 0xfe, 0, 2].repeat(segments));
+        assert!(super::jpeg_segments(&data).is_none());
+        assert!(super::jpeg_scan_start(&data).is_none());
+        let fewer = [&[0xff, 0xd8][..], &[0xff, 0xfe, 0, 2].repeat(1000)].concat();
+        assert_eq!(super::jpeg_segments(&fewer).unwrap().0.len(), 1000);
     }
 }
