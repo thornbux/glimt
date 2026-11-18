@@ -3590,8 +3590,8 @@ msgstr "”{name}”: ett {kind}-filsystem, som på minneskortet i en kamera, ti
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
-msgstr "Papperskorgen tog inte emot {count} ({kind}). Inget raderades, eftersom en annan mapp är öppen nu."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
+msgstr "Papperskorgen tog inte emot {count} ({kind}). Inget raderades, eftersom listan inte längre visar det."
 
 #: src/ui/dialogs.rs
 #, fuzzy

@@ -3590,8 +3590,8 @@ msgstr "»{name}«: Ein {kind}-Dateisystem, wie auf der Speicherkarte einer Kame
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
-msgstr "Der Papierkorb hat {count} nicht angenommen ({kind}). Nichts wurde gelöscht, weil jetzt ein anderer Ordner geöffnet ist."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
+msgstr "Der Papierkorb hat {count} nicht angenommen ({kind}). Nichts wurde gelöscht, weil die Liste es nicht mehr zeigt."
 
 #: src/ui/dialogs.rs
 #, fuzzy

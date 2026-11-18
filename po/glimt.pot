@@ -2894,7 +2894,7 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr ""
 
 #: src/files/file_ops.rs
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
 msgstr ""
 
 #: src/ui/dialogs.rs

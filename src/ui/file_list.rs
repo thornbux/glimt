@@ -143,6 +143,18 @@ impl Thumbs {
         self.made_of(name, identity)?.as_ref()
     }
 
+    /// Keeps `texture` as the thumbnail of `name`, made of the file with `identity`, as a
+    /// worker's answer would.
+    #[cfg(test)]
+    pub(crate) fn keep_thumbnail(
+        &mut self,
+        name: &OsStr,
+        identity: Identity,
+        texture: egui::TextureHandle,
+    ) {
+        self.textures.insert(name.into(), (identity, Some(texture)));
+    }
+
     /// The thumbnail of `name` made of the file with the identity `identity`, or `None` when
     /// none was. A thumbnail made of another file of that name does not count.
     fn made_of(&self, name: &OsStr, identity: Identity) -> Option<&Option<egui::TextureHandle>> {

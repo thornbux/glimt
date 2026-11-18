@@ -14,6 +14,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   named, music, documents and dot files among them.
 - Copy Path to Clipboard keeps a name that is not UTF-8, such as one in Latin-1, so that the
   path pasted into a terminal names the file.
+- When the window grows or a page of a multi-page image is decoded again, the sharp image stays
+  on screen until the new one is ready. Before, the file's blurry thumbnail stood in, stretched
+  over the whole view. When the trash refuses a file that the list no longer shows, the notice
+  says so, instead of saying that another folder is open.
 
 ## [0.87.0] - 2026-11-17
 

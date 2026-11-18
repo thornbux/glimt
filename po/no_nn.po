@@ -3601,8 +3601,8 @@ msgstr "«{name}»: eit {kind}-filsystem, som på minnekortet i eit kamera, till
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
-msgstr "Papirkorga tok ikkje imot {count} ({kind}). Ingenting vart sletta, fordi ei anna mappe er open no."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
+msgstr "Papirkorga tok ikkje imot {count} ({kind}). Ingenting vart sletta, fordi lista ikkje viser det lenger."
 
 #: src/ui/dialogs.rs
 #, fuzzy

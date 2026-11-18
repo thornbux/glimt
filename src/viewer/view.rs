@@ -4,6 +4,7 @@
 
 use crate::files::config::Config;
 use crate::files::external::is_video;
+use crate::files::file_io::Identity;
 use crate::images::decode::{Decoded, catch_panic_as_error, decode, histogram};
 use crate::model::list::LoadedImage;
 use crate::support::format::fill_template;
@@ -30,6 +31,9 @@ pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
 
 /// A texture shown and its image's size, which a fade goes from.
 pub(crate) type ShownTexture = (egui::TextureHandle, [usize; 2]);
+
+/// The name in the list and the identity of the file an image was drawn from.
+type LastDrawnFile = (std::ffi::OsString, Identity);
 
 /// The image area of the last frame, which the projector follows. It holds where the area was
 /// (in points), the screen's pixels per point, the scale (screen pixels per image pixel), the
@@ -87,9 +91,9 @@ pub(crate) struct Decoding {
     decode_requests: mpsc::Sender<DecodeJob>,
     decoded: mpsc::Receiver<Decoded>,
     last_request_number: u64,
-    /// The last image drawn. It stays on screen until the next one is decoded, so browsing
-    /// never shows a black screen.
-    last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
+    /// The last image drawn, with the name and identity of its file. It stays on screen until
+    /// the next one is decoded, so browsing never shows a black screen.
+    last_drawn: Option<(egui::TextureHandle, [usize; 2], LastDrawnFile)>,
     /// A slideshow's change of image while it fades in. It holds when the fade began, and what
     /// each pane (the first, then the others) showed before, until that has faded out.
     fade: Option<(Instant, Vec<Option<ShownTexture>>)>,
@@ -715,13 +719,21 @@ impl crate::App {
         Some((t * t * (3.0 - 2.0 * t), tex.clone(), *orig))
     }
 
-    /// What to show while the shown image is decoded, and whether it is its thumbnail. That is
-    /// the thumbnail when there is one, and otherwise the image shown before, so browsing does
-    /// not flash black. A video does not get the image before, because ffmpeg takes a while for
-    /// its frame, and another photo stood under its play button.
+    /// What to show while the shown image is decoded, and whether it is its thumbnail. When the
+    /// image drawn last is of the same file, decoded again at another size or page, that image
+    /// stays, because it is sharper than the thumbnail. Otherwise it is the thumbnail when
+    /// there is one, and then the image shown before, so browsing does not flash black. A
+    /// video does not get the image before, because ffmpeg takes a while for its frame, and
+    /// another photo stood under its play button.
     pub(crate) fn placeholder(&self) -> Option<(egui::TextureHandle, [usize; 2], bool)> {
         let name = self.list.files().get(self.list.shown())?;
-        if let Some(t) = (self.thumbs).thumbnail_of(name, self.list.identity(self.list.shown())) {
+        let identity = self.list.identity(self.list.shown());
+        if let Some((t, orig, _)) = (self.decoding.last_drawn.as_ref())
+            .filter(|(_, _, (n, i))| n.as_os_str() == name && *i == identity)
+        {
+            return Some((t.clone(), *orig, false));
+        }
+        if let Some(t) = (self.thumbs).thumbnail_of(name, identity) {
             return Some((t.clone(), t.size(), true));
         }
         if is_video(Path::new(name)) {
@@ -730,7 +742,7 @@ impl crate::App {
         self.decoding
             .last_drawn
             .as_ref()
-            .map(|(t, orig)| (t.clone(), *orig, false))
+            .map(|(t, orig, _)| (t.clone(), *orig, false))
     }
 
     /// The image shown next to the current one when comparing. It is the other of two selected
@@ -1537,7 +1549,11 @@ impl crate::App {
             }
             paint_turned(ui, tex, rect, self.viewing.turn, alpha(shown));
             ui.set_clip_rect(clip);
-            self.decoding.last_drawn = Some((loaded.texture.clone(), loaded.original_size));
+            let file = (
+                self.list.files()[self.list.shown()].clone(),
+                self.list.identity(self.list.shown()),
+            );
+            self.decoding.last_drawn = Some((loaded.texture.clone(), loaded.original_size, file));
             // The projector follows this view, and the pointer measured from the image's
             // centre.
             let centre = area.center() + self.zoom.offset;
@@ -2211,6 +2227,42 @@ mod tests {
         let v = &app.viewing;
         assert_eq!((v.turn, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned_file.as_os_str().is_empty() && v.crop.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// While the shown image is decoded again at another size, as after the window grew, the
+    /// sharp image drawn before stays. Before, its thumbnail stood in, stretched over the
+    /// whole view. Another file's image still gives way to the shown file's thumbnail.
+    #[test]
+    fn a_decode_again_keeps_the_sharp_image_of_the_same_file() {
+        use eframe::egui::{Color32, ColorImage};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-redecode-sharp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let texture = |name| {
+            ctx.load_texture(
+                name,
+                ColorImage::new([1, 1], vec![Color32::RED; 1]),
+                Default::default(),
+            )
+        };
+        let (shown, other) = (app.list.shown(), 1 - app.list.shown());
+        let name = |i: usize| app.list.files()[i].clone();
+        let (thumbnail, sharp) = (texture("thumbnail"), texture("sharp"));
+        let file = (name(shown), app.list.identity(shown));
+        app.thumbs
+            .keep_thumbnail(&file.0, file.1, thumbnail.clone());
+        app.decoding.last_drawn = Some((sharp.clone(), [4, 4], file));
+        let placeholder = app.placeholder().unwrap();
+        assert_eq!((placeholder.0.id(), placeholder.2), (sharp.id(), false));
+        let file = (name(other), app.list.identity(other));
+        app.decoding.last_drawn = Some((sharp, [4, 4], file));
+        let placeholder = app.placeholder().unwrap();
+        assert_eq!((placeholder.0.id(), placeholder.2), (thumbnail.id(), true));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

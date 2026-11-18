@@ -3590,8 +3590,8 @@ msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla
 
 #: src/files/file_ops.rs
 #, fuzzy
-msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
-msgstr "Roskakori ei ottanut vastaan: {count} ({kind}). Mitään ei poistettu, koska nyt on auki toinen kansio."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because the list no longer shows it."
+msgstr "Roskakori ei ottanut vastaan: {count} ({kind}). Mitään ei poistettu, koska luettelo ei enää näytä sitä."
 
 #: src/ui/dialogs.rs
 #, fuzzy
