@@ -3045,7 +3045,14 @@ fn delete_for_good(
         went.push(p.clone());
         for (side, hidden) in aside {
             #[allow(clippy::disallowed_methods)] // the sidecar of a file deleted for good
-            match std::fs::remove_file(&hidden) {
+            let removed = std::fs::remove_file(&hidden);
+            // In a test the answer is lost by the sidecar's own name, as the hidden one is
+            // made here.
+            #[cfg(test)]
+            let removed = crate::files::file_io::answer_lost_in_a_test(&side, removed);
+            // A removal that a share did and lost the answer of is done. Before, the user was
+            // told that the sidecar could not be deleted when it was gone.
+            match crate::files::file_io::done_after_all(removed, &hidden, None) {
                 Ok(()) => sides.push(side),
                 Err(e) => failed(&side, e),
             }
@@ -6363,6 +6370,28 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().starts_with(".glimt-tmp-"))
             .map(|e| e.path())
             .collect()
+    }
+
+    /// A Delete for good whose sidecar's steps a share did and lost the answers of deletes the
+    /// photo and its sidecar without an error: the sidecar set aside, and then removed. Before,
+    /// the last removal was told as failed, when the sidecar was gone.
+    #[test]
+    fn a_delete_for_good_whose_sidecar_removal_lost_its_answer_is_done() {
+        use crate::files::file_io::ANSWER_LOST_AT;
+        let dir = contract_folder("delete-side-lost");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        ANSWER_LOST_AT.set(Some(side.clone()));
+        let mut errors = Vec::new();
+        let how = (false, None);
+        let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
+        ANSWER_LOST_AT.set(None);
+        assert_eq!(gone, std::slice::from_ref(&a));
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(!side.exists() && hidden_names_in(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A Delete for good whose rename that hides a photo's sidecar was done on a share that lost

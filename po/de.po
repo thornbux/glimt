@@ -4045,3 +4045,8 @@ msgstr "{sidecar} ist eine Begleitdatei, die dort ohne ihr Bild liegt, daher wir
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "{name} konnte nicht angesehen werden: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} wurde gespeichert, ist aber vielleicht noch nicht auf dem Datenträger: {e}"

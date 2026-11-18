@@ -15,6 +15,9 @@ const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
 const FAILED_DIR: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));
 
 /// The files whose thumbnail ran out of time once since Glimt started (`should_mark_failed`).
+/// Whether a removal of the thumbnails of deleted files runs, so that a second click waits for
+/// it rather than start a second walk over the cache.
+static REMOVING_ORPHANS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static TIMED_OUT_ONCE: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
     std::sync::Mutex::new(std::collections::BTreeSet::new());
 
@@ -192,9 +195,17 @@ fn cache_dir() -> Option<std::path::PathBuf> {
 
 /// Removes the cached thumbnails of files that are gone, and returns (removed, looked at). A
 /// thumbnail is removed only when the file's folder is still there, so thumbnails of a disk that is
-/// not plugged in are kept.
-pub fn remove_orphaned_thumbnails() -> (usize, usize) {
-    cache_dir().map_or((0, 0), |cache| remove_orphaned_thumbnails_in(&cache))
+/// not plugged in are kept. Returns `None` when another removal runs, which a share that stopped
+/// answering may hold for ever.
+pub fn remove_orphaned_thumbnails() -> Option<(usize, usize)> {
+    use std::sync::atomic::Ordering;
+    if REMOVING_ORPHANS.swap(true, Ordering::AcqRel) {
+        return None;
+    }
+    let cache = cache_dir();
+    let done = cache.map_or((0, 0), |cache| remove_orphaned_thumbnails_in(&cache));
+    REMOVING_ORPHANS.store(false, Ordering::Release);
+    Some(done)
 }
 
 /// `remove_orphaned_thumbnails` in the thumbnail cache `cache`. Older Glimts' folders of failure
@@ -220,7 +231,9 @@ fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
             .flatten()
         {
             seen += 1;
-            let Some(path) = thumb_source(&entry.path()) else {
+            // A thumbnail whose PNG makes the decoder panic costs only that thumbnail.
+            let source = crate::support::threads::catch_panic(|| thumb_source(&entry.path()));
+            let Some(path) = source.flatten() else {
                 continue;
             };
             // Only a file that is surely not there counts as gone. A share that answers with an
@@ -343,6 +356,17 @@ mod tests {
     /// (a disk not plugged in), and the one of a file that cannot be looked at (a link that
     /// leads to itself stands for a share that answers with an error): it deletes in a cache
     /// file managers share.
+    /// A second removal of the thumbnails of deleted files waits for the one that runs, which a
+    /// share that stopped answering may hold. Before, each click started another walk.
+    #[test]
+    fn a_second_removal_of_orphans_waits_for_the_first() {
+        use std::sync::atomic::Ordering;
+        super::REMOVING_ORPHANS.store(true, Ordering::Release);
+        let second = super::remove_orphaned_thumbnails();
+        super::REMOVING_ORPHANS.store(false, Ordering::Release);
+        assert_eq!(second, None);
+    }
+
     #[test]
     fn cleans_only_thumbnails_of_files_gone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-clean-{}", std::process::id()));

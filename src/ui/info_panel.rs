@@ -915,8 +915,11 @@ pub(crate) fn spawn_exif_reader(
                 return;
             }
             let identity = crate::files::file_io::identity_of(&path);
-            let size = std::fs::metadata(&path).map_or(0, |m| m.len());
-            let mut rows = vec![("File size", human_size(size))];
+            // A size that could not be looked at is left out, never shown as 0 bytes.
+            let size = std::fs::metadata(&path).map(|m| m.len());
+            let mut rows: Vec<_> = (size.ok().into_iter())
+                .map(|size| ("File size", human_size(size)))
+                .collect();
             let (mut all, mut meta, mut paths, mut alt_text) = Default::default();
             // Not opened unless it is a file: a pipe would block this thread for good. A decoder
             // that panics on the file leaves the panel without EXIF for it, not for good.

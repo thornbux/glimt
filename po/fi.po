@@ -4045,3 +4045,8 @@ msgstr "{sidecar} on sivutiedosto, joka on jäänyt sinne ilman kuvaansa, joten 
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "kohdetta {name} ei voitu tarkistaa: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} tallennettiin, mutta se ei ehkä ole vielä levyllä: {e}"

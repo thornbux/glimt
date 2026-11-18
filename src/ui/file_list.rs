@@ -453,7 +453,7 @@ pub(crate) struct StatusBar {
 }
 
 /// A file's name in the list, its path, and its size and date, or `None` when the question
-/// about it was dropped (`SIZES_AND_DATES_WAITING`).
+/// about it was dropped (`SIZES_AND_DATES_WAITING`) or the look at the file failed.
 pub(crate) type SizeAndDate = (OsString, PathBuf, Option<(u64, i64)>);
 
 /// The pane the status bar tells about, the panes as [columns, rows], and each pane's image and
@@ -1072,8 +1072,8 @@ impl crate::App {
             }
             match d {
                 Some(d) => self.list.remember_size_and_date(name, d),
-                // The row had left the screen, so its question was dropped. It is asked again
-                // when it is drawn again.
+                // The row had left the screen, so its question was dropped, or the look failed. It
+                // is asked again when it is drawn again.
                 None if self.list.sizes_and_dates().get(&name) == Some(&None) => {
                     self.list.forget_size_and_date_of(&name)
                 }
@@ -2113,11 +2113,17 @@ fn answer_sizes_and_dates(
         let Some((name, path)) = waiting.pop() else {
             continue;
         };
-        let d = std::fs::metadata(&path).map_or((0, 0), |m| (m.len(), m.mtime()));
-        if found.send((name, path, Some(d))).is_err() {
+        // A look that failed (a share that dropped for a moment, a file just deleted) is no size
+        // and no date. It is answered as unknown, so the row stays blank and is asked again
+        // when it is drawn again, never shown as 0 bytes of 1970.
+        let d = std::fs::metadata(&path).map(|m| (m.len(), m.mtime())).ok();
+        let is_known = d.is_some();
+        if found.send((name, path, d)).is_err() {
             return;
         }
-        ctx.request_repaint();
+        if is_known {
+            ctx.request_repaint();
+        }
     }
 }
 
@@ -2413,7 +2419,7 @@ mod tests {
         let count = SIZES_AND_DATES_WAITING + 100;
         for k in 0..count {
             let name = OsString::from(k.to_string());
-            asked.send((name, "/nonexistent".into())).unwrap();
+            asked.send((name, std::env::temp_dir())).unwrap();
         }
         drop(asked);
         answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default());
@@ -2425,5 +2431,23 @@ mod tests {
         assert_eq!(dropped[0].0, "0");
         assert_eq!(answers[100].0, OsString::from((count - 1).to_string()));
         assert!(answers[100..].iter().all(|a| a.2.is_some()));
+    }
+
+    /// A file whose look fails is answered as unknown, so its row stays blank and is asked again.
+    /// Before, it was answered as 0 bytes of 1970, which the row and the status bar kept showing
+    /// until the folder was read again.
+    #[test]
+    fn a_failed_look_is_no_size_and_no_date() {
+        use super::answer_sizes_and_dates;
+        let (asked, questions) = std::sync::mpsc::channel();
+        let (found, answers) = std::sync::mpsc::channel();
+        let gone = std::env::temp_dir().join(format!("glimt-test-no-size-{}", std::process::id()));
+        asked.send(("gone".into(), gone)).unwrap();
+        drop(asked);
+        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default());
+        drop(found);
+        let answers: Vec<_> = answers.into_iter().collect();
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].2, None);
     }
 }

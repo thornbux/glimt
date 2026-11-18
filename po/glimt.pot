@@ -3258,3 +3258,7 @@ msgstr ""
 #: src/metadata/xmp.rs
 msgid "could not look at {name}: {e}"
 msgstr ""
+
+#: src/images/save.rs
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr ""

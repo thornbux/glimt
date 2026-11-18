@@ -4045,3 +4045,8 @@ msgstr "{sidecar} è un file sidecar rimasto lì senza la sua immagine, quindi i
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "impossibile controllare {name}: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} è stato salvato, ma potrebbe non essere ancora sul disco: {e}"

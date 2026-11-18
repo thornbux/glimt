@@ -7,7 +7,7 @@ use crate::files::config::{
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
 use crate::support::format::thousands;
 use crate::support::lang::tr;
-use crate::support::threads::{Working, set_cpu_use};
+use crate::support::threads::set_cpu_use;
 use crate::ui::actions::{ALL, Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
 use crate::ui::menus::{checkbox, radio, radio_choice};
@@ -802,15 +802,17 @@ impl crate::App {
             .clicked()
         {
             let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
-            let pointer = Working::new(&self.busy);
+            // No busy pointer: a look at a thumbnail's file on a share that stopped answering
+            // waits for ever, and the user can go on meanwhile. Its notice tells when it ends.
             std::thread::spawn(move || {
-                let (removed, seen) = thumbs::remove_orphaned_thumbnails();
+                let Some((removed, seen)) = thumbs::remove_orphaned_thumbnails() else {
+                    return;
+                };
                 let _ = tx.send(tf!(
                     "Removed {removed} of {seen} thumbnails",
                     removed = thousands(removed),
                     seen = thousands(seen)
                 ));
-                drop(pointer);
                 ctx.request_repaint();
             });
         }

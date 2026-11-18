@@ -5149,7 +5149,9 @@ fn statement_from(lines: &[String], at: usize) -> String {
 /// Returns whether `statement` looks at a name (`metadata`, `symlink_metadata`, `try_exists`)
 /// and turns the look into a yes or no that a failed look answers too: it asks the result
 /// anything with an `is_` method, or matches its error as `Err(_)`, `Err(..)` or `_`, or takes
-/// only `Ok` with `let Ok(…)`. A `try_exists` is a yes or no itself. A look whose error goes on
+/// only `Ok` with `let Ok(…)`. A look that gives a number of its own when it fails
+/// (`map_or(0, …)`, `unwrap_or((0, 0))`) is found too, as a size of 0 or a date of 1970 is no
+/// answer either. A `try_exists` is a yes or no itself. A look whose error goes on
 /// with `?` (or `.ok()?`) right after it, or is matched on NotFound, says which way a failed
 /// look counts.
 /// Before, only listed spellings were found, and `.ok().is_none()`, `if let Err(_) =` and
@@ -5163,6 +5165,17 @@ fn drops_the_error_of_a_look(statement: &str) -> bool {
     // they take the error instead.
     let asks_the_result =
         |after: &str| after.trim_start().starts_with(['.', ',']) && after.contains(".is_");
+    // A number given in the place of a failed look's (`map_or(0, …)`, `unwrap_or((0, 0))`). An
+    // empty text in its place (`unwrap_or_default` of a `String`) is shown as unknown, and passes.
+    let gives_a_value_of_its_own = |after: &str| {
+        after.trim_start().starts_with('.')
+            && [".map_or(", ".unwrap_or("].iter().any(|default| {
+                (after.match_indices(default)).any(|(at, _)| {
+                    let value = after[at + default.len()..].trim_start_matches(['(', ' ']);
+                    value.starts_with(|c: char| c.is_ascii_digit())
+                })
+            })
+    };
     let guesses_without_error = ["let Ok(", "Err(_", "Err(..)", "_ =>"]
         .iter()
         .any(|c| statement.contains(c));
@@ -5188,7 +5201,10 @@ fn drops_the_error_of_a_look(statement: &str) -> bool {
             // `.ok()?` passes the failure on as `None`.
             let chained: String = after.chars().filter(|c| !c.is_whitespace()).collect();
             !(chained.starts_with('?') || chained.starts_with(".ok()?"))
-                && (look.ends_with("exists(") || asks_the_result(after) || guesses_without_error)
+                && (look.ends_with("exists(")
+                    || asks_the_result(after)
+                    || gives_a_value_of_its_own(after)
+                    || guesses_without_error)
         })
     })
 }
@@ -5250,8 +5266,10 @@ fn finds_a_look_that_guesses() {
 /// The check above finds a look whose failure is taken for "no link" or "neither a file nor a
 /// folder", also when its default comes first (`map_or`) or it is filtered (`.ok().filter`),
 /// and in any other spelling that does not pass the error on (`.ok().is_some_and`, `unwrap_or`,
-/// `matches!`). It leaves a size whose look failed, and a look whose error goes to the caller.
-/// Before, only the listed spellings were found, and `matches!(metadata(p), Ok(m) if …)` passed.
+/// `matches!`). It finds a size whose failed look gives 0, which was shown as a file of 0 bytes
+/// and passed before. It leaves a size kept as an `Option`, and a look whose error goes to the
+/// caller. Before, only the listed spellings were found, and `matches!(metadata(p), Ok(m) if …)`
+/// passed.
 #[test]
 fn finds_a_failed_look_taken_for_its_kind() {
     let text = "fn a() {\n    let l = std::fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink());\n    \
@@ -5262,8 +5280,10 @@ fn finds_a_failed_look_taken_for_its_kind() {
         let d = std::fs::metadata(p).ok().is_some_and(|m| m.is_dir());\n    \
         let f = std::fs::metadata(p).ok().map(|m| m.is_file()).unwrap_or(false);\n    \
         let f = matches!(std::fs::metadata(p), Ok(m) if m.is_file());\n    \
-        let d = std::fs::metadata(&p.join(q))?.is_dir();\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3, 6, 8, 9, 10]);
+        let d = std::fs::metadata(&p.join(q))?.is_dir();\n    \
+        let t = std::fs::metadata(p).map(|m| m.mtime()).unwrap_or(0);\n    \
+        let t = std::fs::metadata(p).ok().map(|m| m.mtime());\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 4, 6, 8, 9, 10, 12]);
 }
 
 /// The check above finds a path asked whether it is a file or a folder, also as a function value

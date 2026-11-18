@@ -4056,3 +4056,8 @@ msgstr "{sidecar} é um arquivo XMP associado que ficou lá sem sua imagem, ent�
 #, fuzzy
 msgid "could not look at {name}: {e}"
 msgstr "não foi possível verificar {name}: {e}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "{file} was saved, but it may not be on the disk yet: {e}"
+msgstr "{file} foi salvo, mas talvez ainda não esteja no disco: {e}"

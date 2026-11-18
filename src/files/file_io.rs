@@ -674,6 +674,19 @@ impl std::fmt::Display for MayBeUnderBothNames {
 
 impl std::error::Error for MayBeUnderBothNames {}
 
+/// The error of a write that gave the file its name, after which the sync of its folder failed.
+/// The file is there under its name, but the name may not be on the disk yet.
+#[derive(Debug)]
+struct NamedButNotOnDisk(String);
+
+impl std::fmt::Display for NamedButNotOnDisk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NamedButNotOnDisk {}
+
 /// What the names say of a replace's rename that failed, which `taken_back` hands to the undo
 /// of the step before the rename.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -695,6 +708,15 @@ pub(crate) enum RenameFailed {
 /// (`source_rules::gone_means_not_found`).
 pub(crate) fn is_surely_gone(path: &Path) -> bool {
     look(path, false).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// Returns whether the error `e` of a look at a name says that no file can be reached there:
+/// nothing at the name (NotFound), a file where a folder of its path should be (ENOTDIR), or a
+/// loop of links (ELOOP). Each is the answer of the file system itself, never of a share that
+/// dropped for a moment, so a list leaves such an entry out rather than show it broken.
+pub(crate) fn names_no_file(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::NotFound
+        || matches!(e.raw_os_error(), Some(libc::ENOTDIR | libc::ELOOP))
 }
 
 /// Looks whether a new file may take the name `path`: nothing is there (NotFound). Returns
@@ -904,7 +926,7 @@ fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<Strin
         return kind().is_none_or(|kind| is_remote(&kind));
     }
     e.get_ref()
-        .is_some_and(|inner| inner.is::<MayBeUnderBothNames>())
+        .is_some_and(|inner| inner.is::<MayBeUnderBothNames>() || inner.is::<NamedButNotOnDisk>())
         || matches!(
             e.raw_os_error(),
             Some(
@@ -2130,9 +2152,16 @@ fn taken_back(
         true if is_gone_by_opening() && is_surely_there(path) => return Ok(()),
         true => RenameFailed::MayHaveBeenDone,
     };
-    match undo(failed) {
-        Ok(()) => Err(e),
-        Err(more) => Err(std::io::Error::new(e.kind(), format!("{e}; {more}"))),
+    // The error still says that the rename may have been done, also with the undo's words.
+    match (undo(failed), failed) {
+        (Ok(()), _) => Err(e),
+        (Err(more), RenameFailed::MayHaveBeenDone) => Err(std::io::Error::new(
+            e.kind(),
+            MayBeUnderBothNames(format!("{e}; {more}")),
+        )),
+        (Err(more), RenameFailed::NotDone) => {
+            Err(std::io::Error::new(e.kind(), format!("{e}; {more}")))
+        }
     }
 }
 
@@ -2488,7 +2517,30 @@ pub fn write_beside(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    write_beside_without_folder_sync(tmp, path, write, give_name).and_then(|_| sync_folder_of(path))
+    write_beside_without_folder_sync(tmp, path, write, give_name)?;
+    // The file has its name now, which its error says, so that a save can go on with what
+    // follows the name (`named_but_not_on_disk`).
+    sync_folder_of(path)
+        .map_err(|e| std::io::Error::new(e.kind(), NamedButNotOnDisk(e.to_string())))
+}
+
+/// Returns `Ok(None)` when `result`, of `write_beside` or a writer through it, is a file saved,
+/// and `Ok(Some(e))` when the file took its name and only the sync of its folder failed with `e`.
+/// The file is then there, and what follows its name (its sidecar) is still to be done, with `e`
+/// told. Any other error is passed on.
+pub(crate) fn named_but_not_on_disk(
+    result: std::io::Result<()>,
+) -> std::io::Result<Option<std::io::Error>> {
+    match result {
+        Ok(()) => Ok(None),
+        Err(e)
+            if e.get_ref()
+                .is_some_and(|inner| inner.is::<NamedButNotOnDisk>()) =>
+        {
+            Ok(Some(e))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Writes a file as `write_beside` does, without syncing its folder after the rename. This is
@@ -2518,10 +2570,16 @@ pub fn write_beside_without_sync(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let result = create_temp_beside(tmp, path)
-        .and_then(|mut f| write(&mut f))
-        .and_then(|_| give_name(tmp));
-    if result.is_err() {
+    let written = create_temp_beside(tmp, path).and_then(|mut f| write(&mut f));
+    let is_written = written.is_ok();
+    let result = written.and_then(|_| give_name(tmp));
+    // A rename that may have been done is no reason to remove `tmp`. On cifs, a rename over a
+    // file it refuses deletes that file and tries again, and when that try loses its answer,
+    // `tmp` may be the last copy of the file.
+    if result
+        .as_ref()
+        .is_err_and(|e| !(is_written && may_have_been_done(e, tmp)))
+    {
         #[allow(clippy::disallowed_methods)] // Glimt's own: the temporary file, not finished
         // Not told: the write's own failure is returned, and a hidden name left takes no file's
         // place.
@@ -3535,6 +3593,43 @@ mod tests {
         super::MOVES_CROSS_DEVICES.set(false);
         moved.unwrap();
         assert!(super::is_surely_gone(&a));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file whose rename to its name may have been done, as on a share that lost the answer,
+    /// keeps its temporary file, also when the step before the rename adds its own words to the
+    /// error. On cifs the name may be gone and the temporary file the last copy. Before, it was
+    /// removed after any failed rename.
+    #[test]
+    fn a_rename_that_may_have_been_done_keeps_the_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-keep-tmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, tmp) = (dir.join("a.png"), dir.join(".a.png.tmp"));
+        std::fs::write(&path, "old").unwrap();
+        let lost = |_: &std::path::Path| -> std::io::Result<()> {
+            super::taken_back(
+                std::io::Error::from_raw_os_error(libc::EIO),
+                true,
+                (&tmp, &path),
+                |_| Err(std::io::Error::other("the sidecar stays aside")),
+            )
+        };
+        let written =
+            super::write_beside(&tmp, &path, |f| std::io::Write::write_all(f, b"new"), lost);
+        assert!(written.is_err());
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "new");
+        let refused = |_: &std::path::Path| Err(std::io::Error::from_raw_os_error(libc::EACCES));
+        let tmp2 = dir.join(".a.png.tmp2");
+        assert!(
+            super::write_beside(
+                &tmp2,
+                &path,
+                |f| std::io::Write::write_all(f, b"new"),
+                refused
+            )
+            .is_err()
+        );
+        assert!(super::is_surely_gone(&tmp2));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
