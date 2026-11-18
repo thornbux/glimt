@@ -834,13 +834,17 @@ fn is_as_known(path: &Path, known: Option<FileFingerprint>) -> bool {
 /// so Glimt killed between the two left the photo without its keywords, comment and alt text.
 /// One trashed later is one the user trashed on purpose, also when the log is read again at a
 /// start weeks later (`trash::restore_until`). Only a sidecar whose name is surely free is
-/// looked for, and none comes back over a file. One that cannot come back is told.
+/// looked for, and none comes back over a file. Adobe's sidecar comes back only to a RAW file
+/// that owns it alone (`xmp::shares_its_adobe_stem`). One that cannot come back is told.
 fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime) {
     use crate::metadata::xmp;
+    let mut names = xmp::AdobeNames::default();
     // Adobe's sidecar has the RAW file's name stem, with the extension in either case.
     let sidecars: Vec<PathBuf> = (stayed.iter())
         .flat_map(|p| {
-            let adobe = xmp::adobe_stem(p).map(|_| ["xmp", "XMP"].map(|e| p.with_extension(e)));
+            let adobe = (xmp::adobe_stem(p))
+                .filter(|_| !xmp::shares_its_adobe_stem(p, &mut names))
+                .map(|_| ["xmp", "XMP"].map(|e| p.with_extension(e)));
             std::iter::once(xmp::sidecar(p)).chain(adobe.into_iter().flatten())
         })
         .filter(|side| is_surely_gone(side))
@@ -3214,6 +3218,32 @@ mod tests {
         crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
         assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
         assert!(!side.exists(), "the sidecar trashed on purpose came back");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A start after a killed Move to Trash takes back Adobe's sidecar of a RAW file that stayed
+    /// only when no other RAW file of its name stem is in the folder, as the move itself asks
+    /// (`xmp::adobe_sidecars_of`). Before, IMG_1.xmp came back beside IMG_1.CR2 also with an
+    /// IMG_1.NEF beside it, whose sidecar it may be.
+    #[test]
+    fn a_start_takes_back_no_adobe_sidecar_that_two_raw_files_share() {
+        let dir = crate::support::test_support::contract_folder("start-adobe-shared");
+        let logs = dir.join("logs");
+        let (cr2, nef) = (dir.join("IMG_1.CR2"), dir.join("IMG_1.NEF"));
+        std::fs::write(&cr2, "cr2").unwrap();
+        std::fs::write(&nef, "nef").unwrap();
+        let side = dir.join("IMG_1.xmp");
+        std::fs::write(&side, "whose").unwrap();
+        let mut log = super::start_delete_log(&logs, None).unwrap();
+        log.note(std::slice::from_ref(&cr2));
+        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        drop(log);
+        let _ = crate::files::file_io::take_saves_failed();
+        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert!(
+            !side.exists(),
+            "the sidecar of two RAW files came back to one"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
