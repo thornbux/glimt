@@ -500,8 +500,9 @@ mod tests {
         app.config.slideshow_repeat = false;
         app.start_slideshow(&ctx);
         let first = app.list.files()[app.list.shown()].clone();
-        // The listing's answer stays in its channel, as only the decodes are taken here.
-        let stepped = (0..100).any(|_| {
+        // The listing's answer stays in its channel, as only the decodes are taken here. The
+        // wait of 5 s, as `run_background_until`'s, leaves room for a decode on a loaded machine.
+        let stepped = (0..250).any(|_| {
             app.receive_decoded(&ctx);
             app.slideshow.shown_at =
                 Some(std::time::Instant::now() - std::time::Duration::from_secs(99));
