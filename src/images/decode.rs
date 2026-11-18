@@ -1895,7 +1895,7 @@ mod tests {
             }
             done_tx.send(job).unwrap();
         };
-        crate::support::threads::spawn_worker_pool(1, stuck_after, rx, |_| {}, work);
+        crate::support::threads::spawn_worker_pool(1, stuck_after, rx, |_| {}, |_| None, work);
         jobs.send(PathBuf::from("/folder/waits.jpg")).unwrap();
         jobs.send(PathBuf::from("/folder/next.jpg")).unwrap();
         let while_waiting = done.recv_timeout(stuck_after * 5);

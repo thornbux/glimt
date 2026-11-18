@@ -3,6 +3,7 @@
 
 use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
+use crate::model::listing;
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{
@@ -299,6 +300,7 @@ pub(crate) fn spawn_thumbnailers(
                 idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
             }
         },
+        |(path, _): &(PathBuf, u64)| thumbnail_set_aside_by(path),
         // A job goes by its file, as the decoders' do, because a listing (a tree's next part)
         // moves the files while the jobs wait.
         move |(path, n): (PathBuf, u64)| {
@@ -324,9 +326,43 @@ pub(crate) fn spawn_thumbnailers(
     (thumb_jobs, thumbs_done)
 }
 
+/// Returns the folder a thumbnail of `path` is set aside by while a worker is stuck there
+/// (`spawn_worker_pool`), or `None` when its folder holds a link, which may lead elsewhere than
+/// the share that stopped answering. Before, a local file beside a link into a stalled share
+/// waited for that share.
+fn thumbnail_set_aside_by(path: &std::path::Path) -> Option<PathBuf> {
+    let folder = path.parent()?;
+    (!listing::holds_links(folder)).then(|| folder.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder};
+
+    /// The thumbnails of a folder of plain files are set aside by that folder, and those of a
+    /// folder that holds a link to a file are never set aside, as the listing found the link.
+    #[test]
+    fn thumbnails_beside_a_link_are_never_set_aside() {
+        use crate::model::listing::{Types, list_folder};
+        let plain = contract_folder("set-aside-plain");
+        let linked = contract_folder("set-aside-linked");
+        std::os::unix::fs::symlink(plain.join("a.png"), linked.join("link.png")).unwrap();
+        let types = Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        list_folder(&plain, types).unwrap();
+        list_folder(&linked, types).unwrap();
+        assert_eq!(
+            super::thumbnail_set_aside_by(&plain.join("a.png")),
+            Some(plain.clone())
+        );
+        assert_eq!(super::thumbnail_set_aside_by(&linked.join("a.png")), None);
+        std::fs::remove_dir_all(plain).unwrap();
+        std::fs::remove_dir_all(linked).unwrap();
+    }
 
     /// A minimized window runs `logic` but no `ui`, and takes there every answer of the
     /// background work, such as the bytes a delete freed, so their busy pointer goes. Before,

@@ -2,6 +2,7 @@
 //! (`in_parts`), a background thread's answer (`Receiving`), and work counted while it runs
 //! (`Working`) and until the window has handled its answer (`AnswerSender`).
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, mpsc};
 
@@ -304,10 +305,25 @@ impl<T> AnswerSender<T> {
     }
 }
 
-/// The progress of the job that the worker in each place of a pool does, `None` while it waits
-/// for a job. A worker given up leaves its place to a new worker with a new `JobStart`, and ends
-/// once its job returns, when it finds that its place is no longer its own.
-type JobStart = Arc<Mutex<Option<Progress>>>;
+/// The progress of the job that the worker in each place of a pool does, with the folder its
+/// job is set aside by (`spawn_worker_pool`), `None` while it waits for a job. A worker given up
+/// leaves its place to a new worker with a new `JobStart`, and ends once its job returns, when
+/// it finds that its place is no longer its own.
+type JobStart = Arc<Mutex<Option<(Progress, Option<PathBuf>)>>>;
+
+/// What gives the folder a job of a pool is set aside by (`WorkerPool::set_aside_by`).
+type SetAsideBy<J> = Box<dyn Fn(&J) -> Option<PathBuf> + Send + Sync>;
+
+/// The folders of a pool where a given-up worker is still stuck, and the jobs set aside until
+/// that folder answers again.
+struct Stalled<J> {
+    /// The folder of each given-up worker's job, once for each worker.
+    folders: Vec<PathBuf>,
+    /// The jobs of a stalled folder, by that folder.
+    set_aside: Vec<(PathBuf, J)>,
+    /// The jobs set aside whose folder answered again, which the workers take before new ones.
+    ready: std::collections::VecDeque<J>,
+}
 
 /// What the workers of a pool share (`spawn_worker_pool`).
 struct WorkerPool<J> {
@@ -318,6 +334,10 @@ struct WorkerPool<J> {
     stuck: AtomicUsize,
     /// Waits until the place, by its number, may take a job.
     wait_for_turn: Box<dyn Fn(usize) + Send + Sync>,
+    /// The folder a job is set aside by while a worker is stuck in it, or `None` for a job that
+    /// is never set aside.
+    set_aside_by: SetAsideBy<J>,
+    stalled: Mutex<Stalled<J>>,
     work: Box<dyn Fn(J) + Send + Sync>,
 }
 
@@ -326,20 +346,28 @@ struct WorkerPool<J> {
 /// A note left behind would read a thread clock of a thread that is gone, which the system may
 /// give to another thread, so that its processor time counted as the job's progress and the
 /// place was never filled again. A worker that a panic ends starts another in its place, or,
-/// when it was given up, lets go of its count of the stuck.
+/// when it was given up, lets go of its count of the stuck. A worker that was given up lets go
+/// of its job's folder on every way out, so the jobs set aside there are done.
 struct JobNote<J: Send + 'static> {
     pool: Arc<WorkerPool<J>>,
     place: usize,
     start: JobStart,
+    folder: Option<PathBuf>,
 }
 
 impl<J: Send + 'static> JobNote<J> {
-    fn new(pool: &Arc<WorkerPool<J>>, place: usize, start: &JobStart) -> JobNote<J> {
-        *lock_even_if_poisoned(start) = Some(Progress::of_this_thread());
+    fn new(
+        pool: &Arc<WorkerPool<J>>,
+        place: usize,
+        start: &JobStart,
+        folder: Option<PathBuf>,
+    ) -> JobNote<J> {
+        *lock_even_if_poisoned(start) = Some((Progress::of_this_thread(), folder.clone()));
         JobNote {
             pool: pool.clone(),
             place,
             start: start.clone(),
+            folder,
         }
     }
 }
@@ -347,11 +375,25 @@ impl<J: Send + 'static> JobNote<J> {
 impl<J: Send + 'static> Drop for JobNote<J> {
     fn drop(&mut self) {
         *lock_even_if_poisoned(&self.start) = None;
+        let is_given_up = !is_place_of(&self.pool, self.place, &self.start);
+        if is_given_up && let Some(folder) = &self.folder {
+            let mut stalled = lock_even_if_poisoned(&self.pool.stalled);
+            if let Some(i) = stalled.folders.iter().position(|f| f == folder) {
+                stalled.folders.swap_remove(i);
+            }
+            if !stalled.folders.contains(folder) {
+                let (back, still): (Vec<_>, Vec<_>) = std::mem::take(&mut stalled.set_aside)
+                    .into_iter()
+                    .partition(|(f, _)| f == folder);
+                stalled.set_aside = still;
+                stalled.ready.extend(back.into_iter().map(|(_, job)| job));
+            }
+        }
         if std::thread::panicking() {
-            if is_place_of(&self.pool, self.place, &self.start) {
-                start_worker(&self.pool, self.place, self.start.clone());
-            } else {
+            if is_given_up {
                 self.pool.stuck.fetch_sub(1, Ordering::Relaxed);
+            } else {
+                start_worker(&self.pool, self.place, self.start.clone());
             }
         }
     }
@@ -419,11 +461,16 @@ pub(crate) fn answer_channel<T>(
 /// share that stopped answering) is given up: another worker takes its place and the jobs after
 /// it, and the stuck one ends when its job returns. Before, a few files on such a share held
 /// every worker for good, and no other image or thumbnail was decoded until a restart.
+/// While a given-up worker is stuck, the later jobs that `set_aside_by` gives the same folder
+/// are set aside, without a look at the disk, and done once that worker's job returns. Before,
+/// a page of thumbnails on a share that stopped answering gave up one worker after another,
+/// until `MOST_STUCK` were stuck and no other folder's thumbnail was made (#154).
 pub(crate) fn spawn_worker_pool<J: Send + 'static>(
     places: usize,
     stuck_after: std::time::Duration,
     jobs: mpsc::Receiver<J>,
     wait_for_turn: impl Fn(usize) + Send + Sync + 'static,
+    set_aside_by: impl Fn(&J) -> Option<PathBuf> + Send + Sync + 'static,
     work: impl Fn(J) + Send + Sync + 'static,
 ) {
     let starts: Vec<JobStart> = (0..places).map(|_| JobStart::default()).collect();
@@ -432,6 +479,12 @@ pub(crate) fn spawn_worker_pool<J: Send + 'static>(
         places: Mutex::new(starts.clone()),
         stuck: AtomicUsize::new(0),
         wait_for_turn: Box::new(wait_for_turn),
+        set_aside_by: Box::new(set_aside_by),
+        stalled: Mutex::new(Stalled {
+            folders: Vec::new(),
+            set_aside: Vec::new(),
+            ready: Default::default(),
+        }),
         work: Box::new(work),
     });
     for (place, start) in starts.into_iter().enumerate() {
@@ -459,10 +512,14 @@ fn replace_stuck_workers<J: Send + 'static>(
 ) {
     let mut places = lock_even_if_poisoned(&pool.places);
     for (place, start) in places.iter_mut().enumerate() {
-        let is_stuck = (lock_even_if_poisoned(start).as_mut())
-            .is_some_and(|progress| progress.is_stuck(stuck_after));
-        if is_stuck && pool.stuck.load(Ordering::Relaxed) < MOST_STUCK {
+        let stuck_in = (lock_even_if_poisoned(start).as_mut())
+            .and_then(|(progress, folder)| progress.is_stuck(stuck_after).then(|| folder.clone()));
+        if let Some(folder) = stuck_in
+            && pool.stuck.load(Ordering::Relaxed) < MOST_STUCK
+        {
             pool.stuck.fetch_add(1, Ordering::Relaxed);
+            // Noted before the place is given away, so the worker's note sees it given up.
+            lock_even_if_poisoned(&pool.stalled).folders.extend(folder);
             *start = JobStart::default();
             start_worker(pool, place, start.clone());
         }
@@ -477,10 +534,18 @@ fn start_worker<J: Send + 'static>(pool: &Arc<WorkerPool<J>>, place: usize, star
     std::thread::spawn(move || {
         loop {
             (pool.wait_for_turn)(place);
-            let Ok(job) = lock_even_if_poisoned(&pool.jobs).recv() else {
+            let Some(job) = next_job(&pool) else {
                 return;
             };
-            let note = JobNote::new(&pool, place, &start);
+            let folder = (pool.set_aside_by)(&job);
+            if let Some(folder) = folder.clone() {
+                let mut stalled = lock_even_if_poisoned(&pool.stalled);
+                if stalled.folders.contains(&folder) {
+                    stalled.set_aside.push((folder, job));
+                    continue;
+                }
+            }
+            let note = JobNote::new(&pool, place, &start, folder);
             (pool.work)(job);
             drop(note);
             if !is_place_of(&pool, place, &start) {
@@ -489,6 +554,23 @@ fn start_worker<J: Send + 'static>(pool: &Arc<WorkerPool<J>>, place: usize, star
             }
         }
     });
+}
+
+/// Returns the next job of `pool`: a job set aside whose folder answers again, or else a new
+/// one. Returns `None` when the sending half is gone. A job set aside is taken within a quarter
+/// of a second of its folder answering, also while no new job comes.
+fn next_job<J>(pool: &WorkerPool<J>) -> Option<J> {
+    loop {
+        if let Some(job) = lock_even_if_poisoned(&pool.stalled).ready.pop_front() {
+            return Some(job);
+        }
+        let quarter = std::time::Duration::from_millis(250);
+        match lock_even_if_poisoned(&pool.jobs).recv_timeout(quarter) {
+            Ok(job) => return Some(job),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+        }
+    }
 }
 
 /// Returns whether the worker that notes its jobs in `start` still has place `place` of `pool`,
@@ -765,7 +847,7 @@ mod tests {
             }
             done_tx.send(job).unwrap();
         };
-        super::spawn_worker_pool(1, Duration::from_millis(200), rx, |_| {}, work);
+        super::spawn_worker_pool(1, Duration::from_millis(200), rx, |_| {}, |_| None, work);
         for name in ["/a/0", "/b/1", "/c/2"] {
             jobs.send(PathBuf::from(name)).unwrap();
         }
@@ -778,6 +860,84 @@ mod tests {
         assert_eq!(done.recv_timeout(five_seconds), Ok(PathBuf::from("/c/2")));
         release.send(()).unwrap();
         assert_eq!(done.recv_timeout(five_seconds), Ok(PathBuf::from("/a/0")));
+    }
+
+    /// Runs a pool of one worker that sets jobs aside by their folder. A job in "/share" waits
+    /// for `answers`, as a read from a share that stopped answering does, and panics when its
+    /// name ends in "panics". Returns the sending half and the jobs done, in order.
+    fn pool_beside_a_share(
+        answers: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> (
+        std::sync::mpsc::Sender<std::path::PathBuf>,
+        std::sync::mpsc::Receiver<std::path::PathBuf>,
+    ) {
+        use std::path::PathBuf;
+        use std::sync::atomic::Ordering;
+        let (jobs, rx) = std::sync::mpsc::channel::<PathBuf>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let answers = answers.clone();
+        let work = move |job: PathBuf| {
+            while job.starts_with("/share") && !answers.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(!job.ends_with("panics"), "a broken file");
+            done_tx.send(job).unwrap();
+        };
+        let by_folder = |job: &PathBuf| job.parent().map(PathBuf::from);
+        let stuck_after = std::time::Duration::from_millis(100);
+        super::spawn_worker_pool(1, stuck_after, rx, |_| {}, by_folder, work);
+        (jobs, done)
+    }
+
+    /// A page of thumbnails on a share that stopped answering gives up one worker, and the
+    /// later jobs of its folder are set aside, so another folder's job is done at once. They
+    /// are done once the share answers again. Before, each one gave up another worker, until
+    /// `MOST_STUCK` were stuck and no job of any folder was done (#154).
+    #[test]
+    fn a_stalled_folder_does_not_use_up_the_pool() {
+        use std::path::PathBuf;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let answers = std::sync::Arc::new(AtomicBool::new(false));
+        let (jobs, done) = pool_beside_a_share(&answers);
+        for n in 0..=super::MOST_STUCK + 8 {
+            jobs.send(PathBuf::from(format!("/share/{n}.jpg"))).unwrap();
+        }
+        jobs.send(PathBuf::from("/local/a.jpg")).unwrap();
+        let ten_seconds = std::time::Duration::from_secs(10);
+        assert_eq!(
+            done.recv_timeout(ten_seconds),
+            Ok(PathBuf::from("/local/a.jpg")),
+            "the stalled folder used up the pool"
+        );
+        answers.store(true, Ordering::SeqCst);
+        for _ in 0..=super::MOST_STUCK + 8 {
+            let job = done.recv_timeout(ten_seconds).unwrap();
+            assert!(job.starts_with("/share"), "{job:?}");
+        }
+    }
+
+    /// The jobs set aside are done also when the job that stalled their folder ends in a
+    /// panic, after it was given up.
+    #[test]
+    fn a_stalled_folder_is_let_go_after_a_panic() {
+        use std::path::PathBuf;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let answers = std::sync::Arc::new(AtomicBool::new(false));
+        let (jobs, done) = pool_beside_a_share(&answers);
+        jobs.send(PathBuf::from("/share/panics")).unwrap();
+        jobs.send(PathBuf::from("/share/next.jpg")).unwrap();
+        jobs.send(PathBuf::from("/local/a.jpg")).unwrap();
+        let ten_seconds = std::time::Duration::from_secs(10);
+        assert_eq!(
+            done.recv_timeout(ten_seconds),
+            Ok(PathBuf::from("/local/a.jpg"))
+        );
+        answers.store(true, Ordering::SeqCst);
+        assert_eq!(
+            done.recv_timeout(ten_seconds),
+            Ok(PathBuf::from("/share/next.jpg")),
+            "a job set aside stayed after the stalled job panicked"
+        );
     }
 
     /// A worker that a panic in its job ends takes away its note of the job and starts another
@@ -794,7 +954,7 @@ mod tests {
             assert!(!job.ends_with("panics"), "a broken file");
             done_tx.send(job).unwrap();
         };
-        super::spawn_worker_pool(1, Duration::from_secs(3600), rx, |_| {}, work);
+        super::spawn_worker_pool(1, Duration::from_secs(3600), rx, |_| {}, |_| None, work);
         for name in ["/a/panics", "/b/next"] {
             jobs.send(PathBuf::from(name)).unwrap();
         }
@@ -826,7 +986,7 @@ mod tests {
             }
             done_tx.send(job).unwrap();
         };
-        super::spawn_worker_pool(1, stuck_after, rx, |_| {}, work);
+        super::spawn_worker_pool(1, stuck_after, rx, |_| {}, |_| None, work);
         jobs.send(PathBuf::from("/crafted/endless.jpg")).unwrap();
         jobs.send(PathBuf::from("/other/next.jpg")).unwrap();
         let next = done.recv_timeout(Duration::from_secs(10));
