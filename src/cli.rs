@@ -101,9 +101,20 @@ impl Start {
     /// options come before the files and folders, and also after them, as Geeqie reads its
     /// own. After a file or folder only the start options are read: `--remote`, a command or
     /// an unknown `--word` there is a file or folder, as it always was. `--` ends the options.
-    pub(crate) fn parse(mut args: Vec<OsString>) -> Result<(Start, Vec<OsString>), String> {
+    /// An argument that names a file or folder in the current folder is one, also when it
+    /// looks like an option, so that `glimt *` in a folder with a file named "--kiosk" does
+    /// not start a kiosk.
+    pub(crate) fn parse(args: Vec<OsString>) -> Result<(Start, Vec<OsString>), String> {
+        Start::parse_in(args, Path::new(""))
+    }
+
+    /// Reads the start options in `args` as `parse` does, with `folder` as the current folder.
+    fn parse_in(mut args: Vec<OsString>, folder: &Path) -> Result<(Start, Vec<OsString>), String> {
         let mut start = Start::default();
         while let Some(arg) = args.first().and_then(|a| a.to_str()).map(str::to_owned) {
+            if crate::files::file_io::is_surely_there(&folder.join(&arg)) {
+                break;
+            }
             if let Some(taken) = start.take_option(&arg, args.get(1))? {
                 args.drain(..taken);
                 continue;
@@ -131,7 +142,12 @@ impl Start {
                 paths.extend(args.drain(i + 1..));
                 break;
             }
-            match start.take_option(&arg, args.get(i + 1))? {
+            let is_file = crate::files::file_io::is_surely_there(&folder.join(&arg));
+            let taken = match is_file {
+                true => None,
+                false => start.take_option(&arg, args.get(i + 1))?,
+            };
+            match taken {
                 Some(taken) => i += taken,
                 None => {
                     paths.push(args[i].clone());
@@ -543,5 +559,29 @@ mod tests {
         let (s, rest) = Start::parse(args(&["--remote", "open", "a", "--random"])).unwrap();
         assert!(!s.random);
         assert_eq!(rest, args(&["--remote", "open", "a", "--random"]));
+    }
+
+    /// A file whose name looks like a start option, as a shell's `*` gives it from a downloaded
+    /// folder, is a file, before and after the other files. A file named "--kiosk" once
+    /// started a kiosk that only `--remote quit` ended.
+    #[test]
+    fn a_file_named_like_an_option_is_a_file() {
+        let args = |a: &[&str]| {
+            a.iter()
+                .map(Into::into)
+                .collect::<Vec<std::ffi::OsString>>()
+        };
+        let dir = std::env::temp_dir().join(format!("glimt-test-glob-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["--kiosk", "--layout"] {
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        let (s, rest) = Start::parse_in(args(&["a.jpg", "--kiosk", "--layout"]), &dir).unwrap();
+        assert!(!s.kiosk && s.layout.is_none());
+        assert_eq!(rest, args(&["a.jpg", "--kiosk", "--layout"]));
+        let (s, rest) = Start::parse_in(args(&["--kiosk", "a.jpg", "--fullscreen"]), &dir).unwrap();
+        assert!(!s.kiosk && s.fullscreen);
+        assert_eq!(rest, args(&["--kiosk", "a.jpg"]));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
