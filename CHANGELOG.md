@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Copy for Sharing keeps a JPEG's second image only when it is truly an HDR gain map. Before,
+  an image whose XMP named the gain map's namespace only in a comment or in another document's
+  part was taken for one, and its pixels went into the copy also when the extra images were left
+  out.
+
 ## [0.87.0] - 2026-11-17
 
 ### Fixed
