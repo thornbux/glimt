@@ -1312,8 +1312,12 @@ pub fn is_known_command(words: &[String]) -> bool {
 /// Returns `command` as it is named now: its first word becomes the new word when that word is
 /// renamed in `RENAMED_COMMANDS`, and the words after it stay. Each command goes through this
 /// once, where it comes in: in the client before any check (`words_now`), and in the window as
-/// the listener reads it (`serve`). So no code after them reads an old word.
+/// the listener reads it (`serve`). So no code after them reads an old word. A `WAIT_WORD`
+/// that `--wait` puts in front is passed over, as the command is the word after it.
 pub fn command_now(command: &str) -> String {
+    if let Some(waited) = command.strip_prefix(WAIT_WORD) {
+        return format!("{WAIT_WORD}{}", command_now(waited));
+    }
     let word = command.split(' ').next().unwrap_or_default();
     match RENAMED_COMMANDS.iter().find(|r| r.0 == word) {
         Some((_, new)) => format!("{new}{}", &command[word.len()..]),
@@ -2986,6 +2990,8 @@ mod tests {
         assert_eq!(super::command_now("prevx on"), "prevx on");
         assert_eq!(super::command_now("next"), "next");
         assert_eq!(super::command_now(""), "");
+        assert_eq!(super::command_now("wait prev"), "wait previous");
+        assert_eq!(super::command_now("wait prev on"), "wait previous on");
     }
 
     /// The runtime folder is used when it is the user's own folder or not there yet. It is not
