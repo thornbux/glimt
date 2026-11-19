@@ -929,14 +929,15 @@ impl crate::App {
         // The tests share one state folder, and a test's delete would leave its log there when
         // the test does not take the report. They test the log on folders of their own.
         #[cfg(not(test))]
-        let delete_log_dir = journal::delete_log_dir();
+        let delete_log_dir = crate::files::job_log::jobs_dir();
         #[cfg(test)]
         let delete_log_dir: Option<PathBuf> = None;
         self.run_in_background(ctx, Vec::new(), move || {
             let since = std::time::SystemTime::now();
             let (_, picked) = picked.wait_for_fingerprints();
+            let job_kind = if trash { "trash" } else { "delete" };
             let started = (delete_log_dir.as_deref())
-                .map(|d| journal::start_delete_log(d, collection.as_deref()));
+                .map(|d| journal::start_delete_log(d, job_kind, collection.as_deref()));
             let (mut delete_log, start_failure) = match started.transpose() {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
@@ -1460,7 +1461,7 @@ impl crate::App {
         // The tests share one state folder, and a test's Move would leave its log there when
         // the test does not take the report. They test the log on folders of their own.
         #[cfg(not(test))]
-        let move_log_dir = (!is_copy).then(journal::move_log_dir).flatten();
+        let move_log_dir = (!is_copy).then(crate::files::job_log::jobs_dir).flatten();
         #[cfg(test)]
         let move_log_dir: Option<PathBuf> = None;
         self.run_in_background(ctx, Vec::new(), move || {
@@ -1468,7 +1469,7 @@ impl crate::App {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let started = move_log_dir.as_deref().map(journal::start_move_log);
+            let started = (move_log_dir.as_deref()).map(|d| journal::start_move_log(d, "move"));
             let (mut move_log, start_failure) = match started.transpose() {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
@@ -2117,7 +2118,10 @@ impl crate::App {
                 // A log as a Move's, for the marks and collections at the next start after a
                 // kill. A log that cannot be started is told, and the files go back all the same.
                 let log_dir = undo_move_log_dir();
-                let started = log_dir.as_deref().map(journal::start_move_log).transpose();
+                let started = log_dir
+                    .as_deref()
+                    .map(|d| journal::start_move_log(d, "undo-move"));
+                let started = started.transpose();
                 let (mut move_log, start_failure) = match started {
                     Ok(log) => (log, None),
                     Err(e) => (None, Some(e)),
@@ -2907,6 +2911,10 @@ fn delete_in_chunks(
                     (went, side, Vec::new())
                 },
             );
+        // A delete for good writes each file down as gone itself, as it goes.
+        if let Some(log) = delete_log.as_deref_mut().filter(|_| trash) {
+            log.note_done(&went);
+        }
         gone.extend(went);
         sides.extend(side);
         changed.extend(left_alone);
@@ -3012,6 +3020,13 @@ fn delete_chunk(
         errors.push(e);
     }
     (went, side, left_alone)
+}
+
+/// Writes down in the delete's `log`, when there is one, that the file `path` is gone.
+fn note_gone(log: Option<&mut journal::DeleteLog>, path: &Path) {
+    if let Some(log) = log {
+        log.note_done(&[path.to_path_buf()]);
+    }
 }
 
 /// Moves Adobe's sidecar of a name stem, which went to the trash with the last RAW file of the
@@ -3182,6 +3197,8 @@ fn delete_for_good(
             continue;
         }
         went.push(p.clone());
+        // Written down before its hidden sidecars go: a step without it keeps them for a start.
+        note_gone(log.as_deref_mut(), p);
         for (side, hidden) in aside {
             #[allow(clippy::disallowed_methods)] // the sidecar of a file deleted for good
             let removed = std::fs::remove_file(&hidden);
@@ -3617,16 +3634,22 @@ fn names_left_for_the_next_start(
 /// marks and stars of the files deleted are forgotten, as the jobs' reports would have done.
 #[cfg(not(test))]
 fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
-    let logs = journal::move_log_dir().map(|d| journal::moves_cut_short(&d));
-    for (log, went) in logs.into_iter().flatten() {
+    let jobs_dir = crate::files::job_log::jobs_dir();
+    let (moves, deletes, written_anew) = (jobs_dir.as_deref())
+        .map(journal::jobs_cut_short)
+        .unwrap_or_default();
+    // The logs of Glimt 0.92 and older are put right once too, and removed or written anew.
+    let old = journal::move_log_dir().map(|d| journal::old_moves_cut_short(&d));
+    for (log, went) in std::iter::once(moves).chain(old).flatten() {
         let _ = report_tx.send(OperationReport {
             moved: went,
             move_log: Some(log),
             ..Default::default()
         });
     }
-    let logs = journal::delete_log_dir().map(|d| journal::deletes_cut_short(&d));
-    for (log, gone) in logs.into_iter().flatten() {
+    let old = (journal::delete_log_dir().zip(jobs_dir))
+        .map(|(d, jobs)| journal::old_deletes_cut_short(&d, &jobs, &written_anew));
+    for (log, gone) in std::iter::once(deletes).chain(old).flatten() {
         let _ = report_tx.send(OperationReport {
             gone,
             delete_log: Some(log),
@@ -3635,12 +3658,12 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Returns the folder of the log that an Undo of a Move keeps, which is that of the Moves' logs.
+/// Returns the folder of the log that an Undo of a Move keeps, which is that of the job logs.
 /// The tests share one state folder, and a test's Undo would leave its log there when the test
 /// does not take the report, so they test the log on folders of their own.
 fn undo_move_log_dir() -> Option<PathBuf> {
     #[cfg(not(test))]
-    return journal::move_log_dir();
+    return crate::files::job_log::jobs_dir();
     #[cfg(test)]
     return None;
 }
@@ -4956,13 +4979,13 @@ mod tests {
         std::fs::rename(&before, &moved).unwrap();
         std::fs::rename(dir.join("a.png.xmp"), dir.join("sub/a.png.xmp")).unwrap();
         let now = crate::files::file_io::fingerprint(&moved).unwrap();
-        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
         let (back, _, errors) =
             super::move_back(vec![(before.clone(), moved.clone(), now)], Some(&mut log));
         assert_eq!(back, vec![(moved.clone(), before.clone())], "{errors:?}");
         // Killed before the report was taken: the log is let go, not removed.
         drop(log);
-        let found = super::journal::moves_cut_short(&logs);
+        let found = super::journal::move_jobs_cut_short(&logs);
         let went: Vec<_> = found.into_iter().flat_map(|(_, went)| went).collect();
         assert_eq!(went, vec![(moved, before)]);
         std::fs::remove_dir_all(dir).unwrap();
@@ -6483,7 +6506,7 @@ mod tests {
             .rate(&crate::support::test_support::unlisted(&all), 3);
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Deleting", 4, false, Vec::new());
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let mut errors = Vec::new();
@@ -6498,12 +6521,12 @@ mod tests {
         // Another program wrote c.png anew before the next start, and the stick is not there.
         std::fs::write(&c, b"written anew").unwrap();
         let start = |app: &mut crate::App, expected: &[PathBuf]| {
-            let found = super::journal::deletes_cut_short(&logs);
+            let found = super::journal::delete_jobs_cut_short(&logs);
             assert_eq!(found.len(), 1);
             for (log, gone) in found {
                 assert_eq!(gone, expected);
                 // Another window that starts meanwhile leaves the log alone.
-                assert!(super::journal::deletes_cut_short(&logs).is_empty());
+                assert!(super::journal::delete_jobs_cut_short(&logs).is_empty());
                 let report = super::OperationReport {
                     gone,
                     delete_log: Some(log),
@@ -6520,13 +6543,15 @@ mod tests {
             assert_eq!(stars(&app, kept), marked, "{kept:?}");
         }
         // At a later start the stick is back, without d.png, which went before the kill. The
-        // log holds only d.png then, the one name the first start could not tell about.
+        // log holds only d.png then, the one name the first start could not tell about. Its
+        // step has no `done`, so that start keeps its marks, and the next one forgets them.
         std::fs::create_dir(&stick).unwrap();
+        start(&mut app, &[]);
+        assert_eq!(stars(&app, &d), marked);
         start(&mut app, std::slice::from_ref(&d));
         let no_log_left = |_: &crate::App| {
             let left = std::fs::read_dir(&logs).unwrap().flatten();
             left.filter(|e| e.path().is_file()).count() == 0
-                && std::fs::read_dir(logs.join("files")).unwrap().count() == 0
         };
         assert!(run_background_until(&mut app, &ctx, no_log_left));
         assert_eq!(stars(&app, &d), 0);
@@ -6546,12 +6571,13 @@ mod tests {
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         let both = [a.clone(), b.clone()];
         crate::model::collections::edit(&gqv, true, |all| *all = both.to_vec()).unwrap();
-        let mut log = super::journal::start_delete_log(&logs, Some(&gqv)).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", Some(&gqv)).unwrap();
         log.note(&both);
-        // The kill came after a.png went, before b.png.
+        // The kill came after a.png went and was written down as gone, before b.png.
         std::fs::remove_file(&a).unwrap();
+        log.note_done(std::slice::from_ref(&a));
         drop(log);
-        let found = super::journal::deletes_cut_short(&logs);
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1);
         assert_eq!(crate::model::collections::load(&gqv).unwrap(), [b]);
         for (log, _) in found {
@@ -6560,8 +6586,8 @@ mod tests {
         // The log goes after the writes of both writer threads, one queued after the other.
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
-        let left = std::fs::read_dir(logs.join("collections")).unwrap().count();
-        assert_eq!(left, 0, "the log's file of the collection is left");
+        let left = std::fs::read_dir(&logs).unwrap().count();
+        assert_eq!(left, 0, "the log is left");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -6575,13 +6601,13 @@ mod tests {
         let logs = dir.join("logs");
         let a = dir.join("a.png");
         let side = crate::metadata::xmp::sidecar(&a);
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         // The sidecar went to the trash, and the kill came before the photo.
         crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
         assert!(!side.exists());
         drop(log);
-        let found = super::journal::deletes_cut_short(&logs);
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1);
         assert!(found[0].1.is_empty(), "a.png did not go");
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
@@ -6592,9 +6618,12 @@ mod tests {
     /// Glimt killed during a Delete for good after it put a photo's sidecar aside under a hidden
     /// name, and before it deleted the photo or the sidecar, left the sidecar under that name for
     /// good: beside a photo still there without its keywords, comment and alt text, or beside
-    /// nothing. The next start puts it back beside a photo that stayed and deletes it when the
-    /// photo went. The kill here is a panic just before each photo is deleted, and b.png is then
-    /// removed as if the kill came just after it went.
+    /// nothing. The next start puts it back beside a photo that stayed. The kill here is a panic
+    /// just before each photo is deleted, and b.png is then removed as if the kill came just
+    /// after it went, before its `done`. The start that first finds b.png gone keeps its hidden
+    /// sidecar, its marks and the log, writes that down, and tells once. A later start, which
+    /// finds it still gone, deletes the hidden sidecar, forgets the marks, removes the log and
+    /// tells once. Before, the first start deleted the sidecar of a step it had no record of.
     #[test]
     fn a_killed_delete_for_good_puts_right_the_sidecars_it_put_aside() {
         use crate::support::threads::{BREAKING_FILES, catch_panic};
@@ -6605,7 +6634,7 @@ mod tests {
         let both = [a.clone(), b.clone()];
         let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(&both);
         lock_even_if_poisoned(&BREAKING_FILES).extend(sides.clone());
         let mut errors = Vec::new();
@@ -6619,24 +6648,43 @@ mod tests {
         std::fs::remove_file(&b).unwrap();
         assert!(!sides[0].exists() && !sides[1].exists(), "not put aside");
         drop(log);
-        let found = super::journal::deletes_cut_short(&logs);
+        let _ = crate::files::file_io::take_saves_failed();
+        let let_go = |found: Vec<(super::journal::DeleteLog, Vec<PathBuf>)>| {
+            found
+                .into_iter()
+                .for_each(|(log, _)| log.remove_once_forgotten());
+            // The log goes after the writes of both writer threads, one queued after the other.
+            crate::files::file_io::wait_for_queued_writes();
+            crate::files::file_io::wait_for_queued_writes();
+        };
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].1, std::slice::from_ref(&b));
+        assert!(
+            found[0].1.is_empty(),
+            "b.png's marks went at the first start"
+        );
         assert_eq!(std::fs::read_to_string(&sides[0]).unwrap(), "a");
         assert!(!sides[1].exists(), "b.png's sidecar came back without it");
-        let hidden: Vec<PathBuf> = (std::fs::read_dir(&dir).unwrap().flatten())
-            .filter(|e| e.file_name().to_string_lossy().starts_with(".glimt-tmp-"))
-            .map(|e| e.path())
-            .collect();
-        assert!(hidden.is_empty(), "left hidden: {hidden:?}");
-        for (log, _) in found {
-            log.remove_once_forgotten();
-        }
-        // The log goes after the writes of both writer threads, one queued after the other.
-        crate::files::file_io::wait_for_queued_writes();
-        crate::files::file_io::wait_for_queued_writes();
-        let left = std::fs::read_dir(logs.join("aside")).unwrap().count();
-        assert_eq!(left, 0, "the log's file of the sidecars put aside is left");
+        assert_eq!(
+            hidden_names_in(&dir).len(),
+            1,
+            "b.png's hidden sidecar went"
+        );
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        let_go(found);
+        let found = super::journal::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1, std::slice::from_ref(&b));
+        assert!(
+            hidden_names_in(&dir).is_empty(),
+            "b.png's hidden sidecar stayed"
+        );
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        let_go(found);
+        assert_eq!(
+            std::fs::read_dir(&logs).unwrap().count(),
+            0,
+            "the log is left"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -6656,7 +6704,7 @@ mod tests {
         let both = [a.clone(), b.clone()];
         let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(&both);
         lock_even_if_poisoned(&BREAKING_FILES).extend(sides.clone());
         let mut errors = Vec::new();
@@ -6671,7 +6719,7 @@ mod tests {
         std::fs::remove_file(&b).unwrap();
         std::fs::write(&b, b"another photo, of another size").unwrap();
         drop(log);
-        let found = super::journal::deletes_cut_short(&logs);
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1);
         assert_eq!(std::fs::read_to_string(&sides[0]).unwrap(), "a");
         assert!(
@@ -6730,7 +6778,7 @@ mod tests {
         let side = crate::metadata::xmp::sidecar(&a);
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         ANSWER_LOST_AT.set(Some(side.clone()));
         lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
@@ -6749,7 +6797,7 @@ mod tests {
         // The log goes after the writes of both writer threads, one queued after the other.
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
-        let found = super::journal::deletes_cut_short(&logs);
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
         assert!(hidden_names_in(&dir).is_empty());
@@ -6771,7 +6819,7 @@ mod tests {
         let side = crate::metadata::xmp::sidecar(&a);
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
         RENAME_WAYS_MISSING.set(2);
@@ -6790,7 +6838,7 @@ mod tests {
         log.remove_once_forgotten();
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
-        let found = super::journal::deletes_cut_short(&logs);
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
         drop(found);
@@ -6810,7 +6858,7 @@ mod tests {
         let side = crate::metadata::xmp::sidecar(&a);
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         // The rename back looks at the sidecar's name first, and that look fails.
         RENAME_WAYS_MISSING.set(2);
@@ -6826,12 +6874,21 @@ mod tests {
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
         let _ = crate::files::file_io::take_saves_failed();
-        let found = super::journal::deletes_cut_short(&logs);
+        // The step has no `done`: the first start keeps the hidden sidecar, the next deletes it.
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1, "the log of the hidden sidecar went");
+        assert!(found[0].1.is_empty());
+        assert_eq!(hidden_names_in(&dir).len(), 1);
+        found
+            .into_iter()
+            .for_each(|(log, _)| log.remove_once_forgotten());
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let found = super::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found[0].1, vec![a.clone()]);
         assert!(hidden_names_in(&dir).is_empty());
         let told = crate::files::file_io::take_saves_failed();
-        assert!(told.is_empty(), "{told:?}");
+        assert_eq!(told.len(), 2, "{told:?}");
         drop(found);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -6866,28 +6923,37 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A Delete for good syncs the folder of its file of the sidecars put aside once, when it
-    /// makes the file, not again for each photo with a sidecar, where it cost a flush of the disk
-    /// each time.
+    /// A Delete for good syncs its job log once for each photo whose sidecar it puts aside, at
+    /// the `aside` record, and never for its steps or their `done`, nor for a photo without a
+    /// sidecar, and it syncs the log's folder only when it makes the log. A sync of the log for
+    /// each file, or of its folder for each sidecar, cost a flush of the disk each time.
     #[test]
-    fn a_delete_for_good_syncs_the_folder_of_its_sidecars_put_aside_once() {
+    fn a_delete_for_good_syncs_its_log_once_for_each_sidecar_put_aside() {
+        use super::journal::LOG_FILES_SYNCED;
         use crate::files::file_io::FOLDERS_SYNCED;
-        let dir = contract_folder("aside-folder-once");
+        let dir = contract_folder("aside-log-synced");
         let logs = dir.join("logs");
-        let both = [dir.join("a.png"), dir.join("b.png")];
-        let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        std::fs::write(&c, b"c").unwrap();
+        let all = [a, b, c];
+        let picked = crate::files::file_io::PickedFiles::new(all.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
-        log.note(&both);
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
+        let log_path = (std::fs::read_dir(&logs).unwrap().flatten())
+            .map(|e| e.path())
+            .find(|p| p.is_file())
+            .unwrap();
         FOLDERS_SYNCED.take();
+        LOG_FILES_SYNCED.take();
+        log.note(&all);
         let mut errors = Vec::new();
         let how = (false, Some(&mut log));
-        let (gone, _, _) = super::delete_chunk(&both, &picked, how, &mut errors);
-        assert_eq!(gone, both, "{errors:?}");
+        let (gone, _, _) = super::delete_chunk(&all, &picked, how, &mut errors);
+        assert_eq!(gone, all, "{errors:?}");
+        // a.png and b.png have a sidecar each, and c.png none.
+        assert_eq!(LOG_FILES_SYNCED.take(), [log_path.clone(), log_path]);
         let synced = FOLDERS_SYNCED.take();
-        let aside_folder = super::journal::asides_folder(&logs);
-        let times = synced.iter().filter(|f| **f == aside_folder).count();
-        assert_eq!(times, 1, "{synced:?}");
+        assert!(!synced.contains(&logs), "{synced:?}");
         log.remove_once_forgotten();
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
@@ -6903,7 +6969,7 @@ mod tests {
     /// sync of the log.
     #[test]
     fn a_delete_for_good_has_its_note_of_a_sidecar_on_disk_before_it_puts_it_aside() {
-        use super::journal::{LOG_FILES_SYNCED, SYNCED_AT_PUT_ASIDE, aside_path, known_path};
+        use super::journal::{LOG_FILES_SYNCED, SYNCED_AT_PUT_ASIDE};
         use crate::files::file_io::FOLDERS_SYNCED;
         use crate::support::threads::{BREAKING_FILES, catch_panic};
         let dir = contract_folder("aside-note-on-disk");
@@ -6914,7 +6980,7 @@ mod tests {
         let both = [a.clone(), b.clone()];
         let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
-        let mut log = super::journal::start_delete_log(&logs, None).unwrap();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         let mut errors = Vec::new();
         LOG_FILES_SYNCED.take();
         log.note(std::slice::from_ref(&b));
@@ -6945,20 +7011,8 @@ mod tests {
             .find(|(put_aside, _)| *put_aside == side)
             .map(|(_, synced)| synced.clone())
             .unwrap_or_default();
-        for file in [
-            known_path(&log_path),
-            log_path.clone(),
-            aside_path(&log_path),
-            logs.clone(),
-            logs.join("files"),
-            logs.join("aside"),
-        ] {
-            assert!(
-                synced.contains(&file),
-                "{} not synced: {synced:?}",
-                file.display()
-            );
-        }
+        // The log's folder was synced with its header, when the log was made.
+        assert!(synced.contains(&log_path), "the log not synced: {synced:?}");
         drop(log);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -6981,7 +7035,7 @@ mod tests {
         );
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Moving", 2, false, Vec::new());
-        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let moved = super::put_files(
@@ -6994,27 +7048,24 @@ mod tests {
         // b.png was written down, and the kill came before it went.
         log.note(&b, &to.join("b.png"));
         drop(log);
-        // A copy of the log and its list of files, to find again as a log that outlived its Move.
+        // A copy of the log, to find again as a log that outlived its Move.
         let kept = dir.join("kept");
-        std::fs::create_dir_all(kept.join("files")).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
         let logs_files = || {
             let names = std::fs::read_dir(&logs).unwrap().flatten();
             let names = names.filter(|e| e.path().is_file()).map(|e| e.file_name());
             names.collect::<Vec<_>>()
         };
         for name in logs_files() {
-            for folder in ["", "files"] {
-                let (at, copy) = (logs.join(folder).join(&name), kept.join(folder).join(&name));
-                std::fs::copy(at, copy).unwrap();
-            }
+            std::fs::copy(logs.join(&name), kept.join(&name)).unwrap();
         }
         let send_found = |app: &crate::App, expected: &[(PathBuf, PathBuf)]| {
-            let found = super::journal::moves_cut_short(&logs);
+            let found = super::journal::move_jobs_cut_short(&logs);
             let count = found.len();
             for (log, went) in found {
                 assert_eq!(went, expected);
                 // Another window that starts meanwhile leaves the log alone.
-                assert!(super::journal::moves_cut_short(&logs).is_empty());
+                assert!(super::journal::move_jobs_cut_short(&logs).is_empty());
                 let report = super::OperationReport {
                     moved: went,
                     move_log: Some(log),
@@ -7024,9 +7075,7 @@ mod tests {
             }
             count
         };
-        let no_log_left = |_: &crate::App| {
-            logs_files().is_empty() && std::fs::read_dir(logs.join("files")).unwrap().count() == 0
-        };
+        let no_log_left = |_: &crate::App| logs_files().is_empty();
         let went = [(a.clone(), to.join("a.png"))];
         assert_eq!(send_found(&app, &went), 1);
         assert!(run_background_until(&mut app, &ctx, no_log_left));
@@ -7036,10 +7085,7 @@ mod tests {
         let found_again = || {
             for entry in std::fs::read_dir(&kept).unwrap().flatten() {
                 if entry.path().is_file() {
-                    let name = entry.file_name();
-                    std::fs::copy(entry.path(), logs.join(&name)).unwrap();
-                    let list = kept.join("files").join(&name);
-                    std::fs::copy(list, logs.join("files").join(&name)).unwrap();
+                    std::fs::copy(entry.path(), logs.join(entry.file_name())).unwrap();
                 }
             }
         };
@@ -7082,11 +7128,11 @@ mod tests {
         let (gqv, logs) = (dir.join("col.gqv"), dir.join("logs"));
         let (a, moved) = (dir.join("a.png"), dir.join("sub/a.png"));
         let (mut app, ctx) = app_on(&gqv);
-        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
         log.note(&a, &moved);
         std::fs::rename(&a, &moved).unwrap();
         drop(log);
-        for (log, went) in super::journal::moves_cut_short(&logs) {
+        for (log, went) in super::journal::move_jobs_cut_short(&logs) {
             assert_eq!(went, vec![(a.clone(), moved.clone())]);
             let report = super::OperationReport {
                 moved: went,

@@ -933,13 +933,13 @@ fn log_set_aside(
     aside: &Path,
 ) -> Option<crate::files::journal::DeleteLog> {
     #[cfg(not(test))]
-    let dir = crate::files::journal::delete_log_dir()?;
+    let dir = crate::files::job_log::jobs_dir()?;
     #[cfg(test)]
     let dir = ASIDE_LOG_DIR.with_borrow(Clone::clone)?;
     let told = |e: std::io::Error| {
         crate::files::file_io::save_failed(format!("{}: {e}", dir.display()));
     };
-    let mut log = crate::files::journal::start_delete_log(&dir, None)
+    let mut log = crate::files::journal::start_delete_log(&dir, "delete", None)
         .map_err(told)
         .ok()?;
     log.note(&[new.to_path_buf()]);
@@ -3471,7 +3471,7 @@ mod tests {
         super::ASIDE_LOG_DIR.set(None);
         assert!(saved.is_err());
         assert!(!side.exists());
-        let found = crate::files::journal::deletes_cut_short(&logs);
+        let found = crate::files::journal::delete_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1);
         for (log, gone) in found {
             assert!(gone.is_empty());

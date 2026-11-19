@@ -5,6 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A Move, and the Undo of one, keep their log in the new job log format in
+  `$XDG_STATE_HOME/glimt/jobs/`. The next start still puts right, once, a Move log that
+  Glimt 0.92 or older left in `moves/` after a kill, and removes it. A job log of a newer Glimt
+  is left alone, and the start says so.
+- A Delete, a Move to Trash and Save As's sidecar set aside keep their log in the same format.
+  The next start puts right, once, a delete log that Glimt 0.92 or older left in `deletes/`,
+  and moves one it cannot finish yet into `jobs/`, where no older Glimt reads it again (#224).
+- A photo deleted for good when Glimt was killed, without a record that its delete was done,
+  keeps its marks and its sidecar put aside at the next start, which says so. A later start
+  finishes the delete when the photo is still gone, or gives the sidecar back when it is there.
+
 ## [0.92.0] - 2026-11-19
 
 ### Changed

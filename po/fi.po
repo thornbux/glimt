@@ -4067,3 +4067,23 @@ msgstr "kohdetta {name} ei voitu tarkistaa: {e}"
 #, fuzzy
 msgid "{file} was saved, but it may not be on the disk yet: {e}"
 msgstr "{file} tallennettiin, mutta se ei ehkä ole vielä levyllä: {e}"
+
+#: src/files/job_log.rs
+#, fuzzy
+msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
+msgstr "{folder} sisältää lokeja, jotka uudempi Glimt jätti tai joita tämä Glimt ei osaa lukea. Ne säilytetään Glimtille, joka voi viedä ne loppuun."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start."
+msgstr "{photo} oli poistumassa pysyvästi, kun Glimt pysähtyi. Se on poissa, mutta sen merkit ja tähdet sekä sen viereen piilonimellä siirretty sivutiedosto säilytetään seuraavaan käynnistykseen."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted."
+msgstr "{photo} on yhä poissa, joten sen poisto viedään loppuun: sen merkit ja tähdet unohdetaan, ja sivuun siirretty sivutiedosto poistetaan."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
+msgstr "{photo} on taas paikallaan, joten se säilyttää merkkinsä ja tähtensä, ja sivuun siirretty sivutiedosto saa nimensä takaisin."

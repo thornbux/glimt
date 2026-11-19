@@ -13,8 +13,9 @@
 //! name.
 
 use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
+use crate::files::job_log::{JobLog, Record};
 use crate::images::save::{same_file, same_file_by_opening};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -74,17 +75,15 @@ thread_local! {
     // that the note came before the rename and not only before the test's kill.
     pub(crate) static SYNCED_AT_PUT_ASIDE: std::cell::RefCell<Vec<(PathBuf, Vec<PathBuf>)>> =
         const { std::cell::RefCell::new(Vec::new()) };
-    // The step of `write_untold_names` on this thread after which Glimt is taken to be killed,
-    // so that a test can look at the log at each point a kill may leave it.
-    static KILLED_AFTER_STEP: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
-/// The names of a delete's log that a start could not tell about, each with its fingerprint
-/// from the log's list of files, and the time of the log (`log_time`), which the log and its
-/// list keep when they are written anew (`DeleteLog::untold_names`).
-type UntoldNames = (
-    std::time::SystemTime,
-    Vec<(PathBuf, Option<FileFingerprint>)>,
+/// The job logs a start found: the Moves with the files that went, the deletes with the files
+/// whose marks are to be forgotten, and the logs of older formats that a job log took the
+/// place of (`jobs_cut_short`).
+pub type JobsCutShort = (
+    Vec<(MoveLog, Moves)>,
+    Vec<(DeleteLog, Vec<PathBuf>)>,
+    HashSet<PathBuf>,
 );
 
 /// The renames in the order they are done, as (from, to).
@@ -165,46 +164,43 @@ impl Drop for Journal {
     }
 }
 
-/// The log of a Move while it runs: each file's old and new name, written down before the file
-/// goes. The marks and collections follow the files only once the Move has ended, so Glimt
-/// killed halfway (a logout's SIGKILL, Ctrl+C, a third close) left the marks and stars of every
-/// file that went under the old names. The log is removed once they have followed
-/// (`remove_once_followed`). Left on disk by a kill, it is found at the next start
-/// (`moves_cut_short`). It is locked while in use, so the start of another window leaves it
-/// alone.
+/// The log of a Move while it runs, a job log (`JobLog`) in `jobs/`: a `step` record for each
+/// file, with its old and new name and its fingerprint, written down before the file goes. The
+/// marks and collections follow the files only once the Move has ended, so Glimt killed halfway
+/// (a logout's SIGKILL, Ctrl+C, a third close) left the marks and stars of every file that went
+/// under the old names. The log is removed once they have followed (`remove_once_followed`).
+/// Left on disk by a kill, it is found at the next start (`move_jobs_cut_short`, and
+/// `old_moves_cut_short` for a log of Glimt 0.92 or older). It is locked while in use, so the
+/// start of another window leaves it alone.
 pub struct MoveLog {
-    path: PathBuf,
-    file: File,
-    /// The list of the files the log's pairs move, one line for each pair (`known_line`), at
-    /// `known_path(path)`. A log found at the start has none open, as it takes no more pairs.
-    known: Option<File>,
+    log: JobLog,
+    /// The number of steps written down so far, which is the number of the next.
+    steps: usize,
     /// Whether the log was found at the start, left by a Glimt that was killed.
     is_found_at_start: bool,
-    /// The first write of the log that failed, on a full disk say. The log takes no more lines
+    /// The first write of the log that failed, on a full disk say. The log takes no more steps
     /// after it, and the Move goes on without them.
     failure: Option<std::io::Error>,
 }
 
 impl MoveLog {
     /// Writes down that the file `from` goes to `to`, before it goes, with the file's
-    /// fingerprint in the log's list of files. It is not synced, because a kill of Glimt does
-    /// not need that. A write that fails is kept for `take_failure`, and the file goes all the
-    /// same: a Move is how a full disk is cleared, and without the line a kill only leaves the
-    /// file's marks behind, as before there was a log.
+    /// fingerprint. It is not synced, because a kill of Glimt does not need that. A write that
+    /// fails is kept for `take_failure`, and the file goes all the same: a Move is how a full
+    /// disk is cleared, and without the step a kill only leaves the file's marks behind, as
+    /// before there was a log.
     pub fn note(&mut self, from: &Path, to: &Path) {
-        let Some(known) = self.known.as_mut().filter(|_| self.failure.is_none()) else {
+        if self.is_found_at_start || self.failure.is_some() {
             return;
-        };
-        let mut bytes = Vec::new();
-        for p in [from, to] {
-            bytes.extend(p.as_os_str().as_bytes());
-            bytes.push(0);
         }
-        // The fingerprint goes first, so that every pair in the log has its line in the list.
-        let line = known_line(crate::files::file_io::fingerprint(from));
-        self.failure = (known.write_all(line.as_bytes()))
-            .and_then(|_| self.file.write_all(&bytes))
-            .err();
+        let step = Record::Step {
+            number: self.steps,
+            from: from.to_path_buf(),
+            to: Some(to.to_path_buf()),
+            fingerprint: crate::files::file_io::fingerprint(from),
+        };
+        self.failure = self.log.add_records(&[step]).err();
+        self.steps += 1;
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.
@@ -217,9 +213,8 @@ impl MoveLog {
     pub fn refusing_writes(path: &Path) -> MoveLog {
         std::fs::write(path, b"").unwrap();
         MoveLog {
-            path: path.to_path_buf(),
-            file: File::open(path).unwrap(),
-            known: Some(File::open(path).unwrap()),
+            log: JobLog::found(path.to_path_buf(), File::open(path).unwrap()),
+            steps: 0,
             is_found_at_start: false,
             failure: None,
         }
@@ -235,63 +230,66 @@ impl MoveLog {
     /// and the log goes after both. A log that is dropped instead stays on disk, and the next
     /// start makes them follow.
     pub fn remove_once_followed(self) {
-        remove_after_the_writes(self.path, self.file);
+        let (path, file) = self.log.into_path_and_file();
+        remove_after_the_writes(path, file);
     }
 }
 
-/// The log of a Delete or a Move to Trash while it runs: the name of each file, written down
-/// before the file goes, with its fingerprint in the log's list of files. The marks and stars of
-/// the files that went are forgotten only once the job has ended, so Glimt killed halfway left
-/// them at the names of files that are gone, where the next file of that name showed them. The
-/// log is removed once they are forgotten (`remove_once_forgotten`). Left on disk by a kill, it
-/// is found at the next start (`deletes_cut_short`). It is locked while in use, so the start of
-/// another window leaves it alone.
+/// The log of a Delete or a Move to Trash while it runs, a job log (`JobLog`) in `jobs/` of the
+/// kind "delete" or "trash": a `step` record for each file, with its fingerprint, written down
+/// before the file goes, and a `done` record once it went. The marks and stars of the files
+/// that went are forgotten only once the job has ended, so Glimt killed halfway left them at the
+/// names of files that are gone, where the next file of that name showed them. The log is
+/// removed once they are forgotten (`remove_once_forgotten`). Left on disk by a kill, it is
+/// found at the next start (`jobs_cut_short`, and `old_deletes_cut_short` for a log of Glimt
+/// 0.92 or older). It is locked while in use, so the start of another window leaves it alone.
 pub struct DeleteLog {
-    path: PathBuf,
-    file: File,
-    /// The list of the files the log names, one line for each name (`known_line`), at
-    /// `known_path(path)`. A log found at the start has none open, as it takes no more names.
-    known: Option<File>,
-    /// The file of the sidecars put aside, at `aside_path(path)`, once the first is noted.
-    aside: Option<File>,
-    /// The first write of the log that failed, on a full disk say. The log takes no more names
+    log: JobLog,
+    /// The kind of the log's job, "delete" or "trash".
+    job: &'static str,
+    /// The number of each file written down, by which its later records name it.
+    steps: HashMap<PathBuf, usize>,
+    /// The first write of the log that failed, on a full disk say. The log takes no more records
     /// after it, and the delete goes on without them, as a Move does without its log.
     failure: Option<std::io::Error>,
-    /// Whether the log's names and its list of files are on disk as far as they are written,
-    /// with the folders that hold them (`note_aside`). A name noted since is not yet.
-    is_on_disk: bool,
-    /// Whether the log names a file that the start could not tell went or stayed
-    /// (`went_before_the_kill`), or a sidecar that may still be under its hidden name because
-    /// the rename that hides it or gives it back failed (`keep_for_a_later_start`). Such a log
-    /// stays on disk for a later start.
+    /// Whether the log stays on disk for a later start: it names a file that the start could not
+    /// tell went or stayed, or a sidecar that may still be under its hidden name.
     has_names_left: bool,
-    /// The names that a start could not tell about, when the log holds more. The log and its
-    /// list are written anew with only these as the log is let go, so that a later start does
-    /// not look again at every name that this one could tell about.
-    untold_names: Option<UntoldNames>,
+    /// For a log found at the start, the log that is written in its place when it stays for a
+    /// later start: the folder of the job logs, the time of the log, and the records of the steps
+    /// left. A later start then does not look again at every file that this one could tell
+    /// about.
+    written_anew: Option<(PathBuf, std::time::SystemTime, Vec<Record>)>,
 }
 
 impl DeleteLog {
-    /// Writes down that the files `paths` go, before they go, each with its fingerprint in the
-    /// log's list of files. It is not synced, because a kill of Glimt does not need that. A
-    /// write that fails is kept for `take_failure`, and the files go all the same: a delete is
-    /// how a full disk is cleared.
+    /// Writes down that the files `paths` go, before they go, each with its fingerprint. It is
+    /// not synced, because a kill of Glimt does not need that. A write that fails is kept for
+    /// `take_failure`, and the files go all the same: a delete is how a full disk is cleared.
     pub fn note(&mut self, paths: &[PathBuf]) {
-        let Some(known) = self.known.as_mut().filter(|_| self.failure.is_none()) else {
-            return;
-        };
-        let mut lines = String::new();
-        let mut names = Vec::new();
-        for p in paths {
-            lines += &known_line(crate::files::file_io::fingerprint(p));
-            names.extend(p.as_os_str().as_bytes());
-            names.push(0);
+        let mut steps = Vec::new();
+        for path in paths {
+            let number = self.steps.len();
+            self.steps.insert(path.clone(), number);
+            steps.push(Record::Step {
+                number,
+                from: path.clone(),
+                to: None,
+                fingerprint: crate::files::file_io::fingerprint(path),
+            });
         }
-        // The fingerprints go first, so that every name in the log has its line in the list.
-        self.failure = (known.write_all(lines.as_bytes()))
-            .and_then(|_| self.file.write_all(&names))
-            .err();
-        self.is_on_disk = false;
+        self.add(&steps, false);
+    }
+
+    /// Writes down that the files `paths`, which the log names, are gone. It is not synced: a
+    /// power cut that loses it leaves a step without `done`, which the next starts read as a
+    /// delete that may not have happened (`put_right_a_delete`).
+    pub fn note_done(&mut self, paths: &[PathBuf]) {
+        let done: Vec<Record> = (paths.iter())
+            .filter_map(|path| self.steps.get(path))
+            .map(|number| Record::Done(*number))
+            .collect();
+        self.add(&done, false);
     }
 
     /// Writes down, before it is done, that a delete for good puts the sidecars of the file
@@ -299,71 +297,41 @@ impl DeleteLog {
     /// `(sidecar, hidden)`. Glimt killed before the delete deleted them or took them back left
     /// them under those names, which nothing else finds, and the photo, if still there, without
     /// its keywords, comment and alt text. The next start puts them right
-    /// (`sidecars_back_from_hiding`). Each is noted as three names (the photo, the sidecar and
-    /// the hidden name), each ending in a NUL byte, in a file of the log's own made at the
-    /// first. A write that fails is kept, as in `note`.
-    ///
-    /// Unlike `note`, this note is synced, and so are the log's names and its list of files,
-    /// which the next start needs to tell whether the photo stayed. The rename that puts a
-    /// sidecar aside is made lasting before the photo goes, so a power cut could otherwise
-    /// leave the sidecar hidden with no note of it on disk. The cost is one sync of the file of
-    /// the sidecars put aside for each photo with a sidecar, beside the folder sync that its
-    /// rename has already. The folder of that file is synced only once, when the file is made,
-    /// and a delete of files without sidecars has no sync of the log at all.
+    /// (`sidecars_back_from_hiding`). The records are synced, with the steps before them, as the
+    /// rename that puts a sidecar aside is made lasting before the photo goes, and a power cut
+    /// could otherwise leave the sidecar hidden with no note of it on disk. A delete of files
+    /// without sidecars has no sync of the log at all.
     pub fn note_aside(&mut self, photo: &Path, aside: &[(PathBuf, PathBuf)]) {
-        if self.known.is_none() || self.failure.is_some() || aside.is_empty() {
+        let Some(&number) = self.steps.get(photo) else {
+            return;
+        };
+        let records: Vec<Record> = (aside.iter())
+            .map(|(sidecar, hidden)| Record::Aside {
+                number,
+                sidecar: sidecar.clone(),
+                hidden: hidden.clone(),
+            })
+            .collect();
+        if !records.is_empty() {
+            self.add(&records, true);
+        }
+    }
+
+    /// Adds `records` to the log, synced when `is_synced`, unless a write failed before.
+    fn add(&mut self, records: &[Record], is_synced: bool) {
+        if self.failure.is_some() || records.is_empty() {
             return;
         }
-        let mut names = Vec::new();
-        for (side, hidden) in aside {
-            for p in [photo, side, hidden] {
-                names.extend(p.as_os_str().as_bytes());
-                names.push(0);
-            }
-        }
-        self.failure = (self.write_aside(&names))
-            .and_then(|()| self.put_on_disk())
-            .err();
-    }
-
-    /// Adds `names` to the file of the sidecars put aside, made when it is not there yet. The
-    /// folder of a file made here is synced at once, as the file's name in it does not change
-    /// later.
-    fn write_aside(&mut self, names: &[u8]) -> std::io::Result<()> {
-        if self.aside.is_none() {
-            let path = aside_path(&self.path);
-            let aside = open_to_add_to(&path, true)?;
-            crate::files::file_io::sync_folder_of(&path)?;
-            self.aside = Some(aside);
-        }
-        (self.aside.as_mut()).map_or(Ok(()), |aside| aside.write_all(names))
-    }
-
-    /// Syncs the file of the sidecars put aside to disk. The log's names and
-    /// its list of files are synced too, with their folders, when a name was noted since they
-    /// last were, which is once for each chunk of the delete.
-    fn put_on_disk(&mut self) -> std::io::Result<()> {
-        use crate::files::file_io::sync_folder_of;
-        let synced = |file: &File, path: PathBuf| {
-            #[cfg(test)]
-            LOG_FILES_SYNCED.with_borrow_mut(|synced| synced.push(path.clone()));
-            file.sync_data().and_then(|()| sync_folder_of(&path))
-        };
-        if !self.is_on_disk {
-            if let Some(known) = &self.known {
-                synced(known, known_path(&self.path))?;
-            }
-            synced(&self.file, self.path.clone())?;
-            // The folder of the logs may have been made with this log, in the state folder.
-            sync_folder_of(self.path.parent().unwrap_or(Path::new("")))?;
-            self.is_on_disk = true;
-        }
-        let Some(aside) = &self.aside else {
-            return Ok(());
+        let added = match is_synced {
+            true => self.log.add_records_synced(records),
+            false => self.log.add_records(records),
         };
         #[cfg(test)]
-        LOG_FILES_SYNCED.with_borrow_mut(|synced| synced.push(aside_path(&self.path)));
-        aside.sync_data()
+        if is_synced && added.is_ok() {
+            let path = self.log.path().to_path_buf();
+            LOG_FILES_SYNCED.with_borrow_mut(|synced| synced.push(path));
+        }
+        self.failure = added.err();
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.
@@ -375,53 +343,67 @@ impl DeleteLog {
     /// photo that stays, may still be under its hidden name. The rename that hides it or gives
     /// it back failed, and on a share that lost its answer it may have been done all the same.
     /// The next start gives it back when the photo is still there as the log knew it. The photo
-    /// is written down as kept, on disk at once, so that a later start does not take it for one
-    /// that the delete deleted when the user has moved it away since, and does not delete its
-    /// hidden sidecar. A write that fails is kept, as in `note`.
+    /// is written down as kept, synced, so that a later start does not take it for one that the
+    /// delete deleted when the user has moved it away since, and does not delete its hidden
+    /// sidecar. A write that fails is kept, as in `note`.
     pub fn keep_for_a_later_start(&mut self, photo: &Path) {
-        use crate::files::file_io::sync_folder_of;
         self.keep_log_for_a_later_start();
-        let mut name = photo.as_os_str().as_bytes().to_vec();
-        name.push(0);
-        let path = kept_path(&self.path);
-        let written = (open_to_add_to(&path, false))
-            .and_then(|mut kept| kept.write_all(&name).and_then(|()| kept.sync_data()))
-            .and_then(|()| sync_folder_of(&path))
-            .and_then(|()| sync_folder_of(path.parent().unwrap_or(Path::new(""))));
-        if let Err(e) = written {
-            self.failure.get_or_insert(e);
+        if let Some(&number) = self.steps.get(photo) {
+            self.add(&[Record::Kept(number)], true);
         }
     }
 
     /// Keeps the log on disk after the job for a later start, without writing down a photo as
     /// kept. A delete for good does this for a photo that it deleted when the look after the
     /// delete failed and the rename back of a sidecar failed too, so that the sidecar may still
-    /// be hidden. The next start finds the photo gone, deletes its hidden sidecar and forgets
-    /// its marks, as the delete would have.
+    /// be hidden.
     pub fn keep_log_for_a_later_start(&mut self) {
         self.has_names_left = true;
     }
 
     /// Removes the log once the marks and stars of its files that went are forgotten. The window
     /// sent their edit before, to the thread of Glimt's own files, and the log goes after it. A
-    /// log that is dropped instead stays on disk, and the next start forgets them. So does a log
-    /// that names a file the start could not tell about: a later start reads it again, and
-    /// forgets again only the marks of the names that are surely gone then.
+    /// log that is dropped instead stays on disk, and the next start forgets them. A log found
+    /// at the start that names a file the start could not tell about is written anew in
+    /// `jobs/` with only those steps, and goes once the new one is on disk (`write_anew`).
     pub fn remove_once_forgotten(self) {
-        if self.has_names_left {
-            let (path, file, untold_names) = (self.path, self.file, self.untold_names);
-            crate::files::file_io::write_later(move || {
-                if let Some((time, untold_names)) = untold_names
-                    && let Err(e) = write_untold_names(&path, &file, &untold_names, time)
-                {
-                    crate::files::file_io::save_failed(format!("{}: {e}", path.display()));
-                }
-                drop(file);
-            });
-        } else {
-            remove_after_the_writes(self.path, self.file);
+        let (path, file) = self.log.into_path_and_file();
+        if !self.has_names_left {
+            remove_after_the_writes(path, file);
+            return;
         }
+        let (Some((dir, time, records)), job) = (self.written_anew, self.job) else {
+            return;
+        };
+        crate::files::file_io::write_later(move || {
+            if let Err(e) = write_anew(&dir, job, time, &records, &path) {
+                crate::files::file_io::save_failed(format!("{}: {e}", dir.display()));
+            }
+            drop(file);
+        });
     }
+}
+
+/// What a delete's log says, old or new, read at the start (`put_right_a_delete`).
+#[derive(Default)]
+struct DeleteRecords {
+    /// The kind of the log's job, "delete" or "trash".
+    job: &'static str,
+    /// The files the log names, in its order.
+    names: Vec<PathBuf>,
+    /// The fingerprint of each of `names`, taken before it went.
+    known: Vec<Option<FileFingerprint>>,
+    /// The collection shown during the delete.
+    collection: Option<PathBuf>,
+    /// The sidecars put aside, as (photo, sidecar, hidden name).
+    aside: Vec<[PathBuf; 3]>,
+    /// The photos kept while their sidecar may still be hidden.
+    kept: HashSet<PathBuf>,
+    /// The files written down as gone (`done`). Every name of an old log counts as such, as the
+    /// old logs read a name that is gone as a file that went.
+    done: HashSet<PathBuf>,
+    /// The files of a delete for good without `done` that an earlier start found gone.
+    found: HashSet<PathBuf>,
 }
 
 /// Returns the folder of the lists of files (`KNOWN_FOLDER`) in the folder of plans or logs
@@ -471,18 +453,6 @@ pub(crate) fn kept_path(log: &Path) -> PathBuf {
     kept_folder(log.parent().unwrap_or(Path::new(""))).join(name)
 }
 
-/// Opens the file at `path`, one of a log's own in Glimt's state folder, to add to its end, and
-/// makes it with its folder when it is not there. One that `is_new` must be made new, and one
-/// that is not is added to when it is there. It is never opened through a link.
-fn open_to_add_to(path: &Path, is_new: bool) -> std::io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::create_dir_all(path.parent().unwrap_or(Path::new("")))?;
-    let mut options = std::fs::OpenOptions::new();
-    options.append(true).create(true).create_new(is_new);
-    #[allow(clippy::disallowed_methods)] // a list of a log's own, in Glimt's own state folder
-    options.custom_flags(libc::O_NOFOLLOW).open(path)
-}
-
 /// Returns the lock file of the lists in the folder of plans `dir` (`LISTS_LOCK`). Every Glimt
 /// from 0.82 on takes this one, so its name is pinned in src/frozen-1.0.txt.
 pub(crate) fn lists_lock(dir: &Path) -> PathBuf {
@@ -506,52 +476,38 @@ pub fn delete_log_dir() -> Option<PathBuf> {
         .map(|d| d.join("deletes"))
 }
 
-/// Makes a new log of a Move in `dir`, locked, with its list of the files it moves.
-pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
-    let (path, file, known) = start_log(dir)?;
+/// Makes a new job log in `dir` of a Move, or of the Undo of one, as `job` says ("move" or
+/// "undo-move"), locked and with its header on disk.
+pub fn start_move_log(dir: &Path, job: &str) -> std::io::Result<MoveLog> {
     Ok(MoveLog {
-        path,
-        file,
-        known: Some(known),
+        log: JobLog::start(dir, job, &[])?,
+        steps: 0,
         is_found_at_start: false,
         failure: None,
     })
 }
 
-/// Makes a new log of a delete in `dir`, locked, with its list of the files it deletes, and with
-/// the path of the `collection` shown, so that the next start can take the files that went out
-/// of it when Glimt is killed during the delete.
-pub fn start_delete_log(dir: &Path, collection: Option<&Path>) -> std::io::Result<DeleteLog> {
-    let (path, file, known) = start_log(dir)?;
-    if let Some(collection) = collection {
-        std::fs::create_dir_all(collections_folder(dir))?;
-        #[allow(clippy::disallowed_methods)] // a file made new, in Glimt's own state folder
-        let mut held = (std::fs::OpenOptions::new().write(true).create_new(true))
-            .open(collection_path(&path))?;
-        held.write_all(collection.as_os_str().as_bytes())?;
-    }
+/// Makes a new job log in `dir` of a delete for good ("delete") or a Move to Trash ("trash"),
+/// as `job` says, locked and with its header on disk, with the path of the `collection` shown,
+/// so that the next start can take the files that went out of it when Glimt is killed during
+/// the delete.
+pub fn start_delete_log(
+    dir: &Path,
+    job: &'static str,
+    collection: Option<&Path>,
+) -> std::io::Result<DeleteLog> {
+    let shown: Vec<Record> = collection
+        .map(|c| Record::Shown(c.to_path_buf()))
+        .into_iter()
+        .collect();
     Ok(DeleteLog {
-        path,
-        file,
-        known: Some(known),
-        aside: None,
+        log: JobLog::start(dir, job, &shown)?,
+        job,
+        steps: HashMap::new(),
         failure: None,
-        is_on_disk: false,
         has_names_left: false,
-        untold_names: None,
+        written_anew: None,
     })
-}
-
-/// Makes a new log in `dir`, a folder of Move or delete logs. Returns its path, the log opened
-/// and locked, and its list of files opened to be added to.
-fn start_log(dir: &Path) -> std::io::Result<(PathBuf, File, File)> {
-    std::fs::create_dir_all(lists_folder(dir))?;
-    let path = dir.join(new_name());
-    let file = crate::files::file_io::open_if_unlocked(&path, true)?;
-    #[allow(clippy::disallowed_methods)] // a list made new, in Glimt's own state folder
-    let known =
-        (std::fs::OpenOptions::new().append(true).create_new(true)).open(known_path(&path))?;
-    Ok((path, file, known))
 }
 
 /// Removes the Move or delete log at `path`, held locked by `file`, with its list, after the
@@ -567,29 +523,6 @@ fn remove_after_the_writes(path: PathBuf, file: File) {
     });
 }
 
-/// Returns the names of a delete's log, `names`, that a start could not tell about,
-/// `untold`, each with its fingerprint from the log's list `known`, when the log is to be
-/// written anew with only these (`write_untold_names`). That is when they are fewer than the
-/// log's, or when the log's `length` in bytes shows the empty names that a kill during such a
-/// write left. Returns `None` when there is none, or when the list is not in step with the
-/// log, as only names with their own lines are written anew.
-fn untold_names_to_write(
-    names: &[PathBuf],
-    known: &[Option<FileFingerprint>],
-    untold: &std::collections::HashSet<PathBuf>,
-    length: usize,
-) -> Option<Vec<(PathBuf, Option<FileFingerprint>)>> {
-    let untold_names: Vec<_> = (names.iter().enumerate())
-        .filter(|(_, name)| untold.contains(*name))
-        .map(|(i, name)| (name.clone(), known.get(i).copied().flatten()))
-        .collect();
-    let is_padded = length > names.iter().map(|n| n.as_os_str().len() + 1).sum();
-    let is_to_write = (untold_names.len() < names.len() || is_padded)
-        && known.len() >= names.len()
-        && !untold_names.is_empty();
-    is_to_write.then_some(untold_names)
-}
-
 /// Returns the time the delete's log at `path`, held as `file`, was last written: the earlier
 /// of its own time and its list's, as a kill while they were written anew
 /// (`write_untold_names`) may have left one of them with the time of that write. Returns `None`
@@ -600,86 +533,6 @@ fn log_time(path: &Path, file: &File) -> Option<std::time::SystemTime> {
     Some(log.min(list.ok()?))
 }
 
-/// Writes the delete's log at `path`, held locked as `file`, and its list of files anew, in
-/// place, with only the names `untold_names`, each with its line of the list. They keep their
-/// names, their inodes and the lock, and both get the log's time `time` (`log_time`), by which
-/// a later start tells a sidecar that the delete trashed from one the user trashed after it.
-///
-/// No kill leaves the log empty, nor its names out of step with the list. The new text is
-/// written over the old from the start, with the rest of the old length made empty: NUL bytes
-/// in the log, which every Glimt that reads delete logs passes over as empty names, and empty
-/// lines in the list, which come after every name's line. The list goes first, and a list with
-/// fewer lines than the log has names is not taken for the log's (`deletes_cut_short`). Only
-/// then are both cut to their new length. Each write is synced and given back the time before
-/// the other file is touched, so a kill leaves at most one of the two with a new time, and
-/// `log_time` takes the earlier one. A log that a kill left with empty names is written anew
-/// by the next start.
-fn write_untold_names(
-    path: &Path,
-    file: &File,
-    untold_names: &[(PathBuf, Option<FileFingerprint>)],
-    time: std::time::SystemTime,
-) -> std::io::Result<()> {
-    let (mut lines, mut names) = (String::new(), Vec::new());
-    for (name, known) in untold_names {
-        lines += &known_line(*known);
-        names.extend(name.as_os_str().as_bytes());
-        names.push(0);
-    }
-    let list = open_to_write_over(&known_path(path))?;
-    let log = open_to_write_over(path)?;
-    if !is_same_open_file(path, &log, file)? {
-        return Err(std::io::Error::other(
-            "the log was replaced while it was held",
-        ));
-    }
-    write_over(&list, lines.as_bytes(), b'\n', time, 1)?;
-    write_over(&log, &names, 0, time, 3)?;
-    cut_to(&list, lines.len(), time, 5)?;
-    cut_to(&log, names.len(), time, 7)
-}
-
-/// Writes `bytes` over `file` from its start, with the rest of its length filled with
-/// `padding`, and gives it the time `time`, each step on disk before the next. `step` numbers
-/// the first of the two steps for the tests' kills.
-fn write_over(
-    file: &File,
-    bytes: &[u8],
-    padding: u8,
-    time: std::time::SystemTime,
-    step: usize,
-) -> std::io::Result<()> {
-    use std::os::unix::fs::FileExt;
-    let mut all = bytes.to_vec();
-    let length = file.metadata()?.len();
-    if all.len() as u64 > length {
-        return Err(std::io::Error::other(
-            "the names left are more than the log's",
-        ));
-    }
-    all.resize(length as usize, padding);
-    file.write_all_at(&all, 0)?;
-    file.sync_data()?;
-    killed_after(step)?;
-    keep_time(file, time)?;
-    killed_after(step + 1)
-}
-
-/// Cuts `file` to `length`, and gives it the time `time`, each step on disk before the next.
-/// `step` numbers the first of the two steps for the tests' kills.
-fn cut_to(
-    file: &File,
-    length: usize,
-    time: std::time::SystemTime,
-    step: usize,
-) -> std::io::Result<()> {
-    file.set_len(length as u64)?;
-    file.sync_data()?;
-    killed_after(step)?;
-    keep_time(file, time)?;
-    killed_after(step + 1)
-}
-
 /// Gives `file`, one of a delete log's own, the time `time` that its delete wrote it last, on
 /// disk.
 fn keep_time(file: &File, time: std::time::SystemTime) -> std::io::Result<()> {
@@ -688,136 +541,351 @@ fn keep_time(file: &File, time: std::time::SystemTime) -> std::io::Result<()> {
     file.sync_all()
 }
 
-/// Returns an error, as a kill would stop the write there, when a test asked for a kill after
-/// step `step` of `write_untold_names`.
-fn killed_after(step: usize) -> std::io::Result<()> {
-    #[cfg(test)]
-    if KILLED_AFTER_STEP.get() == Some(step) {
-        return Err(std::io::Error::other(format!("killed after step {step}")));
-    }
-    #[cfg(not(test))]
-    let _ = step;
-    Ok(())
-}
-
-/// Returns whether `a` and `b`, both opened at `path`, are open on the same file.
-fn is_same_open_file(path: &Path, a: &File, b: &File) -> std::io::Result<bool> {
-    use crate::images::save::file_id_from_metadata;
-    let (a, b) = (a.metadata()?, b.metadata()?);
-    Ok(file_id_from_metadata(path, &a) == file_id_from_metadata(path, &b))
-}
-
-/// Opens the file at `path`, one of a delete log's own in Glimt's state folder, to write over
-/// it in place (`write_untold_names`). It is never made, cut or opened through a link.
-fn open_to_write_over(path: &Path) -> std::io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    #[allow(clippy::disallowed_methods)] // a delete log's own file, written over in place
-    std::fs::OpenOptions::new()
-        .write(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-}
-
-/// The logs in `dir` of Moves that Glimt was killed during, which are those no running window
-/// holds locked. Each comes with the files that went, `(from, to)`: those whose old name is
-/// surely not there any more and whose new one is and holds the file that went
-/// (`is_the_file_that_went`). A file that had not gone yet is still at its old name. A sidecar
-/// that the kill left at a file's old name is moved to the file here
-/// (`sidecars_follow_the_files_that_went`). Each log is held locked until it is removed. What
-/// no start would read goes (`remove_orphan_lists`, and an empty log below).
-pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
+/// The logs in `dir` of Moves of Glimt 0.92 or older (`moves/`) that Glimt was killed during,
+/// which are those no running window holds locked. Each comes with the files that went,
+/// `(from, to)`, as `moves_that_went` finds them. Each log is held locked until it is removed,
+/// with its list, once the marks and collections have followed, so that it is put right once.
+/// A log that a running 0.92 window holds is passed over, and looked at again at the next
+/// start. What no start would read goes (`remove_orphan_lists`, and an empty log).
+pub fn old_moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
     (logs_left_by_a_kill(dir).into_iter())
         .map(|(path, file, bytes)| {
             let known = read_move_known(&known_path(&path));
-            // A pair cut off by the kill has names that are not there, and is left out so.
-            let went: Moves = (parse_move_log(&bytes).into_iter().enumerate())
-                .filter(|(_, (from, to))| is_surely_gone(from) && is_surely_there(to))
-                .filter(|(step, (_, to))| is_the_file_that_went(to, known.as_deref(), *step))
-                .map(|(_, pair)| pair)
-                .collect();
-            sidecars_follow_the_files_that_went(&went);
-            let log = MoveLog {
-                path,
-                file,
-                known: None,
-                is_found_at_start: true,
-                failure: None,
-            };
-            (log, went)
+            let went = moves_that_went(parse_move_log(&bytes), known.as_deref());
+            (found_move_log(JobLog::found(path, file)), went)
         })
         .collect()
 }
 
-/// The logs in `dir` of deletes that Glimt was killed during, which are those no running window
-/// holds locked. Each comes with the files whose marks and stars are to be forgotten: those
-/// whose name is surely not there any more in a folder that surely is (`went_before_the_kill`).
-/// A file that had not gone yet is still at its name, and keeps them. A file still there as the
-/// log's list knew it takes back its sidecars, from a hidden name that a delete for good put
-/// them aside under (`sidecars_back_from_hiding`) and from the trash
-/// (`sidecars_back_from_the_trash`). A sidecar put aside of a file that went goes too. A photo
-/// that the delete kept (`DeleteLog::keep_for_a_later_start`) never counts as one that went,
-/// because the user may have moved it away after the delete. Each log is held locked until it
-/// is removed, or until it is let go for a later start (`DeleteLog::has_names_left`), written
-/// anew with only the names left (`DeleteLog::untold_names`). The trash is looked in for what
-/// went to it by the time of the log (`log_time`).
-pub fn deletes_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
+/// Returns the Move log `log` as a start found it.
+fn found_move_log(log: JobLog) -> MoveLog {
+    MoveLog {
+        log,
+        steps: 0,
+        is_found_at_start: true,
+        failure: None,
+    }
+}
+
+/// Returns the pairs of a Move's log, `pairs`, whose files went before Glimt was killed: those
+/// whose old name is surely not there any more and whose new one is and holds the file that
+/// went (`is_the_file_that_went`, by the fingerprints `known`, one for each pair). A file that
+/// had not gone yet is still at its old name, and a pair cut off by the kill has names that are
+/// not there, so both are left out. A sidecar that the kill left at a file's old name is moved
+/// to the file (`sidecars_follow_the_files_that_went`).
+fn moves_that_went(pairs: Moves, known: Option<&[Option<FileFingerprint>]>) -> Moves {
+    let went: Moves = (pairs.into_iter().enumerate())
+        .filter(|(_, (from, to))| is_surely_gone(from) && is_surely_there(to))
+        .filter(|(step, (_, to))| is_the_file_that_went(to, known, *step))
+        .map(|(_, pair)| pair)
+        .collect();
+    sidecars_follow_the_files_that_went(&went);
+    went
+}
+
+/// The job logs in `dir` that Glimt was killed during, which are those no running window holds
+/// locked: the Moves (as `move_jobs_cut_short` gives them) and the deletes (as
+/// `put_right_a_delete` gives them). A log that another log names in its `old-log` record was
+/// written anew as that one, which a kill left beside it, and is removed unread. Returns too the
+/// paths that the logs name so, for `old_deletes_cut_short`.
+pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
+    let found = crate::files::job_log::logs_left_by_a_kill(dir);
+    let written_anew: HashSet<PathBuf> = (found.iter())
+        .flat_map(|found| &found.records)
+        .filter_map(|record| match record {
+            Record::OldLog(path) => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    let (mut moves, mut deletes) = (Vec::new(), Vec::new());
+    for found in found {
+        if written_anew.contains(found.log.path()) {
+            let (path, file) = found.log.into_path_and_file();
+            crate::files::file_io::remove_own_or_tell(&path);
+            drop(file);
+        } else if ["move", "undo-move"].contains(&found.job) {
+            moves.push(move_job_cut_short(found));
+        } else if ["delete", "trash"].contains(&found.job) {
+            let time = found.log.file().metadata().and_then(|m| m.modified()).ok();
+            let records = delete_records(found.job, &found.records);
+            let jobs = dir.to_path_buf();
+            deletes.push(put_right_a_delete(found.log, records, time, jobs));
+        }
+    }
+    (moves, deletes, written_anew)
+}
+
+/// The job logs in `dir` of Moves, and of Undos of Moves, that Glimt was killed during, as
+/// `jobs_cut_short` finds them.
+#[cfg(test)]
+pub fn move_jobs_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
+    jobs_cut_short(dir).0
+}
+
+/// The job logs in `dir` of deletes that Glimt was killed during, as `jobs_cut_short` finds
+/// them.
+#[cfg(test)]
+pub fn delete_jobs_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
+    jobs_cut_short(dir).1
+}
+
+/// Returns the Move's log `found`, with the files that went: each step whose new name holds
+/// the file with the step's fingerprint (`moves_that_went`).
+fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> (MoveLog, Moves) {
+    let (pairs, known): (Moves, Vec<Option<FileFingerprint>>) = (found.records.iter())
+        .filter_map(|record| match record {
+            Record::Step {
+                from,
+                to: Some(to),
+                fingerprint,
+                ..
+            } => Some(((from.clone(), to.clone()), *fingerprint)),
+            _ => None,
+        })
+        .unzip();
+    let went = moves_that_went(pairs, Some(&known));
+    (found_move_log(found.log), went)
+}
+
+/// Returns what the records of a delete's job log, of kind `job`, say. The parser leaves out a
+/// record about a step that the log does not have before it, so each number is a step's.
+fn delete_records(job: &'static str, records: &[Record]) -> DeleteRecords {
+    let mut read = DeleteRecords {
+        job,
+        ..Default::default()
+    };
+    for record in records {
+        match record {
+            Record::Step {
+                from, fingerprint, ..
+            } => {
+                read.names.push(from.clone());
+                read.known.push(*fingerprint);
+            }
+            Record::Shown(collection) => read.collection = Some(collection.clone()),
+            Record::Aside {
+                number,
+                sidecar,
+                hidden,
+            } => (read.aside).push([read.names[*number].clone(), sidecar.clone(), hidden.clone()]),
+            Record::Kept(number) => {
+                read.kept.insert(read.names[*number].clone());
+            }
+            Record::Done(number) => {
+                read.done.insert(read.names[*number].clone());
+            }
+            Record::Found(number) => {
+                read.found.insert(read.names[*number].clone());
+            }
+            _ => {}
+        }
+    }
+    read
+}
+
+/// The logs in `dir` of deletes of Glimt 0.92 or older (`deletes/`) that Glimt was killed
+/// during, which are those no running window holds locked, each put right as a job log is
+/// (`put_right_a_delete`). A log that a running 0.92 window holds is passed over, and looked at
+/// again at the next start. A log that stays for a later start is written anew in `jobs`
+/// (`DeleteLog::remove_once_forgotten`), so that no older Glimt reads it again. One that a job
+/// log in `written_anew` already names was written anew so before a kill, and is removed
+/// unread.
+pub fn old_deletes_cut_short(
+    dir: &Path,
+    jobs: &Path,
+    written_anew: &HashSet<PathBuf>,
+) -> Vec<(DeleteLog, Vec<PathBuf>)> {
     (logs_left_by_a_kill(dir).into_iter())
         .filter_map(|(path, file, bytes)| {
+            if written_anew.contains(&path) {
+                remove_with_its_list(&path, crate::files::file_io::remove_own_or_tell);
+                return None;
+            }
             let names = parse_names(&bytes);
             let mut known = read_move_known(&known_path(&path)).unwrap_or_default();
             // A list with fewer lines than the log has names was cut short by a kill while
-            // both were written anew (`write_untold_names`), and its lines are not the names'.
+            // both were written anew, and its lines are not the names'.
             if known.len() < names.len() {
                 known.clear();
             }
-            let kept = read_kept(&path)?;
-            let (mut gone, mut stayed, mut not_as_left) = (Vec::new(), Vec::new(), Vec::new());
-            let mut untold = std::collections::HashSet::new();
-            for (i, name) in names.iter().cloned().enumerate() {
-                match went_before_the_kill(&name) {
-                    Some(true) if kept.contains(&name) => not_as_left.push(name),
-                    Some(true) => gone.push(name),
-                    Some(false) if is_as_known(&name, known.get(i).copied().flatten()) => {
-                        stayed.push(name);
-                    }
-                    Some(false) => not_as_left.push(name),
-                    None => {
-                        untold.insert(name);
-                    }
-                }
-            }
-            forget_in_the_collection_shown(&path, &gone);
-            // Before the trash is looked in, where a sidecar put aside is not.
-            let (still_hidden, unseen) =
-                sidecars_back_from_hiding(&path, &gone, &stayed, &not_as_left);
-            untold.extend(still_hidden.iter().chain(&unseen).cloned());
-            // The log was last written just before the last of its files went. A log whose time
-            // cannot be read takes no sidecar back, as it cannot tell which went after it.
-            let time = log_time(&path, &file);
-            let since = time.or_else(|| file.metadata().and_then(|m| m.modified()).ok());
-            (since.into_iter()).for_each(|since| sidecars_back_from_the_trash(&stayed, since));
-            let untold_names = untold_names_to_write(&names, &known, &untold, bytes.len());
-            let untold_names = time.zip(untold_names);
-            let mut log = DeleteLog {
-                path,
-                file,
-                known: None,
-                aside: None,
-                failure: None,
-                is_on_disk: true,
-                has_names_left: !untold.is_empty(),
-                untold_names,
+            known.resize(names.len(), None);
+            let collection = (crate::images::decode::read_limited(collection_path(&path)).ok())
+                .map(|bytes| PathBuf::from(OsStr::from_bytes(&bytes)));
+            let aside = (crate::images::decode::read_limited(aside_path(&path)).ok())
+                .map(|bytes| parse_names(&bytes))
+                .unwrap_or_default();
+            let records = DeleteRecords {
+                job: "delete",
+                done: names.iter().cloned().collect(),
+                kept: read_kept(&path)?,
+                aside: aside.as_chunks::<3>().0.to_vec(),
+                names,
+                known,
+                collection,
+                found: HashSet::new(),
             };
-            (still_hidden.iter())
-                .filter(|photo| !kept.contains(*photo))
-                .for_each(|photo| log.keep_for_a_later_start(photo));
-            if let Some(e) = log.take_failure() {
-                let kept = kept_path(&log.path);
-                crate::files::file_io::save_failed(format!("{}: {e}", kept.display()));
-            }
-            Some((log, gone))
+            // The log was last written just before the last of its files went.
+            let time =
+                log_time(&path, &file).or_else(|| file.metadata().and_then(|m| m.modified()).ok());
+            Some(put_right_a_delete(
+                JobLog::found(path, file),
+                records,
+                time,
+                jobs.to_path_buf(),
+            ))
         })
         .collect()
+}
+
+/// Puts right the delete whose log `log` says `records`, found at the start, last written at
+/// `time`. Returns the log, held locked until it is removed or written anew in `jobs`, with the
+/// files whose marks and stars are to be forgotten: those whose name is surely not there any
+/// more in a folder that surely is (`went_before_the_kill`).
+///
+/// A file that had not gone yet is still at its name, and keeps them. A file still there as
+/// the log knew it takes back its sidecars, from a hidden name that a delete for good put them
+/// aside under (`sidecars_back_from_hiding`) and from the trash (`sidecars_back_from_the_trash`).
+/// A sidecar put aside of a file that went goes too. A photo that the delete kept
+/// (`DeleteLog::keep_for_a_later_start`) never counts as one that went, because the user may
+/// have moved it away after the delete.
+///
+/// A delete for good whose step has no `done` may have been cut by the kill before its photo
+/// went or after. When its photo is surely gone, the start that first finds it keeps its marks,
+/// its hidden sidecar and the log, writes down that it found it (`found`), and tells once. A
+/// later start finishes the step: when the photo is still surely gone, its marks are forgotten
+/// and its hidden sidecar deleted, and when it is there, it takes its sidecar back. Each is told
+/// once. A look that fails keeps everything for the next start.
+fn put_right_a_delete(
+    log: JobLog,
+    records: DeleteRecords,
+    time: Option<std::time::SystemTime>,
+    jobs: PathBuf,
+) -> (DeleteLog, Vec<PathBuf>) {
+    use crate::files::file_io::save_failed;
+    let r = &records;
+    let is_unfinished = |name: &PathBuf| r.job == "delete" && !r.done.contains(name);
+    let (mut gone, mut stayed, mut not_as_left) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut untold, mut found_now) = (HashSet::new(), HashSet::new());
+    for (name, known) in r.names.iter().zip(&r.known) {
+        let was_found = r.found.contains(name);
+        match went_before_the_kill(name) {
+            Some(true) if r.kept.contains(name) => not_as_left.push(name.clone()),
+            Some(true) if is_unfinished(name) && !was_found => {
+                save_failed(crate::tf!(
+                    "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start.",
+                    photo = name.display()
+                ));
+                untold.insert(name.clone());
+                found_now.insert(name.clone());
+            }
+            Some(true) => {
+                if is_unfinished(name) {
+                    save_failed(crate::tf!(
+                        "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted.",
+                        photo = name.display()
+                    ));
+                }
+                gone.push(name.clone());
+            }
+            Some(false) if is_as_known(name, *known) => {
+                if is_unfinished(name) && was_found {
+                    save_failed(crate::tf!(
+                        "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back.",
+                        photo = name.display()
+                    ));
+                }
+                stayed.push(name.clone());
+            }
+            Some(false) => not_as_left.push(name.clone()),
+            None => {
+                untold.insert(name.clone());
+            }
+        }
+    }
+    forget_in_the_collection_shown(r.collection.as_deref(), &gone);
+    // Before the trash is looked in, where a sidecar put aside is not.
+    let (still_hidden, unseen) = sidecars_back_from_hiding(&r.aside, &gone, &stayed, &not_as_left);
+    untold.extend(still_hidden.iter().chain(&unseen).cloned());
+    // A log whose time cannot be read takes no sidecar back, as it cannot tell which went
+    // after it.
+    (time.into_iter()).for_each(|since| sidecars_back_from_the_trash(&stayed, since));
+    let kept: HashSet<&PathBuf> = r.kept.iter().chain(&still_hidden).collect();
+    let found: HashSet<&PathBuf> = r.found.iter().chain(&found_now).collect();
+    let records_left = steps_left(r, &untold, &kept, &found, log.path());
+    let log = DeleteLog {
+        log,
+        job: r.job,
+        steps: HashMap::new(),
+        failure: None,
+        has_names_left: !untold.is_empty(),
+        written_anew: Some((
+            jobs,
+            time.unwrap_or_else(std::time::SystemTime::now),
+            records_left,
+        )),
+    };
+    (log, gone)
+}
+
+/// Returns the records of the log written anew for the steps of `r` that are `untold`, numbered
+/// anew: each step with its fingerprint, its sidecars put aside, and whether it is `kept`,
+/// `done` or `found`. They come after the collection shown and the `old-log` record that names
+/// the log at `old`, which a kill may leave beside the new one.
+fn steps_left(
+    r: &DeleteRecords,
+    untold: &HashSet<PathBuf>,
+    kept: &HashSet<&PathBuf>,
+    found: &HashSet<&PathBuf>,
+    old: &Path,
+) -> Vec<Record> {
+    let mut records: Vec<Record> = r
+        .collection
+        .clone()
+        .map(Record::Shown)
+        .into_iter()
+        .collect();
+    records.push(Record::OldLog(old.to_path_buf()));
+    let left = (r.names.iter().zip(&r.known)).filter(|(name, _)| untold.contains(*name));
+    for (number, (name, known)) in left.enumerate() {
+        records.push(Record::Step {
+            number,
+            from: name.clone(),
+            to: None,
+            fingerprint: *known,
+        });
+        for [_, sidecar, hidden] in r.aside.iter().filter(|[photo, ..]| photo == name) {
+            records.push(Record::Aside {
+                number,
+                sidecar: sidecar.clone(),
+                hidden: hidden.clone(),
+            });
+        }
+        let marks = [
+            (kept.contains(name), Record::Kept(number)),
+            (r.done.contains(name), Record::Done(number)),
+            (found.contains(name), Record::Found(number)),
+        ];
+        records.extend(marks.into_iter().filter(|(is, _)| *is).map(|(_, r)| r));
+    }
+    records
+}
+
+/// Writes the log of a delete's steps left, `records`, anew in the folder of the job logs
+/// `dir` as a job of kind `job`, on disk with the time `time` of the log at `old` that it takes
+/// the place of, and then removes that one with its lists. A kill in between leaves both, and
+/// the next start removes the old one unread, as the new one names it (`jobs_cut_short`).
+fn write_anew(
+    dir: &Path,
+    job: &str,
+    time: std::time::SystemTime,
+    records: &[Record],
+    old: &Path,
+) -> std::io::Result<()> {
+    let (_path, file) = JobLog::start(dir, job, records)?.into_path_and_file();
+    keep_time(&file, time)?;
+    remove_with_its_list(old, crate::files::file_io::remove_own_or_tell);
+    drop(file);
+    Ok(())
 }
 
 /// Returns the photos that the delete whose log is at `log` kept while their sidecar may still
@@ -869,27 +937,27 @@ fn logs_left_by_a_kill(dir: &Path) -> Vec<(PathBuf, File, Vec<u8>)> {
         .collect()
 }
 
-/// Takes the files `gone` out of the collection that was shown during the delete whose log is
-/// at `log`, as the delete would have at its end. A log without one, or of a Glimt before this
+/// Takes the files `gone` out of the `collection` that was shown during a delete, as the delete
+/// would have at its end. A log without one, or of a Glimt before this
 /// was written down, leaves the entries. So does a collection that is surely gone, as there is
 /// nothing to take them out of. A failure to write it is told.
-fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
-    let Ok(bytes) = crate::images::decode::read_limited(collection_path(log)) else {
+fn forget_in_the_collection_shown(collection: Option<&Path>, gone: &[PathBuf]) {
+    let Some(collection) = collection else {
         return;
     };
-    let collection = PathBuf::from(OsStr::from_bytes(&bytes));
-    if gone.is_empty() || is_surely_gone(&collection) {
+    if gone.is_empty() || is_surely_gone(collection) {
         return;
     }
-    let forgotten = crate::files::file_ops::forget_in_collection(Some(&collection), gone);
+    let forgotten = crate::files::file_ops::forget_in_collection(Some(collection), gone);
     if let Err(e) = forgotten {
         crate::files::file_io::save_failed(e);
     }
 }
 
-/// Puts right each sidecar that a delete for good put aside under a hidden name, as the file of
-/// the log at `log` notes them (`DeleteLog::note_aside`), when Glimt was killed before the
-/// delete deleted it or took it back. It comes back beside its photo, never over a file, when
+/// Puts right each sidecar that a delete for good put aside under a hidden name, as its log
+/// notes them, `noted`, as (photo, sidecar, hidden name) (`DeleteLog::note_aside`), when
+/// Glimt was killed before the delete deleted it or took it back. It comes back beside its
+/// photo, never over a file, when
 /// the photo is among those that `stayed`: still there as the log's list knew it, by the same
 /// look that takes a sidecar back from the trash. It is deleted when the photo is among those
 /// `gone`, as the delete would have done. Any other stays hidden: a photo that cannot be told
@@ -904,7 +972,7 @@ fn forget_in_the_collection_shown(log: &Path, gone: &[PathBuf]) {
 /// whose hidden name could not be looked at, as on a share that stopped answering for a moment,
 /// so that the log stays for a later start that can.
 fn sidecars_back_from_hiding(
-    log: &Path,
+    noted: &[[PathBuf; 3]],
     gone: &[PathBuf],
     stayed: &[PathBuf],
     not_as_left: &[PathBuf],
@@ -912,16 +980,11 @@ fn sidecars_back_from_hiding(
     use crate::files::file_io::{TMP_PREFIX, save_failed};
     use std::collections::HashSet;
     let (mut still_hidden, mut unseen) = (Vec::new(), Vec::new());
-    let Ok(bytes) = crate::images::decode::read_limited(aside_path(log)) else {
-        return (still_hidden, unseen);
-    };
     let (gone, stayed, not_as_left): (HashSet<&PathBuf>, HashSet<&PathBuf>, HashSet<&PathBuf>) = (
         gone.iter().collect(),
         stayed.iter().collect(),
         not_as_left.iter().collect(),
     );
-    let names = parse_names(&bytes);
-    let noted = names.as_chunks::<3>().0;
     let photos: Vec<PathBuf> = noted.iter().map(|[photo, _, _]| photo.clone()).collect();
     let _locks = crate::metadata::xmp::lock_sidecars(&photos);
     for [photo, side, hidden] in noted {
@@ -1969,7 +2032,7 @@ mod tests {
         old.set_modified(hour_ago).unwrap();
         std::fs::write(lists.join("old"), "").unwrap();
         drop(old);
-        assert!(super::moves_cut_short(&logs).is_empty());
+        assert!(super::old_moves_cut_short(&logs).is_empty());
         assert!(!lists.join("orphan").exists());
         assert!(!logs.join("old").exists() && !lists.join("old").exists());
         assert!(logs.join("kept").exists() && lists.join("kept").exists());
@@ -2014,14 +2077,14 @@ mod tests {
             std::fs::write(from.join(n), n).unwrap();
         }
         std::fs::write(to.join("b.jpg.xmp"), "another's").unwrap();
-        let mut log = super::start_move_log(&logs).unwrap();
+        let mut log = super::start_move_log(&logs, "move").unwrap();
         // The kill came after each photo went and before its sidecar did.
         for n in ["a.jpg", "b.jpg"] {
             log.note(&from.join(n), &to.join(n));
             std::fs::rename(from.join(n), to.join(n)).unwrap();
         }
         drop(log);
-        let found = super::moves_cut_short(&logs);
+        let found = super::move_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1);
         let read = |p: std::path::PathBuf| std::fs::read_to_string(p).unwrap();
         assert_eq!(read(to.join("a.jpg.xmp")), "a.jpg.xmp");
@@ -2047,24 +2110,47 @@ mod tests {
         for n in ["a.jpg", "b.jpg", "b.jpg.xmp"] {
             std::fs::write(from.join(n), n).unwrap();
         }
-        let mut log = super::start_move_log(&logs).unwrap();
+        let mut log = super::start_move_log(&logs, "move").unwrap();
+        // The same Move as Glimt 0.92 wrote it down: the pairs, and a list of fingerprints.
+        let (old_logs, mut pairs, mut list) = (dir.join("moves"), Vec::new(), String::new());
         for n in ["a.jpg", "b.jpg"] {
             log.note(&from.join(n), &to.join(n));
+            list += &super::known_line(crate::files::file_io::fingerprint(&from.join(n)));
+            for p in [from.join(n), to.join(n)] {
+                pairs.extend(p.as_os_str().as_encoded_bytes());
+                pairs.push(0);
+            }
             std::fs::rename(from.join(n), to.join(n)).unwrap();
         }
         drop(log);
+        std::fs::create_dir_all(super::lists_folder(&old_logs)).unwrap();
+        std::fs::write(old_logs.join("w-1"), &pairs).unwrap();
+        std::fs::write(super::known_path(&old_logs.join("w-1")), list).unwrap();
         // Another program put another photo at b.jpg's new name since.
         std::fs::write(to.join("b.jpg"), "another photo").unwrap();
         crate::files::file_io::take_saves_failed();
-        let found = super::moves_cut_short(&logs);
+        let found = super::move_jobs_cut_short(&logs);
         let a = (from.join("a.jpg"), to.join("a.jpg"));
-        assert_eq!(found[0].1, vec![a]);
+        assert_eq!(found[0].1, vec![a.clone()]);
         // The sidecar left at b.jpg's old name stays, and the pair left alone is told.
         assert!(from.join("b.jpg.xmp").exists() && !to.join("b.jpg.xmp").exists());
         assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
         drop(found);
-        std::fs::remove_dir_all(logs.join(super::KNOWN_FOLDER)).unwrap();
-        assert_eq!(super::moves_cut_short(&logs)[0].1.len(), 2);
+        // The old log is read as Glimt 0.92 read it, and removed with its list once followed.
+        let found = super::old_moves_cut_short(&old_logs);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, vec![a]);
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        found
+            .into_iter()
+            .for_each(|(log, _)| log.remove_once_followed());
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        assert!(super::old_moves_cut_short(&old_logs).is_empty());
+        assert!(!super::known_path(&old_logs.join("w-1")).exists());
+        // An old log of a Glimt before 0.82, which has no list of files, is taken by its names.
+        std::fs::write(old_logs.join("w-2"), &pairs).unwrap();
+        assert_eq!(super::old_moves_cut_short(&old_logs)[0].1.len(), 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2090,7 +2176,7 @@ mod tests {
         for n in ["a.jpg", "b.jpg", "a.jpg.xmp"] {
             std::fs::write(from.join(n), "photo").unwrap();
         }
-        let mut log = super::start_move_log(&logs).unwrap();
+        let mut log = super::start_move_log(&logs, "move").unwrap();
         for n in ["a.jpg", "b.jpg"] {
             set_time(&from.join(n), at(1_700_000_001, 234_567_891));
             log.note(&from.join(n), &to.join(n));
@@ -2101,7 +2187,7 @@ mod tests {
         set_time(&to.join("a.jpg"), at(1_700_000_000, 0));
         set_time(&to.join("b.jpg"), at(1_700_000_004, 0));
         crate::files::file_io::take_saves_failed();
-        let found = super::moves_cut_short(&logs);
+        let found = super::move_jobs_cut_short(&logs);
         assert_eq!(found[0].1, vec![(from.join("a.jpg"), to.join("a.jpg"))]);
         assert!(to.join("a.jpg.xmp").exists() && !from.join("a.jpg.xmp").exists());
         assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
@@ -3419,7 +3505,7 @@ mod tests {
         hide: impl FnOnce(&std::path::Path, &std::path::Path),
     ) {
         let side = crate::metadata::xmp::sidecar(a);
-        let mut log = super::start_delete_log(logs, None).unwrap();
+        let mut log = super::start_delete_log(logs, "delete", None).unwrap();
         log.note(&[a.to_path_buf()]);
         log.note_aside(a, &[(side.clone(), hidden.to_path_buf())]);
         hide(&side, hidden);
@@ -3456,7 +3542,7 @@ mod tests {
         });
         std::fs::rename(&a, dir.join("moved.png")).unwrap();
         let _ = crate::files::file_io::take_saves_failed();
-        let found = super::deletes_cut_short(&logs);
+        let found = super::delete_jobs_cut_short(&logs);
         assert!(
             found.iter().all(|(_, gone)| gone.is_empty()),
             "{:?}",
@@ -3467,7 +3553,7 @@ mod tests {
         assert!(told.contains(&hidden.display().to_string()), "{told}");
         assert_eq!(let_go(found), 1);
         assert_eq!(
-            let_go(super::deletes_cut_short(&logs)),
+            let_go(super::delete_jobs_cut_short(&logs)),
             0,
             "the kept log stayed"
         );
@@ -3490,13 +3576,13 @@ mod tests {
             std::fs::hard_link(side, hidden).unwrap();
         });
         let _ = crate::files::file_io::take_saves_failed();
-        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
         let told = crate::files::file_io::take_saves_failed();
         assert!(told.is_empty(), "{told:?}");
         assert!(!hidden.exists());
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
         assert_eq!(
-            let_go(super::deletes_cut_short(&logs)),
+            let_go(super::delete_jobs_cut_short(&logs)),
             0,
             "the kept log stayed"
         );
@@ -3518,12 +3604,12 @@ mod tests {
         });
         std::fs::write(&side, "another").unwrap();
         let _ = crate::files::file_io::take_saves_failed();
-        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
         let told = crate::files::file_io::take_saves_failed().join("\n");
         assert!(told.contains(&hidden.display().to_string()), "{told}");
         assert!(told.contains(&side.display().to_string()), "{told}");
         assert_eq!(
-            let_go(super::deletes_cut_short(&logs)),
+            let_go(super::delete_jobs_cut_short(&logs)),
             0,
             "the kept log stayed"
         );
@@ -3534,83 +3620,122 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Returns the path of the one log in the folder of logs `logs`.
-    /// A log let go for a later start is written anew with only the names that the start could
-    /// not tell about, each with its own line of the list, and keeps its time. Before, every
-    /// later start looked again at every name of the log, three looks for each of the 500,000
-    /// files of a killed delete. A kill at any step of the rewrite leaves a log that is not
-    /// empty, whose names each have their own fingerprint or none, and whose time for the
-    /// trash is no later than the delete's, and the next start finishes the rewrite.
+    /// A log let go for a later start is written anew in the folder of the job logs with only
+    /// the steps that the start could not tell about, each with its fingerprint, and keeps its
+    /// time. Before, every later start looked again at every name of the log, three looks for
+    /// each of the 500,000 files of a killed delete. A kill after the new log is on disk and
+    /// before the old one went leaves both, and the next start removes the old one unread.
     #[test]
     fn a_log_let_go_for_a_later_start_keeps_only_the_names_left() {
-        use std::os::unix::ffi::OsStrExt;
-        for kill in (1..=8).map(Some).chain([None]) {
-            let dir = crate::support::test_support::contract_folder("start-names-left");
-            let logs = dir.join("logs");
-            let (a, b) = (dir.join("a.png"), dir.join("b.png"));
-            let stick = dir.join("stick");
-            std::fs::create_dir(&stick).unwrap();
-            let on_stick = stick.join("c.png");
-            std::fs::write(&on_stick, "c").unwrap();
-            let fingerprints: std::collections::HashMap<_, _> = [&a, &b, &on_stick]
-                .map(|p| (p.clone(), crate::files::file_io::fingerprint(p)))
-                .into();
-            let mut log = super::start_delete_log(&logs, None).unwrap();
-            log.note(&[a.clone(), b.clone(), on_stick.clone()]);
-            drop(log);
-            std::fs::remove_file(&b).unwrap();
-            // The stick is not plugged in at the start.
-            std::fs::rename(&stick, dir.join("stick-away")).unwrap();
-            let path = the_log_in(&logs);
-            let written = std::fs::metadata(&path).unwrap().modified().unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            let mut found = super::deletes_cut_short(&logs);
-            assert_eq!(found[0].1, std::slice::from_ref(&b));
-            let (log, _) = found.pop().unwrap();
-            let (time, names) = log.untold_names.clone().unwrap();
-            super::KILLED_AFTER_STEP.set(kill);
-            let rewritten = super::write_untold_names(&log.path, &log.file, &names, time);
-            super::KILLED_AFTER_STEP.set(None);
-            assert_eq!(rewritten.is_ok(), kill.is_none(), "{kill:?}");
-            drop(log);
-            // What the kill left: names, each with its own fingerprint or none, and a time.
-            let left = super::parse_names(&std::fs::read(&path).unwrap());
-            assert!(!left.is_empty(), "{kill:?}");
-            let known = super::read_move_known(&super::known_path(&path)).unwrap();
-            if known.len() >= left.len() {
-                for (name, known) in left.iter().zip(&known) {
-                    assert_eq!(*known, fingerprints[name], "{kill:?} {name:?}");
-                }
-            }
-            let file = std::fs::File::open(&path).unwrap();
-            assert!(
-                super::log_time(&path, &file).unwrap() <= written,
-                "{kill:?}"
-            );
-            // The next start, with the stick still away, finishes what the kill cut short.
-            let found = super::deletes_cut_short(&logs);
-            assert!(found[0].1.iter().all(|gone| *gone == b), "{kill:?}");
-            assert_eq!(let_go(found), 1);
-            let after = std::fs::read(&path).unwrap();
-            // A kill before the list was on disk leaves a list not in step with the log, which
-            // no later start writes anew.
-            if let Some(1 | 2) = kill {
-                assert_eq!(super::parse_names(&after).len(), 3, "{kill:?}");
-            } else {
-                let mut c = on_stick.as_os_str().as_bytes().to_vec();
-                c.push(0);
-                assert_eq!(after, c, "{kill:?}");
-                let list = std::fs::read_to_string(super::known_path(&path)).unwrap();
-                assert_eq!(list.lines().count(), 1, "{kill:?} {list}");
-            }
-            assert!(
-                super::log_time(&path, &file).unwrap() <= written,
-                "{kill:?}"
-            );
-            std::fs::remove_dir_all(&dir).unwrap();
-        }
+        use crate::files::job_log::{LogRead, Record};
+        let dir = crate::support::test_support::contract_folder("start-names-left");
+        let logs = dir.join("logs");
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let stick = dir.join("stick");
+        std::fs::create_dir(&stick).unwrap();
+        let on_stick = stick.join("c.png");
+        std::fs::write(&on_stick, "c").unwrap();
+        let known = crate::files::file_io::fingerprint(&on_stick);
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(&[a.clone(), b.clone(), on_stick.clone()]);
+        drop(log);
+        std::fs::remove_file(&b).unwrap();
+        // The stick is not plugged in at the start.
+        std::fs::rename(&stick, dir.join("stick-away")).unwrap();
+        let old = the_log_in(&logs);
+        let old_bytes = std::fs::read(&old).unwrap();
+        let written = std::fs::metadata(&old).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1, std::slice::from_ref(&b));
+        assert_eq!(let_go(found), 1);
+        let new = the_log_in(&logs);
+        assert_ne!(new, old);
+        assert!(std::fs::metadata(&new).unwrap().modified().unwrap() <= written);
+        let (held, read) = crate::files::job_log::read_job_log(&new).unwrap();
+        drop(held);
+        let LogRead::Log { job, records, .. } = read else {
+            panic!("not a log: {read:?}");
+        };
+        assert_eq!(job, "trash");
+        let step = Record::Step {
+            number: 0,
+            from: on_stick.clone(),
+            to: None,
+            fingerprint: known,
+        };
+        assert_eq!(records, [Record::OldLog(old.clone()), step]);
+        // A kill came before the old log went: the next start removes it unread.
+        std::fs::write(&old, &old_bytes).unwrap();
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].1.is_empty(), "{:?}", found[0].1);
+        assert!(!old.exists(), "the old log was read again");
+        assert_eq!(let_go(found), 1);
+        // The stick is back, without c.png, which went before the kill: the log goes.
+        std::fs::rename(dir.join("stick-away"), &stick).unwrap();
+        std::fs::remove_file(&on_stick).unwrap();
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1, std::slice::from_ref(&on_stick));
+        assert_eq!(let_go(found), 1);
+        let left = std::fs::read_dir(&logs).unwrap().flatten();
+        assert_eq!(left.filter(|e| e.path().is_file()).count(), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A delete log of Glimt 0.92 that a kill left is put right once by the start, with the rules
+    /// of 0.92: the marks of a file that went are forgotten. One it cannot finish, of a file on a
+    /// stick not plugged in, is written anew in the folder of the job logs, with its step done,
+    /// and goes with its lists from the old folder, where no older Glimt reads it again (#224).
+    /// A kill between the two leaves both, and the next start removes the old one unread.
+    #[test]
+    fn an_old_delete_log_is_put_right_once_and_written_anew_in_jobs() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = crate::support::test_support::contract_folder("start-old-delete");
+        let (old_logs, jobs) = (dir.join("deletes"), dir.join("jobs"));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let stick = dir.join("stick");
+        std::fs::create_dir(&stick).unwrap();
+        let on_stick = stick.join("c.png");
+        std::fs::write(&on_stick, "c").unwrap();
+        // The log as Glimt 0.92 wrote it: the names, and a list of fingerprints beside it.
+        let (mut names, mut list) = (Vec::new(), String::new());
+        for p in [&a, &b, &on_stick] {
+            names.extend(p.as_os_str().as_bytes());
+            names.push(0);
+            list += &super::known_line(crate::files::file_io::fingerprint(p));
+        }
+        let old = old_logs.join("w-1");
+        std::fs::create_dir_all(super::lists_folder(&old_logs)).unwrap();
+        std::fs::write(&old, &names).unwrap();
+        std::fs::write(super::known_path(&old), list).unwrap();
+        std::fs::remove_file(&b).unwrap();
+        std::fs::rename(&stick, dir.join("stick-away")).unwrap();
+        let none = std::collections::HashSet::new();
+        let found = super::old_deletes_cut_short(&old_logs, &jobs, &none);
+        assert_eq!(found[0].1, std::slice::from_ref(&b));
+        assert_eq!(let_go(found), 1);
+        assert!(!old.exists() && !super::known_path(&old).exists());
+        assert!(super::old_deletes_cut_short(&old_logs, &jobs, &none).is_empty());
+        // A kill came before the old log went: the job log names it, and it goes unread.
+        std::fs::write(&old, &names).unwrap();
+        let (_, found, written_anew) = super::jobs_cut_short(&jobs);
+        assert!(found[0].1.is_empty());
+        assert!(super::old_deletes_cut_short(&old_logs, &jobs, &written_anew).is_empty());
+        assert!(!old.exists(), "the old log was read again");
+        assert_eq!(let_go(found), 1);
+        // The stick is back without c.png, which went before the kill: its marks are forgotten
+        // at once, as 0.92 would have, and the log goes.
+        std::fs::rename(dir.join("stick-away"), &stick).unwrap();
+        std::fs::remove_file(&on_stick).unwrap();
+        let found = super::delete_jobs_cut_short(&jobs);
+        assert_eq!(found[0].1, std::slice::from_ref(&on_stick));
+        assert_eq!(let_go(found), 1);
+        assert!(super::delete_jobs_cut_short(&jobs).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Returns the path of the one log in the folder of logs `logs`.
     fn the_log_in(logs: &std::path::Path) -> std::path::PathBuf {
         (std::fs::read_dir(logs).unwrap().flatten())
             .map(|e| e.path())
@@ -3623,7 +3748,7 @@ mod tests {
     /// the photo.
     fn leave_a_killed_log(logs: &std::path::Path, a: &std::path::Path, hidden: &std::path::Path) {
         let side = crate::metadata::xmp::sidecar(a);
-        let mut log = super::start_delete_log(logs, None).unwrap();
+        let mut log = super::start_delete_log(logs, "delete", None).unwrap();
         log.note(&[a.to_path_buf()]);
         log.note_aside(a, &[(side.clone(), hidden.to_path_buf())]);
         std::fs::rename(&side, hidden).unwrap();
@@ -3640,7 +3765,7 @@ mod tests {
         let logs = dir.join("logs");
         let a = dir.join("a.png");
         let side = crate::metadata::xmp::sidecar(&a);
-        let mut log = super::start_delete_log(&logs, None).unwrap();
+        let mut log = super::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         drop(log);
         // The kill was two hours ago, and the user trashed the sidecar now.
@@ -3648,7 +3773,7 @@ mod tests {
         let opened = std::fs::File::options().write(true).open(the_log_in(&logs));
         opened.unwrap().set_modified(two_hours_ago).unwrap();
         crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
-        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
         assert!(!side.exists(), "the sidecar trashed on purpose came back");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -3666,12 +3791,12 @@ mod tests {
         std::fs::write(&nef, "nef").unwrap();
         let side = dir.join("IMG_1.xmp");
         std::fs::write(&side, "whose").unwrap();
-        let mut log = super::start_delete_log(&logs, None).unwrap();
+        let mut log = super::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&cr2));
         crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
         drop(log);
         let _ = crate::files::file_io::take_saves_failed();
-        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
         assert!(
             !side.exists(),
             "the sidecar of two RAW files came back to one"
@@ -3692,11 +3817,11 @@ mod tests {
         leave_a_killed_log(&logs, &a, &hidden);
         std::fs::write(&a, "turned, of another size").unwrap();
         let _ = crate::files::file_io::take_saves_failed();
-        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1);
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
         assert_eq!(std::fs::read_to_string(&hidden).unwrap(), "a");
         let told = crate::files::file_io::take_saves_failed().join("\n");
         assert!(told.contains(&hidden.display().to_string()), "{told}");
-        assert_eq!(let_go(super::deletes_cut_short(&logs)), 0);
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -3714,10 +3839,14 @@ mod tests {
         let hidden = crate::files::file_io::tmp_path(&side);
         leave_a_killed_log(&logs, &a, &hidden);
         lock_even_if_poisoned(&LOOKS_FAIL).push(hidden.clone());
-        let found = super::deletes_cut_short(&logs);
+        let found = super::delete_jobs_cut_short(&logs);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != hidden);
         assert_eq!(let_go(found), 1);
-        assert_eq!(let_go(super::deletes_cut_short(&logs)), 1, "the log went");
+        assert_eq!(
+            let_go(super::delete_jobs_cut_short(&logs)),
+            1,
+            "the log went"
+        );
         assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -3739,7 +3868,7 @@ mod tests {
         RENAME_WAYS_MISSING.set(1);
         UNLINK_FAILS.set(Some((hidden.clone(), libc::EACCES)));
         let _ = crate::files::file_io::take_saves_failed();
-        let found = super::deletes_cut_short(&logs);
+        let found = super::delete_jobs_cut_short(&logs);
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
         assert_eq!(let_go(found), 1);
@@ -3747,7 +3876,7 @@ mod tests {
         assert!(told.contains(&hidden.display().to_string()), "{told}");
         assert_eq!(std::fs::read_to_string(&hidden).unwrap(), "a");
         assert_eq!(
-            let_go(super::deletes_cut_short(&logs)),
+            let_go(super::delete_jobs_cut_short(&logs)),
             0,
             "the log stayed to tell it again"
         );

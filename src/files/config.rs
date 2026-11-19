@@ -2321,12 +2321,13 @@ mod tests {
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
         lines.push(format!("lock_kind plan {}", kind(&path)));
         drop(plan);
-        let log = crate::files::journal::start_move_log(&dir.join("logs")).unwrap();
+        let log = crate::files::journal::start_move_log(&dir.join("logs"), "move").unwrap();
         let path = std::fs::read_dir(dir.join("logs")).unwrap().flatten();
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
         lines.push(format!("lock_kind move log {}", kind(&path)));
         drop(log);
-        let log = crate::files::journal::start_delete_log(&dir.join("deletes"), None).unwrap();
+        let log =
+            crate::files::journal::start_delete_log(&dir.join("deletes"), "delete", None).unwrap();
         let path = std::fs::read_dir(dir.join("deletes")).unwrap().flatten();
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
         lines.push(format!("lock_kind delete log {}", kind(&path)));

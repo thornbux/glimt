@@ -4078,3 +4078,23 @@ msgstr "kunne ikkje sjå på {name}: {e}"
 #, fuzzy
 msgid "{file} was saved, but it may not be on the disk yet: {e}"
 msgstr "{file} vart lagra, men er kanskje ikkje på disken enno: {e}"
+
+#: src/files/job_log.rs
+#, fuzzy
+msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
+msgstr "{folder} har loggar som ein nyare Glimt la att, eller som denne Glimt ikkje kan lesa. Dei blir tekne vare på for ein Glimt som kan fullføra dei."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start."
+msgstr "{photo} heldt på å bli sletta for godt då Glimt stoppa. Han er borte, men merka og stjernene, og ei eventuell sidefil lagd til side under eit skjult namn ved sida av, blir haldne til neste start."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted."
+msgstr "{photo} er framleis borte, så slettinga blir fullført: merka og stjernene blir gløymde, og sidefila som vart lagd til side, blir sletta."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
+msgstr "{photo} er der att, så han held på merka og stjernene, og sidefila som vart lagd til side, får namnet sitt att."

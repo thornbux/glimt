@@ -4067,3 +4067,23 @@ msgstr "no se pudo consultar {name}: {e}"
 #, fuzzy
 msgid "{file} was saved, but it may not be on the disk yet: {e}"
 msgstr "{file} se guardó, pero quizá aún no esté en el disco: {e}"
+
+#: src/files/job_log.rs
+#, fuzzy
+msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
+msgstr "{folder} contiene registros que dejó un Glimt más reciente, o que este Glimt no puede leer. Se conservan para un Glimt que pueda terminarlos."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start."
+msgstr "{photo} se estaba eliminando definitivamente cuando Glimt se detuvo. Ya no está, pero sus marcas y estrellas, y cualquier archivo adjunto apartado con un nombre oculto a su lado, se conservan hasta el próximo inicio."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted."
+msgstr "{photo} sigue sin estar, así que su eliminación se completa: sus marcas y estrellas se olvidan, y su archivo adjunto apartado se elimina."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
+msgstr "{photo} vuelve a estar, así que conserva sus marcas y estrellas, y su archivo adjunto apartado recupera su nombre."

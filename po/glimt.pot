@@ -3278,3 +3278,19 @@ msgstr ""
 #: src/images/save.rs
 msgid "{file} was saved, but it may not be on the disk yet: {e}"
 msgstr ""
+
+#: src/files/job_log.rs
+msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
+msgstr ""
+
+#: src/files/journal.rs
+msgid "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start."
+msgstr ""
+
+#: src/files/journal.rs
+msgid "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted."
+msgstr ""
+
+#: src/files/journal.rs
+msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
+msgstr ""
