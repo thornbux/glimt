@@ -267,6 +267,9 @@ pub struct DeleteLog {
     job: &'static str,
     /// The number of each file written down, by which its later records name it.
     steps: HashMap<PathBuf, usize>,
+    /// The folders of the files written down so far, each with a `folder` record before the
+    /// first step in it.
+    folders: HashSet<PathBuf>,
     /// The first write of the log that failed, on a full disk say. The log takes no more records
     /// after it, and the delete goes on without them, as a Move does without its log.
     failure: Option<std::io::Error>,
@@ -287,6 +290,10 @@ impl DeleteLog {
     pub fn note(&mut self, paths: &[PathBuf]) {
         let mut steps = Vec::new();
         for path in paths {
+            let folder = path.parent().unwrap_or(Path::new("/"));
+            if self.folders.insert(folder.to_path_buf()) {
+                steps.extend(folder_record(folder));
+            }
             let number = self.steps.len();
             self.steps.insert(path.clone(), number);
             steps.push(Record::Step {
@@ -422,6 +429,8 @@ struct DeleteRecords {
     done: HashSet<PathBuf>,
     /// The files of a delete for good without `done` that an earlier start found gone.
     found: HashSet<PathBuf>,
+    /// The folders of the files, each with its device and inode as the log saw it.
+    folders: HashMap<PathBuf, (u64, u64)>,
 }
 
 /// Returns the folder of the lists of files (`KNOWN_FOLDER`) in the folder of plans or logs
@@ -522,6 +531,7 @@ pub fn start_delete_log(
         log: JobLog::start(dir, job, &shown)?,
         job,
         steps: HashMap::new(),
+        folders: HashSet::new(),
         failure: None,
         has_names_left: false,
         written_anew: None,
@@ -695,6 +705,13 @@ fn delete_records(job: &'static str, records: &[Record]) -> DeleteRecords {
             Record::Found(number) => {
                 read.found.insert(read.names[*number].clone());
             }
+            Record::Folder {
+                path,
+                device,
+                inode,
+            } => {
+                read.folders.insert(path.clone(), (*device, *inode));
+            }
             _ => {}
         }
     }
@@ -741,6 +758,7 @@ pub fn old_deletes_cut_short(
                 known,
                 collection,
                 found: HashSet::new(),
+                folders: HashMap::new(),
             };
             // The log was last written just before the last of its files went.
             let time =
@@ -786,6 +804,11 @@ fn put_right_a_delete(
     let (mut untold, mut found_now) = (HashSet::new(), HashSet::new());
     for (name, known) in r.names.iter().zip(&r.known) {
         let was_found = r.found.contains(name);
+        // Another card at the same mount path holds none of this log's files.
+        if is_another_folder(&r.folders, name) {
+            untold.insert(name.clone());
+            continue;
+        }
         match went_before_the_kill(name) {
             Some(true) if r.kept.contains(name) => not_as_left.push(name.clone()),
             Some(true) if is_unfinished(name) && !was_found => {
@@ -834,6 +857,7 @@ fn put_right_a_delete(
         log,
         job: r.job,
         steps: HashMap::new(),
+        folders: HashSet::new(),
         failure: None,
         has_names_left: !untold.is_empty(),
         written_anew: Some((
@@ -863,6 +887,16 @@ fn steps_left(
         .into_iter()
         .collect();
     let left = (r.names.iter().zip(&r.known)).filter(|(name, _)| untold.contains(*name));
+    let folders_left: HashSet<&Path> = left.clone().filter_map(|(n, _)| n.parent()).collect();
+    for (path, &(device, inode)) in &r.folders {
+        if folders_left.contains(path.as_path()) {
+            records.push(Record::Folder {
+                path: path.clone(),
+                device,
+                inode,
+            });
+        }
+    }
     for (number, (name, known)) in left.enumerate() {
         records.push(Record::Step {
             number,
@@ -1157,6 +1191,38 @@ fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime
     if let (_, Some(error)) = restored {
         crate::files::file_io::save_failed(error);
     }
+}
+
+/// Returns the `folder` record of `folder`, with its device and inode now, and `None` where its
+/// file system does not keep a folder's inode across mounts (FAT, exFAT, `has_lasting_inodes`),
+/// so that nothing could be compared, or where the look fails.
+fn folder_record(folder: &Path) -> Option<Record> {
+    let kind = crate::files::file_ops::file_system_type_or_test(folder)?;
+    if !crate::files::file_io::has_lasting_inodes(&kind) {
+        return None;
+    }
+    let (key, _, _) = crate::files::file_io::fingerprint_of_file_read(folder)?;
+    let (device, inode) = key?;
+    Some(Record::Folder {
+        path: folder.to_path_buf(),
+        device,
+        inode,
+    })
+}
+
+/// Returns whether the folder of `path` is another folder than the one that the log's `folders`
+/// saw there: one with another inode, as another card mounted at the same path. The device is
+/// left out, as a card plugged in again may get another device number. A folder the log has no
+/// record of, or whose look fails, is not counted as another.
+fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> bool {
+    let Some((_, inode)) = path.parent().and_then(|folder| folders.get(folder)) else {
+        return false;
+    };
+    let now = path
+        .parent()
+        .and_then(crate::files::file_io::fingerprint_of_file_read);
+    now.and_then(|(key, _, _)| key)
+        .is_some_and(|(_, now)| now != *inode)
 }
 
 /// Returns whether the file that a delete's log names at `path` went before Glimt was killed.
@@ -3903,6 +3969,10 @@ mod tests {
         let on_stick = stick.join("c.png");
         std::fs::write(&on_stick, "c").unwrap();
         let known = crate::files::file_io::fingerprint(&on_stick);
+        let (device, inode) = crate::files::file_io::fingerprint(&stick)
+            .unwrap()
+            .0
+            .unwrap();
         let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
         log.note(&[a.clone(), b.clone(), on_stick.clone()]);
         drop(log);
@@ -3931,7 +4001,12 @@ mod tests {
             to: None,
             fingerprint: known,
         };
-        assert_eq!(records, [step, Record::OldLog(old.clone())]);
+        let folder = Record::Folder {
+            path: stick.clone(),
+            device,
+            inode,
+        };
+        assert_eq!(records, [folder, step, Record::OldLog(old.clone())]);
         // A kill cut the new log off while it was written: it does not name the old one, which
         // the next start then reads again instead of removing it unread.
         let new_bytes = std::fs::read(&new).unwrap();
@@ -4027,6 +4102,40 @@ mod tests {
         log.note_aside(a, &[(side.clone(), hidden.to_path_buf())]);
         std::fs::rename(&side, hidden).unwrap();
         drop(log);
+    }
+
+    /// A start with another card mounted at the path of the folder of a killed delete, as two
+    /// cards of one camera are, keeps the marks of the files that are not on it, and the log,
+    /// and a start with the card back finds the files there. Before, the files not on the other
+    /// card counted as deleted, and their marks were forgotten (#179).
+    #[test]
+    fn a_killed_delete_keeps_the_marks_while_another_card_is_at_its_path() {
+        let dir = crate::support::test_support::contract_folder("start-other-card");
+        crate::files::file_ops::test_mount(&dir, Some("ext4"));
+        let logs = dir.join("logs");
+        let (card, card_a) = (dir.join("card"), dir.join("card-a"));
+        std::fs::create_dir(&card).unwrap();
+        let a = card.join("a.png");
+        std::fs::write(&a, "a").unwrap();
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        drop(log);
+        // Card A comes out, and card B, without a.png, is mounted at the same path.
+        std::fs::rename(&card, &card_a).unwrap();
+        std::fs::create_dir(&card).unwrap();
+        let found = super::delete_jobs_cut_short(&logs);
+        assert!(found[0].1.is_empty(), "a.png's marks were forgotten");
+        assert_eq!(let_go(found), 1);
+        // Card A is back.
+        std::fs::remove_dir(&card).unwrap();
+        std::fs::rename(&card_a, &card).unwrap();
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found.len(), 1, "the log did not stay for card A");
+        assert!(found[0].1.is_empty());
+        assert_eq!(let_go(found), 1);
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 0);
+        crate::files::file_ops::test_mount(&dir, None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A start long after the delete of a log takes back from the trash only a sidecar that went
