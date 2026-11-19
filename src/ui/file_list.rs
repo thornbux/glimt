@@ -781,18 +781,9 @@ impl crate::App {
         speak_item(&response, marked, &self.name(i));
         let visuals = ui.visuals();
         if marked || response.hovered() {
-            let fill = if marked {
-                visuals.selection.bg_fill
-            } else {
-                visuals.widgets.hovered.weak_bg_fill
-            };
-            ui.painter().rect_filled(rect, 2.0, fill);
+            paint_highlight(ui.painter(), rect, visuals, marked);
         }
-        let text_color = if marked {
-            visuals.selection.stroke.color
-        } else {
-            visuals.text_color()
-        };
+        let text_color = selected_text_colour(visuals, marked);
         let frame = egui::Rect::from_min_size(
             rect.min + egui::vec2(2.0, 2.0),
             if thumbs {
@@ -895,18 +886,9 @@ impl crate::App {
         speak_item(&response, marked, &name);
         let visuals = ui.visuals();
         if marked || response.hovered() {
-            let fill = if marked {
-                visuals.selection.bg_fill
-            } else {
-                visuals.widgets.hovered.weak_bg_fill
-            };
-            ui.painter().rect_filled(rect, 2.0, fill);
+            paint_highlight(ui.painter(), rect, visuals, marked);
         }
-        let color = if marked {
-            visuals.selection.stroke.color
-        } else {
-            visuals.text_color()
-        };
+        let color = selected_text_colour(visuals, marked);
         let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
         self.paint_thumb(ui, i, frame);
         if self.config.grid_names {
@@ -964,7 +946,10 @@ impl crate::App {
                 let scale = if cut { fit } else { fit.min(1.0) };
                 let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                 let at = egui::Rect::from_center_size(frame.center(), px * scale);
-                ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
+                let radius = ui.visuals().widgets.noninteractive.corner_radius;
+                let rounded = egui::epaint::RectShape::filled(at, radius, egui::Color32::WHITE)
+                    .with_texture(tex.id(), uv);
+                ui.painter().add(rounded);
                 // Videos get a small play badge in the corner.
                 if is_video(Path::new(name)) {
                     let c = at.left_bottom() + egui::vec2(13.0, -13.0);
@@ -2078,6 +2063,70 @@ pub(crate) fn thumbs_to_keep<'a>(
 
 /// Tells a screen reader what a file's row or cell is: an item of the list with the file's name,
 /// and whether it is selected. The rows of names get this from egui's own widget.
+/// Paints the highlight of a selected or hovered row or cell, rounded as the theme's widgets.
+/// A selected one gets a soft tint of the selection colour, which keeps the text in its own
+/// colour, and an outline in the full colour, which keeps it plain to see in every theme.
+fn paint_highlight(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    visuals: &egui::Visuals,
+    marked: bool,
+) {
+    let (fill, stroke) = highlight_look(visuals, marked);
+    let radius = visuals.widgets.noninteractive.corner_radius;
+    painter.rect(rect, radius, fill, stroke, egui::StrokeKind::Inside);
+}
+
+/// Returns the fill and the outline of a selected or hovered row or cell.
+fn highlight_look(visuals: &egui::Visuals, marked: bool) -> (egui::Color32, egui::Stroke) {
+    if marked {
+        let accent = visuals.selection.bg_fill;
+        // The strongest tint that keeps the text readable on it (WCAG AA, 4.5).
+        let tint_of = |share: f32| visuals.panel_fill.lerp_to_gamma(accent, share);
+        let tint = [0.35, 0.3, 0.25, 0.2, 0.15, 0.1]
+            .into_iter()
+            .map(tint_of)
+            .find(|&tint| contrast(visuals.strong_text_color(), tint) >= 4.5)
+            .unwrap_or(tint_of(0.1));
+        // The outline is in the text's colour where the accent is too faint on the panel.
+        let outline = if contrast(accent, visuals.panel_fill) >= 3.0 {
+            accent
+        } else {
+            visuals.strong_text_color()
+        };
+        (tint, egui::Stroke::new(1.5, outline))
+    } else {
+        (visuals.widgets.hovered.weak_bg_fill, egui::Stroke::NONE)
+    }
+}
+
+/// Returns the colour of a row's or cell's text: the strong text colour when it is selected,
+/// which `highlight_look` keeps readable on the tint.
+fn selected_text_colour(visuals: &egui::Visuals, marked: bool) -> egui::Color32 {
+    if marked {
+        visuals.strong_text_color()
+    } else {
+        visuals.text_color()
+    }
+}
+
+/// Returns the WCAG contrast ratio of two colours, from 1 to 21.
+fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
+    let luminance = |c: egui::Color32| {
+        let linear = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(c.r()) + 0.7152 * linear(c.g()) + 0.0722 * linear(c.b())
+    };
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
 pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &str) {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
     (response.ctx).accesskit_node_builder(response.id, |node| node.set_selected(marked));
@@ -2167,6 +2216,54 @@ mod tests {
             "1800 × 1200 · 5 / 16 · page 2/3"
         );
         assert_eq!(status_line(None, Some(512), "[–/12]", ""), "512 B · – / 12");
+    }
+
+    /// A selected row or cell is a soft tint of the selection colour, outlined in the full
+    /// colour (or the text's, where that is too faint), rather than a block of the full
+    /// colour. In every built-in theme, with a dark and
+    /// a light desktop, its text keeps a contrast of 4.5 to the tint (WCAG AA) and its outline
+    /// one of 3 to the panel, so that the selection stays plain to see.
+    #[test]
+    fn a_selected_row_is_a_soft_tint_with_a_strong_outline() {
+        use crate::ui::theme::{BUILT_IN, apply, built_in_theme};
+        use eframe::egui::{Context, Visuals};
+        let mut looks = vec![("egui dark".to_owned(), Visuals::dark())];
+        looks.push(("egui light".to_owned(), Visuals::light()));
+        for (name, _) in BUILT_IN {
+            for desktop_dark in [true, false] {
+                let ctx = Context::default();
+                apply(&ctx, &built_in_theme(name), Some(desktop_dark), None);
+                looks.push((
+                    format!("{name}, dark {desktop_dark}"),
+                    ctx.global_style().visuals.clone(),
+                ));
+            }
+        }
+        for (name, visuals) in looks {
+            let accent = visuals.selection.bg_fill;
+            let (fill, stroke) = super::highlight_look(&visuals, true);
+            assert_ne!(
+                fill, accent,
+                "{name}: the fill is a tint, not the full colour"
+            );
+            assert_ne!(fill, visuals.panel_fill, "{name}: the tint still shows");
+            let outline_colours = [accent, visuals.strong_text_color()];
+            assert!(
+                outline_colours.contains(&stroke.color),
+                "{name}: a strong outline"
+            );
+            assert!(stroke.width >= 1.0);
+            let text = super::contrast(super::selected_text_colour(&visuals, true), fill);
+            assert!(
+                text >= 4.5,
+                "{name}: text on the tint has a contrast of {text}"
+            );
+            let edge = super::contrast(stroke.color, visuals.panel_fill);
+            assert!(
+                edge >= 3.0,
+                "{name}: the outline on the panel has a contrast of {edge}"
+            );
+        }
     }
 
     /// Another window's sort folder, written to the file meanwhile, shows in this window's sort

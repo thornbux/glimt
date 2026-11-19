@@ -9,6 +9,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - The status bar tells about the shown image in a compact line, `1800 × 1200 · 920.0 kB · 5 / 16`,
   instead of Geeqie's `( 1800 x 1200 ) 920,000 bytes [5/16]`.
+- The selection in the file list and the icon grids is a soft, rounded tint of the selection
+  colour with an outline in its full colour, and thumbnails have rounded corners, as the
+  theme's buttons.
 
 ## [0.91.0] - 2026-11-19
 
