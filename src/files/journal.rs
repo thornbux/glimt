@@ -687,8 +687,8 @@ pub fn start_folder_log(
 /// The folder counts as still where it was when its old path holds a folder with the inode the
 /// log noted (or any folder, where the log could note none). A renamed folder counts as renamed
 /// only when its old path is surely free and its new one holds it. A trashed folder counts as
-/// trashed when its old path is free or holds another folder, and its files leave the collection
-/// shown here.
+/// trashed when its old path holds another folder, or is free in a folder that surely is there
+/// (`is_gone_from_its_folder`), and its files leave the collection shown here.
 fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
     let (mut tree, mut inode, mut collection) = (None, None, None);
     for record in records {
@@ -719,6 +719,12 @@ fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
         }
         Some(_) => JobDoneBeforeAKill::NothingToFollow,
         None => {
+            // A free path counts only in a folder that surely is there. A stick or share not
+            // mounted at this start would else have every file under the folder taken for
+            // trashed.
+            if is_surely_gone(&from) {
+                is_gone_from_its_folder(&from)?;
+            }
             forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&from));
             JobDoneBeforeAKill::FolderTrashed(from)
         }
@@ -1481,12 +1487,20 @@ fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> boo
 /// the kill. The marks of a deleted file then stay with a later photo that took its name, as
 /// they did before there was a log, which is the lesser harm.
 fn went_before_the_kill(path: &Path) -> Option<bool> {
-    // The folder is looked at first, so that a stick mounted between the two looks counts as
-    // not there yet.
-    let has_folder = path.parent().is_some_and(is_surely_dir);
     if is_surely_there(path) {
         return Some(false);
     }
+    is_gone_from_its_folder(path)
+}
+
+/// Returns `Some(true)` when nothing is at `path` while its folder surely is there, the one
+/// rule by which a start takes a name that a log noted for gone. Returns `None` when the looks
+/// cannot tell: the folder is not there, as on a stick or a share not back yet at this start,
+/// or a look failed.
+fn is_gone_from_its_folder(path: &Path) -> Option<bool> {
+    // The folder is looked at first, so that a stick mounted between the two looks counts as
+    // not there yet.
+    let has_folder = path.parent().is_some_and(is_surely_dir);
     (has_folder && is_surely_gone(path)).then_some(true)
 }
 
@@ -4690,6 +4704,16 @@ mod tests {
         let entries = crate::model::collections::load(&collection).unwrap();
         assert_eq!(entries, vec![kept]);
         assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 0);
+        // A trashed folder whose parent is not there at this start, as on a stick not
+        // mounted: the start cannot tell, and leaves the log for a later one.
+        let unmounted = dir.join("stick/photos");
+        std::fs::create_dir_all(&unmounted).unwrap();
+        let log = super::start_folder_log(&jobs, &unmounted, None, None).unwrap();
+        std::fs::remove_dir_all(dir.join("stick")).unwrap();
+        drop(log);
+        let (_, _, _, found) = super::jobs_cut_short(&jobs);
+        assert!(found.is_empty());
+        assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 1);
         crate::files::file_ops::test_mount(&dir, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
