@@ -20,6 +20,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Rename Many keeps its plan in the same format. The next start writes a plan that Glimt 0.92
   or older left in `renames/` after a kill anew in `jobs/`, removes the old one, and asks about
   it as before, so the files get their names and keep their marks.
+- A delete or Move to Trash cut short by a kill on a card keeps the marks of its files while
+  another card is mounted at the same path, on a file system that keeps its folders' inodes
+  (not FAT or exFAT), and finishes when the first card is back (#179).
+- A photo that a delete for good finds gone only after an error, as on a share that lost the
+  answer, keeps its sidecars under their hidden names, which Glimt tells, rather than delete
+  them, as another program may have moved the photo away at that moment (#176).
 
 ## [0.92.0] - 2026-11-19
 
