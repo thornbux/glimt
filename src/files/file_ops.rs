@@ -8,7 +8,7 @@ use crate::files::file_io::{
     FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, fingerprint, is_surely_gone,
     is_surely_there, put_file, put_file_until_stopped, rename_never_over, same_fingerprint,
 };
-use crate::files::trash::{TrashMove, restore, trash_dirs};
+use crate::files::trash::{TrashMove, restore, restore_noting, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
 use crate::model::folder::total_size;
@@ -186,6 +186,9 @@ pub(crate) struct OperationReport {
     /// The log of a delete, removed once the marks and stars of `gone` are forgotten. One found
     /// at the start comes with the files that went before Glimt was killed.
     pub(crate) delete_log: Option<journal::DeleteLog>,
+    /// The log of another job (an Undo from the trash), removed once what the report brings
+    /// along has been written.
+    pub(crate) job_log: Option<crate::files::job_log::JobLog>,
     /// The plans of Rename Many cut short that a repair could not put right, with the list of
     /// their files not under the names they were to get (`journal::names_left`). They are asked
     /// about again at once, with the way out of leaving the names as they are.
@@ -1046,6 +1049,7 @@ impl crate::App {
                 untrashable,
                 move_log,
                 delete_log,
+                job_log,
                 cut_short_left,
                 is_moved_from_a_record,
             },
@@ -1083,24 +1087,14 @@ impl crate::App {
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
             self.forget_names(&gone);
-            // Deleted files lose their marks, so that a new file with the same name does not
-            // get them. The marks are kept with the undo of a move to the trash, and it puts
-            // them back.
-            #[cfg(feature = "marks")]
-            {
-                // Added to, not replaced: an Undo that put nothing back sends its marks back.
-                let for_undo = match &undo {
-                    Some(Undo::Trash(trash_move)) => Some(trash_move.marks.clone()),
-                    _ => None,
-                };
-                self.marks.forget(&gone, for_undo);
-                self.marks.restore(restored_marks);
-            }
-            #[cfg(not(feature = "marks"))]
-            drop(restored_marks);
+            self.marks_of_files_gone_or_back(&gone, undo.as_ref(), restored_marks);
             // The log of a delete goes once the marks of its files that went are forgotten.
             if let Some(log) = delete_log {
                 log.remove_once_forgotten();
+            }
+            // Any other job's log goes once its marks and places are written.
+            if let Some(log) = job_log {
+                journal::remove_once_written(log);
             }
             if undo.is_some() && !(is_undo_remainder && self.file_operations.undo.is_some()) {
                 self.file_operations.undo = undo;
@@ -1144,6 +1138,30 @@ impl crate::App {
         {
             self.ask_delete_instead(kind, &files);
         }
+    }
+
+    /// Takes the marks and stars away from the files `gone`, and gives back those that an Undo
+    /// from the trash put back, `restored_marks`. Deleted files lose their marks, so that a new
+    /// file with the same name does not get them. The marks are kept with the `undo` of a move to
+    /// the trash, and it puts them back.
+    fn marks_of_files_gone_or_back(
+        &mut self,
+        gone: &[PathBuf],
+        undo: Option<&Undo>,
+        restored_marks: Vec<(PathBuf, (u8, u8))>,
+    ) {
+        #[cfg(feature = "marks")]
+        {
+            // Added to, not replaced: an Undo that put nothing back sends its marks back.
+            let for_undo = match undo {
+                Some(Undo::Trash(trash_move)) => Some(trash_move.marks.clone()),
+                _ => None,
+            };
+            self.marks.forget(gone, for_undo);
+            self.marks.restore(restored_marks);
+        }
+        #[cfg(not(feature = "marks"))]
+        drop((gone, undo, restored_marks));
     }
 
     /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
@@ -2126,7 +2144,7 @@ impl crate::App {
             Undo::Move(pairs) => drop(self.run_in_background(ctx, undone, move || {
                 // A log as a Move's, for the marks and collections at the next start after a
                 // kill. A log that cannot be started is told, and the files go back all the same.
-                let log_dir = undo_move_log_dir();
+                let log_dir = undo_log_dir();
                 let started = log_dir
                     .as_deref()
                     .map(|d| journal::start_move_log(d, "undo-move"));
@@ -2183,7 +2201,29 @@ impl crate::App {
                 });
                 return Some(Told::Notice(job.stopped_text()));
             };
-            let (back, mut error) = restore(&trash_move, trash_dirs);
+            // A log keeps the marks and places, so that a kill while the files come back
+            // does not lose them. A log that cannot be made or written is told, and the files
+            // come back all the same.
+            let log_dir = undo_log_dir();
+            let collection = (trash_move.collection.as_ref())
+                .map(|(file, removed)| (file.as_path(), removed.as_slice()));
+            let started = (log_dir.as_deref()).map(|d| {
+                journal::start_undo_trash_log(d, &trash_move.files, &all_marks, collection)
+            });
+            let (mut undo_log, mut log_failure) = match started.transpose() {
+                Ok(log) => (log, None),
+                Err(e) => (None, Some(e)),
+            };
+            let mut note = |path: &Path| {
+                if let Some(log) = undo_log.as_mut() {
+                    log.note_back(path);
+                }
+            };
+            let (back, mut error) = restore_noting(&trash_move, trash_dirs, &mut note);
+            log_failure = log_failure.or_else(|| undo_log.as_mut()?.take_failure());
+            if let Some(warning) = log_dir.zip(log_failure).map(log_not_saved) {
+                error.get_or_insert(warning);
+            }
             // What went with the files comes back with them: their places in the
             // collection, their marks and their stars.
             let set: HashSet<&Path> = back.iter().map(PathBuf::as_path).collect();
@@ -2225,6 +2265,7 @@ impl crate::App {
                 undo,
                 is_undo_remainder: true,
                 restored_marks: marks,
+                job_log: undo_log.map(journal::UndoTrashLog::into_log),
                 ..Default::default()
             });
             let done = tf!(
@@ -2786,7 +2827,7 @@ fn quoted_for_shell(path: &[u8]) -> String {
 /// Puts the entries `removed` from a collection back into `all`, which is what is left, each at
 /// the place it had then. It does this in one pass, also for thousands. An entry that is there
 /// again is not added twice.
-fn put_back(all: &mut Vec<PathBuf>, removed: &[(usize, PathBuf)]) {
+pub(crate) fn put_back(all: &mut Vec<PathBuf>, removed: &[(usize, PathBuf)]) {
     let have: HashSet<PathBuf> = all.iter().cloned().collect();
     let mut left = std::mem::take(all).into_iter();
     for (at, path) in removed.iter().filter(|(_, p)| !have.contains(p)) {
@@ -3676,7 +3717,7 @@ fn names_left_for_the_next_start(
 #[cfg(not(test))]
 fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     let jobs_dir = crate::files::job_log::jobs_dir();
-    let (moves, deletes, written_anew) = (jobs_dir.as_deref())
+    let (moves, deletes, written_anew, others) = (jobs_dir.as_deref())
         .map(journal::jobs_cut_short)
         .unwrap_or_default();
     // The logs of Glimt 0.92 and older are put right once too, and removed or written anew.
@@ -3686,6 +3727,18 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
             moved: went,
             move_log: Some(log),
             ..Default::default()
+        });
+    }
+    for (log, done) in others {
+        let report = match done {
+            journal::JobDoneBeforeAKill::BackFromTrash(marks) => OperationReport {
+                restored_marks: marks,
+                ..Default::default()
+            },
+        };
+        let _ = report_tx.send(OperationReport {
+            job_log: Some(log),
+            ..report
         });
     }
     let old = (journal::delete_log_dir().zip(jobs_dir))
@@ -3699,10 +3752,11 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Returns the folder of the log that an Undo of a Move keeps, which is that of the job logs.
+/// Returns the folder of the log that an Undo of a Move or from the trash keeps, which is that of
+/// the job logs.
 /// The tests share one state folder, and a test's Undo would leave its log there when the test
 /// does not take the report, so they test the log on folders of their own.
-fn undo_move_log_dir() -> Option<PathBuf> {
+fn undo_log_dir() -> Option<PathBuf> {
     #[cfg(not(test))]
     return crate::files::job_log::jobs_dir();
     #[cfg(test)]

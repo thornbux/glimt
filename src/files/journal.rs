@@ -79,13 +79,22 @@ thread_local! {
 }
 
 /// The job logs a start found: the Moves with the files that went, the deletes with the files
-/// whose marks are to be forgotten, and the logs of older formats that a job log took the
-/// place of (`jobs_cut_short`).
+/// whose marks are to be forgotten, the logs of older formats that a job log took the place of,
+/// and the other jobs with what each did (`jobs_cut_short`).
 pub type JobsCutShort = (
     Vec<(MoveLog, Moves)>,
     Vec<(DeleteLog, Vec<PathBuf>)>,
     HashSet<PathBuf>,
+    Vec<(JobLog, JobDoneBeforeAKill)>,
 );
+
+/// What a job that is neither a Move nor a delete had done when Glimt was killed during it, as
+/// the start reads it from the job's log. The window follows it as the job's report would have,
+/// and the log goes after the writes that follow (`remove_once_written`).
+pub enum JobDoneBeforeAKill {
+    /// An Undo from the trash put these files back: each with the marks and stars it had.
+    BackFromTrash(Vec<(PathBuf, (u8, u8))>),
+}
 
 /// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
@@ -250,6 +259,45 @@ impl MoveLog {
     pub fn remove_once_followed(self) {
         let (path, file) = self.log.into_path_and_file();
         remove_after_the_writes(path, file);
+    }
+}
+
+/// The log of an Undo from the trash while it runs, a job log (`JobLog`) in `jobs/` of the kind
+/// "undo-trash". A Move to Trash takes the files' marks and stars out of the marks file, and the
+/// Undo holds them, with the files' places in the collection shown, only in memory until the
+/// files are back. So before the first file comes back, the log holds, synced, a `step` record
+/// for each file or folder put back and for each file in such a folder that had marks or a
+/// place, with its `marks` and `place` records. A `done` record follows each file or folder
+/// once it is back. The next start after a kill gives the marks and places back to each file
+/// whose step, or whose folder's step, is done (`back_from_the_trash`).
+pub struct UndoTrashLog {
+    log: JobLog,
+    /// The number of the step of each file or folder put back.
+    steps: HashMap<PathBuf, usize>,
+    /// The first write of the log that failed. The Undo goes on without the later records.
+    failure: Option<std::io::Error>,
+}
+
+impl UndoTrashLog {
+    /// Writes down that `path`, a file or folder that the Undo put back, is back.
+    pub fn note_back(&mut self, path: &Path) {
+        if self.failure.is_some() {
+            return;
+        }
+        if let Some(&number) = self.steps.get(path) {
+            self.failure = self.log.add_records(&[Record::Done(number)]).err();
+        }
+    }
+
+    /// Returns the first write of the log that failed, and `None` when every one worked.
+    pub fn take_failure(&mut self) -> Option<std::io::Error> {
+        self.failure.take()
+    }
+
+    /// Returns the log, to be removed once the marks and places have been written
+    /// (`remove_once_written`).
+    pub fn into_log(self) -> JobLog {
+        self.log
     }
 }
 
@@ -547,6 +595,112 @@ pub fn start_delete_log(
     })
 }
 
+/// Makes a new job log in `dir` of an Undo from the trash that puts `files` back, with the
+/// `marks` and stars that the Move to Trash took from them, and the places in the `collection`
+/// shown that it took them out of, `places`. Every record is on disk before this returns.
+pub fn start_undo_trash_log(
+    dir: &Path,
+    files: &[PathBuf],
+    marks: &[(PathBuf, (u8, u8))],
+    collection: Option<(&Path, &[(usize, PathBuf)])>,
+) -> std::io::Result<UndoTrashLog> {
+    let mut records: Vec<Record> = (collection.iter())
+        .map(|(c, _)| Record::Shown(c.to_path_buf()))
+        .collect();
+    let mut steps: HashMap<PathBuf, usize> = HashMap::new();
+    let mut number_of = |path: &Path, records: &mut Vec<Record>| {
+        let next = steps.len();
+        let number = *steps.entry(path.to_path_buf()).or_insert(next);
+        if number == next {
+            records.push(Record::Step {
+                number,
+                from: path.to_path_buf(),
+                to: None,
+                fingerprint: None,
+            });
+        }
+        number
+    };
+    for file in files {
+        number_of(file, &mut records);
+    }
+    for (path, (bits, stars)) in marks {
+        let number = number_of(path, &mut records);
+        records.push(Record::Marks {
+            number,
+            bits: *bits,
+            stars: *stars,
+        });
+    }
+    for (index, path) in collection.into_iter().flat_map(|(_, places)| places) {
+        let number = number_of(path, &mut records);
+        records.push(Record::Place {
+            number,
+            index: *index,
+        });
+    }
+    let put_back: HashSet<&PathBuf> = files.iter().collect();
+    steps.retain(|path, _| put_back.contains(path));
+    Ok(UndoTrashLog {
+        log: JobLog::start(dir, "undo-trash", &records)?,
+        steps,
+        failure: None,
+    })
+}
+
+/// Removes the job log `log` once what the window sent before to the thread of the user's
+/// folders and to that of Glimt's own files has been written. A log that is dropped instead
+/// stays on disk, and the next start reads it again.
+pub fn remove_once_written(log: JobLog) {
+    let (path, file) = log.into_path_and_file();
+    remove_after_the_writes(path, file);
+}
+
+/// Returns what an Undo from the trash whose log says `records` had put back when Glimt was
+/// killed: the files whose step is done, or that are in a folder whose step is done, each with
+/// its marks and stars. The places of those files in the collection shown are given back there
+/// first. A file whose step is not done keeps no marks: it is still in the trash, as after a
+/// kill before the Undo, or came back in the moment between its rename and its record.
+fn back_from_the_trash(records: &[Record]) -> JobDoneBeforeAKill {
+    let (mut paths, mut done, mut marks, mut places) =
+        (Vec::new(), HashSet::new(), Vec::new(), Vec::new());
+    let mut collection = None;
+    for record in records {
+        match record {
+            Record::Shown(c) => collection = Some(c.clone()),
+            Record::Step { from, .. } => paths.push(from.clone()),
+            Record::Done(number) => {
+                done.insert(paths[*number].clone());
+            }
+            Record::Marks {
+                number,
+                bits,
+                stars,
+            } => marks.push((*number, (*bits, *stars))),
+            Record::Place { number, index } => places.push((*index, *number)),
+            _ => {}
+        }
+    }
+    let is_back = |path: &PathBuf| path.ancestors().any(|a| done.contains(a));
+    let places: Vec<(usize, PathBuf)> = (places.into_iter())
+        .map(|(index, number)| (index, paths[number].clone()))
+        .filter(|(_, path)| is_back(path))
+        .collect();
+    if let Some(collection) = collection.filter(|_| !places.is_empty())
+        && !is_surely_gone(&collection)
+    {
+        let put_back = |all: &mut Vec<PathBuf>| crate::files::file_ops::put_back(all, &places);
+        if let Err(e) = crate::model::collections::edit_open_collection(&collection, put_back) {
+            crate::files::file_io::save_failed(e);
+        }
+    }
+    let marks = (marks.into_iter())
+        .map(|(number, value)| (paths[number].clone(), value))
+        .filter(|(path, _)| is_back(path))
+        .collect();
+    JobDoneBeforeAKill::BackFromTrash(marks)
+}
+
 /// Removes the Move or delete log at `path`, held locked by `file`, with its list, after the
 /// writes the window has sent so far: to the thread of the user's folders (collections), and
 /// then to that of Glimt's own files (marks).
@@ -634,7 +788,7 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             _ => None,
         })
         .collect();
-    let (mut moves, mut deletes) = (Vec::new(), Vec::new());
+    let (mut moves, mut deletes, mut others) = (Vec::new(), Vec::new(), Vec::new());
     for found in found {
         if written_anew.contains(found.log.path()) {
             let (path, file) = found.log.into_path_and_file();
@@ -647,9 +801,11 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             let records = delete_records(found.job, &found.records);
             let jobs = dir.to_path_buf();
             deletes.push(put_right_a_delete(found.log, records, time, jobs));
+        } else if found.job == "undo-trash" {
+            others.push((found.log, back_from_the_trash(&found.records)));
         }
     }
-    (moves, deletes, written_anew)
+    (moves, deletes, written_anew, others)
 }
 
 /// The job logs in `dir` of Moves, and of Undos of Moves, that Glimt was killed during, as
@@ -4077,7 +4233,7 @@ mod tests {
         assert!(super::old_deletes_cut_short(&old_logs, &jobs, &none).is_empty());
         // A kill came before the old log went: the job log names it, and it goes unread.
         std::fs::write(&old, &names).unwrap();
-        let (_, found, written_anew) = super::jobs_cut_short(&jobs);
+        let (_, found, written_anew, _) = super::jobs_cut_short(&jobs);
         assert!(found[0].1.is_empty());
         assert!(super::old_deletes_cut_short(&old_logs, &jobs, &written_anew).is_empty());
         assert!(!old.exists(), "the old log was read again");
@@ -4330,6 +4486,78 @@ mod tests {
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "bb".into()));
         assert!(!path.exists());
         drop(held);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Undo from the trash keeps a log of the marks, stars and places of what it puts back,
+    /// and writes each file or folder down once it is back. Glimt killed before the window took
+    /// the Undo's report leaves the log, and the next start gives the marks back to the files
+    /// that came back, also to a file in a folder that came back, and their places to the
+    /// collection. A file that stayed in the trash gets none. Before, the Undo kept them only in
+    /// memory, and a kill lost them.
+    #[test]
+    fn an_undo_from_the_trash_keeps_its_marks_through_a_kill() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-trash-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x, jobs) = (dir.join("trash"), dir.join("x"), dir.join("jobs"));
+        for d in [trash.join("files/f"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        std::fs::write(trash.join("files/a.jpg"), "a").unwrap();
+        std::fs::write(trash.join("files/f/in.jpg"), "in").unwrap();
+        for name in ["a.jpg", "f"] {
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                x.join(name).display()
+            );
+            std::fs::write(trash.join("info").join(format!("{name}.trashinfo")), text).unwrap();
+        }
+        let collection = dir.join("c.gqv");
+        let kept = x.join("kept.jpg");
+        std::fs::write(&collection, format!("\"{}\"\n", kept.display())).unwrap();
+        let (a, f) = (x.join("a.jpg"), x.join("f"));
+        let (inside, stayed) = (x.join("f/in.jpg"), x.join("b.jpg"));
+        let marks = vec![
+            (a.clone(), (1, 2)),
+            (inside.clone(), (4, 0)),
+            (stayed.clone(), (8, 5)),
+        ];
+        let places = vec![(0, a.clone()), (2, inside.clone())];
+        let files = vec![a.clone(), f.clone(), stayed.clone()];
+        let shown = Some((collection.as_path(), places.as_slice()));
+        let mut log = super::start_undo_trash_log(&jobs, &files, &marks, shown).unwrap();
+        let trash_move = crate::files::trash::TrashMove {
+            files,
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
+        let mut note = |path: &std::path::Path| log.note_back(path);
+        let (back, _) = crate::files::trash::restore_noting(&trash_move, dirs, &mut note);
+        assert_eq!(back, vec![a.clone(), f.clone()]);
+        // Killed before the report was taken: the log is let go, not removed.
+        drop(log);
+        let (_, _, _, found) = super::jobs_cut_short(&jobs);
+        let [(log, super::JobDoneBeforeAKill::BackFromTrash(given))] = &found[..] else {
+            panic!("{} logs found", found.len());
+        };
+        assert_eq!(given, &vec![(a.clone(), (1, 2)), (inside.clone(), (4, 0))]);
+        let entries = crate::model::collections::load(&collection).unwrap();
+        assert_eq!(entries, vec![a, kept, inside]);
+        let path = log.path().to_path_buf();
+        found
+            .into_iter()
+            .for_each(|(log, _)| super::remove_once_written(log));
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        assert!(!path.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

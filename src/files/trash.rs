@@ -101,7 +101,18 @@ pub(crate) fn restore(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
 ) -> (Vec<PathBuf>, Option<String>) {
-    restore_until(trash_move, dirs_of, std::time::SystemTime::now())
+    restore_noting(trash_move, dirs_of, &mut |_| {})
+}
+
+/// Puts back what `trash_move` moved to the trash, as `restore` does, and calls `on_back` with
+/// each file or folder as soon as it is back with its sidecars, so that an Undo's log can write
+/// it down then.
+pub(crate) fn restore_noting(
+    trash_move: &TrashMove,
+    dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
+    on_back: &mut dyn FnMut(&Path),
+) -> (Vec<PathBuf>, Option<String>) {
+    restore_between(trash_move, dirs_of, std::time::SystemTime::now(), on_back)
 }
 
 /// Puts back what `trash_move` moved to the trash, as `restore` does, but only what went to the
@@ -112,6 +123,17 @@ pub(crate) fn restore_until(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
     latest: std::time::SystemTime,
+) -> (Vec<PathBuf>, Option<String>) {
+    restore_between(trash_move, dirs_of, latest, &mut |_| {})
+}
+
+/// Puts back what `trash_move` moved to the trash by the time `latest`, as `restore_until` says,
+/// and calls `on_back` with each file or folder as soon as it is back.
+fn restore_between(
+    trash_move: &TrashMove,
+    dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
+    latest: std::time::SystemTime,
+    on_back: &mut dyn FnMut(&Path),
 ) -> (Vec<PathBuf>, Option<String>) {
     // Each trash folder is read, and its files put back, through the folder that `dirs_of`
     // opened and checked, which stays open until the end.
@@ -217,7 +239,7 @@ pub(crate) fn restore_until(
     }
     let rest = alone.into_iter().filter_map(|s| find(s));
     steps.extend(rest.map(|s| (s, false, Vec::new())));
-    let back = put_back(steps, &mut error);
+    let back = put_back(steps, &mut error, on_back);
     (back, error)
 }
 
@@ -266,6 +288,7 @@ fn sidecars_by_file<'a>(
 fn put_back(
     steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
     error: &mut Option<String>,
+    on_back: &mut dyn FnMut(&Path),
 ) -> Vec<PathBuf> {
     let rename = |t: &TrashEntry| {
         rename_never_over(&t.file, &t.from)
@@ -316,6 +339,7 @@ fn put_back(
         }
         // A file that could not go back into the trash is out, as are the sidecars that came.
         if is_file && let Some(file) = out.first() {
+            on_back(&file.from);
             back.push(file.from.clone());
         }
         renamed.extend(out);
