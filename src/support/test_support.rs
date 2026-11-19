@@ -3,7 +3,7 @@
 //! makes the folder the file operations' contract works on. `broken` gives damaged forms of a good
 //! input for the parsers' `survives_broken_*` tests. `png_with_raw_profile` writes a PNG with its
 //! EXIF only in a text chunk. `set_attribute` and `attribute` set and read a file's extended
-//! attribute.
+//! attribute. `assert_panel_slides` checks that a panel slides out and then rests.
 
 /// The EXIF block of a photo of a Canon taken on 2020:01:02 at 03:04:05, stored turned a
 /// quarter (orientation 6), big-endian.
@@ -267,6 +267,65 @@ pub(crate) fn attribute(path: &std::path::Path, name: &str) -> Option<Vec<u8>> {
     };
     value.truncate(usize::try_from(size).ok()?);
     Some(value)
+}
+
+/// Checks that the panel `draw` draws slides out over a few frames once it is no longer
+/// shown, then asks for no frame at all, and goes at once when the animation time is zero.
+/// `draw` is given whether the panel is shown.
+pub(crate) fn assert_panel_slides(
+    ctx: &eframe::egui::Context,
+    mut draw: impl FnMut(&mut eframe::egui::Ui, bool),
+) {
+    use eframe::egui;
+    // Draws one frame at `seconds` in a window of 800 points, and returns the width left
+    // beside the panel and how long egui may wait before the next frame.
+    let mut frame_at = |seconds: f64, is_shown: bool| {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let input = egui::RawInput {
+            time: Some(seconds),
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        let mut left = 0.0;
+        let out = ctx.run_ui(input, |ui| {
+            draw(ui, is_shown);
+            left = ui.available_rect_before_wrap().width();
+        });
+        (
+            left,
+            out.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+        )
+    };
+    // Frames 1/60 s apart, as egui moves an animation by at most one frame's time.
+    let frame = |n: u32| f64::from(n) / 60.0;
+    let (shown, _) = frame_at(frame(0), true);
+    assert!(shown < 800.0, "the panel takes no room: {shown}");
+    frame_at(frame(1), true);
+    frame_at(frame(2), false);
+    let (sliding, wait) = frame_at(frame(3), false);
+    assert!(
+        shown < sliding && sliding < 800.0,
+        "no slide: {shown} {sliding}"
+    );
+    assert_eq!(
+        wait,
+        std::time::Duration::ZERO,
+        "the slide asks for no next frame"
+    );
+    for n in 4..60 {
+        frame_at(frame(n), false);
+    }
+    let (out, wait) = frame_at(frame(60), false);
+    assert_eq!(out, 800.0);
+    assert_eq!(
+        wait,
+        std::time::Duration::MAX,
+        "the hidden panel still asks for frames"
+    );
+    // A reduced motion: the theme's animation time of zero shows and hides it at once.
+    ctx.all_styles_mut(|style| style.animation_time = 0.0);
+    frame_at(frame(61), true);
+    assert_eq!(frame_at(frame(62), false).0, 800.0);
 }
 
 #[cfg(test)]

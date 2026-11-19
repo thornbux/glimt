@@ -371,13 +371,19 @@ impl crate::App {
         }
     }
 
-    /// File and EXIF details of the shown image, read in the background (Ctrl+K).
-    pub(crate) fn info_panel(&mut self, ui: &mut egui::Ui) {
-        self.request_and_take_exif(ui.ctx());
+    /// File and EXIF details of the shown image, read in the background (Ctrl+K). The panel
+    /// slides in and out as `is_shown` changes, and reads nothing while it is not shown.
+    pub(crate) fn info_panel(&mut self, ui: &mut egui::Ui, is_shown: bool) {
+        if is_shown {
+            self.request_and_take_exif(ui.ctx());
+        }
         egui::Panel::right("exif")
             .resizable(true)
             .default_size(240.0)
-            .show(ui, |ui| {
+            .drag_to_open(false)
+            // The panel's own flips (a double-click on its edge, a drag past its smallest size)
+            // go to a copy, so that only Ctrl+K and the menu change the setting.
+            .show_collapsible(ui, &mut { is_shown }, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
                         ui.weak(tr("File"));
@@ -1287,7 +1293,7 @@ mod tests {
         let is_disabled = |app: &mut crate::App| {
             let mut found = None;
             for _ in 0..2 {
-                let out = ctx.run_ui(Default::default(), |ui| app.info_panel(ui));
+                let out = ctx.run_ui(Default::default(), |ui| app.info_panel(ui, true));
                 let update = out.platform_output.accesskit_update.map(|u| u.nodes);
                 for (_, node) in update.into_iter().flatten() {
                     if node.role() == eframe::egui::Role::Link && node.label() == Some(place) {
@@ -1300,6 +1306,21 @@ mod tests {
         assert_eq!(is_disabled(&mut app), Some(false));
         app.show_file(&ctx, 1);
         assert_eq!(is_disabled(&mut app), Some(true));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The info panel slides in and out, as Ctrl+K turns it on and off, and draws nothing once
+    /// it is out. Before, it popped in and out in one frame.
+    #[test]
+    fn the_info_panel_slides_and_then_rests() {
+        let name = format!("glimt-test-info-slides-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
+            app.info_panel(ui, is_shown)
+        });
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

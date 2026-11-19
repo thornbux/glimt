@@ -1390,8 +1390,9 @@ impl crate::App {
     }
 
     /// The left side, as in Geeqie, with the path, the folders at the top, the search, and the
-    /// files below. Returns what a click there asked for.
-    pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    /// files below. It slides in and out as `is_shown` changes, and is not drawn once it is
+    /// out. Returns what a click there asked for.
+    pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, is_shown: bool) {
         let (mut open_dir, mut go_to, mut chosen, mut opened) = (None, None, None, None);
         // The grid in the image area has the thumbnails, so the list has names.
         let form = if self.panel.is_area_grid_on() {
@@ -1410,7 +1411,10 @@ impl crate::App {
             .resizable(true)
             .default_size(240.0)
             .min_size(min)
-            .show(ui, |ui| {
+            .drag_to_open(false)
+            // The panel's own flips (a double-click on its edge, a drag past its smallest size)
+            // go to a copy, as hiding the file list also hides the menu bar.
+            .show_collapsible(ui, &mut { is_shown }, |ui| {
                 if self.config.path_bar {
                     self.path_field(ui);
                 }
@@ -2201,6 +2205,22 @@ fn status_line(size: Option<[usize; 2]>, bytes: Option<u64>, position: &str, pag
 #[cfg(test)]
 mod tests {
     use super::Panel;
+
+    /// The file list slides in and out, as full screen and Hide File List hide it, and draws
+    /// nothing once it is out. Before, it popped in and out in one frame.
+    #[test]
+    fn the_side_panel_slides_and_then_rests() {
+        let name = format!("glimt-test-side-slides-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let ctx_for_panel = ctx.clone();
+        crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
+            app.side_panel(&ctx_for_panel, ui, is_shown)
+        });
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// The status bar is compact: "1800 × 1200 · 920.0 kB · 5 / 16", the page after it, and
     /// only what is known.
