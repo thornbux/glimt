@@ -5400,12 +5400,14 @@ PY
     done
 done
 
-section "the last release killed (kill -9) during a Move and a Move to Trash: a start of this one puts its log right once"
+section "the last release killed (kill -9) during a Move: a start of this one puts its Move log right once"
 # The job log of 0.93 took the place of the logs in moves/ and deletes/. A start puts every
 # unlocked old log right once with the old rules and removes it (docs/design/log-format.md,
-# decision 3), so the stars follow the files that the old release moved, and are forgotten for
-# those it trashed, before the kill. Run as "new" with the home of the new release, and as
-# "old" with the old release's binary for both runs, to compare.
+# decision 3), so the stars follow the files that the old release moved before the kill. Run as
+# "new" with the home of the new release, and as "old" with the old release's binary for both
+# runs, to compare. An old delete log is left to the unit test
+# an_old_delete_log_is_put_right_once_and_written_anew_in_jobs: a kill of 0.92 mid-delete here
+# would need the held sidecar lock of the delete section above, for no check the unit test lacks.
 for v in new old; do
     as_version new
     second=$BIN
