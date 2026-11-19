@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-11-19
+
 ### Changed
 
 - The status bar tells about the shown image in a compact line, `1800 × 1200 · 920.0 kB · 5 / 16`,
@@ -4454,7 +4456,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.91.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.92.0...HEAD
+[0.92.0]: https://github.com/thornbux/glimt/compare/v0.91.0...v0.92.0
 [0.91.0]: https://github.com/thornbux/glimt/compare/v0.90.0...v0.91.0
 [0.90.0]: https://github.com/thornbux/glimt/compare/v0.89.0...v0.90.0
 [0.89.0]: https://github.com/thornbux/glimt/compare/v0.88.0...v0.89.0
