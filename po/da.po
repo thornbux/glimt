@@ -2554,11 +2554,6 @@ msgstr ", {m} valgt ({size})"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "{n} bytes"
-msgstr "{n} byte"
-
-#: src/features/print.rs
-#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " side {n}/{pages}"
 
@@ -3820,11 +3815,6 @@ msgstr "De metadata, der blev redigeret for {count}, blev ikke gemt, da listen i
 #, fuzzy
 msgid "The list is not yet read, so the metadata edited for {count} was not saved"
 msgstr "Listen er ikke læst endnu, så de metadata, der blev redigeret for {count}, blev ikke gemt"
-
-#: src/ui/file_list.rs
-#, fuzzy
-msgid "( {w} x {h} ) {bytes}{position}{page}"
-msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
 #, fuzzy

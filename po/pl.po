@@ -2565,11 +2565,6 @@ msgstr ", zaznaczono {m} ({size})"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "{n} bytes"
-msgstr "{n} B"
-
-#: src/features/print.rs
-#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " strona {n}/{pages}"
 
@@ -3831,11 +3826,6 @@ msgstr "Zmienione metadane nie zostały zapisane, bo lista już ich nie zawiera:
 #, fuzzy
 msgid "The list is not yet read, so the metadata edited for {count} was not saved"
 msgstr "Lista nie została jeszcze odczytana, więc zmienione metadane nie zostały zapisane: {count}"
-
-#: src/ui/file_list.rs
-#, fuzzy
-msgid "( {w} x {h} ) {bytes}{position}{page}"
-msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
 #, fuzzy

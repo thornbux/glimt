@@ -2223,10 +2223,6 @@ msgid ", {m} selected ({size})"
 msgstr ""
 
 #: src/features/print.rs
-msgid "{n} bytes"
-msgstr ""
-
-#: src/features/print.rs
 msgid " page {n}/{pages}"
 msgstr ""
 
@@ -3079,10 +3075,6 @@ msgstr ""
 
 #: src/files/file_ops.rs
 msgid "The list is not yet read, so the metadata edited for {count} was not saved"
-msgstr ""
-
-#: src/ui/file_list.rs
-msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr ""
 
 #: src/features/tools.rs

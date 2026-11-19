@@ -2771,11 +2771,6 @@ msgstr ", vybráno {m} ({size})"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "{n} bytes"
-msgstr "{n} B"
-
-#: src/features/print.rs
-#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " stránka {n}/{pages}"
 
@@ -3842,11 +3837,6 @@ msgstr "Upravená metadata nebyla uložena, protože je seznam už neobsahuje: {
 #, fuzzy
 msgid "The list is not yet read, so the metadata edited for {count} was not saved"
 msgstr "Seznam ještě není načten, takže upravená metadata nebyla uložena: {count}"
-
-#: src/ui/file_list.rs
-#, fuzzy
-msgid "( {w} x {h} ) {bytes}{position}{page}"
-msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
 #, fuzzy

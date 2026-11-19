@@ -2213,10 +2213,6 @@ msgid ", {m} selected ({size})"
 msgstr ", {m} valgt ({size})"
 
 #: src/features/print.rs
-msgid "{n} bytes"
-msgstr "{n} byte"
-
-#: src/features/print.rs
 msgid " page {n}/{pages}"
 msgstr " side {n}/{pages}"
 
@@ -3070,10 +3066,6 @@ msgstr "Metadataene som ble redigert for {count}, ble ikke lagret, fordi listen 
 #: src/files/file_ops.rs
 msgid "The list is not yet read, so the metadata edited for {count} was not saved"
 msgstr "Listen er ikke lest ennå, så metadataene som ble redigert for {count}, ble ikke lagret"
-
-#: src/ui/file_list.rs
-msgid "( {w} x {h} ) {bytes}{position}{page}"
-msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
 msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"

@@ -2554,11 +2554,6 @@ msgstr ", {m} selezionate ({size})"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "{n} bytes"
-msgstr "{n} byte"
-
-#: src/features/print.rs
-#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " pagina {n}/{pages}"
 
@@ -3820,11 +3815,6 @@ msgstr "I metadati modificati di {count} non sono stati salvati, perché l'elenc
 #, fuzzy
 msgid "The list is not yet read, so the metadata edited for {count} was not saved"
 msgstr "L'elenco non è ancora stato letto, quindi i metadati modificati di {count} non sono stati salvati"
-
-#: src/ui/file_list.rs
-#, fuzzy
-msgid "( {w} x {h} ) {bytes}{position}{page}"
-msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
 #, fuzzy
