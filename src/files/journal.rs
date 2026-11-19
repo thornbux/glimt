@@ -762,8 +762,9 @@ pub fn remove_once_written(log: JobLog) {
 /// first. A step without its `done` counts as done too when its path holds a file with the
 /// fingerprint it had in the trash, which came back in the moment between its rename and its
 /// record (the rule of a Move, `moves_that_went`). Any other step not done keeps no marks: its
-/// file is still in the trash, or another file has its name.
-fn back_from_the_trash(records: &[Record]) -> JobDoneBeforeAKill {
+/// file is still in the trash, or another file has its name. Returns `None` when such a step's
+/// path cannot be told (`is_gone_at_start`), so that the log stays for a later start.
+fn back_from_the_trash(records: &[Record]) -> Option<JobDoneBeforeAKill> {
     let (mut paths, mut done, mut marks, mut places) =
         (Vec::new(), HashSet::new(), Vec::new(), Vec::new());
     let mut coming = Vec::new();
@@ -790,7 +791,8 @@ fn back_from_the_trash(records: &[Record]) -> JobDoneBeforeAKill {
     }
     for (number, fingerprint) in coming {
         let path = &paths[number];
-        if !done.contains(path) && is_as_known(path, Some(fingerprint)) {
+        if !done.contains(path) && !is_gone_at_start(path)? && is_as_known(path, Some(fingerprint))
+        {
             done.insert(path.clone());
         }
     }
@@ -811,7 +813,7 @@ fn back_from_the_trash(records: &[Record]) -> JobDoneBeforeAKill {
         .map(|(number, value)| (paths[number].clone(), value))
         .filter(|(path, _)| is_back(path))
         .collect();
-    JobDoneBeforeAKill::BackFromTrash(marks)
+    Some(JobDoneBeforeAKill::BackFromTrash(marks))
 }
 
 /// Removes the Move or delete log at `path`, held locked by `file`, with its list, after the
@@ -915,7 +917,10 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             let jobs = dir.to_path_buf();
             deletes.push(put_right_a_delete(found.log, records, time, jobs));
         } else if found.job == "undo-trash" {
-            others.push((found.log, back_from_the_trash(&found.records)));
+            // A log whose files cannot be looked at now stays for a later start.
+            if let Some(done) = back_from_the_trash(&found.records) {
+                others.push((found.log, done));
+            }
         } else if ["rename-folder", "trash-folder"].contains(&found.job) {
             // A log whose folder cannot be looked at now stays for a later start.
             if let Some(done) = folder_job_done(&found.records) {
@@ -4694,10 +4699,18 @@ mod tests {
             ]
         };
         let given_for = |size| match super::back_from_the_trash(&records(size)) {
-            super::JobDoneBeforeAKill::BackFromTrash(given) => given.len(),
+            Some(super::JobDoneBeforeAKill::BackFromTrash(given)) => given.len(),
             _ => panic!("not an Undo from the trash"),
         };
         assert_eq!((given_for(1), given_for(2)), (1, 0));
+        // A file whose folder is not there at this start, as on a stick not mounted, cannot be
+        // told: the log stays rather than its marks being forgotten.
+        let mut unmounted = records(1);
+        if let super::Record::Step { from, .. } = &mut unmounted[0] {
+            *from = x.join("stick/a.jpg");
+        }
+        let told = super::back_from_the_trash(&unmounted);
+        assert!(told.is_none());
         // Killed before the report was taken: the log is let go, not removed.
         drop(log);
         let (_, _, _, found) = super::jobs_cut_short(&jobs);
