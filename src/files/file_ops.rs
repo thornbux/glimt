@@ -6923,26 +6923,37 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A Delete for good syncs the folder of its log once, when it makes the log, not again for
-    /// each photo with a sidecar, where it cost a flush of the disk each time.
+    /// A Delete for good syncs its job log once for each photo whose sidecar it puts aside, at
+    /// the `aside` record, and never for its steps or their `done`, nor for a photo without a
+    /// sidecar, and it syncs the log's folder only when it makes the log. A sync of the log for
+    /// each file, or of its folder for each sidecar, cost a flush of the disk each time.
     #[test]
-    fn a_delete_for_good_syncs_the_folder_of_its_sidecars_put_aside_once() {
+    fn a_delete_for_good_syncs_its_log_once_for_each_sidecar_put_aside() {
+        use super::journal::LOG_FILES_SYNCED;
         use crate::files::file_io::FOLDERS_SYNCED;
-        let dir = contract_folder("aside-folder-once");
+        let dir = contract_folder("aside-log-synced");
         let logs = dir.join("logs");
-        let both = [dir.join("a.png"), dir.join("b.png")];
-        let picked = crate::files::file_io::PickedFiles::new(both.to_vec());
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        std::fs::write(&c, b"c").unwrap();
+        let all = [a, b, c];
+        let picked = crate::files::file_io::PickedFiles::new(all.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
         let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
-        log.note(&both);
+        let log_path = (std::fs::read_dir(&logs).unwrap().flatten())
+            .map(|e| e.path())
+            .find(|p| p.is_file())
+            .unwrap();
         FOLDERS_SYNCED.take();
+        LOG_FILES_SYNCED.take();
+        log.note(&all);
         let mut errors = Vec::new();
         let how = (false, Some(&mut log));
-        let (gone, _, _) = super::delete_chunk(&both, &picked, how, &mut errors);
-        assert_eq!(gone, both, "{errors:?}");
+        let (gone, _, _) = super::delete_chunk(&all, &picked, how, &mut errors);
+        assert_eq!(gone, all, "{errors:?}");
+        // a.png and b.png have a sidecar each, and c.png none.
+        assert_eq!(LOG_FILES_SYNCED.take(), [log_path.clone(), log_path]);
         let synced = FOLDERS_SYNCED.take();
-        let times = synced.iter().filter(|f| **f == logs).count();
-        assert_eq!(times, 0, "{synced:?}");
+        assert!(!synced.contains(&logs), "{synced:?}");
         log.remove_once_forgotten();
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
