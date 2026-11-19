@@ -1983,8 +1983,17 @@ impl crate::App {
                 });
                 return Some(Told::FailedWrite(format!("{}: {e}", old.display())));
             }
+            // A log of the folder, so that a kill before the window has followed it leaves
+            // the next start to make the marks follow. The folder keeps its name without it.
+            let log = match folder_log(&old, Some(&new), None) {
+                Ok(log) => log,
+                Err(warning) => return Some(Told::FailedWrite(warning)),
+            };
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
+                if let Some(log) = log {
+                    journal::remove_once_written(log);
+                }
                 return Some(Told::FailedWrite(format!("{}: {e}", new.display())));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
@@ -1995,6 +2004,7 @@ impl crate::App {
                 .map(|e| Told::FailedWrite(format!("{}: {e}", new.display())));
             let _ = report_tx.send(OperationReport {
                 folder_renamed: Some((old, new)),
+                job_log: log,
                 ..Default::default()
             });
             error
@@ -2049,9 +2059,17 @@ impl crate::App {
             let since = std::time::SystemTime::now();
             // Another folder put at its path while the question was open stays.
             let (_, picked) = picked.wait_for_fingerprints();
-            let error = match picked.still_the_one_picked(&dir) {
-                Ok(()) => crate::files::trash::trash(std::slice::from_ref(&dir)).err(),
-                Err(e) => Some(format!("{}: {e}", dir.display())),
+            // A log of the folder, so that a kill before the window has forgotten the marks of
+            // its files leaves the next start to forget them. The folder stays without it.
+            let (log, error) = match picked.still_the_one_picked(&dir) {
+                Ok(()) => match folder_log(&dir, None, collection.as_deref()) {
+                    Ok(log) => (
+                        log,
+                        crate::files::trash::trash(std::slice::from_ref(&dir)).err(),
+                    ),
+                    Err(warning) => (None, Some(warning)),
+                },
+                Err(e) => (None, Some(format!("{}: {e}", dir.display()))),
             };
             // After a failure, the folder is listed again, as after a failed delete of files.
             let gone = if error.is_none() {
@@ -2078,6 +2096,7 @@ impl crate::App {
                 gone,
                 any_failed: error.is_some(),
                 undo,
+                job_log: log,
                 ..Default::default()
             });
             drop(undo_on_the_way);
@@ -3735,6 +3754,15 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
                 restored_marks: marks,
                 ..Default::default()
             },
+            journal::JobDoneBeforeAKill::FolderRenamed(old, new) => OperationReport {
+                folder_renamed: Some((old, new)),
+                ..Default::default()
+            },
+            journal::JobDoneBeforeAKill::FolderTrashed(folder) => OperationReport {
+                gone: vec![folder],
+                ..Default::default()
+            },
+            journal::JobDoneBeforeAKill::NothingToFollow => OperationReport::default(),
         };
         let _ = report_tx.send(OperationReport {
             job_log: Some(log),
@@ -3752,8 +3780,8 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Returns the folder of the log that an Undo of a Move or from the trash keeps, which is that of
-/// the job logs.
+/// Returns the folder of the log that an Undo of a Move or from the trash, a Rename Folder and a
+/// Move Folder to Trash keep, which is that of the job logs.
 /// The tests share one state folder, and a test's Undo would leave its log there when the test
 /// does not take the report, so they test the log on folders of their own.
 fn undo_log_dir() -> Option<PathBuf> {
@@ -3761,6 +3789,24 @@ fn undo_log_dir() -> Option<PathBuf> {
     return crate::files::job_log::jobs_dir();
     #[cfg(test)]
     return None;
+}
+
+/// Makes the log of a Rename Folder of `folder` to `to`, or of a Move Folder to Trash of it, with
+/// the `collection` shown (`journal::start_folder_log`). Returns `None` where no log is kept (in
+/// the tests), and the words of the failure when the log cannot be made, as the job then does
+/// not start: unlike a Move, it frees no room, and it waits for nothing but this one write.
+fn folder_log(
+    folder: &Path,
+    to: Option<&Path>,
+    collection: Option<&Path>,
+) -> Result<Option<crate::files::job_log::JobLog>, String> {
+    let Some(dir) = undo_log_dir() else {
+        return Ok(None);
+    };
+    match journal::start_folder_log(&dir, folder, to, collection) {
+        Ok(log) => Ok(Some(log)),
+        Err(e) => Err(log_not_saved((dir, e))),
+    }
 }
 
 /// Words the warning that the log of a Move or a delete in `dir` could not be made or written,

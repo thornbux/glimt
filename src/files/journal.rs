@@ -94,6 +94,12 @@ pub type JobsCutShort = (
 pub enum JobDoneBeforeAKill {
     /// An Undo from the trash put these files back: each with the marks and stars it had.
     BackFromTrash(Vec<(PathBuf, (u8, u8))>),
+    /// Rename Folder gave the folder (first) its new name (second).
+    FolderRenamed(PathBuf, PathBuf),
+    /// Move Folder to Trash took the folder away.
+    FolderTrashed(PathBuf),
+    /// The job had not changed the folder yet, or the start cannot tell what it did.
+    NothingToFollow,
 }
 
 /// The renames in the order they are done, as (from, to).
@@ -648,6 +654,77 @@ pub fn start_undo_trash_log(
     })
 }
 
+/// Makes a new job log in `dir` of a Rename Folder of `folder` to `to` ("rename-folder"), or of
+/// a Move Folder to Trash of it ("trash-folder", `to` is `None`), with the folder's device and
+/// inode and the `collection` shown. Every record is on disk before this returns, so that the
+/// next start after a kill can make the marks and collection entries of the files in the folder
+/// follow it, or forget them (`folder_job_done`).
+pub fn start_folder_log(
+    dir: &Path,
+    folder: &Path,
+    to: Option<&Path>,
+    collection: Option<&Path>,
+) -> std::io::Result<JobLog> {
+    let mut records: Vec<Record> = collection
+        .map(|c| Record::Shown(c.to_path_buf()))
+        .into_iter()
+        .collect();
+    records.extend(folder_record(folder));
+    records.push(Record::Tree {
+        from: folder.to_path_buf(),
+        to: to.map(Path::to_path_buf),
+    });
+    let job = if to.is_some() {
+        "rename-folder"
+    } else {
+        "trash-folder"
+    };
+    JobLog::start(dir, job, &records)
+}
+
+/// Returns what a Rename Folder or a Move Folder to Trash whose log says `records` had done when
+/// Glimt was killed, and `None` when a look failed, so that the log stays for a later start.
+/// The folder counts as still where it was when its old path holds a folder with the inode the
+/// log noted (or any folder, where the log could note none). A renamed folder counts as renamed
+/// only when its old path is surely free and its new one holds it. A trashed folder counts as
+/// trashed when its old path is free or holds another folder, and its files leave the collection
+/// shown here.
+fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
+    let (mut tree, mut inode, mut collection) = (None, None, None);
+    for record in records {
+        match record {
+            Record::Tree { from, to } => tree = Some((from.clone(), to.clone())),
+            Record::Folder { inode: noted, .. } => inode = Some(*noted),
+            Record::Shown(c) => collection = Some(c.clone()),
+            _ => {}
+        }
+    }
+    let Some((from, to)) = tree else {
+        return Some(JobDoneBeforeAKill::NothingToFollow);
+    };
+    // Whether a folder is at `path` with the noted inode: `None` when the look failed.
+    let holds_the_folder = |path: &Path| -> Option<bool> {
+        let found = crate::files::file_io::fingerprint_if_there(path).ok()?;
+        Some(found.is_some_and(|(key, _, _)| match (key, inode) {
+            (Some((_, now)), Some(noted)) => now == noted,
+            _ => is_surely_dir(path),
+        }))
+    };
+    if holds_the_folder(&from)? {
+        return Some(JobDoneBeforeAKill::NothingToFollow);
+    }
+    Some(match to {
+        Some(to) if is_surely_gone(&from) && holds_the_folder(&to)? => {
+            JobDoneBeforeAKill::FolderRenamed(from, to)
+        }
+        Some(_) => JobDoneBeforeAKill::NothingToFollow,
+        None => {
+            forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&from));
+            JobDoneBeforeAKill::FolderTrashed(from)
+        }
+    })
+}
+
 /// Removes the job log `log` once what the window sent before to the thread of the user's
 /// folders and to that of Glimt's own files has been written. A log that is dropped instead
 /// stays on disk, and the next start reads it again.
@@ -803,6 +880,11 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             deletes.push(put_right_a_delete(found.log, records, time, jobs));
         } else if found.job == "undo-trash" {
             others.push((found.log, back_from_the_trash(&found.records)));
+        } else if ["rename-folder", "trash-folder"].contains(&found.job) {
+            // A log whose folder cannot be looked at now stays for a later start.
+            if let Some(done) = folder_job_done(&found.records) {
+                others.push((found.log, done));
+            }
         }
     }
     (moves, deletes, written_anew, others)
@@ -4558,6 +4640,57 @@ mod tests {
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
         assert!(!path.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Rename Folder and Move Folder to Trash keep a log of the folder, with its inode. Glimt
+    /// killed after the folder was renamed or trashed, before the window took the report,
+    /// leaves the log, and the next start makes the marks follow the folder's new name, or
+    /// forgets them and takes its files out of the collection shown. A folder still where it
+    /// was is left alone. Before, these jobs kept no log, and the marks stayed under the old
+    /// path, where a later folder of that name showed them.
+    #[test]
+    fn a_folder_renamed_or_trashed_is_followed_after_a_kill() {
+        use super::JobDoneBeforeAKill::{FolderRenamed, FolderTrashed, NothingToFollow};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-folder-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (old, new, jobs) = (dir.join("old"), dir.join("new"), dir.join("jobs"));
+        std::fs::create_dir_all(&old).unwrap();
+        // A file system that keeps a folder's inode, so that the log notes it.
+        crate::files::file_ops::test_mount(&dir, Some("ext4"));
+        let found_after_a_kill = |log: crate::files::job_log::JobLog| {
+            drop(log);
+            let (_, _, _, mut found) = super::jobs_cut_short(&jobs);
+            assert_eq!(found.len(), 1);
+            let (log, done) = found.remove(0);
+            super::remove_once_written(log);
+            crate::files::file_io::wait_for_queued_writes();
+            crate::files::file_io::wait_for_queued_writes();
+            done
+        };
+        // Killed before the rename: nothing follows.
+        let log = super::start_folder_log(&jobs, &old, Some(&new), None).unwrap();
+        assert!(matches!(found_after_a_kill(log), NothingToFollow));
+        // Killed after it.
+        let log = super::start_folder_log(&jobs, &old, Some(&new), None).unwrap();
+        std::fs::rename(&old, &new).unwrap();
+        let done = found_after_a_kill(log);
+        assert!(matches!(&done, FolderRenamed(from, to) if *from == old && *to == new));
+        // A trashed folder, with another folder made at its path since.
+        let collection = dir.join("c.gqv");
+        let (inside, kept) = (new.join("a.jpg"), dir.join("kept.jpg"));
+        let text = format!("\"{}\"\n\"{}\"\n", inside.display(), kept.display());
+        std::fs::write(&collection, text).unwrap();
+        let log = super::start_folder_log(&jobs, &new, None, Some(&collection)).unwrap();
+        std::fs::rename(&new, dir.join("in-the-trash")).unwrap();
+        std::fs::create_dir(&new).unwrap();
+        let done = found_after_a_kill(log);
+        assert!(matches!(&done, FolderTrashed(folder) if *folder == new));
+        let entries = crate::model::collections::load(&collection).unwrap();
+        assert_eq!(entries, vec![kept]);
+        assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 0);
+        crate::files::file_ops::test_mount(&dir, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
