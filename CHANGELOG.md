@@ -17,6 +17,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A photo deleted for good when Glimt was killed, without a record that its delete was done,
   keeps its marks and its sidecar put aside at the next start, which says so. A later start
   finishes the delete when the photo is still gone, or gives the sidecar back when it is there.
+- Rename Many keeps its plan in the same format. The next start writes a plan that Glimt 0.92
+  or older left in `renames/` after a kill anew in `jobs/`, removes the old one, and asks about
+  it as before, so the files get their names and keep their marks.
 
 ## [0.92.0] - 2026-11-19
 
