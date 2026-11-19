@@ -12,6 +12,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The selection in the file list and the icon grids is a soft, rounded tint of the selection
   colour with an outline in its full colour, and thumbnails have rounded corners, as the
   theme's buttons.
+- The file list and the info panel (Ctrl+K) slide in and out instead of popping, also for full
+  screen and Hide File List.
 
 ## [0.91.0] - 2026-11-19
 
