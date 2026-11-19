@@ -385,6 +385,15 @@ pub(crate) fn read_job_log(path: &Path) -> std::io::Result<(File, LogRead)> {
     Ok((file, read))
 }
 
+/// Reads the job log at `path` as `read_job_log` does, but without taking its lock: for a
+/// caller that holds the lock already through a file of its own, or that only looks.
+pub(crate) fn read_job_log_without_lock(path: &Path) -> std::io::Result<LogRead> {
+    let file = crate::images::decode::open_regular(path)?;
+    let bounded = std::io::Read::take(file, crate::images::decode::MAX_DECODE_BYTES);
+    // The parser is fed broken logs in survives_broken_job_logs.
+    parse_job_log(&mut std::io::BufReader::new(bounded))
+}
+
 /// Returns the logs in `dir` that no running window holds locked, left by a Glimt that was
 /// killed during their jobs, each held locked until it is removed or let go. A log of a higher
 /// version, or of a kind of job this Glimt does not know, is left on disk for a Glimt that can

@@ -3407,8 +3407,9 @@ mod tests {
                 .unwrap();
             bytes.into_inner()
         };
+        // A plan of Glimt 0.92 or older, whose list is changed under the lists' lock.
         let plans = journal::journal_dir().unwrap();
-        let plan = journal::start_journal(&plans, &[(b.clone(), dir.join("c.png"))]).unwrap();
+        let plan = journal::write_old_plan(&plans, &[(b.clone(), dir.join("c.png"))], 0);
         let saves: [Box<dyn FnOnce() + Send>; 2] = [
             Box::new({
                 let (b, x, out) = (b.clone(), x.clone(), png());
@@ -3444,7 +3445,8 @@ mod tests {
                 "the sidecar's lock was held while the save waited"
             );
         }
-        drop(plan);
+        std::fs::remove_file(journal::known_path(&plan)).unwrap();
+        std::fs::remove_file(plan).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 

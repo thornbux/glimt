@@ -410,16 +410,25 @@ impl FileOperations {
         std::thread::spawn(move || {
             // The tests share one test home, so a test's window would otherwise find the plans
             // and Move logs that another test left there, and act on them.
-            let found = if cfg!(test) {
-                Vec::new()
-            } else {
-                journal::journal_dir().map_or_else(Vec::new, |d| journal::cut_short_plans(&d))
-            };
-            let _ = tx.send(found);
+            // The Moves and deletes come first, as their look at the job logs holds each one
+            // locked for a moment, and a plan of Rename Many held so while the user answers
+            // about it would be taken for one that another window put right.
             #[cfg(not(test))]
             send_moves_cut_short(&moves_tx);
             #[cfg(test)]
             drop(moves_tx);
+            let found = match crate::files::job_log::jobs_dir() {
+                _ if cfg!(test) => Vec::new(),
+                Some(jobs) => {
+                    // The plans of Glimt 0.92 and older are put right with this Glimt's own.
+                    if let Some(old) = journal::journal_dir() {
+                        journal::old_plans_written_anew(&old, &jobs);
+                    }
+                    journal::cut_short_plans(&jobs)
+                }
+                None => Vec::new(),
+            };
+            let _ = tx.send(found);
         });
         FileOperations {
             jobs: Vec::new(),
@@ -3482,7 +3491,7 @@ pub(crate) fn rename_files(
     job: &Job,
     locks: Vec<xmp::SidecarLock>,
 ) -> Result<(), RenameFailed> {
-    rename_files_planned_in(journal::journal_dir(), from, to, job, locks)
+    rename_files_planned_in(crate::files::job_log::jobs_dir(), from, to, job, locks)
 }
 
 /// Renames `from` to `to` as `rename_files` does, with the plan in the folder `plans`. Nothing
@@ -4805,7 +4814,7 @@ mod tests {
             "{}",
             error.text
         );
-        let plans = super::journal::journal_dir().unwrap();
+        let plans = crate::files::job_log::jobs_dir().unwrap();
         let ours = super::journal::cut_short_plans(&plans)
             .into_iter()
             .find(|(_, moves, _)| moves[0].0 == p("a.jpg"));
@@ -4843,7 +4852,7 @@ mod tests {
         let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
         assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
-        let plans = super::journal::journal_dir().unwrap();
+        let plans = crate::files::job_log::jobs_dir().unwrap();
         let kept = super::journal::cut_short_plans(&plans)
             .into_iter()
             .any(|(_, moves, _)| moves[0].0 == p("a.jpg"));
