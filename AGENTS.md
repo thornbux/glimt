@@ -79,12 +79,18 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 
 ## Frozen in 1.x
 
-What users' settings files, scripts and own files depend on is frozen from 0.76, through all of
+What users' settings files, scripts and own files depend on is frozen from 1.0, through all of
 1.x, and stays as it is until a 2.0: the command-line options, the `--remote` commands with
 their answers and exit codes, the settings file's keys and values, the files Glimt owns, and
 the desktop file formats of tools and added formats. Add to them; never take one away or change
 what it means. A list of choices grows at its end only (`config::NAMED`). A setting that goes
 out of use is still read, and ignored.
+
+Before 1.0 the maintainer may still take a name or format away that should not go into 1.0. The
+tests below hold the names until then too, so such a change takes its line out of the frozen
+file, and an agent asks before it does (*What an agent decides, and what it asks*). A file
+Glimt owns that a kill can leave behind (a plan or log cut short) is still put right once by the
+release that drops its format, so that no user's file or mark is lost in the upgrade.
 
 `src/frozen-1.0.txt` pins these names, taken from the code's own tables:
 
