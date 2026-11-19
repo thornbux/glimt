@@ -73,7 +73,7 @@ right once by the release that drops its format (AGENTS.md, *Frozen in 1.x*). So
   finish (a `kept` one, a stick not plugged in) it writes anew as a `jobs/` log and then removes
   the old one (section 5). That also closes #224: no log stays where 0.85 reads it.
 - **The old reader goes later.** The code that reads the three old formats, and their tests and
-  frozen lines, stay in 0.93 and 0.94 and go in 0.95 (open question 1). A user who skips from
+  frozen lines, stay in 0.93 and 0.94 and go in 0.95 (decision 1 in section 10). A user who skips from
   0.92 or older straight to 0.95 or later, and whose last Glimt was killed during a Rename Many,
   Move or delete, must start 0.93 or 0.94 once first. 0.95 does not read the old folders, but if
   it finds one that is not empty it tells once which release to start, and leaves it alone.
@@ -229,7 +229,7 @@ step's later records find it by its number in a `Vec`, not by a search.
 ## 7. The frozen file
 
 Taken out of `src/frozen-1.0.txt` with the maintainer's go, in 0.95 together with the reader
-(open question 1), not in 0.93, since 0.93 still reads and locks them:
+(decision 1 in section 10), not in 0.93, since 0.93 still reads and locks them:
 
 - `file` lines of `renames`, `renames/files`, `renames/files/.lock`, `moves`, `moves/files`,
   `deletes`, `deletes/files`, `deletes/collections`, `deletes/aside` and `deletes/kept`;
@@ -270,13 +270,13 @@ folder that is not empty.
 8. #176 is only partly closed for a delete for good: a NotFound after a lost answer keeps the
    sidecars aside. Nothing on disk is left to tell a delete from another program's move.
 
-## 10. Open questions for the maintainer
+## 10. Decided by the maintainer (2026-11-19)
 
-1. **Which release drops the old reader?** Recommended: 0.95, so that two releases (0.93 and
+1. **Which release drops the old reader?** Decided: 0.95, so that two releases (0.93 and
    0.94) put old logs right and a user who updates now and then still meets one of them. Any
    0.x before 1.0 works; later costs only the old code's upkeep.
 2. **Does 0.93 rewrite a log it cannot finish into `jobs/` (section 3), or leave it in the old
-   folder for 0.94 to try again?** Recommended: rewrite. It closes #224, and 0.95 then has no
+   folder for 0.94 to try again?** Decided: rewrite. It closes #224, and 0.95 then has no
    old log left that it must still read.
-3. **Does 0.95 remove an old folder it finds empty?** Recommended: yes, an empty folder of
+3. **Does 0.95 remove an old folder it finds empty?** Decided: yes, an empty folder of
    Glimt's own with `file_io::remove_own`, and one that is not empty is left and told about.
