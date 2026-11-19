@@ -1877,7 +1877,7 @@ section "Rename Many, closed at once: the window waits, every file renamed, no p
 for v in new old; do
     as_version $v
     d=/tmp/rename-close-$v
-    mkdir -p $d
+    rm -rf $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
     convert -size 64x64 xc:red $d/00000.jpg
     for i in $(seq -w 1 9999); do ln $d/00000.jpg $d/$i.jpg; done
     config
@@ -1889,7 +1889,7 @@ for v in new old; do
     for i in $(seq 100); do ls $d | grep -q '_[0-9]*\.jpg' && break; sleep 0.1; done
     timeout 30 $BIN --remote-all quit >/dev/null 2>&1
     quit
-    got="$(ls $d | grep -c '_[0-9]*\.jpg') $(ls $d | grep -vc '_[0-9]*\.jpg') $(find $XDG_STATE_HOME/glimt/renames -type f 2>/dev/null | wc -l | tr -d ' ')"
+    got="$(ls $d | grep -c '_[0-9]*\.jpg') $(ls $d | grep -vc '_[0-9]*\.jpg') $(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null | wc -l | tr -d ' ')"
     if [ $v = new ]; then expect "10,000 renamed, none left, no plan" "$got" "10000 0 0"
     else note "old: renamed, not renamed, plans: $got"; fi
 done
@@ -4594,9 +4594,9 @@ shot exif-search-1
 quit
 expect "nothing before, b.jpg after" "$before $(colour exif-search-1 57 337)" "other blue"
 
-section "Rename Many cut short by a crash: the old names put back at the next start"
+section "Rename Many of 0.92 or older cut short by a crash: the old names put back at the next start"
 d=/tmp/cutshort
-mkdir -p $d $XDG_STATE_HOME/glimt/renames
+rm -rf $XDG_STATE_HOME/glimt/jobs; mkdir -p $d $XDG_STATE_HOME/glimt/renames
 convert -size 300x200 xc:red jpg:$d/.glimt-rename-x-0
 convert -size 300x200 xc:blue jpg:$d/.glimt-rename-x-1
 # The plan of a swap of a.jpg and b.jpg, stopped with both under their temporary names.
@@ -4610,10 +4610,10 @@ shot cut-short
 quit
 # a.jpg was the red one: more than half red, as JPEG rounds.
 r=$(convert $d/a.jpg -format "%[fx:p{150,100}.r>0.5]" info: 2>/dev/null)
-got="$(ls -A $d | tr '\n' ' ')$r $(ls -A $XDG_STATE_HOME/glimt/renames | wc -l)"
-expect "a.jpg (red) and b.jpg back, the plan gone" "$got" "a.jpg b.jpg 1 0"
+got="$(ls -A $d | tr '\n' ' ')$r $(ls -A $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs 2>/dev/null | grep -cv -e "^$" -e ":$")"
+expect "a.jpg (red) and b.jpg back, the plan gone, none left in jobs" "$got" "a.jpg b.jpg 1 0"
 
-section "Rename Many cut short, finished at the next start: the marks follow the files"
+section "Rename Many of 0.92 or older cut short, finished at the next start: the marks follow the files"
 d=/tmp/cutshort-finish
 mkdir -p $d $XDG_STATE_HOME/glimt/renames
 convert -size 300x200 xc:red $d/a.jpg
@@ -5201,7 +5201,7 @@ PY
     # so all go through hidden names. Each photo ends with its own number, and has i % 5 + 1
     # stars. Killed once 50 are under hidden names.
     d=/tmp/killed-rename-$v
-    rm -rf $d $XDG_STATE_HOME/glimt/renames; mkdir -p $d
+    rm -rf $d $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
     convert -size 32x32 xc:blue /tmp/killed-base.jpg
     python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
 import sys
@@ -5228,10 +5228,12 @@ while time.time() < end:
 os.kill(pid, signal.SIGKILL)" $d $GPID
     wait $GPID 2>/dev/null
     cut=$(ls -A $d | grep -c '^\.glimt-rename')
+    # The plan is a job log in jobs/, and nothing is in the old renames/.
+    logged="$(find $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null | wc -l | tr -d ' ') $(find $XDG_STATE_HOME/glimt/renames -type f 2>/dev/null | wc -l | tr -d ' ')"
     start $d
     sleep 3
     menu "Finish the renaming"
-    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(find $XDG_STATE_HOME/glimt/renames -type f)\" ]" 60
+    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f)\" ]" 60
     sleep 1
     quit
     # Named: files NNNNN.jpg; renamed: NNNNN.jpg holds photo 10001 - NNNNN; starred: its stars on it.
@@ -5254,10 +5256,11 @@ print(named, renamed, hidden, starred)
 PY
 )
     # The plans and their lists of files, not the folder that holds the lists.
-    plans=$(find $XDG_STATE_HOME/glimt/renames -type f 2>/dev/null | wc -l | tr -d ' ')
+    plans=$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null | wc -l | tr -d ' ')
     rm -rf $d
     if [ $v = new ]; then
         expect "killed during Rename Many, with photos under hidden names" "$([ $cut -gt 0 ] && echo yes)" yes
+        expect "killed during Rename Many: its plan is a job log" "$logged" "1 0"
         expect "after the new start: each photo under its new name, none hidden, its stars on it, no plan" \
             "$got $plans" "10000 10000 0 10000 0"
     else note "old: named, renamed, hidden, starred, plans: $got $plans ($cut hidden when killed)"; fi
@@ -5450,6 +5453,85 @@ PY
         expect "the last release killed during a Move left its log" "$([ $old_logs -gt 0 ] && echo yes)" yes
         expect "a start of this release: every photo with its stars, the old log removed" "$got $left" "200 0"
     else note "old: starred, logs left: $got $left"; fi
+done
+
+section "the last release killed (kill -9) during a Rename Many: a start of this one puts its plan right once"
+# The job log of 0.93 took the place of the plans in renames/. A start writes every unlocked old
+# plan anew as a job log and removes it, and the repair then finishes it as one of its own
+# (docs/design/log-format.md, decision 3), so each photo gets its new name and its stars. Run as
+# "new" with the old release killed and this one started, and as "old" with the old release's
+# binary for both runs, to compare.
+for v in new old; do
+    as_version new
+    second=$BIN
+    [ $v = old ] && second=/opt/glimt-old
+    mkdir -p $XDG_STATE_HOME/glimt
+    rm -rf $XDG_STATE_HOME/glimt/jobs $XDG_STATE_HOME/glimt/renames
+    # Rename Many of 2,000 photos, sorted descending to 0001…: each takes the name of another, so
+    # all go through hidden names. Each photo ends with its own number, and has i % 5 + 1 stars.
+    # Killed once 20 are under hidden names.
+    d=/tmp/old-plan-$v
+    rm -rf $d; mkdir -p $d
+    convert -size 32x32 xc:blue /tmp/old-plan-base.jpg
+    python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import sys
+d, marks = sys.argv[1:]
+base = open("/tmp/old-plan-base.jpg", "rb").read()
+with open(marks, "w") as m:
+    for i in range(1, 2001):
+        open(f"{d}/{i:04d}.jpg", "wb").write(base + b"%d" % i)
+        m.write(f"0\t{i % 5 + 1}\t{d}/{i:04d}.jpg\n")
+PY
+    config sort_ascending=false
+    BIN=/opt/glimt-old start $d
+    sleep 2
+    key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+    xdotool type --delay 30 '####'; sleep 0.4
+    xdotool key Return
+    python3 -c "
+import os, signal, sys, time
+d, pid = sys.argv[1], int(sys.argv[2])
+end = time.time() + 60
+while time.time() < end:
+    if sum(n.startswith('.glimt-rename') for n in os.listdir(d)) >= 20:
+        break
+os.kill(pid, signal.SIGKILL)" $d $GPID
+    wait $GPID 2>/dev/null
+    cut=$(ls -A $d | grep -c '^\.glimt-rename')
+    old_plans=$(find $XDG_STATE_HOME/glimt/renames -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    BIN=$second start $d
+    sleep 3
+    BIN=$second menu "Finish the renaming"
+    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f)\" ]" 60
+    sleep 1
+    BIN=$second quit
+    # Named: files NNNN.jpg; renamed: NNNN.jpg holds photo 2001 - NNNN; starred: its stars on it.
+    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import os, sys
+d, marks = sys.argv[1:]
+base = len(open("/tmp/old-plan-base.jpg", "rb").read())
+held = {}
+for name in os.listdir(d):
+    held[f"{d}/{name}"] = int(open(f"{d}/{name}", "rb").read()[base:] or 0)
+named = sum(1 for p in held if p.endswith(".jpg") and not os.path.basename(p).startswith("."))
+renamed = sum(1 for p, i in held.items() if os.path.basename(p) == f"{2001 - i:04d}.jpg")
+hidden = sum(1 for p in held if os.path.basename(p).startswith("."))
+starred = 0
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3 and fields[2] in held:
+        starred += fields[1] == str(held[fields[2]] % 5 + 1)
+print(named, renamed, hidden, starred)
+PY
+)
+    plans=$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null | wc -l | tr -d ' ')
+    rm -rf $d
+    if [ $v = new ]; then
+        expect "the last release killed during Rename Many left its plan, photos under hidden names" \
+            "$([ $cut -gt 0 ] && [ $old_plans -gt 0 ] && echo yes)" yes
+        expect "a start of this release: each photo under its new name, none hidden, its stars on it, no plan" \
+            "$got $plans" "2000 2000 0 2000 0"
+    else note "old: named, renamed, hidden, starred, plans: $got $plans ($cut hidden when killed)"; fi
 done
 
 section "a keyword save that fails, then Ctrl+Q at once: the failure shown, the window stays open"
@@ -5690,7 +5772,7 @@ with open(sys.argv[1], 'w') as m:
             printf '0\t%d\t%s/%s.jpg\n' $((10#$i % 5 + 1)) $d $i
         done >$XDG_STATE_HOME/glimt/marks
         rm -f $d/a.jpg
-        rm -rf $XDG_STATE_HOME/glimt/renames
+        rm -rf $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs
         config sort_ascending=false
         start $d
         leave_free 0
@@ -5725,7 +5807,7 @@ print(held, right, "renamed" if renamed else "not-renamed", len(names))
 PY
 )
         # The plans and their lists of files, not the folder that holds the lists.
-        plans=$(find $XDG_STATE_HOME/glimt/renames -type f 2>/dev/null | wc -l | tr -d ' ')
+        plans=$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null | wc -l | tr -d ' ')
         failed=$(grep -c "without its plan\|Could not save" /tmp/glimt.err)
         if [ $v = new ]; then
             expect "Rename Many with a full state folder: every photo there, its own stars on it, no plan left" \
