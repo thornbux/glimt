@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The status bar tells about the shown image in a compact line, `1800 × 1200 · 920.0 kB · 5 / 16`,
+  instead of Geeqie's `( 1800 x 1200 ) 920,000 bytes [5/16]`.
+
 ## [0.91.0] - 2026-11-19
 
 ### Changed
