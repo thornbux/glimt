@@ -2073,8 +2073,6 @@ pub(crate) fn thumbs_to_keep<'a>(
         .collect()
 }
 
-/// Tells a screen reader what a file's row or cell is: an item of the list with the file's name,
-/// and whether it is selected. The rows of names get this from egui's own widget.
 /// Paints the highlight of a selected or hovered row or cell, rounded as the theme's widgets.
 /// A selected one gets a soft tint of the selection colour, which keeps the text in its own
 /// colour, and an outline in the full colour, which keeps it plain to see in every theme.
@@ -2139,6 +2137,8 @@ fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
+/// Tells a screen reader what a file's row or cell is: an item of the list with the file's name,
+/// and whether it is selected. The rows of names get this from egui's own widget.
 pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &str) {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
     (response.ctx).accesskit_node_builder(response.id, |node| node.set_selected(marked));
