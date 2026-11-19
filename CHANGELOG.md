@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A Move, and the Undo of one, keep their log in the new job log format in
+  `$XDG_STATE_HOME/glimt/jobs/`. The next start still puts right, once, a Move log that
+  Glimt 0.92 or older left in `moves/` after a kill, and removes it. A job log of a newer Glimt
+  is left alone, and the start says so.
+
 ## [0.92.0] - 2026-11-19
 
 ### Changed
