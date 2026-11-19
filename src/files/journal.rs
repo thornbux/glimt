@@ -700,9 +700,10 @@ pub fn start_folder_log(
 /// Glimt was killed, and `None` when a look failed, so that the log stays for a later start.
 /// The folder counts as still where it was when its old path holds a folder with the inode the
 /// log noted (or any folder, where the log could note none). A renamed folder counts as renamed
-/// only when its old path is surely free and its new one holds it. A trashed folder counts as
+/// only when its old path is surely free and its new one holds it. A new path that cannot be
+/// told, as on a stick not mounted at this start, keeps the log. A trashed folder counts as
 /// trashed when its old path holds another folder, or is free in a folder that surely is there
-/// (`is_gone_from_its_folder`), and its files leave the collection shown here.
+/// (`is_gone_at_start`), and its files leave the collection shown here.
 fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
     let (mut tree, mut inode, mut collection) = (None, None, None);
     for record in records {
@@ -728,17 +729,19 @@ fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
         return Some(JobDoneBeforeAKill::NothingToFollow);
     }
     Some(match to {
-        Some(to) if is_surely_gone(&from) && holds_the_folder(&to)? => {
-            JobDoneBeforeAKill::FolderRenamed(from, to)
+        Some(_) if !is_gone_at_start(&from)? => JobDoneBeforeAKill::NothingToFollow,
+        Some(to) if holds_the_folder(&to)? => JobDoneBeforeAKill::FolderRenamed(from, to),
+        Some(to) => {
+            // A stick not mounted at this start would else lose the marks of every file under
+            // the folder.
+            is_gone_at_start(&to)?;
+            JobDoneBeforeAKill::NothingToFollow
         }
-        Some(_) => JobDoneBeforeAKill::NothingToFollow,
         None => {
             // A free path counts only in a folder that surely is there. A stick or share not
             // mounted at this start would else have every file under the folder taken for
             // trashed.
-            if is_surely_gone(&from) {
-                is_gone_from_its_folder(&from)?;
-            }
+            is_gone_at_start(&from)?;
             forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&from));
             JobDoneBeforeAKill::FolderTrashed(from)
         }
@@ -1056,7 +1059,7 @@ pub fn old_deletes_cut_short(
 /// Puts right the delete whose log `log` says `records`, found at the start, last written at
 /// `time`. Returns the log, held locked until it is removed or written anew in `jobs`, with the
 /// files whose marks and stars are to be forgotten: those whose name is surely not there any
-/// more in a folder that surely is (`went_before_the_kill`).
+/// more in a folder that surely is (`is_gone_at_start`).
 ///
 /// A file that had not gone yet is still at its name, and keeps them. A file still there as
 /// the log knew it takes back its sidecars, from a hidden name that a delete for good put them
@@ -1089,7 +1092,7 @@ fn put_right_a_delete(
             untold.insert(name.clone());
             continue;
         }
-        match went_before_the_kill(name) {
+        match is_gone_at_start(name) {
             Some(true) if r.kept.contains(name) => not_as_left.push(name.clone()),
             Some(true) if is_unfinished(name) && !was_found => {
                 save_failed(crate::tf!(
@@ -1505,26 +1508,21 @@ fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> boo
         .is_some_and(|(_, now)| now != *inode)
 }
 
-/// Returns whether the file that a delete's log names at `path` went before Glimt was killed.
-/// Returns `Some(true)` when its name is surely not there while its folder surely is, and
-/// `Some(false)` when something is at its name. Returns `None` when the looks cannot tell: the
-/// folder is not there, as on a stick or a share not back yet at this start, or a look failed.
-/// A file at the name keeps its marks also when it changed since. It may be the file the kill
-/// came before, written by another program since, or a file that another window marked after
-/// the kill. The marks of a deleted file then stay with a later photo that took its name, as
-/// they did before there was a log, which is the lesser harm.
-fn went_before_the_kill(path: &Path) -> Option<bool> {
+/// Returns whether nothing is at `path` now, the one rule by which a start reads a path that a
+/// job log names. Returns `Some(true)` when its name is surely not there while its folder
+/// surely is, and `Some(false)` when something is at its name. Returns `None` when the looks
+/// cannot tell: the folder is not there, as on a stick or a share not back yet at this start,
+/// or a look failed. Such a log stays for a later start, as a path taken for gone or for not
+/// there would lose the marks of its file.
+///
+/// For a delete's log, a file at the name keeps its marks also when it changed since. It may be
+/// the file the kill came before, written by another program since, or a file that another
+/// window marked after the kill. The marks of a deleted file then stay with a later photo that
+/// took its name, as they did before there was a log, which is the lesser harm.
+fn is_gone_at_start(path: &Path) -> Option<bool> {
     if is_surely_there(path) {
         return Some(false);
     }
-    is_gone_from_its_folder(path)
-}
-
-/// Returns `Some(true)` when nothing is at `path` while its folder surely is there, the one
-/// rule by which a start takes a name that a log noted for gone. Returns `None` when the looks
-/// cannot tell: the folder is not there, as on a stick or a share not back yet at this start,
-/// or a look failed.
-fn is_gone_from_its_folder(path: &Path) -> Option<bool> {
     // The folder is looked at first, so that a stick mounted between the two looks counts as
     // not there yet.
     let has_folder = path.parent().is_some_and(is_surely_dir);
@@ -4776,6 +4774,16 @@ mod tests {
         let (_, _, _, found) = super::jobs_cut_short(&jobs);
         assert!(found.is_empty());
         assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 1);
+        // A folder renamed onto a stick that is not mounted at this start: its old path is
+        // free, and its new one cannot be told, so the log stays too.
+        let (moved, on_stick) = (dir.join("moved"), dir.join("stick2/moved"));
+        std::fs::create_dir_all(&moved).unwrap();
+        let log = super::start_folder_log(&jobs, &moved, Some(&on_stick), None).unwrap();
+        std::fs::remove_dir(&moved).unwrap();
+        drop(log);
+        let (_, _, _, found) = super::jobs_cut_short(&jobs);
+        assert!(found.is_empty());
+        assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 2);
         crate::files::file_ops::test_mount(&dir, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
