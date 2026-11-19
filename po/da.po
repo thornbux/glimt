@@ -4067,3 +4067,8 @@ msgstr "kunne ikke se på {name}: {e}"
 #, fuzzy
 msgid "{file} was saved, but it may not be on the disk yet: {e}"
 msgstr "{file} blev gemt, men er måske ikke på disken endnu: {e}"
+
+#: src/files/job_log.rs
+#, fuzzy
+msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
+msgstr "{folder} har logfiler, som en nyere Glimt efterlod, eller som denne Glimt ikke kan læse. De beholdes til en Glimt, der kan gøre dem færdige."

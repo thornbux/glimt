@@ -4067,3 +4067,8 @@ msgstr "impossibile controllare {name}: {e}"
 #, fuzzy
 msgid "{file} was saved, but it may not be on the disk yet: {e}"
 msgstr "{file} è stato salvato, ma potrebbe non essere ancora sul disco: {e}"
+
+#: src/files/job_log.rs
+#, fuzzy
+msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
+msgstr "{folder} contiene registri lasciati da un Glimt più recente, o che questo Glimt non sa leggere. Vengono conservati per un Glimt che possa completarli."

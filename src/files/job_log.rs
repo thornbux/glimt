@@ -55,6 +55,10 @@ const MOST_FIELD_BYTES: u64 = 64 << 10;
 /// The most fields a record may have. A record with more is passed over.
 const MOST_FIELDS: usize = 8;
 
+/// How old an empty log no window holds must be before it is taken for one whose header a kill
+/// cut off, and removed. A log is locked a moment after it is made.
+const EMPTY_LOG_AGE: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// The field that stands for no path or no fingerprint. No path is "-", as every path is
 /// absolute.
 const NONE: &str = "-";
@@ -290,6 +294,25 @@ impl JobLog {
     pub(crate) fn remove_log(self) -> std::io::Result<()> {
         crate::files::file_io::remove_own(&self.path)
     }
+
+    /// Returns the log at `path`, held locked as `file`, as a start found it, of this format or
+    /// of an older one. It is written to no more, and removed as a log of its job is.
+    pub(crate) fn found(path: PathBuf, file: File) -> JobLog {
+        JobLog { path, file }
+    }
+
+    /// Returns the log's path and its file, which holds its lock while it stays open.
+    pub(crate) fn into_path_and_file(self) -> (PathBuf, File) {
+        (self.path, self.file)
+    }
+}
+
+/// A job log that no running window holds locked, which a kill cut short: the log, held locked,
+/// the kind of its job, and its records.
+pub(crate) struct FoundLog {
+    pub(crate) log: JobLog,
+    pub(crate) job: &'static str,
+    pub(crate) records: Vec<Record>,
 }
 
 /// What reading a job log found.
@@ -324,6 +347,60 @@ pub(crate) fn read_job_log(path: &Path) -> std::io::Result<(File, LogRead)> {
     // The parser is fed broken logs in survives_broken_job_logs.
     let read = parse_job_log(&mut std::io::BufReader::new(bounded))?;
     Ok((file, read))
+}
+
+/// Returns the logs in `dir` that no running window holds locked, left by a Glimt that was
+/// killed during their jobs, each held locked until it is removed or let go. A log of a higher
+/// version, or of a kind of job this Glimt does not know, is left on disk for a Glimt that can
+/// finish it, and the user is told once that it is there. Only an empty file is removed, once
+/// it is older than `EMPTY_LOG_AGE`: a kill between the making of a log and its header leaves
+/// it, and a log made a moment ago is not locked yet.
+pub(crate) fn logs_left_by_a_kill(dir: &Path) -> Vec<FoundLog> {
+    let (mut found, mut left_alone) = (Vec::new(), 0);
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        // A pipe or a link planted in the state folder is no log.
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok((file, read)) = read_job_log(&path) else {
+            continue;
+        };
+        // A log that another window put right and removed has no name any more. A failed look
+        // at the open file says nothing, and the log is left for a later start.
+        let Ok(Some(meta)) = metadata_while_named(&file) else {
+            continue;
+        };
+        match read {
+            LogRead::Log { job, records, .. } => found.push(FoundLog {
+                log: JobLog::found(path, file),
+                job,
+                records,
+            }),
+            LogRead::NotALog if meta.len() == 0 => {
+                let age = meta.modified().ok().and_then(|made| made.elapsed().ok());
+                if age.is_some_and(|age| age > EMPTY_LOG_AGE) {
+                    crate::files::file_io::remove_own_or_tell(&path);
+                }
+            }
+            LogRead::Newer(_) | LogRead::NotALog => left_alone += 1,
+        }
+    }
+    if left_alone > 0 {
+        crate::files::file_io::save_failed(crate::tf!(
+            "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them.",
+            folder = dir.display()
+        ));
+    }
+    found
+}
+
+/// Returns the metadata of the open log `file`, and `None` when the file has no name any more.
+/// A failed look is passed on, as it says nothing about the name.
+fn metadata_while_named(file: &File) -> std::io::Result<Option<std::fs::Metadata>> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = file.metadata()?;
+    Ok((meta.nlink() > 0).then_some(meta))
 }
 
 /// Reads a job log from `reader`, as `LogRead` tells. A record cut off at the end, by a kill or a
@@ -655,6 +732,34 @@ mod tests {
             assert_eq!(parsed(not_a_log), LogRead::NotALog);
         }
         assert!(matches!(parsed(&log_bytes("1", &[])), LogRead::Log { .. }));
+    }
+
+    /// A start finds the logs no window holds, and never removes a log of a higher version or
+    /// of a kind of job it does not know: it leaves them, and tells once that they are there. An
+    /// empty file older than a minute, whose header a kill cut off, is removed. A log a running
+    /// window holds is passed over.
+    #[test]
+    fn a_start_leaves_the_logs_it_cannot_read_and_tells_once() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-job-left-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let held = super::JobLog::start(&dir, "move", &[]).unwrap();
+        let left = super::JobLog::start(&dir, "trash", &[]).unwrap();
+        drop(left);
+        let (newer, unknown, empty) = (dir.join("newer"), dir.join("unknown"), dir.join("empty"));
+        std::fs::write(&newer, log_bytes("2", &every_record())).unwrap();
+        std::fs::write(&unknown, b"glimt-job\x001\0copy\09\0w1\0\0").unwrap();
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        let made = std::fs::File::create(&empty).unwrap();
+        made.set_modified(hour_ago).unwrap();
+        drop(made);
+        let _ = crate::files::file_io::take_saves_failed();
+        let found = super::logs_left_by_a_kill(&dir);
+        assert_eq!(found.iter().map(|f| f.job).collect::<Vec<_>>(), ["trash"]);
+        let told = crate::files::file_io::take_saves_failed();
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(newer.exists() && unknown.exists() && !empty.exists());
+        drop((found, held));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A window whose name holds a NUL byte or a line break writes a header that is read back

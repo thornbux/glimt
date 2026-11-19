@@ -1460,7 +1460,7 @@ impl crate::App {
         // The tests share one state folder, and a test's Move would leave its log there when
         // the test does not take the report. They test the log on folders of their own.
         #[cfg(not(test))]
-        let move_log_dir = (!is_copy).then(journal::move_log_dir).flatten();
+        let move_log_dir = (!is_copy).then(crate::files::job_log::jobs_dir).flatten();
         #[cfg(test)]
         let move_log_dir: Option<PathBuf> = None;
         self.run_in_background(ctx, Vec::new(), move || {
@@ -1468,7 +1468,7 @@ impl crate::App {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let started = move_log_dir.as_deref().map(journal::start_move_log);
+            let started = (move_log_dir.as_deref()).map(|d| journal::start_move_log(d, "move"));
             let (mut move_log, start_failure) = match started.transpose() {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
@@ -2117,7 +2117,10 @@ impl crate::App {
                 // A log as a Move's, for the marks and collections at the next start after a
                 // kill. A log that cannot be started is told, and the files go back all the same.
                 let log_dir = undo_move_log_dir();
-                let started = log_dir.as_deref().map(journal::start_move_log).transpose();
+                let started = log_dir
+                    .as_deref()
+                    .map(|d| journal::start_move_log(d, "undo-move"));
+                let started = started.transpose();
                 let (mut move_log, start_failure) = match started {
                     Ok(log) => (log, None),
                     Err(e) => (None, Some(e)),
@@ -3617,8 +3620,10 @@ fn names_left_for_the_next_start(
 /// marks and stars of the files deleted are forgotten, as the jobs' reports would have done.
 #[cfg(not(test))]
 fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
-    let logs = journal::move_log_dir().map(|d| journal::moves_cut_short(&d));
-    for (log, went) in logs.into_iter().flatten() {
+    let jobs = crate::files::job_log::jobs_dir().map(|d| journal::move_jobs_cut_short(&d));
+    // The logs of Glimt 0.92 and older are put right once too, and removed.
+    let old = journal::move_log_dir().map(|d| journal::old_moves_cut_short(&d));
+    for (log, went) in jobs.into_iter().chain(old).flatten() {
         let _ = report_tx.send(OperationReport {
             moved: went,
             move_log: Some(log),
@@ -3635,12 +3640,12 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Returns the folder of the log that an Undo of a Move keeps, which is that of the Moves' logs.
+/// Returns the folder of the log that an Undo of a Move keeps, which is that of the job logs.
 /// The tests share one state folder, and a test's Undo would leave its log there when the test
 /// does not take the report, so they test the log on folders of their own.
 fn undo_move_log_dir() -> Option<PathBuf> {
     #[cfg(not(test))]
-    return journal::move_log_dir();
+    return crate::files::job_log::jobs_dir();
     #[cfg(test)]
     return None;
 }
@@ -4956,13 +4961,13 @@ mod tests {
         std::fs::rename(&before, &moved).unwrap();
         std::fs::rename(dir.join("a.png.xmp"), dir.join("sub/a.png.xmp")).unwrap();
         let now = crate::files::file_io::fingerprint(&moved).unwrap();
-        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
         let (back, _, errors) =
             super::move_back(vec![(before.clone(), moved.clone(), now)], Some(&mut log));
         assert_eq!(back, vec![(moved.clone(), before.clone())], "{errors:?}");
         // Killed before the report was taken: the log is let go, not removed.
         drop(log);
-        let found = super::journal::moves_cut_short(&logs);
+        let found = super::journal::move_jobs_cut_short(&logs);
         let went: Vec<_> = found.into_iter().flat_map(|(_, went)| went).collect();
         assert_eq!(went, vec![(moved, before)]);
         std::fs::remove_dir_all(dir).unwrap();
@@ -6981,7 +6986,7 @@ mod tests {
         );
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Moving", 2, false, Vec::new());
-        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let moved = super::put_files(
@@ -6994,27 +6999,24 @@ mod tests {
         // b.png was written down, and the kill came before it went.
         log.note(&b, &to.join("b.png"));
         drop(log);
-        // A copy of the log and its list of files, to find again as a log that outlived its Move.
+        // A copy of the log, to find again as a log that outlived its Move.
         let kept = dir.join("kept");
-        std::fs::create_dir_all(kept.join("files")).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
         let logs_files = || {
             let names = std::fs::read_dir(&logs).unwrap().flatten();
             let names = names.filter(|e| e.path().is_file()).map(|e| e.file_name());
             names.collect::<Vec<_>>()
         };
         for name in logs_files() {
-            for folder in ["", "files"] {
-                let (at, copy) = (logs.join(folder).join(&name), kept.join(folder).join(&name));
-                std::fs::copy(at, copy).unwrap();
-            }
+            std::fs::copy(logs.join(&name), kept.join(&name)).unwrap();
         }
         let send_found = |app: &crate::App, expected: &[(PathBuf, PathBuf)]| {
-            let found = super::journal::moves_cut_short(&logs);
+            let found = super::journal::move_jobs_cut_short(&logs);
             let count = found.len();
             for (log, went) in found {
                 assert_eq!(went, expected);
                 // Another window that starts meanwhile leaves the log alone.
-                assert!(super::journal::moves_cut_short(&logs).is_empty());
+                assert!(super::journal::move_jobs_cut_short(&logs).is_empty());
                 let report = super::OperationReport {
                     moved: went,
                     move_log: Some(log),
@@ -7024,9 +7026,7 @@ mod tests {
             }
             count
         };
-        let no_log_left = |_: &crate::App| {
-            logs_files().is_empty() && std::fs::read_dir(logs.join("files")).unwrap().count() == 0
-        };
+        let no_log_left = |_: &crate::App| logs_files().is_empty();
         let went = [(a.clone(), to.join("a.png"))];
         assert_eq!(send_found(&app, &went), 1);
         assert!(run_background_until(&mut app, &ctx, no_log_left));
@@ -7036,10 +7036,7 @@ mod tests {
         let found_again = || {
             for entry in std::fs::read_dir(&kept).unwrap().flatten() {
                 if entry.path().is_file() {
-                    let name = entry.file_name();
-                    std::fs::copy(entry.path(), logs.join(&name)).unwrap();
-                    let list = kept.join("files").join(&name);
-                    std::fs::copy(list, logs.join("files").join(&name)).unwrap();
+                    std::fs::copy(entry.path(), logs.join(entry.file_name())).unwrap();
                 }
             }
         };
@@ -7082,11 +7079,11 @@ mod tests {
         let (gqv, logs) = (dir.join("col.gqv"), dir.join("logs"));
         let (a, moved) = (dir.join("a.png"), dir.join("sub/a.png"));
         let (mut app, ctx) = app_on(&gqv);
-        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
         log.note(&a, &moved);
         std::fs::rename(&a, &moved).unwrap();
         drop(log);
-        for (log, went) in super::journal::moves_cut_short(&logs) {
+        for (log, went) in super::journal::move_jobs_cut_short(&logs) {
             assert_eq!(went, vec![(a.clone(), moved.clone())]);
             let report = super::OperationReport {
                 moved: went,

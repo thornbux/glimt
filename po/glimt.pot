@@ -3278,3 +3278,7 @@ msgstr ""
 #: src/images/save.rs
 msgid "{file} was saved, but it may not be on the disk yet: {e}"
 msgstr ""
+
+#: src/files/job_log.rs
+msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
+msgstr ""
