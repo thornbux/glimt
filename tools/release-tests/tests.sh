@@ -5502,7 +5502,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID
     BIN=$second start $d
     sleep 3
     BIN=$second menu "Finish the renaming"
-    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f)\" ]" 60
+    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f ! -name .lock)\" ]" 60
     sleep 1
     BIN=$second quit
     # Named: files NNNN.jpg; renamed: NNNN.jpg holds photo 2001 - NNNN; starred: its stars on it.
@@ -5524,7 +5524,8 @@ for line in open(marks):
 print(named, renamed, hidden, starred)
 PY
 )
-    plans=$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null | wc -l | tr -d ' ')
+    # The lists' lock file, renames/files/.lock, which the start takes, is no plan.
+    plans=$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -type f ! -name .lock 2>/dev/null | wc -l | tr -d ' ')
     rm -rf $d
     if [ $v = new ]; then
         expect "the last release killed during Rename Many left its plan, photos under hidden names" \
