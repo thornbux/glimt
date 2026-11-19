@@ -255,15 +255,7 @@ impl JobLog {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let header = [
-            HEADER.as_bytes().to_vec(),
-            VERSION.to_string().into_bytes(),
-            job.as_bytes().to_vec(),
-            nanos.to_string().into_bytes(),
-            crate::features::remote::instance_id().as_bytes().to_vec(),
-        ];
-        let mut bytes = Vec::new();
-        add_record(&mut bytes, &header);
+        let mut bytes = header_bytes(job, nanos, crate::features::remote::instance_id());
         bytes.extend(records_bytes(first));
         let written = (log.file.write_all(&bytes))
             .and_then(|()| log.file.sync_all())
@@ -405,6 +397,22 @@ fn next_record(reader: &mut impl std::io::BufRead) -> std::io::Result<Option<Vec
             fields.push(field);
         }
     }
+}
+
+/// Returns the bytes of a log's header for a job of kind `job` started at `nanos` by the window
+/// `instance`. A NUL byte or a line break in the instance's name would end its field or the
+/// record early, and the log would be taken for no log. So every control character in the name
+/// is written as `_`. The name is only told, never looked up, so nothing needs its exact bytes.
+fn header_bytes(job: &str, nanos: u128, instance: &str) -> Vec<u8> {
+    let instance: String = (instance.chars())
+        .map(|c| if c.is_control() { '_' } else { c })
+        .collect();
+    let nanos = nanos.to_string();
+    let version = VERSION.to_string();
+    let header = [HEADER, &version, job, &nanos, &instance];
+    let mut bytes = Vec::new();
+    add_record(&mut bytes, &header.map(|field| field.as_bytes().to_vec()));
+    bytes
 }
 
 /// Returns the bytes of `records`, as they are written to a log.
@@ -647,6 +655,18 @@ mod tests {
             assert_eq!(parsed(not_a_log), LogRead::NotALog);
         }
         assert!(matches!(parsed(&log_bytes("1", &[])), LogRead::Log { .. }));
+    }
+
+    /// A window whose name holds a NUL byte or a line break writes a header that is read back
+    /// as a log, with those characters written as `_`. Before, the NUL ended the name's field
+    /// early, and the log was taken for no log.
+    #[test]
+    fn an_instance_name_cannot_break_the_header() {
+        let bytes = super::header_bytes("move", 9, "w\0x\ny\r");
+        let LogRead::Log { instance, .. } = parsed(&bytes) else {
+            panic!("not read as a log");
+        };
+        assert_eq!(instance, "w_x_y_");
     }
 
     /// Damaged logs are read without a panic. Every record read names only absolute paths with
