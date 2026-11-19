@@ -847,8 +847,8 @@ fn put_right_a_delete(
 
 /// Returns the records of the log written anew for the steps of `r` that are `untold`, numbered
 /// anew: each step with its fingerprint, its sidecars put aside, and whether it is `kept`,
-/// `done` or `found`. They come after the collection shown and the `old-log` record that names
-/// the log at `old`, which a kill may leave beside the new one.
+/// `done` or `found`. They come after the collection shown and before the `old-log` record that
+/// names the log at `old`, which a kill may leave beside the new one.
 fn steps_left(
     r: &DeleteRecords,
     untold: &HashSet<PathBuf>,
@@ -862,7 +862,6 @@ fn steps_left(
         .map(Record::Shown)
         .into_iter()
         .collect();
-    records.push(Record::OldLog(old.to_path_buf()));
     let left = (r.names.iter().zip(&r.known)).filter(|(name, _)| untold.contains(*name));
     for (number, (name, known)) in left.enumerate() {
         records.push(Record::Step {
@@ -885,6 +884,9 @@ fn steps_left(
         ];
         records.extend(marks.into_iter().filter(|(is, _)| *is).map(|(_, r)| r));
     }
+    // The `old-log` record comes last, so that a new log cut off by a kill while it is written
+    // never names the old log, which then stays and is read again.
+    records.push(Record::OldLog(old.to_path_buf()));
     records
 }
 
@@ -3929,7 +3931,14 @@ mod tests {
             to: None,
             fingerprint: known,
         };
-        assert_eq!(records, [Record::OldLog(old.clone()), step]);
+        assert_eq!(records, [step, Record::OldLog(old.clone())]);
+        // A kill cut the new log off while it was written: it does not name the old one, which
+        // the next start then reads again instead of removing it unread.
+        let new_bytes = std::fs::read(&new).unwrap();
+        let cut = dir.join("cut");
+        std::fs::create_dir(&cut).unwrap();
+        std::fs::write(cut.join("cut-off"), &new_bytes[..new_bytes.len() - 1]).unwrap();
+        assert!(!super::jobs_cut_short(&cut).2.contains(&old));
         // A kill came before the old log went: the next start removes it unread.
         std::fs::write(&old, &old_bytes).unwrap();
         let found = super::delete_jobs_cut_short(&logs);
