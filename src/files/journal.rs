@@ -2451,11 +2451,20 @@ mod tests {
             (p(".tmp-0"), p("b.jpg")),
             (p(".tmp-1"), p("a.jpg")),
         ];
+        // The plan is made with the photos under their old names, as rename_many makes it, so
+        // that it holds their fingerprints, and then `steps` of its renames are done.
+        let start = |moves: &super::Moves, steps: usize| {
+            let cut = super::start_journal(&plans, moves).unwrap();
+            for (from, to) in &moves[..steps] {
+                std::fs::rename(from, to).unwrap();
+            }
+            cut
+        };
         // Three steps are done and one counted, and b is there again, made by the third.
-        std::fs::write(p("b.jpg"), "a").unwrap();
-        std::fs::write(p(".tmp-1"), "b").unwrap();
+        write_with_time(&p("a.jpg"), "a", 0);
+        write_with_time(&p("b.jpg"), "b", 1);
         let plan = plans.join("cut");
-        let mut cut = super::start_journal(&plans, &moves).unwrap();
+        let mut cut = start(&moves, 3);
         cut.count_step_done();
         std::fs::copy(cut.path(), &plan).unwrap();
         drop(cut);
@@ -2471,11 +2480,11 @@ mod tests {
             // Two steps are done and the third linked, with one counted, so b and .tmp-0 are one
             // file. When put back, the link goes first. When finished, the third step is the
             // link's unlink.
-            std::fs::write(p(".tmp-0"), "a").unwrap();
-            std::fs::write(p(".tmp-1"), "b").unwrap();
-            std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
+            write_with_time(&p("a.jpg"), "a", 0);
+            write_with_time(&p("b.jpg"), "b", 1);
             let plan = plans.join("cut");
-            let mut cut = super::start_journal(&plans, &moves).unwrap();
+            let mut cut = start(&moves, 2);
+            std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
             cut.count_step_done();
             std::fs::copy(cut.path(), &plan).unwrap();
             drop(cut);
@@ -2501,11 +2510,11 @@ mod tests {
                     )
                 })
                 .into();
-            for n in ["A", "B", "C", "d"] {
-                std::fs::write(p(&format!("{n}.png")), n.to_lowercase()).unwrap();
+            for (k, n) in ["a", "b", "c", "d"].into_iter().enumerate() {
+                write_with_time(&p(&format!("{n}.png")), n, k);
             }
+            let mut cut = start(&chain, 3);
             std::fs::hard_link(p("d.png"), p("D.png")).unwrap();
-            let mut cut = super::start_journal(&plans, &chain).unwrap();
             cut.count_step_done();
             std::fs::copy(cut.path(), &plan).unwrap();
             drop(cut);
@@ -2529,10 +2538,10 @@ mod tests {
         }
         for undo in [true, false] {
             // Two steps done, one counted.
-            std::fs::write(p(".tmp-0"), "a").unwrap();
-            std::fs::write(p(".tmp-1"), "b").unwrap();
+            write_with_time(&p("a.jpg"), "a", 0);
+            write_with_time(&p("b.jpg"), "b", 1);
             let plan = plans.join("cut");
-            let mut cut = super::start_journal(&plans, &moves).unwrap();
+            let mut cut = start(&moves, 2);
             cut.count_step_done();
             std::fs::copy(cut.path(), &plan).unwrap();
             drop(cut);
@@ -3601,8 +3610,8 @@ mod tests {
                     for undo in [false, true] {
                         let _ = std::fs::remove_dir_all(&dir);
                         std::fs::create_dir_all(&dir).unwrap();
-                        for f in from {
-                            std::fs::write(p(f), f).unwrap();
+                        for (k, f) in from.iter().enumerate() {
+                            write_with_time(&p(f), f, k);
                         }
                         let mut plan = super::start_journal(&plans, &moves).unwrap();
                         for (a, b) in &moves[..cut] {
@@ -3657,6 +3666,16 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Writes `text` to `path` with a time of its own, `k` seconds after a fixed one. Files written
+    /// a moment apart often get the same time, and the repair's check of each file by its size
+    /// and time then passed also on the wrong file, so a test passed or failed by chance.
+    fn write_with_time(path: &std::path::Path, text: &str, k: usize) {
+        std::fs::write(path, text).unwrap();
+        let time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000 + k as u64);
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(time).unwrap();
+    }
+
     /// Cuts `moves` short after `cut` steps on disk, with `counted` of them counted in the plan,
     /// as when the count reached its disk and the photos' folder did not. Then it puts them
     /// right, and checks that no photo is left under a hidden name or lost.
@@ -3671,8 +3690,8 @@ mod tests {
         let plans = dir.join("plans");
         let _ = std::fs::remove_dir_all(dir);
         std::fs::create_dir_all(dir).unwrap();
-        for f in from {
-            std::fs::write(dir.join(f), f).unwrap();
+        for (k, f) in from.iter().enumerate() {
+            write_with_time(&dir.join(f), f, k);
         }
         let mut plan = super::start_journal(&plans, moves).unwrap();
         for (a, b) in &moves[..cut] {
@@ -3687,14 +3706,20 @@ mod tests {
         let [(path, read, done)] = &super::cut_short_plans(&plans)[..] else {
             panic!("one plan");
         };
-        let (_, left) = super::repair_cut_short(path, read, *done, undo).unwrap();
-        assert_eq!(left, 0, "{case}");
-        assert!(!path.exists(), "{case}");
-        // Each photo is under a name it is meant to have, and none under a hidden one. A swap
-        // not begun has the names of one done. Its count is below half then, because the
+        // A swap not begun has the names of one done. Its count is below half then, because the
         // middle of a swap is on disk, names first, before its count (`rename_files`). A count
         // of half or more with no step on disk cannot happen, and which of the two it was
-        // cannot be told.
+        // cannot be told. The repair then takes the swap as done, and an undo is refused when
+        // a photo's check by its size and time finds the other photo's name holding it, which
+        // leaves every name as it is. It passed only when both files had the same time.
+        let cannot_be_told =
+            cut == 0 && counted >= moves.len() / 2 && to.iter().all(|t| from.contains(t));
+        let (_, left) = super::repair_cut_short(path, read, *done, undo).unwrap();
+        if !cannot_be_told {
+            assert_eq!(left, 0, "{case}");
+            assert!(!path.exists(), "{case}");
+        }
+        // Each photo is under a name it is meant to have, and none under a hidden one.
         let mut there: Vec<(String, String)> = (std::fs::read_dir(dir).unwrap())
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .filter(|n| n != "plans")
@@ -3707,7 +3732,7 @@ mod tests {
         );
         let photos: Vec<&str> = there.iter().map(|(photo, _)| photo.as_str()).collect();
         assert_eq!(photos, from, "{case}");
-        if cut == 0 && counted >= moves.len() / 2 && to.iter().all(|t| from.contains(t)) {
+        if cannot_be_told {
             return;
         }
         let names = if undo { from } else { to };
