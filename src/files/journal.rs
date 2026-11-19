@@ -789,7 +789,8 @@ pub fn remove_once_written(log: JobLog) {
 /// fingerprint it had in the trash, which came back in the moment between its rename and its
 /// record (the rule of a Move, `moves_that_went`). Any other step not done keeps no marks: its
 /// file is still in the trash, or another file has its name. Returns `None` when such a step's
-/// path cannot be told (`is_gone_at_start`), so that the log stays for a later start.
+/// path cannot be told (`is_gone_at_start`), or the places cannot be written to the collection,
+/// so that the log stays for a later start.
 fn back_from_the_trash(records: &[Record]) -> Option<JobDoneBeforeAKill> {
     let (mut paths, mut done, mut marks, mut places) =
         (Vec::new(), HashSet::new(), Vec::new(), Vec::new());
@@ -836,6 +837,8 @@ fn back_from_the_trash(records: &[Record]) -> Option<JobDoneBeforeAKill> {
         let put_back = |all: &mut Vec<PathBuf>| crate::files::file_ops::put_back(all, &places);
         if let Err(e) = crate::model::collections::edit_open_collection(&collection, put_back) {
             crate::files::file_io::save_failed(e);
+            // The log stays, so that a later start gives the places back.
+            return None;
         }
     }
     let marks = (marks.into_iter())
@@ -4945,6 +4948,33 @@ mod tests {
         assert_eq!(moves[0].1, vec![(a.clone(), moved.clone())]);
         assert!(matches!(&others[0].1, FolderTrashed(folder) if *folder == album));
         drop((moves, others));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A start that cannot give the files of a killed Undo from the trash their places back in
+    /// the collection shown, which cannot be written, keeps the log for a later start. Before,
+    /// the failure was told but the log went, and the places were lost.
+    #[test]
+    fn an_undo_from_the_trash_whose_collection_cannot_be_written_keeps_its_log() {
+        let dir = crate::support::test_support::contract_folder("start-undo-collection");
+        // A folder at the collection's name, which no edit can write.
+        let collection = dir.join("c.gqv");
+        std::fs::create_dir(&collection).unwrap();
+        let records = vec![
+            super::Record::Shown(collection),
+            super::Record::Step {
+                number: 0,
+                from: dir.join("a.png"),
+                to: None,
+                fingerprint: None,
+            },
+            super::Record::Place {
+                number: 0,
+                index: 0,
+            },
+            super::Record::Done(0),
+        ];
+        assert!(super::back_from_the_trash(&records).is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
