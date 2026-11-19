@@ -5186,10 +5186,12 @@ print(named, beside, starred)
 PY
 )
     hidden=$(ls -A $to | grep -c '^\.')
+    logs_left=$(ls $XDG_STATE_HOME/glimt/jobs $XDG_STATE_HOME/glimt/moves 2>/dev/null | grep -cv -e '^$' -e ':$' -e '^files$')
     rm -rf $d $to
     if [ $v = new ]; then
         expect "killed during a Move: every photo under a name, its sidecar beside it, its stars on it" \
             "$got" "200 200 200"
+        expect "killed during a Move: the next start leaves no log behind" "$logs_left" 0
         # A Move that never started, or that ended before the kill, passes the line above too.
         expect "killed in the middle of the Move" \
             "$([ $moved -gt 0 ] && [ $moved -lt 200 ] && echo yes)" yes
@@ -5352,6 +5354,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID $how)
         first=$(ls $d | grep 'jpg$' | comm -23 /tmp/killed-names - | head -1)
         [ -n "$first" ] && convert -size 64x64 xc:red $d/$first
         start $d; sleep 3; quit         # a new start, which may put things right
+        logs_left=$(ls $XDG_STATE_HOME/glimt/jobs $XDG_STATE_HOME/glimt/deletes 2>/dev/null | grep -cv -e '^$' -e ':$' -e '^files$' -e '^collections$' -e '^aside$' -e '^kept$')
         # Left: names of photos that went that still have stars or a sidecar. Later: whether the
         # later photo has stars, and whether it has a sidecar. Bare: photos still there without
         # their stars or without their sidecar beside them (in the trash, or under a hidden name
@@ -5391,9 +5394,60 @@ PY
             expect "killed in the middle of the $how" \
                 "$([ $gone -gt 0 ] && [ $gone -lt 1000 ] && echo yes)" yes
             [ $how = delete ] && expect "the delete waited at the held lock when killed" "$stalled" yes
+            expect "killed during a $how: the next start leaves no log behind" "$logs_left" 0
             note "new: $gone gone when killed"
         else note "old: $how: left behind, later photo's, bare: $got ($gone gone when killed)"; fi
     done
+done
+
+section "the last release killed (kill -9) during a Move and a Move to Trash: a start of this one puts its log right once"
+# The job log of 0.93 took the place of the logs in moves/ and deletes/. A start puts every
+# unlocked old log right once with the old rules and removes it (docs/design/log-format.md,
+# decision 3), so the stars follow the files that the old release moved, and are forgotten for
+# those it trashed, before the kill. Run as "new" with the home of the new release, and as
+# "old" with the old release's binary for both runs, to compare.
+for v in new old; do
+    as_version new
+    second=$BIN
+    [ $v = old ] && second=/opt/glimt-old
+    mkdir -p $XDG_STATE_HOME/glimt
+    rm -rf $XDG_STATE_HOME/glimt/jobs $XDG_STATE_HOME/glimt/moves $XDG_STATE_HOME/glimt/deletes
+    d=/dev/shm/old-log-$v to=/tmp/old-log-to-$v
+    rm -rf $d $to; mkdir -p $d $to
+    head -c 10000000 /dev/urandom >$d/001.jpg
+    for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
+    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$XDG_STATE_HOME/glimt/marks
+    config
+    BIN=/opt/glimt-old start $d
+    sleep 2
+    key ctrl+a
+    answer $to
+    key ctrl+m
+    for i in $(seq 400); do [ "$(ls $to | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.05; done
+    kill -9 $GPID; wait $GPID 2>/dev/null
+    old_logs=$(ls $XDG_STATE_HOME/glimt/moves 2>/dev/null | grep -cv '^files$')
+    BIN=$second start $to; sleep 2; BIN=$second quit
+    got=$(python3 - $d $to $XDG_STATE_HOME/glimt/marks <<'PY'
+import os, sys
+d, to, marks = sys.argv[1:]
+stars = {}
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3:
+        stars[fields[2]] = fields[1]
+starred = 0
+for i in range(1, 201):
+    name = "%03d.jpg" % i
+    starred += any(stars.get(f"{p}/{name}") == "3" for p in (d, to) if os.path.isfile(f"{p}/{name}"))
+print(starred)
+PY
+)
+    left=$(ls $XDG_STATE_HOME/glimt/moves 2>/dev/null | grep -cv '^files$')
+    rm -rf $d $to
+    if [ $v = new ]; then
+        expect "the last release killed during a Move left its log" "$([ $old_logs -gt 0 ] && echo yes)" yes
+        expect "a start of this release: every photo with its stars, the old log removed" "$got $left" "200 0"
+    else note "old: starred, logs left: $got $left"; fi
 done
 
 section "a keyword save that fails, then Ctrl+Q at once: the failure shown, the window stays open"
