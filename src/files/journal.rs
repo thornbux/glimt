@@ -378,6 +378,15 @@ impl DeleteLog {
         }
     }
 
+    /// Writes down `photo`, which the log names, as kept, synced, without keeping the log after
+    /// the job: its sidecars stay under their hidden names, and a start after a kill tells them
+    /// rather than delete them. A write that fails is kept, as in `note`.
+    pub fn note_kept(&mut self, photo: &Path) {
+        if let Some(&number) = self.steps.get(photo) {
+            self.add(&[Record::Kept(number)], true);
+        }
+    }
+
     /// Keeps the log on disk after the job for a later start, without writing down a photo as
     /// kept. A delete for good does this for a photo that it deleted when the look after the
     /// delete failed and the rename back of a sidecar failed too, so that the sidecar may still

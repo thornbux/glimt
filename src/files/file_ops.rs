@@ -3127,10 +3127,8 @@ fn delete_for_good(
         let mut all_aside = Ok(());
         let to_put_aside: Vec<(PathBuf, PathBuf)> =
             (xmp::sidecars_moving_with(p, p, &leaving, &mut names).into_iter())
-                .map(|(side, _)| {
-                    let hidden = crate::files::file_io::tmp_path(&side);
-                    (side, hidden)
-                })
+                .map(|(side, _)| (crate::files::file_io::tmp_path(&side), side))
+                .map(|(hidden, side)| (side, hidden))
                 .collect();
         // Noted on disk before the first rename, which the folder sync below makes lasting.
         if let Some(log) = log.as_deref_mut() {
@@ -3138,11 +3136,7 @@ fn delete_for_good(
         }
         for (side, hidden) in to_put_aside {
             #[cfg(test)]
-            journal::SYNCED_AT_PUT_ASIDE.with_borrow_mut(|at| {
-                let mut synced = journal::LOG_FILES_SYNCED.with_borrow(Clone::clone);
-                synced.extend(crate::files::file_io::FOLDERS_SYNCED.with_borrow(Clone::clone));
-                at.push((side.clone(), synced));
-            });
+            note_synced_at_put_aside(&side);
             match rename_never_over(&side, &hidden) {
                 Ok(()) => aside.push((side, hidden)),
                 // A share may have hidden it and lost its answer. Nothing guesses, so the user
@@ -3171,6 +3165,7 @@ fn delete_for_good(
         // A test's kill comes here, between the sidecars put aside and the photo deleted.
         #[cfg(test)]
         (aside.iter()).for_each(|(side, _)| crate::support::threads::panic_in_a_test_at(side));
+        let mut gone_without_answer = false;
         let deleted = all_aside.map_err(|(at, e)| failed(&at, e)).is_ok() && {
             #[allow(clippy::disallowed_methods)] // Delete without the trash, the one place
             let removed = std::fs::remove_file(p);
@@ -3178,7 +3173,8 @@ fn delete_for_good(
             let removed = crate::files::file_io::answer_lost_in_a_test(p, removed);
             #[cfg(test)]
             crate::files::file_io::looks_fail_once_deleted_in_a_test(&removed);
-            // A delete that a share did and lost the answer of is done, so its sidecars go too.
+            // A delete that a share did and lost the answer of is done, its sidecars kept.
+            gone_without_answer = removed.is_err();
             let removed = crate::files::file_io::done_after_all(removed, p, None);
             removed.map_err(|e| failed(p, e)).is_ok()
         };
@@ -3206,6 +3202,10 @@ fn delete_for_good(
             continue;
         }
         went.push(p.clone());
+        if gone_without_answer {
+            keep_aside_of_a_photo_gone_without_answer(log.as_deref_mut(), p, aside, &mut failed);
+            continue;
+        }
         // Written down before its hidden sidecars go: a step without it keeps them for a start.
         note_gone(log.as_deref_mut(), p);
         for (side, hidden) in aside {
@@ -3224,6 +3224,38 @@ fn delete_for_good(
         }
     }
     (went, sides, left_alone)
+}
+
+/// Notes, in a test, what was synced when the sidecar `side` is put aside.
+#[cfg(test)]
+fn note_synced_at_put_aside(side: &Path) {
+    journal::SYNCED_AT_PUT_ASIDE.with_borrow_mut(|at| {
+        let mut synced = journal::LOG_FILES_SYNCED.with_borrow(Clone::clone);
+        synced.extend(crate::files::file_io::FOLDERS_SYNCED.with_borrow(Clone::clone));
+        at.push((side.to_path_buf(), synced));
+    });
+}
+
+/// Keeps the sidecars `aside`, as (sidecar, hidden), of the photo `p`, which a delete for good
+/// found gone only after an error, under their hidden names, and notes the photo kept in the
+/// log. Another program may have moved the photo away at that moment, and nothing on disk tells
+/// that from Glimt's own delete, so the sidecars do not go (#176). Each hidden name is told
+/// through `failed`.
+fn keep_aside_of_a_photo_gone_without_answer(
+    log: Option<&mut journal::DeleteLog>,
+    p: &Path,
+    aside: Vec<(PathBuf, PathBuf)>,
+    failed: &mut impl FnMut(&Path, std::io::Error),
+) {
+    if let Some(log) = log {
+        log.note_kept(p);
+    }
+    for (side, hidden) in aside {
+        failed(
+            &side,
+            journal::may_be_hidden(std::io::ErrorKind::NotFound.into(), p, &hidden),
+        );
+    }
 }
 
 /// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
@@ -6773,6 +6805,50 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A Delete for good whose photo is gone after an error, as on a share that lost the answer,
+    /// or where another program moved the photo away at that moment, keeps the photo's sidecar
+    /// under its hidden name and tells it, and a start after a kill keeps it too. Before, the
+    /// sidecar was deleted for good as if the delete had surely been Glimt's (#176).
+    #[test]
+    fn a_delete_for_good_whose_photo_went_without_an_answer_keeps_its_sidecar() {
+        use crate::files::file_io::ANSWER_LOST_AT;
+        let dir = contract_folder("delete-photo-lost");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        ANSWER_LOST_AT.set(Some(a.clone()));
+        let mut errors = Vec::new();
+        let how = (false, Some(&mut log));
+        let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
+        ANSWER_LOST_AT.set(None);
+        assert_eq!(gone, std::slice::from_ref(&a));
+        let hidden = hidden_names_in(&dir);
+        assert_eq!(hidden.len(), 1, "the sidecar was deleted");
+        let told = errors.join("\n");
+        assert!(told.contains(&hidden[0].display().to_string()), "{told}");
+        // A kill before the job's end: the start keeps the sidecar and tells it.
+        drop(log);
+        let _ = crate::files::file_io::take_saves_failed();
+        let found = super::journal::delete_jobs_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        found
+            .into_iter()
+            .for_each(|(log, _)| log.remove_once_forgotten());
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        assert_eq!(
+            hidden_names_in(&dir),
+            hidden,
+            "the start deleted the sidecar"
+        );
+        let told = crate::files::file_io::take_saves_failed().join("\n");
+        assert!(told.contains(&hidden[0].display().to_string()), "{told}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A Delete for good whose rename that hides a photo's sidecar was done on a share that lost
     /// its answer, while the look at the sidecar's name fails too, leaves the photo, names the
     /// hidden name, and keeps its log, so that the next start gives the sidecar back. Before, the
@@ -7384,9 +7460,10 @@ mod tests {
     }
 
     /// A Move, the Undo of a Move and a Delete for good whose step a share did and then lost the
-    /// answer of count the file as moved or deleted, so its sidecar goes with it. Before, the
-    /// file counted as where it was: its sidecar and marks stayed at the old name, where the
-    /// next file of that name took them.
+    /// answer of count the file as moved or deleted, so its sidecar goes with it, or for the
+    /// Delete for good stays under its hidden name, told, as nothing tells the delete from
+    /// another program's move (#176). Before, the file counted as where it was: its sidecar and
+    /// marks stayed at the old name, where the next file of that name took them.
     #[test]
     fn a_step_done_whose_answer_was_lost_counts_as_done() {
         use crate::files::file_io::ANSWER_LOST_AT;
@@ -7433,8 +7510,10 @@ mod tests {
         let (went, _, _) = super::delete_chunk(&paths, &picked, (false, None), &mut errors);
         ANSWER_LOST_AT.set(None);
         assert_eq!(went, paths, "{errors:?}");
-        assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(std::fs::read_dir(&from).unwrap().count(), 0);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let left: Vec<_> = std::fs::read_dir(&from).unwrap().flatten().collect();
+        assert_eq!(left.len(), 1, "{left:?}");
+        assert!(errors[0].contains(&left[0].path().display().to_string()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
