@@ -1481,9 +1481,21 @@ pub(crate) fn read_line_limited(
     most: u64,
     line: &mut Vec<u8>,
 ) -> std::io::Result<usize> {
+    read_until_limited(reader, most, b'\n', line)
+}
+
+/// Reads from `reader` into `part` up to and with the next byte `end`, but at most `most` bytes,
+/// as `read_line_limited` reads a line. Returns how many bytes were read, 0 at the end. A job
+/// log's fields each end in a NUL byte, and are read this way.
+pub(crate) fn read_until_limited(
+    reader: &mut impl std::io::BufRead,
+    most: u64,
+    end: u8,
+    part: &mut Vec<u8>,
+) -> std::io::Result<usize> {
     use std::io::BufRead;
     #[allow(clippy::disallowed_methods)] // bounded by take
-    std::io::Read::take(reader, most).read_until(b'\n', line)
+    std::io::Read::take(reader, most).read_until(end, part)
 }
 
 /// Copies from `from` to `to` until its end, but at most `most` bytes. Returns how many bytes

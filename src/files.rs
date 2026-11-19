@@ -7,6 +7,7 @@ pub(crate) mod config;
 pub(crate) mod external;
 pub(crate) mod file_io;
 pub(crate) mod file_ops;
+pub(crate) mod job_log;
 pub(crate) mod journal;
 #[cfg(feature = "portals")]
 pub(crate) mod portal;

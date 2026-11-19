@@ -134,6 +134,8 @@ release that drops its format, so that no user's file or mark is lost in the upg
   log by its names alone. So are the files a delete log keeps beside it, in folders of their
   own: the collection shown, the sidecars put aside and the photos kept (`collection`, `aside`
   and `kept` lines, from `journal::collection_path`, `aside_path` and `kept_path`);
+- the words of a job log (`job_record` lines, from `job_log::HEADER`, `VERSION`, `JOB_KINDS`
+  and `RECORD_KINDS`), and the kind of its lock (`lock_kind job log`, of `JobLog::start`);
 - the words of the groups in the sharing file (`sharing` lines, `Group::key`), and the names
   of the single tags and parts it holds (`sharing_tag` lines, from
   `shared_copy::names_of_single_tags`): each EXIF tag's name, one of each form a tag or part
@@ -319,6 +321,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/trash.rs` | The trash, and putting a file back for Undo |
 | `src/files/external.rs` | Starting programs (`command`, `host_command`), and ffmpeg, gio and Open With |
 | `src/files/portal.rs` | The desktop portals through zbus (feature `portals`) |
+| `src/files/job_log.rs` | The job log in `jobs/`: one file for each job that changes files, with a header, a version and typed records, its writer and its parser |
 | `src/files/journal.rs` | Rename Many's steps on disk, put right at the next start after a crash, a Move's log, by which the marks and collections follow the files moved before a kill, and a delete's log, by which the marks of the files deleted before a kill are forgotten |
 | `src/support.rs` | **The support/ folder:** what the rest is built on |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget was drawn (`noted`) |
