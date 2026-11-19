@@ -381,15 +381,16 @@ impl App {
         if !bare {
             self.status_bar(ctx, ui);
         }
-        if !bare {
-            self.side_panel(ctx, ui);
-        }
+        self.side_panel(ctx, ui, !bare);
         if !bare && self.config.sort_manager {
             self.sort_manager(ui);
         }
-        if !bare && self.config.info_panel && !self.list.files().is_empty() {
-            self.info_panel(ui);
-        } else {
+        let shows_info = !bare && self.config.info_panel && !self.list.files().is_empty();
+        // An empty list has no image to tell about, so the panel goes at once.
+        if !self.list.files().is_empty() {
+            self.info_panel(ui, shows_info);
+        }
+        if !shows_info {
             // The panel was hidden while a field had the focus, so the field never lost it.
             self.save_metadata_edit(ui.ctx());
         }

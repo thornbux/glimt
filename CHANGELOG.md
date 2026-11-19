@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   theme's buttons.
 - The file list, the icon grids, the folder list and the folder tree fade their content out at
   the top or bottom edge where there is more to scroll to.
+- The file list and the info panel (Ctrl+K) slide in and out instead of popping, also for full
+  screen and Hide File List.
 
 ## [0.91.0] - 2026-11-19
 
