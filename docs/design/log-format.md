@@ -112,7 +112,7 @@ The record kinds:
 
 | Record | Fields | Written | For |
 |---|---|---|---|
-| `folder` | path, device, inode | before the first step in that folder | #179 |
+| `folder` | path, device, inode (`0` where the file system keeps none, FAT and exFAT) | before the first step in that folder, also the folder a file or folder goes to | #179, an empty mount point |
 | `shown` | the collection's path | at the start | the collection shown, now `collections/` |
 | `step` | number, from, to or `-`, fingerprint or `-` | before the step | every job |
 | `done` | number | after the step is done | #225, Rename Many's count |
@@ -176,6 +176,12 @@ A log no window holds locked was cut short. For each step, the start looks at th
   are forgotten, the collection follows, a hidden sidecar of a deleted photo goes.
 - **A `folder` record whose device and inode differ** from the folder at that path now: every
   step in it is left for a later start, and the log stays (#179).
+- **A step in a folder of another device than its `folder` record noted, or with no `folder`
+  record in a log that has some:** the start cannot tell, as an empty mount point (`/mnt/nas`
+  while its share is not mounted) is a folder too. The step is left for a later start, and the
+  log stays. A stick plugged in again with another device number waits the same way: its marks
+  are kept, not lost. A log with no `folder` record at all (Glimt 0.92's, or one written anew
+  from it) is read as before.
 - **`tree`:** the marks and collection entries under the old path follow the new one, or are
   forgotten for a trashed folder, once the start sees the folder at its new place by its inode
   (#248).

@@ -76,6 +76,10 @@ thread_local! {
     // that the note came before the rename and not only before the test's kill.
     pub(crate) static SYNCED_AT_PUT_ASIDE: std::cell::RefCell<Vec<(PathBuf, Vec<PathBuf>)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // The folders that a start on this thread sees on another device than the one they are
+    // on, as an empty mount point is while its share or stick is not mounted.
+    pub(crate) static ON_ANOTHER_DEVICE: std::cell::RefCell<Vec<PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The job logs a start found: the Moves with the files that went, the deletes with the files
@@ -211,6 +215,8 @@ pub struct MoveLog {
     steps: usize,
     /// Whether the log was found at the start, left by a Glimt that was killed.
     is_found_at_start: bool,
+    /// The folders that the files go to, each with a `folder` record before its first step.
+    folders: HashSet<PathBuf>,
     /// The first write of the log that failed, on a full disk say. The log takes no more steps
     /// after it, and the Move goes on without them.
     failure: Option<std::io::Error>,
@@ -226,13 +232,18 @@ impl MoveLog {
         if self.is_found_at_start || self.failure.is_some() {
             return;
         }
-        let step = Record::Step {
+        let mut records = Vec::new();
+        let folder = to.parent().unwrap_or(Path::new("/"));
+        if self.folders.insert(folder.to_path_buf()) {
+            records.extend(folder_record(folder));
+        }
+        records.push(Record::Step {
             number: self.steps,
             from: from.to_path_buf(),
             to: Some(to.to_path_buf()),
             fingerprint: crate::files::file_io::fingerprint(from),
-        };
-        self.failure = self.log.add_records(&[step]).err();
+        });
+        self.failure = self.log.add_records(&records).err();
         self.steps += 1;
     }
 
@@ -249,6 +260,7 @@ impl MoveLog {
             log: JobLog::found(path.to_path_buf(), File::open(path).unwrap()),
             steps: 0,
             is_found_at_start: false,
+            folders: HashSet::new(),
             failure: None,
         }
     }
@@ -587,6 +599,7 @@ pub fn start_move_log(dir: &Path, job: &str) -> std::io::Result<MoveLog> {
         log: JobLog::start(dir, job, &[])?,
         steps: 0,
         is_found_at_start: false,
+        folders: HashSet::new(),
         failure: None,
     })
 }
@@ -641,7 +654,12 @@ pub fn start_undo_trash_log(
         }
         number
     };
+    let mut folders = HashSet::new();
     for file in files {
+        let folder = file.parent().unwrap_or(Path::new("/"));
+        if folders.insert(folder) {
+            records.extend(folder_record(folder));
+        }
         number_of(file, &mut records);
     }
     for (path, (bits, stars)) in marks {
@@ -683,7 +701,13 @@ pub fn start_folder_log(
         .map(|c| Record::Shown(c.to_path_buf()))
         .into_iter()
         .collect();
-    records.extend(folder_record(folder));
+    // The folders that hold it before and after too, so that a start can tell them from an
+    // empty mount point at their path (`is_gone_at_start`).
+    let mut noted: Vec<&Path> = vec![folder];
+    for path in std::iter::once(folder).chain(to) {
+        noted.extend(path.parent().filter(|p| !noted.contains(p)));
+    }
+    records.extend(noted.into_iter().filter_map(folder_record));
     records.push(Record::Tree {
         from: folder.to_path_buf(),
         to: to.map(Path::to_path_buf),
@@ -705,11 +729,10 @@ pub fn start_folder_log(
 /// trashed when its old path holds another folder, or is free in a folder that surely is there
 /// (`is_gone_at_start`), and its files leave the collection shown here.
 fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
-    let (mut tree, mut inode, mut collection) = (None, None, None);
+    let (mut tree, mut collection) = (None, None);
     for record in records {
         match record {
             Record::Tree { from, to } => tree = Some((from.clone(), to.clone())),
-            Record::Folder { inode: noted, .. } => inode = Some(*noted),
             Record::Shown(c) => collection = Some(c.clone()),
             _ => {}
         }
@@ -717,6 +740,9 @@ fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
     let Some((from, to)) = tree else {
         return Some(JobDoneBeforeAKill::NothingToFollow);
     };
+    let folders = folders_noted(records);
+    // An inode of 0 was not noted, as on FAT (`folder_record`).
+    let inode = (folders.get(&from).map(|(_, inode)| *inode)).filter(|inode| *inode != 0);
     // Whether a folder is at `path` with the noted inode: `None` when the look failed.
     let holds_the_folder = |path: &Path| -> Option<bool> {
         let found = crate::files::file_io::fingerprint_if_there(path).ok()?;
@@ -729,19 +755,19 @@ fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
         return Some(JobDoneBeforeAKill::NothingToFollow);
     }
     Some(match to {
-        Some(_) if !is_gone_at_start(&from)? => JobDoneBeforeAKill::NothingToFollow,
+        Some(_) if !is_gone_at_start(&from, &folders)? => JobDoneBeforeAKill::NothingToFollow,
         Some(to) if holds_the_folder(&to)? => JobDoneBeforeAKill::FolderRenamed(from, to),
         Some(to) => {
             // A stick not mounted at this start would else lose the marks of every file under
             // the folder.
-            is_gone_at_start(&to)?;
+            is_gone_at_start(&to, &folders)?;
             JobDoneBeforeAKill::NothingToFollow
         }
         None => {
             // A free path counts only in a folder that surely is there. A stick or share not
             // mounted at this start would else have every file under the folder taken for
             // trashed.
-            is_gone_at_start(&from)?;
+            is_gone_at_start(&from, &folders)?;
             forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&from));
             JobDoneBeforeAKill::FolderTrashed(from)
         }
@@ -789,9 +815,12 @@ fn back_from_the_trash(records: &[Record]) -> Option<JobDoneBeforeAKill> {
             _ => {}
         }
     }
+    let folders = folders_noted(records);
     for (number, fingerprint) in coming {
         let path = &paths[number];
-        if !done.contains(path) && !is_gone_at_start(path)? && is_as_known(path, Some(fingerprint))
+        if !done.contains(path)
+            && !is_gone_at_start(path, &folders)?
+            && is_as_known(path, Some(fingerprint))
         {
             done.insert(path.clone());
         }
@@ -857,7 +886,9 @@ pub fn old_moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
     (logs_left_by_a_kill(dir).into_iter())
         .filter_map(|(path, file, bytes)| {
             let known = read_move_known(&known_path(&path));
-            let went = moves_that_went(parse_move_log(&bytes), known.as_deref())?;
+            // A log of 0.92 noted no folders (`is_gone_at_start`).
+            let none = HashMap::new();
+            let went = moves_that_went(parse_move_log(&bytes), known.as_deref(), &none)?;
             Some((found_move_log(JobLog::found(path, file)), went))
         })
         .collect()
@@ -869,6 +900,7 @@ fn found_move_log(log: JobLog) -> MoveLog {
         log,
         steps: 0,
         is_found_at_start: true,
+        folders: HashSet::new(),
         failure: None,
     }
 }
@@ -881,8 +913,13 @@ fn found_move_log(log: JobLog) -> MoveLog {
 /// to the file (`sidecars_follow_the_files_that_went`). Returns `None` when a file left its old
 /// name and its new one cannot be told (`is_gone_at_start`), as on a stick not mounted at this
 /// start, so that the log stays for a later start.
-fn moves_that_went(pairs: Moves, known: Option<&[Option<FileFingerprint>]>) -> Option<Moves> {
-    if (pairs.iter()).any(|(from, to)| is_surely_gone(from) && is_gone_at_start(to).is_none()) {
+fn moves_that_went(
+    pairs: Moves,
+    known: Option<&[Option<FileFingerprint>]>,
+    folders: &HashMap<PathBuf, (u64, u64)>,
+) -> Option<Moves> {
+    let cannot_tell = |to: &Path| is_gone_at_start(to, folders).is_none();
+    if (pairs.iter()).any(|(from, to)| is_surely_gone(from) && cannot_tell(to)) {
         return None;
     }
     let went: Moves = (pairs.into_iter().enumerate())
@@ -965,7 +1002,7 @@ fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> Option<(MoveLog
             _ => None,
         })
         .unzip();
-    let went = moves_that_went(pairs, Some(&known))?;
+    let went = moves_that_went(pairs, Some(&known), &folders_noted(&found.records))?;
     Some((found_move_log(found.log), went))
 }
 
@@ -1103,7 +1140,7 @@ fn put_right_a_delete(
             untold.insert(name.clone());
             continue;
         }
-        match is_gone_at_start(name) {
+        match is_gone_at_start(name, &r.folders) {
             Some(true) if r.kept.contains(name) => not_as_left.push(name.clone()),
             Some(true) if is_unfinished(name) && !was_found => {
                 save_failed(crate::tf!(
@@ -1487,21 +1524,46 @@ fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime
     }
 }
 
-/// Returns the `folder` record of `folder`, with its device and inode now, and `None` where its
-/// file system does not keep a folder's inode across mounts (FAT, exFAT, `has_lasting_inodes`),
-/// so that nothing could be compared, or where the look fails.
+/// Returns the `folder` record of `folder`, with its device and inode now, and `None` where the
+/// look fails. The inode is 0, which no folder has, where its file system does not keep a
+/// folder's inode across mounts (FAT, exFAT, `has_lasting_inodes`) or its type is not known.
+/// Then only the device is compared.
 fn folder_record(folder: &Path) -> Option<Record> {
-    let kind = crate::files::file_ops::file_system_type_or_test(folder)?;
-    if !crate::files::file_io::has_lasting_inodes(&kind) {
-        return None;
-    }
+    let kind = crate::files::file_ops::file_system_type_or_test(folder);
+    let is_lasting = kind.is_some_and(|kind| crate::files::file_io::has_lasting_inodes(&kind));
     let (key, _, _) = crate::files::file_io::fingerprint_of_file_read(folder)?;
     let (device, inode) = key?;
     Some(Record::Folder {
         path: folder.to_path_buf(),
         device,
-        inode,
+        inode: if is_lasting { inode } else { 0 },
     })
+}
+
+/// Returns the folders that the `folder` records among `records` noted, each with its device
+/// and inode.
+fn folders_noted(records: &[Record]) -> HashMap<PathBuf, (u64, u64)> {
+    (records.iter())
+        .filter_map(|record| match record {
+            Record::Folder {
+                path,
+                device,
+                inode,
+            } => Some((path.clone(), (*device, *inode))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Returns the device that `folder` is on now, and `None` when the look fails.
+fn device_now(folder: &Path) -> Option<u64> {
+    let (key, _, _) = crate::files::file_io::fingerprint_of_file_read(folder)?;
+    let device = key?.0;
+    #[cfg(test)]
+    if ON_ANOTHER_DEVICE.with_borrow(|moved| moved.iter().any(|m| m == folder)) {
+        return Some(device.wrapping_add(1));
+    }
+    Some(device)
 }
 
 /// Returns whether the folder of `path` is another folder than the one that the log's `folders`
@@ -1509,7 +1571,9 @@ fn folder_record(folder: &Path) -> Option<Record> {
 /// left out, as a card plugged in again may get another device number. A folder the log has no
 /// record of, or whose look fails, is not counted as another.
 fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> bool {
-    let Some((_, inode)) = path.parent().and_then(|folder| folders.get(folder)) else {
+    let noted = path.parent().and_then(|folder| folders.get(folder));
+    // An inode of 0 was not noted, as on FAT (`folder_record`).
+    let Some((_, inode)) = noted.filter(|(_, inode)| *inode != 0) else {
         return false;
     };
     let now = path
@@ -1520,19 +1584,33 @@ fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> boo
 }
 
 /// Returns whether nothing is at `path` now, the one rule by which a start reads a path that a
-/// job log names. Returns `Some(true)` when its name is surely not there while its folder
-/// surely is, and `Some(false)` when something is at its name. Returns `None` when the looks
-/// cannot tell: the folder is not there, as on a stick or a share not back yet at this start,
-/// or a look failed. Such a log stays for a later start, as a path taken for gone or for not
-/// there would lose the marks of its file.
+/// job log names, whose `folder` records noted `folders`. Returns `Some(true)` when its name is
+/// surely not there while its folder surely is, on the device the log noted, and `Some(false)`
+/// when something is at its name. Returns `None` when the looks cannot tell: the folder is not
+/// there, as on a stick or a share not back yet at this start, or it is on another device than
+/// the log noted, or the log noted none of it, or a look failed. Such a log stays for a later
+/// start, as a path taken for gone or for not there would lose the marks of its file.
+///
+/// The device tells the folder that the job wrote to from an empty mount point at its path, such
+/// as `/mnt/nas` while its share is not mounted, which is a folder too. A stick plugged in again
+/// with another device number cannot be told either, and its log waits for a later start: its
+/// marks are kept, never lost. A log that noted no folder at all is of Glimt 0.92, or written
+/// anew from one, and only the folder's being there is asked of it, as before.
 ///
 /// For a delete's log, a file at the name keeps its marks also when it changed since. It may be
 /// the file the kill came before, written by another program since, or a file that another
 /// window marked after the kill. The marks of a deleted file then stay with a later photo that
 /// took its name, as they did before there was a log, which is the lesser harm.
-fn is_gone_at_start(path: &Path) -> Option<bool> {
+fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, (u64, u64)>) -> Option<bool> {
     if is_surely_there(path) {
         return Some(false);
+    }
+    if !folders.is_empty() {
+        let folder = path.parent()?;
+        let (device, _) = folders.get(folder)?;
+        if device_now(folder)? != *device {
+            return None;
+        }
     }
     // The folder is looked at first, so that a stick mounted between the two looks counts as
     // not there yet.
@@ -4829,5 +4907,44 @@ mod tests {
         assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 2);
         crate::files::file_ops::test_mount(&dir, None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A start with an empty mount point at the folder of a killed job, as `/mnt/nas` is while
+    /// its share is not mounted, cannot tell what the job did there, and keeps the log until the
+    /// share is back. Before, the empty folder counted as the one the job wrote to: a folder
+    /// trashed from it counted as trashed while it was not seen, and a Move into it as one whose
+    /// file never arrived, so that the marks of their files were lost.
+    #[test]
+    fn a_killed_job_waits_while_its_folder_is_an_empty_mount_point() {
+        use super::JobDoneBeforeAKill::FolderTrashed;
+        let dir = crate::support::test_support::contract_folder("start-empty-mount-point");
+        let (nas, jobs, away) = (dir.join("nas"), dir.join("jobs"), dir.join("away"));
+        let (album, a, moved) = (nas.join("Album"), dir.join("a.jpg"), nas.join("a.jpg"));
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::create_dir(&away).unwrap();
+        std::fs::write(&a, "a").unwrap();
+        // Move Folder to Trash of nas/Album, and a Move of a.jpg into nas, both done and killed.
+        drop(super::start_folder_log(&jobs, &album, None, None).unwrap());
+        std::fs::rename(&album, dir.join("in-the-trash")).unwrap();
+        let mut log = super::start_move_log(&jobs, "move").unwrap();
+        log.note(&a, &moved);
+        drop(log);
+        std::fs::rename(&a, &moved).unwrap();
+        // The share is not mounted: nas is an empty folder on another device.
+        std::fs::rename(&moved, away.join("a.jpg")).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(nas.clone()));
+        let (moves, _, _, others) = super::jobs_cut_short(&jobs);
+        assert!(moves.is_empty(), "the Move was put right without its file");
+        assert!(others.is_empty(), "the folder counted as trashed");
+        drop(moves);
+        assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 2);
+        // The share is back.
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        std::fs::rename(away.join("a.jpg"), &moved).unwrap();
+        let (moves, _, _, others) = super::jobs_cut_short(&jobs);
+        assert_eq!(moves[0].1, vec![(a.clone(), moved.clone())]);
+        assert!(matches!(&others[0].1, FolderTrashed(folder) if *folder == album));
+        drop((moves, others));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
