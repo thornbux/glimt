@@ -26,6 +26,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A photo that a delete for good finds gone only after an error, as on a share that lost the
   answer, keeps its sidecars under their hidden names, which Glimt tells, rather than delete
   them, as another program may have moved the photo away at that moment (#176).
+- Undo from the trash keeps a job log of the marks, stars and collection places it puts back,
+  so that Glimt killed while the files come back no longer loses them: the next start gives
+  them to each file that is back (#235).
+- Rename Folder and Move Folder to Trash keep a job log. After a kill, the next start makes the
+  marks and collection entries follow a renamed folder, or forgets them for a trashed one, so a
+  later folder of the old name does not show them (#248).
 
 ## [0.92.0] - 2026-11-19
 
