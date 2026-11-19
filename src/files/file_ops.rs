@@ -2233,9 +2233,9 @@ impl crate::App {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
             };
-            let mut note = |path: &Path| {
+            let mut note = |step: crate::files::trash::Restoring| {
                 if let Some(log) = undo_log.as_mut() {
-                    log.note_back(path);
+                    log.note(step);
                 }
             };
             let (back, mut error) = restore_noting(&trash_move, trash_dirs, &mut note);

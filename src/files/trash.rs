@@ -2,7 +2,7 @@
 //! gio is not there or the Flatpak's trash portal refuses one), and put back from it for Undo by
 //! reading the trash folders' own files.
 
-use crate::files::file_io::{rename_never_over, shown_path};
+use crate::files::file_io::{FileFingerprint, rename_never_over, shown_path};
 use crate::{files::config, model::collections, tf};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -32,6 +32,15 @@ pub(crate) type ForgottenMarks = std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, (
 /// the move's thread, and the marks by the marks writer when `receive_operation_report` forgets
 /// them, which is the one way an `Undo::Trash` reaches `App::undo`. `since` has no default: one
 /// left out would take an older file of the same name from the trash.
+/// What `restore_noting` tells an Undo's log about a file or folder it puts back.
+pub(crate) enum Restoring<'a> {
+    /// The file or folder at this path is about to come back, and has this fingerprint in the
+    /// trash, which the rename keeps. `None` when the look failed.
+    Coming(&'a Path, Option<FileFingerprint>),
+    /// The file or folder at this path is back with its sidecars.
+    Back(&'a Path),
+}
+
 pub(crate) struct TrashMove {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) sidecars: Vec<PathBuf>,
@@ -101,16 +110,16 @@ pub(crate) fn restore(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
 ) -> (Vec<PathBuf>, Option<String>) {
-    restore_noting(trash_move, dirs_of, &mut |_| {})
+    restore_noting(trash_move, dirs_of, &mut |_: Restoring| {})
 }
 
 /// Puts back what `trash_move` moved to the trash, as `restore` does, and calls `on_back` with
-/// each file or folder as soon as it is back with its sidecars, so that an Undo's log can write
-/// it down then.
+/// each file or folder just before it comes back, with its fingerprint, and as soon as it is
+/// back with its sidecars, so that an Undo's log can write both down then.
 pub(crate) fn restore_noting(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
-    on_back: &mut dyn FnMut(&Path),
+    on_back: &mut dyn FnMut(Restoring),
 ) -> (Vec<PathBuf>, Option<String>) {
     restore_between(trash_move, dirs_of, std::time::SystemTime::now(), on_back)
 }
@@ -124,16 +133,16 @@ pub(crate) fn restore_until(
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
     latest: std::time::SystemTime,
 ) -> (Vec<PathBuf>, Option<String>) {
-    restore_between(trash_move, dirs_of, latest, &mut |_| {})
+    restore_between(trash_move, dirs_of, latest, &mut |_: Restoring| {})
 }
 
 /// Puts back what `trash_move` moved to the trash by the time `latest`, as `restore_until` says,
-/// and calls `on_back` with each file or folder as soon as it is back.
+/// and calls `on_back` with each file or folder before it comes back and once it is back.
 fn restore_between(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
     latest: std::time::SystemTime,
-    on_back: &mut dyn FnMut(&Path),
+    on_back: &mut dyn FnMut(Restoring),
 ) -> (Vec<PathBuf>, Option<String>) {
     // Each trash folder is read, and its files put back, through the folder that `dirs_of`
     // opened and checked, which stays open until the end.
@@ -288,7 +297,7 @@ fn sidecars_by_file<'a>(
 fn put_back(
     steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
     error: &mut Option<String>,
-    on_back: &mut dyn FnMut(&Path),
+    on_back: &mut dyn FnMut(Restoring),
 ) -> Vec<PathBuf> {
     let rename = |t: &TrashEntry| {
         rename_never_over(&t.file, &t.from)
@@ -296,6 +305,10 @@ fn put_back(
     };
     let (mut back, mut renamed) = (Vec::new(), Vec::new());
     for (t, is_file, sides) in steps {
+        if is_file {
+            let fingerprint = crate::files::file_io::fingerprint(&t.file);
+            on_back(Restoring::Coming(&t.from, fingerprint));
+        }
         if let Err(e) = rename(&t) {
             error.get_or_insert(e);
             continue;
@@ -339,7 +352,7 @@ fn put_back(
         }
         // A file that could not go back into the trash is out, as are the sidecars that came.
         if is_file && let Some(file) = out.first() {
-            on_back(&file.from);
+            on_back(Restoring::Back(&file.from));
             back.push(file.from.clone());
         }
         renamed.extend(out);

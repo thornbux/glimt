@@ -273,9 +273,11 @@ impl MoveLog {
 /// Undo holds them, with the files' places in the collection shown, only in memory until the
 /// files are back. So before the first file comes back, the log holds, synced, a `step` record
 /// for each file or folder put back and for each file in such a folder that had marks or a
-/// place, with its `marks` and `place` records. A `done` record follows each file or folder
-/// once it is back. The next start after a kill gives the marks and places back to each file
-/// whose step, or whose folder's step, is done (`back_from_the_trash`).
+/// place, with its `marks` and `place` records. Just before each file or folder comes back, a
+/// `written` record gives its step the fingerprint it has in the trash, which the rename keeps,
+/// and a `done` record follows once it is back. The next start after a kill gives the marks and
+/// places back to each file whose step, or whose folder's step, is done, or has a file with
+/// that fingerprint at its path (`back_from_the_trash`).
 pub struct UndoTrashLog {
     log: JobLog,
     /// The number of the step of each file or folder put back.
@@ -285,14 +287,26 @@ pub struct UndoTrashLog {
 }
 
 impl UndoTrashLog {
-    /// Writes down that `path`, a file or folder that the Undo put back, is back.
-    pub fn note_back(&mut self, path: &Path) {
-        if self.failure.is_some() {
+    /// Writes down the fingerprint of a file or folder that the Undo is about to put back, or
+    /// that it is back.
+    pub fn note(&mut self, step: crate::files::trash::Restoring) {
+        use crate::files::trash::Restoring;
+        let (path, coming) = match step {
+            Restoring::Coming(path, fingerprint) => (path, Some(fingerprint)),
+            Restoring::Back(path) => (path, None),
+        };
+        let Some(&number) = self.steps.get(path).filter(|_| self.failure.is_none()) else {
             return;
-        }
-        if let Some(&number) = self.steps.get(path) {
-            self.failure = self.log.add_records(&[Record::Done(number)]).err();
-        }
+        };
+        let record = match coming {
+            None => Record::Done(number),
+            Some(None) => return,
+            Some(Some(fingerprint)) => Record::Written {
+                number,
+                fingerprint,
+            },
+        };
+        self.failure = self.log.add_records(&[record]).err();
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.
@@ -742,11 +756,14 @@ pub fn remove_once_written(log: JobLog) {
 /// Returns what an Undo from the trash whose log says `records` had put back when Glimt was
 /// killed: the files whose step is done, or that are in a folder whose step is done, each with
 /// its marks and stars. The places of those files in the collection shown are given back there
-/// first. A file whose step is not done keeps no marks: it is still in the trash, as after a
-/// kill before the Undo, or came back in the moment between its rename and its record.
+/// first. A step without its `done` counts as done too when its path holds a file with the
+/// fingerprint it had in the trash, which came back in the moment between its rename and its
+/// record (the rule of a Move, `moves_that_went`). Any other step not done keeps no marks: its
+/// file is still in the trash, or another file has its name.
 fn back_from_the_trash(records: &[Record]) -> JobDoneBeforeAKill {
     let (mut paths, mut done, mut marks, mut places) =
         (Vec::new(), HashSet::new(), Vec::new(), Vec::new());
+    let mut coming = Vec::new();
     let mut collection = None;
     for record in records {
         match record {
@@ -761,7 +778,17 @@ fn back_from_the_trash(records: &[Record]) -> JobDoneBeforeAKill {
                 stars,
             } => marks.push((*number, (*bits, *stars))),
             Record::Place { number, index } => places.push((*index, *number)),
+            Record::Written {
+                number,
+                fingerprint,
+            } => coming.push((*number, *fingerprint)),
             _ => {}
+        }
+    }
+    for (number, fingerprint) in coming {
+        let path = &paths[number];
+        if !done.contains(path) && is_as_known(path, Some(fingerprint)) {
+            done.insert(path.clone());
         }
     }
     let is_back = |path: &PathBuf| path.ancestors().any(|a| done.contains(a));
@@ -4586,11 +4613,11 @@ mod tests {
     }
 
     /// An Undo from the trash keeps a log of the marks, stars and places of what it puts back,
-    /// and writes each file or folder down once it is back. Glimt killed before the window took
-    /// the Undo's report leaves the log, and the next start gives the marks back to the files
-    /// that came back, also to a file in a folder that came back, and their places to the
-    /// collection. A file that stayed in the trash gets none. Before, the Undo kept them only in
-    /// memory, and a kill lost them.
+    /// with the fingerprint of each file or folder before it comes back. Glimt killed between a
+    /// file's rename and its `done` leaves the log, and the next start gives the marks back to
+    /// a file at its name with that fingerprint, and to the files of a folder whose step is
+    /// done, and their places to the collection. Another file at the name, and a file that
+    /// stayed in the trash, get none. Before, only a step with its `done` got its marks back.
     #[test]
     fn an_undo_from_the_trash_keeps_its_marks_through_a_kill() {
         let dir =
@@ -4635,9 +4662,44 @@ mod tests {
             collection: None,
         };
         let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
-        let mut note = |path: &std::path::Path| log.note_back(path);
+        // Killed between a.jpg's rename and its `done`: its `done` is not written.
+        let mut note = |step: crate::files::trash::Restoring| {
+            if !matches!(step, crate::files::trash::Restoring::Back(p) if p == a) {
+                log.note(step);
+            }
+        };
         let (back, _) = crate::files::trash::restore_noting(&trash_move, dirs, &mut note);
         assert_eq!(back, vec![a.clone(), f.clone()]);
+        // A log whose file's name holds another file than the one in the trash gives no marks.
+        let written = |size| super::Record::Written {
+            number: 0,
+            fingerprint: (
+                None,
+                size,
+                crate::files::file_io::fingerprint(&a).unwrap().2,
+            ),
+        };
+        let records = |size| {
+            vec![
+                super::Record::Step {
+                    number: 0,
+                    from: a.clone(),
+                    to: None,
+                    fingerprint: None,
+                },
+                super::Record::Marks {
+                    number: 0,
+                    bits: 1,
+                    stars: 0,
+                },
+                written(size),
+            ]
+        };
+        let given_for = |size| match super::back_from_the_trash(&records(size)) {
+            super::JobDoneBeforeAKill::BackFromTrash(given) => given.len(),
+            _ => panic!("not an Undo from the trash"),
+        };
+        assert_eq!((given_for(1), given_for(2)), (1, 0));
         // Killed before the report was taken: the log is let go, not removed.
         drop(log);
         let (_, _, _, found) = super::jobs_cut_short(&jobs);
