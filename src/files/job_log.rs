@@ -33,9 +33,9 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 /// The kinds of record after the header, as `Record::kind` names them. They are pinned in
 /// src/frozen-1.0.txt.
 #[cfg(test)]
-pub(crate) const RECORD_KINDS: [&str; 12] = [
+pub(crate) const RECORD_KINDS: [&str; 13] = [
     "folder", "shown", "step", "done", "tree", "trashed", "marks", "place", "aside", "kept",
-    "old-log", "found",
+    "old-log", "found", "written",
 ];
 
 /// The name of the folder of the logs in Glimt's state folder, pinned in src/frozen-1.0.txt.
@@ -111,6 +111,14 @@ pub(crate) enum Record {
     /// A start found the step of a delete for good, which has no `done`, with its photo gone,
     /// and kept its marks and its hidden sidecar for a later start, which finishes it.
     Found(usize),
+    /// Glimt wrote the step's file anew in its place (a turn saved, a copy saved over it) after
+    /// the step's record was written, and the file now has this fingerprint. A later record of
+    /// a step takes the place of the fingerprint of an earlier one, so that a start does not
+    /// take Glimt's own write for another program's file.
+    Written {
+        number: usize,
+        fingerprint: FileFingerprint,
+    },
 }
 
 impl Record {
@@ -163,6 +171,14 @@ impl Record {
             Record::Kept(number) => ("kept", vec![text(number)]),
             Record::OldLog(log) => ("old-log", vec![path(log)]),
             Record::Found(number) => ("found", vec![text(number)]),
+            Record::Written {
+                number,
+                fingerprint,
+            } => {
+                let known = crate::files::journal::known_line(Some(*fingerprint));
+                let known = known.trim_end().as_bytes().to_vec();
+                ("written", vec![text(number), known])
+            }
         }
     }
 
@@ -215,6 +231,12 @@ impl Record {
             (b"kept", [n]) => Record::Kept(number(n)?),
             (b"old-log", [p]) => Record::OldLog(absolute(p)?),
             (b"found", [n]) => Record::Found(number(n)?),
+            (b"written", [n, known]) => Record::Written {
+                number: number(n)?,
+                fingerprint: crate::files::journal::parse_known_line(
+                    std::str::from_utf8(known).ok()?,
+                )?,
+            },
             _ => return None,
         };
         Some(record)
@@ -231,7 +253,8 @@ impl Record {
             | Record::Place { number, .. }
             | Record::Aside { number, .. }
             | Record::Kept(number)
-            | Record::Found(number) => Some(*number),
+            | Record::Found(number)
+            | Record::Written { number, .. } => Some(*number),
             Record::Folder { .. } | Record::Shown(_) | Record::Tree { .. } | Record::OldLog(_) => {
                 None
             }
@@ -619,6 +642,10 @@ mod tests {
             },
             Record::OldLog(p("/state/glimt/deletes/1-2")),
             Record::Found(1),
+            Record::Written {
+                number: 0,
+                fingerprint: (None, 99, (1_700_000_001, 0)),
+            },
         ]
     }
 

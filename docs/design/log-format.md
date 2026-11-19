@@ -124,6 +124,7 @@ The record kinds:
 | `kept` | number | when a step must wait for a later start | now `kept/` |
 | `old-log` | the path of the log it was written from | when a log is written anew | section 5 |
 | `found` | number | when a start first finds a delete for good's step without `done` gone | decision 5 |
+| `written` | number, fingerprint | when Glimt writes a step's file anew in its place after the step was written down | Rename Many's `note_written_anew` |
 
 An `old-log` record is part of version 1. It names the log that this one was written from: an
 old log of 0.92 or older (decision 2), or a job log that a start wrote anew with only its steps
