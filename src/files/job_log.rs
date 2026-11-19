@@ -5,14 +5,6 @@
 //! format's version, so that a later Glimt can add kinds of record, and an older one leaves a
 //! log of a higher version alone.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 1 of docs/design/log-format.md: no job writes the log yet, step 2 removes this"
-    )
-)]
-
 use crate::files::file_io::FileFingerprint;
 use std::fs::File;
 use std::io::Write;
@@ -40,9 +32,10 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 
 /// The kinds of record after the header, as `Record::kind` names them. They are pinned in
 /// src/frozen-1.0.txt.
-pub(crate) const RECORD_KINDS: [&str; 11] = [
+#[cfg(test)]
+pub(crate) const RECORD_KINDS: [&str; 12] = [
     "folder", "shown", "step", "done", "tree", "trashed", "marks", "place", "aside", "kept",
-    "old-log",
+    "old-log", "found",
 ];
 
 /// The name of the folder of the logs in Glimt's state folder, pinned in src/frozen-1.0.txt.
@@ -110,8 +103,14 @@ pub(crate) enum Record {
     },
     /// The step must wait for a later start.
     Kept(usize),
-    /// The log of an older format that this log was written from.
+    /// The log that this log was written from, of an older format or of this one, which a
+    /// start removes unread when a kill left it beside this one. Its steps are read as this
+    /// log's own: a step of an old log is written with a `done` record, as an old log's name
+    /// meant a file that may have gone.
     OldLog(PathBuf),
+    /// A start found the step of a delete for good, which has no `done`, with its photo gone,
+    /// and kept its marks and its hidden sidecar for a later start, which finishes it.
+    Found(usize),
 }
 
 impl Record {
@@ -163,6 +162,7 @@ impl Record {
             } => ("aside", vec![text(number), path(sidecar), path(hidden)]),
             Record::Kept(number) => ("kept", vec![text(number)]),
             Record::OldLog(log) => ("old-log", vec![path(log)]),
+            Record::Found(number) => ("found", vec![text(number)]),
         }
     }
 
@@ -214,6 +214,7 @@ impl Record {
             },
             (b"kept", [n]) => Record::Kept(number(n)?),
             (b"old-log", [p]) => Record::OldLog(absolute(p)?),
+            (b"found", [n]) => Record::Found(number(n)?),
             _ => return None,
         };
         Some(record)
@@ -229,7 +230,8 @@ impl Record {
             | Record::Marks { number, .. }
             | Record::Place { number, .. }
             | Record::Aside { number, .. }
-            | Record::Kept(number) => Some(*number),
+            | Record::Kept(number)
+            | Record::Found(number) => Some(*number),
             Record::Folder { .. } | Record::Shown(_) | Record::Tree { .. } | Record::OldLog(_) => {
                 None
             }
@@ -291,6 +293,7 @@ impl JobLog {
 
     /// Removes the log, when its job is over and what it changed has been written, and lets
     /// go of its lock.
+    #[cfg(test)]
     pub(crate) fn remove_log(self) -> std::io::Result<()> {
         crate::files::file_io::remove_own(&self.path)
     }
@@ -299,6 +302,16 @@ impl JobLog {
     /// of an older one. It is written to no more, and removed as a log of its job is.
     pub(crate) fn found(path: PathBuf, file: File) -> JobLog {
         JobLog { path, file }
+    }
+
+    /// Returns the log's path.
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Returns the log's file, open and locked.
+    pub(crate) fn file(&self) -> &File {
+        &self.file
     }
 
     /// Returns the log's path and its file, which holds its lock while it stays open.
@@ -605,6 +618,7 @@ mod tests {
                 to: Some(p("/photos/newer")),
             },
             Record::OldLog(p("/state/glimt/deletes/1-2")),
+            Record::Found(1),
         ]
     }
 

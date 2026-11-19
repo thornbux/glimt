@@ -4072,3 +4072,18 @@ msgstr "{file} sparades, men finns kanske inte på disken än: {e}"
 #, fuzzy
 msgid "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them."
 msgstr "{folder} har loggar som en nyare Glimt lämnade, eller som denna Glimt inte kan läsa. De sparas till en Glimt som kan slutföra dem."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start."
+msgstr "{photo} höll på att raderas för gott när Glimt stannade. Den är borta, men dess markeringar och stjärnor, och en eventuell sidofil som lagts undan under ett dolt namn bredvid, behålls till nästa start."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted."
+msgstr "{photo} är fortfarande borta, så raderingen slutförs: dess markeringar och stjärnor glöms, och sidofilen som lagts undan raderas."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
+msgstr "{photo} finns där igen, så den behåller sina markeringar och stjärnor, och sidofilen som lagts undan får tillbaka sitt namn."

@@ -122,7 +122,23 @@ The record kinds:
 | `place` | number, index in the collection | with `marks` | #235 |
 | `aside` | number, sidecar, hidden name | synced before the sidecar is renamed | now `aside/` |
 | `kept` | number | when a step must wait for a later start | now `kept/` |
-| `old-log` | the old log's path | when 0.93 rewrites an old log | section 5 |
+| `old-log` | the path of the log it was written from | when a log is written anew | section 5 |
+| `found` | number | when a start first finds a delete for good's step without `done` gone | decision 5 |
+
+An `old-log` record is part of version 1. It names the log that this one was written from: an
+old log of 0.92 or older (decision 2), or a job log that a start wrote anew with only its steps
+left. A start removes the named log unread when a kill left it beside the new one. It does not
+change how the new log's own steps are read. A step written from an old log gets a `done`
+record, because in the old format a name meant a file that may have gone, and a name surely
+gone counted as deleted. So a step of an old log is read by the rules of 0.92, and the rule of
+decision 5 for a step without `done` never applies to it.
+
+A `found` record says that a start found the step of a delete for good, which has no `done`,
+with its photo gone, kept its marks and its hidden sidecar, and told so. It is written, synced,
+in the log written anew for the later start. A later start that finds the photo still surely
+gone (NotFound) finishes the step: it forgets the marks, deletes the hidden sidecar, and tells
+once. One that finds the photo there as the log knew it gives the sidecar its name back, never
+over a file, keeps the marks, and tells once. A look that fails keeps everything.
 
 A `step`'s number ties the later records to it. A fingerprint is the text of `known_line`
 without its line break, so one parser reads it in old lists and new logs.
