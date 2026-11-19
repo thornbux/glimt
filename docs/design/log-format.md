@@ -1,6 +1,7 @@
 # One log for the jobs that change files: a design note
 
-Status: a proposal for the maintainer. No code has been written. It answers the open items of
+Status: a proposal for the maintainer, rewritten after AGENTS.md (489c700a) made the files
+Glimt owns frozen from 1.0, not from 0.76. No code has been written. It answers the open items of
 #248, #235 (Undo from the trash), #224, #176, #179 and #225 point 1, which all wait for a
 decision on the format of what Glimt writes down before it changes files.
 
@@ -31,7 +32,7 @@ a new kind of line inside a log would be read by it as a path.
   old and new path. At the next start, the marks and collection entries of every file under the
   old path follow it (a prefix of the path), or are forgotten for a folder that went to the
   trash. An older Glimt must never read that record as one file, because it would miss the files
-  inside, and that would change a frozen format's meaning.
+  inside.
 - **#235, Undo from the trash.** A Move to Trash takes the files' marks out of the marks file,
   and Undo keeps them, and the files' places in the collection shown, only in memory. A kill
   during the Undo loses them. The log needs: each file's original name, where it is in the trash
@@ -58,25 +59,25 @@ a new kind of line inside a log would be read by it as a path.
   sidecars aside (a `kept` state) rather than deleting them. The log narrows the class; it does
   not close the delete case on its own.
 
-## 3. The alternatives weighed
+## 3. The plan in short
 
-**A. Keep the three formats, and add a fourth folder for the folder jobs and the trash Undo.**
-The smallest change for #248 and #235. It leaves #224 open (old kept logs stay where 0.85 reads
-them), it leaves #225 and #179 needing yet another folder beside the delete logs each, and every
-new need after that is one more folder. Four formats are four parsers to fuzz and four sets of
-start-up rules that can drift apart, which is the "rule held in two places" class.
+Before 1.0 a format Glimt owns may be taken away, as long as a log that a kill left behind is put
+right once by the release that drops its format (AGENTS.md, *Frozen in 1.x*). So:
 
-**B. A versioned header on each existing format.** An older Glimt does not know the header. In a
-plan or a log it reads the header as a path and acts on it: a Move log's header would be the
-first `from`, and a delete log's header a name whose marks are forgotten. So a header in the
-existing folders changes a frozen meaning. Rejected.
-
-**C. One new format in one new folder, read beside the old ones forever. Recommended.**
-A new folder `$XDG_STATE_HOME/glimt/jobs/` holds one log for each job, of any kind, in one
-format with a header and typed records. An older Glimt never looks in that folder, so it can
-neither misread a new log (#224's class) nor be harmed by one. The new Glimt still reads
-`renames/`, `moves/` and `deletes/` with the code it has now, forever, and writes there no more.
-Every later need is a new record kind, not a new folder.
+- **One new format** in a new folder `$XDG_STATE_HOME/glimt/jobs/`, one log for each job, with a
+  header, a version and typed records. Every later need is a new record kind, not a new folder.
+- **0.93 writes only the new format.** Nothing writes two logs that could disagree.
+- **0.93 puts the old logs right once.** At its start it reads every unlocked log in `renames/`,
+  `moves/` and `deletes/` with today's code, unchanged: it finishes or rolls back each as today's
+  start does, keeping every mark and file, and removes the log and its lists. A log it cannot
+  finish (a `kept` one, a stick not plugged in) it writes anew as a `jobs/` log and then removes
+  the old one (section 5). That also closes #224: no log stays where 0.85 reads it.
+- **The old reader goes later.** The code that reads the three old formats, and their tests and
+  frozen lines, stay in 0.93 and 0.94 and go in 0.95 (open question 1). A user who skips from
+  0.92 or older straight to 0.95 or later, and whose last Glimt was killed during a Rename Many,
+  Move or delete, must start 0.93 or 0.94 once first. 0.95 does not read the old folders, but if
+  it finds one that is not empty it tells once which release to start, and leaves it alone.
+  Nobody else has anything to do.
 
 ## 4. The format
 
@@ -98,7 +99,8 @@ glimt-job\0 1\0 KIND-OF-JOB\0 UNIX-NANOS\0 INSTANCE\0 \0
 ```
 
 `1` is the format's version. A reader takes a log of a version it knows. One of a higher version
-it leaves alone and keeps on disk, and tells the user once that a newer Glimt left work to finish.
+it leaves alone and keeps on disk, and tells the user once that a newer Glimt left work to finish
+(decision 6).
 A record kind it does not know, in a version it knows, it passes over, so a later Glimt can add
 kinds within version 1 when an older reader may safely ignore them. A record that changes the
 meaning of others raises the version.
@@ -120,6 +122,7 @@ The record kinds:
 | `place` | number, index in the collection | with `marks` | #235 |
 | `aside` | number, sidecar, hidden name | synced before the sidecar is renamed | now `aside/` |
 | `kept` | number | when a step must wait for a later start | now `kept/` |
+| `old-log` | the old log's path | when 0.93 rewrites an old log | section 5 |
 
 A `step`'s number ties the later records to it. A fingerprint is the text of `known_line`
 without its line break, so one parser reads it in old lists and new logs.
@@ -149,9 +152,9 @@ A log no window holds locked was cut short. For each step, the start looks at th
 
 - **`step` without `done`:** the step may or may not have been done. Rename Many repairs by names
   and by its count, as now. A Move takes the file as moved only if the new name holds the file
-  with the step's fingerprint. A delete keeps a hidden sidecar and its photo's marks, keeps the
-  log, and tells (this is #225 point 1: a kill before the kept record no longer looks like a
-  delete that happened).
+  with the step's fingerprint. A delete for good keeps the hidden sidecar and its photo's marks, keeps the
+  log, and tells (decision 5, and #225 point 1: a kill before the kept record no longer looks
+  like a delete that happened).
 - **`step` with `done`:** the result is followed, as a finished job would have: marks follow or
   are forgotten, the collection follows, a hidden sidecar of a deleted photo goes.
 - **A `folder` record whose device and inode differ** from the folder at that path now: every
@@ -161,27 +164,42 @@ A log no window holds locked was cut short. For each step, the start looks at th
   (#248).
 - **`undo-trash` with `trashed` and `marks`:** each file that is back at its original name with
   its fingerprint gets its marks and its place back. One still in the trash keeps its records,
-  and the log stays, so a later Undo or start can finish (#235).
+  and the log stays, so a later start can finish (#235). Undo itself is not offered after a
+  restart for now (decision 4).
 - **A log the start cannot finish** (a stick not plugged in, a `kept` step) is written anew with
   only its unfinished steps, as `untold_names` does now, so a later start does not look again at
   every file.
 
-## 5. Two windows, two versions
+## 5. Locks, and two windows of two versions
 
-- **The lock.** Each log is locked with a flock through `open_if_unlocked`, as now, and a new
-  `lock_kind job log flock` line is pinned. The lock names and kinds of `renames/`, `moves/` and
-  `deletes/` stay as they are, and the new Glimt takes the same locks when it reads an old log,
-  so an old and a new window never both repair one log.
-- **An old window and a new log.** An older Glimt never opens `jobs/`. It leaves a new log alone,
-  which is safe: the worst case is that a kill's repair waits until a new Glimt starts. While it
-  waits, an older window may show marks at the old names, as all versions before 0.81 did.
-- **A new window and an old log.** Read with today's code, unchanged, forever. Its tests stay.
-- **Old kept logs (#224).** A new start that finds a delete log with a `kept/` file may write it
-  anew as a `jobs/` log and remove the old one, so that a later 0.85 no longer finds it
-  (decision 3). The rewrite is done under the old log's lock, the new log is synced before the
-  old one goes, and a kill in between leaves both, which the next start reads as one: a `jobs/`
-  log names the old log it came from in a `from-log` record.
-- **Two new windows.** Nothing new: one lock for each log, one start repairs it.
+**The lock names and kinds.** Nothing pins them before 1.0, so the new format may pick its own.
+It needs no lock file of its own: each log is its own lock, a flock taken through
+`open_if_unlocked` while its job runs, as the plans and logs are locked now. The `files/.lock`
+that guards the lists beside the old logs (`journal::lists_lock`) has nothing to guard, because a
+new log has no lists. So the new format keeps the kind (flock, which is the only kind that works
+here) and takes no names from the old ones. The only new pinned names are the folder and the
+kind of its lock.
+
+**0.93 reading an old log** takes the old locks, the log's flock and `files/.lock`, exactly as
+0.92 does. So a 0.92 and a 0.93 window never both repair one old log.
+
+**A 0.92 and a 0.93 window at once.** This happens for the moments of an upgrade, or when a
+user starts an older build by hand:
+
+- A 0.92 window that runs a job writes an old log, locked. 0.93 passes over a locked log, and
+  repairs it at its next start only when it was cut short. So 0.93 must look in the old folders
+  at every start, not only the first, until the release that drops the reader.
+- A 0.92 window started after 0.93 never opens `jobs/`. A kill of a 0.93 job is then repaired
+  only when a 0.93 or later starts. Until then 0.92 shows the marks at the old names, as every
+  version before 0.81 did after a kill. No file and no mark is lost: the log waits on disk.
+- 0.93's rewrite of an old log into `jobs/` is done under the old log's lock. The new log is
+  synced before the old one goes. A kill in between leaves both, and the next start reads them
+  as one, because the new log names the old one in its `old-log` record and the old one is
+  dropped.
+- Two 0.93 windows: one lock for each log, and one start repairs it.
+
+This is acceptable before 1.0. The worst case is a repair that waits for the next new start, and
+the old reader stays for two releases, so an upgrade in the normal order loses nothing.
 
 ## 6. Untrusted content, limits and scale
 
@@ -208,54 +226,57 @@ have together now. Records are written in one write for each chunk (the deletes'
 and the start reads each log once, as a stream, and looks at each file once. Nothing is O(n²): a
 step's later records find it by its number in a `Vec`, not by a search.
 
-## 7. What stays frozen, and what is added
+## 7. The frozen file
 
-Nothing frozen is taken away or changed in meaning:
+Taken out of `src/frozen-1.0.txt` with the maintainer's go, in 0.95 together with the reader
+(open question 1), not in 0.93, since 0.93 still reads and locks them:
 
-- `renames/`, `moves/`, `deletes/` and their `files/`, `collections/`, `aside/` and `kept/`
-  folders, their `list`, `collection`, `aside`, `kept` and `lock_kind` lines, stay in
-  `src/frozen-1.0.txt` and are still read.
+- `file` lines of `renames`, `renames/files`, `renames/files/.lock`, `moves`, `moves/files`,
+  `deletes`, `deletes/files`, `deletes/collections`, `deletes/aside` and `deletes/kept`;
+- the `list of …` lines of the three, and the `collection of`, `aside of` and `kept of` lines;
+- `lock_kind plan flock`, `lock_kind move log flock` and `lock_kind delete log flock`.
+  (`lock_kind lock file flock` stays: it is `file_io::open_and_lock`, used by other files.)
 
-Added at the end of `src/frozen-1.0.txt`:
+Added at the end in 0.93:
 
-- `file $XDG_STATE_HOME/glimt/jobs`
-- `lock_kind job log flock`
-- the header's first field `glimt-job` and version `1`, and the record kinds, each as a line,
-  so a test fails when one is renamed. A new pinned line kind (`job_record …`) is needed for
-  this.
+- `file $XDG_STATE_HOME/glimt/jobs`;
+- `lock_kind job log flock`;
+- a new line kind, `job_record`, for the header's word `glimt-job`, the version `1`, each kind of
+  job and each record kind, so that a test fails when one is renamed (decision 7).
 
 ## 8. How it would be done
 
-One minor release, in this order, each a branch of its own:
+0.93, each a branch of its own:
 
 1. The format, its writer, its parser and its fuzz test, with no job using it yet.
-2. Move and Delete write the new log. The start reads both old and new.
+2. Move and Delete write the new log. The start reads old and new, and puts the old right once.
 3. Rename Many writes the new log.
 4. #225 point 1, #179 and #176, each from the records it needs.
-5. #248, the folder jobs.
-6. #235, the trash Undo, and if wanted (decision 4), Undo after a restart.
-7. If wanted (decision 3), the old kept logs rewritten into `jobs/`.
+5. #248, the folder jobs, and #235, the records that keep the trash Undo's marks.
 
-## 9. Decisions only the maintainer can make
+0.95: the old reader, its tests and its frozen lines go, and the start tells once about an old
+folder that is not empty.
 
-1. **One new format in a new folder `jobs/` (C), or another folder for each need (A)?**
-   Recommended: C. It closes #224's class for every later log and stops the growth of folders.
-2. **Does the new Glimt stop writing the old formats?** Recommended: yes. An older window then
-   leaves a kill's repair to the next new start, which is safe, and nothing writes two logs that
-   could disagree.
-3. **Are old kept delete logs rewritten into `jobs/` at the start (#224)?** Recommended: yes,
-   once, under the old log's lock, so that a 0.85 started later can no longer misread them.
-4. **Is Undo kept across a restart?** The log makes it possible for Move and Move to Trash, but it
-   changes behaviour users know (Undo is now lost when Glimt closes, as in Geeqie, which has no
-   Undo). Recommended: no for now. The records cover a kill during the Undo, which is #235. A
-   later release can offer it from the same records.
-5. **What does a step with no `done` mean for a delete for good (#225 point 1)?** Recommended:
-   keep the hidden sidecar and the photo's marks, keep the log, and tell. The cost is a told,
-   hidden sidecar the user may have to give back by hand, after a kill at one exact moment.
-6. **A log of a higher version than this Glimt knows:** leave it and tell once (recommended), or
-   leave it in silence.
-7. **A new kind of line in `src/frozen-1.0.txt` (`job_record`)** for the record kinds.
-   Recommended: yes, as the record kinds are what a later Glimt must keep reading.
-8. **#176 for a delete for good:** accept that the log narrows it (the sidecars are kept aside
-   on a NotFound after a lost answer) rather than closing it. Recommended: yes; nothing on disk is
-   left to tell a delete from a move by another program at the same instant.
+## 9. Decided
+
+1. One new format in `jobs/`. The old formats go.
+2. The new Glimt writes only the new format.
+3. 0.93 puts every old log right once at start, then removes it; the old reader goes before 1.0.
+4. No Undo across a restart for now. The records cover a kill during an Undo (#235).
+5. A delete for good with a `step` and no `done`: keep the hidden sidecar and the marks, keep
+   the log, and tell.
+6. A log of a higher version: leave it, and tell once.
+7. The record kinds are pinned by a new line kind, `job_record`.
+8. #176 is only partly closed for a delete for good: a NotFound after a lost answer keeps the
+   sidecars aside. Nothing on disk is left to tell a delete from another program's move.
+
+## 10. Open questions for the maintainer
+
+1. **Which release drops the old reader?** Recommended: 0.95, so that two releases (0.93 and
+   0.94) put old logs right and a user who updates now and then still meets one of them. Any
+   0.x before 1.0 works; later costs only the old code's upkeep.
+2. **Does 0.93 rewrite a log it cannot finish into `jobs/` (section 3), or leave it in the old
+   folder for 0.94 to try again?** Recommended: rewrite. It closes #224, and 0.95 then has no
+   old log left that it must still read.
+3. **Does 0.95 remove an old folder it finds empty?** Recommended: yes, an empty folder of
+   Glimt's own with `file_io::remove_own`, and one that is not empty is left and told about.
