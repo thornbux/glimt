@@ -12,6 +12,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The selection in the file list and the icon grids is a soft, rounded tint of the selection
   colour with an outline in its full colour, and thumbnails have rounded corners, as the
   theme's buttons.
+- The file list, the icon grids, the folder list and the folder tree fade their content out at
+  the top or bottom edge where there is more to scroll to.
 
 ## [0.91.0] - 2026-11-19
 

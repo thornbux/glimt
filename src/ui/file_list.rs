@@ -1115,7 +1115,7 @@ impl crate::App {
             self.tree.opened_up_to = self.folder.dir().to_path_buf();
         }
         let mut toggled = None;
-        area.show_rows(ui, row_h, rows.len(), |ui, range| {
+        let scrolled = area.show_rows(ui, row_h, rows.len(), |ui, range| {
             for &(depth, path) in &rows[range] {
                 ui.horizontal(|ui| {
                     ui.add_space(depth as f32 * ui.spacing().indent);
@@ -1137,6 +1137,7 @@ impl crate::App {
                 });
             }
         });
+        fade_scrolled_edges(ui, &scrolled);
         drop(rows);
         self.tree.children = tree;
         if let Some(path) = toggled
@@ -1482,7 +1483,7 @@ impl crate::App {
         let up = self.folder.dir().parent().map(Path::to_path_buf);
         let rows = up.is_some() as usize + self.folder.subdirs().len();
         let row_h = ui.spacing().interact_size.y;
-        egui::ScrollArea::vertical()
+        let scrolled = egui::ScrollArea::vertical()
             .id_salt("folders")
             .auto_shrink(false)
             .show_rows(ui, row_h, rows, |ui, range| {
@@ -1509,6 +1510,7 @@ impl crate::App {
                     }
                 }
             });
+        fade_scrolled_edges(ui, &scrolled);
     }
 
     /// The file list (names, details, thumbnails or icons), drawn only where it is visible.
@@ -1534,13 +1536,7 @@ impl crate::App {
         // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
         let thumbs = thumbs || icons;
         let mut opened = None;
-        let row_h = if icons {
-            self.cell().y
-        } else if thumbs {
-            self.thumb().y + 4.0
-        } else {
-            ui.spacing().interact_size.y
-        };
+        let row_h = self.row_height(ui, icons, thumbs);
         let pitch = row_h + ui.spacing().item_spacing.y;
         // As icons, a row holds as many cells as fit the width.
         let gap = ui.spacing().item_spacing.x;
@@ -1564,7 +1560,7 @@ impl crate::App {
                 area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
             }
         }
-        area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
+        let scrolled = area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
             let first_row = rows.start;
             let rows = rows.start * cols..(rows.end * cols).min(count);
             let shown: Vec<usize> = match self.list.matches() {
@@ -1632,7 +1628,19 @@ impl crate::App {
                 self.drop_dragged(ctx);
             }
         });
+        fade_scrolled_edges(ui, &scrolled);
         opened
+    }
+
+    /// Returns the height of a row of the file list: a row of icons, of thumbnails or of names.
+    fn row_height(&self, ui: &egui::Ui, icons: bool, thumbs: bool) -> f32 {
+        if icons {
+            self.cell().y
+        } else if thumbs {
+            self.thumb().y + 4.0
+        } else {
+            ui.spacing().interact_size.y
+        }
     }
 
     /// Keeps the thumbnails of the list's `rows` shown, and some around them, being made while
@@ -2198,9 +2206,64 @@ fn status_line(size: Option<[usize; 2]>, bytes: Option<u64>, position: &str, pag
     .join(" · ")
 }
 
+/// Says which edges of a scrolled view, `[top, bottom]`, have more content beyond them.
+fn edges_with_more(offset: f32, content: f32, view: f32) -> [bool; 2] {
+    // Half a pixel of slack, so that rounding at an end does not leave a fade there.
+    [offset > 0.5, offset + view < content - 0.5]
+}
+
+/// Fades the content out at the top and bottom edges of a scrolled view where it can scroll
+/// further. It only paints over the view, in the panel's colour, so it takes no clicks.
+fn fade_scrolled_edges<R>(ui: &egui::Ui, scrolled: &egui::scroll_area::ScrollAreaOutput<R>) {
+    const FADE: f32 = 20.0;
+    let rect = scrolled.inner_rect;
+    let [top, bottom] = edges_with_more(
+        scrolled.state.clamped_offset().y,
+        scrolled.content_size.y,
+        rect.height(),
+    );
+    let solid = ui.visuals().panel_fill;
+    let clear = solid.gamma_multiply(0.0);
+    let mut mesh = egui::Mesh::default();
+    let mut band = |y0: f32, y1: f32, colour0, colour1| {
+        let i = mesh.vertices.len() as u32;
+        let (left, right) = (rect.left(), rect.right());
+        for (x, y, colour) in [
+            (left, y0, colour0),
+            (right, y0, colour0),
+            (left, y1, colour1),
+            (right, y1, colour1),
+        ] {
+            mesh.colored_vertex(egui::pos2(x, y), colour);
+        }
+        mesh.add_triangle(i, i + 1, i + 2);
+        mesh.add_triangle(i + 1, i + 2, i + 3);
+    };
+    let fade = FADE.min(rect.height() / 4.0);
+    if top {
+        band(rect.top(), rect.top() + fade, solid, clear);
+    }
+    if bottom {
+        band(rect.bottom() - fade, rect.bottom(), clear, solid);
+    }
+    if !mesh.is_empty() {
+        ui.painter().add(mesh);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Panel;
+
+    /// A scrolled view fades only the edges with more beyond them: none at its ends.
+    #[test]
+    fn only_edges_with_more_content_fade() {
+        use super::edges_with_more;
+        assert_eq!(edges_with_more(0.0, 1000.0, 300.0), [false, true]);
+        assert_eq!(edges_with_more(700.0, 1000.0, 300.0), [true, false]);
+        assert_eq!(edges_with_more(200.0, 1000.0, 300.0), [true, true]);
+        assert_eq!(edges_with_more(0.0, 200.0, 300.0), [false, false]);
+    }
 
     /// The status bar is compact: "1800 × 1200 · 920.0 kB · 5 / 16", the page after it, and
     /// only what is known.
