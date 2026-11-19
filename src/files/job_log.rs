@@ -1,0 +1,676 @@
+//! The job log: one file in `$XDG_STATE_HOME/glimt/jobs/` for each job that changes files, which
+//! the job writes before and after its steps, so that the next start can put right a job that a
+//! kill cut short (docs/design/log-format.md). Every field ends in a NUL byte, as a path can hold
+//! any other byte, and an empty field ends a record. The first record is the header, with the
+//! format's version, so that a later Glimt can add kinds of record, and an older one leaves a
+//! log of a higher version alone.
+
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "step 1 of docs/design/log-format.md: no job writes the log yet, step 2 removes this"
+    )
+)]
+
+use crate::files::file_io::FileFingerprint;
+use std::fs::File;
+use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Component, Path, PathBuf};
+
+/// The first field of every log. A file that does not start with it is no log.
+pub(crate) const HEADER: &str = "glimt-job";
+
+/// The version of the format this Glimt writes and reads. A record that changes the meaning of
+/// others raises it, and a reader leaves a log of a higher version alone.
+pub(crate) const VERSION: u32 = 1;
+
+/// The kinds of job a log is written for. They are pinned in src/frozen-1.0.txt.
+pub(crate) const JOB_KINDS: [&str; 8] = [
+    "rename",
+    "move",
+    "delete",
+    "trash",
+    "undo-move",
+    "undo-trash",
+    "rename-folder",
+    "trash-folder",
+];
+
+/// The kinds of record after the header, as `Record::kind` names them. They are pinned in
+/// src/frozen-1.0.txt.
+pub(crate) const RECORD_KINDS: [&str; 11] = [
+    "folder", "shown", "step", "done", "tree", "trashed", "marks", "place", "aside", "kept",
+    "old-log",
+];
+
+/// The name of the folder of the logs in Glimt's state folder, pinned in src/frozen-1.0.txt.
+const JOBS_FOLDER: &str = "jobs";
+
+/// The most bytes a field may have. A path has at most 4,096 on Linux, so a longer field is
+/// damage, and the read stops there rather than fill the memory.
+const MOST_FIELD_BYTES: u64 = 64 << 10;
+
+/// The most fields a record may have. A record with more is passed over.
+const MOST_FIELDS: usize = 8;
+
+/// The field that stands for no path or no fingerprint. No path is "-", as every path is
+/// absolute.
+const NONE: &str = "-";
+
+/// The field of a `trashed` record that names the trash in the home folder.
+const HOME_TRASH: &str = "home";
+
+/// A record of a job log, after the header. A step's `number` is its place among the log's
+/// steps, counted from 0, and the later records of a step name it by that number.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Record {
+    /// A folder that the job's files are in, with its device and inode when the log was
+    /// written, so that a start can tell another card at the same mount path.
+    Folder {
+        path: PathBuf,
+        device: u64,
+        inode: u64,
+    },
+    /// The collection shown while the job ran, whose entries follow the files.
+    Shown(PathBuf),
+    /// A step about to be taken: its file, its new name (`None` for a delete), and the
+    /// fingerprint of its file (`None` when there is none to take).
+    Step {
+        number: usize,
+        from: PathBuf,
+        to: Option<PathBuf>,
+        fingerprint: Option<FileFingerprint>,
+    },
+    /// The step with this number is done.
+    Done(usize),
+    /// A folder about to be renamed (`to`) or trashed (`None`), with every file in it.
+    Tree { from: PathBuf, to: Option<PathBuf> },
+    /// The step's file is in the trash at `top` (`None` for the trash in the home folder),
+    /// under the `.trashinfo` file named `info_name`.
+    Trashed {
+        number: usize,
+        top: Option<PathBuf>,
+        info_name: PathBuf,
+    },
+    /// The marks and stars of the step's file, written before the marks file forgets them.
+    Marks { number: usize, bits: u8, stars: u8 },
+    /// The step's file's place in the collection shown.
+    Place { number: usize, index: usize },
+    /// The step's photo has its `sidecar` put aside under the name `hidden`.
+    Aside {
+        number: usize,
+        sidecar: PathBuf,
+        hidden: PathBuf,
+    },
+    /// The step must wait for a later start.
+    Kept(usize),
+    /// The log of an older format that this log was written from.
+    OldLog(PathBuf),
+}
+
+impl Record {
+    /// Returns the record's kind, one of `RECORD_KINDS`, and its fields as they are written.
+    fn kind_and_fields(&self) -> (&'static str, Vec<Vec<u8>>) {
+        let path = |p: &Path| p.as_os_str().as_bytes().to_vec();
+        let maybe_path = |p: &Option<PathBuf>| p.as_deref().map_or(NONE.into(), path);
+        let text = |t: &dyn ToString| t.to_string().into_bytes();
+        match self {
+            Record::Folder {
+                path: folder,
+                device,
+                inode,
+            } => ("folder", vec![path(folder), text(device), text(inode)]),
+            Record::Shown(collection) => ("shown", vec![path(collection)]),
+            Record::Step {
+                number,
+                from,
+                to,
+                fingerprint,
+            } => {
+                let known = crate::files::journal::known_line(*fingerprint);
+                let known = known.trim_end().as_bytes().to_vec();
+                (
+                    "step",
+                    vec![text(number), path(from), maybe_path(to), known],
+                )
+            }
+            Record::Done(number) => ("done", vec![text(number)]),
+            Record::Tree { from, to } => ("tree", vec![path(from), maybe_path(to)]),
+            Record::Trashed {
+                number,
+                top,
+                info_name,
+            } => {
+                let top = top.as_deref().map_or(HOME_TRASH.into(), path);
+                ("trashed", vec![text(number), top, path(info_name)])
+            }
+            Record::Marks {
+                number,
+                bits,
+                stars,
+            } => ("marks", vec![text(number), text(bits), text(stars)]),
+            Record::Place { number, index } => ("place", vec![text(number), text(index)]),
+            Record::Aside {
+                number,
+                sidecar,
+                hidden,
+            } => ("aside", vec![text(number), path(sidecar), path(hidden)]),
+            Record::Kept(number) => ("kept", vec![text(number)]),
+            Record::OldLog(log) => ("old-log", vec![path(log)]),
+        }
+    }
+
+    /// Returns the record of kind `kind` with `fields`, and `None` for a kind this Glimt does
+    /// not know, for the wrong number of fields, and for a field that does not parse.
+    fn parse(kind: &[u8], fields: &[Vec<u8>]) -> Option<Record> {
+        let record = match (kind, fields) {
+            (b"folder", [p, d, i]) => Record::Folder {
+                path: absolute(p)?,
+                device: number(d)?,
+                inode: number(i)?,
+            },
+            (b"shown", [p]) => Record::Shown(absolute(p)?),
+            (b"step", [n, from, to, known]) => Record::Step {
+                number: number(n)?,
+                from: absolute(from)?,
+                to: maybe_absolute(to)?,
+                fingerprint: match std::str::from_utf8(known).ok()? {
+                    NONE => None,
+                    line => Some(crate::files::journal::parse_known_line(line)?),
+                },
+            },
+            (b"done", [n]) => Record::Done(number(n)?),
+            (b"tree", [from, to]) => Record::Tree {
+                from: absolute(from)?,
+                to: maybe_absolute(to)?,
+            },
+            (b"trashed", [n, top, info]) => Record::Trashed {
+                number: number(n)?,
+                top: match &top[..] {
+                    b"home" => None,
+                    top => Some(absolute(top)?),
+                },
+                info_name: plain_name(info)?,
+            },
+            (b"marks", [n, bits, stars]) => Record::Marks {
+                number: number(n)?,
+                bits: number(bits)?,
+                stars: number(stars)?,
+            },
+            (b"place", [n, index]) => Record::Place {
+                number: number(n)?,
+                index: number(index)?,
+            },
+            (b"aside", [n, sidecar, hidden]) => Record::Aside {
+                number: number(n)?,
+                sidecar: absolute(sidecar)?,
+                hidden: absolute(hidden)?,
+            },
+            (b"kept", [n]) => Record::Kept(number(n)?),
+            (b"old-log", [p]) => Record::OldLog(absolute(p)?),
+            _ => return None,
+        };
+        Some(record)
+    }
+
+    /// Returns the number of the step this record is about, and `None` for a record that
+    /// belongs to no step.
+    fn step_number(&self) -> Option<usize> {
+        match self {
+            Record::Step { number, .. }
+            | Record::Done(number)
+            | Record::Trashed { number, .. }
+            | Record::Marks { number, .. }
+            | Record::Place { number, .. }
+            | Record::Aside { number, .. }
+            | Record::Kept(number) => Some(*number),
+            Record::Folder { .. } | Record::Shown(_) | Record::Tree { .. } | Record::OldLog(_) => {
+                None
+            }
+        }
+    }
+}
+
+/// A job log being written, held locked while its job runs, so that no other window takes it
+/// for one that a kill cut short.
+pub(crate) struct JobLog {
+    path: PathBuf,
+    file: File,
+}
+
+impl JobLog {
+    /// Makes a new log of a job of kind `job` (one of `JOB_KINDS`) in `dir`, locked, with its
+    /// header and the `first` records (the `folder` and `shown` ones). They are on disk, with the
+    /// log's name and its folder's, before this returns, so that the job's first step never
+    /// comes before them. Returns the error when the log cannot be written, and no log is left.
+    pub(crate) fn start(dir: &Path, job: &str, first: &[Record]) -> std::io::Result<JobLog> {
+        let job = (JOB_KINDS.iter().find(|kind| **kind == job))
+            .ok_or_else(|| std::io::Error::other(format!("no job of kind {job}")))?;
+        std::fs::create_dir_all(dir)?;
+        let path = dir.join(crate::files::journal::new_name());
+        let file = crate::files::file_io::open_if_unlocked(&path, true)?;
+        let mut log = JobLog { path, file };
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let header = [
+            HEADER.as_bytes().to_vec(),
+            VERSION.to_string().into_bytes(),
+            job.as_bytes().to_vec(),
+            nanos.to_string().into_bytes(),
+            crate::features::remote::instance_id().as_bytes().to_vec(),
+        ];
+        let mut bytes = Vec::new();
+        add_record(&mut bytes, &header);
+        bytes.extend(records_bytes(first));
+        let written = (log.file.write_all(&bytes))
+            .and_then(|()| log.file.sync_all())
+            .and_then(|()| crate::files::file_io::sync_folder_of(&log.path))
+            .and_then(|()| crate::files::file_io::sync_folder_of(dir));
+        match written {
+            Ok(()) => Ok(log),
+            // A log left half written would be read at the next start as one a kill cut short.
+            Err(e) => match crate::files::file_io::remove_own(&log.path) {
+                Ok(()) => Err(e),
+                Err(left) => Err(std::io::Error::other(format!("{e}, and {left}"))),
+            },
+        }
+    }
+
+    /// Adds `records` to the log in one write, not synced. A kill keeps what was written, and a
+    /// power cut that drops it leaves a log that tells less was done than was.
+    pub(crate) fn add_records(&mut self, records: &[Record]) -> std::io::Result<()> {
+        self.file.write_all(&records_bytes(records))
+    }
+
+    /// Adds `records` to the log in one write, and syncs the log to disk before it returns. A
+    /// record that a power cut must not lose (`aside`, `marks`, `place`, the middle of a swap)
+    /// is written this way, before the change it is about.
+    pub(crate) fn add_records_synced(&mut self, records: &[Record]) -> std::io::Result<()> {
+        self.add_records(records)?;
+        self.file.sync_all()
+    }
+
+    /// Removes the log, when its job is over and what it changed has been written, and lets
+    /// go of its lock.
+    pub(crate) fn remove_log(self) -> std::io::Result<()> {
+        crate::files::file_io::remove_own(&self.path)
+    }
+}
+
+/// What reading a job log found.
+#[derive(Debug, PartialEq)]
+pub(crate) enum LogRead {
+    /// A log of this version: the kind of its job, one of `JOB_KINDS`, the time it was started
+    /// in nanoseconds since 1970, the instance of the window that wrote it, and its records.
+    Log {
+        job: &'static str,
+        started: u128,
+        instance: String,
+        records: Vec<Record>,
+    },
+    /// A log of a higher version, which a later Glimt wrote. It is left alone, on disk.
+    Newer(u32),
+    /// A file whose header is missing, damaged or of a kind of job this Glimt does not know.
+    NotALog,
+}
+
+/// Returns the folder of the job logs (`JobLog`) in Glimt's state folder.
+pub(crate) fn jobs_dir() -> Option<PathBuf> {
+    crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
+        .map(|d| d.join(JOBS_FOLDER))
+}
+
+/// Opens the job log at `path` and reads it, when no running window holds it locked. Returns the
+/// log opened, which holds its lock while it stays open, and what was read. Only a regular file
+/// is opened, never through a link, and it is read as a stream of at most `MAX_DECODE_BYTES`.
+pub(crate) fn read_job_log(path: &Path) -> std::io::Result<(File, LogRead)> {
+    let file = crate::files::file_io::open_if_unlocked(path, false)?;
+    let bounded = std::io::Read::take(&file, crate::images::decode::MAX_DECODE_BYTES);
+    // The parser is fed broken logs in survives_broken_job_logs.
+    let read = parse_job_log(&mut std::io::BufReader::new(bounded))?;
+    Ok((file, read))
+}
+
+/// Reads a job log from `reader`, as `LogRead` tells. A record cut off at the end, by a kill or a
+/// full disk, is left out, as its last path may be cut at a `/`. So is a record of a kind this
+/// Glimt does not know, one with a field that does not parse, a step whose number does not come
+/// next, and a record about a step the log does not have before it.
+fn parse_job_log(reader: &mut impl std::io::BufRead) -> std::io::Result<LogRead> {
+    let Some(header) = next_record(reader)? else {
+        return Ok(LogRead::NotALog);
+    };
+    let version = header.get(1).and_then(|v| number::<u32>(v));
+    match (header.first().map(Vec::as_slice), version) {
+        (Some(word), Some(v)) if word == HEADER.as_bytes() && v > VERSION => {
+            return Ok(LogRead::Newer(v));
+        }
+        (Some(word), Some(VERSION)) if word == HEADER.as_bytes() => {}
+        _ => return Ok(LogRead::NotALog),
+    }
+    let [_, _, job, started, instance] = &header[..] else {
+        return Ok(LogRead::NotALog);
+    };
+    let (Some(job), Some(started)) = (
+        JOB_KINDS.iter().find(|kind| kind.as_bytes() == job),
+        number(started),
+    ) else {
+        return Ok(LogRead::NotALog);
+    };
+    let mut records = Vec::new();
+    let mut steps = 0;
+    while let Some(fields) = next_record(reader)? {
+        let Some((kind, fields)) = fields.split_first() else {
+            continue;
+        };
+        let Some(record) = Record::parse(kind, fields) else {
+            continue;
+        };
+        match (&record, record.step_number()) {
+            (Record::Step { .. }, Some(n)) if n == steps => steps += 1,
+            (Record::Step { .. }, _) => continue,
+            (_, Some(n)) if n >= steps => continue,
+            _ => {}
+        }
+        records.push(record);
+    }
+    Ok(LogRead::Log {
+        job,
+        started,
+        instance: String::from_utf8_lossy(instance).into_owned(),
+        records,
+    })
+}
+
+/// Reads the next record's fields from `reader`. Returns `None` at the end, and for a record cut
+/// off there, and also for a field longer than `MOST_FIELD_BYTES`, after which nothing more is
+/// read. A record with more than `MOST_FIELDS` fields is read to its end and given as no fields.
+fn next_record(reader: &mut impl std::io::BufRead) -> std::io::Result<Option<Vec<Vec<u8>>>> {
+    let mut fields = Vec::new();
+    let mut is_too_long = false;
+    loop {
+        let mut field = Vec::new();
+        crate::images::decode::read_until_limited(reader, MOST_FIELD_BYTES, 0, &mut field)?;
+        if field.pop() != Some(0) {
+            return Ok(None);
+        }
+        if field.is_empty() {
+            return Ok(Some(if is_too_long { Vec::new() } else { fields }));
+        }
+        if fields.len() == MOST_FIELDS {
+            is_too_long = true;
+        } else {
+            fields.push(field);
+        }
+    }
+}
+
+/// Returns the bytes of `records`, as they are written to a log.
+fn records_bytes(records: &[Record]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for record in records {
+        let (kind, fields) = record.kind_and_fields();
+        add_record(
+            &mut bytes,
+            &[vec![kind.as_bytes().to_vec()], fields].concat(),
+        );
+    }
+    bytes
+}
+
+/// Adds the record of `fields` to `bytes`: each field with its NUL, and the empty field that
+/// ends the record.
+fn add_record(bytes: &mut Vec<u8>, fields: &[Vec<u8>]) {
+    for field in fields {
+        bytes.extend(field);
+        bytes.push(0);
+    }
+    bytes.push(0);
+}
+
+/// Returns `field` as an absolute path with no `..` in it, and `None` for any other, as a log
+/// is read as untrusted text.
+fn absolute(field: &[u8]) -> Option<PathBuf> {
+    let path = Path::new(std::ffi::OsStr::from_bytes(field));
+    let is_plain = path.components().all(|c| c != Component::ParentDir);
+    (path.is_absolute() && is_plain).then(|| path.to_path_buf())
+}
+
+/// Returns `field` as `absolute` does, or `Some(None)` for "-", which stands for no path.
+fn maybe_absolute(field: &[u8]) -> Option<Option<PathBuf>> {
+    match field {
+        b"-" => Some(None),
+        path => absolute(path).map(Some),
+    }
+}
+
+/// Returns `field` as the name of a file in a folder: not empty, with no `/`, and neither `.`
+/// nor `..`. Returns `None` for any other.
+fn plain_name(field: &[u8]) -> Option<PathBuf> {
+    let is_plain = !field.is_empty() && !field.contains(&b'/') && field != b"." && field != b"..";
+    is_plain.then(|| PathBuf::from(std::ffi::OsStr::from_bytes(field)))
+}
+
+/// Returns `field` as a number of type `T`, and `None` when it is not one.
+fn number<T: std::str::FromStr>(field: &[u8]) -> Option<T> {
+    std::str::from_utf8(field).ok()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LogRead, Record};
+    use std::path::PathBuf;
+
+    /// Returns one record of every kind, with the steps their numbers name before them.
+    fn every_record() -> Vec<Record> {
+        let p = PathBuf::from;
+        vec![
+            Record::Folder {
+                path: p("/photos"),
+                device: 2049,
+                inode: 77,
+            },
+            Record::Shown(p("/c/a.gqv")),
+            Record::Step {
+                number: 0,
+                from: p("/photos/a.jpg"),
+                to: Some(p("/photos/b.jpg")),
+                fingerprint: Some((Some((2049, 78)), 1234, (1_700_000_000, 5))),
+            },
+            Record::Step {
+                number: 1,
+                from: p("/photos/c d\n.jpg"),
+                to: None,
+                fingerprint: None,
+            },
+            Record::Done(0),
+            Record::Tree {
+                from: p("/photos/old"),
+                to: None,
+            },
+            Record::Trashed {
+                number: 1,
+                top: None,
+                info_name: p("c d.jpg.trashinfo"),
+            },
+            Record::Trashed {
+                number: 0,
+                top: Some(p("/media/stick")),
+                info_name: p("a.jpg.trashinfo"),
+            },
+            Record::Marks {
+                number: 1,
+                bits: 5,
+                stars: 3,
+            },
+            Record::Place {
+                number: 1,
+                index: 17,
+            },
+            Record::Aside {
+                number: 1,
+                sidecar: p("/photos/c d.xmp"),
+                hidden: p("/photos/.glimt-rename-1"),
+            },
+            Record::Kept(1),
+            Record::Tree {
+                from: p("/photos/new"),
+                to: Some(p("/photos/newer")),
+            },
+            Record::OldLog(p("/state/glimt/deletes/1-2")),
+        ]
+    }
+
+    /// Returns the bytes of a log of a Move in the version `version`, with `records`.
+    fn log_bytes(version: &str, records: &[Record]) -> Vec<u8> {
+        let mut bytes = format!("glimt-job\0{version}\0move\09\0w1\0\0").into_bytes();
+        bytes.extend(super::records_bytes(records));
+        bytes
+    }
+
+    /// Returns what the parser reads from `bytes`.
+    fn parsed(bytes: &[u8]) -> LogRead {
+        super::parse_job_log(&mut std::io::Cursor::new(bytes)).unwrap()
+    }
+
+    /// Returns the records the parser reads from `bytes`, which must be read as a log.
+    fn records_of(bytes: &[u8]) -> Vec<Record> {
+        match parsed(bytes) {
+            LogRead::Log { records, .. } => records,
+            other => panic!("not read as a log: {other:?}"),
+        }
+    }
+
+    /// Every kind of record is written and read back as it was, through a log on disk. The
+    /// writer holds it locked, and the reader reads it once the writer has let it go.
+    #[test]
+    fn every_record_kind_is_read_back_as_written() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-job-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let records = every_record();
+        let kinds: Vec<&str> = records.iter().map(|r| r.kind_and_fields().0).collect();
+        for kind in super::RECORD_KINDS {
+            assert!(kinds.contains(&kind), "no {kind} record in the test");
+        }
+        let (first, rest) = records.split_at(2);
+        let mut log = super::JobLog::start(&dir, "trash", first).unwrap();
+        let (steps, synced) = rest.split_at(3);
+        log.add_records(steps).unwrap();
+        log.add_records_synced(synced).unwrap();
+        let path = log.path.clone();
+        let refused = super::read_job_log(&path).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::WouldBlock);
+        drop(log);
+        let (held, read) = super::read_job_log(&path).unwrap();
+        let LogRead::Log {
+            job,
+            instance,
+            records: read_back,
+            ..
+        } = read
+        else {
+            panic!("not read as a log: {read:?}");
+        };
+        assert_eq!(job, "trash");
+        assert_eq!(instance, crate::features::remote::instance_id());
+        assert_eq!(read_back, records);
+        drop(held);
+        let log = super::JobLog::start(&dir, "move", &[]).unwrap();
+        let path = log.path.clone();
+        log.remove_log().unwrap();
+        assert!(crate::files::file_io::is_surely_gone(&path));
+        assert!(super::JobLog::start(&dir, "copy", &[]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A log cut off anywhere, as by a kill in the middle of a write, is read with every record
+    /// that was whole, and without the one cut off, whose last path may end at a `/`.
+    #[test]
+    fn a_record_cut_off_by_a_kill_is_left_out() {
+        let records = every_record();
+        let whole = log_bytes("1", &records);
+        let header = log_bytes("1", &[]).len();
+        for cut in header..=whole.len() {
+            let whole_records = (0..=records.len())
+                .filter(|&n| header + super::records_bytes(&records[..n]).len() <= cut)
+                .max()
+                .unwrap();
+            assert_eq!(records_of(&whole[..cut]), records[..whole_records], "{cut}");
+        }
+        let mut torn = log_bytes("1", &records[..3]);
+        torn.extend(b"step\x001\0/photos/b/");
+        assert_eq!(records_of(&torn), records[..3]);
+        assert_eq!(parsed(b"glimt-job\x001\0move\09\0w1\0"), LogRead::NotALog);
+    }
+
+    /// A path that is relative or goes up with `..` makes its record be passed over, and so does
+    /// a `.trashinfo` name with a `/`. The records around it are kept.
+    #[test]
+    fn relative_paths_and_dot_dot_are_refused() {
+        let good = log_bytes("1", &every_record()[..3]);
+        for bad in [
+            &b"shown\0c/a.gqv\0\0"[..],
+            b"shown\0/c/../a.gqv\0\0",
+            b"tree\0/photos/old\0../x\0\0",
+            b"step\x001\0/photos/a.jpg\0photos/b.jpg\0-\0\0",
+            b"trashed\x000\0home\0../a.trashinfo\0\0",
+            b"trashed\x000\0media\0a.trashinfo\0\0",
+            b"aside\x000\0/p/a.xmp\0/p/../q/.h\0\0",
+            b"old-log\0../deletes/1-2\0\0",
+        ] {
+            let mut bytes = good.clone();
+            bytes.extend(bad);
+            bytes.extend(super::records_bytes(&[Record::Done(0)]));
+            let mut expected = every_record();
+            expected.truncate(3);
+            expected.push(Record::Done(0));
+            assert_eq!(records_of(&bytes), expected, "{}", bad.escape_ascii());
+        }
+    }
+
+    /// A log of a higher version is left alone, with its version told, also when its header
+    /// has more fields. A file whose header is not this format's is no log.
+    #[test]
+    fn a_higher_version_is_left_alone() {
+        assert_eq!(parsed(&log_bytes("2", &every_record())), LogRead::Newer(2));
+        let longer = b"glimt-job\x002\0move\09\0w1\0more\0\0new-kind\0x\0\0";
+        assert_eq!(parsed(longer), LogRead::Newer(2));
+        for not_a_log in [
+            &b""[..],
+            b"\0",
+            b"glimt-job\x000\0move\09\0w1\0\0",
+            b"glimt-job\x001\0copy\09\0w1\0\0",
+            b"glimt-jobs\x001\0move\09\0w1\0\0",
+        ] {
+            assert_eq!(parsed(not_a_log), LogRead::NotALog);
+        }
+        assert!(matches!(parsed(&log_bytes("1", &[])), LogRead::Log { .. }));
+    }
+
+    /// Damaged logs are read without a panic. Every record read names only absolute paths with
+    /// no `..`, and only steps that the log has before it.
+    #[test]
+    fn survives_broken_job_logs() {
+        let seed = log_bytes("1", &every_record());
+        for bytes in crate::support::test_support::broken(&seed) {
+            let LogRead::Log { records, .. } = parsed(&bytes) else {
+                continue;
+            };
+            let mut steps = 0;
+            for record in &records {
+                if let Some(n) = record.step_number() {
+                    assert!(n <= steps, "{record:?}");
+                }
+                if let Record::Step { .. } = record {
+                    steps += 1;
+                }
+                let (_, fields) = record.kind_and_fields();
+                for field in fields.iter().filter(|f| f.starts_with(b"/")) {
+                    assert!(super::absolute(field).is_some(), "{record:?}");
+                }
+            }
+        }
+    }
+}

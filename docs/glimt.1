@@ -615,6 +615,10 @@ Its folder
 holds, for each log, the fingerprint (device, inode, size and time) of each file moved, of
 which size and time are compared, so that they follow only a file that is still the one moved.
 .TP
+.I $XDG_STATE_HOME/glimt/jobs
+One log for each job that changes files, in the format that later releases write: a header with
+its version, and a record before and after each step. No job writes it yet.
+.TP
 .I $XDG_STATE_HOME/glimt/deletes
 A Delete or a Move to Trash while it runs, so that the marks and stars of the files deleted
 before Glimt was killed are forgotten at the next start, and a later file of the same name does

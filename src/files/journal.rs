@@ -1288,7 +1288,7 @@ fn known_text(moves: &[(PathBuf, PathBuf)]) -> String {
 
 /// Returns the line of the list of a plan's files (`known_text`) for a step whose photo is
 /// `known`, with its line break.
-fn known_line(known: Option<FileFingerprint>) -> String {
+pub(crate) fn known_line(known: Option<FileFingerprint>) -> String {
     match known {
         Some((Some((dev, ino)), size, (s, ns))) => format!("{dev} {ino} {size} {s} {ns}\n"),
         Some((None, size, (s, ns))) => format!("- - {size} {s} {ns}\n"),
@@ -1391,7 +1391,7 @@ fn parse_known(text: &str, steps: usize) -> Vec<Option<FileFingerprint>> {
 
 /// Returns the fingerprint that a line of a list of files (`known_line`) names, and `None` for
 /// "-" and for a damaged line.
-fn parse_known_line(line: &str) -> Option<FileFingerprint> {
+pub(crate) fn parse_known_line(line: &str) -> Option<FileFingerprint> {
     let parts: Vec<&str> = line.split(' ').collect();
     let [dev, ino, size, s, ns] = parts[..] else {
         return None;
@@ -1440,7 +1440,7 @@ fn read_plan_known(plan: &Path, steps: usize) -> std::io::Result<Vec<Option<File
 /// Returns a name for a new plan or log. It is a name of its own, never one that is there, so a
 /// plan left by a crash, of a Glimt that had the same process ID before a restart, is not
 /// written over and lost.
-fn new_name() -> String {
+pub(crate) fn new_name() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());

@@ -552,3 +552,26 @@ aside of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/asi
 sharing group:filename
 file $XDG_STATE_HOME/glimt/deletes/kept
 kept of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/kept/NAME
+file $XDG_STATE_HOME/glimt/jobs
+lock_kind job log flock
+job_record header glimt-job
+job_record version 1
+job_record job rename
+job_record job move
+job_record job delete
+job_record job trash
+job_record job undo-move
+job_record job undo-trash
+job_record job rename-folder
+job_record job trash-folder
+job_record record folder
+job_record record shown
+job_record record step
+job_record record done
+job_record record tree
+job_record record trashed
+job_record record marks
+job_record record place
+job_record record aside
+job_record record kept
+job_record record old-log

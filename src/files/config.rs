@@ -1838,6 +1838,7 @@ mod tests {
                 CheckedBy("a_name_with_a_line_break_is_refused_with_a_notice"),
             ),
             ("$XDG_STATE_HOME/glimt/renames", NUL),
+            ("$XDG_STATE_HOME/glimt/jobs", NUL),
             (
                 "$XDG_DATA_HOME/glimt/collections",
                 CheckedBy("a_name_with_a_line_break_is_refused_at_the_add"),
@@ -1993,6 +1994,7 @@ mod tests {
         now.extend(template_fields());
         now.extend(theme_keys());
         now.extend(owned_files());
+        now.extend(job_records());
         // The print_printer setting's values that are no printer's name.
         use crate::features::print::{PDF_FILE, SYSTEM_DIALOG};
         now.push(format!("value print_printer {SYSTEM_DIALOG}"));
@@ -2152,6 +2154,7 @@ mod tests {
                 (crate::files::journal::delete_log_dir())
                     .map(|d| crate::files::journal::kept_folder(&d)),
             ),
+            shown(crate::files::job_log::jobs_dir()),
         ];
         #[cfg(feature = "marks")]
         files.push(shown(crate::metadata::marks::marks_file()));
@@ -2328,7 +2331,25 @@ mod tests {
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
         lines.push(format!("lock_kind delete log {}", kind(&path)));
         drop(log);
+        let log = crate::files::job_log::JobLog::start(&dir.join("jobs"), "move", &[]).unwrap();
+        let path = std::fs::read_dir(dir.join("jobs")).unwrap().flatten();
+        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
+        lines.push(format!("lock_kind job log {}", kind(&path)));
+        drop(log);
         std::fs::remove_dir_all(dir).unwrap();
+        lines
+    }
+
+    /// Returns a "job_record" line for each word of a job log that a later Glimt must read the
+    /// same: the header's word, the version, each kind of job and each kind of record.
+    fn job_records() -> Vec<String> {
+        use crate::files::job_log::{HEADER, JOB_KINDS, RECORD_KINDS, VERSION};
+        let mut lines = vec![
+            format!("job_record header {HEADER}"),
+            format!("job_record version {VERSION}"),
+        ];
+        lines.extend(JOB_KINDS.map(|kind| format!("job_record job {kind}")));
+        lines.extend(RECORD_KINDS.map(|kind| format!("job_record record {kind}")));
         lines
     }
 
