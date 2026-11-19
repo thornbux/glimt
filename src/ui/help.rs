@@ -781,6 +781,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Nothing since Geeqie 3.2; Refresh before",
     ),
     ("Refresh", "F5", "Ctrl+R since Geeqie 3.2; R before"),
+    (
+        "Status bar",
+        "1800 × 1200 · 920.0 kB · 5 / 16",
+        "( 1800 x 1200 ) 920,000 bytes [5/16]",
+    ),
     // Glimt keeps the keys that Geeqie 3.2 changed. These rows give each one, as Geeqie's
     // data/accels.ini has it at the tags v3.1 and v3.2.
     (

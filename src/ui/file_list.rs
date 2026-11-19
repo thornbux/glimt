@@ -7,7 +7,7 @@ use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{
-    NOT_COUNTED_ON_A_SHARE, count, local_time, middle_cut, size_text, thousands,
+    NOT_COUNTED_ON_A_SHARE, count, human_size, local_time, middle_cut, size_text, thousands,
 };
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
@@ -1998,8 +1998,8 @@ impl crate::App {
         if n == 0 {
             return;
         }
-        // As in Geeqie, "( 4000 x 3000 ) 2,345,678 bytes [3/16]" comes first, then
-        // the zoom. With several panes, it tells about the one under the pointer.
+        // "4000 × 3000 · 2.3 MB · 3 / 16" comes first, then the zoom. With several panes, it
+        // tells about the one under the pointer.
         let (idx, scale) = self.image_in_status_bar(n);
         // The size is looked at in the background, as for the list's rows, and left out until
         // it is known.
@@ -2009,12 +2009,8 @@ impl crate::App {
         } else {
             self.position_text_of(idx)
         };
-        let bytes = bytes.map_or(String::new(), |n| {
-            tf!("{n} bytes", n = thousands(n as usize)) + " "
-        });
         match self.list.loaded_images().get(&idx) {
             Some(loaded) => {
-                let [w, h] = loaded.original_size;
                 if let Some(scale) = scale {
                     ui.label(format!("{} %", (scale * 100.0).round()));
                     ui.separator();
@@ -2034,17 +2030,15 @@ impl crate::App {
                 } else {
                     String::new()
                 };
-                ui.label(tf!(
-                    "( {w} x {h} ) {bytes}{position}{page}",
-                    w,
-                    h,
+                ui.label(status_line(
+                    Some(loaded.original_size),
                     bytes,
-                    position,
-                    page
+                    &position,
+                    &page,
                 ));
             }
             None => {
-                ui.label(format!("{bytes}{position}"));
+                ui.label(status_line(None, bytes, &position, ""));
             }
         }
         if self.status_bar.pane_layout != [1, 1] {
@@ -2137,9 +2131,43 @@ pub(crate) fn places_overlapped(lo: f32, hi: f32, step: f32, size: f32) -> std::
     first.max(0.0) as usize..(hi / step).ceil().max(0.0) as usize
 }
 
+/// The status bar's text about an image: "1800 × 1200 · 920.0 kB · 5 / 16", then the page or
+/// frame. The dimensions and the size are left out while they are not known, and the position
+/// comes as `position_text` gives it ("[5/16]").
+fn status_line(size: Option<[usize; 2]>, bytes: Option<u64>, position: &str, page: &str) -> String {
+    let position = position.trim_matches(['[', ']']).replace('/', " / ");
+    [
+        size.map(|[w, h]| format!("{w} × {h}")),
+        bytes.map(human_size),
+        Some(position),
+        Some(page.trim().to_owned()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::Panel;
+
+    /// The status bar is compact: "1800 × 1200 · 920.0 kB · 5 / 16", the page after it, and
+    /// only what is known.
+    #[test]
+    fn the_status_line_is_compact() {
+        use super::status_line;
+        assert_eq!(
+            status_line(Some([1800, 1200]), Some(920_000), "[5/16]", ""),
+            "1800 × 1200 · 920.0 kB · 5 / 16"
+        );
+        assert_eq!(
+            status_line(Some([1800, 1200]), None, "[5/16]", " page 2/3"),
+            "1800 × 1200 · 5 / 16 · page 2/3"
+        );
+        assert_eq!(status_line(None, Some(512), "[–/12]", ""), "512 B · – / 12");
+    }
 
     /// Another window's sort folder, written to the file meanwhile, shows in this window's sort
     /// manager once this window's own change is written, as it did when the window's thread
