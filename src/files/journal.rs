@@ -855,10 +855,10 @@ fn keep_time(file: &File, time: std::time::SystemTime) -> std::io::Result<()> {
 /// start. What no start would read goes (`remove_orphan_lists`, and an empty log).
 pub fn old_moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
     (logs_left_by_a_kill(dir).into_iter())
-        .map(|(path, file, bytes)| {
+        .filter_map(|(path, file, bytes)| {
             let known = read_move_known(&known_path(&path));
-            let went = moves_that_went(parse_move_log(&bytes), known.as_deref());
-            (found_move_log(JobLog::found(path, file)), went)
+            let went = moves_that_went(parse_move_log(&bytes), known.as_deref())?;
+            Some((found_move_log(JobLog::found(path, file)), went))
         })
         .collect()
 }
@@ -878,15 +878,20 @@ fn found_move_log(log: JobLog) -> MoveLog {
 /// went (`is_the_file_that_went`, by the fingerprints `known`, one for each pair). A file that
 /// had not gone yet is still at its old name, and a pair cut off by the kill has names that are
 /// not there, so both are left out. A sidecar that the kill left at a file's old name is moved
-/// to the file (`sidecars_follow_the_files_that_went`).
-fn moves_that_went(pairs: Moves, known: Option<&[Option<FileFingerprint>]>) -> Moves {
+/// to the file (`sidecars_follow_the_files_that_went`). Returns `None` when a file left its old
+/// name and its new one cannot be told (`is_gone_at_start`), as on a stick not mounted at this
+/// start, so that the log stays for a later start.
+fn moves_that_went(pairs: Moves, known: Option<&[Option<FileFingerprint>]>) -> Option<Moves> {
+    if (pairs.iter()).any(|(from, to)| is_surely_gone(from) && is_gone_at_start(to).is_none()) {
+        return None;
+    }
     let went: Moves = (pairs.into_iter().enumerate())
         .filter(|(_, (from, to))| is_surely_gone(from) && is_surely_there(to))
         .filter(|(step, (_, to))| is_the_file_that_went(to, known, *step))
         .map(|(_, pair)| pair)
         .collect();
     sidecars_follow_the_files_that_went(&went);
-    went
+    Some(went)
 }
 
 /// The job logs in `dir` that Glimt was killed during, which are those no running window holds
@@ -910,7 +915,7 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             crate::files::file_io::remove_own_or_tell(&path);
             drop(file);
         } else if ["move", "undo-move"].contains(&found.job) {
-            moves.push(move_job_cut_short(found));
+            moves.extend(move_job_cut_short(found));
         } else if ["delete", "trash"].contains(&found.job) {
             let time = found.log.file().metadata().and_then(|m| m.modified()).ok();
             let records = delete_records(found.job, &found.records);
@@ -946,8 +951,9 @@ pub fn delete_jobs_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
 }
 
 /// Returns the Move's log `found`, with the files that went: each step whose new name holds
-/// the file with the step's fingerprint (`moves_that_went`).
-fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> (MoveLog, Moves) {
+/// the file with the step's fingerprint (`moves_that_went`). Returns `None` when the start
+/// cannot tell, and the log stays.
+fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> Option<(MoveLog, Moves)> {
     let (pairs, known): (Moves, Vec<Option<FileFingerprint>>) = (found.records.iter())
         .filter_map(|record| match record {
             Record::Step {
@@ -959,8 +965,8 @@ fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> (MoveLog, Moves
             _ => None,
         })
         .unzip();
-    let went = moves_that_went(pairs, Some(&known));
-    (found_move_log(found.log), went)
+    let went = moves_that_went(pairs, Some(&known))?;
+    Some((found_move_log(found.log), went))
 }
 
 /// Returns what the records of a delete's job log, of kind `job`, say. The parser leaves out a
@@ -2690,6 +2696,30 @@ mod tests {
         assert_eq!(read(to.join("b.jpg.xmp")), "another's");
         assert_eq!(read(from.join("b.jpg.xmp")), "b.jpg.xmp");
         drop(found);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move killed after a file went to a stick that is not mounted at the next start leaves
+    /// a pair whose new name cannot be told. The log stays for a later start. Before, the pair
+    /// counted as not gone, the log went, and the file's marks never followed it.
+    #[test]
+    fn a_killed_move_to_a_stick_not_mounted_keeps_its_log() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-killed-stick-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (from, stick, logs) = (dir.join("from"), dir.join("stick"), dir.join("logs"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&stick).unwrap();
+        std::fs::write(from.join("a.jpg"), "a").unwrap();
+        let mut log = super::start_move_log(&logs, "move").unwrap();
+        log.note(&from.join("a.jpg"), &stick.join("a.jpg"));
+        std::fs::rename(from.join("a.jpg"), stick.join("a.jpg")).unwrap();
+        drop(log);
+        std::fs::remove_dir_all(&stick).unwrap();
+        assert!(super::move_jobs_cut_short(&logs).is_empty());
+        std::fs::create_dir_all(&stick).unwrap();
+        std::fs::write(stick.join("a.jpg"), "a").unwrap();
+        assert_eq!(super::move_jobs_cut_short(&logs).len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
