@@ -2314,7 +2314,7 @@ impl crate::App {
                 undo,
                 is_undo_remainder: true,
                 restored_marks: marks,
-                job_log: undo_log.map(journal::UndoTrashLog::into_log),
+                job_log: undo_log.map(|log| log.into_log(&back)),
                 ..Default::default()
             });
             let done = tf!(

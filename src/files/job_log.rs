@@ -280,6 +280,27 @@ impl Record {
             | Record::OldLog(_) => None,
         }
     }
+
+    /// Returns the number of the step this record is about, to be changed, and `None` for a
+    /// record that belongs to no step.
+    pub(crate) fn step_number_mut(&mut self) -> Option<&mut usize> {
+        match self {
+            Record::Step { number, .. }
+            | Record::Done(number)
+            | Record::Trashed { number, .. }
+            | Record::Marks { number, .. }
+            | Record::Place { number, .. }
+            | Record::Aside { number, .. }
+            | Record::Kept(number)
+            | Record::Found(number)
+            | Record::Written { number, .. } => Some(number),
+            Record::Folder { .. }
+            | Record::Volume { .. }
+            | Record::Shown(_)
+            | Record::Tree { .. }
+            | Record::OldLog(_) => None,
+        }
+    }
 }
 
 /// What a start's look at a path, or a write it made about a job log, gives when it cannot
@@ -314,6 +335,11 @@ pub(crate) struct JobLog {
     /// The proof that the log may be removed: there for the log of a job of this window, and for
     /// a log found at the start only once a reader read it surely (`read_surely`).
     sure: Option<Sure>,
+    /// The files of the steps whose marks, stars and places the window has given or followed
+    /// while the job ran. A log kept for the next start is written anew without their steps at
+    /// the job's end (`journal::remove_after_the_writes`), so that the next start does not
+    /// give them again over what the user changed since.
+    applied: Vec<PathBuf>,
 }
 
 impl JobLog {
@@ -363,7 +389,12 @@ impl JobLog {
         }
         let file = renamed?;
         let sure = Sure::of(&started);
-        let mut log = JobLog { path, file, sure };
+        let mut log = JobLog {
+            path,
+            file,
+            sure,
+            applied: Vec::new(),
+        };
         let written = sync_folder_of(&log.path).and_then(|()| sync_folder_of(dir));
         match written {
             Ok(()) => Ok(log),
@@ -406,6 +437,7 @@ impl JobLog {
             path,
             file,
             sure: None,
+            applied: Vec::new(),
         }
     }
 
@@ -430,6 +462,17 @@ impl JobLog {
     /// it, and once it is dropped it is unlocked, as a log that a kill left.
     pub(crate) fn keep_for_the_next_start(&mut self) {
         self.sure = None;
+    }
+
+    /// Notes that the window has given or followed the marks, stars and places of the steps on
+    /// the files `paths`, and of the files in them when they are folders.
+    pub(crate) fn note_steps_applied(&mut self, paths: &[PathBuf]) {
+        self.applied.extend_from_slice(paths);
+    }
+
+    /// Returns the files of the steps that the window has applied (`note_steps_applied`).
+    pub(crate) fn take_steps_applied(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.applied)
     }
 
     /// Ends the log's job: takes the proof that the log may be removed, which it has no more

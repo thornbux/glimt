@@ -134,8 +134,10 @@ The record kinds:
 | `written` | number, fingerprint | when Glimt writes a step's file anew in its place after the step was written down | Rename Many's `note_written_anew` |
 
 An `old-log` record is part of version 1. It names the log that this one was written from: an
-old log of 0.92 or older (decision 2), or a job log that a start wrote anew with only its steps
-left. A start removes the named log unread when a kill left it beside the new one. From 0.95
+old log of 0.92 or older (decision 2), a job log that a start wrote anew with only its steps
+left, or (from 0.95) a log that a running job kept for the next start, written anew at the job's
+end without the steps whose marks, stars and places the window had already applied, so that the
+next start does not give them again over the user's later changes. A start removes the named log unread when a kill left it beside the new one. From 0.95
 that is only a log in `jobs/` itself: a path in an old folder, or anywhere else, that such a
 record names is left alone, as 0.95 does not read the old folders (section 11). It does not
 change how the new log's own steps are read. A step written from an old log gets a `done`
