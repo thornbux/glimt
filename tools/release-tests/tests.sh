@@ -382,9 +382,33 @@ start() {
     # The first image, when there is one, before the keys come: under load (six parts at once)
     # a fixed wait is not enough, and a key before the list is read goes to no image.
     for i in $(seq 30); do grep -q "first image" /tmp/glimt.err 2>/dev/null && break; sleep 0.1; done
-    sleep 1.5
+    # Then a frame drawn with it. Without remote control nobody answers, so a fixed wait stands
+    # in; with it, a window that draws no frame fails here, as every check after would.
+    if [ -n "$WIN" ]; then
+        if [ -z "${XDG_RUNTIME_DIR:-}" ] ||
+            grep -qx 'remote_control=false' $XDG_CONFIG_HOME/glimt/config 2>/dev/null; then
+            sleep 1.5
+        elif ! frame_drawn; then
+            if [ "$V" = new ]; then fail "no frame drawn in 15 s: $*"; else note "old: no frame drawn in 15 s: $*"; fi
+        fi
+    fi
     xdotool windowfocus $WIN 2>/dev/null
     xdotool mousemove 800 400 2>/dev/null
+}
+# Waits up to 15 s for two answers of the window started last ($GPID, which is its name) to
+# `where`, which it answers in a frame, so the frame before the second answer has been drawn.
+# "Not done" (3) is an answer too, from a build without the hook. False when none came.
+frame_drawn() {
+    local answers=0 end=$((SECONDS + 15)) status
+    while [ $SECONDS -lt $end ]; do
+        timeout 5 $BIN --name $GPID --remote where . >/dev/null 2>&1; status=$?
+        if [ $status = 0 ] || [ $status = 3 ]; then
+            answers=$((answers + 1)); [ $answers = 2 ] && return 0
+        else
+            sleep 0.1
+        fi
+    done
+    return 1
 }
 # The window is raised as well as focused, as a window manager does: Xvfb has none, and eframe
 # runs no frame for a covered window, so a key sent to one would wait unread.
