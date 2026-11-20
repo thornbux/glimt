@@ -3882,6 +3882,9 @@ fn put_files(
                 }
                 put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
             } {
+                if let Some(log) = move_log.as_deref_mut() {
+                    log.keep_when_it_may_have_been_done(path, &e);
+                }
                 // A file stopped halfway is not there, and the stop itself is told.
                 if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
                     failed(&target, e);
@@ -4023,6 +4026,9 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                 }
             }
             Err((at, e)) => {
+                if let Some(log) = move_log.as_deref_mut() {
+                    log.keep_when_it_may_have_been_done(&to, &e);
+                }
                 errors.push(format!("{}: {e}", at.display()));
                 moving.remove(&to);
                 left.push((from, to, at_move));
@@ -7308,6 +7314,39 @@ mod tests {
         assert_eq!(stars(&app, &a), if cfg!(feature = "marks") { 5 } else { 0 });
         let told = crate::files::file_io::take_saves_failed();
         assert!(told.iter().any(|t| t.contains("a.png")), "{told:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move whose rename was done on a share that lost its answer, and whose new name could
+    /// then not be looked at, counts the file as not moved, and keeps its log for the next
+    /// start, which finds the file at its new name by its fingerprint. Before, the log went with
+    /// the job, and the file's marks stayed at its old name for good.
+    #[test]
+    fn a_move_that_cannot_tell_keeps_its_log_for_the_next_start() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOK_FAILS};
+        let dir = contract_folder("move-cannot-tell");
+        let (to, logs, a) = (dir.join("sub"), dir.join("logs"), dir.join("a.png"));
+        let job = super::Job::new("Moving", 1, false, Vec::new());
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        ANSWER_LOST_AT.set(Some(a.clone()));
+        LOOK_FAILS.set(Some((to.join("a.png"), 0)));
+        let (errors, put) = super::put_files(
+            std::slice::from_ref(&a),
+            (&picked, &to),
+            (false, Some(&mut log)),
+            &job,
+        );
+        ANSWER_LOST_AT.set(None);
+        LOOK_FAILS.set(None);
+        assert!(put.is_empty() && errors.len() == 1, "{errors:?}");
+        log.remove_once_followed();
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let found = super::journal::move_jobs_cut_short(&logs);
+        let went: Vec<_> = found.into_iter().map(|(_, went)| went).collect();
+        assert_eq!(went, vec![vec![(a.clone(), to.join("a.png"))]]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -219,6 +219,10 @@ pub struct MoveLog {
     /// The first write of the log that failed, on a full disk say. The log takes no more steps
     /// after it, and the Move goes on without them.
     failure: Option<std::io::Error>,
+    /// Whether a step failed in a way that may have been done all the same, a share that lost
+    /// its answer say, and nothing could tell. The log then stays for the next start, which
+    /// judges the step by its fingerprint.
+    is_kept: bool,
 }
 
 impl MoveLog {
@@ -246,6 +250,17 @@ impl MoveLog {
         self.steps += 1;
     }
 
+    /// Keeps the log on disk for the next start when the step of `from` failed with `error` in
+    /// a way that may have been done (`file_io::may_have_been_done`). The step then counts as
+    /// not done here, so its marks stay at the old name, and the start makes them follow when
+    /// the file is at its new name with its fingerprint. Before, the log went with the job, and
+    /// a file moved on a share that lost the answer left its marks behind for good.
+    pub fn keep_when_it_may_have_been_done(&mut self, from: &Path, error: &std::io::Error) {
+        if !self.is_kept && crate::files::file_io::may_have_been_done(error, from) {
+            self.is_kept = true;
+        }
+    }
+
     /// Returns the first write of the log that failed, and `None` when every one worked.
     pub fn take_failure(&mut self) -> Option<std::io::Error> {
         self.failure.take()
@@ -261,6 +276,7 @@ impl MoveLog {
             is_found_at_start: false,
             folders: HashSet::new(),
             failure: None,
+            is_kept: false,
         }
     }
 
@@ -274,6 +290,10 @@ impl MoveLog {
     /// and the log goes after both. A log that is dropped instead stays on disk, and the next
     /// start makes them follow.
     pub fn remove_once_followed(self) {
+        // A kept log stays on disk, unlocked once dropped, as one a kill left.
+        if self.is_kept {
+            return;
+        }
         remove_after_the_writes(self.log);
     }
 }
@@ -530,6 +550,7 @@ pub fn start_move_log(dir: &Path, job: &str) -> std::io::Result<MoveLog> {
         is_found_at_start: false,
         folders: HashSet::new(),
         failure: None,
+        is_kept: false,
     })
 }
 
@@ -810,6 +831,7 @@ fn found_move_log(log: JobLog, sure: Sure) -> MoveLog {
         is_found_at_start: true,
         folders: HashSet::new(),
         failure: None,
+        is_kept: false,
     }
 }
 
