@@ -2147,9 +2147,12 @@ pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
 /// Returns `Ok` when nothing is left at `a`, and `CannotTell` otherwise, as a failed look tells
 /// nothing.
 pub fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
-    match rename_step(a, b).is_ok() || is_surely_gone(a) {
-        true => Ok(()),
-        false => Err(CannotTell),
+    // A step that failed again, also one that may have been done, is judged by a sure look at
+    // `a`, so its error is not needed.
+    match rename_step(a, b) {
+        Ok(()) => Ok(()),
+        Err(_) if is_surely_gone(a) => Ok(()),
+        Err(_) => Err(CannotTell),
     }
 }
 
@@ -2200,7 +2203,12 @@ fn repair_step(a: &Path, b: &Path) -> Option<bool> {
     match std::fs::symlink_metadata(a) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => Some(false),
-        Ok(_) => Some(rename_step(a, b).is_ok()),
+        // A step that failed, also one that may have been done, counts as not done, which keeps
+        // the plan for the next start, so its error is not needed.
+        Ok(_) => match rename_step(a, b) {
+            Ok(()) => Some(true),
+            Err(_) => Some(false),
+        },
     }
 }
 
@@ -2291,11 +2299,13 @@ pub fn repair_cut_short(
     // When the names are put back, the step cut short between its link and its unlink, the
     // first one not counted, has its new name taken away first, so the steps before it can be
     // undone.
+    // A remove that failed, also one that may have been done, only leaves the step uncounted:
+    // the file stays at `a`, under one or two names, so its error is not needed.
     #[allow(clippy::disallowed_methods)] // a second name of the same file
     if undo_them
         && let Some((a, b)) = done.and_then(|d| moves.get(d))
         && same_file_by_opening(a, b)
-        && std::fs::remove_file(b).is_ok()
+        && let Ok(()) = std::fs::remove_file(b)
     {
         first = 1;
     }

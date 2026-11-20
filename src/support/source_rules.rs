@@ -3500,8 +3500,15 @@ fn finds_a_proof_taken_outside_the_end_of_a_job() {
 /// in the trash.
 #[test]
 fn changes_on_the_disk_in_jobs_keep_their_errors() {
-    // The files whose code runs the jobs that keep a log.
-    const JOB_FILES: [&str; 3] = ["files/file_ops.rs", "files/trash.rs", "images/save.rs"];
+    // The files whose code runs the jobs that keep a log, and the steps those jobs take there.
+    const JOB_FILES: [&str; 6] = [
+        "files/file_ops.rs",
+        "files/trash.rs",
+        "images/save.rs",
+        "files/journal.rs",
+        "files/file_io.rs",
+        "metadata/xmp.rs",
+    ];
     let wrong: Vec<String> = (rust_sources().iter())
         .filter(|(file, _)| JOB_FILES.contains(&file.as_str()))
         .flat_map(|(file, text)| changes_folded_into_a_bool(file, text))
