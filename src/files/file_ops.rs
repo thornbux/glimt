@@ -995,6 +995,7 @@ impl crate::App {
                 (sides.into_iter()).partition(|s| is_surely_gone(s));
             let undo = (trash && !gone.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
+                    out_without_answer: Default::default(),
                     files: gone.clone(),
                     // Only the sidecars that are gone count, because a sidecar gio could not
                     // move is still there. Those are kept apart, as they are still the files'.
@@ -2088,6 +2089,7 @@ impl crate::App {
             };
             let undo = (!gone.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
+                    out_without_answer: Default::default(),
                     files: gone.clone(),
                     sidecars: Vec::new(),
                     sidecars_left: Vec::new(),
@@ -2238,7 +2240,27 @@ impl crate::App {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
             };
+            // The files whose rename out may have been done, by the fingerprint each had in the
+            // trash, which an Undo again tells them by.
+            let mut out_without_answer = trash_move.out_without_answer.clone();
+            let mut coming = None;
             let mut note = |step: crate::files::trash::Restoring| {
+                use crate::files::trash::Restoring;
+                match &step {
+                    Restoring::Coming(from, fingerprint) => {
+                        coming = Some((from.to_path_buf(), *fingerprint))
+                    }
+                    Restoring::Failed(file, from, e)
+                        if crate::files::file_io::may_have_been_done(e, file) =>
+                    {
+                        if let Some((_, Some(fingerprint))) =
+                            coming.take().filter(|(at, _)| at == *from)
+                        {
+                            out_without_answer.insert(from.to_path_buf(), fingerprint);
+                        }
+                    }
+                    _ => {}
+                }
                 if let Some(log) = undo_log.as_mut() {
                     log.note(step);
                 }
@@ -2271,6 +2293,9 @@ impl crate::App {
                 .collect();
             let undo = (!left.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
+                    out_without_answer: (out_without_answer.into_iter())
+                        .filter(|(p, _)| !returned(p))
+                        .collect(),
                     files: left,
                     sidecars: trash_move.sidecars,
                     sidecars_left: trash_move.sidecars_left,
@@ -3160,6 +3185,7 @@ fn take_back_sidecars(
         return;
     }
     let trash_move = TrashMove {
+        out_without_answer: Default::default(),
         files: Vec::new(),
         sidecars,
         sidecars_left: Vec::new(),
@@ -3352,6 +3378,7 @@ fn take_back_from_the_trash(
     errors: &mut Vec<String>,
 ) -> HashSet<PathBuf> {
     let mut trash_move = TrashMove {
+        out_without_answer: Default::default(),
         files: Vec::new(),
         sidecars: Vec::new(),
         sidecars_left: Vec::new(),
@@ -5590,6 +5617,7 @@ mod tests {
             assert_eq!(read.ok().as_deref(), Some("adobe"), "{stays:?} {errors:?}");
             // The one that went comes back, so the next round and the trash start clean.
             let trash_move = super::TrashMove {
+                out_without_answer: Default::default(),
                 files: vec![goes.clone()],
                 sidecars: Vec::new(),
                 sidecars_left: Vec::new(),
@@ -8826,6 +8854,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![a.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -8858,6 +8887,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         let gqv = dir.join("c.gqv");
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![a.clone(), b.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -8982,6 +9012,7 @@ mod tests {
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
         crate::files::trash::trash(std::slice::from_ref(&a)).unwrap();
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![a.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),

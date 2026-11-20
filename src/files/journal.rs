@@ -322,7 +322,7 @@ impl UndoTrashLog {
         let (path, coming) = match step {
             Restoring::Coming(path, fingerprint) => (path, Some(fingerprint)),
             Restoring::Back(path) => (path, None),
-            Restoring::Failed(from, error) => {
+            Restoring::Failed(from, _, error) => {
                 self.log.note_step_failed(from, error);
                 return;
             }
@@ -1419,6 +1419,7 @@ fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime
     }
     let _locks = xmp::lock_sidecars(stayed);
     let trash_move = crate::files::trash::TrashMove {
+        out_without_answer: Default::default(),
         files: Vec::new(),
         sidecars,
         sidecars_left: Vec::new(),
@@ -4340,6 +4341,7 @@ mod tests {
         let shown = Some((collection.as_path(), places.as_slice()));
         let mut log = super::start_undo_trash_log(&jobs, &files, &marks, shown).unwrap();
         let trash_move = crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files,
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -4440,6 +4442,7 @@ mod tests {
         let files = vec![a.clone()];
         let mut log = super::start_undo_trash_log(&jobs, &files, &marks, None).unwrap();
         let trash_move = crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files,
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -4463,6 +4466,48 @@ mod tests {
             panic!("{} logs found", found.len());
         };
         assert_eq!(given, &vec![(a, (1, 2))]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Undo again of a file whose rename out of the trash may have been done counts it as
+    /// back when its own name holds a file with the fingerprint it had in the trash, and the
+    /// trash's name is gone. Before, every Undo again failed on the name it had taken, and the
+    /// file's marks stayed only in the Undo's memory.
+    #[test]
+    fn an_undo_again_takes_a_file_out_without_answer_as_back() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-undo-trash-again-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x) = (dir.join("trash"), dir.join("x"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        let (in_trash, a) = (trash.join("files/a.jpg"), x.join("a.jpg"));
+        let info = trash.join("info/a.jpg.trashinfo");
+        std::fs::write(&in_trash, "a").unwrap();
+        let text = format!("[Trash Info]\nPath={}\nDeletionDate={date}\n", a.display());
+        std::fs::write(&info, text).unwrap();
+        let fingerprint = crate::files::file_io::fingerprint(&in_trash).unwrap();
+        // The first Undo's rename was done, and its answer lost.
+        std::fs::rename(&in_trash, &a).unwrap();
+        let trash_move = crate::files::trash::TrashMove {
+            out_without_answer: [(a.clone(), fingerprint)].into(),
+            files: vec![a.clone()],
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
+        let (back, error) = crate::files::trash::restore_noting(&trash_move, dirs, &mut |_| {});
+        assert_eq!((back, error), (vec![a], None));
+        assert!(crate::files::file_io::is_surely_gone(&info));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
