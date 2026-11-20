@@ -5744,6 +5744,8 @@ while time.time() < end:
     still = still + 1 if now == last else 0
     last = now
     time.sleep(0.1 if wait else 0.01)" $d $how
+        # Counted after the kill, as the stand-in gio trashes on until it is killed too.
+        kill -9 $GPID 2>/dev/null; pkill -9 -f /tmp/stub/gio
         gone=$((1000 - $(ls $d | grep -c 'jpg$')))
         kill_and_take_out "$how" 1000
         start /tmp/stick-elsewhere; sleep 3; quit
