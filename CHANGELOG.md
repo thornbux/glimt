@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An Undo from the trash that could not tell whether one file came back no longer gives the
+  other files their marks, stars and collection places again at the next start, over changes
+  made since or to another file that took the name.
 - File → Back Up made while a job finished could fail as not whole, when the job's log was
   removed while the backup copied it, and it counted the job logs among the files backed up.
   The backup no longer looks at the job logs it leaves out (#271).
