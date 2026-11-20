@@ -51,6 +51,12 @@ const LOOK_UP_GIVEN_UP_AFTER: std::time::Duration = std::time::Duration::from_se
 #[cfg(test)]
 static TEST_MOUNTS: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
 
+// The folders whose jobs keep their logs in a test, each in its own folder `jobs`, with
+// `keep_job_logs_in_a_test`. The tests share one state folder, so a job elsewhere keeps no log.
+// Each test names a folder of its own, and a job's thread sees the same folders as its test.
+#[cfg(test)]
+static JOB_LOGS_KEPT_FOR: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
 // How many real paths `written_anew` looked up on this thread, so that a test can see that it
 // looks up only those that may be the files written.
 #[cfg(test)]
@@ -939,12 +945,7 @@ impl crate::App {
         let (repaint, report_tx) = (ctx.clone(), self.file_operations.report_sender());
         let collection = self.folder.collection().map(Path::to_path_buf);
         let undo_on_the_way = trash.then(|| self.file_operations.undo_on_the_way());
-        // The tests share one state folder, and a test's delete would leave its log there when
-        // the test does not take the report. They test the log on folders of their own.
-        #[cfg(not(test))]
-        let delete_log_dir = crate::files::job_log::jobs_dir();
-        #[cfg(test)]
-        let delete_log_dir: Option<PathBuf> = None;
+        let delete_log_dir = paths.first().and_then(|p| job_log_dir(p));
         self.run_in_background(ctx, Vec::new(), move || {
             let since = std::time::SystemTime::now();
             let (_, picked) = picked.wait_for_fingerprints();
@@ -1486,12 +1487,7 @@ impl crate::App {
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir());
         let listed = self.folder.takes_files_put_in(&dest);
         let undo_on_the_way = (!is_copy).then(|| self.file_operations.undo_on_the_way());
-        // The tests share one state folder, and a test's Move would leave its log there when
-        // the test does not take the report. They test the log on folders of their own.
-        #[cfg(not(test))]
-        let move_log_dir = (!is_copy).then(crate::files::job_log::jobs_dir).flatten();
-        #[cfg(test)]
-        let move_log_dir: Option<PathBuf> = None;
+        let move_log_dir = (!is_copy).then(|| job_log_dir(&dest)).flatten();
         self.run_in_background(ctx, Vec::new(), move || {
             let (paths, picked) = picked.wait_for_fingerprints();
             if !is_copy && same_dir {
@@ -2164,7 +2160,7 @@ impl crate::App {
             Undo::Move(pairs) => drop(self.run_in_background(ctx, undone, move || {
                 // A log as a Move's, for the marks and collections at the next start after a
                 // kill. A log that cannot be started is told, and the files go back all the same.
-                let log_dir = undo_log_dir();
+                let log_dir = pairs.first().and_then(|(from, _, _)| job_log_dir(from));
                 let started = log_dir
                     .as_deref()
                     .map(|d| journal::start_move_log(d, "undo-move"));
@@ -2224,7 +2220,7 @@ impl crate::App {
             // A log keeps the marks and places, so that a kill while the files come back
             // does not lose them. A log that cannot be made or written is told, and the files
             // come back all the same.
-            let log_dir = undo_log_dir();
+            let log_dir = trash_move.files.first().and_then(|p| job_log_dir(p));
             let collection = (trash_move.collection.as_ref())
                 .map(|(file, removed)| (file.as_path(), removed.as_slice()));
             let started = (log_dir.as_deref()).map(|d| {
@@ -3777,15 +3773,29 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Returns the folder of the log that an Undo of a Move or from the trash, a Rename Folder and a
-/// Move Folder to Trash keep, which is that of the job logs.
-/// The tests share one state folder, and a test's Undo would leave its log there when the test
-/// does not take the report, so they test the log on folders of their own.
-fn undo_log_dir() -> Option<PathBuf> {
+/// Returns the folder of the log that a Move, a delete, an Undo of a Move or from the trash, a
+/// Rename Folder and a Move Folder to Trash of `path` keep, which is that of the job logs. The
+/// tests share one state folder, and a test's job would leave its log there when the test does
+/// not take the report, so a test keeps the logs only of the folders it names
+/// (`keep_job_logs_in_a_test`), in their folder `jobs`.
+fn job_log_dir(path: &Path) -> Option<PathBuf> {
     #[cfg(not(test))]
-    return crate::files::job_log::jobs_dir();
+    {
+        // Only a test's logs go by the folder of the job.
+        let _ = path;
+        crate::files::job_log::jobs_dir()
+    }
     #[cfg(test)]
-    return None;
+    (lock_even_if_poisoned(&JOB_LOGS_KEPT_FOR).iter())
+        .find(|folder| path.starts_with(folder))
+        .map(|folder| folder.join("jobs"))
+}
+
+/// Makes the window's jobs on the files in `folder` keep their logs in `folder/jobs`, as they
+/// do outside the tests in the state folder (`job_log_dir`).
+#[cfg(test)]
+pub(crate) fn keep_job_logs_in_a_test(folder: &Path) {
+    lock_even_if_poisoned(&JOB_LOGS_KEPT_FOR).push(folder.to_path_buf());
 }
 
 /// Makes the log of a Rename Folder of `folder` to `to`, or of a Move Folder to Trash of it, with
@@ -3797,7 +3807,7 @@ fn folder_log(
     to: Option<&Path>,
     collection: Option<&Path>,
 ) -> Result<Option<crate::files::job_log::JobLog>, String> {
-    let Some(dir) = undo_log_dir() else {
+    let Some(dir) = job_log_dir(folder) else {
         return Ok(None);
     };
     match journal::start_folder_log(&dir, folder, to, collection) {
@@ -8763,6 +8773,92 @@ mod tests {
         );
         assert_eq!(trash_move.collection, Some((gqv, vec![(0, a)])));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The window's Move to Trash, its Undo, and Rename Folder each keep a job log from before
+    /// their step until the marks they move are written, and remove it then. The writer that
+    /// removes a log is held after each job, so that the log is seen still there once the job
+    /// is over, and gone once the writes are done. The marks of a file trashed come back with
+    /// its Undo, and those of a file in a folder renamed follow it. Before, the window's jobs
+    /// kept no log in the tests, so no test saw them keep one.
+    #[test]
+    fn the_trash_its_undo_and_a_folder_rename_keep_their_logs_until_their_marks_are_written() {
+        let d = contract_folder("app-job-logs");
+        let (a, inside, jobs) = (d.join("a.png"), d.join("sub/c.png"), d.join("jobs"));
+        let renamed = d.join("renamed/c.png");
+        image::RgbImage::new(2, 2).save(&inside).unwrap();
+        super::keep_job_logs_in_a_test(&d);
+        let (mut app, ctx) = app_on(&d);
+        #[cfg(feature = "marks")]
+        app.marks.rate(
+            &crate::support::test_support::unlisted(&[a.clone(), inside.clone()]),
+            3,
+        );
+        let marked = if cfg!(feature = "marks") { 3 } else { 0 };
+        let logs = || std::fs::read_dir(&jobs).map_or(0, |names| names.count());
+        // Holds the writer that removes a log, until the sender it returns is dropped.
+        let hold_the_remover = || {
+            let (release, held) = std::sync::mpsc::channel::<()>();
+            crate::files::file_io::write_later_in_user_folders(move || {
+                let _ = held.recv();
+            });
+            release
+        };
+        let writes_done = || {
+            crate::files::file_io::wait_for_queued_writes();
+            crate::files::file_io::wait_for_queued_writes();
+        };
+        let over = |app: &crate::App| {
+            !app.working()
+                && (app.file_operations.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1)
+                && (app.file_operations.held_back_files.iter())
+                    .all(|t| std::sync::Arc::strong_count(t) == 1)
+        };
+        // Move to Trash.
+        let at = (0..app.list.files().len()).find(|&i| app.path(i) == a);
+        let release = hold_the_remover();
+        app.delete_targets(&ctx, true, vec![at.unwrap()], None);
+        assert!(run_background_until(&mut app, &ctx, |app| over(app)
+            && app.file_operations.undo.is_some()));
+        assert!(!a.exists());
+        assert!(
+            logs() > 0,
+            "the trash's log went before its marks were forgotten"
+        );
+        drop(release);
+        writes_done();
+        assert_eq!(logs(), 0, "the trash's log stayed");
+        assert_eq!(stars(&app, &a), 0);
+        // Its Undo.
+        let release = hold_the_remover();
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| over(app)
+            && a.exists()
+            && app.file_operations.undo.is_none()));
+        assert!(
+            logs() > 0,
+            "the Undo's log went before its marks were written"
+        );
+        drop(release);
+        writes_done();
+        assert_eq!(logs(), 0, "the Undo's log stayed");
+        assert_eq!(stars(&app, &a), marked);
+        let side = crate::metadata::xmp::sidecar(&a);
+        assert_eq!(std::fs::read_to_string(side).unwrap(), "a");
+        // Rename Folder, with a marked file inside.
+        let release = hold_the_remover();
+        app.dialogs.act_on_folder(d.join("sub"));
+        app.rename_folder(&ctx, "renamed");
+        assert!(run_background_until(&mut app, &ctx, |app| over(app) && renamed.exists()));
+        assert!(
+            logs() > 0,
+            "the Rename Folder's log went before its marks followed"
+        );
+        drop(release);
+        writes_done();
+        assert_eq!(logs(), 0, "the Rename Folder's log stayed");
+        assert_eq!((stars(&app, &renamed), stars(&app, &inside)), (marked, 0));
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     /// Undo from the trash waits for the marks writer as long as it is held, and puts no file
