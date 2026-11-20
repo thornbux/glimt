@@ -19,6 +19,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A job killed on a FAT or exFAT camera card is now told from another card in the same reader
   by the card's volume. Before, the start could take the other card's files for those of the
   job and forget marks and stars, or not follow a photo that a Move took off the card (#266).
+- A job killed on a FAT or exFAT camera card now finishes when the card comes back under another
+  device number, as it does when the reader or stick is plugged in in another order. Before, its
+  log stayed at every start until the card got its old device number again.
 - A Move on a share that lost the answer to a rename no longer takes another file at the new
   name for the photo, and one it cannot tell about keeps its log, so that the next start makes
   the marks follow the photo when it is at its new name (#176).
