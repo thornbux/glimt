@@ -230,7 +230,11 @@ user starts an older build by hand:
 - A new log is never seen in `jobs/` before it is locked (since 0.94, #268). `JobLog::start`
   makes, locks and writes it in a hidden folder of its own inside `jobs/` (a `file_io::tmp_path`
   name), and then renames it into `jobs/`. The flock belongs to the open file, so it goes with
-  the rename, also on NFS. Every reader of `jobs/` passes over folders, and so does 0.93's.
+  the rename, also on NFS. The rename is a plain one, never a link and an unlink: NFS and sshfs
+  have no rename that never writes over, and keep a file unlinked while open under a hidden
+  name, which would keep the hidden folder from being removed (a false notice at every start).
+  No file can be at the log's name, as `journal::new_name` gives each call in a window a time
+  of its own. Every reader of `jobs/` passes over folders, and so does 0.93's.
   Before, a start in another window could open and lock a log made a moment ago, and the job
   then could not lock its own log: Rename Many and the folder jobs refused to start, and a Move
   or a delete went on without its log. A 0.93 window still makes its logs in `jobs/` directly,

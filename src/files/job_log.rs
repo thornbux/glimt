@@ -328,8 +328,12 @@ impl JobLog {
         let renamed = crate::files::file_io::open_if_unlocked(&made, true).and_then(|mut file| {
             file.write_all(&bytes)?;
             file.sync_all()?;
-            // Glimt's own: the new log, given its name in the folder of the logs.
-            crate::files::file_io::rename_never_over(&made, &path)?;
+            // A plain rename, which keeps the open file under its new name. `rename_never_over`
+            // would link and unlink on NFS and sshfs, which keep a file unlinked while open as
+            // a hidden one, and the hidden folder could not be removed. No file is at `path`,
+            // as `new_name` gives a name of its own in each call of this window.
+            #[allow(clippy::disallowed_methods)] // Glimt's own: a new log to a name no file has
+            std::fs::rename(&made, &path)?;
             Ok(file)
         });
         // The hidden folder goes, and with it a log that was not renamed, as a kill that left
@@ -960,6 +964,37 @@ mod tests {
             std::fs::read_dir(&dir).unwrap().count(),
             1,
             "the hidden folder is gone"
+        );
+        drop(log);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A start on a file system without a rename that never writes over (NFS, sshfs), where
+    /// a file unlinked while open is kept under a hidden name that cannot be removed (EBUSY),
+    /// tells nothing and leaves only its log. Before, the log was linked into the folder of the
+    /// logs and its hidden name unlinked, and every start told that it could not be removed.
+    #[test]
+    fn a_start_on_a_share_without_rename_flags_tells_nothing() {
+        use crate::files::file_io::{BEFORE_NEW_FILE_IS_LOCKED, RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-job-nfs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        RENAME_WAYS_MISSING.set(1);
+        BEFORE_NEW_FILE_IS_LOCKED.set(Some(Box::new(|made| {
+            UNLINK_FAILS.set(Some((made.to_path_buf(), libc::EBUSY)));
+        })));
+        let log = super::JobLog::start(&dir, "rename", &[]);
+        RENAME_WAYS_MISSING.set(0);
+        UNLINK_FAILS.set(None);
+        let log = log.unwrap();
+        assert_eq!(crate::files::file_io::take_save_error(), None);
+        let names: Vec<_> = (std::fs::read_dir(&dir).unwrap().flatten())
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(
+            names,
+            [log.path().file_name().unwrap()],
+            "only the log is left"
         );
         drop(log);
         std::fs::remove_dir_all(dir).unwrap();
