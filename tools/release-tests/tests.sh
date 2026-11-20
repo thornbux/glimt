@@ -681,7 +681,8 @@ for v in new old; do
     start $d/a.png
     key bracketright                 # turned, not saved yet
     key ctrl+r; key ctrl+a; xdotool type b.png; key Return; sleep 1
-    key space; sleep 3               # moving on saves the turn
+    key space                        # moving on saves the turn
+    until_ok "[ \"\$(identify -format '%wx%h' $d/b.png)\" = 200x400 ]" 3
     quit
     got="$(identify -format '%wx%h' $d/b.png 2>/dev/null)"
     if [ $v = new ]; then expect "b.png turned" "$got" "200x400"
@@ -1788,7 +1789,8 @@ for v in new old; do
     config xmp_stars=true
     start $d
     sleep 2
-    key ctrl+a; key alt+3; sleep 3
+    key ctrl+a; key alt+3
+    until_ok "grep -q 'Rating=\"3\"\|Rating>3<' $d/b.png.xmp" 3
     got=$(grep -c 'Rating="3"\|Rating>3<' $d/b.png.xmp 2>/dev/null)
     quit
     if [ $v = new ]; then expect "b's sidecar has three stars" "$got" 1
@@ -1931,7 +1933,8 @@ rm $d/$long.jpg
 start $d
 key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
 xdotool type --delay 30 '*#'; sleep 0.4
-key Return; sleep 2
+key Return
+until_ok "[ \"\$(ls -A $d | tr '\n' ' ')\" = '11.jpg a2.jpg a23.jpg ' ]" 2
 quit
 expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
 
@@ -1957,7 +1960,8 @@ else
     start $card
     key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
     xdotool type --delay 30 'img_#'; sleep 0.4
-    key Return; sleep 2
+    key Return
+    until_ok "[ \"\$(ls -A $card | tr '\n' ' ')\" = 'img_1.JPG img_1.JPG.xmp img_2.JPG img_2.JPG.xmp img_3.JPG img_3.JPG.xmp ' ]" 2
     quit
     expect "the new names, and no hidden one left" "$(ls -A $card | tr '\n' ' ')" \
         "img_1.JPG img_1.JPG.xmp img_2.JPG img_2.JPG.xmp img_3.JPG img_3.JPG.xmp "
@@ -1984,7 +1988,7 @@ else
     # The control: a Copy To of a.jpg alone, the image shown, lands on the card, so a Copy To
     # that copies nothing at all cannot pass the two checks above.
     start $d/a.jpg
-    answer /tmp/card-link; key ctrl+c; sleep 2
+    answer /tmp/card-link; key ctrl+c; until_file $card/a.jpg 2
     quit
     expect "a Copy To the card of a name FAT allows lands there" "$(ls $card | grep -c '^a.jpg$')" 1
 fi
@@ -2012,7 +2016,8 @@ on_mount() {
     key alt+3; until_file $d/r.jpg.xmp 20
     expect "$name: stars in the sidecar" "$(grep -c 'Rating="3"\|Rating>3<' $d/r.jpg.xmp 2>/dev/null)" 1
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done; sleep 1
-    menu Animals; sleep 3
+    menu Animals
+    until_ok "[ \$(grep -c '<rdf:li>Animals</rdf:li>' $d/r.jpg.xmp) = 2 ]" 3
     expect "$name: a keyword in the sidecar" "$(grep -c '<rdf:li>Animals</rdf:li>' $d/r.jpg.xmp 2>/dev/null)" 2
     xdotool mousemove 800 400
     answer $d/sub; key ctrl+m; until_file $d/sub/r.jpg 20; sleep 1; shot fs-$name-move
@@ -3197,7 +3202,7 @@ runtime=$XDG_RUNTIME_DIR
 unset XDG_RUNTIME_DIR
 start --kiosk $d
 sleep 2
-key ctrl+q; sleep 2
+key ctrl+q; until_ok "! kill -0 $GPID" 2
 ended=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
 told=$(grep -c 'XDG_RUNTIME_DIR' /tmp/glimt.err)
 quit
@@ -3209,7 +3214,7 @@ start --kiosk $d
 sleep 2
 key ctrl+q; sleep 2
 stays=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
-timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 2
+timeout 30 $BIN --remote-all quit >/dev/null 2>&1; until_ok "! kill -0 $GPID" 2
 left=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
 quit
 expect "Ctrl+Q refused, --remote quit taken (the control)" "$stays $left" "running ended"
@@ -3225,7 +3230,7 @@ config
 start $d/a.png; sleep 2
 menu Edit Tools; sleep 1
 shot tools-menu
-menu Stamp; sleep 2
+menu Stamp; until_ok "[ -s $d/ran ]" 2
 ran=$(cat $d/ran 2>/dev/null)
 answer=$(remote current 2>/dev/null | tr -d '\0')
 # Still running, it has Stop in the menu, which ends it with its sleep.
@@ -3251,7 +3256,7 @@ for v in new old; do
     start $d/a.png; sleep 2
     remote select $d/a.png $d/b.jpg >/dev/null 2>&1
     # The menu was Plugins before 0.75.0.
-    menu Edit $([ $v = old ] && echo Plugins || echo Tools) PngOnly; sleep 2
+    menu Edit $([ $v = old ] && echo Plugins || echo Tools) PngOnly; until_ok "[ -s $d/ran ]" 2
     quit
     rm -f $XDG_DATA_HOME/glimt/plugins/pngonly.desktop
     got=$(sed "s|$d/||g" $d/ran 2>/dev/null)
@@ -3401,7 +3406,7 @@ ffmpeg -v error -f lavfi -i color=c=blue:s=320x240:d=0.2 -pix_fmt yuv420p $d/v.m
 printf '#!/bin/sh\necho "$@" >>%s/ran\n' $d >/tmp/stub/player; chmod +x /tmp/stub/player
 config video_player=/tmp/stub/player
 start $d/v.mp4; sleep 2
-key Return; sleep 2
+key Return; until_ok "[ -s $d/ran ]" 2
 quit
 expect "the player got the video" "$(cat $d/ran 2>/dev/null)" "$d/v.mp4"
 
@@ -3414,9 +3419,9 @@ convert -delay 50 $d/a.png $d/b.png $d/anim.gif
 config
 start $d/anim.gif; sleep 2
 answer $d/frame.png
-menu File "Save This Frame…"; sleep 3
+menu File "Save This Frame…"; until_file $d/frame.png 3
 answer $d/out
-menu File "Export Frames…"; sleep 3
+menu File "Export Frames…"; until_ok "[ \$(find $d/out -name '*.png' | wc -l) = 2 ]" 3
 quit
 expect "the frame saved as PNG, 400x300" "$(identify -format '%wx%h' $d/frame.png 2>/dev/null)" 400x300
 expect "both frames exported into a new folder" "$(find $d/out -name '*.png' | wc -l | tr -d ' ')" 2
@@ -3588,7 +3593,8 @@ config
 start $d/a.png; sleep 2
 menu Select "Copy Path to Clipboard"; sleep 1
 path=$(xclip -o -selection clipboard 2>/dev/null)
-menu Edit "Copy Image to Clipboard"; sleep 3
+menu Edit "Copy Image to Clipboard"
+until_ok "xclip -o -selection clipboard -t image/png | identify -" 3
 size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
 menu Select "Copy Files to Clipboard"; sleep 1
 files=$(xclip -o -selection clipboard -t text/uri-list 2>/dev/null | tr -d '\r' | grep -c "file://$d/a.png")
