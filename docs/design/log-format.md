@@ -1,7 +1,8 @@
 # One log for the jobs that change files: a design note
 
-Status: a proposal for the maintainer, rewritten after AGENTS.md (489c700a) made the files
-Glimt owns frozen from 1.0, not from 0.76. No code has been written. It answers the open items of
+Status: built. 0.93 wrote the new format and put the old logs right, 0.94 still read them, and
+0.95 took the old reader out (section 11). Written as a proposal for the maintainer, after
+AGENTS.md (489c700a) made the files Glimt owns frozen from 1.0, not from 0.76. It answers the open items of
 #248, #235 (Undo from the trash), #224, #176, #179 and #225 point 1, which all wait for a
 decision on the format of what Glimt writes down before it changes files.
 
@@ -130,7 +131,9 @@ The record kinds:
 
 An `old-log` record is part of version 1. It names the log that this one was written from: an
 old log of 0.92 or older (decision 2), or a job log that a start wrote anew with only its steps
-left. A start removes the named log unread when a kill left it beside the new one. It does not
+left. A start removes the named log unread when a kill left it beside the new one. From 0.95
+that is only a log in `jobs/` itself: a path in an old folder, or anywhere else, that such a
+record names is left alone, as 0.95 does not read the old folders (section 11). It does not
 change how the new log's own steps are read. A step written from an old log gets a `done`
 record, because in the old format a name meant a file that may have gone, and a name surely
 gone counted as deleted. So a step of an old log is read by the rules of 0.92, and the rule of
@@ -263,9 +266,13 @@ Taken out of `src/frozen-1.0.txt` with the maintainer's go, in 0.95 together wit
 
 - `file` lines of `renames`, `renames/files`, `renames/files/.lock`, `moves`, `moves/files`,
   `deletes`, `deletes/files`, `deletes/collections`, `deletes/aside` and `deletes/kept`;
-- the `list of …` lines of the three, and the `collection of`, `aside of` and `kept of` lines;
-- `lock_kind plan flock`, `lock_kind move log flock` and `lock_kind delete log flock`.
-  (`lock_kind lock file flock` stays: it is `file_io::open_and_lock`, used by other files.)
+- the `list of …` lines of the three, and the `collection of`, `aside of` and `kept of` lines.
+
+`lock_kind plan flock`, `lock_kind move log flock` and `lock_kind delete log flock` stay. Since
+0.93 the test reads them from the locks of `start_journal`, `start_move_log` and
+`start_delete_log`, which are job logs in `jobs/`, so they pin the lock of each kind of job,
+not of an old folder. (`lock_kind lock file flock` stays too: it is `file_io::open_and_lock`,
+used by other files.)
 
 Added at the end in 0.93:
 
@@ -285,7 +292,7 @@ Added at the end in 0.93:
 5. #248, the folder jobs, and #235, the records that keep the trash Undo's marks.
 
 0.95: the old reader, its tests and its frozen lines go, and the start tells once about an old
-folder that is not empty.
+folder that is not empty (section 11).
 
 ## 9. Decided
 
@@ -310,3 +317,24 @@ folder that is not empty.
    old log left that it must still read.
 3. **Does 0.95 remove an old folder it finds empty?** Decided: yes, an empty folder of
    Glimt's own with `file_io::remove_own`, and one that is not empty is left and told about.
+
+## 11. What 0.95 does with the old folders
+
+0.95 reads no log in `renames/`, `moves/` or `deletes/` and acts on none
+(`journal::clear_old_log_folders`, from the start's thread of the job logs):
+
+- A folder that holds nothing, or only the folders of lists (`files/`, `collections/`,
+  `aside/`, `kept/`) with nothing in them but the lists' lock file `.lock`, is removed, through
+  `job_log::remove_job_log` with the proof that the look was sure, as decision 3 says.
+- A folder that holds anything else (a log, a list a log left, a link where a folder of lists
+  was) is left as it is, and the start tells once, in each window's start, that Glimt 0.94 puts
+  it right. Nothing is followed through a link.
+- A folder that cannot be looked at is left, and the next start looks again.
+- An `old-log` record removes only a log in `jobs/` (section 4). A kill of 0.93 or 0.94 between
+  the new log's write and the old log's removal leaves the old log in its folder; 0.95 tells
+  about it like any other, and a start of 0.94 removes it unread, as its job log names it.
+
+A 0.92 window that runs at the same moment as a 0.95 start could make a log in an old folder
+between the look and the removal, and that log would go with the folder. That needs two
+versions started at the same moment, and loses only a log, not a file or a mark that was there
+before the job: it is hardening, not a must.

@@ -4087,3 +4087,8 @@ msgstr "{photo} n'est toujours pas là, donc sa suppression est terminée : ses 
 #, fuzzy
 msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
 msgstr "{photo} est de nouveau là, elle garde donc ses marques et étoiles, et son fichier annexe mis de côté retrouve son nom."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
+msgstr "{folder} contient des journaux laissés par Glimt 0.92 ou plus ancien quand il a été arrêté pendant un Renommer plusieurs, un déplacement ou une suppression. Ce Glimt ne les lit plus : démarrez Glimt 0.94 une fois pour les remettre en ordre. Ils sont gardés jusque-là."

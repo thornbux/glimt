@@ -423,9 +423,10 @@ impl FileOperations {
             let found = match crate::files::job_log::jobs_dir() {
                 _ if cfg!(test) => Vec::new(),
                 Some(jobs) => {
-                    // The plans of Glimt 0.92 and older are put right with this Glimt's own.
-                    if let Some(old) = journal::journal_dir() {
-                        journal::old_plans_written_anew(&old, &jobs);
+                    // The folders of the logs of Glimt 0.92 and older are no longer read: an
+                    // empty one goes, and one that still holds a log is told.
+                    if let Some(state) = jobs.parent() {
+                        journal::clear_old_log_folders(state);
                     }
                     journal::cut_short_plans(&jobs)
                 }
@@ -3736,12 +3737,10 @@ fn names_left_for_the_next_start(
 #[cfg(not(test))]
 fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     let jobs_dir = crate::files::job_log::jobs_dir();
-    let (moves, deletes, written_anew, others) = (jobs_dir.as_deref())
+    let (moves, deletes, others) = (jobs_dir.as_deref())
         .map(journal::jobs_cut_short)
         .unwrap_or_default();
-    // The logs of Glimt 0.92 and older are put right once too, and removed or written anew.
-    let old = journal::move_log_dir().map(|d| journal::old_moves_cut_short(&d));
-    for (log, went) in std::iter::once(moves).chain(old).flatten() {
+    for (log, went) in moves {
         let _ = report_tx.send(OperationReport {
             moved: went,
             move_log: Some(log),
@@ -3769,9 +3768,7 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
             ..report
         });
     }
-    let old = (journal::delete_log_dir().zip(jobs_dir))
-        .map(|(d, jobs)| journal::old_deletes_cut_short(&d, &jobs, &written_anew));
-    for (log, gone) in std::iter::once(deletes).chain(old).flatten() {
+    for (log, gone) in deletes {
         let _ = report_tx.send(OperationReport {
             gone,
             delete_log: Some(log),

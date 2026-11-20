@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Glimt no longer reads the logs that Glimt 0.92 or older left in `renames/`, `moves/` and
+  `deletes/` after a kill. An empty such folder is removed at the start. One that still holds a
+  log is kept, and the start says to run Glimt 0.94 once to put it right.
+
 ## [0.94.0] - 2026-11-20
 
 ### Fixed

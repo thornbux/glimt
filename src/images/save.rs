@@ -3387,69 +3387,6 @@ mod tests {
         }
     }
 
-    /// A copy saved over a photo, and a turn saved, let go of the photo's sidecar lock before
-    /// they note the photo in the plans of Rename Many, whose lock another window may hold.
-    /// Before, the sidecar's lock was held across the look at the photo and the wait for that
-    /// lock, and another window's write of the sidecar waited as long.
-    #[test]
-    fn a_save_lets_go_of_the_sidecar_lock_before_the_plans() {
-        use crate::files::journal;
-        let dir =
-            std::env::temp_dir().join(format!("glimt-save-plans-unlocked-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let (b, x) = (dir.join("b.png"), dir.join("x.png"));
-        image::RgbImage::new(4, 4).save(&b).unwrap();
-        let png = || {
-            let mut bytes = std::io::Cursor::new(Vec::new());
-            image::RgbImage::new(2, 2)
-                .write_to(&mut bytes, image::ImageFormat::Png)
-                .unwrap();
-            bytes.into_inner()
-        };
-        // A plan of Glimt 0.92 or older, whose list is changed under the lists' lock.
-        let plans = journal::journal_dir().unwrap();
-        let plan = journal::write_old_plan(&plans, &[(b.clone(), dir.join("c.png"))], 0);
-        let saves: [Box<dyn FnOnce() + Send>; 2] = [
-            Box::new({
-                let (b, x, out) = (b.clone(), x.clone(), png());
-                move || {
-                    let asked = crate::files::file_io::fingerprint(&b);
-                    super::save_copy_with_sidecar(&x, &b, &out, asked, true).unwrap();
-                }
-            }),
-            Box::new({
-                let (b, out) = (b.clone(), png());
-                move || {
-                    let read = crate::files::file_io::fingerprint_before_reading(&b).unwrap();
-                    let turned = super::Derived::Turned;
-                    super::replace_with_sidecar(&b, &b, read, out, turned).unwrap();
-                }
-            }),
-        ];
-        for save in saves {
-            let other_windows_lock =
-                crate::files::file_io::open_and_lock(&journal::lists_lock(&plans)).unwrap();
-            let saving = std::thread::spawn(save);
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let side = b.clone();
-            let writing =
-                std::thread::spawn(move || drop(crate::metadata::xmp::lock_sidecar(&side)));
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let has_written = writing.is_finished();
-            drop(other_windows_lock);
-            saving.join().unwrap();
-            writing.join().unwrap();
-            assert!(
-                has_written,
-                "the sidecar's lock was held while the save waited"
-            );
-        }
-        std::fs::remove_file(journal::known_path(&plan)).unwrap();
-        std::fs::remove_file(plan).unwrap();
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
     /// Save As over a file whose sidecar it set aside, when it is not known whether the copy
     /// took the name, leaves a delete's log by which the next start gives the sidecar back to
     /// the file, still there as it was. A kill between the set-aside and the image's rename
