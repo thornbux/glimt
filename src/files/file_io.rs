@@ -140,6 +140,14 @@ thread_local! {
     // times, as a share does that stopped answering for a moment.
     pub(crate) static LOOK_FAILS: std::cell::RefCell<Option<(PathBuf, usize)>> =
         const { std::cell::RefCell::new(None) };
+    // Makes `fingerprint` on this thread answer ENOENT at this name while the file stays, as
+    // a share does whose step was sent again after its answer was lost.
+    pub(crate) static LOOK_NOT_FOUND_AT: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+    // Makes `may_have_been_done` on this thread take the names in this folder for names on an
+    // NFS mount, so that a test needs no share.
+    pub(crate) static ON_A_SHARE_IN_A_TEST: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
     // leaked, so that the writer thread can tell a test's errors to that test's list.
@@ -968,6 +976,11 @@ fn unlink_was_refused(e: &std::io::Error) -> bool {
 /// answer is lost, and a rename done the first time answers ENOENT the second. A mount whose type
 /// cannot be read counts as such a mount.
 pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
+    #[cfg(test)]
+    if ON_A_SHARE_IN_A_TEST.with_borrow(|share| share.as_ref().is_some_and(|s| from.starts_with(s)))
+    {
+        return may_have_been_done_on(e, || Some("nfs".to_owned()));
+    }
     may_have_been_done_on(e, || file_system_type(from))
 }
 
@@ -2486,6 +2499,10 @@ fn fingerprint_looked(path: &Path, follow: bool) -> std::io::Result<FileFingerpr
         _ => false,
     }) {
         return Err(std::io::Error::from_raw_os_error(libc::EIO));
+    }
+    #[cfg(test)]
+    if LOOK_NOT_FOUND_AT.with_borrow(|at| at.as_deref() == Some(path)) {
+        return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
     }
     let m = look(path, follow)?;
     let key = crate::images::save::file_id_from_metadata(path, &m).ok();

@@ -13,8 +13,10 @@
 //! stayed takes back its sidecars that the kill left in the trash, or put aside under a hidden
 //! name.
 
-use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
-use crate::files::job_log::{AtStart, CannotTell, JobLog, Record, Sure, remove_job_log};
+use crate::files::file_io::{
+    FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there, may_have_been_done,
+};
+use crate::files::job_log::{AtStart, CannotTell, Direction, JobLog, Record, Sure, remove_job_log};
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -270,12 +272,13 @@ impl MoveLog {
         self.steps += 1;
     }
 
-    /// Notes that the step of `from` failed with `error` (`JobLog::note_step_failed`). A step
-    /// that may have been done counts as not done here, so its marks stay at the old name, and
-    /// the log stays for the next start, which makes them follow when the file is at its new
-    /// name with its fingerprint.
-    pub fn note_step_failed(&mut self, from: &Path, error: &std::io::Error) {
-        self.log.note_step_failed(from, error);
+    /// Notes that the last step written down failed with `error`, going the way `direction`
+    /// says (`JobLog::note_last_step_failed`): forward, or back when the file was put back from
+    /// the step's new name. A step that may have been done counts as not done here, so its marks
+    /// stay at the old name, and the log stays for the next start, which makes them follow when
+    /// the file is at its new name with its fingerprint.
+    pub fn note_last_step_failed(&mut self, direction: Direction, error: &std::io::Error) {
+        self.log.note_last_step_failed(direction, error);
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.
@@ -336,8 +339,16 @@ impl UndoTrashLog {
         let (path, coming) = match step {
             Restoring::Coming(path, fingerprint) => (path, Some(fingerprint)),
             Restoring::Back(path) => (path, None),
-            Restoring::Failed(from, _, error) => {
-                self.log.note_step_failed(from, error);
+            // The step is judged by the name its record holds, the file's own, whichever way
+            // the rename went. A rename stays on one file system, so the trash's name is on a
+            // mount of the same type.
+            Restoring::Failed(source, destination, error) => {
+                let step = [source, destination]
+                    .into_iter()
+                    .find(|path| self.steps.contains_key(*path));
+                if step.is_none_or(|step| may_have_been_done(error, step)) {
+                    self.log.keep_for_the_next_start();
+                }
                 return;
             }
         };
@@ -401,10 +412,13 @@ pub struct DeleteLog {
 }
 
 impl DeleteLog {
-    /// Notes that the delete of `from` failed with `error` (`JobLog::note_step_failed`), so
-    /// that the log stays for the next start when the delete may have been done.
+    /// Notes that the delete of `from` failed with `error`, so that the log stays for the next
+    /// start when the delete may have been done (`file_io::may_have_been_done`). It stays too
+    /// when the log has no step of `from`, as then no record tells which name the step took.
     pub fn note_step_failed(&mut self, from: &Path, error: &std::io::Error) {
-        self.log.note_step_failed(from, error);
+        if !self.steps.contains_key(from) || may_have_been_done(error, from) {
+            self.log.keep_for_the_next_start();
+        }
     }
 
     /// Keeps the log for the next start, as the job cannot tell whether a file went.
@@ -2149,9 +2163,12 @@ pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
 /// Returns `Ok` when nothing is left at `a`, and `CannotTell` otherwise, as a failed look tells
 /// nothing.
 pub fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
-    match rename_step(a, b).is_ok() || is_surely_gone(a) {
-        true => Ok(()),
-        false => Err(CannotTell),
+    // A step that failed again, also one that may have been done, is judged by a sure look at
+    // `a`, so its error is not needed.
+    match rename_step(a, b) {
+        Ok(()) => Ok(()),
+        Err(_) if is_surely_gone(a) => Ok(()),
+        Err(_) => Err(CannotTell),
     }
 }
 
@@ -2202,7 +2219,12 @@ fn repair_step(a: &Path, b: &Path) -> Option<bool> {
     match std::fs::symlink_metadata(a) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => Some(false),
-        Ok(_) => Some(rename_step(a, b).is_ok()),
+        // A step that failed, also one that may have been done, counts as not done, which keeps
+        // the plan for the next start, so its error is not needed.
+        Ok(_) => match rename_step(a, b) {
+            Ok(()) => Some(true),
+            Err(_) => Some(false),
+        },
     }
 }
 
@@ -2293,11 +2315,13 @@ pub fn repair_cut_short(
     // When the names are put back, the step cut short between its link and its unlink, the
     // first one not counted, has its new name taken away first, so the steps before it can be
     // undone.
+    // A remove that failed, also one that may have been done, only leaves the step uncounted:
+    // the file stays at `a`, under one or two names, so its error is not needed.
     #[allow(clippy::disallowed_methods)] // a second name of the same file
     if undo_them
         && let Some((a, b)) = done.and_then(|d| moves.get(d))
         && same_file_by_opening(a, b)
-        && std::fs::remove_file(b).is_ok()
+        && let Ok(()) = std::fs::remove_file(b)
     {
         first = 1;
     }
