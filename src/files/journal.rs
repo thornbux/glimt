@@ -4838,6 +4838,30 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A planted job log whose `old-log` record names a file outside Glimt's log folders does
+    /// not get that file removed. The start removes only the logs it lists in its own folders
+    /// that such a record names, never the path of the record itself.
+    #[test]
+    fn an_old_log_record_removes_nothing_outside_the_log_folders() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-old-log-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (jobs, deletes, photo) = (dir.join("jobs"), dir.join("deletes"), dir.join("a.jpg"));
+        std::fs::create_dir_all(&jobs).unwrap();
+        std::fs::create_dir_all(&deletes).unwrap();
+        std::fs::write(&photo, "a").unwrap();
+        for job in ["rename", "delete", "move"] {
+            let planted = [super::Record::OldLog(photo.clone())];
+            drop(super::JobLog::start(&jobs, job, &planted).unwrap());
+        }
+        let (_, _, written_anew, _) = super::jobs_cut_short(&jobs);
+        assert!(written_anew.contains(&photo));
+        super::old_deletes_cut_short(&deletes, &jobs, &written_anew);
+        super::old_plans_written_anew(&dir.join("renames"), &jobs);
+        assert!(photo.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// An Undo from the trash keeps a log of the marks, stars and places of what it puts back,
     /// with the fingerprint of each file or folder before it comes back. Glimt killed between a
     /// file's rename and its `done` leaves the log, and the next start gives the marks back to
