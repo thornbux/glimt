@@ -3315,8 +3315,9 @@ fn a_home_ends_at_the_next_top_level_item() {
     assert_eq!(wrong, ["a.rs:4 (risky()", "a.rs:5 (risky()"]);
 }
 
-/// Every job log, Rename Many plan and log of Glimt 0.92 is removed, with its lists, by
-/// `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a sure answer makes.
+/// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
+/// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
+/// sure answer makes.
 /// Three audit rounds in a row found a start that removed a log after a look or a write that
 /// could not tell, each through a removal of its own, and each was mended where it was found.
 #[test]
@@ -3331,34 +3332,14 @@ fn job_logs_are_removed_in_one_place() {
     );
 }
 
-/// Returns the places in `text`, the source of `file`, where a job log or its lists may be
-/// removed outside `job_log::remove_job_log`, outside the tests. In the files of the logs, it is
-/// any removal of Glimt's own files elsewhere, as "file:line (call)". In any other file, it is a
-/// function that both names a folder or a list of the logs and removes a file, as
-/// "file: function".
+/// Returns the places in `text`, the source of `file`, where a job log may be removed outside
+/// `job_log::remove_job_log`, outside the tests. In the files of the logs, it is any removal of
+/// Glimt's own files elsewhere, as "file:line (call)". In any other file, it is a function that
+/// both names a folder of the logs and removes a file, as "file: function".
 fn log_removals_in(file: &str, text: &str) -> Vec<String> {
-    const OWN_REMOVALS: [&str; 4] = [
-        "remove_own(",
-        "remove_own_or_tell(",
-        "remove_shared(",
-        "remove_with_its_list(",
-    ];
+    const OWN_REMOVALS: [&str; 3] = ["remove_own(", "remove_own_or_tell(", "remove_shared("];
     const RAW_REMOVALS: [&str; 3] = ["remove_file(", "remove_dir(", "remove_dir_all("];
-    const LOG_PATHS: [&str; 13] = [
-        "jobs_dir(",
-        "journal_dir(",
-        "move_log_dir(",
-        "delete_log_dir(",
-        "undo_log_dir(",
-        "lists_folder(",
-        "collections_folder(",
-        "asides_folder(",
-        "kept_folder(",
-        "known_path(",
-        "collection_path(",
-        "aside_path(",
-        "kept_path(",
-    ];
+    const LOG_PATHS: [&str; 2] = ["jobs_dir(", "undo_log_dir("];
     if ["files/journal.rs", "files/job_log.rs"].contains(&file) {
         let home: &[(&str, &str)] = &[("files/job_log.rs", "remove_job_log")];
         let homes: Vec<(&str, &[(&str, &str)])> = OWN_REMOVALS.map(|call| (call, home)).to_vec();
@@ -3394,10 +3375,10 @@ fn finds_a_log_removed_outside_its_home() {
     let journal =
         "fn a() {\n    remove_own_or_tell(p);\n}\nfn b() {\n    remove_job_log(p, s);\n}\n";
     let home = "pub(crate) fn remove_job_log(path: &Path, _: Sure) -> bool {\n    \
-        remove_with_its_list(path, remove_own_or_tell)\n}\n";
+        remove_own_or_tell(path)\n}\n";
     let other = "fn a() {\n    let d = jobs_dir();\n    remove_own(&d.join(n));\n}\n\
         fn b() {\n    remove_own(p);\n}\nfn c() {\n    let d = jobs_dir();\n}\n\
-        fn e() {\n    std::fs::remove_file(known_path(&p));\n}\n";
+        fn e() {\n    std::fs::remove_file(undo_log_dir().join(n));\n}\n";
     assert_eq!(
         log_removals_in("files/journal.rs", journal),
         ["files/journal.rs:2 (remove_own_or_tell()"]

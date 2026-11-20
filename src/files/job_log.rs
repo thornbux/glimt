@@ -103,10 +103,11 @@ pub(crate) enum Record {
     },
     /// The step must wait for a later start.
     Kept(usize),
-    /// The log that this log was written from, of an older format or of this one, which a
-    /// start removes unread when a kill left it beside this one. Its steps are read as this
-    /// log's own: a step of an old log is written with a `done` record, as an old log's name
-    /// meant a file that may have gone.
+    /// The log that this log was written from, which a start removes unread when a kill left it
+    /// beside this one in the folder of the job logs. A start removes no other path that it
+    /// names: one in a folder of Glimt 0.92 or older, which Glimt 0.93 and 0.94 wrote, is no
+    /// longer read. The steps of a log written from such an old log are read as its own: each
+    /// has a `done` record, as an old log's name meant a file that may have gone.
     OldLog(PathBuf),
     /// A start found the step of a delete for good, which has no `done`, with its photo gone,
     /// and kept its marks and its hidden sidecar for a later start, which finishes it.
@@ -649,38 +650,13 @@ fn number<T: std::str::FromStr>(field: &[u8]) -> Option<T> {
     std::str::from_utf8(field).ok()?.parse().ok()
 }
 
-/// Removes the job log, plan or old log at `path` with its lists, the one way any of them is
-/// removed (`source_rules::job_logs_are_removed_in_one_place`). It takes the proof `Sure`, which
-/// only a sure answer makes, so that no log goes after a look or a write that could not tell. A
-/// failure is told. Returns whether the log is gone.
+/// Removes the job log or plan at `path`, or a folder of the logs of Glimt 0.92 and older that
+/// holds none (`journal::clear_old_log_folders`), the one way any of them is removed
+/// (`source_rules::job_logs_are_removed_in_one_place`). It takes the proof `Sure`, which only a
+/// sure answer makes, so that no log goes after a look or a write that could not tell. A
+/// failure is told. Returns whether it is gone.
 pub(crate) fn remove_job_log(path: &Path, _: Sure) -> bool {
-    remove_with_its_list(path, crate::files::file_io::remove_own_or_tell)
-}
-
-/// Removes the plan or log `plan` with `remove`, which tells a failure and returns whether the
-/// file is gone, and then the list of its files. The list stays when the plan does, because a
-/// plan or log without its list is taken by its names alone at the next start, and could put a
-/// photo's stars on a later photo of that name. Returns whether the plan is gone.
-pub(crate) fn remove_with_its_list(plan: &Path, remove: impl Fn(&Path) -> bool) -> bool {
-    use crate::files::file_io::is_surely_gone;
-    use crate::files::journal::{aside_path, collection_path, kept_path, known_path};
-    if !remove(plan) {
-        return false;
-    }
-    remove(&known_path(plan));
-    // Only a delete's log has a file of its collection, and only when one was shown.
-    let collection = collection_path(plan);
-    if !is_surely_gone(&collection) {
-        remove(&collection);
-    }
-    // Only a delete for good's log has a file of the sidecars it put aside, and one of the
-    // photos it kept with a sidecar that may be hidden.
-    for file in [aside_path(plan), kept_path(plan)] {
-        if !is_surely_gone(&file) {
-            remove(&file);
-        }
-    }
-    true
+    crate::files::file_io::remove_own_or_tell(path)
 }
 
 #[cfg(test)]
@@ -744,7 +720,7 @@ mod tests {
                 from: p("/photos/new"),
                 to: Some(p("/photos/newer")),
             },
-            Record::OldLog(p("/state/glimt/deletes/1-2")),
+            Record::OldLog(p("/state/glimt/jobs/1-2")),
             Record::Found(1),
             Record::Written {
                 number: 0,

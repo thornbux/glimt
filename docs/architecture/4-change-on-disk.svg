@@ -230,7 +230,7 @@
       <text x="42" y="1197">Glimt killed halfway leaves the log. At the next start, <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">logs_left_by_a_kill</tspan> finds those no window holds locked, and <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">moves_cut_short</tspan> and</text>
       <text x="42" y="1215"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">deletes_cut_short</tspan> send the files that went to the window: their marks, stars and collection entries follow them or are forgotten, as the report would have done.</text>
       <text x="42" y="1233">A delete for good notes the sidecars it hides first (note_aside). <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">sidecars_back_from_hiding</tspan> gives them back to a photo still there, or deletes those of one gone.</text>
-      <text x="42" y="1251">A log kept for a later start (keep_for_a_later_start, deletes/kept/) names the photos whose sidecar may still be hidden, so none is taken for one deleted.</text>
+      <text x="42" y="1251">A log kept for a later start (keep_for_a_later_start, a kept record) names the photos whose sidecar may still be hidden, so none is taken for one deleted.</text>
     </g>
   </g>
 </svg>

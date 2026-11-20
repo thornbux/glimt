@@ -4087,3 +4087,8 @@ msgstr "{photo} manca ancora, quindi la sua eliminazione viene completata: i con
 #, fuzzy
 msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
 msgstr "{photo} è di nuovo presente, quindi mantiene contrassegni e stelle, e il file collaterale messo da parte riprende il suo nome."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
+msgstr "{folder} contiene registri lasciati da Glimt 0.92 o precedente quando è stato fermato durante una Rinomina multipla, uno spostamento o un'eliminazione. Questo Glimt non li legge più: avvia Glimt 0.94 una volta per sistemarli. Fino ad allora vengono conservati."

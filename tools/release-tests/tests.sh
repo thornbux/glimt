@@ -4610,14 +4610,28 @@ shot exif-search-1
 quit
 expect "nothing before, b.jpg after" "$before $(colour exif-search-1 57 337)" "other blue"
 
-section "Rename Many of 0.92 or older cut short by a crash: the old names put back at the next start"
+# plan_in_jobs PLAN DONE FROM TO…: the plan of a Rename Many that a crash cut short, as a job log
+# of 0.93 or later (docs/design/log-format.md): its header, a step for each pair of names, with
+# no fingerprint, so the repair goes by the names, and a done record for each of the first DONE.
+plan_in_jobs() {
+    local plan=$1 done=$2 n=0
+    shift 2
+    mkdir -p "${plan%/*}"
+    {
+        printf '%s\0' glimt-job 1 rename "$(date +%s%N)" release-tests; printf '\0'
+        while [ $# -gt 1 ]; do printf '%s\0' step $n "$1" "$2" -; printf '\0'; n=$((n + 1)); shift 2; done
+        for n in $(seq 0 $((done - 1))); do printf '%s\0' done $n; printf '\0'; done
+    } >"$plan"
+}
+
+section "Rename Many cut short by a crash: the old names put back at the next start"
 d=/tmp/cutshort
-rm -rf $XDG_STATE_HOME/glimt/jobs; mkdir -p $d $XDG_STATE_HOME/glimt/renames
+rm -rf $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
 convert -size 300x200 xc:red jpg:$d/.glimt-rename-x-0
 convert -size 300x200 xc:blue jpg:$d/.glimt-rename-x-1
 # The plan of a swap of a.jpg and b.jpg, stopped with both under their temporary names.
-printf '%s\0' $d/a.jpg $d/.glimt-rename-x-0 $d/b.jpg $d/.glimt-rename-x-1 \
-    $d/.glimt-rename-x-0 $d/b.jpg $d/.glimt-rename-x-1 $d/a.jpg >$XDG_STATE_HOME/glimt/renames/crashed
+plan_in_jobs $XDG_STATE_HOME/glimt/jobs/crashed 2 $d/a.jpg $d/.glimt-rename-x-0 \
+    $d/b.jpg $d/.glimt-rename-x-1 $d/.glimt-rename-x-0 $d/b.jpg $d/.glimt-rename-x-1 $d/a.jpg
 config
 start $d
 sleep 3
@@ -4626,14 +4640,14 @@ shot cut-short
 quit
 # a.jpg was the red one: more than half red, as JPEG rounds.
 r=$(convert $d/a.jpg -format "%[fx:p{150,100}.r>0.5]" info: 2>/dev/null)
-got="$(ls -A $d | tr '\n' ' ')$r $(ls -A $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs 2>/dev/null | grep -cv -e "^$" -e ":$")"
+got="$(ls -A $d | tr '\n' ' ')$r $(ls -A $XDG_STATE_HOME/glimt/jobs 2>/dev/null | wc -l | tr -d ' ')"
 expect "a.jpg (red) and b.jpg back, the plan gone, none left in jobs" "$got" "a.jpg b.jpg 1 0"
 
-section "Rename Many of 0.92 or older cut short, finished at the next start: the marks follow the files"
+section "Rename Many cut short, finished at the next start: the marks follow the files"
 d=/tmp/cutshort-finish
-mkdir -p $d $XDG_STATE_HOME/glimt/renames
+mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
-printf '%s\0' $d/a.jpg $d/c.jpg >$XDG_STATE_HOME/glimt/renames/crashed    # a.jpg -> c.jpg, not started
+plan_in_jobs $XDG_STATE_HOME/glimt/jobs/crashed 0 $d/a.jpg $d/c.jpg    # a.jpg -> c.jpg, not started
 printf '1\t0\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
 config
 start $d

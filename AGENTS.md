@@ -120,20 +120,17 @@ release that drops its format, so that no user's file or mark is lost in the upg
   that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::glimt_folder_in`,
   `remote::socket_name` and `FOCUSED_FILE`);
 - the names of the lock files, frozen like the files (`file` lines, from `file_io::lock_beside`,
-  `journal::lists_lock`, `remote::socket_lock` and `xmp::LOCK_FOLDER`), and which of the
-  sidecars' lock files a sidecar takes (`sidecar_lock` lines, from `xmp::LOCK_FILES`,
-  `lock_file_number` of `sidecar_hash` and `xmp::lock_file_path`). Windows of two versions that
+  `remote::socket_lock` and `xmp::LOCK_FOLDER`), and which of the sidecars' lock files a
+  sidecar takes (`sidecar_lock` lines, from `xmp::LOCK_FILES`, `lock_file_number` of
+  `sidecar_hash` and `xmp::lock_file_path`). Windows of two versions that
   run at once must take the same lock for one file, or both read it and the last write drops
   the other's change. A plan of Rename Many, a move log and a delete log are each locked as
   the file itself, which tells one still running from one cut short. Every lock is a flock
   (`lock_kind` lines, for a lock file of `file_io::open_and_lock`, a plan of
   `journal::start_journal`, a move log of `start_move_log` and a delete log of
-  `start_delete_log`): a lock of another kind (fcntl) would keep every name and exclude
-  nothing. Where a plan or log has the list of the files it moves or deletes (`list` lines,
-  from `journal::known_path`) is pinned too, or a later Glimt would take every older plan and
-  log by its names alone. So are the files a delete log keeps beside it, in folders of their
-  own: the collection shown, the sidecars put aside and the photos kept (`collection`, `aside`
-  and `kept` lines, from `journal::collection_path`, `aside_path` and `kept_path`);
+  `start_delete_log`, each a job log): a lock of another kind (fcntl) would keep every name and
+  exclude nothing. The folders of the logs of Glimt 0.92 and older (`renames/`, `moves/` and
+  `deletes/`, with their lists beside them) were taken out in 0.95, which no longer reads them;
 - the words of a job log (`job_record` lines, from `job_log::HEADER`, `VERSION`, `JOB_KINDS`
   and `RECORD_KINDS`), and the kind of its lock (`lock_kind job log`, of `JobLog::start`);
 - the words of the groups in the sharing file (`sharing` lines, `Group::key`), and the names
@@ -322,7 +319,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/external.rs` | Starting programs (`command`, `host_command`), and ffmpeg, gio and Open With |
 | `src/files/portal.rs` | The desktop portals through zbus (feature `portals`) |
 | `src/files/job_log.rs` | The job log in `jobs/`: one file for each job that changes files, with a header, a version and typed records, its writer and its parser |
-| `src/files/journal.rs` | Rename Many's steps on disk, put right at the next start after a crash, a Move's log, by which the marks and collections follow the files moved before a kill, and a delete's log, by which the marks of the files deleted before a kill are forgotten |
+| `src/files/journal.rs` | Rename Many's steps on disk, put right at the next start after a crash, a Move's log, by which the marks and collections follow the files moved before a kill, a delete's log, by which the marks of the files deleted before a kill are forgotten, and the old logs' folders of Glimt 0.92, removed when empty (`clear_old_log_folders`) |
 | `src/support.rs` | **The support/ folder:** what the rest is built on |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget was drawn (`noted`) |
 | `src/support/test_support.rs` | What tests start from: `app_on`, `contract_folder`, `broken` |
@@ -555,7 +552,8 @@ arm becomes a method.
     and outside one they refuse an image's file;
   - write a file whole or not at all:
     - a new file with `file_io::create_file`;
-    - a file of the user's (a copy saved over one, a sidecar) with `replace_name`. When the name
+    - a file of the user's (a copy saved over one, a sidecar) with `replace_name_with`
+      (`replace_name` in the tests). When the name
       is a symbolic link, it replaces the link itself, not the file the link points to, and it
       refuses a read-only file. One that was read first (a sidecar, a collection) is written
       with `replace_what_was_read`, which leaves it alone when another program changed it
@@ -603,9 +601,10 @@ arm becomes a method.
     own files are removed with `file_io::remove_own`, or by a raw call whose `#[allow]` reason
     starts with "Glimt's own:"
     (`source_rules::destructive_acts_check_the_file_is_still_the_one_picked`). A job log, a plan
-    of Rename Many or an old log goes only through `job_log::remove_job_log`, which takes a
-    `job_log::Sure` that only a sure answer (`job_log::AtStart`) makes, so a start that cannot
-    tell keeps the log (`source_rules::job_logs_are_removed_in_one_place`);
+    of Rename Many or a folder of the old logs found without one goes only through
+    `job_log::remove_job_log`, which takes a `job_log::Sure` that only a sure answer
+    (`job_log::AtStart`) makes, so a start that cannot tell keeps the log
+    (`source_rules::job_logs_are_removed_in_one_place`);
   - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there` (or
     `is_followed_to` for a file that a record says was moved there: only NotFound leaves its
     marks behind, and a failed look keeps them with it and is told), whether

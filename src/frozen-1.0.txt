@@ -364,7 +364,6 @@ file $XDG_STATE_HOME/glimt/state
 file $XDG_STATE_HOME/glimt/recent
 file $XDG_STATE_HOME/glimt/sharing
 file $XDG_STATE_HOME/glimt/marks
-file $XDG_STATE_HOME/glimt/renames
 file $XDG_DATA_HOME/glimt/collections
 file $XDG_DATA_HOME/glimt/tools
 file $XDG_DATA_HOME/glimt/plugins
@@ -517,12 +516,8 @@ script LeaveFullScreen
 script ParentFolder
 script HomeFolder
 setting added_format_memory_mb
-file $XDG_STATE_HOME/glimt/moves
 option --wait
 sharing_tag JPEG marker 0xf0
-file $XDG_STATE_HOME/glimt/moves/files
-file $XDG_STATE_HOME/glimt/renames/files
-file $XDG_STATE_HOME/glimt/renames/files/.lock
 file $XDG_CONFIG_HOME/glimt/.config.lock
 file $XDG_CONFIG_HOME/glimt/.keywords.lock
 file $XDG_CONFIG_HOME/glimt/.sort-folders.lock
@@ -536,22 +531,11 @@ sidecar_lock files 64
 sidecar_lock /x/a.xmp by its folder's device 1 and inode 2 is sidecar-locks/6
 sidecar_lock /x/a.xmp by its folder's real path /y is sidecar-locks/30
 sidecar_lock /x/a.xmp by its path as written is sidecar-locks/1
-list of $XDG_STATE_HOME/glimt/renames/NAME is $XDG_STATE_HOME/glimt/renames/files/NAME
-list of $XDG_STATE_HOME/glimt/moves/NAME is $XDG_STATE_HOME/glimt/moves/files/NAME
 lock_kind lock file flock
 lock_kind plan flock
 lock_kind move log flock
-file $XDG_STATE_HOME/glimt/deletes
-file $XDG_STATE_HOME/glimt/deletes/files
-list of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/files/NAME
 lock_kind delete log flock
-file $XDG_STATE_HOME/glimt/deletes/collections
-collection of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/collections/NAME
-file $XDG_STATE_HOME/glimt/deletes/aside
-aside of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/aside/NAME
 sharing group:filename
-file $XDG_STATE_HOME/glimt/deletes/kept
-kept of $XDG_STATE_HOME/glimt/deletes/NAME is $XDG_STATE_HOME/glimt/deletes/kept/NAME
 file $XDG_STATE_HOME/glimt/jobs
 lock_kind job log flock
 job_record header glimt-job

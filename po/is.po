@@ -4087,3 +4087,8 @@ msgstr "{photo} er enn horfin, svo eyðingunni er lokið: merki hennar og stjör
 #, fuzzy
 msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
 msgstr "{photo} er komin aftur, svo hún heldur merkjum sínum og stjörnum, og hliðarskráin sem var lögð til hliðar fær nafnið sitt aftur."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
+msgstr "{folder} geymir annála sem Glimt 0.92 eða eldra skildi eftir þegar það var stöðvað í miðju Endurnefna margar, flutningi eða eyðingu. Þetta Glimt les þá ekki lengur: ræstu Glimt 0.94 einu sinni til að laga þá. Þangað til eru þeir geymdir."

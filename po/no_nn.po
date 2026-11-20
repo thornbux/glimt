@@ -4098,3 +4098,8 @@ msgstr "{photo} er framleis borte, så slettinga blir fullført: merka og stjern
 #, fuzzy
 msgid "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back."
 msgstr "{photo} er der att, så han held på merka og stjernene, og sidefila som vart lagd til side, får namnet sitt att."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
+msgstr "{folder} har loggar som Glimt 0.92 eller eldre la att då han vart stoppa under Endra mange namn, ei flytting eller ei sletting. Denne Glimt les dei ikkje lenger: start Glimt 0.94 éin gong for å retta dei opp. Til då vert dei haldne på."

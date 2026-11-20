@@ -2007,7 +2007,10 @@ pub fn replace_existing<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
 /// Replaces the file named `path` with `bytes`, written whole beside it first. Unlike
 /// `replace_file`, a link at `path` is itself replaced, and the file it points to is left alone.
 /// A downloaded folder may hold a link to any file of the user's under a photo's name, so a copy
-/// saved over a file there (Save As) and a sidecar are written this way.
+/// saved over a file there (Save As) and a sidecar are written this way. Only the tests call it
+/// since the lists of the plans of Glimt 0.92 went: the window's code writes through
+/// `replace_name_with`, `replace_existing` and `replace_what_was_read`.
+#[cfg(test)]
 pub fn replace_name(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
     replace_name_with(

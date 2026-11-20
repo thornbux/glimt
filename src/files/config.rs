@@ -2130,30 +2130,7 @@ mod tests {
             shown(super::state_path()),
             shown(super::recent_path()),
             shown(super::sharing_path()),
-            shown(crate::files::journal::journal_dir()),
-            shown(crate::files::journal::move_log_dir()),
-            shown(
-                (crate::files::journal::move_log_dir())
-                    .map(|d| crate::files::journal::lists_folder(&d)),
-            ),
-            shown(crate::files::journal::delete_log_dir()),
-            shown(
-                (crate::files::journal::delete_log_dir())
-                    .map(|d| crate::files::journal::lists_folder(&d)),
-            ),
             shown(crate::model::collections::collections_dir()),
-            shown(
-                (crate::files::journal::delete_log_dir())
-                    .map(|d| crate::files::journal::collections_folder(&d)),
-            ),
-            shown(
-                (crate::files::journal::delete_log_dir())
-                    .map(|d| crate::files::journal::asides_folder(&d)),
-            ),
-            shown(
-                (crate::files::journal::delete_log_dir())
-                    .map(|d| crate::files::journal::kept_folder(&d)),
-            ),
             shown(crate::files::job_log::jobs_dir()),
         ];
         #[cfg(feature = "marks")]
@@ -2182,11 +2159,7 @@ mod tests {
     /// the other's change. `shown` gives a path's line as `owned_files` does.
     fn owned_locks(shown: impl Fn(Option<std::path::PathBuf>) -> String) -> Vec<String> {
         use crate::files::file_io::lock_beside;
-        use crate::files::journal::{journal_dir, lists_folder, lists_lock};
-        let mut files = vec![
-            shown(journal_dir().map(|d| lists_folder(&d))),
-            shown(journal_dir().map(|d| lists_lock(&d))),
-        ];
+        let mut files = Vec::new();
         // The files that the windows share (`edit_shared`) and the collections.
         let collection = crate::model::collections::collections_dir().map(|d| d.join("NAME.gqv"));
         let shared = [
@@ -2230,7 +2203,7 @@ mod tests {
                 lock.display()
             ));
         }
-        files.extend(lists_and_kinds_of_locks());
+        files.extend(kinds_of_locks());
         files
     }
 
@@ -2239,39 +2212,11 @@ mod tests {
         crate::features::remote::glimt_folder_in("$XDG_RUNTIME_DIR".as_ref())
     }
 
-    /// Returns a "list" line for where a plan of Rename Many, a log of Move and a log of a
-    /// delete have the list of their files (`journal::known_path`), and a "lock_kind" line for
-    /// each way Glimt takes a lock. Two versions that took locks of different kinds (flock and
-    /// fcntl) would keep every name and exclude nothing. A lock's kind is read from /proc/locks
-    /// while the code's lock is held.
-    fn lists_and_kinds_of_locks() -> Vec<String> {
-        use crate::files::journal::{delete_log_dir, journal_dir, known_path, move_log_dir};
-        let state = |p: std::path::PathBuf| {
-            let rest = p
-                .strip_prefix(super::test_home().join(".local/state"))
-                .unwrap();
-            format!("$XDG_STATE_HOME/{}", rest.display())
-        };
+    /// Returns a "lock_kind" line for each way Glimt takes a lock. Two versions that took locks
+    /// of different kinds (flock and fcntl) would keep every name and exclude nothing. A lock's
+    /// kind is read from /proc/locks while the code's lock is held.
+    fn kinds_of_locks() -> Vec<String> {
         let mut lines = Vec::new();
-        for dir in [
-            journal_dir().unwrap(),
-            move_log_dir().unwrap(),
-            delete_log_dir().unwrap(),
-        ] {
-            let plan = dir.join("NAME");
-            let list = state(known_path(&plan));
-            lines.push(format!("list of {} is {list}", state(plan)));
-        }
-        let log = delete_log_dir().unwrap().join("NAME");
-        let collection = state(crate::files::journal::collection_path(&log));
-        lines.push(format!(
-            "collection of {} is {collection}",
-            state(log.clone())
-        ));
-        let aside = state(crate::files::journal::aside_path(&log));
-        lines.push(format!("aside of {} is {aside}", state(log.clone())));
-        let kept = state(crate::files::journal::kept_path(&log));
-        lines.push(format!("kept of {} is {kept}", state(log)));
         // A folder for each call, as two tests ask for the names at once.
         static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
