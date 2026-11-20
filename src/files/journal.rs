@@ -61,6 +61,9 @@ thread_local! {
     // real /dev/disk/by-uuid.
     pub(crate) static TEST_VOLUMES: std::cell::RefCell<Vec<(PathBuf, std::ffi::OsString)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // How many times `volume_of` was asked on this thread, so that a test can see that a start
+    // looks up a folder's volume once and not once for each file.
+    pub(crate) static VOLUME_LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// What the `folder` and `volume` records of a log noted of a folder: its device, its inode (0
@@ -72,6 +75,11 @@ struct FolderNoted {
     noted_device: u64,
     noted_inode: u64,
     noted_volume: Option<std::ffi::OsString>,
+    /// The volume found now for the folder, with the device it was found on. It is kept for the
+    /// one start that reads the log, so that /dev/disk/by-uuid is read once for the folder and
+    /// not once for each of its files. A look that found no volume is not kept, and is made
+    /// again.
+    volume_found: std::sync::OnceLock<(u64, std::ffi::OsString)>,
 }
 
 /// The job logs a start found: the Moves with the files that went, the deletes with the files
@@ -1601,6 +1609,7 @@ fn volume_of(folder: &Path, device: u64) -> Option<std::ffi::OsString> {
     #[cfg(test)]
     {
         let _ = device;
+        VOLUME_LOOKS.set(VOLUME_LOOKS.get() + 1);
         TEST_VOLUMES.with_borrow(|volumes| {
             (volumes.iter().find(|(at, _)| folder.starts_with(at))).map(|(_, v)| v.clone())
         })
@@ -1627,6 +1636,7 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
                     noted_device: *device,
                     noted_inode: *inode,
                     noted_volume: None,
+                    volume_found: std::sync::OnceLock::new(),
                 },
             )),
             _ => None,
@@ -1654,11 +1664,8 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// folder on the noted volume or device, one made at the name after the job. Returns
 /// `CannotTell` for another device without a volume, as then the folder noted is not here (an
 /// empty mount point) or came back under another device number, and for a volume that cannot be
-/// found now.
-///
-/// shortcut: the volume is looked up again for each path a start reads on a disk, a few looks in
-/// /dev/disk/by-uuid each; keep it for each folder if a killed job on a card of many thousand
-/// files makes the start slow.
+/// found now. The volume found is kept in `noted` for the device it was found on, so that a
+/// start looks it up once for each folder, not once for each file.
 fn is_the_folder_noted(
     folder: &Path,
     noted: &FolderNoted,
@@ -1666,7 +1673,16 @@ fn is_the_folder_noted(
     inode: Option<u64>,
 ) -> AtStart<bool> {
     if let Some(volume) = &noted.noted_volume {
-        if volume_of(folder, device).ok_or(CannotTell)? != *volume {
+        let found = match noted.volume_found.get() {
+            Some((on, found)) if *on == device => found.clone(),
+            _ => {
+                let found = volume_of(folder, device).ok_or(CannotTell)?;
+                // Another thread may have set it first, with the same answer.
+                let _ = noted.volume_found.set((device, found.clone()));
+                found
+            }
+        };
+        if found != *volume {
             return Ok(false);
         }
     } else if device != noted.noted_device {
@@ -5136,6 +5152,25 @@ mod tests {
         assert_eq!(found[0].1, std::slice::from_ref(&a));
         assert_eq!(let_go(found), 1);
         assert!(super::delete_jobs_cut_short(&logs).is_empty());
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A start that reads a killed delete of many files on one card looks up the card's volume
+    /// once, not once or twice for each file. Before, /dev/disk/by-uuid was read for each name,
+    /// about a million times for a log of 500,000 files.
+    #[test]
+    fn a_start_looks_up_a_folders_volume_once() {
+        let (dir, card, logs) = fat_card("start-volume-once");
+        let files: Vec<_> = (0..200).map(|i| card.join(format!("{i}.png"))).collect();
+        card_volume(&card, Some("1111-AAAA"));
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(&files);
+        drop(log);
+        super::VOLUME_LOOKS.set(0);
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1.len(), files.len());
+        assert_eq!(super::VOLUME_LOOKS.get(), 1);
+        assert_eq!(let_go(found), 1);
         remove_fat_card(&dir, &card);
     }
 
