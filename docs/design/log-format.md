@@ -57,7 +57,11 @@ a new kind of line inside a log would be read by it as a path.
   A Move then counts as done only when the new name holds a file with that fingerprint. For a
   delete for good, nothing is left to compare, so a NotFound after a lost answer keeps the
   sidecars aside (a `kept` state) rather than deleting them. The log narrows the class; it does
-  not close the delete case on its own.
+  not close the delete case on its own. Since 0.94 the fingerprint is taken by
+  `rename_never_over` itself, right before the rename, so every rename counts as done after a
+  lost answer only with that file at the new name: a Move, its Undo, Rename, Rename Many,
+  Rename Folder and Undo from the trash. A second window that made the same move leaves the
+  same file there, which then counts as moved, rightly, as it is at the new name.
 
 ## 3. The plan in short
 
@@ -106,13 +110,15 @@ kinds within version 1 when an older reader may safely ignore them. A record tha
 meaning of others raises the version.
 
 The kinds of job: `rename`, `move`, `delete`, `trash`, `undo-move`, `undo-trash`,
-`rename-folder`, `trash-folder`.
+`rename-folder`, `trash-folder`. Each has a reader at the start (`journal::read_at_start`, held by
+`every_job_kind_is_read_at_start`). A log of a kind the start has no reader for is kept on disk
+and told once, as one of a higher version is.
 
 The record kinds:
 
 | Record | Fields | Written | For |
 |---|---|---|---|
-| `folder` | path, device, inode (`0` where the file system keeps none, FAT and exFAT) | before the first step in that folder, also the folder a file or folder goes to | #179, an empty mount point |
+| `folder` | path, device, inode (`0` where the file system keeps none, FAT and exFAT), and where the inode is `0` and the volume was found, a fourth field: its name in `/dev/disk/by-uuid` | before the first step in that folder, also the folder a file or folder goes to | #179, an empty mount point; #266, another card |
 | `shown` | the collection's path | at the start | the collection shown, now `collections/` |
 | `step` | number, from, to or `-`, fingerprint or `-` | before the step | every job |
 | `done` | number | after the step is done | #225, Rename Many's count |
@@ -176,6 +182,14 @@ A log no window holds locked was cut short. For each step, the start looks at th
   are forgotten, the collection follows, a hidden sidecar of a deleted photo goes.
 - **A `folder` record whose device and inode differ** from the folder at that path now: every
   step in it is left for a later start, and the log stays (#179).
+- **A `folder` record with inode `0`** (FAT, exFAT) is told by its volume instead: the name
+  `/dev/disk/by-uuid` gives the block device with the folder's device number, for FAT and exFAT
+  the serial number the card was formatted with. Another volume at the path now, as another card
+  in the same reader, or a record without the fourth field, or no volume found now (no udev, as
+  in a Flatpak's sandbox), means the start cannot tell: the step is left for a later start, and
+  the log stays (#266). A Glimt that reads only three fields passes over such a record, and so
+  cannot tell the folder either. `statfs`'s `f_fsid` is no help here: vfat and exfat fill it
+  from the device number, which two cards in one reader share.
 - **A step in a folder of another device than its `folder` record noted, or with no `folder`
   record in a log that has some:** the start cannot tell, as an empty mount point (`/mnt/nas`
   while its share is not mounted) is a folder too. The step is left for a later start, and the
@@ -225,6 +239,16 @@ user starts an older build by hand:
   as one, because the new log names the old one in its `old-log` record and the old one is
   dropped.
 - Two 0.93 windows: one lock for each log, and one start repairs it.
+- A new log is never seen in `jobs/` before it is locked (since 0.94, #268). `JobLog::start`
+  makes, locks and writes it in a hidden folder of its own inside `jobs/` (a `file_io::tmp_path`
+  name), and then renames it into `jobs/`. The flock belongs to the open file, so it goes with
+  the rename, also on NFS. Every reader of `jobs/` passes over folders, and so does 0.93's.
+  Before, a start in another window could open and lock a log made a moment ago, and the job
+  then could not lock its own log: Rename Many and the folder jobs refused to start, and a Move
+  or a delete went on without its log. A 0.93 window still makes its logs in `jobs/` directly,
+  and 0.94 makes no new log in the old folders, so the race is left only for a window of an
+  older version beside a newer one. A kill between the folder's making and the rename leaves the
+  hidden folder, which nothing reads, as every `.glimt-tmp-` name a kill leaves.
 
 This is acceptable before 1.0. The worst case is a repair that waits for the next new start, and
 the old reader stays for two releases, so an upgrade in the normal order loses nothing.

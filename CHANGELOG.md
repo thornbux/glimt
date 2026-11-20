@@ -35,6 +35,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
   marks and collection entries follow a renamed folder, or forgets them for a trashed one, so a
   later folder of the old name does not show them (#248).
 
+### Fixed
+
+- A job that starts while another window starts no longer finds its new log taken by that
+  window's look for logs left by a kill. Rename Many and Rename Folder refused to start then,
+  and a Move or a delete went on without its log (#268).
+- A delete or Move to Trash cut short by a kill on a FAT or exFAT card keeps the marks of its
+  files while another card is mounted at the same path, told apart by the card's volume serial
+  number, and finishes when the first card is back. Where the serial cannot be found, as in the
+  Flatpak, the start keeps the log rather than guess (#266).
+- A Move, Rename or Undo on a share that lost the answer to its rename counts the file as moved
+  only when the new name holds that same file. Before, any file there counted, so a photo that
+  another program moved away at that moment had its sidecars and marks follow to a file that was
+  not it (#176).
+
 ## [0.92.0] - 2026-11-19
 
 ### Changed

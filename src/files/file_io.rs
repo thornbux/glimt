@@ -95,6 +95,10 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // Runs once with the path of a file that `open_if_unlocked` has made new and not yet locked,
+    // so that a test can do there what another window could do in that moment.
+    pub(crate) static BEFORE_NEW_FILE_IS_LOCKED: std::cell::RefCell<Option<NewFileHook>> =
+        const { std::cell::RefCell::new(None) };
     // Makes a rename by `rename_never_over` from this name, a delete for good of it, or the
     // rename by which `replace` or `replace_name_with` gives a new version this name, on this
     // thread be done and then fail with EIO (`answer_lost_in_a_test`).
@@ -150,6 +154,10 @@ thread_local! {
     pub(crate) static OTHER_NAMES_NOTED: std::cell::RefCell<OtherNames> =
         const { std::cell::RefCell::new(OtherNames::new()) };
 }
+
+/// What a test runs in `BEFORE_NEW_FILE_IS_LOCKED`, with the path of the file made new.
+#[cfg(test)]
+pub(crate) type NewFileHook = Box<dyn FnOnce(&Path)>;
 
 /// The saves that replaced a file with other names (hard links): how many, and the name of the
 /// first. A replace gives the name a new file, so the other names keep the old version.
@@ -850,10 +858,11 @@ fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
 /// old name unlinked; where links cannot be made either, a rename after looking first. The one
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
 /// a file back from the trash. A rename that failed but was done all the same (`done_after_all`)
-/// counts as done. `CrossesDevices` is the caller's to copy instead. The rename
-/// is not synced to disk here. One rename alone is one step, so a power cut leaves the file
-/// under its old name or its new one. A caller whose next step counts on the new name being on
-/// disk (an unlink of the source, a plan removed) syncs the folder with `sync_folder_of` first.
+/// counts as done when the new name holds the file with the fingerprint it had before.
+/// `CrossesDevices` is the caller's to copy instead. The rename is not synced to disk here. One
+/// rename alone is one step, so a power cut leaves the file under its old name or its new one.
+/// A caller whose next step counts on the new name being on disk (an unlink of the source, a
+/// plan removed) syncs the folder with `sync_folder_of` first.
 #[allow(clippy::disallowed_methods)] // its last fallback, a rename after looking
 pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices, Unsupported};
@@ -861,6 +870,9 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     let missing = RENAME_WAYS_MISSING.get();
     #[cfg(not(test))]
     let missing = 0;
+    // Taken before the rename, so that one whose answer was lost counts as done only when the
+    // file at `to` is this one, not one another program or window put there meanwhile.
+    let before = fingerprint(from);
     let one_step = match missing {
         0 => rename_noreplace(from, to),
         _ => Err(Unsupported.into()),
@@ -884,7 +896,7 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         },
         done => done,
     };
-    done_after_all(renamed, from, Some(to))
+    done_after_all(renamed, from, Some((to, before)))
 }
 
 /// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
@@ -998,19 +1010,25 @@ fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<Strin
 
 /// Returns `result`, of a step that moved the file at `from` to `to`, or removed it when `to` is
 /// `None`, as done when the step failed in a way that may have been done (`may_have_been_done`)
-/// and the names show that it was: `from` is surely gone, and `to` is surely there. A share
-/// that did the step and lost its answer otherwise had the file counted as where it was, so its
-/// sidecars and marks stayed at the old name for the next file of that name. A look that fails
-/// leaves the error as it is.
+/// and the names show that it was: `from` is surely gone, and the file at `to` has the
+/// fingerprint the file at `from` had before the step. A share that did the step and lost its
+/// answer otherwise had the file counted as where it was, so its sidecars and marks stayed at
+/// the old name for the next file of that name. A file at `to` with another fingerprint, or none
+/// known from before, may be one another program put there while it moved the photo away, so
+/// nothing tells the step done and the error stays: the sidecars and marks stay where they are.
+/// A look that fails leaves the error as it is.
 pub(crate) fn done_after_all(
     result: std::io::Result<()>,
     from: &Path,
-    to: Option<&Path>,
+    to: Option<(&Path, Option<FileFingerprint>)>,
 ) -> std::io::Result<()> {
     match result {
         Err(e) if may_have_been_done(&e, from) && is_surely_gone(from) => match to {
-            Some(to) if !is_surely_there(to) => Err(e),
-            _ => Ok(()),
+            Some((to, before)) => match before.zip(fingerprint(to)) {
+                Some((before, now)) if same_fingerprint(before, now) => Ok(()),
+                _ => Err(e),
+            },
+            None => Ok(()),
         },
         result => result,
     }
@@ -1889,6 +1907,10 @@ pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
 /// until it runs.
 pub fn open_if_unlocked(path: &Path, is_new: bool) -> std::io::Result<std::fs::File> {
     let file = open_to_lock(path, std::fs::OpenOptions::new().create_new(is_new))?;
+    #[cfg(test)]
+    if is_new && let Some(hook) = BEFORE_NEW_FILE_IS_LOCKED.take() {
+        hook(path);
+    }
     let mut tries = 1;
     loop {
         match file.try_lock() {
@@ -2383,6 +2405,35 @@ pub(crate) fn has_lasting_inodes(kind: &str) -> bool {
             | "nfs"
             | "nfs4"
     )
+}
+
+/// Returns the name that udev gives in /dev/disk/by-uuid to the volume whose block device has
+/// the number `device`, the device a folder on it is on. For FAT and exFAT that name is the
+/// volume's serial number, which the camera or computer gave the card when it formatted it, so
+/// it tells two cards at one mount path apart where their inodes cannot. Returns `None` when no
+/// volume or more than one has that number, as for a share or a FUSE mount, where
+/// /dev/disk/by-uuid is not there (in a Flatpak's sandbox), and when the look fails. It waits
+/// for the disk.
+pub(crate) fn volume_of_device(device: u64) -> Option<std::ffi::OsString> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let volumes = (std::fs::read_dir("/dev/disk/by-uuid").ok()?.flatten()).filter_map(|entry| {
+        // The entry is a link to the volume's block device, whose number it follows to.
+        let meta = std::fs::metadata(entry.path()).ok()?;
+        (meta.file_type().is_block_device()).then(|| (entry.file_name(), meta.rdev()))
+    });
+    the_one_volume_of(volumes, device)
+}
+
+/// Returns the name of the one volume among `volumes`, each a name with the number of its block
+/// device, whose number is `device`. Returns `None` when none or more than one has it, as two
+/// names for one device cannot say which card it is.
+fn the_one_volume_of(
+    volumes: impl Iterator<Item = (std::ffi::OsString, u64)>,
+    device: u64,
+) -> Option<std::ffi::OsString> {
+    let mut found = volumes.filter(|(_, number)| *number == device);
+    let (name, _) = found.next()?;
+    found.next().is_none().then_some(name)
 }
 
 /// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there or
@@ -3281,6 +3332,37 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A rename whose answer was lost counts as done only when the file at its new name has the
+    /// fingerprint the file had before it. A photo that another program moved away at that
+    /// moment, while another file came to the new name, is not counted as moved, so its sidecar
+    /// and marks stay where they are and the error is told. Before, any file at the new name
+    /// counted the rename as done (#176).
+    #[test]
+    fn a_rename_whose_answer_was_lost_is_done_only_with_its_file_at_the_new_name() {
+        use super::{ANSWER_LOST_AT, done_after_all, fingerprint};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lost-other-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        let lost = || Err(std::io::Error::from_raw_os_error(libc::EIO));
+        // Glimt's own rename, done and its answer lost.
+        std::fs::write(&a, "a").unwrap();
+        ANSWER_LOST_AT.set(Some(a.clone()));
+        let renamed = super::rename_never_over(&a, &b);
+        ANSWER_LOST_AT.set(None);
+        renamed.unwrap();
+        // The photo moved away by another program, and another file at the new name.
+        std::fs::write(&a, "a").unwrap();
+        let before = fingerprint(&a);
+        std::fs::remove_file(&a).unwrap();
+        std::fs::write(&b, "another").unwrap();
+        assert!(done_after_all(lost(), &a, Some((&b, before))).is_err());
+        // No fingerprint from before tells nothing either.
+        assert!(done_after_all(lost(), &a, Some((&b, None))).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A move whose old name a share failed to unlink without saying that it did nothing (EIO
     /// after a lost answer, while its cache still shows the old name) keeps both names and says
     /// so, because the new name may be the only copy left. One refused (no right to it, a name
@@ -3429,7 +3511,29 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A path through an opened folder (`path_through`) is asked about and shown by the folder's
+    /// The volume of a folder on FAT is the one name in /dev/disk/by-uuid whose block device has
+    /// the folder's device number. A device that no name or two names have gives no volume, as
+    /// it cannot say which card is mounted.
+    #[test]
+    fn a_volume_is_the_one_name_with_the_folders_device() {
+        let card = |name: &str, device: u64| (std::ffi::OsString::from(name), device);
+        let volumes = || {
+            [
+                card("7dc537c0-2a1a-45c1-8d6d-9ebaa90b6d76", 66306),
+                card("1234-ABCD", 2065),
+                card("9598-CE25", 66305),
+            ]
+            .into_iter()
+        };
+        assert_eq!(
+            super::the_one_volume_of(volumes(), 2065),
+            Some("1234-ABCD".into())
+        );
+        assert_eq!(super::the_one_volume_of(volumes(), 2066), None);
+        let twice = volumes().chain([card("5678-EF01", 2065)]);
+        assert_eq!(super::the_one_volume_of(twice, 2065), None);
+    }
+
     /// own name. Before, the mount table found it on /proc, so a trash at the top of an NFS or
     /// SMB mount was taken for a local one, and ENOENT there for nothing done. A sidecar whose
     /// rename was sent again then went back into the trash without its photo. The text of an
