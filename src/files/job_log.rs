@@ -33,9 +33,9 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 /// The kinds of record after the header, as `Record::kind` names them. They are pinned in
 /// src/frozen-1.0.txt.
 #[cfg(test)]
-pub(crate) const RECORD_KINDS: [&str; 13] = [
+pub(crate) const RECORD_KINDS: [&str; 14] = [
     "folder", "shown", "step", "done", "tree", "trashed", "marks", "place", "aside", "kept",
-    "old-log", "found", "written",
+    "old-log", "found", "written", "volume",
 ];
 
 /// The name of the folder of the logs in Glimt's state folder, pinned in src/frozen-1.0.txt.
@@ -69,6 +69,15 @@ pub(crate) enum Record {
         path: PathBuf,
         device: u64,
         inode: u64,
+    },
+    /// The volume that a folder of a `Folder` record is on, where its file system keeps no
+    /// inode (FAT, exFAT): the name udev gives the volume in /dev/disk/by-uuid, the serial number
+    /// the card was formatted with. It tells the card from another one at the same mount path. It
+    /// is a record of its own, as Glimt 0.93.0 and 0.94.0 pass over a kind they do not know but
+    /// drop a `folder` record with another number of fields.
+    Volume {
+        path: PathBuf,
+        volume: std::ffi::OsString,
     },
     /// The collection shown while the job ran, whose entries follow the files.
     Shown(PathBuf),
@@ -134,6 +143,10 @@ impl Record {
                 device,
                 inode,
             } => ("folder", vec![path(folder), text(device), text(inode)]),
+            Record::Volume {
+                path: folder,
+                volume,
+            } => ("volume", vec![path(folder), volume.as_bytes().to_vec()]),
             Record::Shown(collection) => ("shown", vec![path(collection)]),
             Record::Step {
                 number,
@@ -191,6 +204,10 @@ impl Record {
                 path: absolute(p)?,
                 device: number(d)?,
                 inode: number(i)?,
+            },
+            (b"volume", [p, v]) => Record::Volume {
+                path: absolute(p)?,
+                volume: plain_name(v)?.into_os_string(),
             },
             (b"shown", [p]) => Record::Shown(absolute(p)?),
             (b"step", [n, from, to, known]) => Record::Step {
@@ -256,9 +273,11 @@ impl Record {
             | Record::Kept(number)
             | Record::Found(number)
             | Record::Written { number, .. } => Some(*number),
-            Record::Folder { .. } | Record::Shown(_) | Record::Tree { .. } | Record::OldLog(_) => {
-                None
-            }
+            Record::Folder { .. }
+            | Record::Volume { .. }
+            | Record::Shown(_)
+            | Record::Tree { .. }
+            | Record::OldLog(_) => None,
         }
     }
 }
@@ -752,6 +771,10 @@ mod tests {
                 number: 0,
                 fingerprint: (None, 99, (1_700_000_001, 0)),
             },
+            Record::Volume {
+                path: p("/card/DCIM"),
+                volume: "1234-ABCD".into(),
+            },
         ]
     }
 
@@ -838,7 +861,7 @@ mod tests {
     }
 
     /// A path that is relative or goes up with `..` makes its record be passed over, and so does
-    /// a `.trashinfo` name with a `/`. The records around it are kept.
+    /// a `.trashinfo` name or a volume with a `/`. The records around it are kept.
     #[test]
     fn relative_paths_and_dot_dot_are_refused() {
         let good = log_bytes("1", &every_record()[..3]);
@@ -851,6 +874,7 @@ mod tests {
             b"trashed\x000\0media\0a.trashinfo\0\0",
             b"aside\x000\0/p/a.xmp\0/p/../q/.h\0\0",
             b"old-log\0../deletes/1-2\0\0",
+            b"volume\0/card\0../1234-ABCD\0\0",
         ] {
             let mut bytes = good.clone();
             bytes.extend(bad);
@@ -860,6 +884,48 @@ mod tests {
             expected.push(Record::Done(0));
             assert_eq!(records_of(&bytes), expected, "{}", bad.escape_ascii());
         }
+    }
+
+    /// Every record is written in the shape that Glimt 0.93.0 and 0.94.0 read: a kind they know
+    /// has the number of fields their parser matches, and a new kind is one they pass over. Their
+    /// parser drops a record of a known kind with another number of fields, so a `folder` record
+    /// with a fourth field would be lost to them, and a start of theirs would read its log as one
+    /// that noted no folder (#266).
+    #[test]
+    fn every_record_is_read_by_the_last_releases_or_passed_over() {
+        // The kinds and numbers of fields of `Record::parse` in v0.93.0 and v0.94.0.
+        let read_by_0_94 = [
+            ("folder", 3),
+            ("shown", 1),
+            ("step", 4),
+            ("done", 1),
+            ("tree", 2),
+            ("trashed", 3),
+            ("marks", 3),
+            ("place", 2),
+            ("aside", 3),
+            ("kept", 1),
+            ("old-log", 1),
+            ("found", 1),
+            ("written", 2),
+        ];
+        for record in every_record() {
+            let (kind, fields) = record.kind_and_fields();
+            if let Some((_, count)) = read_by_0_94.iter().find(|(old, _)| *old == kind) {
+                assert_eq!(fields.len(), *count, "{kind}");
+            }
+        }
+        let volume = every_record().into_iter().last().unwrap();
+        assert!(matches!(volume, Record::Volume { .. }));
+        assert!(!read_by_0_94.iter().any(|(kind, _)| *kind == "volume"));
+        // This parser passes over a kind it does not know, as theirs does, and keeps the rest.
+        let mut bytes = log_bytes("1", &every_record()[..3]);
+        bytes.extend(b"later-kind\0/card\0x\0\0");
+        bytes.extend(super::records_bytes(&[Record::Done(0)]));
+        let mut expected = every_record();
+        expected.truncate(3);
+        expected.push(Record::Done(0));
+        assert_eq!(records_of(&bytes), expected);
     }
 
     /// A log of a higher version is left alone, with its version told, also when its header
