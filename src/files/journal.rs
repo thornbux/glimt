@@ -1759,7 +1759,7 @@ fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, FolderNoted>) -> AtS
         let folder = path.parent().ok_or(CannotTell)?;
         let noted = folders.get(folder).ok_or(CannotTell)?;
         if is_surely_gone(folder) {
-            return removed_from_its_device(folder, noted.0);
+            return removed_from_its_device(folder, noted);
         }
         let device = device_now(folder).ok_or(CannotTell)?;
         if device != noted.0 || !is_on_the_volume_noted(folder, noted, device)? {
@@ -1778,14 +1778,16 @@ fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, FolderNoted>) -> AtS
 /// Tells whether `folder`, which is surely gone, was removed from the device it was noted on.
 /// Returns `Ok(true)` when the nearest folder above it that surely is there is on that device, as
 /// then the folder was deleted, not taken away with a stick or share. Returns `CannotTell` when
-/// that folder is on another device, as an empty mount point is, or when a look fails.
-fn removed_from_its_device(folder: &Path, device: u64) -> AtStart<bool> {
+/// that folder is on another device, as an empty mount point is, or when a look fails. Where the
+/// log noted no inode (FAT, exFAT), that folder must also be on the volume the log noted, as
+/// another card in the same reader is on the same device (`is_on_the_volume_noted`).
+fn removed_from_its_device(folder: &Path, noted: &FolderNoted) -> AtStart<bool> {
     let mut above = folder.parent();
     while let Some(ancestor) = above {
         if is_surely_dir(ancestor) {
-            return (device_now(ancestor) == Some(device))
-                .then_some(true)
-                .ok_or(CannotTell);
+            let device = device_now(ancestor).ok_or(CannotTell)?;
+            let same = device == noted.0 && is_on_the_volume_noted(ancestor, noted, device)?;
+            return same.then_some(true).ok_or(CannotTell);
         }
         if !is_surely_gone(ancestor) {
             return Err(CannotTell);
@@ -5255,6 +5257,44 @@ mod tests {
         drop(log);
         let found = super::delete_jobs_cut_short(&logs);
         assert!(found[0].1.is_empty(), "{:?}", found[0].1);
+        assert_eq!(let_go(found), 1);
+        crate::files::file_ops::test_mount(&card, None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A killed delete of a folder's files on a FAT card, whose folder is gone at the next start
+    /// while another card is at the same path in the same reader, cannot tell: the folder may
+    /// only be missing from the other card. Before, the device alone was asked, and the files
+    /// counted as gone.
+    #[test]
+    fn a_folder_gone_from_a_fat_card_is_told_from_another_card_by_its_volume() {
+        let dir = crate::support::test_support::contract_folder("start-fat-card-gone");
+        let (card, logs) = (dir.join("card"), dir.join("logs"));
+        let sub = card.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        crate::files::file_ops::test_mount(&card, Some("vfat"));
+        let card_volume = |volume: &str| {
+            super::TEST_VOLUMES.with_borrow_mut(|volumes| {
+                volumes.clear();
+                volumes.push((card.clone(), volume.into()));
+                volumes.push((sub.clone(), volume.into()));
+            })
+        };
+        let a = sub.join("a.png");
+        card_volume("1111-AAAA");
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        drop(log);
+        std::fs::remove_dir(&sub).unwrap();
+        // Another card at the same path, without the folder: the start cannot tell.
+        card_volume("2222-BBBB");
+        let found = super::delete_jobs_cut_short(&logs);
+        assert!(found[0].1.is_empty(), "{:?}", found[0].1);
+        assert_eq!(let_go(found), 1);
+        // The card of the log is back, its folder gone: the file went.
+        card_volume("1111-AAAA");
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1, std::slice::from_ref(&a));
         assert_eq!(let_go(found), 1);
         crate::files::file_ops::test_mount(&card, None);
         std::fs::remove_dir_all(&dir).unwrap();
