@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-11-20
+
 ### Changed
 
 - A Move, and the Undo of one, keep their log in the new job log format in
@@ -4484,7 +4486,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.92.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.93.0...HEAD
+[0.93.0]: https://github.com/thornbux/glimt/compare/v0.92.0...v0.93.0
 [0.92.0]: https://github.com/thornbux/glimt/compare/v0.91.0...v0.92.0
 [0.91.0]: https://github.com/thornbux/glimt/compare/v0.90.0...v0.91.0
 [0.90.0]: https://github.com/thornbux/glimt/compare/v0.89.0...v0.90.0
