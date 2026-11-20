@@ -181,7 +181,8 @@ A log no window holds locked was cut short. For each step, the start looks at th
   while its share is not mounted) is a folder too. The step is left for a later start, and the
   log stays. A stick plugged in again with another device number waits the same way: its marks
   are kept, not lost. A log with no `folder` record at all (Glimt 0.92's, or one written anew
-  from it) is read as before.
+  from it) is read as before. A Rename Many plan notes the folders it renames in too, and a
+  name there that the start cannot tell about keeps the plan, with its files counted as left.
 - **`tree`:** the marks and collection entries under the old path follow the new one, or are
   forgotten for a trashed folder, once the start sees the folder at its new place by its inode
   (#248).

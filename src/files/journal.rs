@@ -109,6 +109,10 @@ pub enum JobDoneBeforeAKill {
 /// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
 
+/// What a plan of Rename Many knows of its files: the fingerprint of each step's photo, and the
+/// folders it noted, each with its device and inode (`folders_noted`).
+type PlanKnown = (Vec<Option<FileFingerprint>>, HashMap<PathBuf, (u64, u64)>);
+
 /// A plan left by a Rename Many that was cut short. It holds its file, the renames, and how
 /// many of them were done, which is `None` for a plan of Glimt 0.34 or older, because those did
 /// not count them.
@@ -1781,12 +1785,19 @@ fn parse_names(bytes: &[u8]) -> Vec<PathBuf> {
 /// (`JobLog::start`), because finishing a plan left half written would undo renames done
 /// without it.
 pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
-    let steps = rename_steps(moves, &known_fingerprints(moves));
+    let names = one_name_per_folder(moves);
+    // The folders of the renames come first, so that a start can tell them from an empty mount
+    // point at their path (`is_gone_at_start`).
+    let mut records: Vec<Record> = (names.iter())
+        .filter_map(|name| name.parent())
+        .filter_map(folder_record)
+        .collect();
+    records.extend(rename_steps(moves, &known_fingerprints(moves)));
     Ok(Journal {
-        log: JobLog::start(dir, "rename", &steps)?,
+        log: JobLog::start(dir, "rename", &records)?,
         done: 0,
         is_kept: false,
-        one_name_per_folder: one_name_per_folder(moves),
+        one_name_per_folder: names,
     })
 }
 
@@ -2074,13 +2085,13 @@ fn another_file_at<'a>(
 /// which the caller may hold. Returns the error when the plan cannot be read, or is no longer
 /// one of `steps` renames. A plan that a share could not read is no reason to rename by the
 /// names alone, without the check of each file.
-fn read_plan_known(plan: &Path, steps: usize) -> std::io::Result<Vec<Option<FileFingerprint>>> {
+fn read_plan_known(plan: &Path, steps: usize) -> std::io::Result<PlanKnown> {
     use crate::files::job_log::{LogRead, read_job_log_without_lock};
     let LogRead::Log { job, records, .. } = read_job_log_without_lock(plan)? else {
         return Err(std::io::ErrorKind::InvalidData.into());
     };
     match rename_records(job, &records) {
-        Some((moves, _, known)) if moves.len() == steps => Ok(known),
+        Some((moves, _, known)) if moves.len() == steps => Ok((known, folders_noted(&records))),
         _ => Err(std::io::ErrorKind::InvalidData.into()),
     }
 }
@@ -2379,13 +2390,20 @@ pub fn repair_cut_short(
     // question waited for "Later") is not taken. Nothing is renamed then, so that a photo and its
     // sidecar are not split, and the plan is asked about again. A sidecar is not looked at, as it
     // follows its photo by name (`known_fingerprints`).
-    let known = match read_plan_known(plan, moves.len()) {
-        Ok(known) => known,
+    let (known, folders) = match read_plan_known(plan, moves.len()) {
+        Ok(read) => read,
         Err(e) => {
             crate::files::file_io::save_failed(format!("{}: {e}", plan.display()));
             return Some((0, 1));
         }
     };
+    // A name that the start cannot tell about, as on a stick not mounted or an empty mount point
+    // at its folder, keeps the plan. Its file counts as left, and the user is asked again with
+    // the names left. A plan of Glimt 0.92, which noted no folders, is read as before.
+    let mut names = moves.iter().flat_map(|(a, b)| [a, b]);
+    if !folders.is_empty() && names.any(|p| is_gone_at_start(p, &folders).is_err()) {
+        return Some((0, 1));
+    }
     let taken = match (undo_them, done) {
         (_, _) if known.is_empty() => Vec::new(),
         (true, done) => (0..done.unwrap_or(moves.len()).min(moves.len()))
@@ -2441,7 +2459,7 @@ pub fn names_left(
 ) -> String {
     use crate::files::file_io::{KnownAs, is_still_the_file};
     let (known, unread) = match read_plan_known(plan, moves.len()) {
-        Ok(known) => (known, String::new()),
+        Ok((known, _)) => (known, String::new()),
         Err(e) => (Vec::new(), format!("{}: {e}\n", plan.display())),
     };
     let mut text = unread;
@@ -2491,7 +2509,7 @@ pub fn leave_names(
     // where the file may be there (`is_followed`). Taken from the count alone, a repair that
     // stopped half way gave a photo that went back to its old name the marks of a name where
     // nothing was. The files' fingerprints of the plan tell a photo that went back.
-    let known = read_plan_known(plan, moves.len()).map_err(Some)?;
+    let (known, _) = read_plan_known(plan, moves.len()).map_err(Some)?;
     let followed = (files_of(moves, done, &known).into_iter())
         .filter(|&(first, now, _, known)| first != now && is_followed((first, now), known))
         .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
@@ -4736,7 +4754,7 @@ mod tests {
         let found = super::cut_short_plans(&jobs);
         let (path, read, done) = found.into_iter().find(|f| f.1 == moves).unwrap();
         assert_eq!(done, Some(2));
-        let known = super::read_plan_known(&path, moves.len()).unwrap();
+        let (known, _) = super::read_plan_known(&path, moves.len()).unwrap();
         assert_eq!(known[0], crate::files::file_io::fingerprint(&p(".t0")));
         assert_eq!(known[1], crate::files::file_io::fingerprint(&p(".t1")));
         assert_eq!(
@@ -5086,6 +5104,37 @@ mod tests {
         assert!(
             others.is_empty(),
             "the log went with the collection not written"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A Rename Many cut short on a stick that is not mounted at the next start, where its
+    /// mount point is an empty folder, keeps its plan when the user asks to put it right. Before,
+    /// each name there was not found, counted as nothing of the plan's to rename, and the plan
+    /// went, so that the files under hidden names on the stick had no plan to put them right.
+    #[test]
+    fn a_rename_cut_short_on_an_empty_mount_point_keeps_its_plan() {
+        let dir = crate::support::test_support::contract_folder("start-rename-mount-point");
+        let (stick, jobs, away) = (dir.join("stick"), dir.join("jobs"), dir.join("away"));
+        let (a, b) = (stick.join("a.jpg"), stick.join("b.jpg"));
+        std::fs::create_dir_all(&stick).unwrap();
+        std::fs::create_dir(&away).unwrap();
+        std::fs::write(&a, "a").unwrap();
+        let moves = vec![(a.clone(), b.clone())];
+        let journal = super::start_journal(&jobs, &moves).unwrap();
+        let plan = journal.path().to_path_buf();
+        std::fs::rename(&a, &b).unwrap();
+        journal.keep_on_disk();
+        // The stick is not mounted: its mount point is an empty folder on another device.
+        std::fs::rename(&b, away.join("b.jpg")).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(stick.clone()));
+        let found = super::cut_short_plans(&jobs);
+        let repaired = super::repair_cut_short(&plan, &found[0].1, found[0].2, false);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        assert_eq!(repaired, Some((0, 1)));
+        assert!(
+            plan.exists(),
+            "the plan went while its names could not be told"
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }
