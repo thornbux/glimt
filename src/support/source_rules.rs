@@ -3453,6 +3453,73 @@ fn finds_a_proof_taken_outside_the_end_of_a_job() {
     assert!(proofs_taken_outside_the_end_of_a_job("files/journal.rs", journal).is_empty());
 }
 
+/// A function in the files of the logs that looks at the disk answers with `job_log::AtStart`, or
+/// with anything else that can say "cannot tell", never with a plain `bool`, which folds a look
+/// that failed into a sure answer. Before, `is_another_folder` answered `false` for a card whose
+/// volume could not be found, and the start took another card's photo for the one that stayed.
+#[test]
+fn looks_at_the_disk_in_the_logs_can_say_cannot_tell() {
+    let wrong: Vec<String> = (rust_sources().iter())
+        .filter(|(file, _)| ["files/journal.rs", "files/job_log.rs"].contains(&file.as_str()))
+        .flat_map(|(file, text)| sure_answers_from_the_disk_in(file, text))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a look at the disk that answers a plain bool, which cannot say it cannot tell:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the functions in `text`, the source of `file`, outside the tests, that return a
+/// plain `bool` and look at the disk, as "file: function".
+fn sure_answers_from_the_disk_in(file: &str, text: &str) -> Vec<String> {
+    const LOOKS: [&str; 10] = [
+        "is_surely_there(",
+        "is_surely_gone(",
+        "is_surely_dir(",
+        "is_surely_file(",
+        "metadata(",
+        "fingerprint(",
+        "fingerprint_of_file_read(",
+        "volume_of(",
+        "device_now(",
+        "read_dir(",
+    ];
+    let lines = code_lines(text);
+    let mut wrong = Vec::new();
+    let (mut function, mut answers_bool, mut looks) = (String::new(), false, false);
+    let end = String::from("end");
+    for line in lines[..tests_start(&lines)].iter().chain([&end]) {
+        let name = function_name(line);
+        if name.is_some() || line.starts_with(|c: char| c.is_alphabetic()) {
+            if answers_bool && looks {
+                wrong.push(format!("{file}: {function}"));
+            }
+            (answers_bool, looks) = (false, false);
+            if let Some(name) = name {
+                function = name.to_owned();
+                answers_bool = line.trim_end().ends_with("-> bool {");
+                continue;
+            }
+        }
+        looks |= LOOKS.iter().any(|call| mentions(line, call));
+    }
+    wrong
+}
+
+/// A function that answers a `bool` and looks at the disk is found, while one that answers
+/// `AtStart` or does not look is not.
+#[test]
+fn finds_a_look_at_the_disk_that_answers_a_bool() {
+    let text = "fn a(p: &Path) -> bool {\n    is_surely_there(p)\n}\n\
+        fn b(p: &Path) -> AtStart<bool> {\n    Ok(is_surely_there(p))\n}\n\
+        fn c(x: u8) -> bool {\n    x == 0\n}\n";
+    assert_eq!(
+        sure_answers_from_the_disk_in("files/journal.rs", text),
+        ["files/journal.rs: a"]
+    );
+}
+
 /// A removal of Glimt's own files in the files of the logs is found outside `remove_job_log`,
 /// and in another file a function that names a folder of the logs and removes a file is found,
 /// while a function that does only one of the two is not.

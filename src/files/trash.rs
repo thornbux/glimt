@@ -397,7 +397,7 @@ fn sidecar_back_after_all(side: &TrashEntry, e: &std::io::Error) -> Option<bool>
     if !may_have_been_done(e, &side.file) {
         return Some(false);
     }
-    if crate::files::journal::finish_step(&side.file, &side.from) {
+    if crate::files::journal::finish_step(&side.file, &side.from).is_ok() {
         return Some(true);
     }
     is_surely_gone(&side.from).then_some(false)

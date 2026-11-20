@@ -4190,7 +4190,7 @@ fn sidecar_where_the_file_is(
         true => (at, side),
         false => (side, at),
     };
-    journal::finish_step(away, beside)
+    journal::finish_step(away, beside).is_ok()
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns

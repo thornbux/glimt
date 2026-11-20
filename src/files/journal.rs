@@ -876,12 +876,12 @@ fn moves_that_went(
         let left = has_left(&from);
         // A file at the old name in another folder than the log noted there, as on another card
         // at the same mount path, says nothing about the file that went: only its new name tells.
-        let is_still_there = left == Ok(false) && !is_another_folder(folders, &from);
+        let is_still_there = left == Ok(false) && !is_another_folder(folders, &from)?;
         if is_still_there || is_gone_at_start(&to, folders)? {
             continue;
         }
         left?;
-        if is_the_file_that_went(&to, known, step) {
+        if is_the_file_that_went(&to, known, step)? {
             went.push((from, to));
         }
     }
@@ -1073,8 +1073,9 @@ fn put_right_a_delete(
     let (mut untold, mut found_now) = (HashSet::new(), HashSet::new());
     for (name, known) in r.names.iter().zip(&r.known) {
         let was_found = r.found.contains(name);
-        // Another card at the same mount path holds none of this log's files.
-        if is_another_folder(&r.folders, name) {
+        // Another card at the same mount path holds none of this log's files, and a folder that
+        // cannot be told may be such a card.
+        if is_another_folder(&r.folders, name) != Ok(false) {
             untold.insert(name.clone());
             continue;
         }
@@ -1531,22 +1532,28 @@ fn device_now(folder: &Path) -> Option<u64> {
 }
 
 /// Returns whether the folder of `path` is another folder than the one that the log's `folders`
-/// saw there: one with another inode, as another card mounted at the same path. The device is
-/// left out, as a card plugged in again may get another device number. A folder the log has no
-/// record of, or whose look fails, is not counted as another.
-fn is_another_folder(folders: &HashMap<PathBuf, FolderNoted>, path: &Path) -> bool {
+/// saw there: one with another inode, as another card mounted at the same path, or on FAT one
+/// on another volume. The device is left out, as a card plugged in again may get another device
+/// number. A folder the log has no record of, one that is surely gone, and one whose file system
+/// gives no inode, are not counted as another. Returns `CannotTell` when the look at the folder
+/// fails, or its volume cannot be found, so that the log stays for a later start. Before, both
+/// counted as the same folder, and a file of another card at the path as the one that stayed.
+fn is_another_folder(folders: &HashMap<PathBuf, FolderNoted>, path: &Path) -> AtStart<bool> {
     let Some((folder, noted)) = path.parent().and_then(|f| Some((f, folders.get(f)?))) else {
-        return false;
+        return Ok(false);
     };
-    let now = crate::files::file_io::fingerprint_of_file_read(folder).and_then(|(key, _, _)| key);
-    match (now, noted) {
+    let Some((now, _, _)) = crate::files::file_io::fingerprint_of_file_read(folder) else {
+        return match is_surely_gone(folder) {
+            true => Ok(false),
+            false => Err(CannotTell),
+        };
+    };
+    Ok(match (now, noted) {
         // An inode of 0 was not noted, as on FAT (`folder_record`), and the volume tells the card.
-        (Some((device, _)), (_, 0, _)) => {
-            is_on_the_volume_noted(folder, noted, device) == Ok(false)
-        }
+        (Some((device, _)), (_, 0, _)) => !is_on_the_volume_noted(folder, noted, device)?,
         (Some((_, now)), (_, inode, _)) => now != *inode,
         (None, _) => false,
-    }
+    })
 }
 
 /// Returns whether nothing is at `path` now, the one rule by which a start reads a path that a
@@ -1622,16 +1629,31 @@ fn removed_from_its_device(folder: &Path, noted: &FolderNoted) -> AtStart<bool> 
 /// photo of that name. A file is told by its size and time, which a move to another disk keeps
 /// (`put_file`) to the resolution of that disk's file system, so the times are compared as any
 /// file system keeps them (`KnownAs::size_and_time_as_kept`). A pair left alone is told.
-fn is_the_file_that_went(to: &Path, known: &[Option<FileFingerprint>], step: usize) -> bool {
+/// Returns `CannotTell` when the look at `to` fails, so that the log stays for a later start.
+fn is_the_file_that_went(
+    to: &Path,
+    known: &[Option<FileFingerprint>],
+    step: usize,
+) -> AtStart<bool> {
     use crate::files::file_io::{KnownAs, changed_meanwhile, is_still_the_file};
     let is_it = match known.get(step).copied().flatten() {
         Some(fingerprint) => is_still_the_file(to, KnownAs::size_and_time_as_kept(fingerprint)),
         None => Err(changed_meanwhile()),
     };
     if let Err(e) = &is_it {
+        can_be_looked_at(to)?;
         crate::files::file_io::save_failed(format!("{}: {e}", to.display()));
     }
-    is_it.is_ok()
+    Ok(is_it.is_ok())
+}
+
+/// Looks at `path`. Returns `CannotTell` when the look fails: nothing can be told of it,
+/// neither that it is gone nor its fingerprint.
+fn can_be_looked_at(path: &Path) -> AtStart<()> {
+    match crate::files::file_io::fingerprint(path).is_some() || is_surely_gone(path) {
+        true => Ok(()),
+        false => Err(CannotTell),
+    }
 }
 
 /// Moves each sidecar that a Move killed between a photo and its sidecars left at the photo's
@@ -1950,9 +1972,13 @@ pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
 /// Finishes a step from `a` to `b` that failed in a way that may have been done (a share that
 /// lost its answer), so that the file is at `b` alone. It may be at both names, one file under
 /// two, and then the name `a` goes (`rename_step`), or still only at `a`, and then it is moved.
-/// Returns whether nothing is left at `a`. A failed look tells nothing, so it returns false.
-pub fn finish_step(a: &Path, b: &Path) -> bool {
-    rename_step(a, b).is_ok() || is_surely_gone(a)
+/// Returns `Ok` when nothing is left at `a`, and `CannotTell` otherwise, as a failed look tells
+/// nothing.
+pub fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
+    match rename_step(a, b).is_ok() || is_surely_gone(a) {
+        true => Ok(()),
+        false => Err(CannotTell),
+    }
 }
 
 /// Undoes the first `done` steps of `moves`, last first. Returns (renamed, left). A name that is
@@ -2184,10 +2210,18 @@ pub fn leave_names(
     // nothing was. The files' fingerprints of the plan tell a photo that went back.
     // The user chose to leave the names, and the plan was read whole, so it may go.
     let read = read_plan_known(plan, moves.len());
-    let sure = Sure::of(&read);
+    let mut sure = Sure::of(&read);
     let (known, _) = read.map_err(Some)?;
+    // A file whose names cannot be told follows, as when its first name was not there, and
+    // the plan stays for a later start.
+    let mut is_followed_here = |first, now, known| {
+        is_followed((first, now), known).unwrap_or_else(|CannotTell| {
+            sure = None;
+            crate::files::file_io::is_followed_to(now)
+        })
+    };
     let followed = (files_of(moves, done, &known).into_iter())
-        .filter(|&(first, now, _, known)| first != now && is_followed((first, now), known))
+        .filter(|&(first, now, _, known)| first != now && is_followed_here(first, now, known))
         .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
         .collect();
     if let Some(sure) = sure {
@@ -2202,15 +2236,24 @@ pub fn leave_names(
 /// a file is at `now`. Where the look at `now` fails, they follow too (`is_followed_to`), unless
 /// the file is back at `first`: there with the size and time it had when the plan was made,
 /// `known`. A repair that stopped half way may have put it back, and a failed look at a name
-/// where nothing is would else give that name its marks.
-fn is_followed((first, now): (&Path, &Path), known: Option<FileFingerprint>) -> bool {
+/// where nothing is would else give that name its marks. Returns `CannotTell` when the look at
+/// `first` fails, so that the plan stays for a later start.
+fn is_followed((first, now): (&Path, &Path), known: Option<FileFingerprint>) -> AtStart<bool> {
     use crate::files::file_io::{KnownAs, is_followed_to, is_still_the_file};
     if is_surely_there(now) {
-        return true;
+        return Ok(true);
     }
-    let is_back_at_first =
-        known.is_some_and(|known| is_still_the_file(first, KnownAs::size_and_time(known)).is_ok());
-    !is_back_at_first && is_followed_to(now)
+    let is_back_at_first = match known {
+        Some(known) => match is_still_the_file(first, KnownAs::size_and_time(known)) {
+            Ok(()) => true,
+            Err(_) => {
+                can_be_looked_at(first)?;
+                false
+            }
+        },
+        None => false,
+    };
+    Ok(!is_back_at_first && is_followed_to(now))
 }
 
 /// Each file of the renames `moves` of which `done` were done, as (its first name, its name
@@ -4800,6 +4843,44 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].1, [(from.clone(), moved.clone())]);
         drop(found);
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A killed Move or delete on a FAT card, read while a card whose volume cannot be found is
+    /// at the same path with a photo of the same name, keeps its log, and the start reads it
+    /// again once the card it noted is back. Before, a volume not found counted as the same
+    /// card, so the other card's photo counted as the one that stayed, and the log went with
+    /// the marks of the photo that left (#266).
+    #[test]
+    fn a_fat_card_whose_volume_cannot_be_found_keeps_the_log() {
+        let (dir, card, logs) = fat_card("start-fat-card-no-volume");
+        let to = dir.join("to");
+        std::fs::create_dir(&to).unwrap();
+        let (from, moved, deleted) = (card.join("a.jpg"), to.join("a.jpg"), card.join("b.jpg"));
+        std::fs::write(&from, "the card's").unwrap();
+        card_volume(&card, Some("1111-AAAA"));
+        let mut log = super::start_move_log(&logs, "move").unwrap();
+        log.note(&from, &moved);
+        std::fs::rename(&from, &moved).unwrap();
+        drop(log);
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(std::slice::from_ref(&deleted));
+        drop(log);
+        card_volume(&card, None);
+        std::fs::write(&from, "another card's").unwrap();
+        std::fs::write(&deleted, "another card's").unwrap();
+        assert!(super::move_jobs_cut_short(&logs).is_empty());
+        assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
+        std::fs::remove_file(&from).unwrap();
+        std::fs::remove_file(&deleted).unwrap();
+        card_volume(&card, Some("1111-AAAA"));
+        let found = super::move_jobs_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, [(from.clone(), moved.clone())]);
+        drop(found);
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1, std::slice::from_ref(&deleted));
+        assert_eq!(let_go(found), 1);
         remove_fat_card(&dir, &card);
     }
 
