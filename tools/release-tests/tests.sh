@@ -105,6 +105,18 @@ if [ "$(id -u)" = 0 ]; then
         truncate -s 16M /opt/disk.img && mkfs.ext2 -q -b 4096 -m 0 /opt/disk.img
         loop_mount /opt/disk.img /mnt/disk
         chown tester: /mnt/disk
+        # A stick at /mnt/stick that the tester takes out and puts back (`stick off`, `stick on`)
+        # with the same files and device: a bind mount of the tmpfs at /opt/stick, which root
+        # unmounts and mounts again as /tmp/stick-wanted says. The mount point stays, empty.
+        mkdir -p /opt/stick /mnt/stick
+        mount -t tmpfs -o size=768m,uid=$(id -u tester),gid=$(id -g tester) stick /opt/stick
+        mount --bind /opt/stick /mnt/stick
+        (while sleep 0.1; do
+            case $(cat /tmp/stick-wanted 2>/dev/null) in
+                off) mountpoint -q /mnt/stick && umount /mnt/stick ;;
+                on) mountpoint -q /mnt/stick || mount --bind /opt/stick /mnt/stick ;;
+            esac
+        done) &
         cat >/opt/lossyfs.py <<'PY'
 import errno, os, sys, time
 from fusepy import FUSE, FuseOSError, Operations, fuse_get_context
@@ -5534,6 +5546,338 @@ PY
             "$got $plans" "2000 2000 0 2000 0"
     else note "old: named, renamed, hidden, starred, plans: $got $plans ($cut hidden when killed)"; fi
 done
+
+section "Glimt killed (kill -9) mid-job on a stick that is then taken out: each job log and the marks wait for it, and are put right once it is back"
+# The jobs that a start puts right after a kill (a Move, a Move to Trash, a Delete, an Undo from
+# the trash, Rename Folder, Move Folder to Trash and Rename Many), each on the stick at
+# /mnt/stick. After the kill the stick is taken out, and its mount point stays as an empty
+# folder, as an fstab mount of a share or stick does. A start then cannot tell whether the files
+# went, so it keeps the log and every mark. Before 0.93 a start took the empty mount point for
+# the folder and lost the marks of the files under it. Once the stick is back with the same
+# device, the next start puts the job right and removes its log. The last release keeps no job
+# log, so only NEW runs.
+faults=yes
+stick() {
+    echo $1 >/tmp/stick-wanted
+    until_ok "[ \"\$(mountpoint -q /mnt/stick && echo on || echo off)\" = $1 ]" 10
+}
+# The job logs in jobs/, not the folders beside them, and the marks with three stars.
+job_logs() { find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' '; }
+starred() { awk -F'\t' '$2 == 3' $XDG_STATE_HOME/glimt/marks | wc -l | tr -d ' '; }
+# hold_lock FILE: holds its flock from outside, as another window would, until the next kill.
+hold_lock() {
+    rm -f /tmp/lock-held
+    python3 -c "
+import fcntl, os, sys, time
+os.makedirs(os.path.dirname(sys.argv[1]), mode=0o700, exist_ok=True)
+held = open(sys.argv[1], 'w')
+fcntl.flock(held, fcntl.LOCK_EX)
+open('/tmp/lock-held', 'w').close()
+time.sleep(120)" "$1" &
+    locker=$!
+    until_file /tmp/lock-held
+}
+# kill_at DIR COUNT: kills Glimt once DIR holds COUNT photos, at once, as a copy to the stick
+# is fast.
+kill_at() {
+    python3 -c "
+import os, signal, sys, time
+d, count, pid = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+end = time.time() + 60
+while time.time() < end and sum(n.endswith('.jpg') for n in os.listdir(d)) < count:
+    pass
+os.kill(pid, signal.SIGKILL)" $1 $2 $GPID
+}
+# kill_and_take_out JOB COUNT: kills Glimt and the stand-in gio, takes the stick out, starts and
+# quits Glimt elsewhere, checks that the log and the COUNT marks with stars are kept (unless
+# COUNT is -), and puts the stick back. Sets LOGS_LEFT and STARRED_LEFT, what the start left.
+kill_and_take_out() {
+    kill -9 $GPID 2>/dev/null; wait $GPID 2>/dev/null
+    pkill -9 -f /tmp/stub/gio
+    [ -n "$locker" ] && { kill $locker; wait $locker 2>/dev/null; locker=; }
+    local logs=$(job_logs)
+    stick off
+    expect "$1: the stick taken out, its mount point left empty" \
+        "$(mountpoint -q /mnt/stick || ls -A /mnt/stick | wc -l | tr -d ' ')" 0
+    start /tmp/stick-elsewhere; sleep 3; quit
+    LOGS_LEFT=$(job_logs) STARRED_LEFT=$(starred)
+    [ "$2" = - ] || expect "$1 killed, started without the stick: the log kept, every mark kept" \
+        "$logs $LOGS_LEFT $STARRED_LEFT" "1 1 $2"
+    stick on
+}
+# What a start with the stick back left, for the photos named in /tmp/stick-names, in the
+# folders given: the photos found, those with their stars, those in the collection (always when
+# it is "-"), and the marks and collection entries left at a name that holds no photo.
+cat >/tmp/stick-check.py <<'PY'
+import os, sys
+marks, gqv, dirs = sys.argv[1], sys.argv[2], sys.argv[3:]
+stars = {}
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3:
+        stars[fields[2]] = fields[1]
+entries = set()
+if gqv != "-":
+    entries = {l.strip().strip('"') for l in open(gqv) if l.startswith('"')}
+found = starred = collected = 0
+for name in open("/tmp/stick-names").read().split():
+    places = [f"{d}/{name}" for d in dirs if os.path.isfile(f"{d}/{name}")]
+    found += bool(places)
+    starred += any(stars.get(p) == "3" for p in places)
+    collected += gqv == "-" or any(p in entries for p in places)
+left = sum(1 for p in stars if not os.path.isfile(p))
+stale = sum(1 for p in entries if not os.path.isfile(p))
+print(found, starred, collected, left, stale)
+PY
+# marks_for DIR: three stars for each photo of /tmp/stick-names in DIR. collection_of DIR FILE:
+# a collection of them.
+marks_for() {
+    while read n; do printf '0\t3\t%s/%s\n' $1 $n; done </tmp/stick-names >$XDG_STATE_HOME/glimt/marks
+}
+collection_of() {
+    { echo '#GQview collection'; while read n; do echo "\"$1/$n\""; done </tmp/stick-names; } >$2
+}
+# stub_gio [TRASH]: a stand-in gio that trashes as gio does, into TRASH (the home trash) with a
+# .trashinfo written before each file moves. It waits 20 ms after each sidecar, as in the
+# section of the delete killed.
+stub_gio() {
+    trash=${1:-$XDG_DATA_HOME/Trash}
+    rm -rf $trash; mkdir -p $trash/files $trash/info
+    cat >/tmp/stub/gio <<STUB
+#!/bin/sh
+[ "\$1" = trash ] || exit 1
+shift 2
+for f; do
+    n=\$(basename "\$f")
+    printf '[Trash Info]\nPath=%s\nDeletionDate=%s\n' "\$f" "\$(date +%Y-%m-%dT%H:%M:%S)" \
+        >$trash/info/\$n.trashinfo || exit 1
+    mv "\$f" $trash/files/\$n || exit 1
+    case "\$f" in *.xmp) sleep 0.02;; esac
+done
+STUB
+    chmod +x /tmp/stub/gio
+}
+if ! mountpoint -q /mnt/stick; then
+    fail "no stick at /mnt/stick: run.sh's containers need --privileged to mount it"
+else
+    locker=
+    mkdir -p /tmp/stick-elsewhere $XDG_STATE_HOME/glimt $XDG_DATA_HOME/glimt/collections
+    saved=$XDG_DATA_HOME/glimt/collections/stick.gqv
+    # A Move of 100 photos of 10 MB to the stick, killed after the tenth. Each is copied, so the
+    # stick holds new names that a start without it cannot look at.
+    d=/tmp/stick-move to=/mnt/stick/to
+    rm -rf $d $to $XDG_STATE_HOME/glimt/jobs; mkdir -p $d $to
+    head -c 10000000 /dev/urandom >$d/001.jpg
+    for i in $(seq -w 2 100); do ln $d/001.jpg $d/$i.jpg; done
+    ls $d >/tmp/stick-names
+    marks_for $d; collection_of $d $saved
+    config
+    start $d
+    key ctrl+a
+    answer $to
+    # Watched from before the key, as the whole Move takes less than the key's pause.
+    kill_at $to 10 &
+    watcher=$!
+    key ctrl+m
+    wait $watcher
+    moved=$(ls $to | grep -c 'jpg$')
+    kill_and_take_out Move 100
+    start /tmp/stick-elsewhere; sleep 3; quit
+    expect "Move killed with $moved of 100 moved, the stick back: each photo with its stars and its collection entry, the log gone" \
+        "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $saved $d $to) $(job_logs)" \
+        "100 100 100 0 0 0"
+    expect "killed in the middle of the Move" "$([ $moved -gt 0 ] && [ $moved -lt 100 ] && echo yes)" yes
+    rm -rf $d $to $saved
+    # A Move to Trash and a Delete of 1,000 photos with sidecars on the stick, from the
+    # collection shown. The Move to Trash is killed once 30 photos went, while the stand-in gio
+    # runs. The Delete is killed while it waits at a sidecar lock held from outside.
+    for how in trash delete; do
+        d=/mnt/stick/$how shown=/tmp/stick-shown.gqv
+        rm -rf $d $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
+        stub_gio
+        convert -size 32x32 xc:blue $d/0001.jpg
+        for i in $(seq -w 2 1000); do ln $d/0001.jpg $d/$i.jpg; done
+        for i in $(seq -w 1 1000); do echo "sidecar $i" >$d/$i.jpg.xmp; done
+        ls $d | grep 'jpg$' >/tmp/stick-names
+        marks_for $d; collection_of $d $shown
+        config confirm_trash=false confirm_delete=false
+        [ $how = delete ] && hold_lock $XDG_RUNTIME_DIR/glimt/sidecar-locks/32
+        start $shown
+        key ctrl+a
+        # Ctrl+D, as Delete in a collection takes the photos out of it.
+        if [ $how = trash ]; then key ctrl+d; else key shift+Delete; fi
+        python3 -c "
+import os, sys, time
+d, wait = sys.argv[1], sys.argv[2] == 'delete'
+gone = lambda: 1000 - sum(n.endswith('.jpg') for n in os.listdir(d))
+end, last, still = time.time() + 60, -1, 0
+while time.time() < end:
+    now = gone()
+    if now >= 30 and (not wait or still >= 10):
+        break
+    still = still + 1 if now == last else 0
+    last = now
+    time.sleep(0.1 if wait else 0.01)" $d $how
+        gone=$((1000 - $(ls $d | grep -c 'jpg$')))
+        kill_and_take_out "$how" 1000
+        start /tmp/stick-elsewhere; sleep 3; quit
+        there=$((1000 - gone))
+        expect "$how killed with $gone of 1000 gone, the stick back: each photo there with its stars and collection entry, none left for one that went, the log gone" \
+            "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $shown $d) $(job_logs)" \
+            "$there $there $there 0 0 0"
+        expect "killed in the middle of the $how" "$([ $gone -gt 0 ] && [ $gone -lt 1000 ] && echo yes)" yes
+        rm -rf $d $shown $trash
+    done
+    # The Undo of a Move to Trash of 1,000 photos with sidecars, from the stick's own trash at its
+    # top, where gio puts them. Each comes back by a rename, too fast to watch for with ls, so
+    # inotify tells of each, and Glimt is killed once five are back.
+    d=/mnt/stick/undo shown=/tmp/stick-shown.gqv
+    rm -rf $d $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
+    stub_gio /mnt/stick/.Trash-$(id -u)
+    chmod 700 $trash
+    convert -size 32x32 xc:blue $d/0001.jpg
+    for i in $(seq -w 2 1000); do ln $d/0001.jpg $d/$i.jpg; done
+    ls $d >/tmp/stick-names
+    for i in $(seq -w 1 1000); do echo "sidecar $i" >$d/$i.jpg.xmp; done
+    marks_for $d; collection_of $d $shown
+    config confirm_trash=false
+    start $shown
+    key ctrl+a; key ctrl+d
+    until_ok "[ -z \"\$(ls $d)\" ] && [ \$(ls $trash/files | wc -l) = 2000 ]" 90
+    sleep 2
+    rm -f /tmp/undo-watched
+    python3 -c "
+import ctypes, os, signal, struct, sys
+d, pid = sys.argv[1].encode(), int(sys.argv[2])
+libc = ctypes.CDLL(None, use_errno=True)
+fd = libc.inotify_init()
+libc.inotify_add_watch(fd, d, 0x80 | 0x100)  # IN_MOVED_TO | IN_CREATE
+open('/tmp/undo-watched', 'w').close()
+back = 0
+while back < 5:
+    buf = os.read(fd, 65536)
+    at = 0
+    while at < len(buf):
+        _, _, _, size = struct.unpack_from('iIII', buf, at)
+        name = buf[at + 16:at + 16 + size].rstrip(b'\\0')
+        back += name.endswith(b'.jpg')
+        at += 16 + size
+os.kill(pid, signal.SIGKILL)" $d $GPID &
+    watcher=$!
+    until_file /tmp/undo-watched
+    key ctrl+z
+    ( sleep 30; kill $watcher 2>/dev/null ) &
+    wait $watcher
+    back=$(ls $d | grep -c 'jpg$')
+    # The marks of the photos are in the Undo's log, not in the marks file, until it ends. A
+    # photo noted back gets them without a look, so a start may finish the Undo without the
+    # stick when the kill came between two photos. The photo in flight cannot be told.
+    at_kill=$(starred) logs=$(job_logs)
+    kill_and_take_out "Undo from the trash" -
+    expect "Undo killed with $back back, started without the stick: the log and marks kept, or the stars given to the photos back" \
+        "$logs $([ $LOGS_LEFT = 1 ] && [ $STARRED_LEFT = $at_kill ] || { [ $LOGS_LEFT = 0 ] && [ $STARRED_LEFT = $back ]; } && echo yes)" "1 yes"
+    note "Undo: logs left $LOGS_LEFT, starred $STARRED_LEFT"
+    start /tmp/stick-elsewhere; sleep 3; quit
+    expect "Undo from the trash killed with $back of 1000 back, the stick back: each photo back with its stars and collection entry, the log gone" \
+        "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $shown $d) $(job_logs)" \
+        "$back $back $back 0 0 0"
+    expect "killed in the middle of the Undo" "$([ $back -gt 0 ] && [ $back -lt 1000 ] && echo yes)" yes
+    rm -rf $d $shown $trash
+    # Rename Folder and Move Folder to Trash of a folder of 20 photos on the stick, from the
+    # folder list. The marks lock is held from outside, so the kill comes after the folder went
+    # and before its marks followed.
+    for how in rename trash; do
+        d=/mnt/stick/Album
+        rm -rf /mnt/stick/* $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
+        stub_gio
+        convert -size 32x32 xc:blue $d/01.jpg
+        for i in $(seq -w 2 20); do ln $d/01.jpg $d/$i.jpg; done
+        ls $d >/tmp/stick-names
+        marks_for $d
+        collection=-
+        [ $how = rename ] && { collection=$saved; collection_of $d $saved; }
+        config confirm_trash=false
+        start /mnt/stick
+        hold_lock $XDG_STATE_HOME/glimt/.marks.lock
+        rclick Album; sleep 1
+        if [ $how = rename ]; then
+            menu "Rename Folder…"; key ctrl+a
+            xdotool type --delay 30 Renamed; sleep 0.4; xdotool key Return
+        else
+            menu "Move Folder to Trash…"; key Return
+        fi
+        until_ok "[ ! -e $d ]" 30
+        sleep 1
+        expect "folder $how: the folder went before the kill" "$([ ! -e $d ] && echo yes)" yes
+        kill_and_take_out "folder $how" 20
+        start /tmp/stick-elsewhere; sleep 3; quit
+        if [ $how = rename ]; then
+            expect "Rename Folder killed, the stick back: each photo with its stars and collection entry at the new name, the log gone" \
+                "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $saved /mnt/stick/Renamed) $(job_logs)" \
+                "20 20 20 0 0 0"
+        else
+            expect "Move Folder to Trash killed, the stick back: no marks left for its photos, the log gone" \
+                "$(starred) $(job_logs)" "0 0"
+        fi
+        rm -rf /mnt/stick/* $trash $saved
+    done
+    # Rename Many of 2,000 photos on the stick, sorted descending to 0001…: each takes the name
+    # of another, so all go through hidden names. Each photo ends with its own number, and has
+    # i % 5 + 1 stars. Killed once 20 are under hidden names.
+    d=/mnt/stick/many
+    rm -rf $d $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
+    convert -size 32x32 xc:blue /tmp/stick-base.jpg
+    python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import sys
+d, marks = sys.argv[1:]
+base = open("/tmp/stick-base.jpg", "rb").read()
+with open(marks, "w") as m:
+    for i in range(1, 2001):
+        open(f"{d}/{i:04d}.jpg", "wb").write(base + b"%d" % i)
+        m.write(f"0\t{i % 5 + 1}\t{d}/{i:04d}.jpg\n")
+PY
+    config sort_ascending=false
+    start $d
+    key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+    xdotool type --delay 30 '####'; sleep 0.4
+    xdotool key Return
+    python3 -c "
+import os, sys, time
+d = sys.argv[1]
+end = time.time() + 60
+while time.time() < end:
+    if sum(n.startswith('.glimt-rename') for n in os.listdir(d)) >= 20:
+        break" $d
+    cut=$(ls -A $d | grep -c '^\.glimt-rename')
+    kill_and_take_out "Rename Many" 400
+    # Its marks have stars of 1 to 5, three on 400 of them: all 2,000 are counted here.
+    expect "Rename Many killed, started without the stick: every mark kept" \
+        "$(awk -F'\t' 'NF == 3' $XDG_STATE_HOME/glimt/marks | wc -l | tr -d ' ')" 2000
+    start $d
+    sleep 3
+    menu "Finish the renaming"
+    until_ok "! ls -A $d | grep -q '^\.' && [ \$(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f | wc -l) = 0 ]" 60
+    sleep 1
+    quit
+    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import os, sys
+d, marks = sys.argv[1:]
+base = len(open("/tmp/stick-base.jpg", "rb").read())
+held = {f"{d}/{n}": int(open(f"{d}/{n}", "rb").read()[base:] or 0) for n in os.listdir(d)}
+renamed = sum(1 for p, i in held.items() if os.path.basename(p) == f"{2001 - i:04d}.jpg")
+starred = 0
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3 and fields[2] in held:
+        starred += fields[1] == str(held[fields[2]] % 5 + 1)
+print(len(held), renamed, starred)
+PY
+)
+    expect "Rename Many killed, the stick back: each photo under its new name with its stars, the plan gone" \
+        "$got $(job_logs)" "2000 2000 2000 0"
+    expect "killed in the middle of Rename Many" "$([ $cut -gt 0 ] && echo yes)" yes
+    rm -rf $d /tmp/stick-elsewhere
+fi
 
 section "a keyword save that fails, then Ctrl+Q at once: the failure shown, the window stays open"
 # EDGES-1. Closing waits for the sidecar write, and the write then fails: in a read-only folder,
