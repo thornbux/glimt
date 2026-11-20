@@ -353,8 +353,11 @@ impl UndoTrashLog {
     }
 
     /// Returns the log, to be removed once the marks and places have been written
-    /// (`remove_once_written`).
-    pub fn into_log(self) -> JobLog {
+    /// (`remove_once_written`). The window gives the marks and places back to the files
+    /// `given_back` and to those in them. When the log stays for the next start, because a step
+    /// could not tell what it did, it is written anew without their steps.
+    pub fn into_log(mut self, given_back: &[PathBuf]) -> JobLog {
+        self.log.note_steps_applied(given_back);
         self.log
     }
 }
@@ -830,18 +833,80 @@ fn back_from_the_trash(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
 /// so far: to the thread of the user's folders (collections), and then to that of Glimt's own
 /// files (marks). A log found at the start that no reader read surely has no proof that it may
 /// go (`Sure`), and stays for a later start.
+///
+/// A log that stays for the next start, because a step could not tell what it did, is written
+/// anew there instead, without the steps whose marks, stars and places the window applied
+/// (`JobLog::note_steps_applied`). The next start would else give them again, over what the
+/// user changed since, or to another file that took the name.
 fn remove_after_the_writes(mut log: JobLog) {
-    let Some(sure) = log.end_of_job() else {
+    let sure = log.end_of_job();
+    let applied = log.take_steps_applied();
+    if sure.is_none() && applied.is_empty() {
         return;
-    };
+    }
     let (path, file) = log.into_path_and_file();
     crate::files::file_io::write_later_in_user_folders(move || {
         // A log left behind is read again at every start, so a failure is told.
         crate::files::file_io::write_later(move || {
-            remove_job_log(&path, sure);
+            match sure {
+                Some(sure) => {
+                    remove_job_log(&path, sure);
+                }
+                None => {
+                    if let Err(e) = written_anew_without(&path, &applied) {
+                        crate::files::file_io::save_failed(format!("{}: {e}", path.display()));
+                    }
+                }
+            }
             drop(file);
         });
     });
+}
+
+/// Writes the job log at `path` anew beside it without the steps on the files `applied`, or in
+/// folders among them, and then removes it. A kill in between leaves both, and the next start
+/// removes the old one unread, as the new one names it (`jobs_cut_short`). The old log stays
+/// whole when the new one cannot be written, and the error is returned.
+fn written_anew_without(path: &Path, applied: &[PathBuf]) -> std::io::Result<()> {
+    let crate::files::job_log::LogRead::Log { job, records, .. } =
+        crate::files::job_log::read_job_log_without_lock(path)?
+    else {
+        return Err(std::io::Error::other("not a job log of this version"));
+    };
+    let dir = path.parent().unwrap_or(Path::new("/"));
+    let mut left = records_without_steps(records, applied);
+    // The `old-log` record comes last, so that a new log cut off by a kill while it is written
+    // never names the old log, which then stays and is read again.
+    left.push(Record::OldLog(path.to_path_buf()));
+    let started = JobLog::start(dir, job, &left);
+    if let Some(sure) = Sure::of(&started) {
+        remove_job_log(path, sure);
+    }
+    started.map(drop)
+}
+
+/// Returns `records` without the steps on the files `applied`, or in folders among them, and
+/// without the records of those steps. The other steps are numbered anew in their order, and
+/// an `old-log` record is left out, as the log it names was removed when this one was read.
+fn records_without_steps(records: Vec<Record>, applied: &[PathBuf]) -> Vec<Record> {
+    let applied: HashSet<&Path> = applied.iter().map(PathBuf::as_path).collect();
+    let mut new_numbers = HashMap::new();
+    for record in &records {
+        if let Record::Step { number, from, .. } = record
+            && !from.ancestors().any(|a| applied.contains(a))
+        {
+            new_numbers.insert(*number, new_numbers.len());
+        }
+    }
+    (records.into_iter())
+        .filter(|record| !matches!(record, Record::OldLog(_)))
+        .filter_map(|mut record| {
+            if let Some(number) = record.step_number_mut() {
+                *number = *new_numbers.get(number)?;
+            }
+            Some(record)
+        })
+        .collect()
 }
 
 /// Gives `file`, one of a delete log's own, the time `time` that its delete wrote it last, on
@@ -4535,6 +4600,117 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// An Undo from the trash that puts a.jpg back and cannot tell about b.jpg keeps its log for
+    /// b.jpg only. The window gave a.jpg its stars back, and the user may change them before
+    /// the next start, which must not set them back. Before, the start gave both again.
+    #[test]
+    fn a_kept_undo_from_the_trash_gives_back_only_what_the_window_did_not() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOK_FAILS};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-undo-trash-kept-applied-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x, jobs) = (dir.join("trash"), dir.join("x"), dir.join("jobs"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        let (a, b) = (x.join("a.jpg"), x.join("b.jpg"));
+        for (name, path) in [("a.jpg", &a), ("b.jpg", &b)] {
+            std::fs::write(trash.join("files").join(name), name).unwrap();
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                path.display()
+            );
+            let info = trash.join("info").join(format!("{name}.trashinfo"));
+            std::fs::write(info, text).unwrap();
+        }
+        let marks = vec![(a.clone(), (0, 3)), (b.clone(), (0, 5))];
+        let files = vec![a.clone(), b.clone()];
+        let mut log = super::start_undo_trash_log(&jobs, &files, &marks, None).unwrap();
+        let trash_move = crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
+            files,
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
+        ANSWER_LOST_AT.set(Some(trash.join("files/b.jpg")));
+        LOOK_FAILS.set(Some((b.clone(), 0)));
+        let mut note = |step: crate::files::trash::Restoring| log.note(step);
+        let (back, error) = crate::files::trash::restore_noting(&trash_move, dirs, &mut note);
+        ANSWER_LOST_AT.set(None);
+        LOOK_FAILS.set(None);
+        assert!(back == [a.clone()] && error.is_some());
+        super::remove_once_written(log.into_log(&back));
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let (_, _, found) = super::jobs_cut_short(&jobs);
+        let [(_, super::JobDoneBeforeAKill::BackFromTrash(given))] = &found[..] else {
+            panic!("{} logs found", found.len());
+        };
+        assert_eq!(given, &vec![(b, (0, 5))]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A log of any kind of job that stays for the next start while the window runs is written
+    /// anew without the steps that the window applied, so that a new kind gets the rule too.
+    #[test]
+    fn a_kept_log_of_every_kind_leaves_out_the_steps_the_window_applied() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-kept-log-applied-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (a, b) = (dir.join("x/a.jpg"), dir.join("x/b.jpg"));
+        let step = |number, from: &std::path::PathBuf| super::Record::Step {
+            number,
+            from: from.clone(),
+            to: None,
+            fingerprint: None,
+        };
+        for job in crate::files::job_log::JOB_KINDS {
+            assert!(super::read_at_start(job).is_some(), "{job}");
+            let jobs = dir.join(job);
+            std::fs::create_dir_all(&jobs).unwrap();
+            let records = [
+                step(0, &a),
+                super::Record::Done(0),
+                step(1, &b),
+                super::Record::Marks {
+                    number: 1,
+                    bits: 0,
+                    stars: 5,
+                },
+            ];
+            let mut log = super::JobLog::start(&jobs, job, &records).unwrap();
+            log.note_steps_applied(std::slice::from_ref(&a));
+            log.keep_for_the_next_start();
+            super::remove_once_written(log);
+            crate::files::file_io::wait_for_queued_writes();
+            crate::files::file_io::wait_for_queued_writes();
+            let logs: Vec<_> = std::fs::read_dir(&jobs).unwrap().flatten().collect();
+            assert_eq!(logs.len(), 1, "{job}");
+            let read = crate::files::job_log::read_job_log_without_lock(&logs[0].path());
+            let Ok(crate::files::job_log::LogRead::Log { records: left, .. }) = read else {
+                panic!("{job}: no log");
+            };
+            let marks = super::Record::Marks {
+                number: 0,
+                bits: 0,
+                stars: 5,
+            };
+            assert_eq!(left[..2], [step(0, &b), marks], "{job}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// An Undo from the trash whose rename a share did and lost the answer of, with the look at
     /// the file's own name failing too, keeps its log, and the next start gives the file its
     /// marks back. Before, the log went with the report, and the marks were held only in the
@@ -4578,7 +4754,7 @@ mod tests {
         ANSWER_LOST_AT.set(None);
         LOOK_FAILS.set(None);
         assert!(back.is_empty() && error.is_some());
-        super::remove_once_written(log.into_log());
+        super::remove_once_written(log.into_log(&back));
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
         let (_, _, found) = super::jobs_cut_short(&jobs);
