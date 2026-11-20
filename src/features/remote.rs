@@ -1240,12 +1240,25 @@ pub fn find_instance_id() {
         let info = (crate::files::external::in_flatpak())
             .then(|| crate::images::decode::read_text("/.flatpak-info").ok())
             .flatten();
-        let instance = info
-            .as_deref()
-            .and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));
-        let pid = std::process::id();
-        instance.map_or_else(|| pid.to_string(), |i| format!("{i}-{pid}"))
+        instance_id_from(info.as_deref(), std::process::id())
     });
+}
+
+/// Returns the name of the Glimt with the process ID `pid`, in a Flatpak whose /.flatpak-info
+/// reads `info`. The name goes into the names of files and sockets (`journal::new_name`,
+/// `file_io::instance_tag`, `socket_name`), so the Flatpak's instance ID keeps only letters,
+/// digits, `-` and `_`, and at most 64 of them. Every other character is written as `_`, so
+/// that a `/`, a dot or a control character in a crafted file cannot put a log in another
+/// folder or give it a hidden name.
+fn instance_id_from(info: Option<&str>, pid: u32) -> String {
+    let instance = info.and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));
+    let is_plain = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    let name_part = |i: &str| -> String {
+        (i.chars().take(64))
+            .map(|c| if is_plain(c) { c } else { '_' })
+            .collect()
+    };
+    instance.map_or_else(|| pid.to_string(), |i| format!("{}-{pid}", name_part(i)))
 }
 
 /// This Glimt's name. It is its process ID, and in a Flatpak, where every instance can have
@@ -4150,6 +4163,19 @@ mod tests {
     /// did. Then, for a time, the window had no remote control at all, and a rename was
     /// refused. A folder stands in for such a socket, as no user, root neither, can remove it
     /// as a file.
+    /// The Flatpak's instance ID goes into the names of logs and sockets, so a crafted one with
+    /// a `/`, a dot or a control character must not reach them as it is.
+    #[test]
+    fn an_instance_id_is_a_plain_name_part() {
+        let info = "[Instance]\ninstance-id=../a/b\u{1}.c\n";
+        assert_eq!(super::instance_id_from(Some(info), 7), "___a_b__c-7");
+        let info = "instance-id=1234\n";
+        assert_eq!(super::instance_id_from(Some(info), 7), "1234-7");
+        assert_eq!(super::instance_id_from(None, 7), "7");
+        let long = format!("instance-id={}", "x".repeat(300));
+        assert_eq!(super::instance_id_from(Some(&long), 7).len(), 66);
+    }
+
     #[test]
     fn a_left_socket_that_stays_is_told_and_the_name_is_shared() {
         let dir =
