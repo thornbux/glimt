@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- File → Back Up made while a job finished could fail as not whole, when the job's log was
+  removed while the backup copied it, and it counted the job logs among the files backed up.
+  The backup no longer looks at the job logs it leaves out (#271).
+
 ## [0.94.0] - 2026-11-20
 
 ### Fixed
