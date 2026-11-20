@@ -3318,6 +3318,44 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
 /// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
 /// sure answer makes.
+/// Which folder a job log noted (by its volume, its device and inode, or its device alone) is
+/// decided in one function, `journal::is_the_folder_noted`. No other function of the logs' files
+/// reads what a log noted of a folder, or looks up a volume to compare, as the start once decided
+/// it in four places, four ways, and a FAT card back under another device number never finished
+/// its log.
+#[test]
+fn one_rule_tells_the_folder_a_log_noted() {
+    let rule: &[(&str, &str)] = &[("files/journal.rs", "is_the_folder_noted")];
+    let built: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_the_folder_noted"),
+        ("files/journal.rs", "folders_noted"),
+        ("files/journal.rs", "steps_left"),
+    ];
+    let looked_up: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_the_folder_noted"),
+        ("files/journal.rs", "folder_record"),
+    ];
+    let homes: Vec<(&str, &[(&str, &str)])> = vec![
+        (".noted_device", built),
+        (".noted_inode", built),
+        (".noted_volume", built),
+        ("noted.0", rule),
+        ("noted.1", rule),
+        ("noted.2", rule),
+        ("volume_of(", looked_up),
+    ];
+    let files = ["files/journal.rs", "files/job_log.rs", "files/file_ops.rs"];
+    let wrong: Vec<String> = (rust_sources().iter())
+        .filter(|(file, _)| files.contains(&file.as_str()))
+        .flat_map(|(file, text)| outside_homes_in(file, text, &homes))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a log's folder compared outside journal::is_the_folder_noted:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Three audit rounds in a row found a start that removed a log after a look or a write that
 /// could not tell, each through a removal of its own, and each was mended where it was found.
 #[test]
