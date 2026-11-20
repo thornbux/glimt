@@ -100,7 +100,7 @@ for x, w in zip(checks, weight):
         runs.append(run)
         run = []
 runs.append(run)
-summary = '\nif [ $FAILED -gt 0 ]; then echo "$FAILED checks failed"; exit 1; fi\n'
+summary = '\ntook\nif [ $FAILED -gt 0 ]; then echo "$FAILED checks failed"; exit 1; fi\n'
 for k, run in enumerate(runs + [timings]):
     open(f"{work}/part-{k}.sh", "w").write(head + start + "\n".join(run) + summary)
 PY
