@@ -44,6 +44,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   marks and collection entries follow a renamed folder, or forgets them for a trashed one, so a
   later folder of the old name does not show them (#248).
 
+### Fixed
+
+- A job that starts while another window starts no longer finds its new log taken by that
+  window's look for logs left by a kill. Rename Many and Rename Folder refused to start then,
+  and a Move or a delete went on without its log (#268).
+
 ## [0.92.0] - 2026-11-19
 
 ### Changed
