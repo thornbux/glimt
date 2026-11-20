@@ -3234,15 +3234,7 @@ fn delete_for_good(
         leaving.insert(p);
         let mut aside = Vec::new();
         let mut all_aside = Ok(());
-        let to_put_aside: Vec<(PathBuf, PathBuf)> =
-            (xmp::sidecars_moving_with(p, p, &leaving, &mut names).into_iter())
-                .map(|(side, _)| (crate::files::file_io::tmp_path(&side), side))
-                .map(|(hidden, side)| (side, hidden))
-                .collect();
-        // Noted on disk before the first rename, which the folder sync below makes lasting.
-        if let Some(log) = log.as_deref_mut() {
-            log.note_aside(p, &to_put_aside);
-        }
+        let to_put_aside = noted_aside(p, &leaving, &mut names, log.as_deref_mut());
         for (side, hidden) in to_put_aside {
             #[cfg(test)]
             note_synced_at_put_aside(&side);
@@ -3289,6 +3281,11 @@ fn delete_for_good(
         };
         // A look that failed (a share that dropped for a moment) counts the file as there.
         if !(deleted && is_surely_gone(p)) {
+            // A delete that answered done, followed by a look that failed, may have deleted
+            // the photo. The log stays, so that the next start forgets its marks when it is gone.
+            if deleted && let Some(log) = log.as_deref_mut() {
+                log.keep_log_for_a_later_start();
+            }
             let has_any_aside = !aside.is_empty();
             for (side, hidden) in aside.into_iter().rev() {
                 if let Err(e) = rename_never_over(&hidden, &side) {
@@ -3333,6 +3330,26 @@ fn delete_for_good(
         }
     }
     (went, sides, left_alone)
+}
+
+/// Returns the sidecars of the photo `p` that a delete for good puts aside, each with its hidden
+/// name, as pairs `(sidecar, hidden)`, and notes them in `log`. They are noted on disk before
+/// the first rename, which the folder sync after the renames makes lasting.
+fn noted_aside(
+    p: &Path,
+    leaving: &HashSet<&PathBuf>,
+    names: &mut xmp::AdobeNames,
+    log: Option<&mut journal::DeleteLog>,
+) -> Vec<(PathBuf, PathBuf)> {
+    let to_put_aside: Vec<(PathBuf, PathBuf)> = (xmp::sidecars_moving_with(p, p, leaving, names)
+        .into_iter())
+    .map(|(side, _)| (crate::files::file_io::tmp_path(&side), side))
+    .map(|(hidden, side)| (side, hidden))
+    .collect();
+    if let Some(log) = log {
+        log.note_aside(p, &to_put_aside);
+    }
+    to_put_aside
 }
 
 /// Notes, in a test, what was synced when the sidecar `side` is put aside.
@@ -3965,7 +3982,8 @@ fn put_files(
                     true => &none_leaving,
                     false => &moving,
                 };
-                follow_or_go_back((path, &target), is_copy, leaving, &mut sidecar_names)
+                let log = move_log.as_deref_mut();
+                follow_or_go_back((path, &target), is_copy, leaving, (&mut sidecar_names, log))
             } {
                 // The file and its sidecars go together or not at all, so a later file of the
                 // old name never picks up a sidecar left behind.
@@ -4074,7 +4092,8 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
         };
         match result {
             Ok(()) => {
-                match follow_or_go_back((&to, &from), false, leaving, &mut sidecar_names) {
+                let how = (&mut sidecar_names, move_log.as_deref_mut());
+                match follow_or_go_back((&to, &from), false, leaving, how) {
                     Ok(()) => back.push((to, from)),
                     // The file went back to its sidecars at `to`, and the Undo stays to be tried
                     // again. A look at it that failed is no answer that it is gone, so the Undo
@@ -4125,12 +4144,14 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
 /// sidecar that was copied, as it could not be moved, is still at its old name, where the next
 /// file of that name would take it. It is told too, with the file at `to`, unless the file went
 /// back. Returns, when a sidecar could not follow, whether the file is back at `from`, with the
-/// errors to tell, each saying where the file and that sidecar are.
+/// errors to tell, each saying where the file and that sidecar are. A file whose way back may
+/// have been done (a share that lost its answer) counts as back, so that its marks stay at
+/// `from`, and its step in `log` keeps the log for the next start, which finds where it is.
 fn follow_or_go_back(
     (from, to): (&Path, &Path),
     is_copy: bool,
     moving: &HashSet<&PathBuf>,
-    names: &mut xmp::AdobeNames,
+    (names, log): (&mut xmp::AdobeNames, Option<&mut journal::MoveLog>),
 ) -> Result<(), (bool, Vec<String>)> {
     use crate::files::file_io::{KnownAs, fingerprint_or_error, is_still_the_file, put_file_back};
     // The file is looked at before its sidecars follow, which may take a while, so that only
@@ -4181,6 +4202,10 @@ fn follow_or_go_back(
         }));
         return Err((true, told));
     };
+    if let Some(log) = log {
+        log.note_step_failed(from, &error);
+    }
+    let is_back = crate::files::file_io::may_have_been_done(&error, to);
     let to = to.display();
     let told = (not.failed.iter())
         .filter(|(side, at, e)| is_copy || !sidecar_where_the_file_is((side, at), e, false))
@@ -4197,7 +4222,7 @@ fn follow_or_go_back(
         })
         .chain(not.left_behind.iter().map(|l| l.told()))
         .collect();
-    Err((false, told))
+    Err((is_back, told))
 }
 
 /// Puts the sidecar whose move from `side` to `at` failed with `e` beside its file, at `side`
@@ -5290,7 +5315,7 @@ mod tests {
                 (&photo, &to.join("a.cr2")),
                 false,
                 &moving,
-                &mut Default::default(),
+                (&mut Default::default(), None),
             );
             UNLINK_FAILS.set(None);
             RENAME_WAYS_MISSING.set(0);
@@ -5345,7 +5370,7 @@ mod tests {
                 (&photo, &to.join("a.jpg")),
                 false,
                 &moving,
-                &mut Default::default(),
+                (&mut Default::default(), None),
             );
             UNLINK_FAILS.set(None);
             RENAME_WAYS_MISSING.set(0);
@@ -5387,7 +5412,7 @@ mod tests {
             (&photo, &to.join("a.jpg")),
             false,
             &std::collections::HashSet::from([&photo]),
-            &mut Default::default(),
+            (&mut Default::default(), None),
         );
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
@@ -5419,7 +5444,7 @@ mod tests {
             (&photo, &to.join("a.jpg")),
             false,
             &std::collections::HashSet::from([&photo]),
-            &mut Default::default(),
+            (&mut Default::default(), None),
         );
         let Err((false, told)) = &result else {
             panic!("{result:?}")
@@ -5432,6 +5457,43 @@ mod tests {
         );
         assert_eq!(std::fs::read(to.join("a.jpg.xmp")).unwrap(), b"other");
         assert_eq!(std::fs::read(to.join("a.jpg")).unwrap(), b"photo");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move whose sidecar cannot follow, and whose file's way back was done on a share that
+    /// lost its answer, counts the file as back, so that its marks stay at its old name, and
+    /// keeps its log for the next start. Before, the file counted as moved, its marks followed it
+    /// to a name where nothing may be, and the log went with the job.
+    #[test]
+    fn a_move_whose_way_back_cannot_tell_keeps_its_log() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOK_FAILS};
+        let dir = contract_folder("move-back-cannot-tell");
+        let (from, to, logs) = (dir.join("from"), dir.join("to"), dir.join("logs"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        let (photo, moved) = (from.join("a.jpg"), to.join("a.jpg"));
+        std::fs::write(&moved, "photo").unwrap();
+        std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
+        std::fs::write(to.join("a.jpg.xmp"), "other").unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        log.note(&photo, &moved);
+        ANSWER_LOST_AT.set(Some(moved.clone()));
+        LOOK_FAILS.set(Some((photo.clone(), 0)));
+        let result = super::follow_or_go_back(
+            (&photo, &moved),
+            false,
+            &std::collections::HashSet::from([&photo]),
+            (&mut Default::default(), Some(&mut log)),
+        );
+        LOOK_FAILS.set(None);
+        ANSWER_LOST_AT.set(None);
+        assert!(matches!(result, Err((true, _))), "{result:?}");
+        log.remove_once_followed();
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let found = super::journal::move_jobs_cut_short(&logs);
+        assert_eq!(found.len(), 1, "the log of a file that may be back went");
+        drop(found);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -7155,6 +7217,37 @@ mod tests {
         assert!(hidden_names_in(&dir).is_empty());
         let told = crate::files::file_io::take_saves_failed();
         assert_eq!(told.len(), 2, "{told:?}");
+        drop(found);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A Delete for good whose delete answered done, while the look after it failed, keeps its
+    /// log, also when the sidecar came back to its name. Before, the log went with the job, and
+    /// the marks of the photo, which may be gone, stayed at its name for the next file there.
+    #[test]
+    fn a_delete_for_good_whose_look_after_it_failed_keeps_its_log() {
+        use crate::files::file_io::{LOOKS_FAIL, LOOKS_FAIL_ONCE_DELETED};
+        let dir = contract_folder("delete-look-failed");
+        let logs = dir.join("logs");
+        let a = dir.join("a.png");
+        let side = crate::metadata::xmp::sidecar(&a);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        LOOKS_FAIL_ONCE_DELETED.set(vec![a.clone()]);
+        let mut errors = Vec::new();
+        let how = (false, Some(&mut log));
+        let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
+        assert!(gone.is_empty() && !a.exists(), "{errors:?}");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a");
+        log.remove_once_forgotten();
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let _ = crate::files::file_io::take_saves_failed();
+        let found = super::journal::delete_jobs_cut_short(&logs);
+        assert_eq!(found.len(), 1, "the log of a photo that may be gone went");
         drop(found);
         std::fs::remove_dir_all(&dir).unwrap();
     }
