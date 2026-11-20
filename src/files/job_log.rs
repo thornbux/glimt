@@ -262,6 +262,16 @@ impl Record {
     }
 }
 
+/// What a start's look at a path, or a write it made about a job log, gives when it cannot
+/// tell: a stick or share not mounted, an empty mount point at a folder's path, a look that
+/// failed, or a write that failed. A log read with such an answer stays for a later start.
+#[derive(Debug, PartialEq)]
+pub(crate) struct CannotTell;
+
+/// The one type of every answer a start gives about a path or a write: `Ok` when it is sure,
+/// and `Err(CannotTell)` when it is not.
+pub(crate) type AtStart<T> = Result<T, CannotTell>;
+
 /// A job log being written, held locked while its job runs, so that no other window takes it
 /// for one that a kill cut short.
 pub(crate) struct JobLog {

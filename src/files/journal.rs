@@ -14,7 +14,7 @@
 //! name.
 
 use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
-use crate::files::job_log::{JobLog, Record};
+use crate::files::job_log::{AtStart, CannotTell, JobLog, Record};
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
@@ -721,14 +721,15 @@ pub fn start_folder_log(
 }
 
 /// Returns what a Rename Folder or a Move Folder to Trash whose log says `records` had done when
-/// Glimt was killed, and `None` when a look failed, so that the log stays for a later start.
+/// Glimt was killed, and `CannotTell` when a look or the write to the collection shown failed,
+/// so that the log stays for a later start.
 /// The folder counts as still where it was when its old path holds a folder with the inode the
 /// log noted (or any folder, where the log could note none). A renamed folder counts as renamed
 /// only when its old path is surely free and its new one holds it. A new path that cannot be
 /// told, as on a stick not mounted at this start, keeps the log. A trashed folder counts as
 /// trashed when its old path holds another folder, or is free in a folder that surely is there
 /// (`is_gone_at_start`), and its files leave the collection shown here.
-fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
+fn folder_job_done(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
     let (mut tree, mut collection) = (None, None);
     for record in records {
         match record {
@@ -738,23 +739,23 @@ fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
         }
     }
     let Some((from, to)) = tree else {
-        return Some(JobDoneBeforeAKill::NothingToFollow);
+        return Ok(JobDoneBeforeAKill::NothingToFollow);
     };
     let folders = folders_noted(records);
     // An inode of 0 was not noted, as on FAT (`folder_record`).
     let inode = (folders.get(&from).map(|(_, inode)| *inode)).filter(|inode| *inode != 0);
-    // Whether a folder is at `path` with the noted inode: `None` when the look failed.
-    let holds_the_folder = |path: &Path| -> Option<bool> {
-        let found = crate::files::file_io::fingerprint_if_there(path).ok()?;
-        Some(found.is_some_and(|(key, _, _)| match (key, inode) {
+    // Whether a folder is at `path` with the noted inode, which a failed look cannot tell.
+    let holds_the_folder = |path: &Path| -> AtStart<bool> {
+        let found = crate::files::file_io::fingerprint_if_there(path).map_err(|_| CannotTell)?;
+        Ok(found.is_some_and(|(key, _, _)| match (key, inode) {
             (Some((_, now)), Some(noted)) => now == noted,
             _ => is_surely_dir(path),
         }))
     };
     if holds_the_folder(&from)? {
-        return Some(JobDoneBeforeAKill::NothingToFollow);
+        return Ok(JobDoneBeforeAKill::NothingToFollow);
     }
-    Some(match to {
+    Ok(match to {
         Some(_) if !is_gone_at_start(&from, &folders)? => JobDoneBeforeAKill::NothingToFollow,
         Some(to) if holds_the_folder(&to)? => JobDoneBeforeAKill::FolderRenamed(from, to),
         Some(to) => {
@@ -768,7 +769,7 @@ fn folder_job_done(records: &[Record]) -> Option<JobDoneBeforeAKill> {
             // mounted at this start would else have every file under the folder taken for
             // trashed.
             is_gone_at_start(&from, &folders)?;
-            forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&from));
+            forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&from))?;
             JobDoneBeforeAKill::FolderTrashed(from)
         }
     })
@@ -788,10 +789,10 @@ pub fn remove_once_written(log: JobLog) {
 /// first. A step without its `done` counts as done too when its path holds a file with the
 /// fingerprint it had in the trash, which came back in the moment between its rename and its
 /// record (the rule of a Move, `moves_that_went`). Any other step not done keeps no marks: its
-/// file is still in the trash, or another file has its name. Returns `None` when such a step's
+/// file is still in the trash, or another file has its name. Returns `CannotTell` when a step's
 /// path cannot be told (`is_gone_at_start`), or the places cannot be written to the collection,
 /// so that the log stays for a later start.
-fn back_from_the_trash(records: &[Record]) -> Option<JobDoneBeforeAKill> {
+fn back_from_the_trash(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
     let (mut paths, mut done, mut marks, mut places) =
         (Vec::new(), HashSet::new(), Vec::new(), Vec::new());
     let mut coming = Vec::new();
@@ -838,14 +839,14 @@ fn back_from_the_trash(records: &[Record]) -> Option<JobDoneBeforeAKill> {
         if let Err(e) = crate::model::collections::edit_open_collection(&collection, put_back) {
             crate::files::file_io::save_failed(e);
             // The log stays, so that a later start gives the places back.
-            return None;
+            return Err(CannotTell);
         }
     }
     let marks = (marks.into_iter())
         .map(|(number, value)| (paths[number].clone(), value))
         .filter(|(path, _)| is_back(path))
         .collect();
-    Some(JobDoneBeforeAKill::BackFromTrash(marks))
+    Ok(JobDoneBeforeAKill::BackFromTrash(marks))
 }
 
 /// Removes the Move or delete log at `path`, held locked by `file`, with its list, after the
@@ -891,7 +892,7 @@ pub fn old_moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             let known = read_move_known(&known_path(&path));
             // A log of 0.92 noted no folders (`is_gone_at_start`).
             let none = HashMap::new();
-            let went = moves_that_went(parse_move_log(&bytes), known.as_deref(), &none)?;
+            let went = moves_that_went(parse_move_log(&bytes), known.as_deref(), &none).ok()?;
             Some((found_move_log(JobLog::found(path, file)), went))
         })
         .collect()
@@ -913,25 +914,39 @@ fn found_move_log(log: JobLog) -> MoveLog {
 /// went (`is_the_file_that_went`, by the fingerprints `known`, one for each pair). A file that
 /// had not gone yet is still at its old name, and a pair cut off by the kill has names that are
 /// not there, so both are left out. A sidecar that the kill left at a file's old name is moved
-/// to the file (`sidecars_follow_the_files_that_went`). Returns `None` when a file left its old
-/// name and its new one cannot be told (`is_gone_at_start`), as on a stick not mounted at this
-/// start, so that the log stays for a later start.
+/// to the file (`sidecars_follow_the_files_that_went`). Returns `CannotTell` when a file may
+/// have left its old name and its new one cannot be told (`is_gone_at_start`), as on a stick
+/// not mounted at this start, and when its new name holds a file while its old name cannot be
+/// told (`has_left`), so that the log stays for a later start.
 fn moves_that_went(
     pairs: Moves,
     known: Option<&[Option<FileFingerprint>]>,
     folders: &HashMap<PathBuf, (u64, u64)>,
-) -> Option<Moves> {
-    let cannot_tell = |to: &Path| is_gone_at_start(to, folders).is_none();
-    if (pairs.iter()).any(|(from, to)| is_surely_gone(from) && cannot_tell(to)) {
-        return None;
+) -> AtStart<Moves> {
+    let mut went = Vec::new();
+    for (step, (from, to)) in pairs.into_iter().enumerate() {
+        let left = has_left(&from);
+        if left == Ok(false) || is_gone_at_start(&to, folders)? {
+            continue;
+        }
+        left?;
+        if is_the_file_that_went(&to, known, step) {
+            went.push((from, to));
+        }
     }
-    let went: Moves = (pairs.into_iter().enumerate())
-        .filter(|(_, (from, to))| is_surely_gone(from) && is_surely_there(to))
-        .filter(|(step, (_, to))| is_the_file_that_went(to, known, *step))
-        .map(|(_, pair)| pair)
-        .collect();
     sidecars_follow_the_files_that_went(&went);
-    Some(went)
+    Ok(went)
+}
+
+/// Returns whether a file left the old name `from` of a Move's step, which a failed look cannot
+/// tell. A name in a folder that is gone counts as left, as a folder emptied by a Move is often
+/// removed after it, and only the new name tells where the file went.
+fn has_left(from: &Path) -> AtStart<bool> {
+    match (is_surely_there(from), is_surely_gone(from)) {
+        (true, _) => Ok(false),
+        (_, true) => Ok(true),
+        _ => Err(CannotTell),
+    }
 }
 
 /// The job logs in `dir` that Glimt was killed during, which are those no running window holds
@@ -963,12 +978,12 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             deletes.push(put_right_a_delete(found.log, records, time, jobs));
         } else if found.job == "undo-trash" {
             // A log whose files cannot be looked at now stays for a later start.
-            if let Some(done) = back_from_the_trash(&found.records) {
+            if let Ok(done) = back_from_the_trash(&found.records) {
                 others.push((found.log, done));
             }
         } else if ["rename-folder", "trash-folder"].contains(&found.job) {
             // A log whose folder cannot be looked at now stays for a later start.
-            if let Some(done) = folder_job_done(&found.records) {
+            if let Ok(done) = folder_job_done(&found.records) {
                 others.push((found.log, done));
             }
         }
@@ -1005,7 +1020,7 @@ fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> Option<(MoveLog
             _ => None,
         })
         .unzip();
-    let went = moves_that_went(pairs, Some(&known), &folders_noted(&found.records))?;
+    let went = moves_that_went(pairs, Some(&known), &folders_noted(&found.records)).ok()?;
     Some((found_move_log(found.log), went))
 }
 
@@ -1086,7 +1101,7 @@ pub fn old_deletes_cut_short(
             let records = DeleteRecords {
                 job: "delete",
                 done: names.iter().cloned().collect(),
-                kept: read_kept(&path)?,
+                kept: read_kept(&path).ok()?,
                 aside: aside.as_chunks::<3>().0.to_vec(),
                 names,
                 known,
@@ -1144,8 +1159,8 @@ fn put_right_a_delete(
             continue;
         }
         match is_gone_at_start(name, &r.folders) {
-            Some(true) if r.kept.contains(name) => not_as_left.push(name.clone()),
-            Some(true) if is_unfinished(name) && !was_found => {
+            Ok(true) if r.kept.contains(name) => not_as_left.push(name.clone()),
+            Ok(true) if is_unfinished(name) && !was_found => {
                 save_failed(crate::tf!(
                     "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start.",
                     photo = name.display()
@@ -1153,7 +1168,7 @@ fn put_right_a_delete(
                 untold.insert(name.clone());
                 found_now.insert(name.clone());
             }
-            Some(true) => {
+            Ok(true) => {
                 if is_unfinished(name) {
                     save_failed(crate::tf!(
                         "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted.",
@@ -1162,7 +1177,7 @@ fn put_right_a_delete(
                 }
                 gone.push(name.clone());
             }
-            Some(false) if is_as_known(name, *known) => {
+            Ok(false) if is_as_known(name, *known) => {
                 if is_unfinished(name) && was_found {
                     save_failed(crate::tf!(
                         "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back.",
@@ -1171,13 +1186,17 @@ fn put_right_a_delete(
                 }
                 stayed.push(name.clone());
             }
-            Some(false) => not_as_left.push(name.clone()),
-            None => {
+            Ok(false) => not_as_left.push(name.clone()),
+            Err(CannotTell) => {
                 untold.insert(name.clone());
             }
         }
     }
-    forget_in_the_collection_shown(r.collection.as_deref(), &gone);
+    // The files that went stay in the log while the collection cannot be written, so that a
+    // later start takes them out of it.
+    if forget_in_the_collection_shown(r.collection.as_deref(), &gone).is_err() {
+        untold.extend(gone.iter().cloned());
+    }
     // Before the trash is looked in, where a sidecar put aside is not.
     let (still_hidden, unseen) = sidecars_back_from_hiding(&r.aside, &gone, &stayed, &not_as_left);
     untold.extend(still_hidden.iter().chain(&unseen).cloned());
@@ -1278,15 +1297,15 @@ fn write_anew(
 
 /// Returns the photos that the delete whose log is at `log` kept while their sidecar may still
 /// be hidden (`DeleteLog::keep_for_a_later_start`), and none for a log without them. Returns
-/// `None`, told, when they cannot be read, as the start must then not read the log at all.
-fn read_kept(log: &Path) -> Option<std::collections::HashSet<PathBuf>> {
+/// `CannotTell`, told, when they cannot be read, as the start must then not read the log at all.
+fn read_kept(log: &Path) -> AtStart<std::collections::HashSet<PathBuf>> {
     let path = kept_path(log);
     match crate::images::decode::read_limited(&path) {
-        Ok(bytes) => Some(parse_names(&bytes).into_iter().collect()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Default::default()),
+        Ok(bytes) => Ok(parse_names(&bytes).into_iter().collect()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
         Err(e) => {
             crate::files::file_io::save_failed(format!("{}: {e}", path.display()));
-            None
+            Err(CannotTell)
         }
     }
 }
@@ -1328,18 +1347,20 @@ fn logs_left_by_a_kill(dir: &Path) -> Vec<(PathBuf, File, Vec<u8>)> {
 /// Takes the files `gone` out of the `collection` that was shown during a delete, as the delete
 /// would have at its end. A log without one, or of a Glimt before this
 /// was written down, leaves the entries. So does a collection that is surely gone, as there is
-/// nothing to take them out of. A failure to write it is told.
-fn forget_in_the_collection_shown(collection: Option<&Path>, gone: &[PathBuf]) {
+/// nothing to take them out of. A failure to write it is told, and returns `CannotTell`, so
+/// that the log stays for a later start.
+fn forget_in_the_collection_shown(collection: Option<&Path>, gone: &[PathBuf]) -> AtStart<()> {
     let Some(collection) = collection else {
-        return;
+        return Ok(());
     };
     if gone.is_empty() || is_surely_gone(collection) {
-        return;
+        return Ok(());
     }
     let forgotten = crate::files::file_ops::forget_in_collection(Some(collection), gone);
-    if let Err(e) = forgotten {
+    forgotten.map(drop).map_err(|e| {
         crate::files::file_io::save_failed(e);
-    }
+        CannotTell
+    })
 }
 
 /// Puts right each sidecar that a delete for good put aside under a hidden name, as its log
@@ -1587,11 +1608,11 @@ fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> boo
 }
 
 /// Returns whether nothing is at `path` now, the one rule by which a start reads a path that a
-/// job log names, whose `folder` records noted `folders`. Returns `Some(true)` when its name is
-/// surely not there while its folder surely is, on the device the log noted, and `Some(false)`
-/// when something is at its name. Returns `None` when the looks cannot tell: the folder is not
-/// there, as on a stick or a share not back yet at this start, or it is on another device than
-/// the log noted, or the log noted none of it, or a look failed. Such a log stays for a later
+/// job log names, whose `folder` records noted `folders`. Returns `Ok(true)` when its name is
+/// surely not there while its folder surely is, on the device the log noted, and `Ok(false)`
+/// when something is at its name. Returns `CannotTell` when the looks cannot tell: the folder is
+/// not there, as on a stick or a share not back yet at this start, or it is on another device
+/// than the log noted, or the log noted none of it, or a look failed. Such a log stays for a later
 /// start, as a path taken for gone or for not there would lose the marks of its file.
 ///
 /// The device tells the folder that the job wrote to from an empty mount point at its path, such
@@ -1604,21 +1625,24 @@ fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> boo
 /// the file the kill came before, written by another program since, or a file that another
 /// window marked after the kill. The marks of a deleted file then stay with a later photo that
 /// took its name, as they did before there was a log, which is the lesser harm.
-fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, (u64, u64)>) -> Option<bool> {
+fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, (u64, u64)>) -> AtStart<bool> {
     if is_surely_there(path) {
-        return Some(false);
+        return Ok(false);
     }
     if !folders.is_empty() {
-        let folder = path.parent()?;
-        let (device, _) = folders.get(folder)?;
-        if device_now(folder)? != *device {
-            return None;
+        let folder = path.parent().ok_or(CannotTell)?;
+        let (device, _) = folders.get(folder).ok_or(CannotTell)?;
+        if device_now(folder) != Some(*device) {
+            return Err(CannotTell);
         }
     }
     // The folder is looked at first, so that a stick mounted between the two looks counts as
     // not there yet.
     let has_folder = path.parent().is_some_and(is_surely_dir);
-    (has_folder && is_surely_gone(path)).then_some(true)
+    match has_folder && is_surely_gone(path) {
+        true => Ok(true),
+        false => Err(CannotTell),
+    }
 }
 
 /// Removes each list of files in the Move or delete logs' folder `dir` whose log is gone, which
@@ -4810,7 +4834,7 @@ mod tests {
             ]
         };
         let given_for = |size| match super::back_from_the_trash(&records(size)) {
-            Some(super::JobDoneBeforeAKill::BackFromTrash(given)) => given.len(),
+            Ok(super::JobDoneBeforeAKill::BackFromTrash(given)) => given.len(),
             _ => panic!("not an Undo from the trash"),
         };
         assert_eq!((given_for(1), given_for(2)), (1, 0));
@@ -4821,7 +4845,7 @@ mod tests {
             *from = x.join("stick/a.jpg");
         }
         let told = super::back_from_the_trash(&unmounted);
-        assert!(told.is_none());
+        assert!(told.is_err());
         // Killed before the report was taken: the log is let go, not removed.
         drop(log);
         let (_, _, _, found) = super::jobs_cut_short(&jobs);
@@ -4974,7 +4998,95 @@ mod tests {
             },
             super::Record::Done(0),
         ];
-        assert!(super::back_from_the_trash(&records).is_none());
+        assert!(super::back_from_the_trash(&records).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A start that cannot look at the old name of a killed Move's file, and cannot tell its
+    /// new one either, as on a share that stopped answering and a stick not mounted, keeps the
+    /// log. Before, the failed look at the old name counted as "not gone", the pair was left
+    /// out, and the log went with the marks of a file that may have moved.
+    #[test]
+    fn a_killed_move_whose_old_name_cannot_be_looked_at_keeps_its_log() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = crate::support::test_support::contract_folder("start-old-name-unread");
+        let (nas, jobs, away) = (dir.join("nas"), dir.join("jobs"), dir.join("away"));
+        let (a, moved) = (dir.join("a.jpg"), nas.join("a.jpg"));
+        std::fs::create_dir_all(&nas).unwrap();
+        std::fs::create_dir(&away).unwrap();
+        std::fs::write(&a, "a").unwrap();
+        let mut log = super::start_move_log(&jobs, "move").unwrap();
+        log.note(&a, &moved);
+        drop(log);
+        std::fs::rename(&a, &moved).unwrap();
+        std::fs::rename(&moved, away.join("a.jpg")).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(nas.clone()));
+        lock_even_if_poisoned(&LOOKS_FAIL).push(a.clone());
+        let (moves, _, _, _) = super::jobs_cut_short(&jobs);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        assert!(
+            moves.is_empty(),
+            "the Move was put right without a look at its names"
+        );
+        drop(moves);
+        assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A start that cannot take a killed delete's files out of the collection shown, which
+    /// cannot be written, keeps them in the log for a later start. Before, the failure was told
+    /// but the log went, and the collection kept the entries of files that are gone.
+    #[test]
+    fn a_delete_whose_collection_cannot_be_written_keeps_its_files_in_the_log() {
+        let dir = crate::support::test_support::contract_folder("start-delete-collection");
+        let (jobs, a, collection) = (dir.join("jobs"), dir.join("a.png"), dir.join("c.gqv"));
+        // A folder at the collection's name, which no edit can write.
+        std::fs::create_dir(&collection).unwrap();
+        std::fs::write(&a, "a").unwrap();
+        let mut log = super::start_delete_log(&jobs, "delete", Some(&collection)).unwrap();
+        log.note(std::slice::from_ref(&a));
+        std::fs::remove_file(&a).unwrap();
+        log.note_done(std::slice::from_ref(&a));
+        drop(log);
+        let (_, deletes, _, _) = super::jobs_cut_short(&jobs);
+        assert_eq!(deletes[0].1, vec![a.clone()]);
+        deletes
+            .into_iter()
+            .for_each(|(log, _)| log.remove_once_forgotten());
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let _ = crate::files::file_io::take_saves_failed();
+        let (_, deletes, _, _) = super::jobs_cut_short(&jobs);
+        assert_eq!(
+            deletes.len(),
+            1,
+            "the log went with the collection not written"
+        );
+        assert_eq!(deletes[0].1, vec![a.clone()]);
+        drop(deletes);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A start that cannot take a folder that a killed Move Folder to Trash trashed out of the
+    /// collection shown, which cannot be written, keeps the log for a later start. Before, the
+    /// failure was told but the log went.
+    #[test]
+    fn a_folder_trashed_whose_collection_cannot_be_written_keeps_its_log() {
+        let dir = crate::support::test_support::contract_folder("start-folder-collection");
+        let (jobs, album, collection) = (dir.join("jobs"), dir.join("Album"), dir.join("c.gqv"));
+        // A folder at the collection's name, which no edit can write.
+        std::fs::create_dir(&collection).unwrap();
+        std::fs::create_dir(&album).unwrap();
+        drop(super::start_folder_log(&jobs, &album, None, Some(&collection)).unwrap());
+        std::fs::remove_dir(&album).unwrap();
+        let (_, _, _, others) = super::jobs_cut_short(&jobs);
+        let _ = crate::files::file_io::take_saves_failed();
+        assert!(
+            others.is_empty(),
+            "the log went with the collection not written"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
