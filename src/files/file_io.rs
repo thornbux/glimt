@@ -95,6 +95,10 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // Runs once with the path of a file that `open_if_unlocked` has made new and not yet locked,
+    // so that a test can do there what another window could do in that moment.
+    pub(crate) static BEFORE_NEW_FILE_IS_LOCKED: std::cell::RefCell<Option<NewFileHook>> =
+        const { std::cell::RefCell::new(None) };
     // Makes a rename by `rename_never_over` from this name, a delete for good of it, or the
     // rename by which `replace` or `replace_name_with` gives a new version this name, on this
     // thread be done and then fail with EIO (`answer_lost_in_a_test`).
@@ -150,6 +154,10 @@ thread_local! {
     pub(crate) static OTHER_NAMES_NOTED: std::cell::RefCell<OtherNames> =
         const { std::cell::RefCell::new(OtherNames::new()) };
 }
+
+/// What a test runs in `BEFORE_NEW_FILE_IS_LOCKED`, with the path of the file made new.
+#[cfg(test)]
+pub(crate) type NewFileHook = Box<dyn FnOnce(&Path)>;
 
 /// The saves that replaced a file with other names (hard links): how many, and the name of the
 /// first. A replace gives the name a new file, so the other names keep the old version.
@@ -1889,6 +1897,10 @@ pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
 /// until it runs.
 pub fn open_if_unlocked(path: &Path, is_new: bool) -> std::io::Result<std::fs::File> {
     let file = open_to_lock(path, std::fs::OpenOptions::new().create_new(is_new))?;
+    #[cfg(test)]
+    if is_new && let Some(hook) = BEFORE_NEW_FILE_IS_LOCKED.take() {
+        hook(path);
+    }
     let mut tries = 1;
     loop {
         match file.try_lock() {
