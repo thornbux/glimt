@@ -112,7 +112,7 @@ The record kinds:
 
 | Record | Fields | Written | For |
 |---|---|---|---|
-| `folder` | path, device, inode (`0` where the file system keeps none, FAT and exFAT) | before the first step in that folder, also the folder a file or folder goes to | #179, an empty mount point |
+| `folder` | path, device, inode (`0` where the file system keeps none, FAT and exFAT), and where the inode is `0` and the volume was found, a fourth field: its name in `/dev/disk/by-uuid` | before the first step in that folder, also the folder a file or folder goes to | #179, an empty mount point; #266, another card |
 | `shown` | the collection's path | at the start | the collection shown, now `collections/` |
 | `step` | number, from, to or `-`, fingerprint or `-` | before the step | every job |
 | `done` | number | after the step is done | #225, Rename Many's count |
@@ -176,6 +176,14 @@ A log no window holds locked was cut short. For each step, the start looks at th
   are forgotten, the collection follows, a hidden sidecar of a deleted photo goes.
 - **A `folder` record whose device and inode differ** from the folder at that path now: every
   step in it is left for a later start, and the log stays (#179).
+- **A `folder` record with inode `0`** (FAT, exFAT) is told by its volume instead: the name
+  `/dev/disk/by-uuid` gives the block device with the folder's device number, for FAT and exFAT
+  the serial number the card was formatted with. Another volume at the path now, as another card
+  in the same reader, or a record without the fourth field, or no volume found now (no udev, as
+  in a Flatpak's sandbox), means the start cannot tell: the step is left for a later start, and
+  the log stays (#266). A Glimt that reads only three fields passes over such a record, and so
+  cannot tell the folder either. `statfs`'s `f_fsid` is no help here: vfat and exfat fill it
+  from the device number, which two cards in one reader share.
 - **A step in a folder of another device than its `folder` record noted, or with no `folder`
   record in a log that has some:** the start cannot tell, as an empty mount point (`/mnt/nas`
   while its share is not mounted) is a folder too. The step is left for a later start, and the
