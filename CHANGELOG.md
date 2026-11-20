@@ -22,6 +22,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A Move on a share that lost the answer to a rename no longer takes another file at the new
   name for the photo, and one it cannot tell about keeps its log, so that the next start makes
   the marks follow the photo when it is at its new name (#176).
+- Rename Folder, Undo from the trash, Move Folder to Trash, Delete and Move to Trash on a share
+  that lost the answer to a step now keep their log too, so that the next start gives the marks
+  and stars to the files where they went. Undo again of a file that came out of the trash
+  without an answer now counts it as back, where before it failed every time.
+- A start that cannot find a FAT card's volume, or cannot look at a folder, now keeps a killed
+  job's log for a later start, rather than take another card's photo for the one that stayed.
 
 ## [0.94.0] - 2026-11-20
 
