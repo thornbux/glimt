@@ -905,8 +905,10 @@ fn has_left(from: &Path) -> AtStart<bool> {
 /// locked: the Moves (as `move_jobs_cut_short` gives them) and the deletes (as
 /// `put_right_a_delete` gives them). A log in `dir` that another log there names in its
 /// `old-log` record was written anew as that one, which a kill left beside it, and is removed
-/// unread. A path that such a record names anywhere else is no log of this folder, and nothing
-/// is done to it: the folders of Glimt 0.92 and older are no longer read
+/// unread. So is a log of Glimt 0.92 or older that such a record names directly in one of the old
+/// folders beside `dir` (`old_log_written_anew`), with its lists, as Glimt 0.93 and 0.94 wrote
+/// it anew and a kill kept it. A path that such a record names anywhere else is no log, and
+/// nothing is done to it: the folders of Glimt 0.92 and older are no longer read
 /// (`clear_old_log_folders`).
 pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
     // A log of a kind that `read_at_start` has no reader for is not found here: it is kept on
@@ -919,6 +921,11 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             _ => None,
         })
         .collect();
+    for path in &written_anew {
+        if let Some(sure) = Sure::of(&old_log_written_anew(dir, path)) {
+            remove_old_log_with_its_lists(path, sure);
+        }
+    }
     let (mut moves, mut deletes, mut others) = (Vec::new(), Vec::new(), Vec::new());
     for found in found {
         if let Some(sure) = Sure::of(&is_named_anew(&written_anew, found.log.path())) {
@@ -998,6 +1005,58 @@ fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> Option<(MoveLog
     let went = moves_that_went(pairs, &known, &folders_noted(&found.records));
     let sure = Sure::of(&went)?;
     Some((found_move_log(found.log, sure), went.ok()?))
+}
+
+/// Returns whether `path`, which a job log in `jobs` names in its `old-log` record, is a log of
+/// Glimt 0.92 or older that may go: a file, or no name, directly in a folder of
+/// `OLD_LOG_FOLDERS` beside `jobs`. Returns `CannotTell` for any other path, for a link, and when
+/// the name cannot be looked at. The record is written after the whole log, so it is read only
+/// from a log written anew whole.
+fn old_log_written_anew(jobs: &Path, path: &Path) -> AtStart<()> {
+    let state = jobs.parent().ok_or(CannotTell)?;
+    let (Some(_), Some(folder)) = (path.file_name(), path.parent()) else {
+        return Err(CannotTell);
+    };
+    if !OLD_LOG_FOLDERS
+        .iter()
+        .any(|name| state.join(name) == folder)
+    {
+        return Err(CannotTell);
+    }
+    if !matches!(crate::files::file_io::is_link(folder), Ok(false)) {
+        return Err(CannotTell);
+    }
+    is_file_or_gone(path)
+}
+
+/// Returns `Ok` when `path`, not followed through a link, is a file or surely not there.
+fn is_file_or_gone(path: &Path) -> AtStart<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_file() => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err(CannotTell),
+    }
+}
+
+/// Removes the log of Glimt 0.92 or older at `path` and the lists that it kept beside it, in
+/// the folders of `OLD_LISTS_FOLDERS` of its own folder, by the log's name.
+fn remove_old_log_with_its_lists(path: &Path, sure: Sure) {
+    let (Some(name), Some(folder)) = (path.file_name(), path.parent()) else {
+        return;
+    };
+    remove_job_log(path, sure);
+    for lists in OLD_LISTS_FOLDERS {
+        // A link where a folder of lists was is not followed, and a folder is no list: either
+        // stays, and `clear_old_log_folders` tells it.
+        let list = folder.join(lists).join(name);
+        let is_list = matches!(
+            crate::files::file_io::is_link(&folder.join(lists)),
+            Ok(false)
+        );
+        if let (true, Some(sure)) = (is_list, Sure::of(&is_file_or_gone(&list))) {
+            remove_job_log(&list, sure);
+        }
+    }
 }
 
 /// Returns whether a job log in `written_anew` names the log at `path` in its `old-log` record:
@@ -4179,9 +4238,10 @@ mod tests {
     }
 
     /// A planted job log whose `old-log` record names a file outside the folder of the job logs
-    /// does not get that file removed: neither a photo, nor a log in a folder of Glimt 0.92 or
-    /// older, which this Glimt no longer reads. The start removes only a log of the job logs'
-    /// own folder that such a record names, as a kill leaves one beside the log written from it.
+    /// does not get that file removed: neither a photo, also by a path through `..`, nor a file
+    /// deeper in a folder of Glimt 0.92 or older. The start removes only a log of the job logs'
+    /// own folder that such a record names, as a kill leaves one beside the log written from it,
+    /// and an old log directly in an old folder (`an_old_log_written_anew_goes_after_a_kill`).
     #[test]
     fn an_old_log_record_removes_nothing_outside_the_log_folders() {
         let dir =
@@ -4191,13 +4251,15 @@ mod tests {
         std::fs::create_dir_all(&jobs).unwrap();
         std::fs::create_dir_all(&deletes).unwrap();
         std::fs::write(&photo, "a").unwrap();
-        let old = deletes.join("w-1");
+        let old = deletes.join("sub").join("w-1");
+        std::fs::create_dir_all(deletes.join("sub")).unwrap();
         std::fs::write(&old, b"/p/a.jpg\0").unwrap();
+        let through_parent = deletes.join("..").join("a.jpg");
         let (written_from, _) = super::JobLog::start(&jobs, "move", &[])
             .unwrap()
             .into_path_and_file();
         for job in ["rename", "delete", "move"] {
-            for named in [&photo, &old, &written_from] {
+            for named in [&photo, &through_parent, &old, &written_from] {
                 let planted = [super::Record::OldLog(named.clone())];
                 drop(super::JobLog::start(&jobs, job, &planted).unwrap());
             }
@@ -4210,6 +4272,34 @@ mod tests {
             "the log named in jobs/ was not removed"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Glimt 0.93 and 0.94 wrote an old log anew as a job log with an `old-log` record, and then
+    /// removed the old one. A kill between the two leaves both. The start puts the job log right
+    /// and removes the old log with its lists, so the old folder goes and nothing is told. Before,
+    /// the old log stayed, and the user was sent to Glimt 0.94, which put it right a second time.
+    #[test]
+    fn an_old_log_written_anew_goes_after_a_kill() {
+        let state =
+            std::env::temp_dir().join(format!("glimt-test-old-anew-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&state);
+        let (jobs, deletes) = (state.join("jobs"), state.join("deletes"));
+        std::fs::create_dir_all(&jobs).unwrap();
+        std::fs::create_dir_all(deletes.join("files")).unwrap();
+        std::fs::write(deletes.join("files").join(".lock"), "").unwrap();
+        let old = deletes.join("w-1");
+        std::fs::write(&old, b"/p/a.jpg\0").unwrap();
+        std::fs::write(deletes.join("files").join("w-1"), "-\n").unwrap();
+        let planted = [super::Record::OldLog(old.clone())];
+        drop(super::JobLog::start(&jobs, "delete", &planted).unwrap());
+        crate::files::file_io::take_saves_failed();
+        drop(super::jobs_cut_short(&jobs));
+        assert!(!old.exists() && !deletes.join("files").join("w-1").exists());
+        super::clear_old_log_folders(&state);
+        assert!(!deletes.exists(), "the old folder stayed");
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(told.is_empty(), "{told:?}");
+        std::fs::remove_dir_all(state).unwrap();
     }
 
     /// A folder of the logs of Glimt 0.92 or older that holds no log, only folders of lists
