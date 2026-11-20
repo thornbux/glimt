@@ -158,15 +158,16 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
 /// Copies one of Glimt's own folders, named `name` in a backup, to `to`, and returns how many
 /// files were copied. The state folder's job logs are left out: restored later, a Rename Many's
 /// plan would rename files again, and another job's log would be put right at a start once more.
-/// Since 0.93 they are in jobs/, before it a Rename Many's plan was in renames/. Neither folder
-/// is looked at, so a log that a finishing job removes while the backup lists it cannot make the
-/// backup fail, and the count holds only the files in the backup.
+/// Since 0.93 they are in jobs/, before it in the old folders of `journal::OLD_LOG_FOLDERS`.
+/// None of these folders is looked at, so a log that a finishing job removes while the backup
+/// lists it cannot make the backup fail, and the count holds only the files in the backup.
 fn copy_own(name: &str, from: &Path, to: &Path) -> std::io::Result<usize> {
-    let leave_out: &[&str] = match name {
-        "state" => &["renames", "jobs"],
-        _ => &[],
+    let old = crate::files::journal::OLD_LOG_FOLDERS;
+    let leave_out: Vec<&str> = match name {
+        "state" => old.into_iter().chain(["jobs"]).collect(),
+        _ => Vec::new(),
     };
-    copy_tree(from, to, leave_out)
+    copy_tree(from, to, &leave_out)
 }
 
 /// Makes the folder glimt-backup-DATE in `dir`, or glimt-backup-DATE-2 and so on when the name
@@ -269,6 +270,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let from = dir.join("from");
         std::fs::create_dir_all(from.join("renames")).unwrap();
+        std::fs::create_dir_all(from.join("moves")).unwrap();
+        std::fs::create_dir_all(from.join("deletes/files")).unwrap();
+        std::fs::write(from.join("moves/w-1"), "/x\0").unwrap();
+        std::fs::write(from.join("deletes/files/w-1"), "-\n").unwrap();
         std::fs::create_dir_all(from.join("jobs/.glimt-tmp-1")).unwrap();
         std::fs::write(from.join("marks"), "a.jpg\t4\n").unwrap();
         std::fs::write(from.join("renames/plan"), "/x\0/y\0").unwrap();
@@ -280,9 +285,11 @@ mod tests {
             1
         );
         assert!(to.join("state/marks").is_file());
-        assert!(!to.join("state/jobs").exists() && !to.join("state/renames").exists());
+        for left_out in ["jobs", "renames", "moves", "deletes"] {
+            assert!(!to.join("state").join(left_out).exists(), "{left_out}");
+        }
         std::fs::remove_dir_all(from.join("jobs/.glimt-tmp-1")).unwrap();
-        assert_eq!(super::copy_own("data", &from, &to.join("data")).unwrap(), 3);
+        assert_eq!(super::copy_own("data", &from, &to.join("data")).unwrap(), 5);
         assert!(to.join("data/jobs/log").is_file());
         std::fs::remove_dir_all(dir).unwrap();
     }

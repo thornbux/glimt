@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 /// Many's plans, the Moves' logs and the deletes' logs. Glimt 0.93 and 0.94 put every log there
 /// right once and wrote the job logs in `jobs/` instead. This Glimt no longer reads them
 /// (`clear_old_log_folders`).
-const OLD_LOG_FOLDERS: [&str; 3] = ["renames", "moves", "deletes"];
+pub(crate) const OLD_LOG_FOLDERS: [&str; 3] = ["renames", "moves", "deletes"];
 
 /// The folders that Glimt 0.92 and older kept beside their logs, in a folder of `OLD_LOG_FOLDERS`,
 /// with the lists of each log's files, the collection shown, the sidecars put aside and the
