@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- File → Back Up made while a Rename Many ran copied its plan, as the backup left out only the
+  plan folder of before 0.93. After a restore, the next start asked about the plan and could put
+  the old names back. The backup leaves out the job logs again, of the jobs running and of those
+  a kill cut short.
+
 ## [0.93.0] - 2026-11-20
 
 ### Changed
