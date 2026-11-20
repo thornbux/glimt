@@ -33,6 +33,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   marks and collection entries follow a renamed folder, or forgets them for a trashed one, so a
   later folder of the old name does not show them (#248).
 
+### Fixed
+
+- A delete or Move to Trash cut short by a kill on a FAT or exFAT card keeps the marks of its
+  files while another card is mounted at the same path, told apart by the card's volume serial
+  number, and finishes when the first card is back. Where the serial cannot be found, as in the
+  Flatpak, the start keeps the log rather than guess (#266).
+
 ## [0.92.0] - 2026-11-19
 
 ### Changed
