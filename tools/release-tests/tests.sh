@@ -3126,19 +3126,23 @@ for v in new old; do
     else note "old: $got $(head -c 60 $d/out)"; fi
 done
 
-section "glimt --back-up: a folder that is not there is refused, a running rename's plan left out"
+section "glimt --back-up: a folder that is not there is refused, a running job's log left out"
 for v in new old; do
     as_version $v
     d=/tmp/backup-checks-$v
-    mkdir -p $d/to $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt/renames
+    mkdir -p $d/to $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt/renames \
+        $XDG_STATE_HOME/glimt/jobs
     printf '#GQview collection\n' >$XDG_DATA_HOME/glimt/collections/Mine.gqv
     printf '/x\0/y\0' >$XDG_STATE_HOME/glimt/renames/plan
+    # A job log, as a Rename Many of 0.93 keeps its plan in jobs/.
+    printf 'log\n' >$XDG_STATE_HOME/glimt/jobs/backup-check-log
     $BIN --back-up $d/typo >/dev/null 2>&1; missing=$?
     $BIN --back-up $XDG_DATA_HOME/glimt >/dev/null 2>&1; inside=$?
     [ -d $XDG_DATA_HOME/glimt/glimt-backup-* ] && inside="$inside, made"
     $BIN --back-up $d/to >/dev/null 2>&1
-    got="$missing $(ls -d $d/typo 2>/dev/null | wc -l) $(ls $d/to/glimt-backup-*/state 2>/dev/null | grep -c renames)"
-    if [ $v = new ]; then expect "refused, nothing made; no plan in the backup" "$got" "1 0 0"
+    got="$missing $(ls -d $d/typo 2>/dev/null | wc -l) $(ls $d/to/glimt-backup-*/state 2>/dev/null | grep -c 'renames\|jobs')"
+    rm -f $XDG_STATE_HOME/glimt/jobs/backup-check-log
+    if [ $v = new ]; then expect "refused, nothing made; no plan or job log in the backup" "$got" "1 0 0"
         expect "a backup into Glimt's own folder refused" "$inside" 1
         # The control: the backup that left the plan out was made, with the collection in it.
         expect "the backup made (the control)" \

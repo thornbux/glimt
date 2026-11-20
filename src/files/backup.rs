@@ -135,9 +135,13 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
         .sum();
     // The backup folder's name in `dir` is on disk too.
     let copied = copied.and_then(|n| crate::files::file_io::sync_folder_of(&to).map(|_| n));
-    // Not the plan of a Rename Many running now: restored later, it would rename files again.
-    // So a copy of it that could not be removed makes the backup not whole.
-    let removed = crate::files::file_io::remove_own(&to.join("state/renames"));
+    // Not the logs of the jobs running now: restored later, a Rename Many's plan would rename
+    // files again, and another job's log would be put right at a start once more. Since 0.93
+    // they are in jobs/, before it a Rename Many's plan was in renames/. So a copy of either
+    // that could not be removed makes the backup not whole.
+    let removed = ["state/renames", "state/jobs"]
+        .into_iter()
+        .try_for_each(|logs| crate::files::file_io::remove_own(&to.join(logs)));
     let copied = copied.and_then(|n| removed.map(|()| n));
     match copied {
         Ok(n) => Ok(crate::tf!(
