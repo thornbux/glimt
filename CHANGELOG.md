@@ -26,6 +26,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   that lost the answer to a step now keep their log too, so that the next start gives the marks
   and stars to the files where they went. Undo again of a file that came out of the trash
   without an answer now counts it as back, where before it failed every time.
+- File → Back Up left out the logs of Glimt 0.92 and older in `renames/` only, so a backup could
+  hold those in `moves/` and `deletes/`, which a restore put right again. And a log that Glimt
+  0.93 or 0.94 had written anew in `jobs/` when a kill came is now removed at the start, so the
+  start no longer asks to run Glimt 0.94 for it, which would put its job right a second time.
 - A start that cannot find a FAT card's volume, or cannot look at a folder, now keeps a killed
   job's log for a later start, rather than take another card's photo for the one that stayed.
 
