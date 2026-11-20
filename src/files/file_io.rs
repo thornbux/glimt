@@ -2397,6 +2397,35 @@ pub(crate) fn has_lasting_inodes(kind: &str) -> bool {
     )
 }
 
+/// Returns the name that udev gives in /dev/disk/by-uuid to the volume whose block device has
+/// the number `device`, the device a folder on it is on. For FAT and exFAT that name is the
+/// volume's serial number, which the camera or computer gave the card when it formatted it, so
+/// it tells two cards at one mount path apart where their inodes cannot. Returns `None` when no
+/// volume or more than one has that number, as for a share or a FUSE mount, where
+/// /dev/disk/by-uuid is not there (in a Flatpak's sandbox), and when the look fails. It waits
+/// for the disk.
+pub(crate) fn volume_of_device(device: u64) -> Option<std::ffi::OsString> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let volumes = (std::fs::read_dir("/dev/disk/by-uuid").ok()?.flatten()).filter_map(|entry| {
+        // The entry is a link to the volume's block device, whose number it follows to.
+        let meta = std::fs::metadata(entry.path()).ok()?;
+        (meta.file_type().is_block_device()).then(|| (entry.file_name(), meta.rdev()))
+    });
+    the_one_volume_of(volumes, device)
+}
+
+/// Returns the name of the one volume among `volumes`, each a name with the number of its block
+/// device, whose number is `device`. Returns `None` when none or more than one has it, as two
+/// names for one device cannot say which card it is.
+fn the_one_volume_of(
+    volumes: impl Iterator<Item = (std::ffi::OsString, u64)>,
+    device: u64,
+) -> Option<std::ffi::OsString> {
+    let mut found = volumes.filter(|(_, number)| *number == device);
+    let (name, _) = found.next()?;
+    found.next().is_none().then_some(name)
+}
+
 /// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there or
 /// the look failed.
 pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
@@ -3441,7 +3470,29 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A path through an opened folder (`path_through`) is asked about and shown by the folder's
+    /// The volume of a folder on FAT is the one name in /dev/disk/by-uuid whose block device has
+    /// the folder's device number. A device that no name or two names have gives no volume, as
+    /// it cannot say which card is mounted.
+    #[test]
+    fn a_volume_is_the_one_name_with_the_folders_device() {
+        let card = |name: &str, device: u64| (std::ffi::OsString::from(name), device);
+        let volumes = || {
+            [
+                card("7dc537c0-2a1a-45c1-8d6d-9ebaa90b6d76", 66306),
+                card("1234-ABCD", 2065),
+                card("9598-CE25", 66305),
+            ]
+            .into_iter()
+        };
+        assert_eq!(
+            super::the_one_volume_of(volumes(), 2065),
+            Some("1234-ABCD".into())
+        );
+        assert_eq!(super::the_one_volume_of(volumes(), 2066), None);
+        let twice = volumes().chain([card("5678-EF01", 2065)]);
+        assert_eq!(super::the_one_volume_of(twice, 2065), None);
+    }
+
     /// own name. Before, the mount table found it on /proc, so a trash at the top of an NFS or
     /// SMB mount was taken for a local one, and ENOENT there for nothing done. A sidecar whose
     /// rename was sent again then went back into the trash without its photo. The text of an

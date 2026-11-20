@@ -64,11 +64,16 @@ const HOME_TRASH: &str = "home";
 #[derive(Debug, PartialEq)]
 pub(crate) enum Record {
     /// A folder that the job's files are in, with its device and inode when the log was
-    /// written, so that a start can tell another card at the same mount path.
+    /// written, so that a start can tell another card at the same mount path. Where its file
+    /// system keeps no inode (inode 0, FAT and exFAT), the `volume` it is on tells the card
+    /// instead, when it could be found: the name udev gives the volume in /dev/disk/by-uuid. It
+    /// is written as a fourth field only then, so that a Glimt that reads three fields passes
+    /// over the record and cannot tell the folder, rather than take it for any card's.
     Folder {
         path: PathBuf,
         device: u64,
         inode: u64,
+        volume: Option<std::ffi::OsString>,
     },
     /// The collection shown while the job ran, whose entries follow the files.
     Shown(PathBuf),
@@ -132,7 +137,12 @@ impl Record {
                 path: folder,
                 device,
                 inode,
-            } => ("folder", vec![path(folder), text(device), text(inode)]),
+                volume,
+            } => {
+                let mut fields = vec![path(folder), text(device), text(inode)];
+                fields.extend(volume.as_deref().map(|v| v.as_bytes().to_vec()));
+                ("folder", fields)
+            }
             Record::Shown(collection) => ("shown", vec![path(collection)]),
             Record::Step {
                 number,
@@ -190,6 +200,13 @@ impl Record {
                 path: absolute(p)?,
                 device: number(d)?,
                 inode: number(i)?,
+                volume: None,
+            },
+            (b"folder", [p, d, i, v]) => Record::Folder {
+                path: absolute(p)?,
+                device: number(d)?,
+                inode: number(i)?,
+                volume: Some(plain_name(v)?.into_os_string()),
             },
             (b"shown", [p]) => Record::Shown(absolute(p)?),
             (b"step", [n, from, to, known]) => Record::Step {
@@ -718,6 +735,7 @@ mod tests {
                 path: p("/photos"),
                 device: 2049,
                 inode: 77,
+                volume: None,
             },
             Record::Shown(p("/c/a.gqv")),
             Record::Step {
@@ -771,6 +789,12 @@ mod tests {
             Record::Written {
                 number: 0,
                 fingerprint: (None, 99, (1_700_000_001, 0)),
+            },
+            Record::Folder {
+                path: p("/card/DCIM"),
+                device: 2065,
+                inode: 0,
+                volume: Some("1234-ABCD".into()),
             },
         ]
     }
@@ -858,7 +882,7 @@ mod tests {
     }
 
     /// A path that is relative or goes up with `..` makes its record be passed over, and so does
-    /// a `.trashinfo` name with a `/`. The records around it are kept.
+    /// a `.trashinfo` name or a folder's volume with a `/`. The records around it are kept.
     #[test]
     fn relative_paths_and_dot_dot_are_refused() {
         let good = log_bytes("1", &every_record()[..3]);
@@ -871,6 +895,7 @@ mod tests {
             b"trashed\x000\0media\0a.trashinfo\0\0",
             b"aside\x000\0/p/a.xmp\0/p/../q/.h\0\0",
             b"old-log\0../deletes/1-2\0\0",
+            b"folder\0/card\x002065\x000\0../1234-ABCD\0\0",
         ] {
             let mut bytes = good.clone();
             bytes.extend(bad);

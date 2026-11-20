@@ -38,6 +38,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A job that starts while another window starts no longer finds its new log taken by that
   window's look for logs left by a kill. Rename Many and Rename Folder refused to start then,
   and a Move or a delete went on without its log (#268).
+- A delete or Move to Trash cut short by a kill on a FAT or exFAT card keeps the marks of its
+  files while another card is mounted at the same path, told apart by the card's volume serial
+  number, and finishes when the first card is back. Where the serial cannot be found, as in the
+  Flatpak, the start keeps the log rather than guess (#266).
 
 ## [0.92.0] - 2026-11-19
 
