@@ -65,8 +65,14 @@ thread_local! {
 
 /// What the `folder` and `volume` records of a log noted of a folder: its device, its inode (0
 /// where its file system keeps none), and the volume it is on where it is on FAT or exFAT and
-/// the volume could be found.
-type FolderNoted = (u64, u64, Option<std::ffi::OsString>);
+/// the volume could be found. Only `is_the_folder_noted` compares them with a folder now
+/// (`source_rules::one_rule_tells_the_folder_a_log_noted`).
+#[derive(Debug, Clone)]
+struct FolderNoted {
+    noted_device: u64,
+    noted_inode: u64,
+    noted_volume: Option<std::ffi::OsString>,
+}
 
 /// The job logs a start found: the Moves with the files that went, the deletes with the files
 /// whose marks are to be forgotten, and the other jobs with what each did (`jobs_cut_short`).
@@ -706,20 +712,20 @@ fn folder_job_done(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
     };
     let folders = folders_noted(records);
     let noted = folders.get(&from);
-    // An inode of 0 was not noted, as on FAT (`folder_record`).
-    let inode = (noted.map(|(_, inode, _)| *inode)).filter(|inode| *inode != 0);
-    // Whether a folder is at `path` with the noted inode, or where none was noted, on the noted
-    // volume. A failed look, or a folder of another card at the same path, cannot tell.
+    // Whether the folder noted is at `path` (`is_the_folder_noted`). A failed look, or a folder
+    // of another card at the same path, cannot tell.
     let holds_the_folder = |path: &Path| -> AtStart<bool> {
         let found = crate::files::file_io::fingerprint_if_there(path).map_err(|_| CannotTell)?;
         let Some((key, _, _)) = found else {
             return Ok(false);
         };
-        match (key, inode, noted) {
-            (Some((_, now)), Some(noted_inode), _) => Ok(now == noted_inode),
-            (Some((device, _)), None, Some(noted)) if is_surely_dir(path) => {
-                let is_on_it = is_on_the_volume_noted(path, noted, device)?;
-                is_on_it.then_some(true).ok_or(CannotTell)
+        match (key, noted) {
+            (Some((device, inode)), Some(noted)) if is_surely_dir(path) => {
+                // Another card at the path does not tell where the folder noted went.
+                if !is_the_folder_noted(path, noted, device, None)? {
+                    return Err(CannotTell);
+                }
+                is_the_folder_noted(path, noted, device, Some(inode))
             }
             _ => Ok(is_surely_dir(path)),
         }
@@ -1227,14 +1233,14 @@ fn steps_left(
         .collect();
     let left = (r.names.iter().zip(&r.known)).filter(|(name, _)| untold.contains(*name));
     let folders_left: HashSet<&Path> = left.clone().filter_map(|(n, _)| n.parent()).collect();
-    for (path, (device, inode, volume)) in &r.folders {
+    for (path, noted) in &r.folders {
         if folders_left.contains(path.as_path()) {
             records.push(Record::Folder {
                 path: path.clone(),
-                device: *device,
-                inode: *inode,
+                device: noted.noted_device,
+                inode: noted.noted_inode,
             });
-            records.extend(volume.clone().map(|volume| Record::Volume {
+            records.extend(noted.noted_volume.clone().map(|volume| Record::Volume {
                 path: path.clone(),
                 volume,
             }));
@@ -1550,34 +1556,58 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
                 path,
                 device,
                 inode,
-            } => Some((path.clone(), (*device, *inode, None))),
+            } => Some((
+                path.clone(),
+                FolderNoted {
+                    noted_device: *device,
+                    noted_inode: *inode,
+                    noted_volume: None,
+                },
+            )),
             _ => None,
         })
         .collect();
     for record in records {
         if let Record::Volume { path, volume } = record
-            && let Some((_, _, noted)) = folders.get_mut(path)
+            && let Some(noted) = folders.get_mut(path)
         {
-            *noted = Some(volume.clone());
+            noted.noted_volume = Some(volume.clone());
         }
     }
     folders
 }
 
-/// Returns whether `folder`, on the device `device` now, is on the volume that its records
-/// `noted` saw. A folder whose inode was noted is, as the inode tells it instead, and so is one
-/// whose log noted no volume, as on a share or where udev was not there: the device alone tells
-/// it, as it did before there were volumes. Returns `Ok(false)` for another volume, surely
-/// another card at the same path, and `CannotTell` when the volume now cannot be found.
+/// Returns whether `folder`, on the device `device` now and with the inode `inode`, is the
+/// folder that its records `noted` saw: the one rule by which a start tells it. `inode` is `None`
+/// for a folder above the one noted, whose own inode was never noted.
+///
+/// A noted volume (FAT, exFAT) decides alone, as a card plugged in again may get another device
+/// number and another card in the same reader gets the same one. Without a volume the device must
+/// be the noted one, and then the inode too where one was noted (not 0). Returns `Ok(false)` for
+/// another volume, surely another card at the same path, and for another folder on the noted
+/// device, one made at the name after the job. Returns `CannotTell` for another device without a
+/// volume, as then the folder noted is not here (an empty mount point) or came back under another
+/// device number, and for a volume that cannot be found now.
 ///
 /// shortcut: the volume is looked up again for each path a start reads on a card, a few looks in
 /// /dev/disk/by-uuid each; keep it for each folder if a killed job on a card of many thousand
 /// files makes the start slow.
-fn is_on_the_volume_noted(folder: &Path, noted: &FolderNoted, device: u64) -> AtStart<bool> {
-    match noted {
-        (_, 0, Some(volume)) => Ok(volume_of(folder, device).ok_or(CannotTell)? == *volume),
-        _ => Ok(true),
+fn is_the_folder_noted(
+    folder: &Path,
+    noted: &FolderNoted,
+    device: u64,
+    inode: Option<u64>,
+) -> AtStart<bool> {
+    if let Some(volume) = &noted.noted_volume {
+        return Ok(volume_of(folder, device).ok_or(CannotTell)? == *volume);
     }
+    if device != noted.noted_device {
+        return Err(CannotTell);
+    }
+    Ok(match inode {
+        Some(inode) if noted.noted_inode != 0 => inode == noted.noted_inode,
+        _ => true,
+    })
 }
 
 /// Returns the device that `folder` is on now, and `None` when the look fails.
@@ -1592,12 +1622,13 @@ fn device_now(folder: &Path) -> Option<u64> {
 }
 
 /// Returns whether the folder of `path` is another folder than the one that the log's `folders`
-/// saw there: one with another inode, as another card mounted at the same path, or on FAT one
-/// on another volume. The device is left out, as a card plugged in again may get another device
-/// number. A folder the log has no record of, one that is surely gone, and one whose file system
-/// gives no inode, are not counted as another. Returns `CannotTell` when the look at the folder
-/// fails, or its volume cannot be found, so that the log stays for a later start. Before, both
-/// counted as the same folder, and a file of another card at the path as the one that stayed.
+/// saw there, made at its name after the job (`is_the_folder_noted`). A folder the log has no
+/// record of, one that is surely gone, and one whose file system gives no inode, are not counted
+/// as another, and a folder on another volume, another card at the same path, is. Returns
+/// `CannotTell` when the look at the folder fails, when its volume cannot be found, or when it is
+/// on another device without a noted volume, so that the log stays for a later start. Before,
+/// both counted as the same folder, and a file of another card at the path as the one that
+/// stayed.
 fn is_another_folder(folders: &HashMap<PathBuf, FolderNoted>, path: &Path) -> AtStart<bool> {
     let Some((folder, noted)) = path.parent().and_then(|f| Some((f, folders.get(f)?))) else {
         return Ok(false);
@@ -1608,11 +1639,9 @@ fn is_another_folder(folders: &HashMap<PathBuf, FolderNoted>, path: &Path) -> At
             false => Err(CannotTell),
         };
     };
-    Ok(match (now, noted) {
-        // An inode of 0 was not noted, as on FAT (`folder_record`), and the volume tells the card.
-        (Some((device, _)), (_, 0, _)) => !is_on_the_volume_noted(folder, noted, device)?,
-        (Some((_, now)), (_, inode, _)) => now != *inode,
-        (None, _) => false,
+    Ok(match now {
+        Some((device, inode)) => !is_the_folder_noted(folder, noted, device, Some(inode))?,
+        None => false,
     })
 }
 
@@ -1629,8 +1658,9 @@ fn is_another_folder(folders: &HashMap<PathBuf, FolderNoted>, path: &Path) -> At
 /// The device tells the folder that the job wrote to from an empty mount point at its path, such
 /// as `/mnt/nas` while its share is not mounted, which is a folder too. A stick plugged in again
 /// with another device number cannot be told either, and its log waits for a later start: its
-/// marks are kept, never lost. A log that noted no folder at all is of Glimt 0.92, or written
-/// anew from one, and only the folder's being there is asked of it, as before.
+/// marks are kept, never lost. A FAT card is told by its volume instead, whatever its device. A
+/// log that noted no folder at all is of Glimt 0.92, or written anew from one, and only the
+/// folder's being there is asked of it, as before.
 ///
 /// For a delete's log, a file at the name keeps its marks also when it changed since. It may be
 /// the file the kill came before, written by another program since, or a file that another
@@ -1647,7 +1677,7 @@ fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, FolderNoted>) -> AtS
             return removed_from_its_device(folder, noted);
         }
         let device = device_now(folder).ok_or(CannotTell)?;
-        if device != noted.0 || !is_on_the_volume_noted(folder, noted, device)? {
+        if !is_the_folder_noted(folder, noted, device, None)? {
             return Err(CannotTell);
         }
     }
@@ -1665,13 +1695,13 @@ fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, FolderNoted>) -> AtS
 /// then the folder was deleted, not taken away with a stick or share. Returns `CannotTell` when
 /// that folder is on another device, as an empty mount point is, or when a look fails. Where the
 /// log noted a volume (FAT, exFAT), that folder must also be on that volume, as another card in
-/// the same reader is on the same device (`is_on_the_volume_noted`).
+/// the same reader is on the same device (`is_the_folder_noted`).
 fn removed_from_its_device(folder: &Path, noted: &FolderNoted) -> AtStart<bool> {
     let mut above = folder.parent();
     while let Some(ancestor) = above {
         if is_surely_dir(ancestor) {
             let device = device_now(ancestor).ok_or(CannotTell)?;
-            let same = device == noted.0 && is_on_the_volume_noted(ancestor, noted, device)?;
+            let same = is_the_folder_noted(ancestor, noted, device, None)?;
             return same.then_some(true).ok_or(CannotTell);
         }
         if !is_surely_gone(ancestor) {
@@ -4924,6 +4954,33 @@ mod tests {
         }
         card_volume(&card, Some("1111-AAAA"));
         let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1, std::slice::from_ref(&a));
+        assert_eq!(let_go(found), 1);
+        assert!(super::delete_jobs_cut_short(&logs).is_empty());
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A killed delete on a FAT card plugged in again under another device number, with the
+    /// same volume, finishes its log, while another card under the old device number still keeps
+    /// it. Before, the device was compared beside the volume, so such a log stayed until the card
+    /// got its old device number again.
+    #[test]
+    fn a_fat_card_back_under_another_device_number_finishes_its_log() {
+        let (dir, card, logs) = fat_card("start-fat-card-device");
+        let (a, b) = (card.join("a.png"), card.join("b.png"));
+        std::fs::write(&b, "b").unwrap();
+        card_volume(&card, Some("1111-AAAA"));
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(&[a.clone(), b.clone()]);
+        drop(log);
+        card_volume(&card, Some("2222-BBBB"));
+        let found = super::delete_jobs_cut_short(&logs);
+        assert!(found[0].1.is_empty(), "{:?}", found[0].1);
+        assert_eq!(let_go(found), 1);
+        card_volume(&card, Some("1111-AAAA"));
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(card.clone()));
+        let found = super::delete_jobs_cut_short(&logs);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
         assert_eq!(found[0].1, std::slice::from_ref(&a));
         assert_eq!(let_go(found), 1);
         assert!(super::delete_jobs_cut_short(&logs).is_empty());
