@@ -16,6 +16,9 @@
 if [ "$(id -u)" = 0 ]; then
   if [ "$STEP" != run ] && [ "$STEP" != audit ]; then
     export DEBIAN_FRONTEND=noninteractive
+    # run.sh keeps the tools in an image of their own (STEP=tools), made again when this block
+    # or rust:1 changes, and prepares in it.
+    if [ ! -e /opt/tools-installed ]; then
     echo "-- installing tools"
     # A failed install (an unreachable mirror) stops here: without Xvfb every check would fail.
     apt-get update -qq >/dev/null
@@ -28,7 +31,10 @@ if [ "$(id -u)" = 0 ]; then
         https://downloads.openmicroscopy.org/bio-formats/8.5.0/artifacts/bftools.zip
     echo "07a3bb1d3de84da3a709655a1008cb2d9b19becc5bad4ae4112633aec9380478  /tmp/bftools.zip" \
         | sha256sum -c --quiet && (cd /opt && unzip -q /tmp/bftools.zip) \
-        || echo "FAIL installing bftools"
+        || { echo "FAIL installing bftools"; [ "$STEP" = tools ] && exit 1; }
+    fi
+    # The end of the tools' block, which run.sh's key of the tools image ends at.
+    if [ "$STEP" = tools ]; then touch /opt/tools-installed; exit 0; fi
     # tools/screenshots/run.sh (SHOTS=1) needs only this version.
     for v in new $([ -z "$SHOTS" ] && echo old); do
         # The last release built once: kept by its commit, which never changes.

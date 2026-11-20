@@ -9,7 +9,8 @@
 #   PARTS=N tools/release-tests/run.sh          the checks in N containers at once (default: by
 #                                               Docker's processors and memory, 1 to 6)
 #
-# One container installs the tools and builds both, and is kept as an image; the checks then
+# One container installs the tools, kept as an image of their own until they change; one of it
+# builds both, and is kept as an image; the checks then
 # run in PARTS containers of it at once, each with its own X display, /tmp and HOME, in runs of
 # whole sections in their order; a section makes what it needs itself. The timings
 # run after them with nothing else running, then cargo audit. The logs are printed in order.
@@ -104,10 +105,25 @@ summary = '\ntook\nif [ $FAILED -gt 0 ]; then echo "$FAILED checks failed"; exit
 for k, run in enumerate(runs + [timings]):
     open(f"{work}/part-{k}.sh", "w").write(head + start + "\n".join(run) + summary)
 PY
+# The tools are installed once into an image of their own, kept by a key of the block of
+# tests.sh that installs them and of rust:1, so a change to either makes it again.
+tools_key=$( { sed -n '/-- installing tools/,/STEP" = tools/p' "$work/tests.sh"
+    docker image inspect -f '{{.Id}}' rust:1; } | { sha256sum 2>/dev/null || shasum -a 256; } |
+    cut -c1-16)
+tools=glimt-release-tools:$tools_key
+if ! docker image inspect $tools >/dev/null 2>&1; then
+    docker run --name glimt-release-tests-$$ -e STEP=tools -v "$work:/t" rust:1 bash /t/tests.sh &&
+        docker commit glimt-release-tests-$$ $tools >/dev/null ||
+        { docker rm -f glimt-release-tests-$$ >/dev/null; echo "FAIL installing the tools"; exit 1; }
+    docker rm glimt-release-tests-$$ >/dev/null
+    # Only the latest is kept, as an older key is not asked for again.
+    docker images --format '{{.Repository}}:{{.Tag}}' glimt-release-tools | grep -vx "$tools" |
+        xargs docker rmi >/dev/null 2>&1 || :
+fi
 status=0
 docker run --name glimt-release-tests-$$ -e STEP=prepare -e OLD_COMMIT="$(git rev-parse "$old^{commit}")" \
     -v "$work:/t" -v glimt-target:/work-target -v glimt-cargo:/usr/local/cargo/registry \
-    rust:1 bash /t/tests.sh || status=$?
+    $tools bash /t/tests.sh || status=$?
 docker commit glimt-release-tests-$$ $image >/dev/null || status=1
 docker rm glimt-release-tests-$$ >/dev/null
 [ $status = 0 ] || { echo "FAIL preparing the tests"; exit 1; }
