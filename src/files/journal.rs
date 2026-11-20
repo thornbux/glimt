@@ -1783,12 +1783,27 @@ fn read_plan_known(plan: &Path, steps: usize) -> std::io::Result<PlanKnown> {
 
 /// Returns a name for a new plan or log. It is a name of its own, never one that is there, so a
 /// plan left by a crash, of a Glimt that had the same process ID before a restart, is not
-/// written over and lost.
+/// written over and lost. It is this window's name and a time in nanoseconds, and no two calls
+/// in one window give the same time, also when the clock does not move between them or goes
+/// back. `JobLog::start` counts on that, as it renames a new log to this name with a rename
+/// that would write over a file there.
 pub(crate) fn new_name() -> String {
-    let nanos = std::time::SystemTime::now()
+    static LAST: std::sync::Mutex<u128> = std::sync::Mutex::new(0);
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
+    let nanos = later_than_last(
+        &mut crate::support::threads::lock_even_if_poisoned(&LAST),
+        now,
+    );
     format!("{}-{nanos}", crate::features::remote::instance_id())
+}
+
+/// Returns `now`, or one more than `last` when `now` is not later, and keeps it in `last`. So
+/// every call gives a time of its own, also from two threads, which take turns at the lock.
+fn later_than_last(last: &mut u128, now: u128) -> u128 {
+    *last = now.max(*last + 1);
+    *last
 }
 
 /// The plans in `dir`, the folder of the job logs, of renames that were cut short, which are
@@ -2304,6 +2319,17 @@ fn is_linked(file: &File) -> std::io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
+    /// Two names asked for at one moment of the clock, or after the clock went back, differ.
+    /// Before, a name was the clock's time alone, and two logs of one moment had one name.
+    #[test]
+    fn two_new_names_at_one_moment_differ() {
+        let mut last = 0;
+        assert_eq!(super::later_than_last(&mut last, 5), 5);
+        assert_eq!(super::later_than_last(&mut last, 5), 6);
+        assert_eq!(super::later_than_last(&mut last, 3), 7);
+        assert_eq!(super::later_than_last(&mut last, 10), 10);
+    }
+
     /// A log of a kind of job that the start has no reader for would stay in `jobs/` for good.
     /// So every kind in `JOB_KINDS` must have one, and a kind added without its reader fails
     /// here.
