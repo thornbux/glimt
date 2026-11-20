@@ -39,8 +39,10 @@ branch made from it and merged back into it; `main` gets the release branch only
    publishes the packages (below).
 8. **After the tag.** Check that the Release workflow ended green, with every package,
    `SHA256SUMS` and the attestations, and the Flatpak bundle.
-9. **Flathub.** A pull request to Flathub's repository (below). The website (glimt-web) is
-   updated when the maintainer asks.
+9. **Flathub and the website.** Glimt is not on Flathub yet, so nothing is sent
+   there. The Flatpak bundle goes only with the GitHub release. Once Glimt is on Flathub, a
+   pull request to its repository follows each tag (below). The website (glimt-web) is updated
+   when the maintainer asks.
 
 ## The release tests
 
@@ -224,7 +226,8 @@ flatpak run io.github.thornbux.Glimt
 
 ### Flathub
 
-Flathub builds from its own repository, `flathub/io.github.thornbux.Glimt`, not from this one.
+Not in use until Glimt is on Flathub: its repository there does not exist yet. Then Flathub
+builds from its own repository, `flathub/io.github.thornbux.Glimt`, not from this one.
 After each release tag, `python3 tools/flathub-manifest.py vX.Y.Z <its checkout>` writes there
 the manifest with Glimt from the tag (and its commit) and `cargo-sources.json`, for a pull
 request. Flathub builds it and publishes once it is merged. Check it with Flathub's linter:
