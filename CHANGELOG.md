@@ -11,6 +11,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   `deletes/` after a kill. An empty such folder is removed at the start. One that still holds a
   log is kept, and the start says to run Glimt 0.94 once to put it right.
 
+### Fixed
+
+- File → Back Up made while a job finished could fail as not whole, when the job's log was
+  removed while the backup copied it, and it counted the job logs among the files backed up.
+  The backup no longer looks at the job logs it leaves out (#271).
+
 ## [0.94.0] - 2026-11-20
 
 ### Fixed

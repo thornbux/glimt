@@ -27,28 +27,34 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
 /// Copies the folder `from` with everything in it to `to`, made, and on disk when it returns:
 /// a backup is often made to a USB stick that is pulled out right after. Returns how many files
 /// were copied. A link is copied as the file or folder it points to, so a themes folder that is a
-/// link into a dotfiles repository is backed up too. A link that leads nowhere is left out.
-pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
+/// link into a dotfiles repository is backed up too. A link that leads nowhere is left out, and
+/// so are the files and folders directly in `from` named in `leave_out`, which are not looked at.
+pub fn copy_tree(from: &Path, to: &Path, leave_out: &[&str]) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
     let mut above = Vec::from_iter(file_id(from));
-    let copied = copy_into(from, to, &ids_above(to), &mut above)?;
+    let copied = copy_into(from, to, &ids_above(to), &mut above, leave_out)?;
     // The name of `to` itself is on disk too.
     crate::files::file_io::sync_folder_of(to)?;
     Ok(copied)
 }
 
-/// Copies what is in `from` to `to`, made. `target` holds the folders the copy goes into, and
-/// `above` the folders being copied that hold `from`, by `file_id`.
+/// Copies what is in `from` to `to`, made, but not the names in `leave_out`. `target` holds the
+/// folders the copy goes into, and `above` the folders being copied that hold `from`, by
+/// `file_id`.
 fn copy_into(
     from: &Path,
     to: &Path,
     target: &[FileId],
     above: &mut Vec<FileId>,
+    leave_out: &[&str],
 ) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
     let mut files = 0;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
+        if leave_out.iter().any(|name| entry.file_name() == *name) {
+            continue;
+        }
         let (source, dest) = (entry.path(), to.join(entry.file_name()));
         // Through a link. One that leads nowhere is left out, and a look that failed otherwise
         // fails the backup, which would else miss the file or folder without a word.
@@ -78,7 +84,7 @@ fn copy_into(
                 continue;
             }
             above.push(id);
-            let copied = copy_into(&source, &dest, target, above);
+            let copied = copy_into(&source, &dest, target, above, &[]);
             above.pop();
             files += copied?;
         } else if meta.is_file() {
@@ -131,18 +137,10 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
         )
     })?;
     let copied: std::io::Result<usize> = (own.into_iter())
-        .map(|(name, from)| copy_tree(&from, &to.join(name)))
+        .map(|(name, from)| copy_own(name, &from, &to.join(name)))
         .sum();
     // The backup folder's name in `dir` is on disk too.
     let copied = copied.and_then(|n| crate::files::file_io::sync_folder_of(&to).map(|_| n));
-    // Not the logs of the jobs running now: restored later, a Rename Many's plan would rename
-    // files again, and another job's log would be put right at a start once more. Since 0.93
-    // they are in jobs/, before it a Rename Many's plan was in renames/. So a copy of either
-    // that could not be removed makes the backup not whole.
-    let removed = ["state/renames", "state/jobs"]
-        .into_iter()
-        .try_for_each(|logs| crate::files::file_io::remove_own(&to.join(logs)));
-    let copied = copied.and_then(|n| removed.map(|()| n));
     match copied {
         Ok(n) => Ok(crate::tf!(
             "Glimt's data backed up to {folder}: {files}",
@@ -155,6 +153,20 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
             e
         )),
     }
+}
+
+/// Copies one of Glimt's own folders, named `name` in a backup, to `to`, and returns how many
+/// files were copied. The state folder's job logs are left out: restored later, a Rename Many's
+/// plan would rename files again, and another job's log would be put right at a start once more.
+/// Since 0.93 they are in jobs/, before it a Rename Many's plan was in renames/. Neither folder
+/// is looked at, so a log that a finishing job removes while the backup lists it cannot make the
+/// backup fail, and the count holds only the files in the backup.
+fn copy_own(name: &str, from: &Path, to: &Path) -> std::io::Result<usize> {
+    let leave_out: &[&str] = match name {
+        "state" => &["renames", "jobs"],
+        _ => &[],
+    };
+    copy_tree(from, to, leave_out)
 }
 
 /// Makes the folder glimt-backup-DATE in `dir`, or glimt-backup-DATE-2 and so on when the name
@@ -197,9 +209,9 @@ mod tests {
         let from = dir.join("from");
         std::fs::create_dir_all(&from).unwrap();
         std::os::unix::fs::symlink("nowhere", from.join("dangling")).unwrap();
-        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 0);
+        assert_eq!(super::copy_tree(&from, &dir.join("to"), &[]).unwrap(), 0);
         std::os::unix::fs::symlink("loop", from.join("loop")).unwrap();
-        let error = super::copy_tree(&from, &dir.join("to2")).unwrap_err();
+        let error = super::copy_tree(&from, &dir.join("to2"), &[]).unwrap_err();
         assert!(error.to_string().contains("loop"), "{error}");
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -215,7 +227,7 @@ mod tests {
         std::fs::write(from.join("collections/a.gqv"), "#GQview").unwrap();
         std::fs::write(from.join("collections/sub/b.gqv"), "").unwrap();
         crate::files::file_io::FOLDERS_SYNCED.take();
-        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 3);
+        assert_eq!(super::copy_tree(&from, &dir.join("to"), &[]).unwrap(), 3);
         // Every file and folder copied is on disk with its name, as a USB stick may be pulled
         // out right after. Each folder is synced once, not once for each file in it.
         let synced = crate::files::file_io::FOLDERS_SYNCED.take();
@@ -232,17 +244,46 @@ mod tests {
         std::os::unix::fs::symlink(&from, from.join("collections/sub/up")).unwrap();
         std::os::unix::fs::symlink("../a.gqv", from.join("collections/sub/a.gqv")).unwrap();
         let _ = std::fs::remove_dir_all(dir.join("to"));
-        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 4);
+        assert_eq!(super::copy_tree(&from, &dir.join("to"), &[]).unwrap(), 4);
         assert!(dir.join("to/collections/sub/a.gqv").is_file());
         assert!(!dir.join("to/collections/sub/up").exists());
         std::fs::create_dir_all(dir.join("dotfiles/themes")).unwrap();
         std::fs::write(dir.join("dotfiles/themes/my.theme"), "").unwrap();
         std::os::unix::fs::symlink(dir.join("dotfiles/themes"), from.join("themes")).unwrap();
         let _ = std::fs::remove_dir_all(dir.join("to"));
-        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 5);
+        assert_eq!(super::copy_tree(&from, &dir.join("to"), &[]).unwrap(), 5);
         assert!(dir.join("to/themes/my.theme").is_file());
         // A backup into the folder a link leads to would copy itself, and is refused.
-        assert!(super::copy_tree(&from, &dir.join("dotfiles/themes/backup")).is_err());
+        assert!(super::copy_tree(&from, &dir.join("dotfiles/themes/backup"), &[]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The state folder's job logs are left out of a backup without being looked at: a jobs/
+    /// folder with something in it that cannot be looked at, as when a log vanished while it was
+    /// listed, does not make the backup fail, and the count holds only the files copied. A link
+    /// that loops stands for what cannot be looked at, as a test run as root reads any folder.
+    /// The other folders keep a jobs/ folder of their own.
+    #[test]
+    fn a_backup_leaves_the_job_logs_out_without_looking_at_them() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-own-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let from = dir.join("from");
+        std::fs::create_dir_all(from.join("renames")).unwrap();
+        std::fs::create_dir_all(from.join("jobs/.glimt-tmp-1")).unwrap();
+        std::fs::write(from.join("marks"), "a.jpg\t4\n").unwrap();
+        std::fs::write(from.join("renames/plan"), "/x\0/y\0").unwrap();
+        std::fs::write(from.join("jobs/log"), "log\n").unwrap();
+        std::os::unix::fs::symlink("loop", from.join("jobs/.glimt-tmp-1/loop")).unwrap();
+        let to = dir.join("to");
+        assert_eq!(
+            super::copy_own("state", &from, &to.join("state")).unwrap(),
+            1
+        );
+        assert!(to.join("state/marks").is_file());
+        assert!(!to.join("state/jobs").exists() && !to.join("state/renames").exists());
+        std::fs::remove_dir_all(from.join("jobs/.glimt-tmp-1")).unwrap();
+        assert_eq!(super::copy_own("data", &from, &to.join("data")).unwrap(), 3);
+        assert!(to.join("data/jobs/log").is_file());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
