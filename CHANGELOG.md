@@ -16,6 +16,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - File → Back Up made while a job finished could fail as not whole, when the job's log was
   removed while the backup copied it, and it counted the job logs among the files backed up.
   The backup no longer looks at the job logs it leaves out (#271).
+- A job killed on a FAT or exFAT camera card is now told from another card in the same reader
+  by the card's volume. Before, the start could take the other card's files for those of the
+  job and forget marks and stars, or not follow a photo that a Move took off the card (#266).
 
 ## [0.94.0] - 2026-11-20
 
