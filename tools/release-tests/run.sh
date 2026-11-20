@@ -54,6 +54,8 @@ git archive "$new" | tar -xm -C "$work/new"
 git archive "$old" | tar -xm -C "$work/old"
 # The tests of NEW as committed, not the working tree's, so a run checks that commit only.
 cp "$work/new/tools/release-tests/tests.sh" "$work/new/tools/release-tests/samples.txt" "$work/"
+# The seconds each section took in an earlier run, by which the sections are shared out.
+cp "$work/new/tools/release-tests/section-times.txt" "$work/" 2>/dev/null || :
 samples=${XDG_CACHE_HOME:-$HOME/.cache}/glimt-samples
 mkdir -p "$samples"
 sum() { { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; } | cut -d' ' -f1; }
@@ -90,16 +92,28 @@ head, body = s[:first], s[first:end]
 sections = [x for x in re.split("\n(?=" + re.escape(mark) + ")", body) if x.strip()]
 timings = [x for x in sections if x.startswith(mark + "timings")]
 checks = [x for x in sections if not x.startswith(mark + "timings")]
-# Runs of sections of about the same work: a start of Glimt is most of a check's time.
-weight = [1 + x.count("start ") * (2 if "for v in new old" in x else 1) for x in checks]
-total, runs, run, done = sum(weight), [], [], 0
-for x, w in zip(checks, weight):
-    run.append(x)
-    done += w
-    if done >= total * (len(runs) + 1) / parts and len(runs) < parts - 1:
-        runs.append(run)
-        run = []
-runs.append(run)
+# Each section's seconds in an earlier run (section-times.txt, "seconds<tab>title", from the
+# "took" notes), so that no part holds the run back. A section not in it, new or renamed, is
+# weighed by its starts of Glimt, which are most of a check's time, at the seconds a start took
+# on average in the sections that are in it.
+try:
+    lines = open(f"{work}/section-times.txt").read().splitlines()
+    seconds = {t: int(n) for n, t in (line.split("\t", 1) for line in lines if line.strip())}
+except OSError:
+    seconds = {}
+def title(x):
+    return x.split("\n", 1)[0][len(mark):].rstrip('"')
+starts = [1 + x.count("start ") * (2 if "for v in new old" in x else 1) for x in checks]
+known = [(seconds[title(x)], n) for x, n in zip(checks, starts) if title(x) in seconds]
+per_start = sum(s for s, _ in known) / sum(n for _, n in known) if known else 1
+weight = [seconds.get(title(x), n * per_start) for x, n in zip(checks, starts)]
+# The longest first, each into the part with the least so far; a part keeps the file's order.
+load, chosen = [0] * parts, [[] for _ in range(parts)]
+for i in sorted(range(len(checks)), key=lambda i: -weight[i]):
+    k = load.index(min(load))
+    load[k] += weight[i]
+    chosen[k].append(i)
+runs = [[checks[i] for i in sorted(c)] for c in chosen]
 summary = '\ntook\nif [ $FAILED -gt 0 ]; then echo "$FAILED checks failed"; exit 1; fi\n'
 for k, run in enumerate(runs + [timings]):
     open(f"{work}/part-{k}.sh", "w").write(head + start + "\n".join(run) + summary)

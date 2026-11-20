@@ -1,0 +1,199 @@
+24	saving turned: PNG, lossless WebP and lossy WebP with EXIF orientation 6
+38	a turned lossy WebP keeps its ICC profile and pixels, also with colour management off
+9	saves at once: a.png and a.webp of 6000x4000, turned one after the other
+13	a turn saved when another folder opens: to the turned image, not the new folder's
+5	a JPEG turned and left: its orientation field saved, in the background
+12	Copy to Folder, then Move to Folder while its dialog is open: the copy is done, not a move
+19	a turned image renamed before its turn is saved: the turn saved under the new name
+19	an empty folder: the turn keys leave Glimt running
+20	an image that could not be read, put right by another program: read again when shown again
+20	a turned image removed by another program: its turn goes to no other image
+13	subfolders, auto refresh off: copy and move to the folder and a subfolder
+14	Include Subfolders saved on: on at the next start, off again by --remote subfolders off
+61	no busy loop: zoomed panes, a random slideshow behind a search or in panes one at a time
+22	a delete that fails in a subfolder: the file comes back
+20	a delete that fails in a collection: the image stays in the collection
+24	a delete that fails while the same collection is opened again: the image comes back
+19	a slideshow one pane at a time, the folder read again: the second pane keeps its file
+16	a file of the same name opened in another folder: not at the zoom of the one before
+19	the folder read again while zoomed in: the zoom stays
+16	a refresh keeps the selection: a delete after it takes what was selected
+11	--remote current and selection: the paths, each ending in NUL, also with a line break
+7	--remote info: every key of the image shown and of a file named, with its EXIF, keywords and stars
+11	--remote to a minimized window: answered at once, the image changes once it is shown
+29	--remote quit to a minimized window while copying: it waits, and ends once the copies are whole
+26	SIGTERM while moving to another disk: it waits, ends when every file is moved, marks follow
+3	SIGHUP to a window at rest: it ends at once, and its state is written
+12	thumbnails in the image area (G): ↓ moves a row, Enter shows the image, Esc the grid
+7	the grid in the image area (G) with thumbnails and details on: the side panel has names
+19	View → Thumbnails in Image Area: ticked while the grid shows, not on an image opened from it
+17	View → Thumbnail Size → Large: the grid's thumbnails larger, and the size saved
+15	View → Show File Names Under Thumbnails off: no names under the grid's thumbnails
+15	Ctrl+ and Shift+double-click in the grid in the image area (G): open the file clicked
+9	Ctrl+ and Shift+double-click in the side panel's file list: open the file clicked
+18	--remote select while Delete asks: the answer deletes the file it asked about only
+10	--remote open with a line break in the name: refused, not read as a second command
+11	--remote slideshow on twice keeps it running, off twice keeps it stopped: a state, not a toggle
+8	--remote open of a folder whose name ends in a space: opened as named
+19	a selection the search hides part of: the status bar and the delete's question count the hidden files
+8	--remote run ACTION: an action for scripts runs, one that changes files is refused
+3	glimt --action-list: each action once with its label, and --remote run takes the first
+10	--remote run while a text field has the focus: not done, exit 3 and the reason
+8	--wait --remote run: done once the setting is written, exit 3 when its folder is read-only
+7	--remote previous, and the words from before 0.74.0: prev and run Prev still taken
+11	--remote select while Preferences is open: answered at once
+8	--remote select through a linked folder: the files are found
+8	--remote select: right after open, files of the list selected, the others printed
+27	copying 240 files of 25 MB, closed halfway: counted in the status bar, every copy whole
+20	copying, closed twice: stopped after the file at hand, no hidden half copy left
+10	thumbnails with Auto Rotate off
+18	stars follow a renamed file, and go with a deleted one
+13	stars that cannot be saved (a folder that cannot be written): told, not lost silently
+13	a mark set by another window meanwhile: a mark's key here goes from it
+17	stars to XMP for two files, the first one's sidecar not writable: the second still gets them
+13	Rename answered after the folder was read again: the same file renamed
+18	Rename with one file selected by a right-click: that file renamed, not the one shown
+14	Rename answered after --remote next: the file asked about renamed, not the next image
+49	Rename Many of 20,000 in a collection, an image taken out while it runs: the others stay
+22	Rename Many, closed at once: the window waits, every file renamed, no plan left
+16	Rename Many failing halfway: names that swap, and one too long
+23	Rename Many on a FAT card: a change of case and a swap, through the hidden names; a Copy To the card, also through a link
+52	the usual operations on an rclone mount and on an sftp:// folder Glimt mounts with gio
+26	Rename Many with Include Subfolders: the view stays on the folder and its subfolders
+31	Find Duplicates: trash the checked files
+18	pan view: another sort order keeps each date's image
+13	pan view far from the file list's rows: its cells get thumbnails
+8	Escape closes the pan view
+18	pan view: a click selects as in the list, a Shift range in the view's order
+18	a video that is a playlist: ffmpeg opens no file it names
+18	a video opened with videos off, then Open Several Folders: the folders list no videos
+19	added formats: the examples show a .jp2 through ffmpeg and a .fits through astropy
+18	the ImageMagick fallbacks: a .fits and a .dcm without astropy or pydicom's decoders
+26	science formats: a NIfTI volume, an HDF5 dataset and a pathology slide shown
+1	the HDF5 format reads only what the file holds, not the files it names
+5	a NIfTI series in FSL's orientation (LAS, 4D): its first volume, the front at the top
+16	the Bio-Formats format: a microscope file (ICS) shown through bftools
+10	the MRC format: a cryo-EM map's middle section, its top at the top
+18	the DICOM format: an X-ray in the window it names, MONOCHROME1 the right way
+24	the ImageMagick formats: a Photoshop file and a TGA shown, a PNG named .tga not
+132	real files of each format (samples.txt): RAW of eight makes, science and graphics files
+17	a long error under the image: broken into lines inside the image area
+44	search terms combined: and, not (-), or (|) and groups ( )
+31	the .* button beside the search: regular expressions, saved, and the panel stays put
+13	a slideshow from a plain list: its order, relative paths, and the list never written
+20	the desktop asks for high contrast: Glimt takes its High Contrast theme, unless turned off
+30	the size of menus and lists: a setting, and GNOME's text scaling followed
+15	Back from a folder opened in a collection: the collection again
+15	a collection put in order with keys: one place earlier, then to the end
+15	a collection put in order by dragging: a, the first row, dropped below c
+15	a collection put in order in the grid in the image area (G): c dropped before a
+16	a collection put in order in the side panel while the grid shows (G): a dropped below c
+16	a drag in the side panel let go on the grid's empty space (G): the order stays
+10	a notice in the grid in the image area (G): shown over the thumbnails
+26	a rectangle dragged while the folder changes: the selection keeps its files
+31	a rectangle held at the grid's bottom edge: the grid scrolls, the rows passed stay selected
+24	an empty collection: the keys that move images in it leave Glimt running
+18	a collection played in random order: an image taken out of it keeps the others' order
+37	Check Images: a photo cut off in copying and a file that is no picture found and marked
+61	Check Images still running when another folder opens: nothing marked there
+13	a settings file with a byte that is not UTF-8: a menu toggle saves, and leaves the rest as it was
+8	Select by mark: the files with mark 1 selected
+16	Back Up Glimt's Data: settings, marks and collections copied to a dated folder
+0	glimt --back-up FOLDER: the same backup without a window, a second one beside the first
+0	glimt --back-up: a folder that is not there is refused, a running job's log left out
+6	Faster without a lock: the delay saved (so the two checks below test something)
+16	a kiosk: a visitor's keys change no saved setting
+15	a kiosk without a runtime folder: told, and Ctrl+Q is its way out; with one, Ctrl+Q is refused
+11	Edit → Tools from the menu: the tool runs on the shown file, Glimt answering meanwhile
+15	a tool with MimeType= in the old plugins folder: given only the selected files of its types
+15	zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -
+5	several folders on the command line: one list, each image with its folder
+9	Open Folder Recursive: the folder with its subfolders, and Include Subfolders on
+8	New Folder (Ctrl+F): made in the folder shown
+13	a settings file of 0.79: icons=true shows the icon grid, as icon_grid=true does
+9	the action names of 0.79: Up in keys= and --remote run Home still work
+8	Up and Home in the toolbar: the parent folder, then the home folder
+7	Mirror, Flip and Rotate 180 as shown: the quarters of the image change places
+7	Play Video (Enter) runs the player set in Preferences with the file
+12	Save This Frame and Export Frames of an animation, from the File menu
+7	the histogram (K, J) draws over the image, and goes away again
+9	full screen info (I): shown in full screen, and hidden by I
+20	Compare (E) and the layouts (L, U, Y, Alt+arrow): the next image beside, below, in a pane
+14	Compare (E): a click on the right half shows the compared image there
+13	Preferences → Keyboard shortcuts: Change gives the action the next key
+22	the Help windows: Help Manual (F1), Keyboard Shortcuts, Keyboard Map and About open
+14	Open With: the default application and one from the Open With list, both through gio
+19	Copy Image copies the image as shown: turned by hand
+13	the clipboard: Copy Path and Copy Files from the Select menu, Copy Image from Edit, read back with xclip
+12	the interface in Norwegian in a real window: LANG changes the menu bar, the language setting rules
+21	--lock-settings, then New Window: the new window is locked too
+16	the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour
+19	view filters: Shift+G shows a red image grey, then inverted, and the filter is kept
+19	Tab to a menu, then a click on that same menu: the shortcuts work again
+18	the projector shows the frame of an animation stepped to
+21	a projector larger than the main view: the image sharp there
+10	the keyword tree: a box sets the keyword, with its place in the tree
+47	two windows writing one sidecar at once: each waits for the other, both changes kept
+17	the keyword tree: removing an inner level takes the levels below it
+18	the keyword tree under --lock-settings: removed for the session, the file left as it was
+14	a Lightroom catalog: its collection, keyword tree, stars and image keywords imported
+11	a plain list (.m3u) is never renamed or trashed from the menu
+11	an image of a collection moved to another folder: the collection follows it
+46	a move refused where the sidecar's name is another file's, and undone where the source stays
+22	Lightroom's navn.xmp moved, trashed and put back with navn.cr2, not with navn.jpg
+17	a collection renamed by another program while shown: not made again under its old name
+11	a collection renamed, then moved to the trash: its images stay
+35	Ctrl+Z: a file back from the trash, a renamed one back to its old name
+7	File → Set as Wallpaper asks the desktop portal, with the file's URI
+20	File → Open Recent opens a folder of before, also after a restart
+20	Checkerboard behind transparent images: two greys in turn, off by default
+8	a lossy JPEG XL of 6000x4000, as a camera makes one: shown within its memory limit
+20	Shift+C crops: a part dragged over the image, saved beside it with Enter; Esc saves none
+26	a crop whose image is deleted meanwhile saves nothing, not the next image's part
+28	Auto Rotate switched during a crop ends it: the part was chosen on another view
+4	a playlist opened by its name in its own folder shows its images
+16	Ctrl+Shift+S saves as: JPEG at half the size, the extension added, the image kept
+24	File → Copy for Sharing… with Remove All: no place, camera or keywords; pixels and orientation kept
+21	File → Copy for Sharing… of real photos (samples.txt): no place, serial or keyword left; gain maps kept
+24	/ puts the cursor in the search field, without typing itself there
+9	a folder named like an image, a pipe and a link to /dev/zero: listed as they are
+27	printing to a PDF named as one of the images printed: refused, the image kept
+33	printing to a PDF when no image can be read: the file chosen is left as it was
+18	browsing past images writes nothing: a keyword with a comma, a comment with a newline
+20	an exif: search after a keyword was set finds it, without indexing all again
+11	Rename Many cut short by a crash: the old names put back at the next start
+9	Rename Many cut short, finished at the next start: the marks follow the files
+8	size and date columns with thumbnails: the list wide enough for the names
+17	thumbnails without columns: the list is never dragged narrower than a thumbnail
+12	the Pan view's calendar: a day with images shows its first one
+12	the image info template: one whose fields are all empty shows no box
+54	printing 80 images of 3000x2000 to a PDF
+6	printing a contact sheet on landscape paper, with image and page text from templates
+25	Enter in the print dialog's page text ends the typing, not the dialog
+50	closed while printing to a file: Glimt ends once the PDF is whole
+9	screen profile: Adobe RGB, so sRGB red is shown less red
+8	the desktop's screen profile: a stand-in gdbus answers for colord with Adobe RGB
+15	images without a profile, Adobe RGB from EXIF, and the image's own profile left out
+6	the window title: the template in Preferences, this window's own, and back
+33	two windows named left: identify in both, one renamed right by its process ID, next to right only
+36	a full disk during a Move, a Copy, a turned save and a sidecar write: every file kept, told
+16	a share that removes a file but answers its unlink with an error: a Move and a Rename keep the photo
+45	a JPEG still being written, turned with Save Orientation on: the photo whole at its name
+26	real photos (samples.txt) just copied in, turned with Save Orientation on: none called incomplete
+59	Glimt killed (kill -9) during a Move and a Rename Many: every photo under a name, the stars follow
+47	Glimt killed (kill -9) during a Move to Trash and a Delete: no sidecar at the name of a photo that went, and stars only on a later photo there
+30	the last release killed (kill -9) during a Move: a start of this one puts its Move log right once
+28	the last release killed (kill -9) during a Rename Many: a start of this one puts its plan right once
+180	Glimt killed (kill -9) mid-job on a stick that is then taken out: each job log and the marks wait for it, and are put right once it is back
+62	a keyword save that fails, then Ctrl+Q at once: the failure shown, the window stays open
+35	the trash failing partway, its disk full or gio failing: each photo there or in the trash, told, Undo puts back what went
+41	Glimt's own files on a full disk: the marks file, a collection, Rename Many's plan; nothing lost, told
+20	a photo and its sidecar split by a full disk during a Move and a Copy: never one without the other
+19	a Move to another disk whose unlink of the source is refused: the photo kept, its stars on it, told
+54	a read that fails (EIO) during a Copy, a Move, Copy for Sharing and Save As: the photo kept, no part left, told
+29	a share that stops answering: the image after it is decoded, the info panel shows its own EXIF
+133	a Move to a share that stops answering: given up after a minute, the photo free again
+56	Copy for Sharing, Crop and Save As onto a full disk: no name written over, no part left, told
+94	Glimt killed (kill -9) during a turn's save, a sidecar write and a Lightroom import: each file whole
+67	the folder tree: 100,000 folders, opened at the folder shown, one opened by a click
+16	as a Flatpak: the host's programs asked of flatpak-spawn, the fallbacks taken on the host
