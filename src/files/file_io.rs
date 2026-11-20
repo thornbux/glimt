@@ -2434,25 +2434,37 @@ pub(crate) fn has_lasting_inodes(kind: &str) -> bool {
 /// volume or more than one has that number, when /dev/disk/by-uuid is not there (in a Flatpak's
 /// sandbox), and when the look fails. It waits for the disk.
 pub(crate) fn volume_of_device(device: u64) -> Option<std::ffi::OsString> {
+    volumes_by_device()?.remove(&device).flatten()
+}
+
+/// Reads /dev/disk/by-uuid once, for every block device that a name there has. Returns, for
+/// each device, its volume, or `None` where two names have it. Returns `None` when the folder
+/// cannot be read.
+pub(crate) fn volumes_by_device()
+-> Option<std::collections::HashMap<u64, Option<std::ffi::OsString>>> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let volumes = (std::fs::read_dir("/dev/disk/by-uuid").ok()?.flatten()).filter_map(|entry| {
         // The entry is a link to the volume's block device, whose number it follows to.
         let meta = std::fs::metadata(entry.path()).ok()?;
         (meta.file_type().is_block_device()).then(|| (entry.file_name(), meta.rdev()))
     });
-    the_one_volume_of(volumes, device)
+    Some(the_one_volume_of_each(volumes))
 }
 
-/// Returns the name of the one volume among `volumes`, each a name with the number of its block
-/// device, whose number is `device`. Returns `None` when none or more than one has it, as two
+/// Returns, for each device number among `volumes`, each a name with the number of its block
+/// device, the one name that has it. A device that more than one name has gets `None`, as two
 /// names for one device cannot say which card it is.
-fn the_one_volume_of(
+fn the_one_volume_of_each(
     volumes: impl Iterator<Item = (std::ffi::OsString, u64)>,
-    device: u64,
-) -> Option<std::ffi::OsString> {
-    let mut found = volumes.filter(|(_, number)| *number == device);
-    let (name, _) = found.next()?;
-    found.next().is_none().then_some(name)
+) -> std::collections::HashMap<u64, Option<std::ffi::OsString>> {
+    let mut found = std::collections::HashMap::new();
+    for (name, number) in volumes {
+        found
+            .entry(number)
+            .and_modify(|one| *one = None)
+            .or_insert(Some(name));
+    }
+    found
 }
 
 /// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there or
@@ -2935,11 +2947,18 @@ mod tests {
             ]
             .into_iter()
         };
-        let one = super::the_one_volume_of(volumes(), 2065);
-        assert_eq!(one, Some("1234-ABCD".into()));
-        assert_eq!(super::the_one_volume_of(volumes(), 2066), None);
+        fn of(
+            volumes: impl Iterator<Item = (std::ffi::OsString, u64)>,
+            device: u64,
+        ) -> Option<std::ffi::OsString> {
+            super::the_one_volume_of_each(volumes)
+                .remove(&device)
+                .flatten()
+        }
+        assert_eq!(of(volumes(), 2065), Some("1234-ABCD".into()));
+        assert_eq!(of(volumes(), 2066), None);
         let twice = volumes().chain([card("5678-EF01", 2065)]);
-        assert_eq!(super::the_one_volume_of(twice, 2065), None);
+        assert_eq!(of(twice, 2065), None);
         // No block device has the highest number, here or where /dev/disk is not there.
         assert_eq!(super::volume_of_device(u64::MAX), None);
     }
