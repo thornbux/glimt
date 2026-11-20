@@ -33,6 +33,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   marks and collection entries follow a renamed folder, or forgets them for a trashed one, so a
   later folder of the old name does not show them (#248).
 
+### Fixed
+
+- A Move, Rename or Undo on a share that lost the answer to its rename counts the file as moved
+  only when the new name holds that same file. Before, any file there counted, so a photo that
+  another program moved away at that moment had its sidecars and marks follow to a file that was
+  not it (#176).
+
 ## [0.92.0] - 2026-11-19
 
 ### Changed
