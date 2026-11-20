@@ -327,6 +327,14 @@ impl Sure {
     }
 }
 
+/// Which way a failed step went: forward, from its record's `from` to its `to`, or back, a file
+/// put back from the step's `to` to its `from`.
+#[derive(Clone, Copy)]
+pub(crate) enum Direction {
+    Forward,
+    Back,
+}
+
 /// A job log being written, held locked while its job runs, so that no other window takes it
 /// for one that a kill cut short.
 pub(crate) struct JobLog {
@@ -340,6 +348,10 @@ pub(crate) struct JobLog {
     /// the job's end (`journal::remove_after_the_writes`), so that the next start does not
     /// give them again over what the user changed since.
     applied: Vec<PathBuf>,
+    /// The names, `from` and `to`, of the last `step` or `tree` record written to the log, by
+    /// which a failed step is judged (`note_last_step_failed`). `None` when the log has none, or
+    /// when the write of the last one failed.
+    last_step: Option<(PathBuf, Option<PathBuf>)>,
 }
 
 impl JobLog {
@@ -394,6 +406,7 @@ impl JobLog {
             file,
             sure,
             applied: Vec::new(),
+            last_step: last_step_in(first),
         };
         let written = sync_folder_of(&log.path).and_then(|()| sync_folder_of(dir));
         match written {
@@ -412,7 +425,11 @@ impl JobLog {
     /// Adds `records` to the log in one write, not synced. A kill keeps what was written, and a
     /// power cut that drops it leaves a log that tells less was done than was.
     pub(crate) fn add_records(&mut self, records: &[Record]) -> std::io::Result<()> {
-        self.file.write_all(&records_bytes(records))
+        let written = self.file.write_all(&records_bytes(records));
+        if let Some(step) = last_step_in(records) {
+            self.last_step = written.is_ok().then_some(step);
+        }
+        written
     }
 
     /// Adds `records` to the log in one write, and syncs the log to disk before it returns. A
@@ -438,6 +455,7 @@ impl JobLog {
             file,
             sure: None,
             applied: Vec::new(),
+            last_step: None,
         }
     }
 
@@ -448,11 +466,20 @@ impl JobLog {
         self
     }
 
-    /// Notes that a step of the job on `from` failed with `error`. When the step may have been
-    /// done all the same (`file_io::may_have_been_done`), a share that lost its answer say, the
-    /// log stays on disk for the next start, which judges the step by what it finds there.
-    pub(crate) fn note_step_failed(&mut self, from: &Path, error: &std::io::Error) {
-        if crate::files::file_io::may_have_been_done(error, from) {
+    /// Notes that the last step written to the log failed with `error`, going the way
+    /// `direction` says. When the step may have been done all the same
+    /// (`file_io::may_have_been_done`), a share that lost its answer say, the log stays on disk
+    /// for the next start, which judges the step by what it finds there. The step is judged by
+    /// the name it took the file from, which the log takes from its own record, so that no
+    /// caller can name another: the record's `from` going forward, its `to` going back. A log
+    /// without a step it could write stays too.
+    pub(crate) fn note_last_step_failed(&mut self, direction: Direction, error: &std::io::Error) {
+        let source = match (&self.last_step, direction) {
+            (Some((from, _)), Direction::Forward) => Some(from),
+            (Some((_, to)), Direction::Back) => to.as_ref(),
+            (None, _) => None,
+        };
+        if source.is_none_or(|source| crate::files::file_io::may_have_been_done(error, source)) {
             self.keep_for_the_next_start();
         }
     }
@@ -477,7 +504,7 @@ impl JobLog {
 
     /// Ends the log's job: takes the proof that the log may be removed, which it has no more
     /// after this. This is the one way a log's proof leaves it. Returns `None` when a step of
-    /// the job could not tell what it did (`note_step_failed`, `keep_for_the_next_start`), and
+    /// the job could not tell what it did (`note_last_step_failed`, `keep_for_the_next_start`), and
     /// for a log found at the start that no reader read surely, so that the log stays.
     pub(crate) fn end_of_job(&mut self) -> Option<Sure> {
         self.sure.take()
@@ -523,6 +550,17 @@ pub(crate) enum LogRead {
     Newer(u32),
     /// A file whose header is missing, damaged or of a kind of job this Glimt does not know.
     NotALog,
+}
+
+/// Returns the names, `from` and `to`, of the last `step` or `tree` record of `records`, and
+/// `None` when they have none.
+fn last_step_in(records: &[Record]) -> Option<(PathBuf, Option<PathBuf>)> {
+    records.iter().rev().find_map(|record| match record {
+        Record::Step { from, to, .. } | Record::Tree { from, to } => {
+            Some((from.clone(), to.clone()))
+        }
+        _ => None,
+    })
 }
 
 /// Returns the folder of the job logs (`JobLog`) in Glimt's state folder.

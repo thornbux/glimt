@@ -3407,7 +3407,7 @@ fn log_removals_in(file: &str, text: &str) -> Vec<String> {
 
 /// The proof that a job log may be removed (`job_log::Sure`) leaves the log of a running job only
 /// through `JobLog::end_of_job`, which gives none once a step could not tell what it did
-/// (`JobLog::note_step_failed`). Only the files of the logs make or take a proof, where the
+/// (`JobLog::note_last_step_failed`). Only the files of the logs make or take a proof, where the
 /// start's readers make it from their sure answers, and the job's end is taken only where a job
 /// ends: when its writes are done (`remove_after_the_writes`), when Rename Many's plan is
 /// dropped, and when a log that could not be started goes. Before, a Move kept its log after a
@@ -3494,7 +3494,7 @@ fn finds_a_proof_taken_outside_the_end_of_a_job() {
 /// A change on the disk made by the code of the jobs, a step or a step put back, keeps its
 /// error: its result is never folded into a `bool` with `.is_ok()`, `.is_err()` or `.ok()`. The
 /// error is what tells a step that may have been done (`file_io::may_have_been_done`), which
-/// keeps the job's log (`JobLog::note_step_failed`) and every name the step may still need.
+/// keeps the job's log (`JobLog::note_last_step_failed`) and every name the step may still need.
 /// Before, Undo from the trash put a file back into the trash with `.is_ok()`, and when that
 /// rename lost its answer, the file's .trashinfo and the log went while the file may have been
 /// in the trash.

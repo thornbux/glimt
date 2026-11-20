@@ -9,6 +9,7 @@ use crate::files::file_io::{
     is_surely_gone, is_surely_there, put_file, put_file_until_stopped, rename_never_over,
     same_fingerprint,
 };
+use crate::files::job_log::Direction;
 use crate::files::trash::{TrashMove, restore, restore_noting, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
@@ -1990,7 +1991,7 @@ impl crate::App {
             };
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
-                end_the_log_of_a_failed_folder_rename(&old, &e, log.take());
+                end_the_log_of_a_failed_folder_rename(&e, log.take());
                 return Some(Told::FailedWrite(format!("{}: {e}", new.display())));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
@@ -3886,16 +3887,15 @@ fn folder_log(
     }
 }
 
-/// Ends the `log` of a Rename Folder of `old` whose rename failed with `error`. The log goes
+/// Ends the `log` of a Rename Folder whose rename failed with `error`. The log goes
 /// once written, unless the rename may have been done all the same: then it stays, so that the
 /// next start makes the marks follow when the folder is at its new name.
 fn end_the_log_of_a_failed_folder_rename(
-    old: &Path,
     error: &std::io::Error,
     log: Option<crate::files::job_log::JobLog>,
 ) {
     if let Some(mut log) = log {
-        log.note_step_failed(old, error);
+        log.note_last_step_failed(Direction::Forward, error);
         journal::remove_once_written(log);
     }
 }
@@ -3967,7 +3967,7 @@ fn put_files(
                 put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
             } {
                 if let Some(log) = move_log.as_deref_mut() {
-                    log.note_step_failed(path, &e);
+                    log.note_last_step_failed(Direction::Forward, &e);
                 }
                 // A file stopped halfway is not there, and the stop itself is told.
                 if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
@@ -4082,7 +4082,11 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                 if let Some(log) = move_log.as_deref_mut() {
                     log.note(&to, &from);
                 }
-                put_file(&to, &from, false).map_err(|e| (from.clone(), e))
+                let put = put_file(&to, &from, false);
+                if let (Some(log), Err(e)) = (move_log.as_deref_mut(), &put) {
+                    log.note_last_step_failed(Direction::Forward, e);
+                }
+                put.map_err(|e| (from.clone(), e))
             }
         };
         // As in `put_files`, Adobe's sidecar of a stem goes with the last of its RAW files.
@@ -4112,9 +4116,6 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                 }
             }
             Err((at, e)) => {
-                if let Some(log) = move_log.as_deref_mut() {
-                    log.note_step_failed(&to, &e);
-                }
                 errors.push(format!("{}: {e}", at.display()));
                 moving.remove(&to);
                 left.push((from, to, at_move));
@@ -4202,8 +4203,9 @@ fn follow_or_go_back(
         }));
         return Err((true, told));
     };
+    // The put-back is the step written down last, taken back from its new name.
     if let Some(log) = log {
-        log.note_step_failed(from, &error);
+        log.note_last_step_failed(Direction::Back, &error);
     }
     let is_back = crate::files::file_io::may_have_been_done(&error, to);
     let to = to.display();
@@ -5494,6 +5496,49 @@ mod tests {
         let found = super::journal::move_jobs_cut_short(&logs);
         assert_eq!(found.len(), 1, "the log of a file that may be back went");
         drop(found);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move to a share whose sidecar cannot follow, and whose file's way back answers ENOENT
+    /// there, keeps its log, and the next start makes the marks follow the file at its new name.
+    /// The way back is judged by the name it took the file from, the step's new name on the
+    /// share. Before, the log judged it by the old name on a local disk, took the ENOENT for a
+    /// sure answer and went with the job, and the marks stayed at the old name for good.
+    #[test]
+    fn a_put_back_that_may_have_been_done_keeps_its_log() {
+        use crate::files::file_io::{LOOK_NOT_FOUND_AT, ON_A_SHARE_IN_A_TEST};
+        let dir = contract_folder("put-back-on-a-share");
+        let (from, to, logs) = (dir.join("from"), dir.join("to"), dir.join("logs"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        let (photo, moved) = (from.join("a.jpg"), to.join("a.jpg"));
+        std::fs::write(&photo, "photo").unwrap();
+        std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
+        std::fs::write(to.join("a.jpg.xmp"), "other").unwrap();
+        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        log.note(&photo, &moved);
+        std::fs::rename(&photo, &moved).unwrap();
+        ON_A_SHARE_IN_A_TEST.set(Some(to.clone()));
+        LOOK_NOT_FOUND_AT.set(Some(moved.clone()));
+        let result = super::follow_or_go_back(
+            (&photo, &moved),
+            false,
+            &std::collections::HashSet::from([&photo]),
+            (&mut Default::default(), Some(&mut log)),
+        );
+        LOOK_NOT_FOUND_AT.set(None);
+        ON_A_SHARE_IN_A_TEST.set(None);
+        assert!(matches!(result, Err((true, _))), "{result:?}");
+        log.remove_once_followed();
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let found = super::journal::move_jobs_cut_short(&logs);
+        let went: Vec<_> = found.into_iter().flat_map(|(_, went)| went).collect();
+        assert_eq!(
+            went,
+            vec![(photo, moved)],
+            "the log of a file that may be away went"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -7528,7 +7573,7 @@ mod tests {
         let renamed = crate::files::file_io::rename_never_over(&old, &new);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != new);
         ANSWER_LOST_AT.set(None);
-        super::end_the_log_of_a_failed_folder_rename(&old, &renamed.unwrap_err(), Some(log));
+        super::end_the_log_of_a_failed_folder_rename(&renamed.unwrap_err(), Some(log));
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
         let (_, _, found) = super::journal::jobs_cut_short(&jobs);
