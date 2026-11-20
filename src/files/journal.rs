@@ -106,6 +106,23 @@ pub enum JobDoneBeforeAKill {
     NothingToFollow,
 }
 
+/// How the start reads a job log that a kill cut short, for each kind of job in `JOB_KINDS`
+/// (`read_at_start`). `jobs_cut_short` has an arm for each, so a new kind of job gets a reader
+/// or the build fails.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ReadAtStart {
+    /// A Move, or an Undo of one: the marks follow the files that went.
+    Move,
+    /// A delete or a move to the trash: the marks of the files that went are forgotten.
+    Delete,
+    /// An Undo from the trash: the files put back get their marks again.
+    UndoTrash,
+    /// A Rename Folder or a Move Folder to Trash.
+    Folder,
+    /// A Rename Many, which `cut_short_plans` puts right after the others.
+    Rename,
+}
+
 /// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
 
@@ -967,6 +984,8 @@ fn has_left(from: &Path) -> AtStart<bool> {
 /// written anew as that one, which a kill left beside it, and is removed unread. Returns too the
 /// paths that the logs name so, for `old_deletes_cut_short`.
 pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
+    // A log of a kind that `read_at_start` has no reader for is not found here: it is kept on
+    // disk and told by `logs_left_by_a_kill`.
     let found = crate::files::job_log::logs_left_by_a_kill(dir);
     let written_anew: HashSet<PathBuf> = (found.iter())
         .flat_map(|found| &found.records)
@@ -979,28 +998,47 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
     for found in found {
         if let Some(sure) = Sure::of(&is_named_anew(&written_anew, found.log.path())) {
             remove_job_log(found.log.path(), sure);
-        } else if ["move", "undo-move"].contains(&found.job) {
-            moves.extend(move_job_cut_short(found));
-        } else if ["delete", "trash"].contains(&found.job) {
-            let time = found.log.file().metadata().and_then(|m| m.modified()).ok();
-            let records = delete_records(found.job, &found.records);
-            let jobs = dir.to_path_buf();
-            deletes.push(put_right_a_delete(found.log, records, time, jobs));
-        } else if found.job == "undo-trash" {
-            // A log whose files cannot be looked at now stays for a later start.
-            let done = back_from_the_trash(&found.records);
-            if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
-                others.push((found.log.read_surely(sure), done));
+            continue;
+        }
+        match found.read_as {
+            ReadAtStart::Move => moves.extend(move_job_cut_short(found)),
+            ReadAtStart::Delete => {
+                let time = found.log.file().metadata().and_then(|m| m.modified()).ok();
+                let records = delete_records(found.job, &found.records);
+                let jobs = dir.to_path_buf();
+                deletes.push(put_right_a_delete(found.log, records, time, jobs));
             }
-        } else if ["rename-folder", "trash-folder"].contains(&found.job) {
-            // A log whose folder cannot be looked at now stays for a later start.
-            let done = folder_job_done(&found.records);
-            if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
-                others.push((found.log.read_surely(sure), done));
+            ReadAtStart::UndoTrash => {
+                // A log whose files cannot be looked at now stays for a later start.
+                let done = back_from_the_trash(&found.records);
+                if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
+                    others.push((found.log.read_surely(sure), done));
+                }
             }
+            ReadAtStart::Folder => {
+                // A log whose folder cannot be looked at now stays for a later start.
+                let done = folder_job_done(&found.records);
+                if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
+                    others.push((found.log.read_surely(sure), done));
+                }
+            }
+            ReadAtStart::Rename => {}
         }
     }
     (moves, deletes, written_anew, others)
+}
+
+/// Returns how the start reads a job log of the kind `job`, and `None` for a kind it has no
+/// reader for. `every_job_kind_is_read_at_start` fails when a kind of `JOB_KINDS` has none.
+pub(crate) fn read_at_start(job: &str) -> Option<ReadAtStart> {
+    match job {
+        "move" | "undo-move" => Some(ReadAtStart::Move),
+        "delete" | "trash" => Some(ReadAtStart::Delete),
+        "undo-trash" => Some(ReadAtStart::UndoTrash),
+        "rename-folder" | "trash-folder" => Some(ReadAtStart::Folder),
+        "rename" => Some(ReadAtStart::Rename),
+        _ => None,
+    }
 }
 
 /// The job logs in `dir` of Moves, and of Undos of Moves, that Glimt was killed during, as
@@ -2754,6 +2792,20 @@ pub(crate) fn write_old_plan(plans: &Path, moves: &[(PathBuf, PathBuf)], done: u
 
 #[cfg(test)]
 mod tests {
+    /// A log of a kind of job that the start has no reader for would stay in `jobs/` for good.
+    /// So every kind in `JOB_KINDS` must have one, and a kind added without its reader fails
+    /// here.
+    #[test]
+    fn every_job_kind_is_read_at_start() {
+        for kind in crate::files::job_log::JOB_KINDS {
+            assert!(
+                super::read_at_start(kind).is_some(),
+                "{kind} has no reader at start"
+            );
+        }
+        assert_eq!(super::read_at_start("later-kind"), None);
+    }
+
     /// A list of files whose Move log is gone, and an empty log no window holds made over a
     /// minute ago, are removed at the start. Before, they stayed for good. A log with its list,
     /// and an empty log made a moment ago, stay.

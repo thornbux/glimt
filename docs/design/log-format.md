@@ -106,7 +106,9 @@ kinds within version 1 when an older reader may safely ignore them. A record tha
 meaning of others raises the version.
 
 The kinds of job: `rename`, `move`, `delete`, `trash`, `undo-move`, `undo-trash`,
-`rename-folder`, `trash-folder`.
+`rename-folder`, `trash-folder`. Each has a reader at the start (`journal::read_at_start`, held by
+`every_job_kind_is_read_at_start`). A log of a kind the start has no reader for is kept on disk
+and told once, as one of a higher version is.
 
 The record kinds:
 

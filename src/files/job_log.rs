@@ -398,10 +398,11 @@ impl JobLog {
 }
 
 /// A job log that no running window holds locked, which a kill cut short: the log, held locked,
-/// the kind of its job, and its records.
+/// the kind of its job, how the start reads it, and its records.
 pub(crate) struct FoundLog {
     pub(crate) log: JobLog,
     pub(crate) job: &'static str,
+    pub(crate) read_as: crate::files::journal::ReadAtStart,
     pub(crate) records: Vec<Record>,
 }
 
@@ -450,8 +451,9 @@ pub(crate) fn read_job_log_without_lock(path: &Path) -> std::io::Result<LogRead>
 
 /// Returns the logs in `dir` that no running window holds locked, left by a Glimt that was
 /// killed during their jobs, each held locked until it is removed or let go. A log of a higher
-/// version, or of a kind of job this Glimt does not know, is left on disk for a Glimt that can
-/// finish it, and the user is told once that it is there. Only an empty file is removed, once
+/// version, of a kind of job this Glimt does not know, or of a kind that the start has no reader
+/// for (`journal::read_at_start`), is left on disk for a Glimt that can finish it, and the user
+/// is told once that it is there. Only an empty file is removed, once
 /// it is older than `EMPTY_LOG_AGE`: a kill between the making of a log and its header leaves
 /// it, and a log made a moment ago is not locked yet.
 pub(crate) fn logs_left_by_a_kill(dir: &Path) -> Vec<FoundLog> {
@@ -471,11 +473,15 @@ pub(crate) fn logs_left_by_a_kill(dir: &Path) -> Vec<FoundLog> {
             continue;
         };
         match read {
-            LogRead::Log { job, records, .. } => found.push(FoundLog {
-                log: JobLog::found(path, file),
-                job,
-                records,
-            }),
+            LogRead::Log { job, records, .. } => match crate::files::journal::read_at_start(job) {
+                Some(read_as) => found.push(FoundLog {
+                    log: JobLog::found(path, file),
+                    job,
+                    read_as,
+                    records,
+                }),
+                None => left_alone += 1,
+            },
             LogRead::NotALog if meta.len() == 0 => {
                 let age = meta.modified().ok().and_then(|made| made.elapsed().ok());
                 let is_old = age.filter(|age| *age > EMPTY_LOG_AGE).ok_or(CannotTell);
