@@ -300,6 +300,11 @@ command_not_found_handle() {
     return 127
 }
 note() { echo "     $*"; }
+# Notes the wall time of the section that ends, and of the part so far, to find the slow ones.
+took() {
+    [ -n "${SECTION_START:-}" ] && note "took $((SECONDS - SECTION_START)) s, part $SECONDS s"
+    SECTION_START=$SECONDS
+}
 
 # The environment of one version, new or old: a fresh HOME and XDG folders, and a stand-in for
 # zenity. Sets V, BIN and H.
@@ -328,6 +333,7 @@ formats_dir() { if [ "$V" = old ]; then echo $XDG_DATA_HOME/glimt/decoders; else
 # the homes nor in /tmp/stub, as run.sh may start a part at any section. The working folder and
 # the variables a section exports for itself are reset too; a new one of those goes in the list.
 section() {
+    took
     echo "-- $1"
     cd /tmp
     unset GLIMT_BFTOOLS LANG FLATPAK_ID
