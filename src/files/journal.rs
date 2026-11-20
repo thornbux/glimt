@@ -64,8 +64,8 @@ thread_local! {
 }
 
 /// What the `folder` and `volume` records of a log noted of a folder: its device, its inode (0
-/// where its file system keeps none), and the volume it is on where it is on FAT or exFAT and
-/// the volume could be found. Only `is_the_folder_noted` compares them with a folder now
+/// where its file system keeps none), and the volume it is on where its device has a name in
+/// /dev/disk/by-uuid. Only `is_the_folder_noted` compares them with a folder now
 /// (`source_rules::one_rule_tells_the_folder_a_log_noted`).
 #[derive(Debug, Clone)]
 struct FolderNoted {
@@ -1569,10 +1569,11 @@ fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime
 /// folder's inode across mounts (FAT, exFAT, `has_lasting_inodes`) or its type is not known.
 /// Then only the device is compared.
 ///
-/// On FAT and exFAT, a `volume` record follows it with the volume the folder is on (`volume_of`),
-/// when that can be found, so that a start can tell the card from another one in the same
-/// reader. Any other file system without lasting inodes (a share, FUSE) gets none, and is told
-/// by its device alone, as before.
+/// A `volume` record follows it with the volume the folder is on (`volume_of`), on any file
+/// system on a block device that has a name in /dev/disk/by-uuid (FAT, ext4, NTFS, ...), so that
+/// a start can tell the card or stick from another one at the same path, and find it again under
+/// another device number. A share, FUSE without a block device and tmpfs have no such name, get
+/// no `volume` record, and are told by their device, as before.
 fn folder_record(folder: &Path) -> Vec<Record> {
     let kind = crate::files::file_ops::file_system_type_or_test(folder);
     let is_lasting = (kind.as_deref()).is_some_and(crate::files::file_io::has_lasting_inodes);
@@ -1586,8 +1587,7 @@ fn folder_record(folder: &Path) -> Vec<Record> {
         device,
         inode: if is_lasting { inode } else { 0 },
     }];
-    let is_fat = (kind.as_deref()).is_some_and(crate::files::file_ops::is_fat);
-    if is_fat && let Some(volume) = volume_of(folder, device) {
+    if let Some(volume) = volume_of(folder, device) {
         let path = folder.to_path_buf();
         records.push(Record::Volume { path, volume });
     }
@@ -1646,15 +1646,17 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// folder that its records `noted` saw: the one rule by which a start tells it. `inode` is `None`
 /// for a folder above the one noted, whose own inode was never noted.
 ///
-/// A noted volume (FAT, exFAT) decides alone, as a card plugged in again may get another device
-/// number and another card in the same reader gets the same one. Without a volume the device must
-/// be the noted one, and then the inode too where one was noted (not 0). Returns `Ok(false)` for
-/// another volume, surely another card at the same path, and for another folder on the noted
-/// device, one made at the name after the job. Returns `CannotTell` for another device without a
-/// volume, as then the folder noted is not here (an empty mount point) or came back under another
-/// device number, and for a volume that cannot be found now.
+/// A noted volume decides which card or disk it is, not the device, as a stick plugged in again
+/// may get another device number and another card in the same reader gets the same one. Without
+/// a volume the device must be the noted one. Either way the inode must be the noted one too
+/// where one was noted (not 0), so that a folder made again at the name is not taken for it.
+/// Returns `Ok(false)` for another volume, surely another card at the same path, and for another
+/// folder on the noted volume or device, one made at the name after the job. Returns
+/// `CannotTell` for another device without a volume, as then the folder noted is not here (an
+/// empty mount point) or came back under another device number, and for a volume that cannot be
+/// found now.
 ///
-/// shortcut: the volume is looked up again for each path a start reads on a card, a few looks in
+/// shortcut: the volume is looked up again for each path a start reads on a disk, a few looks in
 /// /dev/disk/by-uuid each; keep it for each folder if a killed job on a card of many thousand
 /// files makes the start slow.
 fn is_the_folder_noted(
@@ -1664,9 +1666,10 @@ fn is_the_folder_noted(
     inode: Option<u64>,
 ) -> AtStart<bool> {
     if let Some(volume) = &noted.noted_volume {
-        return Ok(volume_of(folder, device).ok_or(CannotTell)? == *volume);
-    }
-    if device != noted.noted_device {
+        if volume_of(folder, device).ok_or(CannotTell)? != *volume {
+            return Ok(false);
+        }
+    } else if device != noted.noted_device {
         return Err(CannotTell);
     }
     Ok(match inode {
@@ -1723,9 +1726,9 @@ fn is_another_folder(folders: &HashMap<PathBuf, FolderNoted>, path: &Path) -> At
 /// The device tells the folder that the job wrote to from an empty mount point at its path, such
 /// as `/mnt/nas` while its share is not mounted, which is a folder too. A stick plugged in again
 /// with another device number cannot be told either, and its log waits for a later start: its
-/// marks are kept, never lost. A FAT card is told by its volume instead, whatever its device. A
-/// log that noted no folder at all is of Glimt 0.92, or written anew from one, and only the
-/// folder's being there is asked of it, as before.
+/// marks are kept, never lost. A disk with a volume noted is told by it instead, whatever its
+/// device. A log that noted no folder at all is of Glimt 0.92, or written anew from one, and only
+/// the folder's being there is asked of it, as before.
 ///
 /// For a delete's log, a file at the name keeps its marks also when it changed since. It may be
 /// the file the kill came before, written by another program since, or a file that another
@@ -1759,8 +1762,8 @@ fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, FolderNoted>) -> AtS
 /// Returns `Ok(true)` when the nearest folder above it that surely is there is on that device, as
 /// then the folder was deleted, not taken away with a stick or share. Returns `CannotTell` when
 /// that folder is on another device, as an empty mount point is, or when a look fails. Where the
-/// log noted a volume (FAT, exFAT), that folder must also be on that volume, as another card in
-/// the same reader is on the same device (`is_the_folder_noted`).
+/// log noted a volume, that folder must also be on that volume, as another card in the same
+/// reader is on the same device (`is_the_folder_noted`).
 fn removed_from_its_device(folder: &Path, noted: &FolderNoted) -> AtStart<bool> {
     let mut above = folder.parent();
     while let Some(ancestor) = above {
@@ -5279,6 +5282,77 @@ mod tests {
         super::remove_once_written(log);
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A killed delete on an ext4 stick, plugged in again under another device number with the
+    /// same volume, finishes its log. Before, only FAT and exFAT noted a volume, so the device
+    /// was compared, and the log stayed until the stick got its old device number again.
+    #[test]
+    fn an_ext4_stick_back_under_another_device_number_finishes_its_log() {
+        let (dir, card, logs) = fat_card("start-ext4-device");
+        crate::files::file_ops::test_mount(&card, Some("ext4"));
+        let a = card.join("a.png");
+        card_volume(&card, Some("aaaa-1111"));
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        drop(log);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(card.clone()));
+        let found = super::delete_jobs_cut_short(&logs);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        assert_eq!(found[0].1, std::slice::from_ref(&a));
+        assert_eq!(let_go(found), 1);
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A Move killed after a photo left a folder on an ext4 stick, whose folder was deleted and
+    /// made again with a photo of the same name before the stick came back under another device
+    /// number, follows the photo by its new name: the volume is the noted one, but the folder's
+    /// inode is not. The volume alone would take the new folder for the noted one, and its
+    /// later photo for the one that stayed.
+    #[test]
+    fn a_folder_made_again_on_the_noted_volume_is_another_folder() {
+        let (dir, card, logs) = fat_card("start-ext4-made-again");
+        crate::files::file_ops::test_mount(&card, Some("ext4"));
+        let (sub, to) = (card.join("sub"), dir.join("to"));
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::create_dir(&to).unwrap();
+        let (from, moved) = (sub.join("a.jpg"), to.join("a.jpg"));
+        std::fs::write(&from, "the stick's").unwrap();
+        card_volume(&card, Some("aaaa-1111"));
+        let mut log = super::start_move_log(&logs, "move").unwrap();
+        log.note(&from, &moved);
+        std::fs::rename(&from, &moved).unwrap();
+        drop(log);
+        // The old folder is kept under another name, so that the new one cannot get its inode.
+        std::fs::rename(&sub, card.join("old-sub")).unwrap();
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(&from, "a later photo").unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(sub.clone()));
+        let found = super::move_jobs_cut_short(&logs);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, [(from.clone(), moved.clone())]);
+        drop(found);
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A killed delete on an ext4 stick, read while another stick with another volume is at the
+    /// same path under the old device number, keeps the marks and the log. Before, the device
+    /// was compared alone, and the other stick's missing file counted as deleted.
+    #[test]
+    fn another_volume_under_the_old_device_number_is_another_disk() {
+        let (dir, card, logs) = fat_card("start-ext4-other");
+        crate::files::file_ops::test_mount(&card, Some("ext4"));
+        let a = card.join("a.png");
+        card_volume(&card, Some("aaaa-1111"));
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        drop(log);
+        card_volume(&card, Some("bbbb-2222"));
+        let found = super::delete_jobs_cut_short(&logs);
+        assert!(found[0].1.is_empty(), "{:?}", found[0].1);
+        assert_eq!(let_go(found), 1);
         remove_fat_card(&dir, &card);
     }
 }

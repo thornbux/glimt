@@ -119,7 +119,7 @@ The record kinds:
 | Record | Fields | Written | For |
 |---|---|---|---|
 | `folder` | path, device, inode (`0` where the file system keeps none, FAT and exFAT) | before the first step in that folder, also the folder a file or folder goes to, and the folder a Move's file leaves | #179, an empty mount point |
-| `volume` | path of a `folder` record, the name of its volume in `/dev/disk/by-uuid` | after that `folder` record, on FAT and exFAT only, where the volume was found | #266, another card in the same reader |
+| `volume` | path of a `folder` record, the name of its volume in `/dev/disk/by-uuid` | after that `folder` record, on any file system on a block device with such a name (FAT, exFAT, ext4, NTFS, …), where the volume was found | #266, another card in the same reader, a stick back under another device number |
 | `shown` | the collection's path | at the start | the collection shown, now `collections/` |
 | `step` | number, from, to or `-`, fingerprint or `-` | before the step | every job |
 | `done` | number | after the step is done | #225, Rename Many's count |
@@ -187,13 +187,16 @@ A log no window holds locked was cut short. For each step, the start looks at th
   are forgotten, the collection follows, a hidden sidecar of a deleted photo goes.
 - **A `folder` record whose device and inode differ** from the folder at that path now: every
   step in it is left for a later start, and the log stays (#179).
-- **A `folder` record with inode `0` and a `volume` record** (FAT, exFAT) is told by its volume:
-  the name in `/dev/disk/by-uuid` of the block device with the folder's device number, for FAT
-  and exFAT the serial number the card was formatted with. Another volume at the path now, as
-  another card in the same reader, or no volume found now, means the start cannot tell: the step
-  is left for a later start, and the log stays. A file at a Move's old name on another card does
-  not count as the one that stayed. Without a `volume` record (a share, FUSE, the Flatpak's
-  sandbox, or a log of Glimt 0.94 or older) the device alone is compared, as before (#266). The
+- **A `folder` record with a `volume` record** is told by its volume, not its device: the name in
+  `/dev/disk/by-uuid` of the block device with the folder's device number, for FAT and exFAT the
+  serial number the card was formatted with, for ext4, NTFS and the others the file system's
+  UUID. Where the `folder` record noted an inode (not `0`), the folder's inode must be that one
+  too, so that a folder deleted and made again on the same disk is another folder. Another
+  volume at the path now, as another card in the same reader, or no volume found now, means
+  the start cannot tell: the step is left for a later start, and the log stays
+  (#278). A file at a Move's old name on another card does
+  not count as the one that stayed. Without a `volume` record (a share, FUSE without a block
+  device, tmpfs, the Flatpak's sandbox, or a log of Glimt 0.94 or older) the device alone is compared, as before (#266). The
   volume is a record of its own, not a fourth field of `folder`, because Glimt 0.93.0 and 0.94.0
   pass over a kind they do not know but drop a `folder` record with four fields.
   `statfs`'s `f_fsid` is no help here: vfat and exfat fill it from the device number.
