@@ -5427,6 +5427,8 @@ section "the last release killed (kill -9) during a Move: a start of this one pu
 # runs, to compare. An old delete log is left to the unit test
 # an_old_delete_log_is_put_right_once_and_written_anew_in_jobs: a kill of 0.92 mid-delete here
 # would need the held sidecar lock of the delete section above, for no check the unit test lacks.
+# A last release of 0.93 or later leaves its log in jobs/ instead, which a start of this one puts
+# right the same way, so the log is counted in either folder. No log in moves/ is made here then.
 for v in new old; do
     as_version new
     second=$BIN
@@ -5446,7 +5448,11 @@ for v in new old; do
     key ctrl+m
     for i in $(seq 400); do [ "$(ls $to | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.05; done
     kill -9 $GPID; wait $GPID 2>/dev/null
-    old_logs=$(ls $XDG_STATE_HOME/glimt/moves 2>/dev/null | grep -cv '^files$')
+    move_logs() {
+        echo $(($(ls $XDG_STATE_HOME/glimt/moves 2>/dev/null | grep -cv '^files$') +
+            $(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l)))
+    }
+    old_logs=$(move_logs)
     BIN=$second start $to; sleep 2; BIN=$second quit
     got=$(python3 - $d $to $XDG_STATE_HOME/glimt/marks <<'PY'
 import os, sys
@@ -5463,7 +5469,7 @@ for i in range(1, 201):
 print(starred)
 PY
 )
-    left=$(ls $XDG_STATE_HOME/glimt/moves 2>/dev/null | grep -cv '^files$')
+    left=$(move_logs)
     rm -rf $d $to
     if [ $v = new ]; then
         expect "the last release killed during a Move left its log" "$([ $old_logs -gt 0 ] && echo yes)" yes
@@ -5476,7 +5482,8 @@ section "the last release killed (kill -9) during a Rename Many: a start of this
 # plan anew as a job log and removes it, and the repair then finishes it as one of its own
 # (docs/design/log-format.md, decision 3), so each photo gets its new name and its stars. Run as
 # "new" with the old release killed and this one started, and as "old" with the old release's
-# binary for both runs, to compare.
+# binary for both runs, to compare. A last release of 0.93 or later keeps its plan in jobs/,
+# which a start of this one finishes the same way, so the plan is counted in either folder.
 for v in new old; do
     as_version new
     second=$BIN
@@ -5514,7 +5521,8 @@ while time.time() < end:
 os.kill(pid, signal.SIGKILL)" $d $GPID
     wait $GPID 2>/dev/null
     cut=$(ls -A $d | grep -c '^\.glimt-rename')
-    old_plans=$(find $XDG_STATE_HOME/glimt/renames -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    old_plans=$(find $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f \
+        ! -name .lock 2>/dev/null | wc -l | tr -d ' ')
     BIN=$second start $d
     sleep 3
     BIN=$second menu "Finish the renaming"
