@@ -3315,6 +3315,100 @@ fn a_home_ends_at_the_next_top_level_item() {
     assert_eq!(wrong, ["a.rs:4 (risky()", "a.rs:5 (risky()"]);
 }
 
+/// Every job log, Rename Many plan and log of Glimt 0.92 is removed, with its lists, by
+/// `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a sure answer makes.
+/// Three audit rounds in a row found a start that removed a log after a look or a write that
+/// could not tell, each through a removal of its own, and each was mended where it was found.
+#[test]
+fn job_logs_are_removed_in_one_place() {
+    let wrong: Vec<String> = (rust_sources().iter())
+        .flat_map(|(file, text)| log_removals_in(file, text))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "job logs removed outside job_log::remove_job_log:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the places in `text`, the source of `file`, where a job log or its lists may be
+/// removed outside `job_log::remove_job_log`, outside the tests. In the files of the logs, it is
+/// any removal of Glimt's own files elsewhere, as "file:line (call)". In any other file, it is a
+/// function that both names a folder or a list of the logs and removes a file, as
+/// "file: function".
+fn log_removals_in(file: &str, text: &str) -> Vec<String> {
+    const OWN_REMOVALS: [&str; 4] = [
+        "remove_own(",
+        "remove_own_or_tell(",
+        "remove_shared(",
+        "remove_with_its_list(",
+    ];
+    const RAW_REMOVALS: [&str; 3] = ["remove_file(", "remove_dir(", "remove_dir_all("];
+    const LOG_PATHS: [&str; 13] = [
+        "jobs_dir(",
+        "journal_dir(",
+        "move_log_dir(",
+        "delete_log_dir(",
+        "undo_log_dir(",
+        "lists_folder(",
+        "collections_folder(",
+        "asides_folder(",
+        "kept_folder(",
+        "known_path(",
+        "collection_path(",
+        "aside_path(",
+        "kept_path(",
+    ];
+    if ["files/journal.rs", "files/job_log.rs"].contains(&file) {
+        let home: &[(&str, &str)] = &[("files/job_log.rs", "remove_job_log")];
+        let homes: Vec<(&str, &[(&str, &str)])> = OWN_REMOVALS.map(|call| (call, home)).to_vec();
+        return outside_homes_in(file, text, &homes);
+    }
+    let lines = code_lines(text);
+    let mut wrong = Vec::new();
+    let (mut function, mut names_a_log, mut removes) = (String::new(), false, false);
+    // A top-level line after the last item ends the last function too.
+    let end = String::from("end");
+    for line in lines[..tests_start(&lines)].iter().chain([&end]) {
+        let name = function_name(line);
+        if name.is_some() || line.starts_with(|c: char| c.is_alphabetic()) {
+            if names_a_log && removes {
+                wrong.push(format!("{file}: {function}"));
+            }
+            if let Some(name) = name {
+                function = name.to_owned();
+            }
+            (names_a_log, removes) = (false, false);
+        }
+        names_a_log |= LOG_PATHS.iter().any(|path| mentions(line, path));
+        removes |= (OWN_REMOVALS.iter().chain(&RAW_REMOVALS)).any(|call| mentions(line, call));
+    }
+    wrong
+}
+
+/// A removal of Glimt's own files in the files of the logs is found outside `remove_job_log`,
+/// and in another file a function that names a folder of the logs and removes a file is found,
+/// while a function that does only one of the two is not.
+#[test]
+fn finds_a_log_removed_outside_its_home() {
+    let journal =
+        "fn a() {\n    remove_own_or_tell(p);\n}\nfn b() {\n    remove_job_log(p, s);\n}\n";
+    let home = "pub(crate) fn remove_job_log(path: &Path, _: Sure) -> bool {\n    \
+        remove_with_its_list(path, remove_own_or_tell)\n}\n";
+    let other = "fn a() {\n    let d = jobs_dir();\n    remove_own(&d.join(n));\n}\n\
+        fn b() {\n    remove_own(p);\n}\nfn c() {\n    let d = jobs_dir();\n}\n\
+        fn e() {\n    std::fs::remove_file(known_path(&p));\n}\n";
+    assert_eq!(
+        log_removals_in("files/journal.rs", journal),
+        ["files/journal.rs:2 (remove_own_or_tell()"]
+    );
+    assert!(log_removals_in("files/job_log.rs", home).is_empty());
+    assert_eq!(
+        log_removals_in("files/file_ops.rs", other),
+        ["files/file_ops.rs: a", "files/file_ops.rs: e"]
+    );
+}
+
 /// A file Glimt writes from an image (a turn saved, a crop, a copy, their sidecars) takes the
 /// image's metadata only through `save::derived_metadata` and `save::derived_xmp`, which say what
 /// such a file keeps. The EXIF thumbnail was cleared there, but the XMP's thumbnail and a PNG's

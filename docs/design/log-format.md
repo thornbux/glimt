@@ -185,7 +185,8 @@ A log no window holds locked was cut short. For each step, the start looks at th
   name there that the start cannot tell about keeps the plan, with its files counted as left.
 - **Every answer a start gives about a path or a write** is `job_log::AtStart`: sure, or
   `CannotTell`. A log is removed only by `job_log::remove_job_log`, which takes a `Sure` that
-  only a sure answer makes, so a log read with `CannotTell` always stays.
+  only a sure answer makes, so a log read with `CannotTell` always stays
+  (`source_rules::job_logs_are_removed_in_one_place`).
 - **`tree`:** the marks and collection entries under the old path follow the new one, or are
   forgotten for a trashed folder, once the start sees the folder at its new place by its inode
   (#248).

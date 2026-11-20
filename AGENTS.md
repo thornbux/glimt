@@ -602,7 +602,10 @@ arm becomes a method.
     fingerprint of the file there, and is written with `file_io::write_picked_name`. Glimt's
     own files are removed with `file_io::remove_own`, or by a raw call whose `#[allow]` reason
     starts with "Glimt's own:"
-    (`source_rules::destructive_acts_check_the_file_is_still_the_one_picked`);
+    (`source_rules::destructive_acts_check_the_file_is_still_the_one_picked`). A job log, a plan
+    of Rename Many or an old log goes only through `job_log::remove_job_log`, which takes a
+    `job_log::Sure` that only a sure answer (`job_log::AtStart`) makes, so a start that cannot
+    tell keeps the log (`source_rules::job_logs_are_removed_in_one_place`);
   - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there` (or
     `is_followed_to` for a file that a record says was moved there: only NotFound leaves its
     marks behind, and a failed look keeps them with it and is told), whether
