@@ -29,6 +29,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   that lost the answer to a step now keep their log too, so that the next start gives the marks
   and stars to the files where they went. Undo again of a file that came out of the trash
   without an answer now counts it as back, where before it failed every time.
+- A step put back on a share that lost its answer now keeps the job's log too: Undo from the
+  trash that puts a photo back into the trash, as its sidecar cannot come out, a Move that takes
+  a photo back for the same reason, and a Delete whose look after the photo went failed. Before,
+  a photo put back into the trash lost its .trashinfo, and its marks were given to a name where
+  it may not have been.
 - File → Back Up left out the logs of Glimt 0.92 and older in `renames/` only, so a backup could
   hold those in `moves/` and `deletes/`, which a restore put right again. And a log that Glimt
   0.93 or 0.94 had written anew in `jobs/` when a kill came is now removed at the start, so the

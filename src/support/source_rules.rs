@@ -3491,6 +3491,74 @@ fn finds_a_proof_taken_outside_the_end_of_a_job() {
     assert!(proofs_taken_outside_the_end_of_a_job("files/journal.rs", journal).is_empty());
 }
 
+/// A change on the disk made by the code of the jobs, a step or a step put back, keeps its
+/// error: its result is never folded into a `bool` with `.is_ok()`, `.is_err()` or `.ok()`. The
+/// error is what tells a step that may have been done (`file_io::may_have_been_done`), which
+/// keeps the job's log (`JobLog::note_step_failed`) and every name the step may still need.
+/// Before, Undo from the trash put a file back into the trash with `.is_ok()`, and when that
+/// rename lost its answer, the file's .trashinfo and the log went while the file may have been
+/// in the trash.
+#[test]
+fn changes_on_the_disk_in_jobs_keep_their_errors() {
+    // The files whose code runs the jobs that keep a log.
+    const JOB_FILES: [&str; 3] = ["files/file_ops.rs", "files/trash.rs", "images/save.rs"];
+    let wrong: Vec<String> = (rust_sources().iter())
+        .filter(|(file, _)| JOB_FILES.contains(&file.as_str()))
+        .flat_map(|(file, text)| changes_folded_into_a_bool(file, text))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a change on the disk whose error is dropped, so a step that may have been done is \
+         taken as not done:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text`, the source of `file`, outside the tests, where a change on the
+/// disk has its result folded into a `bool`, also by a call on the next line.
+fn changes_folded_into_a_bool(file: &str, text: &str) -> Vec<String> {
+    const CHANGES: [&str; 7] = [
+        "rename_never_over(",
+        "put_file(",
+        "put_file_back(",
+        "put_file_until_stopped(",
+        "remove_file(",
+        "remove_dir(",
+        "rename_step(",
+    ];
+    const FOLDS: [&str; 3] = [".is_ok()", ".is_err()", ".ok()"];
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut wrong = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        if !CHANGES.iter().any(|call| mentions_call(line, call)) {
+            continue;
+        }
+        let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
+        let statement = match next.starts_with('.') {
+            true => format!("{line}{next}"),
+            false => line.clone(),
+        };
+        if FOLDS.iter().any(|fold| statement.contains(fold)) {
+            wrong.push(format!("{file}:{}", i + 1));
+        }
+    }
+    wrong
+}
+
+/// A rename folded into a `bool` is found, also with the fold on the next line, while a rename
+/// whose error is kept is not.
+#[test]
+fn finds_a_change_folded_into_a_bool() {
+    let text = "fn a() {\n    while rename_never_over(a, b).is_ok() {}\n    \
+        let r = std::fs::remove_file(a)\n        .is_err();\n    \
+        let Err(e) = rename_never_over(a, b) else { return };\n}\n";
+    assert_eq!(
+        changes_folded_into_a_bool("files/trash.rs", text),
+        ["files/trash.rs:2", "files/trash.rs:3"]
+    );
+}
+
 /// A function in the files of the logs that looks at the disk answers with `job_log::AtStart`, or
 /// with anything else that can say "cannot tell", never with a plain `bool`, which folds a look
 /// that failed into a sure answer. Before, `is_another_folder` answered `false` for a card whose
