@@ -1639,7 +1639,9 @@ fn is_another_folder(folders: &HashMap<PathBuf, (u64, u64)>, path: &Path) -> boo
 /// Returns whether nothing is at `path` now, the one rule by which a start reads a path that a
 /// job log names, whose `folder` records noted `folders`. Returns `Ok(true)` when its name is
 /// surely not there while its folder surely is, on the device the log noted, and `Ok(false)`
-/// when something is at its name. Returns `CannotTell` when the looks cannot tell: the folder is
+/// when something is at its name. A folder that is gone counts as deleted, and its files as
+/// gone, when the nearest folder above it is on the device the log noted
+/// (`removed_from_its_device`). Returns `CannotTell` when the looks cannot tell: the folder is
 /// not there, as on a stick or a share not back yet at this start, or it is on another device
 /// than the log noted, or the log noted none of it, or a look failed. Such a log stays for a later
 /// start, as a path taken for gone or for not there would lose the marks of its file.
@@ -1661,6 +1663,9 @@ fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, (u64, u64)>) -> AtSt
     if !folders.is_empty() {
         let folder = path.parent().ok_or(CannotTell)?;
         let (device, _) = folders.get(folder).ok_or(CannotTell)?;
+        if is_surely_gone(folder) {
+            return removed_from_its_device(folder, *device);
+        }
         if device_now(folder) != Some(*device) {
             return Err(CannotTell);
         }
@@ -1672,6 +1677,26 @@ fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, (u64, u64)>) -> AtSt
         true => Ok(true),
         false => Err(CannotTell),
     }
+}
+
+/// Tells whether `folder`, which is surely gone, was removed from the device it was noted on.
+/// Returns `Ok(true)` when the nearest folder above it that surely is there is on that device, as
+/// then the folder was deleted, not taken away with a stick or share. Returns `CannotTell` when
+/// that folder is on another device, as an empty mount point is, or when a look fails.
+fn removed_from_its_device(folder: &Path, device: u64) -> AtStart<bool> {
+    let mut above = folder.parent();
+    while let Some(ancestor) = above {
+        if is_surely_dir(ancestor) {
+            return (device_now(ancestor) == Some(device))
+                .then_some(true)
+                .ok_or(CannotTell);
+        }
+        if !is_surely_gone(ancestor) {
+            return Err(CannotTell);
+        }
+        above = ancestor.parent();
+    }
+    Err(CannotTell)
 }
 
 /// Removes each list of files in the Move or delete logs' folder `dir` whose log is gone, which
@@ -2855,9 +2880,12 @@ mod tests {
         log.note(&from.join("a.jpg"), &stick.join("a.jpg"));
         std::fs::rename(from.join("a.jpg"), stick.join("a.jpg")).unwrap();
         drop(log);
+        // The stick is out: its mount point is an empty folder on another device.
         std::fs::remove_dir_all(&stick).unwrap();
+        std::fs::create_dir(&stick).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(stick.clone()));
         assert!(super::move_jobs_cut_short(&logs).is_empty());
-        std::fs::create_dir_all(&stick).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
         std::fs::write(stick.join("a.jpg"), "a").unwrap();
         assert_eq!(super::move_jobs_cut_short(&logs).len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
@@ -4415,6 +4443,34 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A delete's log whose folder the user has since deleted, with the folder above it, gives
+    /// its files as gone, and their marks are forgotten. A folder gone under an empty mount point
+    /// on another device, as on a stick taken out, keeps the log. Before, a deleted folder counted
+    /// as a stick taken out, the log stayed for ever, and the marks waited for a later photo at
+    /// the name.
+    #[test]
+    fn a_log_whose_folder_was_deleted_forgets_its_files() {
+        let dir = crate::support::test_support::contract_folder("start-folder-deleted");
+        let logs = dir.join("logs");
+        let (album, stick) = (dir.join("new/album"), dir.join("stick"));
+        let (deleted, on_stick) = (album.join("a.png"), stick.join("photos/b.png"));
+        for file in [&deleted, &on_stick] {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "a").unwrap();
+        }
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(&[deleted.clone(), on_stick.clone()]);
+        drop(log);
+        std::fs::remove_dir_all(dir.join("new")).unwrap();
+        std::fs::remove_dir_all(stick.join("photos")).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(stick.clone()));
+        let found = super::delete_jobs_cut_short(&logs);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        assert_eq!(found[0].1, std::slice::from_ref(&deleted));
+        assert_eq!(let_go(found), 1, "the stick's file keeps the log");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A log let go for a later start is written anew in the folder of the job logs with only
     /// the steps that the start could not tell about, each with its fingerprint, and keeps its
     /// time. Before, every later start looked again at every name of the log, three looks for
@@ -4439,8 +4495,11 @@ mod tests {
         log.note(&[a.clone(), b.clone(), on_stick.clone()]);
         drop(log);
         std::fs::remove_file(&b).unwrap();
-        // The stick is not plugged in at the start.
+        // The stick is not plugged in at the start: its mount point is an empty folder on
+        // another device.
         std::fs::rename(&stick, dir.join("stick-away")).unwrap();
+        std::fs::create_dir(&stick).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(stick.clone()));
         let old = the_log_in(&logs);
         let old_bytes = std::fs::read(&old).unwrap();
         let written = std::fs::metadata(&old).unwrap().modified().unwrap();
@@ -4484,6 +4543,8 @@ mod tests {
         assert!(!old.exists(), "the old log was read again");
         assert_eq!(let_go(found), 1);
         // The stick is back, without c.png, which went before the kill: the log goes.
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        std::fs::remove_dir(&stick).unwrap();
         std::fs::rename(dir.join("stick-away"), &stick).unwrap();
         std::fs::remove_file(&on_stick).unwrap();
         let found = super::delete_jobs_cut_short(&logs);
@@ -4954,6 +5015,8 @@ mod tests {
         std::fs::create_dir_all(&unmounted).unwrap();
         let log = super::start_folder_log(&jobs, &unmounted, None, None).unwrap();
         std::fs::remove_dir_all(dir.join("stick")).unwrap();
+        std::fs::create_dir(dir.join("stick")).unwrap();
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(|folders| folders.push(dir.join("stick")));
         drop(log);
         let (_, _, _, found) = super::jobs_cut_short(&jobs);
         assert!(found.is_empty());
@@ -4968,6 +5031,7 @@ mod tests {
         let (_, _, _, found) = super::jobs_cut_short(&jobs);
         assert!(found.is_empty());
         assert_eq!(std::fs::read_dir(&jobs).unwrap().count(), 2);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
         crate::files::file_ops::test_mount(&dir, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
