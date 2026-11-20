@@ -272,11 +272,28 @@ pub(crate) struct CannotTell;
 /// and `Err(CannotTell)` when it is not.
 pub(crate) type AtStart<T> = Result<T, CannotTell>;
 
+/// The proof that a job log may be removed, which `remove_job_log` takes. Its field is private,
+/// so it is made only by `Sure::of`, from an answer that was sure: a start's look or write about
+/// the log's files (`AtStart`), a write of the log that it depends on, or the start of a job of
+/// this window, which tells its own failures. A log that a start read with `CannotTell` has
+/// none, and stays for a later start.
+pub(crate) struct Sure(());
+
+impl Sure {
+    /// Returns the proof that `answer` was sure, and `None` when it was not.
+    pub(crate) fn of<T, E>(answer: &Result<T, E>) -> Option<Sure> {
+        answer.is_ok().then_some(Sure(()))
+    }
+}
+
 /// A job log being written, held locked while its job runs, so that no other window takes it
 /// for one that a kill cut short.
 pub(crate) struct JobLog {
     path: PathBuf,
     file: File,
+    /// The proof that the log may be removed: there for the log of a job of this window, and for
+    /// a log found at the start only once a reader read it surely (`read_surely`).
+    sure: Option<Sure>,
 }
 
 impl JobLog {
@@ -290,7 +307,9 @@ impl JobLog {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(crate::files::journal::new_name());
         let file = crate::files::file_io::open_if_unlocked(&path, true)?;
-        let mut log = JobLog { path, file };
+        let started: std::io::Result<()> = Ok(());
+        let sure = Sure::of(&started);
+        let mut log = JobLog { path, file, sure };
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
@@ -303,10 +322,13 @@ impl JobLog {
         match written {
             Ok(()) => Ok(log),
             // A log left half written would be read at the next start as one a kill cut short.
-            Err(e) => match crate::files::file_io::remove_own(&log.path) {
-                Ok(()) => Err(e),
-                Err(left) => Err(std::io::Error::other(format!("{e}, and {left}"))),
-            },
+            // It names no step yet, so nothing is lost with it, and a failure is told.
+            Err(e) => {
+                if let Some(sure) = log.sure.take() {
+                    remove_job_log(&log.path, sure);
+                }
+                Err(e)
+            }
         }
     }
 
@@ -327,14 +349,30 @@ impl JobLog {
     /// Removes the log, when its job is over and what it changed has been written, and lets
     /// go of its lock.
     #[cfg(test)]
-    pub(crate) fn remove_log(self) -> std::io::Result<()> {
-        crate::files::file_io::remove_own(&self.path)
+    pub(crate) fn remove_log(self) -> bool {
+        (self.sure).is_some_and(|sure| remove_job_log(&self.path, sure))
     }
 
     /// Returns the log at `path`, held locked as `file`, as a start found it, of this format or
     /// of an older one. It is written to no more, and removed as a log of its job is.
     pub(crate) fn found(path: PathBuf, file: File) -> JobLog {
-        JobLog { path, file }
+        JobLog {
+            path,
+            file,
+            sure: None,
+        }
+    }
+
+    /// Returns the log with the proof `sure` that the start read it surely, so that it may be
+    /// removed once what it says has been written.
+    pub(crate) fn read_surely(mut self, sure: Sure) -> JobLog {
+        self.sure = Some(sure);
+        self
+    }
+
+    /// Takes the proof that the log may be removed, which it has no more after this.
+    pub(crate) fn take_sure(&mut self) -> Option<Sure> {
+        self.sure.take()
     }
 
     /// Returns the log's path.
@@ -350,6 +388,12 @@ impl JobLog {
     /// Returns the log's path and its file, which holds its lock while it stays open.
     pub(crate) fn into_path_and_file(self) -> (PathBuf, File) {
         (self.path, self.file)
+    }
+
+    /// Returns the log's path, its file and the proof that it may be removed, and `None` when it
+    /// has no such proof, as a log found at the start that no reader read surely.
+    pub(crate) fn into_removable(self) -> Option<(PathBuf, File, Sure)> {
+        Some((self.path, self.file, self.sure?))
     }
 }
 
@@ -434,8 +478,9 @@ pub(crate) fn logs_left_by_a_kill(dir: &Path) -> Vec<FoundLog> {
             }),
             LogRead::NotALog if meta.len() == 0 => {
                 let age = meta.modified().ok().and_then(|made| made.elapsed().ok());
-                if age.is_some_and(|age| age > EMPTY_LOG_AGE) {
-                    crate::files::file_io::remove_own_or_tell(&path);
+                let is_old = age.filter(|age| *age > EMPTY_LOG_AGE).ok_or(CannotTell);
+                if let Some(sure) = Sure::of(&is_old) {
+                    remove_job_log(&path, sure);
                 }
             }
             LogRead::Newer(_) | LogRead::NotALog => left_alone += 1,
@@ -598,6 +643,40 @@ fn number<T: std::str::FromStr>(field: &[u8]) -> Option<T> {
     std::str::from_utf8(field).ok()?.parse().ok()
 }
 
+/// Removes the job log, plan or old log at `path` with its lists, the one way any of them is
+/// removed (`source_rules::job_logs_are_removed_in_one_place`). It takes the proof `Sure`, which
+/// only a sure answer makes, so that no log goes after a look or a write that could not tell. A
+/// failure is told. Returns whether the log is gone.
+pub(crate) fn remove_job_log(path: &Path, _: Sure) -> bool {
+    remove_with_its_list(path, crate::files::file_io::remove_own_or_tell)
+}
+
+/// Removes the plan or log `plan` with `remove`, which tells a failure and returns whether the
+/// file is gone, and then the list of its files. The list stays when the plan does, because a
+/// plan or log without its list is taken by its names alone at the next start, and could put a
+/// photo's stars on a later photo of that name. Returns whether the plan is gone.
+pub(crate) fn remove_with_its_list(plan: &Path, remove: impl Fn(&Path) -> bool) -> bool {
+    use crate::files::file_io::is_surely_gone;
+    use crate::files::journal::{aside_path, collection_path, kept_path, known_path};
+    if !remove(plan) {
+        return false;
+    }
+    remove(&known_path(plan));
+    // Only a delete's log has a file of its collection, and only when one was shown.
+    let collection = collection_path(plan);
+    if !is_surely_gone(&collection) {
+        remove(&collection);
+    }
+    // Only a delete for good's log has a file of the sidecars it put aside, and one of the
+    // photos it kept with a sidecar that may be hidden.
+    for file in [aside_path(plan), kept_path(plan)] {
+        if !is_surely_gone(&file) {
+            remove(&file);
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::{LogRead, Record};
@@ -724,7 +803,7 @@ mod tests {
         drop(held);
         let log = super::JobLog::start(&dir, "move", &[]).unwrap();
         let path = log.path.clone();
-        log.remove_log().unwrap();
+        assert!(log.remove_log());
         assert!(crate::files::file_io::is_surely_gone(&path));
         assert!(super::JobLog::start(&dir, "copy", &[]).is_err());
         std::fs::remove_dir_all(dir).unwrap();

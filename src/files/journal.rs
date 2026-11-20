@@ -14,7 +14,7 @@
 //! name.
 
 use crate::files::file_io::{FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there};
-use crate::files::job_log::{AtStart, CannotTell, JobLog, Record};
+use crate::files::job_log::{AtStart, CannotTell, JobLog, Record, Sure, remove_job_log};
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
@@ -179,7 +179,10 @@ impl Journal {
     #[cfg(test)]
     pub fn refuse_writes(&mut self) {
         let path = self.log.path().to_path_buf();
-        let read_only = JobLog::found(path.clone(), File::open(&path).unwrap());
+        let mut read_only = JobLog::found(path.clone(), File::open(&path).unwrap());
+        if let Some(sure) = self.log.take_sure() {
+            read_only = read_only.read_surely(sure);
+        }
         // The file that holds the lock is forgotten open, so that the lock stays.
         std::mem::forget(std::mem::replace(&mut self.log, read_only));
     }
@@ -199,8 +202,10 @@ impl Journal {
 
 impl Drop for Journal {
     fn drop(&mut self) {
-        if !self.is_kept {
-            remove_plan(self.log.path(), &self.one_name_per_folder);
+        if !self.is_kept
+            && let Some(sure) = self.log.take_sure()
+        {
+            remove_plan(self.log.path(), &self.one_name_per_folder, sure);
         }
     }
 }
@@ -279,8 +284,7 @@ impl MoveLog {
     /// and the log goes after both. A log that is dropped instead stays on disk, and the next
     /// start makes them follow.
     pub fn remove_once_followed(self) {
-        let (path, file) = self.log.into_path_and_file();
-        remove_after_the_writes(path, file);
+        remove_after_the_writes(self.log);
     }
 }
 
@@ -485,14 +489,14 @@ impl DeleteLog {
     /// at the start that names a file the start could not tell about is written anew in
     /// `jobs/` with only those steps, and goes once the new one is on disk (`write_anew`).
     pub fn remove_once_forgotten(self) {
-        let (path, file) = self.log.into_path_and_file();
         if !self.has_names_left {
-            remove_after_the_writes(path, file);
+            remove_after_the_writes(self.log);
             return;
         }
         let (Some((dir, time, records)), job) = (self.written_anew, self.job) else {
             return;
         };
+        let (path, file) = self.log.into_path_and_file();
         crate::files::file_io::write_later(move || {
             if let Err(e) = write_anew(&dir, job, time, &records, &path) {
                 crate::files::file_io::save_failed(format!("{}: {e}", dir.display()));
@@ -783,8 +787,7 @@ fn folder_job_done(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
 /// folders and to that of Glimt's own files has been written. A log that is dropped instead
 /// stays on disk, and the next start reads it again.
 pub fn remove_once_written(log: JobLog) {
-    let (path, file) = log.into_path_and_file();
-    remove_after_the_writes(path, file);
+    remove_after_the_writes(log);
 }
 
 /// Returns what an Undo from the trash whose log says `records` had put back when Glimt was
@@ -853,14 +856,18 @@ fn back_from_the_trash(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
     Ok(JobDoneBeforeAKill::BackFromTrash(marks))
 }
 
-/// Removes the Move or delete log at `path`, held locked by `file`, with its list, after the
-/// writes the window has sent so far: to the thread of the user's folders (collections), and
-/// then to that of Glimt's own files (marks).
-fn remove_after_the_writes(path: PathBuf, file: File) {
+/// Removes the job log `log`, held locked, with its list, after the writes the window has sent
+/// so far: to the thread of the user's folders (collections), and then to that of Glimt's own
+/// files (marks). A log found at the start that no reader read surely has no proof that it may
+/// go (`Sure`), and stays for a later start.
+fn remove_after_the_writes(log: JobLog) {
+    let Some((path, file, sure)) = log.into_removable() else {
+        return;
+    };
     crate::files::file_io::write_later_in_user_folders(move || {
         // A log left behind is read again at every start, so a failure is told.
         crate::files::file_io::write_later(move || {
-            remove_with_its_list(&path, crate::files::file_io::remove_own_or_tell);
+            remove_job_log(&path, sure);
             drop(file);
         });
     });
@@ -896,16 +903,17 @@ pub fn old_moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             let known = read_move_known(&known_path(&path));
             // A log of 0.92 noted no folders (`is_gone_at_start`).
             let none = HashMap::new();
-            let went = moves_that_went(parse_move_log(&bytes), known.as_deref(), &none).ok()?;
-            Some((found_move_log(JobLog::found(path, file)), went))
+            let went = moves_that_went(parse_move_log(&bytes), known.as_deref(), &none);
+            let sure = Sure::of(&went)?;
+            Some((found_move_log(JobLog::found(path, file), sure), went.ok()?))
         })
         .collect()
 }
 
-/// Returns the Move log `log` as a start found it.
-fn found_move_log(log: JobLog) -> MoveLog {
+/// Returns the Move log `log` as a start found it and read it surely, as `sure` proves.
+fn found_move_log(log: JobLog, sure: Sure) -> MoveLog {
     MoveLog {
-        log,
+        log: log.read_surely(sure),
         steps: 0,
         is_found_at_start: true,
         folders: HashSet::new(),
@@ -969,10 +977,8 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
         .collect();
     let (mut moves, mut deletes, mut others) = (Vec::new(), Vec::new(), Vec::new());
     for found in found {
-        if written_anew.contains(found.log.path()) {
-            let (path, file) = found.log.into_path_and_file();
-            crate::files::file_io::remove_own_or_tell(&path);
-            drop(file);
+        if let Some(sure) = Sure::of(&is_named_anew(&written_anew, found.log.path())) {
+            remove_job_log(found.log.path(), sure);
         } else if ["move", "undo-move"].contains(&found.job) {
             moves.extend(move_job_cut_short(found));
         } else if ["delete", "trash"].contains(&found.job) {
@@ -982,13 +988,15 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
             deletes.push(put_right_a_delete(found.log, records, time, jobs));
         } else if found.job == "undo-trash" {
             // A log whose files cannot be looked at now stays for a later start.
-            if let Ok(done) = back_from_the_trash(&found.records) {
-                others.push((found.log, done));
+            let done = back_from_the_trash(&found.records);
+            if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
+                others.push((found.log.read_surely(sure), done));
             }
         } else if ["rename-folder", "trash-folder"].contains(&found.job) {
             // A log whose folder cannot be looked at now stays for a later start.
-            if let Ok(done) = folder_job_done(&found.records) {
-                others.push((found.log, done));
+            let done = folder_job_done(&found.records);
+            if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
+                others.push((found.log.read_surely(sure), done));
             }
         }
     }
@@ -1024,8 +1032,15 @@ fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> Option<(MoveLog
             _ => None,
         })
         .unzip();
-    let went = moves_that_went(pairs, Some(&known), &folders_noted(&found.records)).ok()?;
-    Some((found_move_log(found.log), went))
+    let went = moves_that_went(pairs, Some(&known), &folders_noted(&found.records));
+    let sure = Sure::of(&went)?;
+    Some((found_move_log(found.log, sure), went.ok()?))
+}
+
+/// Returns whether a job log in `written_anew` names the log at `path` in its `old-log` record:
+/// it was written anew as that one, whole, before it named it, so it may go unread.
+fn is_named_anew(written_anew: &HashSet<PathBuf>, path: &Path) -> AtStart<()> {
+    written_anew.contains(path).then_some(()).ok_or(CannotTell)
 }
 
 /// Returns what the records of a delete's job log, of kind `job`, say. The parser leaves out a
@@ -1085,8 +1100,8 @@ pub fn old_deletes_cut_short(
 ) -> Vec<(DeleteLog, Vec<PathBuf>)> {
     (logs_left_by_a_kill(dir).into_iter())
         .filter_map(|(path, file, bytes)| {
-            if written_anew.contains(&path) {
-                remove_with_its_list(&path, crate::files::file_io::remove_own_or_tell);
+            if let Some(sure) = Sure::of(&is_named_anew(written_anew, &path)) {
+                remove_job_log(&path, sure);
                 return None;
             }
             let names = parse_names(&bytes);
@@ -1210,6 +1225,12 @@ fn put_right_a_delete(
     let kept: HashSet<&PathBuf> = r.kept.iter().chain(&still_hidden).collect();
     let found: HashSet<&PathBuf> = r.found.iter().chain(&found_now).collect();
     let records_left = steps_left(r, &untold, &kept, &found, log.path());
+    // A log whose every name the start could tell about goes once the marks are forgotten.
+    let is_told = untold.is_empty().then_some(()).ok_or(CannotTell);
+    let log = match Sure::of(&is_told) {
+        Some(sure) => log.read_surely(sure),
+        None => log,
+    };
     let log = DeleteLog {
         log,
         job: r.job,
@@ -1293,10 +1314,13 @@ fn write_anew(
     old: &Path,
 ) -> std::io::Result<()> {
     let (_path, file) = JobLog::start(dir, job, records)?.into_path_and_file();
-    keep_time(&file, time)?;
-    remove_with_its_list(old, crate::files::file_io::remove_own_or_tell);
+    // The old log goes only once the new one is whole on disk, with its time.
+    let written = keep_time(&file, time);
+    if let Some(sure) = Sure::of(&written) {
+        remove_job_log(old, sure);
+    }
     drop(file);
-    Ok(())
+    written
 }
 
 /// Returns the photos that the delete whose log is at `log` kept while their sidecar may still
@@ -1338,8 +1362,9 @@ fn logs_left_by_a_kill(dir: &Path) -> Vec<(PathBuf, File, Vec<u8>)> {
             if bytes.is_empty() {
                 let age = (file.metadata().and_then(|m| m.modified()).ok())
                     .and_then(|made| made.elapsed().ok());
-                if age.is_some_and(|age| age > EMPTY_LOG_AGE) {
-                    remove_with_its_list(&e.path(), crate::files::file_io::remove_own_or_tell);
+                let is_old = age.filter(|age| *age > EMPTY_LOG_AGE).ok_or(CannotTell);
+                if let Some(sure) = Sure::of(&is_old) {
+                    remove_job_log(&e.path(), sure);
                 }
                 return None;
             }
@@ -1670,8 +1695,13 @@ fn remove_orphan_lists(dir: &Path) {
     for entry in lists {
         let is_list = entry.file_type().is_ok_and(|kind| kind.is_file())
             && !entry.file_name().as_bytes().starts_with(b".");
-        if is_list && is_surely_gone(&dir.join(entry.file_name())) {
-            crate::files::file_io::remove_own_or_tell(&entry.path());
+        // The log is surely gone, and only its lists are left to remove with it.
+        let log = dir.join(entry.file_name());
+        let is_orphan = (is_list && is_surely_gone(&log))
+            .then_some(())
+            .ok_or(CannotTell);
+        if let Some(sure) = Sure::of(&is_orphan) {
+            remove_job_log(&log, sure);
         }
     }
 }
@@ -2149,7 +2179,7 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
 /// written anew before a kill left it, and is removed unread. A plan whose list cannot be
 /// read, or that cannot be written anew, stays for the next start, and is told.
 pub fn old_plans_written_anew(dir: &Path, jobs: &Path) {
-    use crate::files::file_io::{remove_own_or_tell, save_failed};
+    use crate::files::file_io::save_failed;
     let plans = old_plans_cut_short(dir);
     if plans.is_empty() {
         return;
@@ -2160,8 +2190,8 @@ pub fn old_plans_written_anew(dir: &Path, jobs: &Path) {
     let _held = (is_surely_dir(&lists_folder(dir)))
         .then(|| crate::files::file_io::lock_or_tell(&lists_lock(dir)));
     for (path, held, moves, done) in plans {
-        if named.contains(&path) {
-            remove_with_its_list(&path, remove_own_or_tell);
+        if let Some(sure) = Sure::of(&is_named_anew(&named, &path)) {
+            remove_job_log(&path, sure);
             continue;
         }
         let known = match read_old_plan_known(&path, moves.len()) {
@@ -2178,11 +2208,13 @@ pub fn old_plans_written_anew(dir: &Path, jobs: &Path) {
         // The `old-log` record comes last, so that a new log cut off by a kill while it is
         // written never names the old plan, which then stays and is written anew again.
         records.push(Record::OldLog(path.clone()));
-        match JobLog::start(jobs, "rename", &records) {
-            Ok(log) => {
-                remove_with_its_list(&path, remove_own_or_tell);
-                drop(log);
-            }
+        let started = JobLog::start(jobs, "rename", &records);
+        // The old plan goes only once the new one is whole on disk.
+        if let Some(sure) = Sure::of(&started) {
+            remove_job_log(&path, sure);
+        }
+        match started {
+            Ok(log) => drop(log),
             Err(e) => save_failed(crate::tf!(
                 "Could not save {name}: {e}",
                 name = jobs.display(),
@@ -2438,8 +2470,10 @@ pub fn repair_cut_short(
         (true, None) => undo(moves, moves.len()),
         (false, None) => finish(moves, 0),
     };
-    if left == 0 {
-        remove_plan(plan, &one_name_per_folder(moves));
+    // Every step was done, or surely had nothing of the plan's to rename.
+    let is_put_right = (left == 0).then_some(()).ok_or(CannotTell);
+    if let Some(sure) = Sure::of(&is_put_right) {
+        remove_plan(plan, &one_name_per_folder(moves), sure);
     }
     Some((renamed + first, left))
 }
@@ -2509,12 +2543,17 @@ pub fn leave_names(
     // where the file may be there (`is_followed`). Taken from the count alone, a repair that
     // stopped half way gave a photo that went back to its old name the marks of a name where
     // nothing was. The files' fingerprints of the plan tell a photo that went back.
-    let (known, _) = read_plan_known(plan, moves.len()).map_err(Some)?;
+    // The user chose to leave the names, and the plan was read whole, so it may go.
+    let read = read_plan_known(plan, moves.len());
+    let sure = Sure::of(&read);
+    let (known, _) = read.map_err(Some)?;
     let followed = (files_of(moves, done, &known).into_iter())
         .filter(|&(first, now, _, known)| first != now && is_followed((first, now), known))
         .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
         .collect();
-    remove_plan(plan, &one_name_per_folder(moves));
+    if let Some(sure) = sure {
+        remove_plan(plan, &one_name_per_folder(moves), sure);
+    }
     drop(held);
     Ok(followed)
 }
@@ -2669,43 +2708,21 @@ fn tell_when_not_synced(synced: Result<(), (&Path, std::io::Error)>) {
     }
 }
 
-/// Removes `plan` after syncing the folders of `names`. The plan goes also when the disk says a
-/// folder did not get there, and the user is told. The marks and collections follow the new
-/// names as soon as the renames are done, and a plan kept beside them would move them again
-/// at the next start, or swap a swap's marks back.
-fn remove_plan(plan: &Path, names: &[PathBuf]) {
+/// Removes `plan`, as `sure` proves it may go, after syncing the folders of `names`. The plan
+/// goes also when the disk says a folder did not get there, and the user is told. The marks and
+/// collections follow the new names as soon as the renames are done, and a plan kept beside
+/// them would move them again at the next start, or swap a swap's marks back.
+fn remove_plan(plan: &Path, names: &[PathBuf], sure: Sure) {
     let renames_synced = sync_folders(names);
     // A plan left behind would be offered again at the next start, and putting its old names
     // back would undo a finished rename, so a failure is told.
     // shortcut: a crash between the two removals leaves the list of the plan's files behind,
     // and nothing removes it; a sweep at the start if those are ever seen in numbers.
-    remove_with_its_list(plan, crate::files::file_io::remove_own_or_tell);
+    remove_job_log(plan, sure);
     // The plan's folder is synced too, because a plan brought back by a power cut, after the
     // marks followed, would move them again. A disk that fails both is told once.
     let plan_name = [plan.to_path_buf()];
     tell_when_not_synced(renames_synced.and(sync_folders(&plan_name)));
-}
-
-/// Removes the plan or log `plan` with `remove`, which tells a failure and returns whether the
-/// file is gone, and then the list of its files. The list stays when the plan does, because a
-/// plan or log without its list is taken by its names alone at the next start, and could put a
-/// photo's stars on a later photo of that name.
-fn remove_with_its_list(plan: &Path, remove: impl Fn(&Path) -> bool) {
-    if remove(plan) {
-        remove(&known_path(plan));
-        // Only a delete's log has a file of its collection, and only when one was shown.
-        let collection = collection_path(plan);
-        if !is_surely_gone(&collection) {
-            remove(&collection);
-        }
-        // Only a delete for good's log has a file of the sidecars it put aside, and one of the
-        // photos it kept with a sidecar that may be hidden.
-        for file in [aside_path(plan), kept_path(plan)] {
-            if !is_surely_gone(&file) {
-                remove(&file);
-            }
-        }
-    }
 }
 
 /// Returns whether `file` still has a name. A plan that another window put right and deleted
@@ -2779,10 +2796,10 @@ mod tests {
                 works
             }
         };
-        super::remove_with_its_list(plan, remove(false));
+        crate::files::job_log::remove_with_its_list(plan, remove(false));
         assert_eq!(*tried.borrow(), [plan]);
         tried.borrow_mut().clear();
-        super::remove_with_its_list(plan, remove(true));
+        crate::files::job_log::remove_with_its_list(plan, remove(true));
         assert_eq!(
             *tried.borrow(),
             [plan.to_path_buf(), super::known_path(plan)]
@@ -4263,7 +4280,8 @@ mod tests {
         // A plan below a file, which no file system removes.
         std::fs::write(dir.join("file"), "").unwrap();
         let _ = crate::files::file_io::take_saves_failed();
-        super::remove_plan(&dir.join("file").join("plan"), &[]);
+        let sure = crate::files::job_log::Sure::of(&Ok::<(), ()>(())).unwrap();
+        super::remove_plan(&dir.join("file").join("plan"), &[], sure);
         let failed = crate::files::file_io::take_saves_failed();
         assert!(
             failed.iter().any(|e| e.contains("Could not remove")),
@@ -5136,6 +5154,20 @@ mod tests {
             plan.exists(),
             "the plan went while its names could not be told"
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A log found at the start that no reader read surely has no proof that it may go
+    /// (`Sure`), so the removal after the writes leaves it on disk for a later start.
+    #[test]
+    fn a_found_log_not_read_surely_stays() {
+        let dir = crate::support::test_support::contract_folder("start-not-read-surely");
+        let log = super::JobLog::start(&dir.join("jobs"), "move", &[]).unwrap();
+        let (path, file) = log.into_path_and_file();
+        super::remove_once_written(super::JobLog::found(path.clone(), file));
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        assert!(path.exists(), "a log not read surely was removed");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
