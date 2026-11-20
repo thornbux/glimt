@@ -66,6 +66,10 @@ thread_local! {
     // How many times `volume_of` was asked on this thread, so that a test can see that a start
     // looks up a folder's volume once and not once for each file.
     pub(crate) static VOLUME_LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    // Whether a start on this thread fails to read the volumes, as when /dev/disk/by-uuid
+    // cannot be read.
+    pub(crate) static VOLUMES_UNREADABLE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
 }
 
 /// What the `folder` and `volume` records of a log noted of a folder: its device, its inode (0
@@ -77,11 +81,52 @@ struct FolderNoted {
     noted_device: u64,
     noted_inode: u64,
     noted_volume: Option<std::ffi::OsString>,
-    /// The volume found now for the folder, with the device it was found on. It is kept for the
-    /// one start that reads the log, so that /dev/disk/by-uuid is read once for the folder and
-    /// not once for each of its files. A look that found no volume is not kept, and is made
-    /// again.
-    volume_found: std::sync::OnceLock<(u64, std::ffi::OsString)>,
+    /// The volumes found now, shared by every folder of the log. /dev/disk/by-uuid is read once
+    /// for the start that reads the log, not once for each folder or file, and its answer is
+    /// kept whatever it is: a volume, no volume for a device, or a read that failed (`None`).
+    volumes_now: std::sync::Arc<std::sync::OnceLock<Option<VolumesNow>>>,
+}
+
+/// The volumes that /dev/disk/by-uuid names now, by their devices. A test gives them by folder
+/// with `TEST_VOLUMES` instead.
+#[derive(Debug)]
+struct VolumesNow {
+    #[cfg(not(test))]
+    by_device: HashMap<u64, Option<std::ffi::OsString>>,
+    #[cfg(test)]
+    by_folder: Vec<(PathBuf, std::ffi::OsString)>,
+}
+
+impl VolumesNow {
+    /// Reads the volumes once. Returns `None` when they cannot be read. It waits for the disk.
+    fn read() -> Option<Self> {
+        #[cfg(test)]
+        {
+            VOLUME_LOOKS.set(VOLUME_LOOKS.get() + 1);
+            let by_folder = TEST_VOLUMES.with_borrow(|volumes| volumes.clone());
+            (!VOLUMES_UNREADABLE.get()).then_some(Self { by_folder })
+        }
+        #[cfg(not(test))]
+        {
+            let by_device = crate::files::file_io::volumes_by_device()?;
+            Some(Self { by_device })
+        }
+    }
+
+    /// Returns the volume that `folder`, on the device `device`, is on, and `None` when it is
+    /// on none.
+    fn volume_of_folder(&self, folder: &Path, device: u64) -> Option<std::ffi::OsString> {
+        #[cfg(test)]
+        {
+            let _ = device;
+            (self.by_folder.iter().find(|(at, _)| folder.starts_with(at))).map(|(_, v)| v.clone())
+        }
+        #[cfg(not(test))]
+        {
+            let _ = folder;
+            self.by_device.get(&device).cloned().flatten()
+        }
+    }
 }
 
 /// The job logs a start found: the Moves with the files that went, the deletes with the files
@@ -1638,6 +1683,7 @@ fn volume_of(folder: &Path, device: u64) -> Option<std::ffi::OsString> {
 /// Returns the folders that the `folder` records among `records` noted, each with the volume
 /// that a `volume` record of the same folder noted.
 fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
+    let volumes_now = std::sync::Arc::new(std::sync::OnceLock::new());
     let mut folders: HashMap<PathBuf, FolderNoted> = (records.iter())
         .filter_map(|record| match record {
             Record::Folder {
@@ -1650,7 +1696,7 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
                     noted_device: *device,
                     noted_inode: *inode,
                     noted_volume: None,
-                    volume_found: std::sync::OnceLock::new(),
+                    volumes_now: volumes_now.clone(),
                 },
             )),
             _ => None,
@@ -1678,8 +1724,8 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// folder on the noted volume or device, one made at the name after the job. Returns
 /// `CannotTell` for another device without a volume, as then the folder noted is not here (an
 /// empty mount point) or came back under another device number, and for a volume that cannot be
-/// found now. The volume found is kept in `noted` for the device it was found on, so that a
-/// start looks it up once for each folder, not once for each file.
+/// found now. The volumes are read once for the log, and kept in `noted` with whatever they
+/// answered, so that a start does not read them again for each folder or file.
 fn is_the_folder_noted(
     folder: &Path,
     noted: &FolderNoted,
@@ -1687,15 +1733,9 @@ fn is_the_folder_noted(
     inode: Option<u64>,
 ) -> AtStart<bool> {
     if let Some(volume) = &noted.noted_volume {
-        let found = match noted.volume_found.get() {
-            Some((on, found)) if *on == device => found.clone(),
-            _ => {
-                let found = volume_of(folder, device).ok_or(CannotTell)?;
-                // Another thread may have set it first, with the same answer.
-                let _ = noted.volume_found.set((device, found.clone()));
-                found
-            }
-        };
+        let volumes = noted.volumes_now.get_or_init(VolumesNow::read).as_ref();
+        let found = (volumes.and_then(|volumes| volumes.volume_of_folder(folder, device)))
+            .ok_or(CannotTell)?;
         if found != *volume {
             return Ok(false);
         }
@@ -5179,9 +5219,10 @@ mod tests {
         remove_fat_card(&dir, &card);
     }
 
-    /// A start that reads a killed delete of many files on one card looks up the card's volume
-    /// once, not once or twice for each file. Before, /dev/disk/by-uuid was read for each name,
-    /// about a million times for a log of 500,000 files.
+    /// A start that reads a killed delete of many files on one card reads the volumes once,
+    /// not once or twice for each file, whether it finds the card's volume, finds none or cannot
+    /// read them. Before, /dev/disk/by-uuid was read for each name, about a million times for a
+    /// log of 500,000 files, and later still for each name where no volume was found.
     #[test]
     fn a_start_looks_up_a_folders_volume_once() {
         let (dir, card, logs) = fat_card("start-volume-once");
@@ -5190,6 +5231,17 @@ mod tests {
         let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
         log.note(&files);
         drop(log);
+        for (volume, unreadable) in [(None, false), (Some("1111-AAAA"), true)] {
+            card_volume(&card, volume);
+            super::VOLUMES_UNREADABLE.set(unreadable);
+            super::VOLUME_LOOKS.set(0);
+            let found = super::delete_jobs_cut_short(&logs);
+            assert!(found[0].1.is_empty(), "{volume:?} {unreadable}");
+            assert_eq!(super::VOLUME_LOOKS.get(), 1, "{volume:?} {unreadable}");
+            assert_eq!(let_go(found), 1);
+        }
+        super::VOLUMES_UNREADABLE.set(false);
+        card_volume(&card, Some("1111-AAAA"));
         super::VOLUME_LOOKS.set(0);
         let found = super::delete_jobs_cut_short(&logs);
         assert_eq!(found[0].1.len(), files.len());
