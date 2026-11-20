@@ -58,7 +58,10 @@ a new kind of line inside a log would be read by it as a path.
   A Move then counts as done only when the new name holds a file with that fingerprint. For a
   delete for good, nothing is left to compare, so a NotFound after a lost answer keeps the
   sidecars aside (a `kept` state) rather than deleting them. The log narrows the class; it does
-  not close the delete case on its own.
+  not close the delete case on its own. Since 0.95 the fingerprint of a file is taken by
+  `rename_never_over` itself, right before the rename, so every rename of a file counts as done
+  after a lost answer only with that file at the new name. A folder still counts by its name
+  alone, as its time and size change with every file that comes or goes, and NFS caches them.
 
 ## 3. The plan in short
 
