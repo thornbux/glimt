@@ -5,8 +5,9 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, fingerprint, is_surely_gone,
-    is_surely_there, put_file, put_file_until_stopped, rename_never_over, same_fingerprint,
+    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, done_after_all, fingerprint,
+    is_surely_gone, is_surely_there, put_file, put_file_until_stopped, rename_never_over,
+    same_fingerprint,
 };
 use crate::files::trash::{TrashMove, restore, restore_noting, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
@@ -1982,15 +1983,13 @@ impl crate::App {
             }
             // A log of the folder, so that a kill before the window has followed it leaves
             // the next start to make the marks follow. The folder keeps its name without it.
-            let log = match folder_log(&old, Some(&new), None) {
+            let mut log = match folder_log(&old, Some(&new), None) {
                 Ok(log) => log,
                 Err(warning) => return Some(Told::FailedWrite(warning)),
             };
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
-                if let Some(log) = log {
-                    journal::remove_once_written(log);
-                }
+                end_the_log_of_a_failed_folder_rename(&old, &e, log.take());
                 return Some(Told::FailedWrite(format!("{}: {e}", new.display())));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
@@ -2068,6 +2067,15 @@ impl crate::App {
                 },
                 Err(e) => (None, Some(format!("{}: {e}", dir.display()))),
             };
+            // A failure that leaves the folder's name not surely there may have moved it all
+            // the same, so the log stays for the next start, which looks again.
+            let mut log = log;
+            if let Some(log) = log
+                .as_mut()
+                .filter(|_| error.is_some() && !is_surely_there(&dir))
+            {
+                log.keep_for_the_next_start();
+            }
             // After a failure, the folder is listed again, as after a failed delete of files.
             let gone = if error.is_none() {
                 vec![dir.clone()]
@@ -3073,6 +3081,11 @@ fn delete_chunk(
     if trashed.is_err() {
         give_adobe_sidecars_to_those_that_stayed(&mut went_with, &mut stayed);
     }
+    // A photo that is neither surely gone nor surely there may have gone to the trash, so the
+    // log stays for the next start, which looks again.
+    if let Some(log) = log.filter(|_| stayed.iter().any(|(p, _)| !is_surely_there(p))) {
+        log.keep_for_the_next_start();
+    }
     let mut went: Vec<PathBuf> = went_with.iter().map(|(p, _)| p.clone()).collect();
     let side: Vec<PathBuf> = (went_with.iter().flat_map(|(_, sides)| sides))
         .cloned()
@@ -3086,6 +3099,19 @@ fn delete_chunk(
         errors.push(e);
     }
     (went, side, left_alone)
+}
+
+/// Notes in the delete's `log`, when there is one, that the delete of `path` failed when
+/// `removed` is an error (`DeleteLog::note_step_failed`). Returns `removed`.
+fn note_failed(
+    log: Option<&mut journal::DeleteLog>,
+    path: &Path,
+    removed: std::io::Result<()>,
+) -> std::io::Result<()> {
+    if let (Some(log), Err(e)) = (log, &removed) {
+        log.note_step_failed(path, e);
+    }
+    removed
 }
 
 /// Writes down in the delete's `log`, when there is one, that the file `path` is gone.
@@ -3232,7 +3258,7 @@ fn delete_for_good(
             crate::files::file_io::looks_fail_once_deleted_in_a_test(&removed);
             // A delete that a share did and lost the answer of is done, its sidecars kept.
             gone_without_answer = removed.is_err();
-            let removed = crate::files::file_io::done_after_all(removed, p, None);
+            let removed = note_failed(log.as_deref_mut(), p, done_after_all(removed, p, None));
             removed.map_err(|e| failed(p, e)).is_ok()
         };
         // A look that failed (a share that dropped for a moment) counts the file as there.
@@ -3816,6 +3842,20 @@ fn folder_log(
     }
 }
 
+/// Ends the `log` of a Rename Folder of `old` whose rename failed with `error`. The log goes
+/// once written, unless the rename may have been done all the same: then it stays, so that the
+/// next start makes the marks follow when the folder is at its new name.
+fn end_the_log_of_a_failed_folder_rename(
+    old: &Path,
+    error: &std::io::Error,
+    log: Option<crate::files::job_log::JobLog>,
+) {
+    if let Some(mut log) = log {
+        log.note_step_failed(old, error);
+        journal::remove_once_written(log);
+    }
+}
+
 /// Words the warning that the log of a Move or a delete in `dir` could not be made or written,
 /// `failure`, and prints it. The job goes on without the log, as in Glimt 0.80.0: a Move or a
 /// delete is how a full disk is cleared, and a kill halfway then only leaves the marks of the
@@ -3883,7 +3923,7 @@ fn put_files(
                 put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
             } {
                 if let Some(log) = move_log.as_deref_mut() {
-                    log.keep_when_it_may_have_been_done(path, &e);
+                    log.note_step_failed(path, &e);
                 }
                 // A file stopped halfway is not there, and the stop itself is told.
                 if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
@@ -4027,7 +4067,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
             }
             Err((at, e)) => {
                 if let Some(log) = move_log.as_deref_mut() {
-                    log.keep_when_it_may_have_been_done(&to, &e);
+                    log.note_step_failed(&to, &e);
                 }
                 errors.push(format!("{}: {e}", at.display()));
                 moving.remove(&to);
@@ -7347,6 +7387,35 @@ mod tests {
         let found = super::journal::move_jobs_cut_short(&logs);
         let went: Vec<_> = found.into_iter().map(|(_, went)| went).collect();
         assert_eq!(went, vec![vec![(a.clone(), to.join("a.png"))]]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Rename Folder whose rename a share did and lost the answer of, with the look at the
+    /// new name failing too, keeps its log, and the next start makes the marks follow the new
+    /// name. Before, the log went with the error, and the marks of the files in the folder
+    /// stayed at their old paths for good.
+    #[test]
+    fn a_folder_rename_that_cannot_tell_keeps_its_log() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL};
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = contract_folder("folder-rename-cannot-tell");
+        let (old, new, jobs) = (dir.join("old"), dir.join("new"), dir.join("jobs"));
+        std::fs::create_dir(&old).unwrap();
+        let log = super::journal::start_folder_log(&jobs, &old, Some(&new), None).unwrap();
+        ANSWER_LOST_AT.set(Some(old.clone()));
+        lock_even_if_poisoned(&LOOKS_FAIL).push(new.clone());
+        let renamed = crate::files::file_io::rename_never_over(&old, &new);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != new);
+        ANSWER_LOST_AT.set(None);
+        super::end_the_log_of_a_failed_folder_rename(&old, &renamed.unwrap_err(), Some(log));
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let (_, _, found) = super::journal::jobs_cut_short(&jobs);
+        assert!(matches!(
+            &found[..],
+            [(_, super::journal::JobDoneBeforeAKill::FolderRenamed(from, to))]
+                if *from == old && *to == new
+        ));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

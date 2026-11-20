@@ -128,8 +128,6 @@ pub struct Journal {
     log: JobLog,
     /// The number of renames done so far, which is the number of the next `done` record.
     done: usize,
-    /// Whether the plan stays on disk when it is dropped (`keep_on_disk`).
-    is_kept: bool,
     /// One name in each folder that the renames touch. Those folders are synced before the
     /// plan is removed, so that the plan never goes before the renames are on disk.
     one_name_per_folder: Vec<PathBuf>,
@@ -181,7 +179,7 @@ impl Journal {
     pub fn refuse_writes(&mut self) {
         let path = self.log.path().to_path_buf();
         let mut read_only = JobLog::found(path.clone(), File::open(&path).unwrap());
-        if let Some(sure) = self.log.take_sure() {
+        if let Some(sure) = self.log.end_of_job() {
             read_only = read_only.read_surely(sure);
         }
         // The file that holds the lock is forgotten open, so that the lock stays.
@@ -197,15 +195,13 @@ impl Journal {
     /// Leaves the plan on disk, because the renames could not all be undone, so the next start
     /// offers to put the files right. Its lock goes with this Glimt.
     pub fn keep_on_disk(mut self) {
-        self.is_kept = true;
+        self.log.keep_for_the_next_start();
     }
 }
 
 impl Drop for Journal {
     fn drop(&mut self) {
-        if !self.is_kept
-            && let Some(sure) = self.log.take_sure()
-        {
+        if let Some(sure) = self.log.end_of_job() {
             remove_plan(self.log.path(), &self.one_name_per_folder, sure);
         }
     }
@@ -229,10 +225,6 @@ pub struct MoveLog {
     /// The first write of the log that failed, on a full disk say. The log takes no more steps
     /// after it, and the Move goes on without them.
     failure: Option<std::io::Error>,
-    /// Whether a step failed in a way that may have been done all the same, a share that lost
-    /// its answer say, and nothing could tell. The log then stays for the next start, which
-    /// judges the step by its fingerprint.
-    is_kept: bool,
 }
 
 impl MoveLog {
@@ -264,15 +256,12 @@ impl MoveLog {
         self.steps += 1;
     }
 
-    /// Keeps the log on disk for the next start when the step of `from` failed with `error` in
-    /// a way that may have been done (`file_io::may_have_been_done`). The step then counts as
-    /// not done here, so its marks stay at the old name, and the start makes them follow when
-    /// the file is at its new name with its fingerprint. Before, the log went with the job, and
-    /// a file moved on a share that lost the answer left its marks behind for good.
-    pub fn keep_when_it_may_have_been_done(&mut self, from: &Path, error: &std::io::Error) {
-        if !self.is_kept && crate::files::file_io::may_have_been_done(error, from) {
-            self.is_kept = true;
-        }
+    /// Notes that the step of `from` failed with `error` (`JobLog::note_step_failed`). A step
+    /// that may have been done counts as not done here, so its marks stay at the old name, and
+    /// the log stays for the next start, which makes them follow when the file is at its new
+    /// name with its fingerprint.
+    pub fn note_step_failed(&mut self, from: &Path, error: &std::io::Error) {
+        self.log.note_step_failed(from, error);
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.
@@ -290,7 +279,6 @@ impl MoveLog {
             is_found_at_start: false,
             folders: HashSet::new(),
             failure: None,
-            is_kept: false,
         }
     }
 
@@ -304,10 +292,6 @@ impl MoveLog {
     /// and the log goes after both. A log that is dropped instead stays on disk, and the next
     /// start makes them follow.
     pub fn remove_once_followed(self) {
-        // A kept log stays on disk, unlocked once dropped, as one a kill left.
-        if self.is_kept {
-            return;
-        }
         remove_after_the_writes(self.log);
     }
 }
@@ -338,6 +322,10 @@ impl UndoTrashLog {
         let (path, coming) = match step {
             Restoring::Coming(path, fingerprint) => (path, Some(fingerprint)),
             Restoring::Back(path) => (path, None),
+            Restoring::Failed(from, error) => {
+                self.log.note_step_failed(from, error);
+                return;
+            }
         };
         let Some(&number) = self.steps.get(path).filter(|_| self.failure.is_none()) else {
             return;
@@ -396,6 +384,17 @@ pub struct DeleteLog {
 }
 
 impl DeleteLog {
+    /// Notes that the delete of `from` failed with `error` (`JobLog::note_step_failed`), so
+    /// that the log stays for the next start when the delete may have been done.
+    pub fn note_step_failed(&mut self, from: &Path, error: &std::io::Error) {
+        self.log.note_step_failed(from, error);
+    }
+
+    /// Keeps the log for the next start, as the job cannot tell whether a file went.
+    pub fn keep_for_the_next_start(&mut self) {
+        self.log.keep_for_the_next_start();
+    }
+
     /// Writes down that the files `paths` go, before they go, each with its fingerprint. It is
     /// not synced, because a kill of Glimt does not need that. A write that fails is kept for
     /// `take_failure`, and the files go all the same: a delete is how a full disk is cleared.
@@ -504,6 +503,7 @@ impl DeleteLog {
     /// delete failed and the rename back of a sidecar failed too, so that the sidecar may still
     /// be hidden.
     pub fn keep_log_for_a_later_start(&mut self) {
+        self.log.keep_for_the_next_start();
         self.has_names_left = true;
     }
 
@@ -564,7 +564,6 @@ pub fn start_move_log(dir: &Path, job: &str) -> std::io::Result<MoveLog> {
         is_found_at_start: false,
         folders: HashSet::new(),
         failure: None,
-        is_kept: false,
     })
 }
 
@@ -825,10 +824,11 @@ fn back_from_the_trash(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
 /// so far: to the thread of the user's folders (collections), and then to that of Glimt's own
 /// files (marks). A log found at the start that no reader read surely has no proof that it may
 /// go (`Sure`), and stays for a later start.
-fn remove_after_the_writes(log: JobLog) {
-    let Some((path, file, sure)) = log.into_removable() else {
+fn remove_after_the_writes(mut log: JobLog) {
+    let Some(sure) = log.end_of_job() else {
         return;
     };
+    let (path, file) = log.into_path_and_file();
     crate::files::file_io::write_later_in_user_folders(move || {
         // A log left behind is read again at every start, so a failure is told.
         crate::files::file_io::write_later(move || {
@@ -854,7 +854,6 @@ fn found_move_log(log: JobLog, sure: Sure) -> MoveLog {
         is_found_at_start: true,
         folders: HashSet::new(),
         failure: None,
-        is_kept: false,
     }
 }
 
@@ -1681,7 +1680,6 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Resul
     Ok(Journal {
         log: JobLog::start(dir, "rename", &records)?,
         done: 0,
-        is_kept: false,
         one_name_per_folder: names,
     })
 }
@@ -4369,6 +4367,59 @@ mod tests {
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
         assert!(!path.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Undo from the trash whose rename a share did and lost the answer of, with the look at
+    /// the file's own name failing too, keeps its log, and the next start gives the file its
+    /// marks back. Before, the log went with the report, and the marks were held only in the
+    /// Undo's memory, which a quit lost.
+    #[test]
+    fn an_undo_from_the_trash_that_cannot_tell_keeps_its_log() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOK_FAILS};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-undo-trash-cannot-tell-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x, jobs) = (dir.join("trash"), dir.join("x"), dir.join("jobs"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        let (in_trash, a) = (trash.join("files/a.jpg"), x.join("a.jpg"));
+        std::fs::write(&in_trash, "a").unwrap();
+        let text = format!("[Trash Info]\nPath={}\nDeletionDate={date}\n", a.display());
+        std::fs::write(trash.join("info/a.jpg.trashinfo"), text).unwrap();
+        let marks = vec![(a.clone(), (1, 2))];
+        let files = vec![a.clone()];
+        let mut log = super::start_undo_trash_log(&jobs, &files, &marks, None).unwrap();
+        let trash_move = crate::files::trash::TrashMove {
+            files,
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
+        ANSWER_LOST_AT.set(Some(in_trash.clone()));
+        LOOK_FAILS.set(Some((a.clone(), 0)));
+        let mut note = |step: crate::files::trash::Restoring| log.note(step);
+        let (back, error) = crate::files::trash::restore_noting(&trash_move, dirs, &mut note);
+        ANSWER_LOST_AT.set(None);
+        LOOK_FAILS.set(None);
+        assert!(back.is_empty() && error.is_some());
+        super::remove_once_written(log.into_log());
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let (_, _, found) = super::jobs_cut_short(&jobs);
+        let [(_, super::JobDoneBeforeAKill::BackFromTrash(given))] = &found[..] else {
+            panic!("{} logs found", found.len());
+        };
+        assert_eq!(given, &vec![(a, (1, 2))]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

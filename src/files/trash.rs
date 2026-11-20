@@ -39,6 +39,9 @@ pub(crate) enum Restoring<'a> {
     Coming(&'a Path, Option<FileFingerprint>),
     /// The file or folder at this path is back with its sidecars.
     Back(&'a Path),
+    /// The rename of the file or folder at this path in the trash failed with this error, and
+    /// may have been done all the same.
+    Failed(&'a Path, &'a std::io::Error),
 }
 
 pub(crate) struct TrashMove {
@@ -299,9 +302,11 @@ fn put_back(
     error: &mut Option<String>,
     on_back: &mut dyn FnMut(Restoring),
 ) -> Vec<PathBuf> {
-    let rename = |t: &TrashEntry| {
-        rename_never_over(&t.file, &t.from)
-            .map_err(|e| format!("{display}: {e}", display = shown_path(&t.from)))
+    let rename = |t: &TrashEntry, on_back: &mut dyn FnMut(Restoring)| {
+        rename_never_over(&t.file, &t.from).map_err(|e| {
+            on_back(Restoring::Failed(&t.file, &e));
+            format!("{display}: {e}", display = shown_path(&t.from))
+        })
     };
     let (mut back, mut renamed) = (Vec::new(), Vec::new());
     for (t, is_file, sides) in steps {
@@ -309,7 +314,7 @@ fn put_back(
             let fingerprint = crate::files::file_io::fingerprint(&t.file);
             on_back(Restoring::Coming(&t.from, fingerprint));
         }
-        if let Err(e) = rename(&t) {
+        if let Err(e) = rename(&t, on_back) {
             error.get_or_insert(e);
             continue;
         }
