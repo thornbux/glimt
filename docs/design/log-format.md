@@ -57,7 +57,11 @@ a new kind of line inside a log would be read by it as a path.
   A Move then counts as done only when the new name holds a file with that fingerprint. For a
   delete for good, nothing is left to compare, so a NotFound after a lost answer keeps the
   sidecars aside (a `kept` state) rather than deleting them. The log narrows the class; it does
-  not close the delete case on its own.
+  not close the delete case on its own. Since 0.94 the fingerprint is taken by
+  `rename_never_over` itself, right before the rename, so every rename counts as done after a
+  lost answer only with that file at the new name: a Move, its Undo, Rename, Rename Many,
+  Rename Folder and Undo from the trash. A second window that made the same move leaves the
+  same file there, which then counts as moved, rightly, as it is at the new name.
 
 ## 3. The plan in short
 
