@@ -3367,6 +3367,159 @@ fn log_removals_in(file: &str, text: &str) -> Vec<String> {
     wrong
 }
 
+/// The proof that a job log may be removed (`job_log::Sure`) leaves the log of a running job only
+/// through `JobLog::end_of_job`, which gives none once a step could not tell what it did
+/// (`JobLog::note_step_failed`). Only the files of the logs make or take a proof, where the
+/// start's readers make it from their sure answers, and the job's end is taken only where a job
+/// ends: when its writes are done (`remove_after_the_writes`), when Rename Many's plan is
+/// dropped, and when a log that could not be started goes. Before, a Move kept its log after a
+/// step that may have been done, but Rename Folder, Undo from the trash and the delete jobs each
+/// removed theirs, and the marks of the files that went stayed at their old names.
+#[test]
+fn a_running_jobs_log_goes_only_through_the_end_of_its_job() {
+    let wrong: Vec<String> = (rust_sources().iter())
+        .flat_map(|(file, text)| proofs_taken_outside_the_end_of_a_job(file, text))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a job log's proof taken outside JobLog::end_of_job:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the places in `text`, the source of `file`, outside the tests, where a job log's
+/// proof is made or taken outside its homes: a read of the field `sure` in job_log.rs outside
+/// `end_of_job`, a call of `end_of_job` outside the ends of a job, and a proof made or used
+/// outside the files of the logs.
+fn proofs_taken_outside_the_end_of_a_job(file: &str, text: &str) -> Vec<String> {
+    const LOGS: [(&str, &str); 2] = [("files/job_log.rs", ""), ("files/journal.rs", "")];
+    let ends: &[(&str, &str)] = &[
+        ("files/job_log.rs", "start"),
+        ("files/job_log.rs", "remove_log"),
+        ("files/journal.rs", "remove_after_the_writes"),
+        ("files/journal.rs", "drop"),
+        ("files/journal.rs", "refuse_writes"),
+    ];
+    let homes: Vec<(&str, &[(&str, &str)])> = vec![
+        ("end_of_job(", ends),
+        ("Sure::of(", &LOGS),
+        ("remove_job_log(", &LOGS),
+        ("read_surely(", &LOGS),
+    ];
+    let mut wrong = outside_homes_in(file, text, &homes);
+    if file != "files/job_log.rs" {
+        return wrong;
+    }
+    let lines = code_lines(text);
+    let mut function = String::new();
+    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+        if let Some(name) = function_name(line) {
+            function = name.to_owned();
+        }
+        let reads = (line.match_indices(".sure")).any(|(at, _)| {
+            let after = &line[at + ".sure".len()..];
+            !after.starts_with(is_word_char) && !after.starts_with(" = ")
+        });
+        if reads && function != "end_of_job" {
+            wrong.push(format!("{file}:{} (sure)", i + 1));
+        }
+    }
+    wrong
+}
+
+/// A read of a log's proof outside `end_of_job` is found, as are an end of a job taken
+/// elsewhere and a proof made outside the files of the logs, while a proof set or cleared, and
+/// a proof taken at its home, are not.
+#[test]
+fn finds_a_proof_taken_outside_the_end_of_a_job() {
+    let job_log = "impl JobLog {\n    fn take_sure(&mut self) -> Option<Sure> {\n        \
+        self.sure.take()\n    }\n    fn end_of_job(&mut self) -> Option<Sure> {\n        \
+        self.sure.take()\n    }\n    fn keep(&mut self) {\n        self.sure = None;\n    \
+        }\n}\n";
+    assert_eq!(
+        proofs_taken_outside_the_end_of_a_job("files/job_log.rs", job_log),
+        ["files/job_log.rs:3 (sure)"]
+    );
+    let ops = "fn a(mut log: JobLog) {\n    let sure = log.end_of_job();\n}\n\
+        fn b() {\n    let sure = Sure::of(&Ok::<(), ()>(()));\n}\n";
+    assert_eq!(
+        proofs_taken_outside_the_end_of_a_job("files/file_ops.rs", ops),
+        [
+            "files/file_ops.rs:2 (end_of_job()",
+            "files/file_ops.rs:5 (Sure::of()"
+        ]
+    );
+    let journal = "fn remove_after_the_writes(mut log: JobLog) {\n    log.end_of_job();\n}\n";
+    assert!(proofs_taken_outside_the_end_of_a_job("files/journal.rs", journal).is_empty());
+}
+
+/// A function in the files of the logs that looks at the disk answers with `job_log::AtStart`, or
+/// with anything else that can say "cannot tell", never with a plain `bool`, which folds a look
+/// that failed into a sure answer. Before, `is_another_folder` answered `false` for a card whose
+/// volume could not be found, and the start took another card's photo for the one that stayed.
+#[test]
+fn looks_at_the_disk_in_the_logs_can_say_cannot_tell() {
+    let wrong: Vec<String> = (rust_sources().iter())
+        .filter(|(file, _)| ["files/journal.rs", "files/job_log.rs"].contains(&file.as_str()))
+        .flat_map(|(file, text)| sure_answers_from_the_disk_in(file, text))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a look at the disk that answers a plain bool, which cannot say it cannot tell:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the functions in `text`, the source of `file`, outside the tests, that return a
+/// plain `bool` and look at the disk, as "file: function".
+fn sure_answers_from_the_disk_in(file: &str, text: &str) -> Vec<String> {
+    const LOOKS: [&str; 10] = [
+        "is_surely_there(",
+        "is_surely_gone(",
+        "is_surely_dir(",
+        "is_surely_file(",
+        "metadata(",
+        "fingerprint(",
+        "fingerprint_of_file_read(",
+        "volume_of(",
+        "device_now(",
+        "read_dir(",
+    ];
+    let lines = code_lines(text);
+    let mut wrong = Vec::new();
+    let (mut function, mut answers_bool, mut looks) = (String::new(), false, false);
+    let end = String::from("end");
+    for line in lines[..tests_start(&lines)].iter().chain([&end]) {
+        let name = function_name(line);
+        if name.is_some() || line.starts_with(|c: char| c.is_alphabetic()) {
+            if answers_bool && looks {
+                wrong.push(format!("{file}: {function}"));
+            }
+            (answers_bool, looks) = (false, false);
+            if let Some(name) = name {
+                function = name.to_owned();
+                answers_bool = line.trim_end().ends_with("-> bool {");
+                continue;
+            }
+        }
+        looks |= LOOKS.iter().any(|call| mentions(line, call));
+    }
+    wrong
+}
+
+/// A function that answers a `bool` and looks at the disk is found, while one that answers
+/// `AtStart` or does not look is not.
+#[test]
+fn finds_a_look_at_the_disk_that_answers_a_bool() {
+    let text = "fn a(p: &Path) -> bool {\n    is_surely_there(p)\n}\n\
+        fn b(p: &Path) -> AtStart<bool> {\n    Ok(is_surely_there(p))\n}\n\
+        fn c(x: u8) -> bool {\n    x == 0\n}\n";
+    assert_eq!(
+        sure_answers_from_the_disk_in("files/journal.rs", text),
+        ["files/journal.rs: a"]
+    );
+}
+
 /// A removal of Glimt's own files in the files of the logs is found outside `remove_job_log`,
 /// and in another file a function that names a folder of the logs and removes a file is found,
 /// while a function that does only one of the two is not.

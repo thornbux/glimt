@@ -39,6 +39,9 @@ pub(crate) enum Restoring<'a> {
     Coming(&'a Path, Option<FileFingerprint>),
     /// The file or folder at this path is back with its sidecars.
     Back(&'a Path),
+    /// The rename of the file or folder at the first path in the trash, back to the second,
+    /// failed with this error, and may have been done all the same.
+    Failed(&'a Path, &'a Path, &'a std::io::Error),
 }
 
 pub(crate) struct TrashMove {
@@ -50,6 +53,11 @@ pub(crate) struct TrashMove {
     pub(crate) since: std::time::SystemTime,
     pub(crate) marks: ForgottenMarks,
     pub(crate) collection: Option<(PathBuf, Vec<(usize, PathBuf)>)>,
+    /// The files whose rename back out of the trash failed in a way that may have been done, a
+    /// share that lost its answer, each with the fingerprint it had in the trash. Undo again
+    /// counts such a file as back when its own name holds a file with that fingerprint and the
+    /// trash's name is gone. Before, it failed for good, as the name was taken by the file.
+    pub(crate) out_without_answer: HashMap<PathBuf, FileFingerprint>,
 }
 
 /// A file in a trash folder: where it came from, when (as the trash writes it, which sorts by
@@ -217,12 +225,19 @@ fn restore_between(
     // A file that cannot come back is told, and left to be undone again with its sidecar.
     let (mut found, mut error): (Vec<TrashEntry>, Option<String>) = (Vec::new(), None);
     let left: HashSet<&PathBuf> = trash_move.sidecars_left.iter().collect();
+    let mut came_out = HashSet::new();
     let mut names = crate::metadata::xmp::AdobeNames::arriving(trash_move.files.iter().cloned());
     for path in &trash_move.files {
         // The rule of Copy, Move and Rename: a sidecar alone at the name (written by another
         // program, or synced in) takes it too, as the file would come back with its keywords.
         // The file's own sidecar, which the move could not take along, is no other file's.
-        if let Some(at) = crate::files::file_ops::name_in_the_way(path, &left, &mut names) {
+        let is_out = (trash_move.out_without_answer.get(path)).is_some_and(|before| {
+            crate::files::file_io::fingerprint(path)
+                .is_some_and(|now| crate::files::file_io::same_fingerprint(*before, now))
+        });
+        if is_out {
+            came_out.insert(path.clone());
+        } else if let Some(at) = crate::files::file_ops::name_in_the_way(path, &left, &mut names) {
             error.get_or_insert(tf!("{name} exists already", name = shown_path(&at)));
             continue;
         }
@@ -248,7 +263,7 @@ fn restore_between(
     }
     let rest = alone.into_iter().filter_map(|s| find(s));
     steps.extend(rest.map(|s| (s, false, Vec::new())));
-    let back = put_back(steps, &mut error, on_back);
+    let back = put_back(steps, &came_out, &mut error, on_back);
     (back, error)
 }
 
@@ -296,12 +311,15 @@ fn sidecars_by_file<'a>(
 /// (`sidecar_back_after_all`). Returns the files put back, without the sidecars.
 fn put_back(
     steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
+    came_out: &HashSet<PathBuf>,
     error: &mut Option<String>,
     on_back: &mut dyn FnMut(Restoring),
 ) -> Vec<PathBuf> {
-    let rename = |t: &TrashEntry| {
-        rename_never_over(&t.file, &t.from)
-            .map_err(|e| format!("{display}: {e}", display = shown_path(&t.from)))
+    let rename = |t: &TrashEntry, on_back: &mut dyn FnMut(Restoring)| {
+        rename_never_over(&t.file, &t.from).map_err(|e| {
+            on_back(Restoring::Failed(&t.file, &t.from, &e));
+            format!("{display}: {e}", display = shown_path(&t.from))
+        })
     };
     let (mut back, mut renamed) = (Vec::new(), Vec::new());
     for (t, is_file, sides) in steps {
@@ -309,7 +327,9 @@ fn put_back(
             let fingerprint = crate::files::file_io::fingerprint(&t.file);
             on_back(Restoring::Coming(&t.from, fingerprint));
         }
-        if let Err(e) = rename(&t) {
+        // A file that an earlier Undo renamed out without an answer is out already.
+        let is_out = came_out.contains(&t.from) && crate::files::file_io::is_surely_gone(&t.file);
+        if !is_out && let Err(e) = rename(&t, on_back) {
             error.get_or_insert(e);
             continue;
         }
@@ -392,7 +412,7 @@ fn sidecar_back_after_all(side: &TrashEntry, e: &std::io::Error) -> Option<bool>
     if !may_have_been_done(e, &side.file) {
         return Some(false);
     }
-    if crate::files::journal::finish_step(&side.file, &side.from) {
+    if crate::files::journal::finish_step(&side.file, &side.from).is_ok() {
         return Some(true);
     }
     is_surely_gone(&side.from).then_some(false)
@@ -967,6 +987,7 @@ mod tests {
             .join(format!(".Trash-{uid}"));
         assert!(trash.join("info").read_dir().unwrap().next().is_some());
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![file.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -1023,6 +1044,7 @@ mod tests {
         assert!(!want.starts_with('/') && want.contains("%20"), "{want}");
         assert!(text.contains(&format!("\nPath={want}\n")), "{text}");
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![file.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -1151,6 +1173,7 @@ mod tests {
             found
         };
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![file.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -1469,6 +1492,7 @@ mod tests {
         trashed("IMG_0002.jpg.xmp", "IMG_0002.jpg.xmp", now);
         let dirs = |_: &std::path::Path| vec![(trash.clone(), "/".into(), None)];
         let trash_move = |files: &[&str], sidecars: &[&str]| super::TrashMove {
+            out_without_answer: Default::default(),
             files: files.iter().map(|f| photos.join(f)).collect(),
             sidecars: sidecars.iter().map(|f| photos.join(f)).collect(),
             sidecars_left: Vec::new(),
@@ -1557,6 +1581,7 @@ mod tests {
         at("IMG_0006.jpg", &img6, &before, "other");
         at("IMG_0006.2.jpg", &img6, &today, "mine");
         let thrown6 = super::TrashMove {
+            out_without_answer: Default::default(),
             since: now,
             ..trash_move(&["IMG_0006.jpg"], &[])
         };
@@ -1582,6 +1607,7 @@ mod tests {
         let alone = super::restore(&trash_move(&["IMG_0008.jpg"], &[]), dirs);
         assert!(alone.0.is_empty() && alone.1.is_some());
         let own = super::TrashMove {
+            out_without_answer: Default::default(),
             sidecars_left: vec![photos.join("IMG_0008.jpg.xmp")],
             ..trash_move(&["IMG_0008.jpg"], &[])
         };
@@ -1617,6 +1643,7 @@ mod tests {
         }
         // The folder y is gone, so b.jpg cannot come back, but a.jpg comes back with its sidecar.
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![x.join("a.jpg"), y.join("b.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -1668,6 +1695,7 @@ mod tests {
             .map(|n| x.join(n))
             .partition(|p| p.extension().is_some_and(|e| e == "jpg"));
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files,
             sidecars,
             sidecars_left: Vec::new(),
@@ -1713,6 +1741,7 @@ mod tests {
             crate::files::file_io::create_file(&info, text).unwrap();
         }
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![x.join("a.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -1762,6 +1791,7 @@ mod tests {
             crate::files::file_io::create_file(&info, text).unwrap();
         }
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![x.join("a.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -1814,6 +1844,7 @@ mod tests {
             crate::files::file_io::create_file(&info, text).unwrap();
         }
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![x.join("b.jpg"), x.join("a.jpg")],
             sidecars: vec![x.join("b.jpg.xmp"), x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -1853,6 +1884,7 @@ mod tests {
         }
         crate::files::file_io::create_file(&x.join("a.jpg.xmp"), "stranger").unwrap();
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![x.join("a.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -1902,6 +1934,7 @@ mod tests {
         };
         let file = dir.join("link/a.jpg");
         let trash_move = super::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![file.clone()],
             sidecars: vec![dir.join("link/a.jpg.xmp")],
             sidecars_left: Vec::new(),

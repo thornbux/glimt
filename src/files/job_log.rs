@@ -370,7 +370,7 @@ impl JobLog {
             // The job does not start when its log's name may not be on disk. The log names no
             // step yet, so nothing is lost with it, and a failure is told.
             Err(e) => {
-                if let Some(sure) = log.sure.take() {
+                if let Some(sure) = log.end_of_job() {
                     remove_job_log(&log.path, sure);
                 }
                 Err(e)
@@ -395,8 +395,8 @@ impl JobLog {
     /// Removes the log, when its job is over and what it changed has been written, and lets
     /// go of its lock.
     #[cfg(test)]
-    pub(crate) fn remove_log(self) -> bool {
-        (self.sure).is_some_and(|sure| remove_job_log(&self.path, sure))
+    pub(crate) fn remove_log(mut self) -> bool {
+        (self.end_of_job()).is_some_and(|sure| remove_job_log(&self.path, sure))
     }
 
     /// Returns the log at `path`, held locked as `file`, as a start found it, of this format or
@@ -416,8 +416,27 @@ impl JobLog {
         self
     }
 
-    /// Takes the proof that the log may be removed, which it has no more after this.
-    pub(crate) fn take_sure(&mut self) -> Option<Sure> {
+    /// Notes that a step of the job on `from` failed with `error`. When the step may have been
+    /// done all the same (`file_io::may_have_been_done`), a share that lost its answer say, the
+    /// log stays on disk for the next start, which judges the step by what it finds there.
+    pub(crate) fn note_step_failed(&mut self, from: &Path, error: &std::io::Error) {
+        if crate::files::file_io::may_have_been_done(error, from) {
+            self.keep_for_the_next_start();
+        }
+    }
+
+    /// Keeps the log on disk for the next start, because the job could not tell what one of its
+    /// steps did. The log loses its proof that it may be removed, so no end of the job removes
+    /// it, and once it is dropped it is unlocked, as a log that a kill left.
+    pub(crate) fn keep_for_the_next_start(&mut self) {
+        self.sure = None;
+    }
+
+    /// Ends the log's job: takes the proof that the log may be removed, which it has no more
+    /// after this. This is the one way a log's proof leaves it. Returns `None` when a step of
+    /// the job could not tell what it did (`note_step_failed`, `keep_for_the_next_start`), and
+    /// for a log found at the start that no reader read surely, so that the log stays.
+    pub(crate) fn end_of_job(&mut self) -> Option<Sure> {
         self.sure.take()
     }
 
@@ -434,12 +453,6 @@ impl JobLog {
     /// Returns the log's path and its file, which holds its lock while it stays open.
     pub(crate) fn into_path_and_file(self) -> (PathBuf, File) {
         (self.path, self.file)
-    }
-
-    /// Returns the log's path, its file and the proof that it may be removed, and `None` when it
-    /// has no such proof, as a log found at the start that no reader read surely.
-    pub(crate) fn into_removable(self) -> Option<(PathBuf, File, Sure)> {
-        Some((self.path, self.file, self.sure?))
     }
 }
 

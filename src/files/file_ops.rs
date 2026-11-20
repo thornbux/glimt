@@ -5,8 +5,9 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, fingerprint, is_surely_gone,
-    is_surely_there, put_file, put_file_until_stopped, rename_never_over, same_fingerprint,
+    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, done_after_all, fingerprint,
+    is_surely_gone, is_surely_there, put_file, put_file_until_stopped, rename_never_over,
+    same_fingerprint,
 };
 use crate::files::trash::{TrashMove, restore, restore_noting, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
@@ -994,6 +995,7 @@ impl crate::App {
                 (sides.into_iter()).partition(|s| is_surely_gone(s));
             let undo = (trash && !gone.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
+                    out_without_answer: Default::default(),
                     files: gone.clone(),
                     // Only the sidecars that are gone count, because a sidecar gio could not
                     // move is still there. Those are kept apart, as they are still the files'.
@@ -1982,15 +1984,13 @@ impl crate::App {
             }
             // A log of the folder, so that a kill before the window has followed it leaves
             // the next start to make the marks follow. The folder keeps its name without it.
-            let log = match folder_log(&old, Some(&new), None) {
+            let mut log = match folder_log(&old, Some(&new), None) {
                 Ok(log) => log,
                 Err(warning) => return Some(Told::FailedWrite(warning)),
             };
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
-                if let Some(log) = log {
-                    journal::remove_once_written(log);
-                }
+                end_the_log_of_a_failed_folder_rename(&old, &e, log.take());
                 return Some(Told::FailedWrite(format!("{}: {e}", new.display())));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
@@ -2068,6 +2068,15 @@ impl crate::App {
                 },
                 Err(e) => (None, Some(format!("{}: {e}", dir.display()))),
             };
+            // A failure that leaves the folder's name not surely there may have moved it all
+            // the same, so the log stays for the next start, which looks again.
+            let mut log = log;
+            if let Some(log) = log
+                .as_mut()
+                .filter(|_| error.is_some() && !is_surely_there(&dir))
+            {
+                log.keep_for_the_next_start();
+            }
             // After a failure, the folder is listed again, as after a failed delete of files.
             let gone = if error.is_none() {
                 vec![dir.clone()]
@@ -2080,6 +2089,7 @@ impl crate::App {
             };
             let undo = (!gone.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
+                    out_without_answer: Default::default(),
                     files: gone.clone(),
                     sidecars: Vec::new(),
                     sidecars_left: Vec::new(),
@@ -2230,7 +2240,27 @@ impl crate::App {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
             };
+            // The files whose rename out may have been done, by the fingerprint each had in the
+            // trash, which an Undo again tells them by.
+            let mut out_without_answer = trash_move.out_without_answer.clone();
+            let mut coming = None;
             let mut note = |step: crate::files::trash::Restoring| {
+                use crate::files::trash::Restoring;
+                match &step {
+                    Restoring::Coming(from, fingerprint) => {
+                        coming = Some((from.to_path_buf(), *fingerprint))
+                    }
+                    Restoring::Failed(file, from, e)
+                        if crate::files::file_io::may_have_been_done(e, file) =>
+                    {
+                        if let Some((_, Some(fingerprint))) =
+                            coming.take().filter(|(at, _)| at == *from)
+                        {
+                            out_without_answer.insert(from.to_path_buf(), fingerprint);
+                        }
+                    }
+                    _ => {}
+                }
                 if let Some(log) = undo_log.as_mut() {
                     log.note(step);
                 }
@@ -2263,6 +2293,9 @@ impl crate::App {
                 .collect();
             let undo = (!left.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
+                    out_without_answer: (out_without_answer.into_iter())
+                        .filter(|(p, _)| !returned(p))
+                        .collect(),
                     files: left,
                     sidecars: trash_move.sidecars,
                     sidecars_left: trash_move.sidecars_left,
@@ -3073,6 +3106,11 @@ fn delete_chunk(
     if trashed.is_err() {
         give_adobe_sidecars_to_those_that_stayed(&mut went_with, &mut stayed);
     }
+    // A photo that is neither surely gone nor surely there may have gone to the trash, so the
+    // log stays for the next start, which looks again.
+    if let Some(log) = log.filter(|_| stayed.iter().any(|(p, _)| !is_surely_there(p))) {
+        log.keep_for_the_next_start();
+    }
     let mut went: Vec<PathBuf> = went_with.iter().map(|(p, _)| p.clone()).collect();
     let side: Vec<PathBuf> = (went_with.iter().flat_map(|(_, sides)| sides))
         .cloned()
@@ -3086,6 +3124,19 @@ fn delete_chunk(
         errors.push(e);
     }
     (went, side, left_alone)
+}
+
+/// Notes in the delete's `log`, when there is one, that the delete of `path` failed when
+/// `removed` is an error (`DeleteLog::note_step_failed`). Returns `removed`.
+fn note_failed(
+    log: Option<&mut journal::DeleteLog>,
+    path: &Path,
+    removed: std::io::Result<()>,
+) -> std::io::Result<()> {
+    if let (Some(log), Err(e)) = (log, &removed) {
+        log.note_step_failed(path, e);
+    }
+    removed
 }
 
 /// Writes down in the delete's `log`, when there is one, that the file `path` is gone.
@@ -3134,6 +3185,7 @@ fn take_back_sidecars(
         return;
     }
     let trash_move = TrashMove {
+        out_without_answer: Default::default(),
         files: Vec::new(),
         sidecars,
         sidecars_left: Vec::new(),
@@ -3232,7 +3284,7 @@ fn delete_for_good(
             crate::files::file_io::looks_fail_once_deleted_in_a_test(&removed);
             // A delete that a share did and lost the answer of is done, its sidecars kept.
             gone_without_answer = removed.is_err();
-            let removed = crate::files::file_io::done_after_all(removed, p, None);
+            let removed = note_failed(log.as_deref_mut(), p, done_after_all(removed, p, None));
             removed.map_err(|e| failed(p, e)).is_ok()
         };
         // A look that failed (a share that dropped for a moment) counts the file as there.
@@ -3326,6 +3378,7 @@ fn take_back_from_the_trash(
     errors: &mut Vec<String>,
 ) -> HashSet<PathBuf> {
     let mut trash_move = TrashMove {
+        out_without_answer: Default::default(),
         files: Vec::new(),
         sidecars: Vec::new(),
         sidecars_left: Vec::new(),
@@ -3816,6 +3869,20 @@ fn folder_log(
     }
 }
 
+/// Ends the `log` of a Rename Folder of `old` whose rename failed with `error`. The log goes
+/// once written, unless the rename may have been done all the same: then it stays, so that the
+/// next start makes the marks follow when the folder is at its new name.
+fn end_the_log_of_a_failed_folder_rename(
+    old: &Path,
+    error: &std::io::Error,
+    log: Option<crate::files::job_log::JobLog>,
+) {
+    if let Some(mut log) = log {
+        log.note_step_failed(old, error);
+        journal::remove_once_written(log);
+    }
+}
+
 /// Words the warning that the log of a Move or a delete in `dir` could not be made or written,
 /// `failure`, and prints it. The job goes on without the log, as in Glimt 0.80.0: a Move or a
 /// delete is how a full disk is cleared, and a kill halfway then only leaves the marks of the
@@ -3883,7 +3950,7 @@ fn put_files(
                 put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
             } {
                 if let Some(log) = move_log.as_deref_mut() {
-                    log.keep_when_it_may_have_been_done(path, &e);
+                    log.note_step_failed(path, &e);
                 }
                 // A file stopped halfway is not there, and the stop itself is told.
                 if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
@@ -4027,7 +4094,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
             }
             Err((at, e)) => {
                 if let Some(log) = move_log.as_deref_mut() {
-                    log.keep_when_it_may_have_been_done(&to, &e);
+                    log.note_step_failed(&to, &e);
                 }
                 errors.push(format!("{}: {e}", at.display()));
                 moving.remove(&to);
@@ -4150,7 +4217,7 @@ fn sidecar_where_the_file_is(
         true => (at, side),
         false => (side, at),
     };
-    journal::finish_step(away, beside)
+    journal::finish_step(away, beside).is_ok()
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
@@ -5550,6 +5617,7 @@ mod tests {
             assert_eq!(read.ok().as_deref(), Some("adobe"), "{stays:?} {errors:?}");
             // The one that went comes back, so the next round and the trash start clean.
             let trash_move = super::TrashMove {
+                out_without_answer: Default::default(),
                 files: vec![goes.clone()],
                 sidecars: Vec::new(),
                 sidecars_left: Vec::new(),
@@ -7350,6 +7418,35 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A Rename Folder whose rename a share did and lost the answer of, with the look at the
+    /// new name failing too, keeps its log, and the next start makes the marks follow the new
+    /// name. Before, the log went with the error, and the marks of the files in the folder
+    /// stayed at their old paths for good.
+    #[test]
+    fn a_folder_rename_that_cannot_tell_keeps_its_log() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL};
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = contract_folder("folder-rename-cannot-tell");
+        let (old, new, jobs) = (dir.join("old"), dir.join("new"), dir.join("jobs"));
+        std::fs::create_dir(&old).unwrap();
+        let log = super::journal::start_folder_log(&jobs, &old, Some(&new), None).unwrap();
+        ANSWER_LOST_AT.set(Some(old.clone()));
+        lock_even_if_poisoned(&LOOKS_FAIL).push(new.clone());
+        let renamed = crate::files::file_io::rename_never_over(&old, &new);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != new);
+        ANSWER_LOST_AT.set(None);
+        super::end_the_log_of_a_failed_folder_rename(&old, &renamed.unwrap_err(), Some(log));
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        let (_, _, found) = super::journal::jobs_cut_short(&jobs);
+        assert!(matches!(
+            &found[..],
+            [(_, super::journal::JobDoneBeforeAKill::FolderRenamed(from, to))]
+                if *from == old && *to == new
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The collection open at the start follows a file that a killed Move moved, also when
     /// the file has no marks. Before, such a file followed only in the saved collections that
     /// were not open, and stayed under its old name in the open one.
@@ -8757,6 +8854,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![a.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -8789,6 +8887,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         let gqv = dir.join("c.gqv");
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![a.clone(), b.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -8913,6 +9012,7 @@ mod tests {
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
         crate::files::trash::trash(std::slice::from_ref(&a)).unwrap();
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
             files: vec![a.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
