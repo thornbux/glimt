@@ -4157,12 +4157,6 @@ mod tests {
         std::fs::remove_dir(path).unwrap();
     }
 
-    /// A left socket that cannot be removed is told with the remove's own error, both when the
-    /// window starts and when it is renamed, and the window then shares the name under its
-    /// process ID. Before, the window was told that a Glimt of that name runs already when none
-    /// did. Then, for a time, the window had no remote control at all, and a rename was
-    /// refused. A folder stands in for such a socket, as no user, root neither, can remove it
-    /// as a file.
     /// The Flatpak's instance ID goes into the names of logs and sockets, so a crafted one with
     /// a `/`, a dot or a control character must not reach them as it is.
     #[test]
@@ -4176,6 +4170,12 @@ mod tests {
         assert_eq!(super::instance_id_from(Some(&long), 7).len(), 66);
     }
 
+    /// A left socket that cannot be removed is told with the remove's own error, both when the
+    /// window starts and when it is renamed, and the window then shares the name under its
+    /// process ID. Before, the window was told that a Glimt of that name runs already when none
+    /// did. Then, for a time, the window had no remote control at all, and a rename was
+    /// refused. A folder stands in for such a socket, as no user, root neither, can remove it
+    /// as a file.
     #[test]
     fn a_left_socket_that_stays_is_told_and_the_name_is_shared() {
         let dir =
