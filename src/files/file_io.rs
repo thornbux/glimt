@@ -858,7 +858,9 @@ fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
 /// old name unlinked; where links cannot be made either, a rename after looking first. The one
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
 /// a file back from the trash. A rename that failed but was done all the same (`done_after_all`)
-/// counts as done. `CrossesDevices` is the caller's to copy instead. The rename
+/// counts as done: a file only when the new name holds it with the fingerprint it had before,
+/// a folder when the new name holds a folder. `CrossesDevices` is the caller's to copy instead.
+/// The rename
 /// is not synced to disk here. One rename alone is one step, so a power cut leaves the file
 /// under its old name or its new one. A caller whose next step counts on the new name being on
 /// disk (an unlink of the source, a plan removed) syncs the folder with `sync_folder_of` first.
@@ -869,6 +871,10 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     let missing = RENAME_WAYS_MISSING.get();
     #[cfg(not(test))]
     let missing = 0;
+    // A file is told after a lost answer by its fingerprint, taken right before the rename, so
+    // that a file another program put at `to` meanwhile is not taken for it (#176). A folder is
+    // not, as its time and size change with every file that comes or goes.
+    let before = (!is_surely_dir(from)).then(|| fingerprint(from));
     let one_step = match missing {
         0 => rename_noreplace(from, to),
         _ => Err(Unsupported.into()),
@@ -892,7 +898,7 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         },
         done => done,
     };
-    done_after_all(renamed, from, Some(to))
+    done_after_all(renamed, from, Some((to, before)))
 }
 
 /// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
@@ -1006,18 +1012,26 @@ fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<Strin
 
 /// Returns `result`, of a step that moved the file at `from` to `to`, or removed it when `to` is
 /// `None`, as done when the step failed in a way that may have been done (`may_have_been_done`)
-/// and the names show that it was: `from` is surely gone, and `to` is surely there. A share
-/// that did the step and lost its answer otherwise had the file counted as where it was, so its
-/// sidecars and marks stayed at the old name for the next file of that name. A look that fails
-/// leaves the error as it is.
+/// and the names show that it was: `from` is surely gone, and `to` holds what went. `to` comes
+/// with the fingerprint of the file at `from` before the step, or `None` when `from` was surely
+/// a folder. A file at `to` must have that fingerprint, and a folder must be surely there. A
+/// share that did the step and lost its answer otherwise had the file counted as where it was,
+/// so its sidecars and marks stayed at the old name for the next file of that name. A file at
+/// `to` with another fingerprint may be one another program put there while it moved the photo
+/// away, and a fingerprint that could not be taken tells nothing, so the error stays. A look
+/// that fails leaves the error as it is too, and a Move then keeps its log for the next start.
 pub(crate) fn done_after_all(
     result: std::io::Result<()>,
     from: &Path,
-    to: Option<&Path>,
+    to: Option<(&Path, Option<Option<FileFingerprint>>)>,
 ) -> std::io::Result<()> {
     match result {
         Err(e) if may_have_been_done(&e, from) && is_surely_gone(from) => match to {
-            Some(to) if !is_surely_there(to) => Err(e),
+            Some((to, None)) if !is_surely_there(to) => Err(e),
+            Some((to, Some(before))) => match before.zip(fingerprint(to)) {
+                Some((before, now)) if same_fingerprint(before, now) => Ok(()),
+                _ => Err(e),
+            },
             _ => Ok(()),
         },
         result => result,
@@ -3343,6 +3357,44 @@ mod tests {
         std::fs::write(&linked, "x").unwrap();
         super::unlink_linked(&dir.join("gone"), &linked).unwrap();
         assert_eq!(text(&linked), "x");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A rename whose answer was lost counts as done only when the file at its new name has the
+    /// fingerprint the file had before it. A photo that another program moved away at that
+    /// moment, while another file came to the new name, is not counted as moved, so its sidecar
+    /// and marks stay where they are and the error is told. Before, any file at the new name
+    /// counted the rename as done (#176). A folder still counts by its name alone.
+    #[test]
+    fn a_rename_whose_answer_was_lost_is_done_only_with_its_file_at_the_new_name() {
+        use super::{ANSWER_LOST_AT, done_after_all, fingerprint};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lost-other-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        let lost = || Err(std::io::Error::from_raw_os_error(libc::EIO));
+        // Glimt's own rename, done and its answer lost, of a file and of a folder.
+        std::fs::write(&a, "a").unwrap();
+        ANSWER_LOST_AT.set(Some(a.clone()));
+        let renamed = super::rename_never_over(&a, &b);
+        ANSWER_LOST_AT.set(None);
+        renamed.unwrap();
+        let (sub, moved) = (dir.join("sub"), dir.join("moved"));
+        std::fs::create_dir(&sub).unwrap();
+        ANSWER_LOST_AT.set(Some(sub.clone()));
+        let renamed = super::rename_never_over(&sub, &moved);
+        ANSWER_LOST_AT.set(None);
+        renamed.unwrap();
+        // The photo moved away by another program, and another file at the new name.
+        std::fs::remove_file(&b).unwrap();
+        std::fs::write(&a, "a").unwrap();
+        let before = fingerprint(&a);
+        std::fs::remove_file(&a).unwrap();
+        std::fs::write(&b, "another").unwrap();
+        assert!(done_after_all(lost(), &a, Some((&b, Some(before)))).is_err());
+        // No fingerprint from before tells nothing either.
+        assert!(done_after_all(lost(), &a, Some((&b, Some(None)))).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
