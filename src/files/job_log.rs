@@ -301,28 +301,50 @@ impl JobLog {
     /// header and the `first` records (the `folder` and `shown` ones). They are on disk, with the
     /// log's name and its folder's, before this returns, so that the job's first step never
     /// comes before them. Returns the error when the log cannot be written, and no log is left.
+    ///
+    /// The log is made, locked and written in a hidden folder of its own inside `dir`, and only
+    /// then renamed into `dir`. The lock goes with it, as a flock belongs to the open file, also
+    /// on NFS, where it is a lock of the whole file. Every reader of `dir` passes over folders,
+    /// so another window's start never sees a log that is not locked yet. Before, a start could
+    /// open and lock a log made a moment ago, and its job then could not lock it.
     pub(crate) fn start(dir: &Path, job: &str, first: &[Record]) -> std::io::Result<JobLog> {
+        use crate::files::file_io::sync_folder_of;
         let job = (JOB_KINDS.iter().find(|kind| **kind == job))
             .ok_or_else(|| std::io::Error::other(format!("no job of kind {job}")))?;
         std::fs::create_dir_all(dir)?;
-        let path = dir.join(crate::files::journal::new_name());
-        let file = crate::files::file_io::open_if_unlocked(&path, true)?;
+        // The log is of a job of this window, which tells its own failures, so it may be
+        // removed. So may its hidden folder, which holds this log alone or nothing.
         let started: std::io::Result<()> = Ok(());
-        let sure = Sure::of(&started);
-        let mut log = JobLog { path, file, sure };
+        let name = crate::files::journal::new_name();
+        let path = dir.join(&name);
+        let hidden = crate::files::file_io::tmp_path(&path);
+        std::fs::create_dir(&hidden)?;
+        let made = hidden.join(&name);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
         let mut bytes = header_bytes(job, nanos, crate::features::remote::instance_id());
         bytes.extend(records_bytes(first));
-        let written = (log.file.write_all(&bytes))
-            .and_then(|()| log.file.sync_all())
-            .and_then(|()| crate::files::file_io::sync_folder_of(&log.path))
-            .and_then(|()| crate::files::file_io::sync_folder_of(dir));
+        let renamed = crate::files::file_io::open_if_unlocked(&made, true).and_then(|mut file| {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            // Glimt's own: the new log, given its name in the folder of the logs.
+            crate::files::file_io::rename_never_over(&made, &path)?;
+            Ok(file)
+        });
+        // The hidden folder goes, and with it a log that was not renamed, as a kill that left
+        // it there would leave no log either. A failure is told.
+        if let Some(sure) = Sure::of(&started) {
+            remove_job_log(&hidden, sure);
+        }
+        let file = renamed?;
+        let sure = Sure::of(&started);
+        let mut log = JobLog { path, file, sure };
+        let written = sync_folder_of(&log.path).and_then(|()| sync_folder_of(dir));
         match written {
             Ok(()) => Ok(log),
-            // A log left half written would be read at the next start as one a kill cut short.
-            // It names no step yet, so nothing is lost with it, and a failure is told.
+            // The job does not start when its log's name may not be on disk. The log names no
+            // step yet, so nothing is lost with it, and a failure is told.
             Err(e) => {
                 if let Some(sure) = log.sure.take() {
                     remove_job_log(&log.path, sure);
@@ -898,6 +920,42 @@ mod tests {
         assert_eq!(told.len(), 1, "{told:?}");
         assert!(newer.exists() && unknown.exists() && !empty.exists());
         drop((found, held));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Another window's start that opens and locks every file in the folder of the logs (as
+    /// `read_job_log` does) in the moment between the making of a new log and its lock finds no
+    /// new log there, and the job gets its log, locked, under its own name. Before, the start
+    /// locked the new log first, and the job could not start it.
+    #[test]
+    fn a_start_in_another_window_never_locks_a_new_log_first() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-job-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let held = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let in_hook = (dir.clone(), held.clone());
+        crate::files::file_io::BEFORE_NEW_FILE_IS_LOCKED.set(Some(Box::new(move |_| {
+            let (dir, held) = in_hook;
+            let files: Vec<std::fs::File> = (std::fs::read_dir(&dir).unwrap().flatten())
+                .filter(|e| e.file_type().unwrap().is_file())
+                .filter_map(|e| super::read_job_log(&e.path()).ok().map(|(file, _)| file))
+                .collect();
+            assert!(super::logs_left_by_a_kill(&dir).is_empty());
+            *held.borrow_mut() = Some(files);
+        })));
+        let log = super::JobLog::start(&dir, "rename", &[]);
+        let held = held.borrow_mut().take().expect("the hook ran");
+        let log = log.unwrap();
+        assert!(held.is_empty(), "the start locked {} new log", held.len());
+        assert_eq!(log.path().parent(), Some(dir.as_path()));
+        let refused = super::read_job_log(log.path()).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "the hidden folder is gone"
+        );
+        drop(log);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
