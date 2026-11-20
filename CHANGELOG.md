@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A Move to a network share whose file had to go back, because a sidecar could not follow, and
+  whose way back may have been done, keeps its log again, so the next start makes the marks and
+  stars follow the file. Before, the log went and they could stay at the old name.
 - An Undo from the trash that could not tell whether one file came back no longer gives the
   other files their marks, stars and collection places again at the next start, over changes
   made since or to another file that took the name.
