@@ -12,14 +12,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the folder opened was still being read. Before, it played only the images of the folder
   opened until the whole tree was read, which on a network share can take minutes: it stood
   still in a folder with no images of its own, and in name order without Repeat it ended
-  before the subfolders' images came. The images shown this round keep their places, also
-  after Previous, and so do the next images read ahead, so a new part of the tree no longer
-  takes away a decode the next slide waits for. The end of a round never waits for the tree:
-  with Repeat the next round begins with the images listed so far, and those read later join
-  the round that runs; without Repeat it ends once it has shown every image listed so far, each
-  once, also through a refresh, a rename or a move while it runs. R turned on or off while it
-  runs changes the order of only the images not shown yet, at once, also while the tree is read
-  and in a later round (#256).
+  before the subfolders' images came. The next images are read ahead and stay the next ones
+  when more of the tree comes, so a new part of the tree no longer takes away a decode the next
+  slide waits for. A round never waits for the tree: it shows each image listed once, and those
+  read later join it. With Repeat the next round begins at once, and without it the slideshow
+  stops once every image listed has been shown (#256).
+- The file list stays in its sort order during a slideshow, also in random order, and only
+  grows as a tree is read. The slideshow picks its images itself: in name order the next one in
+  the list that the round has not shown, in random order any of them. R changes only how the
+  next image is picked, at once, and the round goes on. ← goes back through the images shown and
+  → forward again, Home starts over from the first image, and a stop keeps the image shown,
+  selected and scrolled to in the list. Before, the slideshow put its own order into the list.
+- While a tree is read, its images go into the list in the sort order chosen, also by date,
+  size, EXIF date, number or extension, descending and without Case. Before, they went in by
+  name until the whole tree was read.
+- Show Hidden Files turned off, or a type left out in the Types menu, takes those images out of
+  the list at once. Before, a tree read on a share kept them, and the slideshow showed them,
+  until the tree was read again.
 - On a network share, the reading of a tree pauses between folders, for up to a second each,
   while an image that the window waits for is read: the shown one, the next one for the
   slideshow or an arrow key, or another pane. Before, the image was read behind the tree. With
