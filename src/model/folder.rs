@@ -8,8 +8,8 @@ use crate::files::external::{Login, gio_mount};
 use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
-    FoldersRead, ListedName, Types, Unread, is_listed, list_folder, list_tree, merge_shuffled,
-    merge_shuffled_after, shuffle, sort_files, walk,
+    FoldersRead, ListedName, Types, Unread, is_listed, list_folder, list_tree, merge_after,
+    merge_shuffled, shuffle, sort_files, walk,
 };
 use crate::support::format::NOT_COUNTED_ON_A_SHARE;
 use crate::support::lang::tr;
@@ -105,6 +105,8 @@ pub(crate) struct Folder {
     part_taken_in: Arc<AtomicU64>,
     /// The next listing shows a tree's images as they are found (a folder opened).
     lists_tree_in_parts: bool,
+    /// The listing that runs sends a tree's images in parts as they are found.
+    listing_sends_parts: bool,
     /// What the list shown was read and sorted as: the folder, the order, ascending, case and
     /// subfolders.
     listed_as: Option<(PathBuf, listing::Sort, bool, bool, bool)>,
@@ -188,6 +190,7 @@ impl Folder {
             part_rx: Receiving::none(),
             part_taken_in: Arc::default(),
             lists_tree_in_parts: false,
+            listing_sends_parts: false,
             listed_as: None,
             first_part_shown: None,
             list_is_a_part: false,
@@ -343,6 +346,25 @@ impl Folder {
     /// before it is read.
     pub(crate) fn is_listing(&self) -> bool {
         self.listing_rx.is_some() || self.looking_up.is_some()
+    }
+
+    /// Whether a tree is being read in parts, whose images come after those listed so far: the
+    /// tree of a folder opened, or of a slideshow with its subfolders.
+    pub(crate) fn reads_tree_in_parts(&self) -> bool {
+        self.listing_rx.is_some() && self.listing_sends_parts
+    }
+
+    /// Waits up to five seconds for the next part of the tree being read, and takes it. The
+    /// whole list stays in its channel.
+    #[cfg(test)]
+    pub(crate) fn wait_for_part(&mut self) -> Option<Vec<ListedName>> {
+        (0..250).find_map(|_| match self.part_rx.latest() {
+            Took::Answer(part) => Some(part),
+            _ => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                None
+            }
+        })
     }
 
     /// Whether the place to open is still being looked up, so that the window still shows the
@@ -1166,10 +1188,11 @@ impl crate::App {
         self.folder.told_left_out.clear();
         self.file_operations.forget_deleting();
         self.slideshow.unshuffle();
-        // A sort or a whole shuffle asked of the old list's listing is not asked of the new
-        // one. A sort carried over would put another collection in order and rewrite its file.
+        // A sort asked of the old list's listing, or the slideshow's listing of its tree, is not
+        // asked of the new one. A sort carried over would put another collection in order and
+        // rewrite its file.
         self.folder.sort_collection = false;
-        self.slideshow.take_whole_shuffle();
+        self.slideshow.take_reads_its_tree();
         self.thumbs.forget_all();
         self.status_bar.forget_sizes_and_dates_asked();
         self.search.forget_exif_index();
@@ -1374,12 +1397,14 @@ impl crate::App {
         self.folder.part_rx = Receiving::of(part_rx);
         self.folder.part_taken_in = Arc::default();
         // Parts are sent only for a folder opened, when its tree is asked for, or for the tree
-        // of a random slideshow, which plays its images as they are found
-        // (`take_listed_files` merges them into the random order). A folder read again (a
-        // refresh) keeps its whole list on screen until the new one is read, instead of
-        // shrinking and growing.
+        // of a slideshow with its subfolders, in either order, which plays its images as they
+        // are found (`take_listed_files` merges them into the order played). A folder read
+        // again (a refresh) keeps its whole list on screen until the new one is read, instead
+        // of shrinking and growing.
         let parts =
-            std::mem::take(&mut self.folder.lists_tree_in_parts) || self.slideshow.shuffles_whole();
+            std::mem::take(&mut self.folder.lists_tree_in_parts) || self.slideshow.reads_its_tree();
+        self.folder.listing_sends_parts =
+            parts && recursive && collection.is_none() && folders.is_empty();
         self.folder.first_part_shown = None;
         self.folder.list_is_a_part = false;
         let listing = Listing {
@@ -1589,7 +1614,8 @@ impl crate::App {
         let c = &self.config;
         self.folder.listed_as = (self.folder.collection.is_none()
             && self.folder.folders.is_empty()
-            && !self.slideshow.is_shuffled())
+            && !self.slideshow.is_shuffled()
+            && !self.slideshow.keeps_played_order())
         .then(|| {
             (
                 self.folder.dir.clone(),
@@ -1689,35 +1715,33 @@ impl crate::App {
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
         self.file_operations.leave_out_deleting(&mut files);
-        // A refresh during random order keeps the order, so Previous still goes back through
-        // the images that were shown. A list shuffled whole in the thread stays as it is. The
-        // flag is for this listing, and it is taken whether or not the order is still random,
-        // because a flag left behind would shuffle every later listing.
-        let fresh = whole && self.slideshow.take_whole_shuffle();
+        // The slideshow's own listing of its tree ends with its whole list. The flag is for this
+        // listing, and it is taken whether or not the order is still random, because a flag
+        // left behind would shuffle every later listing.
+        let its_tree = whole && self.slideshow.take_reads_its_tree();
         let shuffled = self.slideshow.is_shuffled();
-        // In random order, a part of a tree and the whole list after a part are merged into the
-        // list shown, which keeps the images shown so far in their places and gets the new ones
-        // in random order after them. Taken as it came, a part in name order took the random
-        // order's place. The tree's images are then shown while the tree is read, which on a
-        // share can take minutes (#256).
+        // A slideshow and a list in random order play a tree's images as they are listed. A part
+        // of the tree, and the whole list after the parts or of the slideshow's tree, are merged
+        // into the list shown, which keeps the images shown so far in their places and gets the
+        // new ones after them: in random order shuffled in, and in another by name. Taken as
+        // it came, a part in name order took the random order's place, and in name order a part
+        // put images before the one shown, which a slideshow without Repeat never showed then.
+        // The tree's images are shown while the tree is read, which on a share can take minutes
+        // (#256). A refresh in random order keeps the order too, so Previous still goes back
+        // through the images that were shown.
+        let plays = shuffled || self.slideshow.is_running();
         let shown_so_far = self.list.shown().max(self.list.last_slide());
-        let mut files = if shuffled && (!whole || self.folder.list_is_a_part) {
-            merge_shuffled_after(self.list.listed_names(), shown_so_far, files, whole)
-        } else if whole && shuffled && !fresh {
+        let files = if plays && (!whole || self.folder.list_is_a_part || its_tree) {
+            if !shuffled {
+                self.slideshow.keep_played_order();
+            }
+            let old = self.list.listed_names();
+            merge_after(old, shown_so_far + 1, files, whole, shuffled)
+        } else if whole && shuffled {
             merge_shuffled(self.list.files(), files)
         } else {
             files
         };
-        // When the list was shuffled whole for a random slideshow, the image shown comes first,
-        // as R puts it, so a slideshow without Repeat shows all images before it ends.
-        if fresh
-            && shuffled
-            && !self.folder.list_is_a_part
-            && let Some(at) = (self.list.files().get(self.list.shown()))
-                .and_then(|shown| files.iter().position(|f| f.0 == *shown))
-        {
-            files.swap(0, at);
-        }
         // The sizes and dates of the rows go from one part of the tree to the next, and to the
         // whole list after it, as the files are the same ones, read by the same walk. Before,
         // each part read them again, and an answer still on its way was dropped and asked

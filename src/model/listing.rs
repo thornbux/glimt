@@ -762,19 +762,23 @@ pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName>
     out
 }
 
-/// Merges `new`, a tree's images read so far or all of them, into `old`, a list in random
-/// order whose files up to and with place `shown` have been shown. Those files keep their
-/// places, so Previous goes back through them. The new names are shuffled in among the files
-/// of `old` not shown yet, so the images of the folders read later come up as soon as the
-/// others do. When `whole` is false, `new` is a part of the tree and the files of `old` that it
-/// lacks are kept, as the walk may still find them. When `whole` is true, the files that `new`
-/// lacks are gone and are left out, and every file has the identity that `new` gives it.
+/// Merges `new`, a tree's images read so far or all of them, into `old`, the list that a
+/// slideshow plays or that is in random order. Its first `kept` files keep their places: the
+/// images shown so far, which Previous goes back through. The new names go after them, so the
+/// images of the folders read later come up as soon as the others do. In random order
+/// (`shuffled`), they are shuffled in among the files of `old` not shown yet. In another order,
+/// a part of the tree is merged in by name among them, as the parts come in name order, and
+/// the whole list puts them in its own order, so that a slideshow without Repeat shows every
+/// image once. When `whole` is false, `new` is a part of the tree and the files of `old` that
+/// it lacks are kept, as the walk may still find them. When `whole` is true, the files that
+/// `new` lacks are gone and are left out, and every file has the identity that `new` gives it.
 /// Returns `old` as it is when no name is new and none is gone.
-pub fn merge_shuffled_after(
+pub fn merge_after(
     old: Vec<ListedName>,
-    shown: usize,
+    kept: usize,
     new: Vec<ListedName>,
     whole: bool,
+    shuffled: bool,
 ) -> Vec<ListedName> {
     let old_set: HashSet<&OsString> = old.iter().map(|f| &f.0).collect();
     let mut added: Vec<ListedName> = (new.iter())
@@ -790,17 +794,38 @@ pub fn merge_shuffled_after(
         true => new_identities.get(&name).map(|&id| (name, id)),
         false => Some((name, identity)),
     };
-    let shown_count = (shown + 1).min(old.len());
+    let kept = kept.min(old.len());
     let mut old = old.into_iter();
-    let mut out: Vec<ListedName> = (old.by_ref().take(shown_count))
-        .filter_map(still_listed)
-        .collect();
+    let mut out: Vec<ListedName> = (old.by_ref().take(kept)).filter_map(still_listed).collect();
     let mut not_shown: Vec<ListedName> = old.filter_map(still_listed).collect();
-    if !added.is_empty() {
-        not_shown.append(&mut added);
-        shuffle(&mut not_shown);
+    if shuffled {
+        if !added.is_empty() {
+            not_shown.append(&mut added);
+            shuffle(&mut not_shown);
+        }
+    } else if whole {
+        let shown: HashSet<&OsString> = out.iter().map(|f| &f.0).collect();
+        not_shown = (new.iter())
+            .filter(|f| !shown.contains(&f.0))
+            .cloned()
+            .collect();
+    } else {
+        not_shown = merged_by_name(not_shown, added);
     }
     out.append(&mut not_shown);
+    out
+}
+
+/// Returns the files of `a` and `b`, two lists each in name order, together in name order.
+fn merged_by_name(a: Vec<ListedName>, b: Vec<ListedName>) -> Vec<ListedName> {
+    let mut out = Vec::with_capacity(a.len() + b.len());
+    let (mut a, mut b) = (a.into_iter().peekable(), b.into_iter().peekable());
+    while let (Some(x), Some(y)) = (a.peek(), b.peek()) {
+        let b_first = y.0 < x.0;
+        out.extend(if b_first { b.next() } else { a.next() });
+    }
+    out.extend(a);
+    out.extend(b);
     out
 }
 
@@ -1533,25 +1558,31 @@ mod tests {
     /// A part of a tree merged into a list in random order keeps the images shown so far in
     /// their places and gets every new name once, after them, while the names the part lacks
     /// stay. The whole list after it leaves out the names that are gone, with the identities
-    /// it gives. A part with no new name leaves the list as it is.
+    /// it gives. A part with no new name leaves the list as it is. In name order, a part goes
+    /// in by name after the images shown, and the whole list puts the others in its own order.
     #[test]
     fn a_part_merged_into_a_random_order_keeps_the_images_shown() {
         let old = listed(&["c", "a", "b", "d"]);
-        let merged = super::merge_shuffled_after(old.clone(), 1, listed(&["a", "e", "f"]), false);
+        let merged = super::merge_after(old.clone(), 2, listed(&["a", "e", "f"]), false, true);
         assert_eq!(merged[..2], old[..2]);
         let mut rest = merged[2..].to_vec();
         rest.sort();
         assert_eq!(rest, listed(&["b", "d", "e", "f"]));
         let mut new = listed(&["a", "c", "e"]);
         new[0].1 = std::num::NonZeroU64::new(1000);
-        let whole = super::merge_shuffled_after(merged.clone(), 1, new.clone(), true);
+        let whole = super::merge_after(merged.clone(), 2, new.clone(), true, true);
         assert_eq!(whole[..2], [new[1].clone(), new[0].clone()]);
         assert_eq!(whole[2..], new[2..]);
-        let unchanged = super::merge_shuffled_after(old.clone(), 3, listed(&["a", "d"]), false);
+        let unchanged = super::merge_after(old.clone(), 4, listed(&["a", "d"]), false, true);
         assert_eq!(unchanged, old);
         // A list still empty, as before the first part of a tree, takes the part whole.
-        let first = super::merge_shuffled_after(Vec::new(), 0, listed(&["a", "b"]), false);
+        let first = super::merge_after(Vec::new(), 1, listed(&["a", "b"]), false, true);
         assert_eq!(first.len(), 2);
+        let played = listed(&["m", "b", "x"]);
+        let part = super::merge_after(played, 1, listed(&["a", "c", "m", "z"]), false, false);
+        assert_eq!(part, listed(&["m", "a", "b", "c", "x", "z"]));
+        let whole = super::merge_after(part, 2, listed(&["z", "c", "a", "m"]), true, false);
+        assert_eq!(whole, listed(&["m", "a", "z", "c"]));
     }
 
     #[test]
