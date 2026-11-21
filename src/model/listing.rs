@@ -68,10 +68,18 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
 /// share serves Glimt's look at each file of a tree between the player's reads.
 const PROGRAM_STARTS_FOR: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// How long the walk of a tree on a share waits for the decode of an image that the window
-/// waits for (`ImageAwaited`). A decode that takes longer, on a share that stopped answering,
-/// no longer holds the walk.
+/// How long the walk of a tree on a share waits for an image that the window waits for
+/// (`ImagesAwaited`). An image whose decode takes longer, on a share that stopped answering, no
+/// longer holds the walk.
 const IMAGE_AWAITED_FOR: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long the walk of a tree on a share waits at most, between two folders, for the images
+/// that the window waits for (`ImagesAwaited`). A slideshow of four panes with a delay of a
+/// second awaits four decodes after each other, and a held arrow key one after the other, so
+/// the walk would wait for as long as they go on. With this limit it reads a folder at least
+/// once in every second and the time that a folder takes to read, and the image awaited still
+/// has a second of the share to itself before each folder.
+const WALK_WAITS_FOR_IMAGES_AT_MOST: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The folders where a listing found a link to a file (`holds_links`).
 /// shortcut: it only grows, by one path for each such folder listed; forget a folder at its
@@ -83,15 +91,23 @@ static FOLDERS_WITH_LINKS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>>
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
     std::sync::Mutex::new(None);
 
-/// When each decode of an image that the window waits for began (`ImageAwaited`).
-static IMAGES_AWAITED: std::sync::Mutex<Vec<std::time::Instant>> =
-    std::sync::Mutex::new(Vec::new());
-
 #[cfg(test)]
 thread_local! {
     // How many programs this thread noted as started (`program_started`), so that a test can see
     // that a way to start a program on the user's files notes it, whatever other tests start.
     pub(crate) static PROGRAMS_STARTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// What the names that `merge_after` merges into a list are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NamesListed {
+    /// The whole list.
+    Whole,
+    /// A part of a tree: the images found so far.
+    TreeSoFar,
+    /// A part of a tree: only images that the list does not have yet, as the slideshow's own
+    /// listing of its tree sends them.
+    NewOnly,
 }
 
 /// The folders a listing read, each with the modification time it had when it was read, so the
@@ -202,29 +218,50 @@ impl std::fmt::Display for Sort {
     }
 }
 
-/// A decode of an image that the window waits for: the shown image, or the next one that the
-/// slideshow or the arrow key goes to. While one lives, and for at most `IMAGE_AWAITED_FOR`,
-/// the walk of a tree on a share waits between folders, so that the share reads the image
-/// first. Before, the image's reads were queued behind the walk's on the same connection.
-pub(crate) struct ImageAwaited {
-    began: std::time::Instant,
-}
+/// The images that the window waits for and that are not decoded yet: the shown one, the other
+/// panes, and the next one that the slideshow or an arrow key shows. The window says which they
+/// are whenever they or their decodes change (`App::publish_awaited_images`), so an image read
+/// ahead counts as soon as it becomes the next one. While one is there, the walk of a tree on a
+/// share waits between folders, so that the share reads the image first. Before, whether a
+/// decode held the walk was decided when the decode began, and with Preload 2 the next image
+/// was mostly begun as an image read ahead, which held nothing. Each image is held with the
+/// time the window began to wait for it, and it holds the walk for at most
+/// `IMAGE_AWAITED_FOR`.
+#[derive(Clone, Default)]
+pub(crate) struct ImagesAwaited(
+    std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, std::time::Instant)>>>,
+);
 
-impl ImageAwaited {
-    /// Notes that a decode of an image that the window waits for begins now.
-    pub(crate) fn begin() -> ImageAwaited {
-        let began = std::time::Instant::now();
-        lock_even_if_poisoned(&IMAGES_AWAITED).push(began);
-        ImageAwaited { began }
-    }
-}
-
-impl Drop for ImageAwaited {
-    fn drop(&mut self) {
-        let mut awaited = lock_even_if_poisoned(&IMAGES_AWAITED);
-        if let Some(at) = awaited.iter().position(|began| *began == self.began) {
-            awaited.swap_remove(at);
+impl ImagesAwaited {
+    /// Notes that the window now waits for the images `paths`, and for no others. An image it
+    /// waited for before keeps the time it began to wait for it.
+    pub(crate) fn set(&self, paths: Vec<PathBuf>) {
+        let mut awaited = lock_even_if_poisoned(&self.0);
+        if paths.is_empty() && awaited.is_empty() {
+            return;
         }
+        let now = std::time::Instant::now();
+        let since = |path: &PathBuf| (awaited.iter()).find(|(p, _)| p == path).map(|(_, t)| *t);
+        let new: Vec<(PathBuf, std::time::Instant)> = (paths.into_iter())
+            .map(|path| (since(&path).unwrap_or(now), path))
+            .map(|(began, path)| (path, began))
+            .collect();
+        *awaited = new;
+    }
+
+    /// Returns the images that the window waits for.
+    #[cfg(test)]
+    pub(crate) fn paths(&self) -> Vec<PathBuf> {
+        (lock_even_if_poisoned(&self.0).iter())
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// Returns whether the window waits, at `now`, for an image that it began to wait for less
+    /// than `IMAGE_AWAITED_FOR` before.
+    fn holds_the_walk_at(&self, now: std::time::Instant) -> bool {
+        (lock_even_if_poisoned(&self.0).iter())
+            .any(|(_, since)| now.saturating_duration_since(*since) < IMAGE_AWAITED_FOR)
     }
 }
 
@@ -422,20 +459,17 @@ pub(crate) fn a_program_is_starting() -> bool {
     is_starting(started, std::time::Instant::now())
 }
 
-/// Returns whether a decode of an image that the window waits for, one of those that began
-/// at the times `began`, is still running at `now` and began less than `IMAGE_AWAITED_FOR`
-/// before it.
-fn is_an_image_awaited(began: &[std::time::Instant], now: std::time::Instant) -> bool {
-    (began.iter()).any(|at| now.saturating_duration_since(*at) < IMAGE_AWAITED_FOR)
-}
-
 /// Waits while a program started on a file may still be reading its start, or while the window
-/// waits for the decode of an image (`ImageAwaited`), or until `stop` is set. The reading of a
-/// tree on a share calls it between folders, so that neither a video player started on the
-/// same share nor the next image is queued behind a look at each file of the tree.
-fn wait_for_reads_that_go_first(stop: &std::sync::atomic::AtomicBool) {
-    let now = std::time::Instant::now;
-    let awaited = || is_an_image_awaited(&lock_even_if_poisoned(&IMAGES_AWAITED), now());
+/// waits for an image (`awaited`) and for at most `WALK_WAITS_FOR_IMAGES_AT_MOST`, or until
+/// `stop` is set. The reading of a tree on a share calls it between folders, so that neither a
+/// video player started on the same share nor the next image is queued behind a look at each
+/// file of the tree.
+fn wait_for_reads_that_go_first(stop: &std::sync::atomic::AtomicBool, awaited: &ImagesAwaited) {
+    let began = std::time::Instant::now();
+    let awaited = || {
+        let now = std::time::Instant::now();
+        now.duration_since(began) < WALK_WAITS_FOR_IMAGES_AT_MOST && awaited.holds_the_walk_at(now)
+    };
     while (a_program_is_starting() || awaited()) && !stop.load(std::sync::atomic::Ordering::Relaxed)
     {
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -469,7 +503,8 @@ fn inside(real: std::io::Result<PathBuf>, top: &Path) -> Option<PathBuf> {
 /// below it, as paths relative to `dir`, in name order: `dir` read once. `top` gets `dir`'s own
 /// folders as soon as they are read, and `part` the images found so far after each folder that
 /// had some, to show them as the tree is read: a large tree takes long to read whole. Cut short
-/// when `stop` is set: another folder was opened, and the tree would be read for nothing.
+/// when `stop` is set: another folder was opened, and the tree would be read for nothing. On a
+/// share it waits between folders while the window waits for an image of `awaited`.
 /// Returns, third, every folder of the tree that was read, `dir` first, for the folder watcher,
 /// and fourth, the folders below `dir` that could not be read, which are left out. Returns an
 /// error when `dir` itself could not be read.
@@ -477,6 +512,7 @@ pub fn list_tree(
     dir: &Path,
     types: Types,
     stop: &std::sync::atomic::AtomicBool,
+    awaited: &ImagesAwaited,
     top: impl FnOnce(&[PathBuf]),
     mut part: impl FnMut(&[ListedName]),
 ) -> Result<ListedTree, Unread> {
@@ -511,7 +547,7 @@ pub fn list_tree(
             part(&out);
         }
         if on_a_share {
-            wait_for_reads_that_go_first(stop);
+            wait_for_reads_that_go_first(stop, awaited);
         }
     }
     // In name order, as list_folder gives a single folder; sort_files builds on that.
@@ -738,61 +774,130 @@ pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName>
     out
 }
 
-/// Merges `new`, a tree's images read so far or all of them, into `old`, a list in random
-/// order whose files up to and with place `shown` have been shown. Those files keep their
-/// places, so Previous goes back through them. The new names are shuffled in among the files
-/// of `old` not shown yet, so the images of the folders read later come up as soon as the
-/// others do. When `whole` is false, `new` is a part of the tree and the files of `old` that it
-/// lacks are kept, as the walk may still find them. When `whole` is true, the files that `new`
+/// Merges `new`, a tree's images read so far or all of them, into `old`, the list that a
+/// slideshow plays or that is in random order. Its first `kept` files keep their places: the
+/// images shown so far, which Previous goes back through. The new names go after them, so the
+/// images of the folders read later come up as soon as the others do. In random order
+/// (`shuffled`), they are shuffled in among the files of `old` not shown yet. In another order,
+/// a part of the tree is merged in by name among them, as the parts come in name order, and
+/// the whole list puts them in its own order, so that a slideshow without Repeat shows every
+/// image once. `names` says what `new` is. For a part of the tree, the files of `old` that it
+/// lacks are kept, as the walk may still find them. For the whole list, the files that `new`
 /// lacks are gone and are left out, and every file has the identity that `new` gives it.
 /// Returns `old` as it is when no name is new and none is gone.
-pub fn merge_shuffled_after(
+pub fn merge_after(
     old: Vec<ListedName>,
-    shown: usize,
+    kept: usize,
     new: Vec<ListedName>,
-    whole: bool,
+    names: NamesListed,
+    shuffled: bool,
 ) -> Vec<ListedName> {
-    let old_set: HashSet<&OsString> = old.iter().map(|f| &f.0).collect();
-    let mut added: Vec<ListedName> = (new.iter())
-        .filter(|f| !old_set.contains(&f.0))
-        .cloned()
-        .collect();
-    if added.is_empty() && !whole {
+    let whole = names == NamesListed::Whole;
+    // Which names of `new` are not in `old`, by a look at each name of `old` in a set of the
+    // names of `new`. A part of new names only needs no look, so merging it takes time for
+    // its own names and a move of the others, but no look at each of them.
+    let is_new: Vec<bool> = match names {
+        NamesListed::NewOnly => vec![true; new.len()],
+        _ => {
+            let mut not_in_old: HashSet<&OsString> = new.iter().map(|f| &f.0).collect();
+            for f in &old {
+                if not_in_old.is_empty() {
+                    break;
+                }
+                not_in_old.remove(&f.0);
+            }
+            new.iter().map(|f| not_in_old.contains(&f.0)).collect()
+        }
+    };
+    if !whole && !is_new.contains(&true) {
         return old;
     }
-    let new_identities: std::collections::HashMap<&OsString, Identity> =
-        new.iter().map(|(f, id)| (f, *id)).collect();
-    let still_listed = |(name, identity): ListedName| match whole {
-        true => new_identities.get(&name).map(|&id| (name, id)),
-        false => Some((name, identity)),
+    let kept = kept.min(old.len());
+    // The files of `old`, of which the first `kept` stay in their places.
+    let (mut out, kept) = match whole {
+        // Each file has the identity that `new` gives it, and one that `new` lacks is gone. A
+        // name that `old` holds twice is kept once.
+        true => {
+            let mut identities: std::collections::HashMap<&OsString, Identity> =
+                new.iter().map(|(f, id)| (f, *id)).collect();
+            let mut still_listed =
+                |(name, _): ListedName| identities.remove(&name).map(|id| (name, id));
+            let mut old = old.into_iter();
+            let mut out: Vec<ListedName> = (old.by_ref().take(kept))
+                .filter_map(&mut still_listed)
+                .collect();
+            let shown = out.len();
+            out.extend(old.filter_map(still_listed));
+            (out, shown)
+        }
+        false => (old, kept),
     };
-    let shown_count = (shown + 1).min(old.len());
-    let mut old = old.into_iter();
-    let mut out: Vec<ListedName> = (old.by_ref().take(shown_count))
-        .filter_map(still_listed)
-        .collect();
-    let mut not_shown: Vec<ListedName> = old.filter_map(still_listed).collect();
-    if !added.is_empty() {
-        not_shown.append(&mut added);
-        shuffle(&mut not_shown);
+    if whole && !shuffled {
+        out.truncate(kept);
+        let shown: HashSet<OsString> = out.iter().map(|f| f.0.clone()).collect();
+        out.extend(new.into_iter().filter(|f| !shown.contains(&f.0)));
+        return out;
     }
-    out.append(&mut not_shown);
+    // The new names go after the others, and in random order each is shuffled in among those
+    // not shown, in place, so a part takes time for its own names only.
+    let before = out.len();
+    let added = (new.into_iter().zip(is_new)).filter_map(|(f, is_new)| is_new.then_some(f));
+    out.extend(added);
+    if shuffled {
+        shuffle_in(&mut out[kept..], before - kept);
+    } else {
+        let added = out.split_off(before);
+        let not_shown = out.split_off(kept);
+        out.extend(merged_by_name(not_shown, added));
+    }
+    out
+}
+
+/// Returns the files of `a` and `b`, two lists each in name order, together in name order.
+fn merged_by_name(a: Vec<ListedName>, b: Vec<ListedName>) -> Vec<ListedName> {
+    let mut out = Vec::with_capacity(a.len() + b.len());
+    let (mut a, mut b) = (a.into_iter().peekable(), b.into_iter().peekable());
+    while let (Some(x), Some(y)) = (a.peek(), b.peek()) {
+        let b_first = y.0 < x.0;
+        out.extend(if b_first { b.next() } else { a.next() });
+    }
+    out.extend(a);
+    out.extend(b);
     out
 }
 
 /// Fisher–Yates with xorshift seeded from std's random hash key (no rand dependency).
 pub fn shuffle<T>(v: &mut [T]) {
-    use std::hash::{BuildHasher, Hasher};
-    let mut x = std::collections::hash_map::RandomState::new()
-        .build_hasher()
-        .finish()
-        | 1;
+    let mut x = random_seed();
     for i in (1..v.len()).rev() {
         x ^= x << 13;
         x ^= x >> 7;
         x ^= x << 17;
         v.swap(i, (x % (i as u64 + 1)) as usize);
     }
+}
+
+/// Shuffles the elements of `v` from place `from` on in among those before them, which are in
+/// random order already, so that all of `v` is in random order. It takes time only for the
+/// elements from `from` on: each goes to a random place among those before it and itself, and
+/// the element there goes to its place.
+pub fn shuffle_in<T>(v: &mut [T], from: usize) {
+    let mut x = random_seed();
+    for i in from.max(1)..v.len() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        v.swap(i, (x % (i as u64 + 1)) as usize);
+    }
+}
+
+/// Returns a random number other than zero, from std's random hash key, to seed xorshift with.
+fn random_seed() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish()
+        | 1
 }
 
 #[cfg(test)]
@@ -822,7 +927,15 @@ mod tests {
                 videos: false,
                 hidden: false,
             };
-            super::list_tree(&dir, types, &AtomicBool::new(false), |_| {}, |_| {}).unwrap();
+            super::list_tree(
+                &dir,
+                types,
+                &AtomicBool::new(false),
+                &Default::default(),
+                |_| {},
+                |_| {},
+            )
+            .unwrap();
             began.elapsed()
         };
         // The program was started long enough ago that 400 ms of its time are left.
@@ -845,20 +958,26 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A tree on a share is read on only once the decode of an image that the window waits for
-    /// is done, and a decode that has run for `IMAGE_AWAITED_FOR` no longer holds it, so a
-    /// share that stopped answering never stops the walk for good. A tree on a disk of its own
-    /// never waits. Before, the walk read on, and the next image's reads waited behind its
-    /// looks at the share (#256).
+    /// A tree on a share is read on only once the image that the window waits for is decoded,
+    /// and an image awaited for `IMAGE_AWAITED_FOR` no longer holds it, so a share that stopped
+    /// answering never stops the walk for good. A tree on a disk of its own never waits.
+    /// Before, the walk read on, and the next image's reads waited behind its looks at the
+    /// share (#256).
     #[test]
     fn a_tree_on_a_share_waits_for_the_image_awaited() {
-        use super::{IMAGE_AWAITED_FOR, ImageAwaited, is_an_image_awaited};
+        use super::{IMAGE_AWAITED_FOR, ImagesAwaited};
         use std::sync::atomic::AtomicBool;
         use std::time::{Duration, Instant};
+        let awaited = ImagesAwaited::default();
         let now = Instant::now();
-        assert!(is_an_image_awaited(&[now], now));
-        assert!(!is_an_image_awaited(&[now], now + IMAGE_AWAITED_FOR));
-        assert!(!is_an_image_awaited(&[], now));
+        assert!(!awaited.holds_the_walk_at(now));
+        awaited.set(vec!["a.jpg".into()]);
+        assert!(awaited.holds_the_walk_at(Instant::now()));
+        // An image still awaited keeps the time the window began to wait for it.
+        awaited.set(vec!["a.jpg".into(), "b.jpg".into()]);
+        assert!(!awaited.holds_the_walk_at(now + IMAGE_AWAITED_FOR + Duration::from_secs(1)));
+        awaited.set(Vec::new());
+        assert!(!awaited.holds_the_walk_at(Instant::now()));
         let dir = std::env::temp_dir().join(format!(
             "glimt-test-share-awaits-image-{}",
             std::process::id()
@@ -867,7 +986,7 @@ mod tests {
             std::fs::create_dir_all(dir.join(sub)).unwrap();
             std::fs::write(dir.join(sub).join("1.jpg"), "x").unwrap();
         }
-        let list = || {
+        let list = |awaited: &ImagesAwaited| {
             let began = Instant::now();
             let types = super::Types {
                 images: true,
@@ -875,17 +994,22 @@ mod tests {
                 videos: false,
                 hidden: false,
             };
-            super::list_tree(&dir, types, &AtomicBool::new(false), |_| {}, |_| {}).unwrap();
+            let stop = AtomicBool::new(false);
+            super::list_tree(&dir, types, &stop, awaited, |_| {}, |_| {}).unwrap();
             began.elapsed()
         };
-        let awaited = ImageAwaited::begin();
-        assert!(list() < Duration::from_millis(300), "a disk of its own");
+        awaited.set(vec![dir.join("a/1.jpg")]);
+        assert!(
+            list(&awaited) < Duration::from_millis(300),
+            "a disk of its own"
+        );
         crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        let decoded = awaited.clone();
         let decoded = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(400));
-            drop(awaited);
+            decoded.set(Vec::new());
         });
-        let took = list();
+        let took = list(&awaited);
         decoded.join().unwrap();
         crate::files::file_ops::test_mount(&dir, None);
         assert!(took >= Duration::from_millis(300), "a share: {took:?}");
@@ -894,6 +1018,67 @@ mod tests {
             "on once the image is decoded: {took:?}"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The walk of a tree on a share waits for at most a second between two folders, however
+    /// many images the window awaits one after the other, so it still reaches the subfolders.
+    /// Before, each image held it for up to five seconds, and a slideshow of four panes with a
+    /// delay of a second, whose next images were awaited back to back, held it for as long as
+    /// it ran.
+    #[test]
+    fn a_tree_on_a_share_is_read_on_while_images_are_awaited_one_after_another() {
+        use super::ImagesAwaited;
+        use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-share-walks-on-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("1.jpg"), "x").unwrap();
+        std::fs::write(dir.join("sub").join("2.jpg"), "x").unwrap();
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        let (awaited, walked) = (
+            ImagesAwaited::default(),
+            std::sync::Arc::new(AtomicBool::new(false)),
+        );
+        // A new image is awaited every 50 ms, for 8 s at most. The first one is awaited before
+        // the walk begins, however late the thread starts.
+        awaited.set(vec!["first.jpg".into()]);
+        let decodes = {
+            let (awaited, walked) = (awaited.clone(), walked.clone());
+            std::thread::spawn(move || {
+                for n in 0..160 {
+                    if walked.load(Relaxed) {
+                        break;
+                    }
+                    awaited.set(vec![format!("{n}.jpg").into()]);
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            })
+        };
+        let types = super::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        let began = Instant::now();
+        let (_, files, _, _) = super::list_tree(
+            &dir,
+            types,
+            &AtomicBool::new(false),
+            &awaited,
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
+        let took = began.elapsed();
+        walked.store(true, Relaxed);
+        decodes.join().unwrap();
+        crate::files::file_ops::test_mount(&dir, None);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(took >= Duration::from_millis(1500), "it waited: {took:?}");
+        assert!(took < Duration::from_secs(4), "it read on: {took:?}");
     }
 
     /// A local FUSE folder, such as a KDE Vault, a mergerfs pool or the Flatpak's document
@@ -957,6 +1142,7 @@ mod tests {
             &dir,
             types,
             &AtomicBool::new(false),
+            &Default::default(),
             |_| {},
             |p| parts.push(p.iter().map(|f| f.0.clone()).collect()),
         )
@@ -1002,7 +1188,8 @@ mod tests {
         // Also when the tree is named through a link, as its real path is what counts.
         symlink(&tree, base.join("named")).unwrap();
         for top in [tree.clone(), base.join("named")] {
-            let (_, files, _, _) = super::list_tree(&top, types, &stop, |_| {}, |_| {}).unwrap();
+            let (_, files, _, _) =
+                super::list_tree(&top, types, &stop, &Default::default(), |_| {}, |_| {}).unwrap();
             let files: Vec<_> = files.into_iter().map(|f| f.0).collect();
             // The hidden folder is not listed itself, so its image is seen only through the link,
             // and it is named by its real path in the tree.
@@ -1028,7 +1215,8 @@ mod tests {
             hidden: false,
         };
         let stop = std::sync::atomic::AtomicBool::new(false);
-        let (_, files, _, _) = super::list_tree(&dir, types, &stop, |_| {}, |_| {}).unwrap();
+        let (_, files, _, _) =
+            super::list_tree(&dir, types, &stop, &Default::default(), |_| {}, |_| {}).unwrap();
         assert_eq!(files[0].0, "real/x.jpg");
         assert_eq!(files.len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
@@ -1248,14 +1436,28 @@ mod tests {
             hidden: false,
         };
         assert_eq!(
-            super::list_tree(&dir, types, &AtomicBool::new(false), |_| {}, |_| {})
-                .unwrap()
-                .1
-                .len(),
+            super::list_tree(
+                &dir,
+                types,
+                &AtomicBool::new(false),
+                &Default::default(),
+                |_| {},
+                |_| {}
+            )
+            .unwrap()
+            .1
+            .len(),
             1
         );
-        let stopped =
-            super::list_tree(&dir, types, &AtomicBool::new(true), |_| {}, |_| {}).unwrap();
+        let stopped = super::list_tree(
+            &dir,
+            types,
+            &AtomicBool::new(true),
+            &Default::default(),
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
         let (own, files, read, left_out) = stopped;
         assert!(own.is_empty() && files.is_empty() && read.is_empty() && left_out.is_empty());
         // The top folder's own folders are told before any folder below is read: stopped
@@ -1266,6 +1468,7 @@ mod tests {
             &dir,
             types,
             &stop,
+            &Default::default(),
             |dirs| {
                 told = dirs.to_vec();
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1411,25 +1614,88 @@ mod tests {
     /// A part of a tree merged into a list in random order keeps the images shown so far in
     /// their places and gets every new name once, after them, while the names the part lacks
     /// stay. The whole list after it leaves out the names that are gone, with the identities
-    /// it gives. A part with no new name leaves the list as it is.
+    /// it gives. A part with no new name leaves the list as it is. In name order, a part goes
+    /// in by name after the images shown, and the whole list puts the others in its own order.
     #[test]
     fn a_part_merged_into_a_random_order_keeps_the_images_shown() {
         let old = listed(&["c", "a", "b", "d"]);
-        let merged = super::merge_shuffled_after(old.clone(), 1, listed(&["a", "e", "f"]), false);
+        let merged = super::merge_after(
+            old.clone(),
+            2,
+            listed(&["a", "e", "f"]),
+            super::NamesListed::TreeSoFar,
+            true,
+        );
         assert_eq!(merged[..2], old[..2]);
         let mut rest = merged[2..].to_vec();
         rest.sort();
         assert_eq!(rest, listed(&["b", "d", "e", "f"]));
         let mut new = listed(&["a", "c", "e"]);
         new[0].1 = std::num::NonZeroU64::new(1000);
-        let whole = super::merge_shuffled_after(merged.clone(), 1, new.clone(), true);
+        let whole = super::merge_after(
+            merged.clone(),
+            2,
+            new.clone(),
+            super::NamesListed::Whole,
+            true,
+        );
         assert_eq!(whole[..2], [new[1].clone(), new[0].clone()]);
         assert_eq!(whole[2..], new[2..]);
-        let unchanged = super::merge_shuffled_after(old.clone(), 3, listed(&["a", "d"]), false);
+        let unchanged = super::merge_after(
+            old.clone(),
+            4,
+            listed(&["a", "d"]),
+            super::NamesListed::TreeSoFar,
+            true,
+        );
         assert_eq!(unchanged, old);
         // A list still empty, as before the first part of a tree, takes the part whole.
-        let first = super::merge_shuffled_after(Vec::new(), 0, listed(&["a", "b"]), false);
+        let first = super::merge_after(
+            Vec::new(),
+            1,
+            listed(&["a", "b"]),
+            super::NamesListed::TreeSoFar,
+            true,
+        );
         assert_eq!(first.len(), 2);
+        // A part of new names only is taken as new without a look at the names before it.
+        let new_only = super::NamesListed::NewOnly;
+        let part = super::merge_after(old.clone(), 4, listed(&["e", "f"]), new_only, true);
+        assert_eq!(part[..4], old[..]);
+        assert_eq!(part.len(), 6);
+        let played = listed(&["m", "b", "x"]);
+        let part = super::merge_after(
+            played,
+            1,
+            listed(&["a", "c", "m", "z"]),
+            super::NamesListed::TreeSoFar,
+            false,
+        );
+        assert_eq!(part, listed(&["m", "a", "b", "c", "x", "z"]));
+        let whole = super::merge_after(
+            part,
+            2,
+            listed(&["z", "c", "a", "m"]),
+            super::NamesListed::Whole,
+            false,
+        );
+        assert_eq!(whole, listed(&["m", "a", "z", "c"]));
+    }
+
+    /// Elements shuffled in among others in random order keep every element once, and each of
+    /// them can land at any place, the first among them.
+    #[test]
+    fn shuffle_in_keeps_all_elements_and_reaches_every_place() {
+        let mut first = std::collections::HashSet::new();
+        for _ in 0..400 {
+            let mut v: Vec<u32> = (0..20).collect();
+            super::shuffle_in(&mut v, 15);
+            let mut sorted = v.clone();
+            sorted.sort_unstable();
+            assert_eq!(sorted, (0..20).collect::<Vec<_>>());
+            first.insert(v.iter().position(|&e| e == 19).unwrap());
+        }
+        assert_eq!(first.len(), 20, "19 reached every place");
     }
 
     #[test]

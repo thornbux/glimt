@@ -36,8 +36,10 @@ impl crate::App {
         }
         self.sum_selection_size(ctx);
         self.sum_match_size(ctx);
-        // --slideshow: once the folder is read, so random order shuffles all of it.
-        if self.slideshow.starts_now(!self.folder.is_listing()) {
+        // --slideshow: once the folder is read, so random order shuffles all of it, or while its
+        // tree is read in parts, which the slideshow plays as they come.
+        let listed = !self.folder.is_listing() || self.folder.reads_tree_in_parts();
+        if self.slideshow.starts_now(listed) {
             self.start_slideshow(ctx);
         }
         self.follow_focus(ctx);

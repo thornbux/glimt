@@ -44,7 +44,7 @@ const RETIRED_NAMES: &[&str] = &[
     "files_gen",     // version, list_version
     // The slideshow, Save As and pan view (viewer/).
     "at_start",      // start_after_listing
-    "whole_shuffle", // shuffle_next_listing_whole
+    "whole_shuffle", // reads_its_tree
     "days_stop",     // stop_reading_days
     "add_gone",      // add_removed
     "as_read",       // read_days
