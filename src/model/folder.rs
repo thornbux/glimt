@@ -9,7 +9,7 @@ use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_fil
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
     FoldersRead, ListedName, Types, Unread, is_listed, list_folder, list_tree, merge_shuffled,
-    shuffle, sort_files, walk,
+    merge_shuffled_after, shuffle, sort_files, walk,
 };
 use crate::support::format::NOT_COUNTED_ON_A_SHARE;
 use crate::support::lang::tr;
@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
@@ -99,6 +100,9 @@ pub(crate) struct Folder {
     subdirs_rx: Receiving<Vec<PathBuf>>,
     /// The images of the tree found so far, as it is read, a folder of it at a time.
     part_rx: Receiving<Vec<ListedName>>,
+    /// How long the window took to take the last part of the tree, in microseconds. The
+    /// listing thread waits for four times as long before it sends the next part.
+    part_taken_in: Arc<AtomicU64>,
     /// The next listing shows a tree's images as they are found (a folder opened).
     lists_tree_in_parts: bool,
     /// What the list shown was read and sorted as: the folder, the order, ascending, case and
@@ -182,6 +186,7 @@ impl Folder {
             listing_version: 0,
             subdirs_rx: Receiving::none(),
             part_rx: Receiving::none(),
+            part_taken_in: Arc::default(),
             lists_tree_in_parts: false,
             listed_as: None,
             first_part_shown: None,
@@ -546,6 +551,9 @@ struct Listing {
     shuffled: bool,
     /// Set when another listing starts, so this one stops reading a tree.
     stop: Arc<AtomicBool>,
+    /// How long the window took to take the last part, in microseconds (`Folder`'s
+    /// `part_taken_in`).
+    part_taken_in: Arc<AtomicU64>,
     tx: mpsc::Sender<Listed>,
     size_tx: mpsc::Sender<u64>,
     /// When the thread started reading. The time it took is measured here, in the thread,
@@ -719,11 +727,8 @@ impl Listing {
                     }
                 },
                 |so_far| {
-                    // The next part comes after four times as long as this one took, and at
-                    // least a quarter second, so copying a long list does not slow the reading
-                    // down.
                     let soon = sent.is_some_and(|(t, wait)| t.elapsed() < wait);
-                    if !parts || self.shuffled || soon {
+                    if !parts || soon {
                         return;
                     }
                     let began = Instant::now();
@@ -735,7 +740,8 @@ impl Listing {
                     if part_tx.try_send(part).is_ok() {
                         self.ctx.request_repaint();
                     }
-                    let wait = (began.elapsed() * 4).max(std::time::Duration::from_millis(250));
+                    let in_window = self.part_taken_in.load(Ordering::Relaxed);
+                    let wait = next_part_after(began.elapsed(), Duration::from_micros(in_window));
                     sent = Some((Instant::now(), wait));
                 },
             ),
@@ -1363,12 +1369,14 @@ impl crate::App {
         // pile up.
         let (part_tx, part_rx) = mpsc::sync_channel(1);
         self.folder.part_rx = Receiving::of(part_rx);
-        // Parts are sent only for a folder opened, or when its tree is asked for. A folder read
-        // again (a refresh) keeps its whole list on screen until the new one is read, instead of
-        // shrinking and growing. They are not sent in random order either, because a list in
-        // name order would take the shuffled one's place.
+        self.folder.part_taken_in = Arc::default();
+        // Parts are sent only for a folder opened, when its tree is asked for, or for the tree
+        // of a random slideshow, which plays its images as they are found
+        // (`take_listed_files` merges them into the random order). A folder read again (a
+        // refresh) keeps its whole list on screen until the new one is read, instead of
+        // shrinking and growing.
         let parts =
-            std::mem::take(&mut self.folder.lists_tree_in_parts) && !self.slideshow.is_shuffled();
+            std::mem::take(&mut self.folder.lists_tree_in_parts) || self.slideshow.shuffles_whole();
         self.folder.first_part_shown = None;
         self.folder.list_is_a_part = false;
         let listing = Listing {
@@ -1380,6 +1388,7 @@ impl crate::App {
             recursive,
             shuffled,
             stop,
+            part_taken_in: self.folder.part_taken_in.clone(),
             tx,
             size_tx,
             ctx: ctx2,
@@ -1504,7 +1513,10 @@ impl crate::App {
         // Of the tree's images so far, only the last part that came is used, one list a frame
         // at most.
         if let Took::Answer(part) = self.folder.part_rx.latest() {
+            let began = Instant::now();
             self.take_listed_files(ctx, part, false);
+            let took = u64::try_from(began.elapsed().as_micros()).unwrap_or(u64::MAX);
+            self.folder.part_taken_in.store(took, Ordering::Relaxed);
         }
         let listed = match self.folder.listing_rx.wait(wait) {
             Took::Answer(listed) => listed,
@@ -1678,7 +1690,16 @@ impl crate::App {
         // flag is for this listing, and it is taken whether or not the order is still random,
         // because a flag left behind would shuffle every later listing.
         let fresh = whole && self.slideshow.take_whole_shuffle();
-        let mut files = if whole && self.slideshow.is_shuffled() && !fresh {
+        let shuffled = self.slideshow.is_shuffled();
+        // In random order, a part of a tree and the whole list after a part are merged into the
+        // list shown, which keeps the images shown so far in their places and gets the new ones
+        // in random order after them. Taken as it came, a part in name order took the random
+        // order's place. The tree's images are then shown while the tree is read, which on a
+        // share can take minutes (#256).
+        let shown_so_far = self.list.shown().max(self.list.last_slide());
+        let mut files = if shuffled && (!whole || self.folder.list_is_a_part) {
+            merge_shuffled_after(self.list.listed_names(), shown_so_far, files, whole)
+        } else if whole && shuffled && !fresh {
             merge_shuffled(self.list.files(), files)
         } else {
             files
@@ -1686,7 +1707,8 @@ impl crate::App {
         // When the list was shuffled whole for a random slideshow, the image shown comes first,
         // as R puts it, so a slideshow without Repeat shows all images before it ends.
         if fresh
-            && self.slideshow.is_shuffled()
+            && shuffled
+            && !self.folder.list_is_a_part
             && let Some(at) = (self.list.files().get(self.list.shown()))
                 .and_then(|shown| files.iter().position(|f| f.0 == *shown))
         {
@@ -2016,6 +2038,17 @@ impl crate::App {
         }
         self.start_listing(ctx);
     }
+}
+
+/// Returns how long a listing thread waits after it sent a part of a tree before it sends the
+/// next one: four times as long as the part took `in_thread` to copy and sort or `in_window` to
+/// take, whichever is longer, and at least a quarter second. Copying a long list then does not
+/// slow the reading down, and the window spends at most a fifth of its time on the parts. In
+/// random order the window merges each part into the shown order, which takes it four times as
+/// long as the thread's copy of the part (0.4 s for 500,000 names). Paced by the thread's time
+/// alone, the window then did little else, and the slideshow's next image waited behind it.
+fn next_part_after(in_thread: Duration, in_window: Duration) -> Duration {
+    (in_thread.max(in_window) * 4).max(Duration::from_millis(250))
 }
 
 /// Looks up on disk what `paths` are, for `open`: a collection, a folder, a file in its folder,
@@ -3055,6 +3088,86 @@ mod tests {
         assert_eq!(known(&app), Some(Some((7, 1))));
         app.take_listed_files(&ctx, listed(&["a/w.png", "b/x.png"]), true);
         assert_eq!(known(&app), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The next part of a tree waits for four times as long as the window took to take the
+    /// part before, when that is longer than the thread's own copy of it, and the window notes
+    /// that time. Before, only the thread's time counted, and in random order the window took
+    /// four times as long as that for each part of a tree of 500,000 images (#256).
+    #[test]
+    fn the_parts_of_a_tree_wait_for_the_window() {
+        let ms = std::time::Duration::from_millis;
+        assert_eq!(super::next_part_after(ms(90), ms(400)), ms(1600));
+        assert_eq!(super::next_part_after(ms(90), ms(20)), ms(360));
+        assert_eq!(super::next_part_after(ms(1), ms(1)), ms(250));
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-part-pacing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        (image::RgbImage::new(2, 2))
+            .save(dir.join("sub").join("a.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.list.files(), ["sub/a.png"]);
+        assert!(app.folder.part_taken_in.load(super::Ordering::Relaxed) > 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A random slideshow of a tree gets the tree's images while the tree is read, in random
+    /// order, and the whole list after them keeps the images shown so far in their places.
+    /// Before, no part of the tree came in random order, so a slideshow of a folder with few
+    /// images of its own and many in its subfolders stood still until the whole tree on a
+    /// share was read (#256).
+    #[test]
+    fn a_random_slideshow_takes_its_tree_in_parts() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-random-parts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for i in 0..6 {
+            (image::RgbImage::new(2, 2))
+                .save(dir.join("sub").join(format!("{i}.png")))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(app.list.files().is_empty());
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = true;
+        app.config.slideshow_repeat = false;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        // The part waits in its channel, beside the whole list, until it is taken here.
+        let part = (0..250).find_map(|_| match app.folder.part_rx.latest() {
+            super::Took::Answer(part) => Some(part),
+            _ => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                None
+            }
+        });
+        let part = part.expect("no part of the tree in random order");
+        app.take_listed_files(&ctx, part, false);
+        let mut names = app.list.files().to_vec();
+        names.sort();
+        let all: Vec<std::ffi::OsString> = (0..6).map(|i| format!("sub/{i}.png").into()).collect();
+        assert_eq!(names, all, "every image of the part, once");
+        app.show_file(&ctx, 2);
+        let shown_so_far = app.list.files()[..3].to_vec();
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(
+            app.list.files()[..3],
+            shown_so_far,
+            "the images shown so far"
+        );
+        assert_eq!((app.list.files().len(), app.list.shown()), (6, 2));
+        assert!(app.slideshow.is_shuffled());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
