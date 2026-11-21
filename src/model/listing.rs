@@ -7,7 +7,7 @@ use crate::images::save::FileId;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::{images::raw, metadata::exif};
 use std::collections::HashSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 pub const EXTS: &[&str] = &[
@@ -98,14 +98,35 @@ thread_local! {
     pub(crate) static PROGRAMS_STARTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// What the names of a listing that the window takes are (`App::take_listing`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum NamesListed {
-    /// The whole list.
-    Whole,
-    /// A part of a tree: the images found so far, or only those that the list does not have
-    /// yet, as a listing of a tree sends them while a slideshow runs (`merge_new_names`).
-    TreeSoFar,
+/// Where the new images of a part of a tree go in the list (`merge_new_names`).
+pub enum PartPlaces<'a> {
+    /// By their names, in an order by name, which the window compares without a look at the
+    /// files.
+    ByName {
+        by: Sort,
+        ascending: bool,
+        case: bool,
+    },
+    /// After the names that the listing thread found them to follow, in an order that looks at
+    /// the files (`Sort::looks_at_files`), whose dates and sizes the window does not have.
+    /// `None` is the start of the list.
+    After(&'a [Option<OsString>]),
+}
+
+/// What a file is sorted by besides its name, in an order that looks at the file: its time,
+/// its size or its EXIF date, as `sort_files` sorts by it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SortKey {
+    /// An order by the name alone.
+    #[default]
+    Name,
+    /// The modification or creation time in nanoseconds since 1970 (0 when unknown), or `None`
+    /// when the file could not be looked at.
+    Time(Option<u128>),
+    /// The size in bytes, or `None` when the file could not be looked at.
+    Size(Option<u64>),
+    /// Whether the file has no EXIF date, so that those come last, and the date.
+    Exif(bool, Option<String>),
 }
 
 /// The names that the list held when a listing began, as 64-bit hashes (`name_hash`), which
@@ -261,12 +282,6 @@ impl ReadWhole {
         self.folders.is_empty()
     }
 
-    /// Adds the folders that `other` read whole, for several parts taken together.
-    pub fn add(&mut self, other: ReadWhole) {
-        self.folders.extend(other.folders);
-        self.found.extend(other.found);
-    }
-
     /// Returns whether `name`, a name of the list relative to the tree, lies in a folder read
     /// whole that no longer holds it, or below a folder read whole that no longer holds the
     /// folder on its way. Each folder above it is one lookup.
@@ -376,6 +391,12 @@ pub enum Sort {
 }
 
 impl Sort {
+    /// Whether the order looks at each file, its date, size or EXIF date, which only a thread
+    /// may do. The others go by the name alone.
+    pub fn looks_at_files(self) -> bool {
+        !matches!(self, Sort::Name | Sort::Number | Sort::Extension)
+    }
+
     pub fn row(self) -> (Sort, &'static str, &'static str) {
         SORTS.into_iter().find(|s| s.0 == self).unwrap_or(SORTS[0])
     }
@@ -951,16 +972,19 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// Merges `new`, a part of a tree of only images that `old` lacks, into `old`, the list, so
-/// that the list keeps its order and grows. The part leaves out the names of `old` that the
-/// folders it `read` whole no longer hold (`ReadWhole::leaves_out`). Returns `old` as it is when
-/// no name is new and none is gone. A part of new names only needs no look at the names of
-/// `old` to tell which are new, so merging it takes time for its own names and a move of the
-/// others.
+/// Merges `new`, a part of a tree of only images that `old` lacks, in the list's order, into
+/// `old`, the list, so that the list keeps its order and grows. `places` says where each new
+/// image goes. The part leaves out the names of `old` that the folders it `read` whole no
+/// longer hold (`ReadWhole::leaves_out`). Returns `old` as it is when no name is new and none is
+/// gone. A part of new names only needs no look at the names of `old` to tell which are new, so
+/// merging it takes a few comparisons for each of its own names and a move of the others, and
+/// no look at a file. Before, a part was merged by its bytes in every order, so in an order by
+/// date, by size or without Case its images went to the wrong places until the whole list came.
 pub fn merge_new_names(
     old: Vec<ListedName>,
     new: Vec<ListedName>,
     read: &ReadWhole,
+    places: PartPlaces,
 ) -> Vec<ListedName> {
     if new.is_empty() && read.is_empty() {
         return old;
@@ -972,20 +996,136 @@ pub fn merge_new_names(
             .filter(|f| !read.leaves_out(&f.0))
             .collect(),
     };
-    merged_by_name(old, new)
+    let at = match places {
+        PartPlaces::ByName {
+            by,
+            ascending,
+            case,
+        } => {
+            let none = SortKey::Name;
+            let order = |a: &OsString, b: &OsString| {
+                in_order((&none, a), (&none, b), (by, ascending, case))
+            };
+            // The new names are in order, so each one is looked for after the one before.
+            let mut from = 0;
+            (new.iter())
+                .map(|f| {
+                    from += old[from..].partition_point(|o| order(&o.0, &f.0).is_le());
+                    from
+                })
+                .collect()
+        }
+        PartPlaces::After(after) => places_after(&old, after),
+    };
+    insert_at(old, new, &at)
 }
 
-/// Returns the files of `a` and `b`, two lists each in name order, together in name order.
-fn merged_by_name(a: Vec<ListedName>, b: Vec<ListedName>) -> Vec<ListedName> {
-    let mut out = Vec::with_capacity(a.len() + b.len());
-    let (mut a, mut b) = (a.into_iter().peekable(), b.into_iter().peekable());
-    while let (Some(x), Some(y)) = (a.peek(), b.peek()) {
-        let b_first = y.0 < x.0;
-        out.extend(if b_first { b.next() } else { a.next() });
+/// Returns the places in `old` that the new names go before, each after the name of `after`
+/// (`None` for the start of the list). A name of `after` that `old` lacks, a new name or one
+/// taken out of the list since, has its new name go where the one before it went. It is one
+/// look at each name of `old`, in a set of the names of `after`.
+fn places_after(old: &[ListedName], after: &[Option<OsString>]) -> Vec<usize> {
+    let mut found: std::collections::HashMap<&OsStr, Option<usize>> = (after.iter().flatten())
+        .map(|a| (a.as_os_str(), None))
+        .collect();
+    if !found.is_empty() {
+        for (i, f) in old.iter().enumerate() {
+            if let Some(at) = found.get_mut(f.0.as_os_str()) {
+                *at = Some(i + 1);
+            }
+        }
     }
-    out.extend(a);
-    out.extend(b);
+    let mut last = 0;
+    (after.iter())
+        .map(|a| {
+            let at = match a {
+                None => Some(0),
+                Some(a) => found.get(a.as_os_str()).copied().flatten(),
+            };
+            last = at.unwrap_or(last).max(last);
+            last
+        })
+        .collect()
+}
+
+/// Returns `old` with each of `new` put before the element of `old` at its place of `at`, in
+/// one pass, or at the end for a place past it. The places are in order, and new elements of
+/// one place keep their order.
+pub fn insert_at<T>(old: Vec<T>, new: Vec<T>, at: &[usize]) -> Vec<T> {
+    let mut out = Vec::with_capacity(old.len() + new.len());
+    let mut new = new.into_iter().zip(at.iter().copied()).peekable();
+    for (i, f) in old.into_iter().enumerate() {
+        while let Some((n, _)) = new.next_if(|&(_, at)| at <= i) {
+            out.push(n);
+        }
+        out.push(f);
+    }
+    out.extend(new.map(|(n, _)| n));
     out
+}
+
+/// Returns what `file`, a name in `dir`, is sorted by besides its name in the order `by`: a look
+/// at the file in an order that looks at the files, which only a thread may make, and
+/// `SortKey::Name` otherwise.
+pub fn sort_key(dir: &Path, file: &OsStr, by: Sort) -> SortKey {
+    let meta = || std::fs::metadata(dir.join(file)).ok();
+    let nanos = |t: std::io::Result<std::time::SystemTime>| {
+        t.ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos())
+    };
+    match by {
+        Sort::Name | Sort::Number | Sort::Extension => SortKey::Name,
+        Sort::Date => SortKey::Time(meta().map(|m| nanos(m.modified()))),
+        // Not every file system records creation time; then the modification time.
+        Sort::Created => {
+            SortKey::Time(meta().map(|m| nanos(m.created().or_else(|_| m.modified()))))
+        }
+        Sort::Size => SortKey::Size(meta().map(|m| m.len())),
+        Sort::ExifOriginal | Sort::ExifDigitized => {
+            let date = exif::date(&dir.join(file), by == Sort::ExifDigitized);
+            SortKey::Exif(date.is_none(), date)
+        }
+    }
+}
+
+/// Compares two files, each with its `sort_key` and its name, in the order `(by, ascending,
+/// case)`, as `sort_files` puts them: by their keys, then by their names as the order takes
+/// them, and then byte by byte, which is the order in which `sort_files` leaves names that the
+/// order holds equal. Descending is the other way round.
+pub fn in_order(
+    a: (&SortKey, &OsString),
+    b: (&SortKey, &OsString),
+    (by, ascending, case): (Sort, bool, bool),
+) -> std::cmp::Ordering {
+    let bytes = || a.1.as_encoded_bytes().cmp(b.1.as_encoded_bytes());
+    let name = |f: &OsString| {
+        let s = f.to_string_lossy();
+        match case {
+            true => s.into_owned(),
+            false => s.to_lowercase(),
+        }
+    };
+    let by_name = || {
+        let (x, y) = (name(a.1), name(b.1));
+        match by {
+            Sort::Number => natural_cmp(&x, &y).then_with(|| x.cmp(&y)),
+            Sort::Extension => {
+                let ext = |n: &str| n.rsplit_once('.').map_or("", |e| e.1).to_owned();
+                ext(&x).cmp(&ext(&y)).then_with(|| x.cmp(&y))
+            }
+            _ => x.cmp(&y),
+        }
+    };
+    let order = match (by, case) {
+        // Files are listed byte-wise, which is case-sensitive name order.
+        (Sort::Name, true) => bytes(),
+        _ => (a.0.cmp(b.0)).then_with(by_name).then_with(bytes),
+    };
+    match ascending {
+        true => order,
+        false => order.reverse(),
+    }
 }
 
 /// Returns a 64-bit hash of a name's bytes, the same in every thread of this Glimt, as the
@@ -1046,7 +1186,12 @@ mod tests {
         assert_eq!(gone, [&list[2], &list[3]]);
         let old = found(&["a/1.png", "a/2.png", "b/c/3.png", "d/4.png", "t.png"]);
         let new = found(&["e/c/3.png"]);
-        let merged = super::merge_new_names(old, new, &read);
+        let by_name = super::PartPlaces::ByName {
+            by: super::Sort::Name,
+            ascending: true,
+            case: true,
+        };
+        let merged = super::merge_new_names(old, new, &read, by_name);
         assert_eq!(merged, found(&["a/1.png", "d/4.png", "e/c/3.png", "t.png"]));
     }
 
@@ -1836,17 +1981,120 @@ mod tests {
     }
 
     /// A part of new names goes into the list in its order and makes it grow, and the names of
-    /// the list stay, as the walk may still find them. A part with no new name and no folder
-    /// read whole leaves the list as it is, and a list still empty, as before the first part of
-    /// a tree, takes the part whole.
+    /// the list stay, as the walk may still find them: by name with and without Case,
+    /// descending and by number, and in an order that looks at the files after the names that
+    /// the listing thread found, also after a name the list no longer holds. A part with no new
+    /// name and no folder read whole leaves the list as it is, and a list still empty, as
+    /// before the first part of a tree, takes the part whole. Before, a part was merged by its
+    /// bytes in every order.
     #[test]
     fn a_part_of_new_names_goes_into_the_list_in_its_order() {
+        use super::{PartPlaces, Sort};
         let none = super::ReadWhole::default();
+        let by = |by, ascending, case| PartPlaces::ByName {
+            by,
+            ascending,
+            case,
+        };
+        let cases = [
+            (
+                by(Sort::Name, true, true),
+                ["B", "d", "m"],
+                ["A", "c", "z"],
+                "A B c d m z",
+            ),
+            (
+                by(Sort::Name, true, false),
+                ["b", "D", "m"],
+                ["A", "c", "Z"],
+                "A b c D m Z",
+            ),
+            (
+                by(Sort::Name, false, true),
+                ["m", "d", "b"],
+                ["z", "c", "a"],
+                "z m d c b a",
+            ),
+            (
+                by(Sort::Number, true, false),
+                ["i2", "i9", "i20"],
+                ["i3", "i10", "i30"],
+                "i2 i3 i9 i10 i20 i30",
+            ),
+        ];
+        for (places, old, new, merged) in cases {
+            let part = super::merge_new_names(listed(&old), listed(&new), &none, places);
+            assert_eq!(part, listed(&merged.split(' ').collect::<Vec<_>>()));
+        }
+        // By date, as the listing thread placed them: x first, y after b, and z after a name
+        // that was taken out of the list since, so after y.
+        let after = [None, Some("b".into()), Some("gone".into())];
+        let part = super::merge_new_names(
+            listed(&["a", "b", "c"]),
+            listed(&["x", "y", "z"]),
+            &none,
+            PartPlaces::After(&after),
+        );
+        assert_eq!(part, listed(&["x", "a", "b", "y", "z", "c"]));
         let old = listed(&["b", "d", "m"]);
-        let part = super::merge_new_names(old.clone(), listed(&["a", "c", "z"]), &none);
-        assert_eq!(part, listed(&["a", "b", "c", "d", "m", "z"]));
-        assert_eq!(super::merge_new_names(old.clone(), Vec::new(), &none), old);
-        let first = super::merge_new_names(Vec::new(), listed(&["a", "b"]), &none);
+        let name = || by(Sort::Name, true, true);
+        assert_eq!(
+            super::merge_new_names(old.clone(), Vec::new(), &none, name()),
+            old
+        );
+        let first = super::merge_new_names(Vec::new(), listed(&["a", "b"]), &none, name());
         assert_eq!(first, listed(&["a", "b"]));
+    }
+
+    /// The order that a part goes into the list by (`in_order`) is the order that `sort_files`
+    /// sorts the whole list in, in every order, ascending and descending, with and without
+    /// Case, for files whose names, dates and sizes differ in other ways.
+    #[test]
+    fn a_part_goes_in_by_the_order_of_the_whole_list() {
+        use super::{SORTS, in_order, sort_files, sort_key};
+        let dir = std::env::temp_dir().join(format!("glimt-test-in-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = [
+            "b.png",
+            "B.png",
+            "a10.jpg",
+            "a9.JPG",
+            "a09.png",
+            "c.webp",
+            "img2.png",
+            "IMG10.png",
+            "é.png",
+            "z.gif",
+        ];
+        for (k, name) in names.iter().enumerate() {
+            std::fs::write(dir.join(name), vec![0; (k * 7) % 4]).unwrap();
+            let when =
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000 + (k as u64 * 5) % 3);
+            let file = std::fs::File::options()
+                .write(true)
+                .open(dir.join(name))
+                .unwrap();
+            file.set_modified(when).unwrap();
+        }
+        for (sort, _, _) in SORTS {
+            for (ascending, case) in [(true, true), (true, false), (false, true), (false, false)] {
+                let mut files = listed(&names);
+                files.sort_unstable();
+                sort_files(&dir, &mut files, sort, ascending, case);
+                let key = |f: &super::ListedName| sort_key(&dir, &f.0, sort);
+                let order = (sort, ascending, case);
+                for pair in files.windows(2) {
+                    let (a, b) = ((&key(&pair[0]), &pair[0].0), (&key(&pair[1]), &pair[1].0));
+                    assert!(
+                        in_order(a, b, order).is_lt(),
+                        "{:?} before {:?} in {order:?}",
+                        pair[0].0,
+                        pair[1].0
+                    );
+                }
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

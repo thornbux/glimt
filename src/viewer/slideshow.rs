@@ -388,10 +388,6 @@ impl crate::App {
             // minutes, and the tree's images join the list in parts as they are read.
             self.folder.set_recursive(true);
             self.start_listing(ctx);
-        } else if self.folder.reads_tree_in_parts() && !self.folder.parts_are_new_names() {
-            // A tree still read for the folder opened sends the whole tree so far in each part.
-            // It is read again as the slideshow's, whose parts hold only the images new to it.
-            self.start_listing(ctx);
         }
         self.follow_list_in_slideshow();
         self.refill_preload();

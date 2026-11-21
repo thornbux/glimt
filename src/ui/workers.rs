@@ -428,14 +428,14 @@ mod tests {
     /// `take_` method of a part, but not the takes that need the frame.
     #[test]
     fn finds_every_spelling_of_an_answer_taken() {
-        let body = "self.a.receive(x);\nlet b = self.b.latest();\nself.c.wait(t);\n\
+        let body = "self.a.receive(x);\nlet b = self.b.take();\nself.c.wait(t);\n\
             while let Some(d) = self.d.next() {}\nlet e = self.e.take_answer();\n\
             if let Some(i) = self.f.take_image() {}\nif self.g.take_list_is_old() {}\n";
         assert_eq!(
             answers_taken_in(body),
             [
                 "self.a.receive(x);",
-                "let b = self.b.latest();",
+                "let b = self.b.take();",
                 "self.c.wait(t);",
                 "while let Some(d) = self.d.next() {}",
                 "let e = self.e.take_answer();",
@@ -447,14 +447,8 @@ mod tests {
     /// the frame are left out: the clipboard's image, a listing started for a list gone old,
     /// the folders opened together, and the failed writes shown last.
     fn answers_taken_in(body: &str) -> Vec<&str> {
-        const TAKES: [&str; 7] = [
-            ".receive",
-            "try_recv",
-            ".take()",
-            ".latest()",
-            ".wait(",
-            ".next()",
-            ".take_",
+        const TAKES: [&str; 6] = [
+            ".receive", "try_recv", ".take()", ".wait(", ".next()", ".take_",
         ];
         const THE_FRAMES_OWN: [&str; 4] = [
             ".take_image()",
