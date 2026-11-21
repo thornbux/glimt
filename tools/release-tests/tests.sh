@@ -6475,6 +6475,9 @@ else
                 shown=$now
                 sleep 0.2
             done
+            # The end of the sampling counts as a change for the gaps, so that a slideshow that
+            # stands still after its fifth slide fails too, but it is no slide.
+            echo "$(date +%s%3N) end" >>$changes
             # When the tree's walk read its last folder, s20 (on a share the sizes are not read
             # after it), when the first image of a subfolder was shown, and whether the image's
             # reads were slow too, in ms.
@@ -6484,10 +6487,11 @@ else
                 awk '{printf "%d", $3 * 1000}')
             slow_reads=$(grep -c "^READ /slow-tree-$order-$v/" $log)
             first_sub=$(grep -m1 "/s[0-9][0-9]/" $changes | cut -d' ' -f1)
-            # The longest time between two slides after the first image of a subfolder.
+            # The longest time between two slides after the first image of a subfolder, and
+            # from the last one to the end of the sampling.
             gap=$(awk -v from="${first_sub:-0}" '$1 >= from { if (last) { g = $1 - last
                 if (g > max) max = g } last = $1 } END { print max + 0 }' $changes)
-            slides=$(awk -v from="${first_sub:-0}" '$1 >= from' $changes | wc -l)
+            slides=$(awk -v from="${first_sub:-0}" '$1 >= from && $2 != "end"' $changes | wc -l)
             rm -f /tmp/lossy-slow
             quit
             got="$([ -n "$first_sub" ] && [ "$first_sub" -lt "${read_last:-0}" ] && echo before)"
