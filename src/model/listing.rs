@@ -139,7 +139,7 @@ pub type Unread = (PathBuf, std::io::Error);
 pub type ListedName = (OsString, Identity);
 
 /// The file types the list shows, as Geeqie's file classes in its file filter.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Types {
     pub images: bool,
     pub raw: bool,

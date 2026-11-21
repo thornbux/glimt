@@ -107,6 +107,16 @@ pub(crate) struct Folder {
     lists_tree_in_parts: bool,
     /// The listing that runs sends a tree's images in parts as they are found.
     listing_sends_parts: bool,
+    /// The tree that the listing that runs reads, with the types it lists, or `None` when it
+    /// reads no tree of a folder.
+    listing_tree: Option<(PathBuf, Types)>,
+    /// The tree whose whole listing, with no part left out, the list holds every name of, with
+    /// the types it listed. A merge into the order played keeps every name of a whole listing,
+    /// so this holds also while a slideshow plays the list.
+    list_holds_tree: Option<(PathBuf, Types)>,
+    /// The listing that runs reads a tree in parts that the list does not hold whole yet, so
+    /// its parts may bring images that the list lacks.
+    listing_brings_new_names: bool,
     /// Each part of the listing that runs holds only the images found since the part before,
     /// not the whole tree so far: the slideshow's own listing of its tree, whose parts are
     /// merged into the order played.
@@ -195,6 +205,9 @@ impl Folder {
             part_taken_in: Arc::default(),
             lists_tree_in_parts: false,
             listing_sends_parts: false,
+            listing_tree: None,
+            list_holds_tree: None,
+            listing_brings_new_names: false,
             parts_are_new_names: false,
             listed_as: None,
             first_part_shown: None,
@@ -357,6 +370,15 @@ impl Folder {
     /// tree of a folder opened, or of a slideshow with its subfolders.
     pub(crate) fn reads_tree_in_parts(&self) -> bool {
         self.listing_rx.is_some() && self.listing_sends_parts
+    }
+
+    /// Whether a tree is being read in parts that may bring images the list lacks, because the
+    /// list has not held a whole listing of that tree, with those types, since it was opened.
+    /// A slideshow waits for them at the end of its round. A tree read again that the list
+    /// already holds whole (R, F5, a rename, the watcher, or a slideshow started on a tree
+    /// listed whole) never holds the round, as it brings at most a file added since.
+    pub(crate) fn brings_names_the_list_lacks(&self) -> bool {
+        self.reads_tree_in_parts() && self.listing_brings_new_names
     }
 
     /// Whether each part of the listing that runs, or that ran last, holds only the images new
@@ -1260,6 +1282,7 @@ impl crate::App {
         // A sort asked of the old list's listing is not asked of the new one. A sort carried
         // over would put another collection in order and rewrite its file.
         self.folder.sort_collection = false;
+        self.folder.list_holds_tree = None;
         self.thumbs.forget_all();
         self.status_bar.forget_sizes_and_dates_asked();
         self.search.forget_exif_index();
@@ -1474,6 +1497,10 @@ impl crate::App {
         let parts = std::mem::take(&mut self.folder.lists_tree_in_parts) || plays;
         self.folder.listing_sends_parts =
             parts && recursive && collection.is_none() && folders.is_empty();
+        self.folder.listing_tree = (recursive && collection.is_none() && folders.is_empty())
+            .then(|| (self.folder.dir.clone(), types));
+        self.folder.listing_brings_new_names = self.folder.listing_sends_parts
+            && self.folder.list_holds_tree != self.folder.listing_tree;
         self.folder.parts_are_new_names = plays;
         // shortcut: the list copied in the UI thread, 8-17 ms for 500,000 names, once for each
         // listing of a tree while the slideshow keeps its order; share it with the thread (an
@@ -1679,6 +1706,10 @@ impl crate::App {
             }
         };
         self.folder.whole_listings += 1;
+        // The list holds this tree whole now, unless a part of it was left out, which a later
+        // listing may read.
+        self.folder.list_holds_tree =
+            (self.folder.listing_tree.take()).filter(|_| left_out.is_empty());
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
         if self.folder.collection.is_none() && self.folder.folders.is_empty() {

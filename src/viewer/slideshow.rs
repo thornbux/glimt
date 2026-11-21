@@ -38,8 +38,8 @@ pub(crate) struct SlideshowPosition {
 }
 
 /// How a slideshow goes on at the end of a round: whether it repeats, whether its order is
-/// random, and whether the tree it shows is still being read in parts, whose images come after
-/// those listed so far.
+/// random, and whether the tree it shows is still being read in parts that may bring images the
+/// list lacks, which come after those listed so far (`Folder::brings_names_the_list_lacks`).
 #[derive(Clone, Copy)]
 pub(crate) struct SlideOrder {
     pub(crate) repeat: bool,
@@ -367,7 +367,7 @@ impl crate::App {
         let order = SlideOrder {
             repeat: self.config.slideshow_repeat,
             shuffled: self.slideshow.shuffled,
-            tree_being_read: self.folder.reads_tree_in_parts(),
+            tree_being_read: self.folder.brings_names_the_list_lacks(),
         };
         match next_slide(at, next, order, pending) {
             SlideStep::Stop => self.stop_slideshow(ctx),
@@ -686,6 +686,49 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(files[k..], rest, "the others in order");
+    }
+
+    /// The end of a round waits for the slideshow's walk of its tree only while the walk can
+    /// bring images the list lacks. On a tree that the list holds whole already, as with View →
+    /// Subfolders on, the walk that the slideshow starts holds nothing, and a round without
+    /// Repeat ends at its last image. On a tree not listed whole yet, it waits. Before, every
+    /// walk held the round to its end, which on a share was minutes with nothing new (#256).
+    #[test]
+    fn a_round_waits_only_for_a_walk_that_can_bring_new_images() {
+        for whole in [true, false] {
+            let d = std::env::temp_dir().join(format!(
+                "glimt-test-round-hold-{whole}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&d);
+            for name in ["a.png", "b.png", "sub/c.png"] {
+                std::fs::create_dir_all(d.join(name).parent().unwrap()).unwrap();
+                image::RgbImage::new(2, 2).save(d.join(name)).unwrap();
+            }
+            let (mut app, ctx) = app_on(&d);
+            if whole {
+                app.config.show_subfolders = true;
+                app.folder.show_subfolders(true);
+                app.start_listing(&ctx);
+                assert!(run_background_until(&mut app, &ctx, |a| !a
+                    .folder
+                    .is_listing()));
+            }
+            let last = app.list.files().len() - 1;
+            app.show_file(&ctx, last);
+            app.config.slideshow_subfolders = true;
+            app.config.slideshow_random = false;
+            app.config.slideshow_repeat = false;
+            app.start_slideshow(&ctx);
+            assert!(app.folder.is_listing(), "the walk runs");
+            app.slideshow_tick(&ctx);
+            assert_eq!(
+                app.slideshow.is_running(),
+                !whole,
+                "listed whole first: {whole}"
+            );
+            std::fs::remove_dir_all(&d).unwrap();
+        }
     }
 
     /// R pressed while a slideshow in name order reads its tree shuffles the images not played
