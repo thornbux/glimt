@@ -178,7 +178,19 @@ impl crate::App {
         self.list.clear_panes();
         self.replace_files(ctx, files, Some(shown));
         // A new order is a new round, which starts at the shown image.
-        self.list.start_round();
+        self.begin_round(self.list.shown());
+    }
+
+    /// Begins a round of the slideshow at place `at`, where it starts. A round begins when the
+    /// slideshow starts, when the list is shuffled as a new order, when the slideshow goes round
+    /// past the end of the list, and when Home (or `--remote first`) shows the first image while
+    /// it runs. Only the images up to `at` count as played from here, so R and the parts of a
+    /// tree change the order of all the others. This is the one place a round begins
+    /// (`source_rules::a_round_begins_in_one_place`). Before, only a start and a shuffle began
+    /// one, so a slideshow in name order that went round kept the mark of the round before at
+    /// its last image, and R in the second round shuffled nothing while the setting said random.
+    pub(crate) fn begin_round(&mut self, at: usize) {
+        self.list.start_round_at(at);
     }
 
     /// Reads the list again in its sort order, or a collection in its saved order. While a
@@ -277,7 +289,7 @@ impl crate::App {
                 .unwrap_or_else(Instant::now),
         );
         // The round starts at the image shown.
-        self.list.start_round();
+        self.begin_round(self.list.shown());
         if self.config.slideshow_subfolders {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
@@ -366,6 +378,7 @@ impl crate::App {
             repeat: self.config.slideshow_repeat,
             shuffled: self.slideshow.shuffled,
         };
+        let goes_round = round_ends(row, delta, shown);
         match next_slide(at, next, order, pending) {
             SlideStep::Stop => self.stop_slideshow(ctx),
             SlideStep::Shuffle => self.shuffle_list(ctx, true),
@@ -382,6 +395,10 @@ impl crate::App {
                 if turns {
                     self.list.set_last_slide(next);
                     self.slideshow.next_pane = (self.slideshow.next_pane + 1) % n;
+                }
+                // A step past the end of the list goes round to its start, as a new round.
+                if goes_round {
+                    self.begin_round(next);
                 }
                 self.slideshow.shown_at = Some(Instant::now());
             }
@@ -700,6 +717,67 @@ mod tests {
         sorted.sort();
         assert_eq!(sorted.len(), 40 - kept.len());
         assert_ne!(files[kept.len()..], sorted, "the rest shuffled");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A round begins wherever the slideshow starts over: when it goes round past the end of the
+    /// list, and when Home shows the first image while it runs. R then shuffles every image
+    /// after the few kept for the shown one. Before, only a start and a shuffle began a round,
+    /// so in the second round of a slideshow in name order with Repeat every image counted as
+    /// played, and R shuffled nothing while the setting said random.
+    #[test]
+    fn random_on_after_the_slideshow_went_round_shuffles_the_rest() {
+        let d = std::env::temp_dir().join(format!("glimt-test-r-round-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for i in 0..40 {
+            image::RgbImage::new(2, 2)
+                .save(d.join(format!("{i:02}.png")))
+                .unwrap();
+        }
+        for home in [false, true] {
+            let (mut app, ctx) = app_on(&d);
+            let sorted = app.list.files().to_vec();
+            app.config.slideshow_subfolders = false;
+            app.config.slideshow_random = false;
+            app.config.slideshow_repeat = true;
+            app.config.slideshow_delay = 3600;
+            app.show_file(&ctx, 0);
+            app.start_slideshow(&ctx);
+            // The last image, by a click, and then on past it, or Home.
+            app.show_file(&ctx, 39);
+            if home {
+                app.move_along(&ctx, crate::ui::actions::Action::First);
+            } else {
+                let start = std::time::Instant::now();
+                while !app.list.decodes_pending().is_empty()
+                    && start.elapsed() < std::time::Duration::from_secs(5)
+                {
+                    app.receive_decoded(&ctx);
+                }
+                app.slideshow.shown_at =
+                    Some(std::time::Instant::now() - std::time::Duration::from_secs(9999));
+                app.slideshow_tick(&ctx);
+            }
+            assert_eq!(app.list.shown(), 0, "home: {home}");
+            let kept = app.places_that_stay();
+            assert!(
+                kept < 10,
+                "a new round keeps only a few places: {kept}, home: {home}"
+            );
+            app.set_random_order(&ctx, true);
+            let files = app.list.files();
+            assert_eq!(files[..kept], sorted[..kept], "home: {home}");
+            assert_ne!(
+                files[kept..],
+                sorted[kept..],
+                "the rest shuffled, home: {home}"
+            );
+            app.stop_slideshow(&ctx);
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
+        }
         std::fs::remove_dir_all(&d).unwrap();
     }
 

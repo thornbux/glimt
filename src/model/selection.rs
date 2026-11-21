@@ -425,6 +425,10 @@ impl crate::App {
             }
         }
         self.show_file(ctx, to);
+        // Home in a running slideshow starts it over from the first image, as a new round.
+        if action == Action::First && self.slideshow.is_running() {
+            self.begin_round(to);
+        }
         if shift {
             self.list.set_range_end(Some(to));
         }

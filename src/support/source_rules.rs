@@ -2476,6 +2476,22 @@ fn listings_reach_a_slideshow_through_one_merge() {
     );
 }
 
+/// A round of the slideshow begins in one place, `App::begin_round`, which every way a round
+/// begins calls: the start, a new random order, the slideshow going round past the end of the
+/// list, and Home while it runs. Before, only a start and a shuffle began a round, so a
+/// slideshow in name order that went round kept the mark of the round before, and R in its
+/// second round shuffled nothing.
+#[test]
+fn a_round_begins_in_one_place() {
+    let wrong =
+        outside_their_homes(&[("start_round_at(", &[("viewer/slideshow.rs", "begin_round")])]);
+    assert!(
+        wrong.is_empty(),
+        "a round begun outside App::begin_round:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A notice is given only through `Notice::give`, which gives it a number of its own, so a
 /// screen reader reads out a notice given again with the same text. Before, the screen reader's
 /// code told a notice given again by its text's address, and the second of two notices given
