@@ -548,16 +548,10 @@ impl crate::App {
             return;
         }
         self.fill_panes();
-        let ahead = self.decoding.preload.load(Ordering::Relaxed) as isize;
-        let (mut window, full) = self.awaited_places();
+        let (window, full) = self.kept_places();
         self.decoding
             .full_resolution_count
             .store(full, Ordering::Relaxed);
-        for d in (1..=ahead).flat_map(|d| [d, -d]) {
-            if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
-                window.push(i);
-            }
-        }
         self.list.keep_loaded_images(|i, s| {
             window.contains(i) && (!s.is_full_resolution || window[..full].contains(i))
         });
@@ -567,6 +561,20 @@ impl crate::App {
             self.request_decode(i, false);
         }
         self.publish_awaited_images();
+    }
+
+    /// Returns the places of the images kept decoded: those that the window shows and shows
+    /// next (`awaited_places`), and the images read ahead on each side. Returns, second, how
+    /// many of them at the start may be decoded at full resolution.
+    pub(crate) fn kept_places(&self) -> (Vec<usize>, usize) {
+        let ahead = self.decoding.preload.load(Ordering::Relaxed) as isize;
+        let (mut window, full) = self.awaited_places();
+        for d in (1..=ahead).flat_map(|d| [d, -d]) {
+            if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
+                window.push(i);
+            }
+        }
+        (window, full)
     }
 
     /// Returns the places of the images that the window shows and shows next: the shown image

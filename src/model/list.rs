@@ -122,6 +122,11 @@ pub(crate) struct List {
     /// Images of a collection being dragged in the file list, and the place they would go.
     dragging: Option<(HashSet<usize>, Option<usize>)>,
     last_slide: usize,
+    /// The furthest place shown in this round: by the shown image, or by the last pane that a
+    /// slideshow filled. A shuffle starts a new round. The parts of a tree go in after it
+    /// (`App::take_listed_files`), so the images shown, also those that the user went back
+    /// from, keep their places.
+    played_up_to: usize,
     /// The files whose cells pan view draws this frame: their thumbnails are made and kept,
     /// also while the file list shows others.
     pan_thumbs: Vec<usize>,
@@ -344,6 +349,22 @@ impl List {
     /// Shows the image at place `i`.
     pub(crate) fn set_shown(&mut self, i: usize) {
         self.shown = i;
+        self.note_played(i);
+    }
+
+    /// Returns the furthest place shown in this round.
+    pub(crate) fn played_up_to(&self) -> usize {
+        self.played_up_to
+    }
+
+    /// Notes that the image at place `i` was shown in this round.
+    pub(crate) fn note_played(&mut self, i: usize) {
+        self.played_up_to = self.played_up_to.max(i);
+    }
+
+    /// Starts a new round at the shown image, as the list was shuffled again.
+    pub(crate) fn start_round(&mut self) {
+        self.played_up_to = self.shown;
     }
 
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
@@ -390,6 +411,7 @@ impl List {
         // pan view read a place past the end of the shorter list, and the window crashed.
         self.pan_thumbs.clear();
         self.last_slide -= removed.partition_point(|&r| r < self.last_slide);
+        self.played_up_to -= removed.partition_point(|&r| r < self.played_up_to);
     }
 
     /// Lets go of everything that holds a place in the list, because files were taken out of
@@ -510,6 +532,7 @@ impl List {
     /// Notes the image a slideshow of several panes showed last.
     pub(crate) fn set_last_slide(&mut self, i: usize) {
         self.last_slide = i;
+        self.note_played(i);
     }
 
     /// Shows the image at place `i` in pane `k` after the first.
@@ -763,6 +786,7 @@ mod tests {
             ("rubber_band", "reset"),
             ("dragging", "reset"),
             ("last_slide", "carried by name"),
+            ("played_up_to", "carried by name"),
             (
                 "pan_thumbs",
                 "reset: pan view names them again in its next frame",
@@ -817,6 +841,7 @@ mod tests {
             ("rubber_band", "forget_places"),
             ("dragging", "forget_places"),
             ("last_slide", "remove"),
+            ("played_up_to", "remove"),
             ("pan_thumbs", "remove"),
             ("sizes_and_dates", "not a place: by name"),
             ("version", "forget_places"),

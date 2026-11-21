@@ -1730,13 +1730,12 @@ impl crate::App {
         // (#256). A refresh in random order keeps the order too, so Previous still goes back
         // through the images that were shown.
         let plays = shuffled || self.slideshow.is_running();
-        let shown_so_far = self.list.shown().max(self.list.last_slide());
         let files = if plays && (!whole || self.folder.list_is_a_part || its_tree) {
             if !shuffled {
                 self.slideshow.keep_played_order();
             }
             let old = self.list.listed_names();
-            merge_after(old, shown_so_far + 1, files, whole, shuffled)
+            merge_after(old, self.places_that_stay(), files, whole, shuffled)
         } else if whole && shuffled {
             merge_shuffled(self.list.files(), files)
         } else {
@@ -1785,6 +1784,19 @@ impl crate::App {
         if whole && std::mem::take(&mut self.folder.sort_collection) {
             self.save_collection_order();
         }
+    }
+
+    /// Returns how many files at the start of the list keep their places when a tree's part is
+    /// merged into the order played: those up to the furthest image shown in this round, also
+    /// when the user went back from it, and up to the images kept decoded after it, the next
+    /// ones and those read ahead, with the panes. So going back and on again shows the same
+    /// images, and the next slide, decoded already, is not taken away by a part that comes just
+    /// before it. Before, only the images up to the one shown stayed, and a part after Previous
+    /// shuffled the images the user had seen in with the new ones, and each part took the next
+    /// image's decode away, so that on a share the slide waited for a new one.
+    fn places_that_stay(&self) -> usize {
+        let kept = self.kept_places().0.into_iter();
+        (kept.chain([self.list.played_up_to()]).max()).map_or(0, |last| last + 1)
     }
 
     /// Gives files in the list new names in place, for a file moved or renamed that keeps its
@@ -1904,6 +1916,8 @@ impl crate::App {
         // So is the image that a slideshow of one pane at a time showed last, because it goes
         // on from there, while the panes it keeps stay as they are.
         let last_slide = self.list.files().get(self.list.last_slide()).cloned();
+        // And so is the furthest image shown in this round, after which a tree's parts go.
+        let played = self.list.files().get(self.list.played_up_to()).cloned();
         // A name that another file has taken since keeps nothing that was read of the file it
         // held: its thumbnail, size and date, its part of the exif: index and its Pan view date.
         let taken = self.list.names_another_file_took(&files);
@@ -1929,6 +1943,9 @@ impl crate::App {
         let last = last_slide.and_then(|n| self.list.files().iter().position(|f| *f == n));
         let last = last.or(self.list.panes().last().copied()).unwrap_or(shown);
         self.list.set_last_slide(last);
+        if let Some(at) = played.and_then(|n| self.list.files().iter().position(|f| *f == n)) {
+            self.list.note_played(at);
+        }
         // One pass over the list for a handful of textures and decodes.
         let (mut kept, mut asked) = (Vec::new(), Vec::new());
         for (i, name) in self.list.files().iter().enumerate() {
@@ -3196,6 +3213,71 @@ mod tests {
         );
         assert_eq!((app.list.files().len(), app.list.shown()), (6, 2));
         assert!(app.slideshow.is_shuffled());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// In random order, a part of a tree keeps in place every image shown in this round, also
+    /// those that the user went back from, so Previous three times and Next three times show
+    /// the same images, and the next image, decoded already, stays the next one, so its slide
+    /// needs no new decode. Before, a part kept only the images up to the one shown, and
+    /// shuffled the others in with the new names (#256).
+    #[test]
+    fn a_part_in_random_order_keeps_what_was_shown_and_what_comes_next() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-part-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let add = |names: std::ops::Range<usize>| {
+            for i in names {
+                (image::RgbImage::new(2, 2))
+                    .save(dir.join(format!("{i:02}.png")))
+                    .unwrap();
+            }
+        };
+        // A part of a tree, as the walk sends it: the images found so far, in name order.
+        let part = |n: usize| -> Vec<super::ListedName> {
+            (0..n)
+                .map(|i| (format!("{i:02}.png").into(), None))
+                .collect()
+        };
+        add(0..20);
+        let (mut app, ctx) = app_on(&dir);
+        app.config.slideshow_subfolders = false;
+        app.config.slideshow_random = true;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        let browse = |app: &mut crate::App, step: isize| {
+            let to = app.step(step, false).unwrap();
+            app.show_file(&ctx, to);
+        };
+        for _ in 0..9 {
+            browse(&mut app, 1);
+        }
+        let shown_so_far = app.list.files()[..10].to_vec();
+        for _ in 0..3 {
+            browse(&mut app, -1);
+        }
+        assert_eq!(app.list.shown(), 6);
+        add(20..30);
+        app.take_listed_files(&ctx, part(30), false);
+        for _ in 0..3 {
+            browse(&mut app, 1);
+        }
+        assert_eq!(app.list.shown(), 9);
+        assert_eq!(app.list.files()[..10], shown_so_far, "the images shown");
+        // The next image is decoded, and a part comes right before its slide.
+        let start = std::time::Instant::now();
+        while !app.list.loaded_images().contains_key(&10)
+            && start.elapsed() < std::time::Duration::from_secs(5)
+        {
+            app.receive_decoded(&ctx);
+        }
+        let next = app.list.files()[10].clone();
+        add(30..40);
+        app.take_listed_files(&ctx, part(40), false);
+        assert_eq!(app.list.files().len(), 40);
+        assert_eq!(app.list.files()[10], next, "the next image");
+        assert!(app.list.loaded_images().contains_key(&10), "decoded");
+        assert!(!app.list.decodes_pending().contains_key(&(10, false)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -226,6 +226,8 @@ impl crate::App {
         // at the end of the round and shuffle again on every frame.
         self.list.clear_panes();
         self.replace_files(ctx, files, Some(shown));
+        // A new order is a new round, which starts at the shown image.
+        self.list.start_round();
     }
 
     /// Puts the open collection back in its saved order, once `shuffle_list` read it. A file
