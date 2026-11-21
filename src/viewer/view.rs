@@ -79,6 +79,10 @@ pub(crate) struct Decoding {
     /// How many images at the start of `kept_images` may be decoded at full resolution. They
     /// are the shown one and the compared one beside it.
     full_resolution_count: Arc<AtomicUsize>,
+    /// How many images at the start of `kept_images` the window waits for: the shown one, the
+    /// other panes and the next one that the slideshow or the arrow key shows. The walk of a
+    /// tree on a share waits while one of them is decoded (`listing::ImageAwaited`).
+    awaited_count: Arc<AtomicUsize>,
     /// Number of images preloaded on each side (Preferences).
     preload: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
@@ -121,18 +125,20 @@ impl Decoding {
     pub(crate) fn new(ctx: &egui::Context, config: &Config, workers: usize) -> Self {
         let kept_images = Arc::new(Mutex::new(Vec::new()));
         let full_resolution_count = Arc::new(AtomicUsize::new(1));
+        let awaited_count = Arc::new(AtomicUsize::new(1));
         let preload = Arc::new(AtomicUsize::new(config.preload));
         let auto_rotate = Arc::new(AtomicBool::new(config.exif_rotate));
         let (decode_requests, decoded) = spawn_decoders(
             ctx,
             workers,
             &kept_images,
-            &full_resolution_count,
+            [&full_resolution_count, &awaited_count],
             &auto_rotate,
         );
         Decoding {
             kept_images,
             full_resolution_count,
+            awaited_count,
             preload,
             auto_rotate,
             view_box: [1920, 1080],
@@ -570,6 +576,7 @@ impl crate::App {
                 window.push(i);
             }
         }
+        (self.decoding.awaited_count).store(window.len(), Ordering::Relaxed);
         for d in (1..=ahead).flat_map(|d| [d, -d]) {
             if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
                 window.push(i);
@@ -2023,14 +2030,15 @@ pub(crate) fn spawn_decoders(
     ctx: &egui::Context,
     workers: usize,
     kept_images: &Arc<Mutex<Vec<PathBuf>>>,
-    full_resolution_count: &Arc<AtomicUsize>,
+    [full_resolution_count, awaited_count]: [&Arc<AtomicUsize>; 2],
     auto_rotate: &Arc<AtomicBool>,
 ) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
     let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
     let (done_tx, done) = mpsc::channel();
-    let (kept_images, full_resolution_count, auto_rotate, ctx) = (
+    let (kept_images, full_resolution_count, awaited_count, auto_rotate, ctx) = (
         kept_images.clone(),
         full_resolution_count.clone(),
+        awaited_count.clone(),
         auto_rotate.clone(),
         ctx.clone(),
     );
@@ -2051,10 +2059,12 @@ pub(crate) fn spawn_decoders(
                 max_box,
             } = job;
             // This cancels work, skipping images the user has already moved past.
-            let (wanted, is_shown) = {
+            let (wanted, is_shown, is_awaited) = {
                 let kept = lock_even_if_poisoned(&kept_images);
                 let n = full_resolution_count.load(Ordering::Relaxed);
-                is_wanted(&kept, n, &path, full_resolution)
+                let (wanted, is_shown) = is_wanted(&kept, n, &path, full_resolution);
+                let mut awaited = kept.iter().take(awaited_count.load(Ordering::Relaxed));
+                (wanted, is_shown, awaited.any(|k| *k == path))
             };
             // The shown image takes its bytes of the decodes' budget before the thumbnails
             // and the images read ahead.
@@ -2071,6 +2081,8 @@ pub(crate) fn spawn_decoders(
                 return;
             }
             let rotated = auto_rotate.load(Ordering::Relaxed);
+            // The walk of a tree on a share waits while the window waits for this image.
+            let awaited = is_awaited.then(crate::model::listing::ImageAwaited::begin);
             let read = crate::files::file_io::fingerprint(&path);
             // The histogram here too, so the UI thread never walks the pixels.
             let result = Some(
@@ -2081,6 +2093,7 @@ pub(crate) fn spawn_decoders(
                     },
                 ),
             );
+            drop(awaited);
             let _ = done_tx.send(Decoded {
                 rotated,
                 path,
@@ -2277,6 +2290,26 @@ mod tests {
         app.decoding.last_drawn = Some((sharp, [4, 4], file));
         let placeholder = app.placeholder().unwrap();
         assert_eq!((placeholder.0.id(), placeholder.2), (thumbnail.id(), true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The window waits for the shown image and the next one, which the decoders tell the walk
+    /// of a tree on a share (`listing::ImageAwaited`), and not for the images read ahead
+    /// beyond them.
+    #[test]
+    fn the_shown_and_the_next_image_are_awaited() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-awaited-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png", "e.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.show_file(&ctx, 2);
+        let kept =
+            crate::support::threads::lock_even_if_poisoned(&app.decoding.kept_images).clone();
+        let awaited = (app.decoding.awaited_count).load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(kept[..awaited], [dir.join("c.png"), dir.join("d.png")]);
+        assert!(kept.len() > awaited, "images read ahead beyond them");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

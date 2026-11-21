@@ -68,6 +68,11 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
 /// share serves Glimt's look at each file of a tree between the player's reads.
 const PROGRAM_STARTS_FOR: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// How long the walk of a tree on a share waits for the decode of an image that the window
+/// waits for (`ImageAwaited`). A decode that takes longer, on a share that stopped answering,
+/// no longer holds the walk.
+const IMAGE_AWAITED_FOR: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The folders where a listing found a link to a file (`holds_links`).
 /// shortcut: it only grows, by one path for each such folder listed; forget a folder at its
 /// next listing when a session lists very many of them.
@@ -77,6 +82,10 @@ static FOLDERS_WITH_LINKS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>>
 /// When a program was last started on the user's files: Play Video, Open With or a tool.
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
     std::sync::Mutex::new(None);
+
+/// When each decode of an image that the window waits for began (`ImageAwaited`).
+static IMAGES_AWAITED: std::sync::Mutex<Vec<std::time::Instant>> =
+    std::sync::Mutex::new(Vec::new());
 
 #[cfg(test)]
 thread_local! {
@@ -190,6 +199,32 @@ impl std::str::FromStr for Sort {
 impl std::fmt::Display for Sort {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str(self.row().1)
+    }
+}
+
+/// A decode of an image that the window waits for: the shown image, or the next one that the
+/// slideshow or the arrow key goes to. While one lives, and for at most `IMAGE_AWAITED_FOR`,
+/// the walk of a tree on a share waits between folders, so that the share reads the image
+/// first. Before, the image's reads were queued behind the walk's on the same connection.
+pub(crate) struct ImageAwaited {
+    began: std::time::Instant,
+}
+
+impl ImageAwaited {
+    /// Notes that a decode of an image that the window waits for begins now.
+    pub(crate) fn begin() -> ImageAwaited {
+        let began = std::time::Instant::now();
+        lock_even_if_poisoned(&IMAGES_AWAITED).push(began);
+        ImageAwaited { began }
+    }
+}
+
+impl Drop for ImageAwaited {
+    fn drop(&mut self) {
+        let mut awaited = lock_even_if_poisoned(&IMAGES_AWAITED);
+        if let Some(at) = awaited.iter().position(|began| *began == self.began) {
+            awaited.swap_remove(at);
+        }
     }
 }
 
@@ -365,7 +400,7 @@ fn walk_by(
 }
 
 /// Notes that a program was just started on a file, so that the reading of a share that nobody
-/// waits for waits a moment for it (`wait_while_a_program_starts`). A program of the user's is
+/// waits for waits a moment for it (`wait_for_reads_that_go_first`). A program of the user's is
 /// started through `external::start_users_program`, which calls it.
 pub(crate) fn program_started() {
     #[cfg(test)]
@@ -387,12 +422,23 @@ pub(crate) fn a_program_is_starting() -> bool {
     is_starting(started, std::time::Instant::now())
 }
 
-/// Waits while a program started on a file may still be reading its start, or until `stop` is
-/// set. The reading of a tree on a share calls it between folders, so that a video player
-/// started on the same share is not queued behind a look at each file of the tree.
-fn wait_while_a_program_starts(stop: &std::sync::atomic::AtomicBool) {
-    while a_program_is_starting() && !stop.load(std::sync::atomic::Ordering::Relaxed) {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+/// Returns whether a decode of an image that the window waits for, one of those that began
+/// at the times `began`, is still running at `now` and began less than `IMAGE_AWAITED_FOR`
+/// before it.
+fn is_an_image_awaited(began: &[std::time::Instant], now: std::time::Instant) -> bool {
+    (began.iter()).any(|at| now.saturating_duration_since(*at) < IMAGE_AWAITED_FOR)
+}
+
+/// Waits while a program started on a file may still be reading its start, or while the window
+/// waits for the decode of an image (`ImageAwaited`), or until `stop` is set. The reading of a
+/// tree on a share calls it between folders, so that neither a video player started on the
+/// same share nor the next image is queued behind a look at each file of the tree.
+fn wait_for_reads_that_go_first(stop: &std::sync::atomic::AtomicBool) {
+    let now = std::time::Instant::now;
+    let awaited = || is_an_image_awaited(&lock_even_if_poisoned(&IMAGES_AWAITED), now());
+    while (a_program_is_starting() || awaited()) && !stop.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -465,7 +511,7 @@ pub fn list_tree(
             part(&out);
         }
         if on_a_share {
-            wait_while_a_program_starts(stop);
+            wait_for_reads_that_go_first(stop);
         }
     }
     // In name order, as list_folder gives a single folder; sort_files builds on that.
@@ -796,6 +842,57 @@ mod tests {
             "a share inside the tree"
         );
         crate::files::file_ops::test_mount(&dir.join("b"), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A tree on a share is read on only once the decode of an image that the window waits for
+    /// is done, and a decode that has run for `IMAGE_AWAITED_FOR` no longer holds it, so a
+    /// share that stopped answering never stops the walk for good. A tree on a disk of its own
+    /// never waits. Before, the walk read on, and the next image's reads waited behind its
+    /// looks at the share (#256).
+    #[test]
+    fn a_tree_on_a_share_waits_for_the_image_awaited() {
+        use super::{IMAGE_AWAITED_FOR, ImageAwaited, is_an_image_awaited};
+        use std::sync::atomic::AtomicBool;
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        assert!(is_an_image_awaited(&[now], now));
+        assert!(!is_an_image_awaited(&[now], now + IMAGE_AWAITED_FOR));
+        assert!(!is_an_image_awaited(&[], now));
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-share-awaits-image-{}",
+            std::process::id()
+        ));
+        for sub in ["a", "b"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            std::fs::write(dir.join(sub).join("1.jpg"), "x").unwrap();
+        }
+        let list = || {
+            let began = Instant::now();
+            let types = super::Types {
+                images: true,
+                raw: false,
+                videos: false,
+                hidden: false,
+            };
+            super::list_tree(&dir, types, &AtomicBool::new(false), |_| {}, |_| {}).unwrap();
+            began.elapsed()
+        };
+        let awaited = ImageAwaited::begin();
+        assert!(list() < Duration::from_millis(300), "a disk of its own");
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        let decoded = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            drop(awaited);
+        });
+        let took = list();
+        decoded.join().unwrap();
+        crate::files::file_ops::test_mount(&dir, None);
+        assert!(took >= Duration::from_millis(300), "a share: {took:?}");
+        assert!(
+            took < Duration::from_secs(3),
+            "on once the image is decoded: {took:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
