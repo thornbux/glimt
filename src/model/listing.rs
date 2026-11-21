@@ -554,13 +554,18 @@ pub fn walk(dir: &Path, types: Types) -> impl Iterator<Item = Result<WalkedFolde
 /// giving a link's real path and `list` reading a folder. A test can then give the ids that a
 /// file system without unique inodes has, a real path that cannot be worked out, and a file
 /// made while a folder is read.
-fn walk_by(
+pub(crate) fn walk_by<Id, Real, List>(
     dir: &Path,
     types: Types,
-    file_id: impl Fn(&Path) -> Option<FileId>,
-    canonical: impl Fn(&Path) -> std::io::Result<PathBuf>,
-    list: impl Fn(&Path, Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)>,
-) -> impl Iterator<Item = Result<WalkedFolder, Unread>> {
+    file_id: Id,
+    canonical: Real,
+    list: List,
+) -> impl Iterator<Item = Result<WalkedFolder, Unread>> + use<Id, Real, List>
+where
+    Id: Fn(&Path) -> Option<FileId>,
+    Real: Fn(&Path) -> std::io::Result<PathBuf>,
+    List: Fn(&Path, Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)>,
+{
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
     let mut failed = false;
     let mut seen: HashSet<FileId> = HashSet::new();

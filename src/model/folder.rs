@@ -4384,8 +4384,8 @@ mod tests {
         sent: super::PartsSent,
         /// The images that the walk found so far.
         so_far: Vec<super::ListedName>,
-        /// The folders still to read, relative to the folder shown, or `None` before the top.
-        to_read: Option<Vec<PathBuf>>,
+        /// The walk of the tree, the listing thread's own (`walk_of`), a folder at each part.
+        walk: Walk,
         /// The listing's stop flag, which another listing replaces.
         stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     }
@@ -4393,6 +4393,57 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
     use std::path::PathBuf;
+
+    /// A walk of a tree, a folder at a time.
+    type Walk =
+        Box<dyn Iterator<Item = Result<crate::model::listing::WalkedFolder, super::Unread>>>;
+
+    /// The walk of the folder shown as the listing thread walks it (`listing::walk`), with its
+    /// links followed inside the tree, each folder read once by its file id and the hidden ones
+    /// left out, except that a folder named `locked` cannot be read, as one without permission
+    /// on a share (the tests run as root, which reads every folder).
+    fn walk_of(app: &crate::App) -> Walk {
+        let list = |path: &std::path::Path, types| match path.file_name() == Some("locked".as_ref())
+        {
+            true => Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            false => super::list_folder(path, types),
+        };
+        Box::new(crate::model::listing::walk_by(
+            app.folder.dir(),
+            app.shown_types(),
+            crate::images::save::file_id,
+            |p| std::fs::canonicalize(p),
+            list,
+        ))
+    }
+
+    /// Returns the images that the tree on disk holds as `walk_of` reads it, by their names in
+    /// the list, and the folders it could not read.
+    fn tree_on_disk(app: &crate::App) -> (Vec<super::ListedName>, Vec<super::Unread>) {
+        let (mut files, mut left_out) = (Vec::new(), Vec::new());
+        for walked in walk_of(app) {
+            match walked {
+                Ok((rel, _, images, _)) => files
+                    .extend((images.into_iter()).map(|(n, id)| (rel.join(n).into_os_string(), id))),
+                Err(unread) => left_out.push(unread),
+            }
+        }
+        (files, left_out)
+    }
+
+    /// Asserts that the list holds every image of the tree on disk and no other name, each
+    /// once.
+    fn assert_list_holds_the_tree(app: &crate::App, at: &str) {
+        let disk: HashSet<OsString> = tree_on_disk(app).0.into_iter().map(|f| f.0).collect();
+        let list: HashSet<&OsString> = app.list.files().iter().collect();
+        assert_eq!(list.len(), app.list.files().len(), "a name twice: {at}");
+        let lacks: Vec<&OsString> = disk.iter().filter(|f| !list.contains(f)).collect();
+        let gone: Vec<&&OsString> = list.iter().filter(|f| !disk.contains(**f)).collect();
+        assert!(
+            lacks.is_empty() && gone.is_empty(),
+            "lacks {lacks:?}, gone {gone:?}: {at}"
+        );
+    }
 
     /// Takes the listing that runs from its thread, which stops, and feeds it from the test.
     fn feed(app: &mut crate::App) -> FedListing {
@@ -4413,7 +4464,7 @@ mod tests {
                 read_whole: super::ReadWhole::default(),
             },
             so_far: Vec::new(),
-            to_read: None,
+            walk: walk_of(app),
             stop: app.folder.listing_stop.clone(),
         }
     }
@@ -4440,24 +4491,20 @@ mod tests {
 
     /// Reads the next folder of the fed listing's walk and sends the images in it that are new
     /// to the list as a part, with the folders read whole where a name may be gone, as the
-    /// listing thread does, and the window takes it. Afterwards the list holds no name of that
-    /// folder that it lacks now, nor one below a folder of it that is gone. Returns false when
-    /// the walk has read every folder.
+    /// listing thread does, and the window takes it. A folder that cannot be read is left out,
+    /// as `list_tree` leaves it out. Afterwards the list holds every image of that folder, and
+    /// no name of it that it lacks now, nor one below a folder of it that is gone, judged by
+    /// the walk's rules: a hidden folder the walk reached through a link is not gone from its
+    /// parent. Returns false when the walk has read every folder.
     fn send_part(app: &mut crate::App, ctx: &eframe::egui::Context, fed: &mut FedListing) -> bool {
-        let dir = app.folder.dir().to_path_buf();
-        let rel = match &mut fed.to_read {
-            None => PathBuf::new(),
-            Some(to_read) => match to_read.pop() {
-                Some(rel) => rel,
+        let (rel, dirs, files) = loop {
+            match fed.walk.next() {
                 None => return false,
-            },
+                Some(Ok((rel, dirs, files, _))) => break (rel, dirs, files),
+                Some(Err(_)) => continue,
+            }
         };
-        let (dirs, files) = super::list_folder(&dir.join(&rel), app.shown_types()).unwrap();
-        let to_read = fed.to_read.get_or_insert_with(Vec::new);
-        to_read.extend(
-            dirs.iter()
-                .map(|d| d.strip_prefix(&dir).unwrap().to_path_buf()),
-        );
+        let types = app.shown_types();
         let first = fed.so_far.len();
         let images: Vec<OsString> = (files.into_iter())
             .map(|(name, _)| rel.join(name).into_os_string())
@@ -4468,7 +4515,7 @@ mod tests {
             first,
             folder: &rel,
             dirs: &dirs,
-            types: app.shown_types(),
+            types,
         };
         fed.sent
             .listed_before
@@ -4480,7 +4527,8 @@ mod tests {
         app.receive_listing(ctx, std::time::Duration::ZERO);
         // Nothing of the folder read is in the list that the folder no longer holds.
         let subfolders: Vec<PathBuf> = (dirs.iter())
-            .map(|d| d.strip_prefix(&dir).unwrap().to_path_buf())
+            .filter_map(|d| d.file_name())
+            .map(|n| rel.join(n))
             .collect();
         for name in app.list.files() {
             let Ok(below) = std::path::Path::new(name).strip_prefix(&rel) else {
@@ -4490,23 +4538,36 @@ mod tests {
             let Some(step) = steps.next() else {
                 continue;
             };
+            let step = step.as_os_str();
             let there = match steps.next() {
                 None => images.contains(name),
-                Some(_) => subfolders.contains(&rel.join(step)),
+                Some(_) => {
+                    subfolders.contains(&rel.join(step))
+                        || !crate::model::listing::lists_folder_named(
+                            step.as_encoded_bytes(),
+                            types,
+                        )
+                }
             };
             assert!(there, "{name:?} is gone from {rel:?}, which was read whole");
         }
+        // And every image it holds is in the list.
+        let lacks: Vec<&OsString> = (images.iter())
+            .filter(|f| !app.list.files().contains(f))
+            .collect();
+        assert!(
+            lacks.is_empty(),
+            "{lacks:?} of {rel:?}, read whole, not in the list"
+        );
         true
     }
 
-    /// Sends the fed listing's whole list, the tree as it is now in the sort order, and the
-    /// window takes it.
+    /// Sends the fed listing's whole list, the tree as it is now in the sort order, with the
+    /// folders it could not read, and the window takes it.
     fn send_whole(app: &mut crate::App, ctx: &eframe::egui::Context, fed: &FedListing) {
         let dir = app.folder.dir().to_path_buf();
-        let stop = std::sync::atomic::AtomicBool::new(false);
-        let types = app.shown_types();
-        let (_, mut files, _, _) =
-            super::list_tree(&dir, types, &stop, &Default::default(), |_| {}, |_| {}).unwrap();
+        let (mut files, left_out) = tree_on_disk(app);
+        files.sort_unstable();
         let c = &app.config;
         super::sort_files(
             &dir,
@@ -4518,7 +4579,7 @@ mod tests {
         let listed = super::Listed {
             dirs: Vec::new(),
             files: Ok(files),
-            left_out: Vec::new(),
+            left_out,
             read: Vec::new(),
             read_in: std::time::Duration::ZERO,
         };
@@ -4539,13 +4600,19 @@ mod tests {
 
     /// A slideshow of a tree keeps one order through every listing, whatever comes in whatever
     /// order: parts of its walk, whole lists, F5, R on and off, a delete, a move, a rename of a
-    /// file and of a subfolder, Left and Right, its own steps, and a stop. After each event no
-    /// name is twice in the list, the images played and decoded next keep their places, and
-    /// without Repeat no image is shown twice in a round and none is left unshown at its end.
-    /// Stopped, the list is in the sort order. The events come from a seeded xorshift, in both
-    /// orders, with Repeat on and off. Before, a listing that came after the slideshow's walk was
-    /// taken as it came, in the sort order, so the order played was lost, and R during a walk in
-    /// name order shuffled nothing.
+    /// file and of a subfolder, Left and Right, its own steps, and a stop. The tree has a link
+    /// into a hidden folder (hidden files not shown), a folder reached by two paths and a folder
+    /// that cannot be read, and the walk is the listing thread's own. After each event no name
+    /// is twice in the list, none is gone from it that the tree on disk still holds, the images
+    /// played and decoded next keep their places, and without Repeat no image is shown twice in
+    /// a round and none is left unshown at its end. No tick holds the slideshow. After R on the
+    /// images not played are shuffled, and after R off they are in the sort order at once.
+    /// After each whole list, and stopped, the list holds the tree on disk, in the sort order
+    /// once stopped. The events come from a seeded xorshift, in both orders, with Repeat on and
+    /// off. Before, a listing that came after the slideshow's walk was taken as it came, so the
+    /// order played was lost; R in a round after the slideshow went round shuffled nothing; R
+    /// off left the rest in random order until the walk ended; a part dropped the images of the
+    /// hidden folder; and the end of a round waited for the walk.
     #[test]
     fn a_slideshow_keeps_its_order_through_every_listing() {
         for seed in [0x9e37_79b9_u64, 0x85eb_ca6b, 0xc2b2_ae35] {
@@ -4571,14 +4638,20 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
         }
-        for sub in &subfolders {
+        for sub in subfolders
+            .iter()
+            .chain(&[".hidden".into(), "locked".into()])
+        {
             std::fs::create_dir_all(dir.join(sub)).unwrap();
-            for i in 0..3 {
+            for i in 0..5 {
                 image::RgbImage::new(2, 2)
                     .save(dir.join(sub).join(format!("{i}.png")))
                     .unwrap();
             }
         }
+        // The hidden folder is reached through a link only, and s2 also through s1/twice.
+        std::os::unix::fs::symlink("../.hidden", dir.join("s0/in")).unwrap();
+        std::os::unix::fs::symlink("../s2", dir.join("s1/twice")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.config.sort = crate::model::listing::Sort::Name;
         app.config.sort_ascending = true;
@@ -4602,9 +4675,11 @@ mod tests {
         feed_what_runs(&mut app, &ctx, &mut fed);
         let mut played: HashSet<OsString> = shown_name(&app).into_iter().collect();
         let mut went_back = false;
+        // End skipped images of the round, which then are never shown in it.
+        let mut skipped = false;
         let mut renamed = 0;
         for step in 0..120 {
-            let event = next(14);
+            let event = next(15);
             let at = format!("{case}, step {step}, event {event}");
             let kept =
                 app.list.files()[..app.places_that_stay().min(app.list.files().len())].to_vec();
@@ -4620,11 +4695,13 @@ mod tests {
                         && !send_part(&mut app, &ctx, f)
                     {
                         send_whole(&mut app, &ctx, f);
+                        assert_list_holds_the_tree(&app, &at);
                     }
                 }
                 3 => {
                     if let Some(f) = fed.as_ref() {
                         send_whole(&mut app, &ctx, f);
+                        assert_list_holds_the_tree(&app, &at);
                     }
                 }
                 4 => app.refresh(&ctx),
@@ -4638,6 +4715,17 @@ mod tests {
                         && start.elapsed() < std::time::Duration::from_secs(5)
                     {
                         app.receive_sorted_rest(&ctx);
+                    }
+                    assert_eq!(app.slideshow.is_shuffled(), on, "the order R chose: {at}");
+                    let files = app.list.files();
+                    let rest = &files[app.places_that_stay().min(files.len())..];
+                    let mut sorted = rest.to_vec();
+                    sorted.sort();
+                    // Twelve images in random order are in name order once in 479,001,600.
+                    if on && rest.len() >= 12 {
+                        assert_ne!(rest, sorted, "R on shuffles the rest: {at}");
+                    } else if !on {
+                        assert_eq!(rest, sorted, "R off sorts the rest at once: {at}");
                     }
                 }
                 6 | 7 if !app.list.files().is_empty() => {
@@ -4706,6 +4794,12 @@ mod tests {
                         && app.list.files() == order_before;
                     assert!(!held, "a tick held the slideshow: {at}");
                 }
+                14 => {
+                    // End, so that the next step goes round, also while the walk runs.
+                    app.move_along(&ctx, Action::Last);
+                    moved_by_user = true;
+                    skipped = true;
+                }
                 _ => {
                     app.stop_slideshow(&ctx);
                 }
@@ -4714,10 +4808,19 @@ mod tests {
             let files = app.list.files().to_vec();
             let unique: HashSet<&OsString> = files.iter().collect();
             assert_eq!(unique.len(), files.len(), "a name twice in the list: {at}");
+            // No image the list held is gone from it while the tree on disk holds it.
+            let disk: HashSet<OsString> = tree_on_disk(&app).0.into_iter().map(|f| f.0).collect();
+            let lost: Vec<&OsString> = (order_before.iter())
+                .filter(|f| disk.contains(*f) && !unique.contains(f))
+                .collect();
+            assert!(
+                lost.is_empty(),
+                "gone from the list, still on disk: {lost:?}, {at}"
+            );
             if !app.slideshow.is_running() {
                 // Stopped by the test or at the end of a round without Repeat. Every image of
                 // the round was shown before it ended by itself.
-                if stepped && !repeat {
+                if stepped && !repeat && !skipped {
                     let unshown: Vec<&OsString> = order_before
                         .iter()
                         .filter(|f| !played.contains(*f))
@@ -4728,6 +4831,7 @@ mod tests {
                     send_whole(&mut app, &ctx, f);
                 }
                 feed_what_runs(&mut app, &ctx, &mut fed);
+                assert_list_holds_the_tree(&app, &at);
                 let mut sorted = app.list.files().to_vec();
                 sorted.sort();
                 assert_eq!(
@@ -4740,7 +4844,7 @@ mod tests {
                 app.start_slideshow(&ctx);
                 feed_what_runs(&mut app, &ctx, &mut fed);
                 played = shown_name(&app).into_iter().collect();
-                went_back = false;
+                (went_back, skipped) = (false, false);
                 continue;
             }
             if !moved_by_user && !stepped {
@@ -4757,7 +4861,18 @@ mod tests {
             // A step changes no order, but for the new round of a random order with Repeat,
             // which starts at the image shown.
             let new_round = stepped && files != order_before;
+            // A new round keeps only the places of the images decoded for it, so R and the
+            // parts change the order of all the others.
+            let keeps_only_the_decoded = |app: &crate::App| {
+                let decoded = app.kept_places().0.into_iter().max().map_or(0, |m| m + 1);
+                assert_eq!(
+                    app.places_that_stay(),
+                    decoded,
+                    "a new round's places: {at}"
+                );
+            };
             if new_round {
+                keeps_only_the_decoded(&app);
                 assert!(
                     repeat && app.slideshow.is_shuffled(),
                     "a step changed the order: {at}"
@@ -4785,6 +4900,7 @@ mod tests {
             }
             if repeat && stepped && played.contains(&now) && !went_back {
                 // A new round in name order, from the first image again.
+                keeps_only_the_decoded(&app);
                 played.clear();
             }
             went_back = played.contains(&now) && (moved_by_user || went_back);
