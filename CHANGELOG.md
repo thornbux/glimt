@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A random slideshow with Include Subfolders shows the subfolders' images while the tree is
+  still read, as it does in name order. Before, it played only the images of the folder opened
+  until the whole tree was read, which on a network share can take minutes, and stood still in
+  a folder with few images of its own. The images shown keep their order, so Previous goes back
+  through them (#256).
+- On a network share, the reading of a tree waits while the shown image or the next one is
+  read, so the slideshow and the arrow keys no longer wait behind it. With many images in a
+  tree in random order, the window also no longer spends most of its time on the list that
+  grows (#256).
+
 ## [0.95.0] - 2026-11-20
 
 ### Changed
