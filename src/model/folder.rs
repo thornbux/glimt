@@ -2254,13 +2254,53 @@ impl crate::App {
     }
 
     /// View → Show Hidden Files. The list and the tree are read again, scrolled back to the open
-    /// folder.
+    /// folder. Turned off, the hidden images leave the list at once.
     pub(crate) fn toggle_hidden_files(&mut self, ctx: &egui::Context) {
         self.config.show_hidden = !self.config.show_hidden;
         self.config.save();
         // Read again, and scrolled back to the open folder.
         self.tree.read_again_and_reopen();
+        self.leave_out_names_not_shown(ctx);
         self.start_listing(ctx);
+    }
+
+    /// Takes out of the list at once, by their names, the images that the types shown no
+    /// longer list: those of a type that the Types menu leaves out, and while hidden files are
+    /// not shown, a hidden image, and in a folder's list one in a hidden folder below it. The
+    /// listing that follows brings back those that the walk of a tree reaches through a link,
+    /// as their names are new to it then. Before, they stayed until the whole list came, which
+    /// for a tree on a share was minutes, and a slideshow went on showing the images just
+    /// hidden. It is one pass over the names and no look at a file.
+    pub(crate) fn leave_out_names_not_shown(&mut self, ctx: &egui::Context) {
+        let types = self.shown_types();
+        // The names of several folders and of a collection start at "/", where a hidden folder
+        // above the places shown does not count.
+        let folder = self.folder.collection.is_none() && self.folder.folders.is_empty();
+        let in_hidden_folder = |name: &Path| {
+            let folders = name.parent().into_iter().flat_map(Path::components);
+            folders
+                .into_iter()
+                .any(|step| step.as_os_str().as_encoded_bytes().starts_with(b"."))
+        };
+        // The type by the name's ending alone: a RAW, a video, or else an image, also of an
+        // added format, which is not looked up here, as that reads the formats' files.
+        let listed_type = |name: &Path| {
+            let raw = listing::has_ext(name, crate::images::raw::EXTS);
+            let video = crate::files::external::is_video(name);
+            (raw && types.raw) || (video && types.videos) || (!raw && !video && types.images)
+        };
+        let removed: Vec<usize> = (self.list.files().iter().enumerate())
+            .filter(|(_, name)| {
+                let name = Path::new(name);
+                let hidden = !types.hidden
+                    && (listing::is_hidden(name) || (folder && in_hidden_folder(name)));
+                hidden || !listed_type(name)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if !removed.is_empty() {
+            self.remove_indices(ctx, &removed);
+        }
     }
 
     /// F5. The folder is read and sorted anew (also in an EXIF date order whose names stayed),
@@ -4414,6 +4454,48 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Show Hidden Files turned off takes the hidden images out of the list at once, also those
+    /// in a hidden folder of a tree, before the tree is read again, and the Types menu takes out
+    /// the images of a type it no longer lists. Before, they stayed until the whole list came,
+    /// minutes later for a tree on a share, and a slideshow went on showing the images just
+    /// hidden.
+    #[test]
+    fn images_no_longer_shown_leave_the_list_at_once() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-hidden-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for name in ["a.png", ".b.png", ".h/c.png", "s/d.png"] {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        std::fs::write(dir.join("s/e.raf"), "raw").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.show_hidden = true;
+        app.config.list_raw = true;
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let names = |names: &[&str]| -> Vec<OsString> { names.iter().map(Into::into).collect() };
+        let all = names(&[".b.png", ".h/c.png", "a.png", "s/d.png", "s/e.raf"]);
+        assert_eq!(app.list.files(), all);
+        app.toggle_hidden_files(&ctx);
+        assert!(app.folder.is_listing(), "the tree is read again");
+        assert_eq!(
+            app.list.files(),
+            names(&["a.png", "s/d.png", "s/e.raf"]),
+            "at once"
+        );
+        app.config.list_raw = false;
+        app.leave_out_names_not_shown(&ctx);
+        assert_eq!(app.list.files(), names(&["a.png", "s/d.png"]));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// The listing that `start_listing` started, read by the test a folder at a time in place of
     /// its thread, so that its parts and its whole list come between the other events in an
     /// order that the test chooses.
@@ -4582,11 +4664,13 @@ mod tests {
             fed.sent.up_to = fed.so_far.len();
         }
         app.receive_listing(ctx, std::time::Duration::ZERO);
-        // Nothing of the folder read is in the list that the folder no longer holds.
+        // Nothing of the folder read is in the list that the folder no longer holds, by the tree
+        // on disk: a folder below it is there when the walk of the tree reaches it.
         let subfolders: Vec<PathBuf> = (dirs.iter())
             .filter_map(|d| d.file_name())
             .map(|n| rel.join(n))
             .collect();
+        let walked: HashSet<PathBuf> = (walk_of(app).flatten()).map(|(rel, ..)| rel).collect();
         for name in app.list.files() {
             let Ok(below) = std::path::Path::new(name).strip_prefix(&rel) else {
                 continue;
@@ -4598,12 +4682,15 @@ mod tests {
             let step = step.as_os_str();
             let there = match steps.next() {
                 None => images.contains(name),
+                // A hidden folder that its parent's read leaves out is not judged by it: only its
+                // own read through a link, or the whole list, tells which of its names are gone.
                 Some(_) => {
+                    let folder = app.folder.dir().join(&rel).join(step);
+                    let hidden_there = step.as_encoded_bytes().starts_with(b".")
+                        && crate::files::file_io::is_surely_dir(&folder);
                     subfolders.contains(&rel.join(step))
-                        || !crate::model::listing::lists_folder_named(
-                            step.as_encoded_bytes(),
-                            types,
-                        )
+                        || walked.contains(&rel.join(step))
+                        || hidden_there
                 }
             };
             assert!(there, "{name:?} is gone from {rel:?}, which was read whole");
@@ -4946,7 +5033,18 @@ mod tests {
                         app.start_listing(&ctx);
                     }
                 }
-                11 => app.toggle_hidden_files(&ctx),
+                11 => {
+                    app.toggle_hidden_files(&ctx);
+                    // Turned off, no image in a hidden folder is left in the list but those the
+                    // walk brings again through a link, at once and not when the whole list
+                    // comes.
+                    if !app.config.show_hidden {
+                        let hidden: Vec<&OsString> = (app.list.files().iter())
+                            .filter(|f| f.as_encoded_bytes().starts_with(b"."))
+                            .collect();
+                        assert!(hidden.is_empty(), "hidden images left: {hidden:?}, {at}");
+                    }
+                }
                 12 | 13 => {
                     let older = event == 12;
                     let expected = seen.step(app.list.files(), older);
@@ -5072,8 +5170,12 @@ mod tests {
                 .filter(|f| !renames_not_listed.contains(*f) && disk.contains(*f))
                 .collect();
             assert_in_order(&dir, &in_place, list_order, &at);
+            // Show Hidden Files turned off takes out the images of a hidden folder by their
+            // names, also those that the walk reaches through a link, and brings those back.
+            let hidden_off = event == 11 && !app.config.show_hidden;
             let lost: Vec<&OsString> = (order_before.iter())
                 .filter(|f| disk.contains(*f) && !unique.contains(f))
+                .filter(|f| !(hidden_off && f.as_encoded_bytes().starts_with(b".")))
                 .collect();
             assert!(
                 lost.is_empty(),

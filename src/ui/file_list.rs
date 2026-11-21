@@ -1338,6 +1338,7 @@ impl crate::App {
         });
         if changed {
             self.config.save();
+            self.leave_out_names_not_shown(ctx);
             self.start_listing(ctx);
         }
     }

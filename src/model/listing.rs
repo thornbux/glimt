@@ -218,7 +218,9 @@ impl NameHashes {
     /// gone only by the rules the walk read its parent by (`lists_folder_named`). One that the
     /// read leaves out by rule, a hidden folder while hidden files are not shown, is in the list
     /// because the walk reached it through a link, so only its own read tells which of its
-    /// names are gone, and its names stay when its parent is read.
+    /// names are gone, and its names stay when its parent is read. A hidden folder listed while
+    /// hidden files were shown is not among them: Show Hidden Files turned off takes its names
+    /// out of the list before the next listing begins (`App::leave_out_names_not_shown`).
     pub fn note_folder(&self, folder: &FolderReadWhole, read: &mut ReadWhole) {
         let at = folder.folder.as_os_str().as_encoded_bytes();
         let images = &folder.so_far[folder.first..];
