@@ -95,12 +95,15 @@ if [ "$(id -u)" = 0 ]; then
     # is there. A look at a path, an open, a read or a statfs that starts with a line of
     # /tmp/lossy-stall (such as /stall-view) waits while that line is there, as on a share that
     # stopped answering. A folder whose path starts with a line of /tmp/lossy-slow is read in
-    # half a second, as on a share far away. It writes each EIO it gives, each call it holds
-    # (STALL and the path) and each slow read of a folder (READDIR, the path and the time) to
-    # /tmp/lossyfs.log, so that a check knows that the fault did happen. All three need
-    # --privileged, which run.sh gives the parts with these checks; without it those checks fail.
+    # half a second, and each read of a file there takes 0.3 s, as on a share far away. It
+    # writes each EIO it gives, each call it holds (STALL and the path) and each slow read of a
+    # folder or a file (READDIR or READ, the path and the time) to /tmp/lossyfs.log, so that a
+    # check knows that the fault did happen. A second one over /opt/lossy, at /mnt/share, is
+    # mounted with the subtype sshfs, which Glimt takes for a share (file_io::is_network), and
+    # logs to /tmp/sharefs.log. All need --privileged, which run.sh gives the parts with these
+    # checks; without it those checks fail.
     if grep -q '^faults=[y]es' "${SCRIPT:-/t/tests.sh}"; then
-        mkdir -p /mnt/full /mnt/disk /mnt/lossy /opt/lossy && chown tester: /opt/lossy
+        mkdir -p /mnt/full /mnt/disk /mnt/lossy /mnt/share /opt/lossy && chown tester: /opt/lossy
         mount -t tmpfs -o size=16m,uid=$(id -u tester),gid=$(id -g tester) full /mnt/full
         # gio refuses to trash on a tmpfs, so the trash's full disk is a small ext2 at
         # /mnt/disk, as a USB stick is, on a loop device tried again as the card's is.
@@ -201,8 +204,20 @@ class Lossy(Operations):
         self.stall(path)
         return os.open(self.r(path), flags)
 
+    def slowed(self, path):
+        # Whether a line of /tmp/lossy-slow starts the path.
+        try:
+            with open("/tmp/lossy-slow") as f:
+                slowed = [line.strip() for line in f if line.strip()]
+        except OSError:
+            return False
+        return any(path.startswith(line) for line in slowed)
+
     def read(self, path, size, offset, fh):
         self.stall(path)
+        if self.slowed(path):
+            time.sleep(0.3)
+            print("READ", path, "%.3f" % time.time(), flush=True)
         # A read of bad-* past its first 256 KiB fails while /tmp/lossy-eio is there, as on a
         # disk with a bad sector, so that a check can show the image first and then fail a copy.
         if (offset + size > 262144 and os.path.basename(path).startswith("bad-")
@@ -227,12 +242,7 @@ class Lossy(Operations):
         os.close(fh)
 
     def readdir(self, path, fh):
-        try:
-            with open("/tmp/lossy-slow") as f:
-                slowed = [line.strip() for line in f if line.strip()]
-        except OSError:
-            slowed = []
-        if any(path.startswith(line) for line in slowed):
+        if self.slowed(path):
             time.sleep(0.5)
             print("READDIR", path, "%.3f" % time.time(), flush=True)
         return [".", ".."] + os.listdir(self.r(path))
@@ -258,11 +268,15 @@ class Lossy(Operations):
         st = os.statvfs(self.r(path))
         return {k: getattr(st, k) for k in STATFS}
 
+# A third argument is the subtype of the mount, as a share's program gives it (fuse.sshfs).
+kinds = {"subtype": sys.argv[3]} if len(sys.argv) > 3 else {}
 FUSE(Lossy(sys.argv[1]), sys.argv[2], foreground=True, allow_other=True,
-     default_permissions=True)
+     default_permissions=True, **kinds)
 PY
         python3 /opt/lossyfs.py /opt/lossy /mnt/lossy >/tmp/lossyfs.log 2>&1 &
+        python3 /opt/lossyfs.py /opt/lossy /mnt/share sshfs >/tmp/sharefs.log 2>&1 &
         for try in $(seq 50); do grep -q ' /mnt/lossy fuse' /proc/mounts && break; sleep 0.1; done
+        for try in $(seq 50); do grep -q ' /mnt/share fuse.sshfs' /proc/mounts && break; sleep 0.1; done
     fi
     # -noreset: an X server starts over when its last client closes, and refuses every client
     # that comes in that moment. Each check starts and quits Glimt, so a window now and then got
@@ -531,7 +545,7 @@ crop_part() {
 # The small tmpfs and ext2 of the checks of a full disk (faults=yes), and the FUSE share of the
 # checks of a share that fails (lossyfs.py above): a section that uses one checks that it is
 # mounted.
-full=/mnt/full disk=/mnt/disk lossy=/mnt/lossy
+full=/mnt/full disk=/mnt/disk lossy=/mnt/lossy share=/mnt/share
 # leave_free BYTES [AT]: the tmpfs (or the file system at AT) full but for BYTES. ext2 counts
 # what was written only once it is on the disk, hence the syncs.
 leave_free() {
@@ -6421,58 +6435,70 @@ else
     done
 fi
 
-section "a random slideshow of a tree on a slow share: the subfolders' images while the tree is read"
-# #256. lossyfs reads each folder of /slow-tree-* in half a second, so the tree of a folder with
-# one image of its own and 2 in each of 20 subfolders takes more than ten seconds to read. A
-# random slideshow with its subfolders, a second for each image, shows the subfolders' images
-# while the tree is read, a slide about every second. 0.95.0 took no part of the tree in random
-# order, so it stayed on the one image of the folder until the whole tree was read.
+section "a slideshow of a tree on a slow share: the subfolders' images while the tree is read"
+# #256. $share is a second lossyfs over /opt/lossy, mounted with the subtype sshfs, so that
+# Glimt takes it for a share (file_io::is_network takes fuse.sshfs for one) and its walk of a
+# tree waits for the images that the window waits for. It reads each folder of /slow-tree-* in
+# half a second and each read of a file there in 0.3 s, as a share far away does, so the tree of
+# a folder with one image of its own and 2 in each of 20 subfolders takes more than ten seconds
+# to read, and so does the next image. A slideshow with its subfolders, a second for each
+# image, without Repeat, shows the subfolders' images while the tree is read, a slide about
+# every second, in random order and in name order. 0.95.0 took no part of the tree in either
+# order, so it stayed on the one image of the folder until the whole tree was read, or in name
+# order ended on it.
 faults=yes
-if ! grep -q " $lossy fuse" /proc/mounts; then
-    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+if ! grep -q " $share fuse.sshfs" /proc/mounts; then
+    fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
 else
-    for v in new old; do
-        as_version $v
-        back=/opt/lossy/slow-tree-$v d=$lossy/slow-tree-$v
-        rm -rf $back; mkdir -p $back
-        convert -size 300x200 xc:red $back/top.png
-        for k in $(seq -w 1 20); do
-            mkdir $back/s$k
-            convert -size 300x200 xc:lime $back/s$k/a.png
-            convert -size 300x200 xc:blue $back/s$k/b.png
+    for order in random name; do
+        for v in new old; do
+            as_version $v
+            back=/opt/lossy/slow-tree-$order-$v d=$share/slow-tree-$order-$v
+            rm -rf $back; mkdir -p $back
+            convert -size 300x200 xc:red $back/top.png
+            for k in $(seq -w 1 20); do
+                mkdir $back/s$k
+                convert -size 300x200 xc:lime $back/s$k/a.png
+                convert -size 300x200 xc:blue $back/s$k/b.png
+            done
+            config slideshow_subfolders=true slideshow_random=$([ $order = random ] && echo true ||
+                echo false) slideshow_repeat=false slideshow_delay=1 slideshow_fade=0 \
+                thumbnails=false
+            echo /slow-tree-$order-$v >/tmp/lossy-slow
+            start --slideshow $d
+            # The image shown, every 0.2 s for eight seconds, each change with its time in ms.
+            changes=/tmp/slow-tree-changes-$order-$v shown=
+            : >$changes
+            for i in $(seq 40); do
+                now=$(remote current 2>/dev/null | tr -d '\0')
+                [ -n "$now" ] && [ "$now" != "$shown" ] && echo "$(date +%s%3N) $now" >>$changes
+                shown=$now
+                sleep 0.2
+            done
+            # When the tree's walk read its last folder, s20 (on a share the sizes are not read
+            # after it), when the first image of a subfolder was shown, and whether the image's
+            # reads were slow too, in ms.
+            log=/tmp/sharefs.log
+            until_ok "grep -q '^READDIR /slow-tree-$order-$v/s20 ' $log" 60
+            read_last=$(grep -m1 "^READDIR /slow-tree-$order-$v/s20 " $log |
+                awk '{printf "%d", $3 * 1000}')
+            slow_reads=$(grep -c "^READ /slow-tree-$order-$v/" $log)
+            first_sub=$(grep -m1 "/s[0-9][0-9]/" $changes | cut -d' ' -f1)
+            # The longest time between two slides after the first image of a subfolder.
+            gap=$(awk -v from="${first_sub:-0}" '$1 >= from { if (last) { g = $1 - last
+                if (g > max) max = g } last = $1 } END { print max + 0 }' $changes)
+            slides=$(awk -v from="${first_sub:-0}" '$1 >= from' $changes | wc -l)
+            rm -f /tmp/lossy-slow
+            quit
+            got="$([ -n "$first_sub" ] && [ "$first_sub" -lt "${read_last:-0}" ] && echo before)"
+            got="$got $([ "$slides" -ge 5 ] && [ "$gap" -le 2000 ] && echo steady)"
+            got="$got $([ "$slow_reads" -gt 0 ] && echo slow-reads)"
+            if [ $v = new ]; then
+                expect "$order order: a subfolder's image before the tree was read, then a slide about every second" \
+                    "$got" "before steady slow-reads"
+            else note "old, $order order: $got (first subfolder image at ${first_sub:-none}, tree read at $read_last, $slides slides, longest gap $gap ms)"; fi
+            rm -rf $back $changes
         done
-        config slideshow_subfolders=true slideshow_random=true slideshow_repeat=false \
-            slideshow_delay=1 slideshow_fade=0 thumbnails=false
-        echo /slow-tree-$v >/tmp/lossy-slow
-        start --slideshow $d
-        # The image shown, every 0.2 s for eight seconds, each change with its time in ms.
-        changes=/tmp/slow-tree-changes-$v shown=
-        : >$changes
-        for i in $(seq 40); do
-            now=$(remote current 2>/dev/null | tr -d '\0')
-            [ -n "$now" ] && [ "$now" != "$shown" ] && echo "$(date +%s%3N) $now" >>$changes
-            shown=$now
-            sleep 0.2
-        done
-        # When the tree's walk read its last folder, s20 (the sizes are read after it, from
-        # the folders again), and when the first image of a subfolder was shown, in ms.
-        until_ok "grep -q '^READDIR /slow-tree-$v/s20 ' /tmp/lossyfs.log" 30
-        read_last=$(grep -m1 "^READDIR /slow-tree-$v/s20 " /tmp/lossyfs.log |
-            awk '{printf "%d", $3 * 1000}')
-        first_sub=$(grep -m1 "/s[0-9][0-9]/" $changes | cut -d' ' -f1)
-        # The longest time between two slides after the first image of a subfolder.
-        gap=$(awk -v from="${first_sub:-0}" '$1 >= from { if (last) { g = $1 - last
-            if (g > max) max = g } last = $1 } END { print max + 0 }' $changes)
-        slides=$(awk -v from="${first_sub:-0}" '$1 >= from' $changes | wc -l)
-        rm -f /tmp/lossy-slow
-        quit
-        got="$([ -n "$first_sub" ] && [ "$first_sub" -lt "${read_last:-0}" ] && echo before)"
-        got="$got $([ "$slides" -ge 5 ] && [ "$gap" -le 2000 ] && echo steady)"
-        if [ $v = new ]; then
-            expect "a subfolder's image shown before the tree was read, then a slide about every second" \
-                "$got" "before steady"
-        else note "old: $got (first subfolder image at ${first_sub:-none}, tree read at $read_last, $slides slides, longest gap $gap ms)"; fi
-        rm -rf $back $changes
     done
 fi
 
