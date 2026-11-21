@@ -4468,6 +4468,7 @@ mod tests {
             first,
             folder: &rel,
             dirs: &dirs,
+            types: app.shown_types(),
         };
         fed.sent
             .listed_before
