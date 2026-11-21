@@ -44,7 +44,7 @@ const RETIRED_NAMES: &[&str] = &[
     "files_gen",     // version, list_version
     // The slideshow, Save As and pan view (viewer/).
     "at_start",      // start_after_listing
-    "whole_shuffle", // reads_its_tree
+    "whole_shuffle", // keeps_its_order
     "days_stop",     // stop_reading_days
     "add_gone",      // add_removed
     "as_read",       // read_days
@@ -2445,6 +2445,33 @@ fn whether_a_window_listens_is_asked_in_one_place() {
     assert!(
         wrong.is_empty(),
         "the remote control setting read where remote::listening() is meant:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// While a slideshow keeps its order, every listing reaches the list through one merge,
+/// `merge_after` in `take_listed_files`, which keeps the images played in their places. Only the
+/// slideshow shuffles the list, in the window's thread: a new round, or R on for the images not
+/// played. A listing thread never shuffles what it lists. Before, a random listing was shuffled
+/// whole in its thread and merged by a second function, and a listing after the slideshow's
+/// walk took another branch that put the order played back into the sort order, so the round
+/// showed an image twice or never, and R during a walk in name order shuffled nothing.
+#[test]
+fn listings_reach_a_slideshow_through_one_merge() {
+    let wrong = outside_their_homes(&[
+        ("merge_after(", &[("model/folder.rs", "take_listed_files")]),
+        (
+            " shuffle(&",
+            &[
+                ("viewer/slideshow.rs", "shuffle_list"),
+                ("viewer/slideshow.rs", "shuffle_the_rest"),
+            ],
+        ),
+        (" shuffle_in(&", &[("model/listing.rs", "merge_after")]),
+    ]);
+    assert!(
+        wrong.is_empty(),
+        "a listing merged or shuffled outside the one merge of take_listed_files:\n{}",
         wrong.join("\n")
     );
 }

@@ -755,25 +755,6 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// The shuffled `old` order without files that are gone, followed by new files in random order.
-/// Each file has the identity `new` lists it with.
-pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName> {
-    let old_set: HashSet<&OsString> = old.iter().collect();
-    let new_identities: std::collections::HashMap<&OsString, Identity> =
-        new.iter().map(|(f, id)| (f, *id)).collect();
-    let mut added: Vec<ListedName> = new
-        .iter()
-        .filter(|f| !old_set.contains(&f.0))
-        .cloned()
-        .collect();
-    shuffle(&mut added);
-    let mut out: Vec<ListedName> = (old.iter())
-        .filter_map(|f| Some((f.clone(), *new_identities.get(f)?)))
-        .collect();
-    out.extend(added);
-    out
-}
-
 /// Merges `new`, a tree's images read so far or all of them, into `old`, the list that a
 /// slideshow plays or that is in random order. Its first `kept` files keep their places: the
 /// images shown so far, which Previous goes back through. The new names go after them, so the
@@ -1605,8 +1586,13 @@ mod tests {
         let names = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
         let mut new = listed(&["a", "b", "d"]);
         new[0].1 = std::num::NonZeroU64::new(1000);
-        let merged = super::merge_shuffled(&names(&["c", "a", "b"]), new.clone());
-        assert_eq!(merged, new);
+        let old = listed(&["c", "a", "b"]);
+        let merged = super::merge_after(old, 2, new.clone(), super::NamesListed::Whole, true);
+        // The image kept first has the identity the listing gives it, and the name gone is out.
+        assert_eq!(merged[0], new[0]);
+        let mut sorted = merged.clone();
+        sorted.sort();
+        assert_eq!(sorted, new);
         let kept = super::kept_order(names(&["b", "d", "a"]), &new).unwrap();
         assert_eq!(kept[2], new[0]);
     }

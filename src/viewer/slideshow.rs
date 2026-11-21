@@ -52,15 +52,12 @@ pub(crate) struct SlideOrder {
 pub(crate) struct Slideshow {
     /// When the image shown last came up; `None`: the slideshow is off.
     shown_at: Option<Instant>,
-    /// The file list is shuffled for a random slideshow.
+    /// The file list is shuffled for a random slideshow. This is the slideshow's order, kept
+    /// apart from whether it runs: R changes it while the slideshow runs, and no listing tells
+    /// it.
     shuffled: bool,
-    /// The slideshow's own listing of its tree is still being read. It plays the images listed
-    /// so far, which come in parts as the tree is read, in either order, and in random order
-    /// the listing shuffles the whole tree.
-    reads_its_tree: bool,
-    /// The list is in the order that the slideshow played it in, as a tree's parts were merged
-    /// into it, and not in the sort order. Stopping the slideshow reads it again in the sort
-    /// order.
+    /// A listing was merged into the order that the slideshow plays, so the list may not be in
+    /// the sort order. Stopping the slideshow reads it again in the sort order.
     keeps_played_order: bool,
     /// Slideshow paused (P): stays on the image until resumed.
     paused: bool,
@@ -131,31 +128,22 @@ impl Slideshow {
         self.saved_order.clear();
     }
 
-    /// Whether the next listing is shuffled whole in the listing thread.
-    pub(crate) fn shuffles_whole(&self) -> bool {
-        self.shuffled && self.reads_its_tree
+    /// Whether the list is in the slideshow's own order, because a slideshow runs or the list
+    /// is shuffled. Every listing that comes then is merged into that order
+    /// (`App::take_listed_files`): the images played so far and those decoded next keep their
+    /// places, and the others come after them. No listing is taken as it came.
+    pub(crate) fn keeps_its_order(&self) -> bool {
+        self.shown_at.is_some() || self.shuffled
     }
 
-    /// Whether the slideshow's own listing of its tree is still being read, so the listing
-    /// sends the tree in parts, whatever the order.
-    pub(crate) fn reads_its_tree(&self) -> bool {
-        self.reads_its_tree
-    }
-
-    /// Returns whether this listing was the slideshow's own listing of its tree, which ends
-    /// here. The flag is for this listing, taken whether or not the order is still random:
-    /// left, it would shuffle every later listing.
-    pub(crate) fn take_reads_its_tree(&mut self) -> bool {
-        std::mem::take(&mut self.reads_its_tree)
-    }
-
-    /// Notes that the list is in the order that the slideshow played it in, not in the sort
-    /// order.
+    /// Notes that a listing was merged into the order played, so the list may not be in the
+    /// sort order.
     pub(crate) fn keep_played_order(&mut self) {
         self.keeps_played_order = true;
     }
 
-    /// Whether the list is in the order that the slideshow played it in, not in the sort order.
+    /// Whether a listing was merged into the order played, so the list may not be in the sort
+    /// order.
     pub(crate) fn keeps_played_order(&self) -> bool {
         self.keeps_played_order
     }
@@ -169,7 +157,8 @@ impl Slideshow {
 impl crate::App {
     // ---- The slideshow ----
 
-    /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
+    /// Shuffles the whole file list as a new round, which starts at the shown image, or reads
+    /// it again in the sort order, keeping the shown image.
     pub(crate) fn shuffle_list(&mut self, ctx: &egui::Context, on: bool) {
         if self.list.files().is_empty() {
             return;
@@ -177,44 +166,8 @@ impl crate::App {
         // The shown image is not left, because replace_files and the listing keep its turn and
         // zoom when it stays.
         self.slideshow.shuffled = on;
-        // Back on while a random slideshow still reads its list, which random off asked for in
-        // sort order: read again, shuffled whole.
-        if on && self.slideshow.reads_its_tree && self.folder.is_listing() {
-            return self.start_listing(ctx);
-        }
         if !on {
-            // A collection goes back to its own order, which shuffling left only in its file.
-            // The file is read in the background, and `receive_saved_order` takes the order.
-            if let Some(file) = self
-                .folder
-                .collection()
-                .filter(|_| !self.folder.sorts_collection())
-            {
-                let file = file.to_path_buf();
-                let (tx, rx) = answer_channel(&self.busy);
-                let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
-                std::thread::spawn(move || {
-                    // A move in the collection may still wait in the writer thread.
-                    crate::files::file_io::wait_for_queued_writes();
-                    // The saved entries by their real paths, the names the list has.
-                    // A plain list's order is the one this window gave it, laid over its file.
-                    let saved = collections::load_with_window_changes(&file)
-                        .ok()
-                        .map(|saved| {
-                            (collections::by_real_path(&saved).into_iter())
-                                .map(|(real, _)| real)
-                                .collect()
-                        });
-                    let _ = tx.send(saved);
-                    drop(pointer);
-                    ctx.request_repaint();
-                });
-                self.slideshow.saved_order = Receiving::of(rx);
-                return;
-            }
-            // Back to the chosen sort order; listing keeps the shown image.
-            self.start_listing(ctx);
-            return;
+            return self.read_in_sort_order(ctx);
         }
         // A copy, not taken: the textures and the shown image's zoom are kept by the names in
         // the list as it is.
@@ -228,6 +181,54 @@ impl crate::App {
         self.replace_files(ctx, files, Some(shown));
         // A new order is a new round, which starts at the shown image.
         self.list.start_round();
+    }
+
+    /// Reads the list again in its sort order, or a collection in its saved order. While a
+    /// slideshow runs, what is read is merged into the order played like every listing, so
+    /// only the images not played yet go into that order.
+    fn read_in_sort_order(&mut self, ctx: &egui::Context) {
+        // A collection goes back to its own order, which shuffling left only in its file. The
+        // file is read in the background, and `receive_saved_order` takes the order.
+        if let Some(file) = self
+            .folder
+            .collection()
+            .filter(|_| !self.folder.sorts_collection())
+        {
+            let file = file.to_path_buf();
+            let (tx, rx) = answer_channel(&self.busy);
+            let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
+            std::thread::spawn(move || {
+                // A move in the collection may still wait in the writer thread.
+                crate::files::file_io::wait_for_queued_writes();
+                // The saved entries by their real paths, the names the list has.
+                // A plain list's order is the one this window gave it, laid over its file.
+                let saved = collections::load_with_window_changes(&file)
+                    .ok()
+                    .map(|saved| {
+                        (collections::by_real_path(&saved).into_iter())
+                            .map(|(real, _)| real)
+                            .collect()
+                    });
+                let _ = tx.send(saved);
+                drop(pointer);
+                ctx.request_repaint();
+            });
+            self.slideshow.saved_order = Receiving::of(rx);
+            return;
+        }
+        // Back to the chosen sort order; listing keeps the shown image.
+        self.start_listing(ctx);
+    }
+
+    /// Shuffles the images that the slideshow has not played yet, in the window's thread. The
+    /// images played in this round, the shown one and those decoded next keep their places, as
+    /// in a listing's merge, so the round goes on and shows every image once.
+    fn shuffle_the_rest(&mut self, ctx: &egui::Context) {
+        let kept = self.places_that_stay().min(self.list.files().len());
+        let mut files = self.list.listed_names();
+        shuffle(&mut files[kept..]);
+        let shown = self.list.files().get(self.list.shown()).cloned();
+        self.replace_files(ctx, files, shown);
     }
 
     /// Puts the open collection back in its saved order, once `shuffle_list` read it. A file
@@ -244,7 +245,6 @@ impl crate::App {
         if self.slideshow.shuffled {
             return;
         }
-        let shown = self.list.files().get(self.list.shown()).cloned();
         let files: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
         let identities: std::collections::HashMap<OsString, _> =
             self.list.listed_names().into_iter().collect();
@@ -254,7 +254,9 @@ impl crate::App {
                 Some((name.to_owned(), *identities.get(name)?))
             })
             .collect();
-        self.replace_files(ctx, files, shown);
+        // The saved order is taken as a whole listing is. While the slideshow runs, the images
+        // it played keep their places, and only the others go into the saved order.
+        self.take_listed_files(ctx, files, true);
         // A listing on its way (a random slideshow's, a refresh's) would bring the order it was
         // asked for. So the folder is read again, in the saved order now shown.
         if self.folder.is_listing() {
@@ -267,6 +269,17 @@ impl crate::App {
         // A slideshow shows images, so one started from the grid in the image area opens the
         // image shown, and Esc goes back to the grid.
         self.panel.open_from_grid();
+        // The first slide comes at once: start as if the delay has already run out. The
+        // slideshow runs from here, so every listing started below is merged into its order and
+        // sends only the images new to it (`start_listing`).
+        let delay = std::time::Duration::from_secs(self.config.slideshow_delay);
+        self.slideshow.shown_at = Some(
+            Instant::now()
+                .checked_sub(delay)
+                .unwrap_or_else(Instant::now),
+        );
+        // The round starts at the image shown.
+        self.list.start_round();
         if self.config.slideshow_subfolders {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
@@ -278,18 +291,14 @@ impl crate::App {
                 self.shuffle_list(ctx, true);
             }
             self.slideshow.shuffled = self.config.slideshow_random;
-            self.slideshow.reads_its_tree = true;
             self.start_listing(ctx);
         } else if self.config.slideshow_random != self.slideshow.shuffled {
             self.shuffle_list(ctx, self.config.slideshow_random);
+        } else if self.folder.reads_tree_in_parts() && !self.folder.parts_are_new_names() {
+            // A tree still read for the folder opened sends the whole tree so far in each part.
+            // It is read again as the slideshow's, whose parts hold only the images new to it.
+            self.start_listing(ctx);
         }
-        // The first slide comes at once: start as if the delay has already run out.
-        let delay = std::time::Duration::from_secs(self.config.slideshow_delay);
-        self.slideshow.shown_at = Some(
-            Instant::now()
-                .checked_sub(delay)
-                .unwrap_or_else(Instant::now),
-        );
         self.update_window_title(ctx);
         ctx.request_repaint();
     }
@@ -299,12 +308,10 @@ impl crate::App {
     pub(crate) fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow.shown_at = None;
         self.slideshow.paused = false;
-        // The listing that comes next is no longer the slideshow's, and in the sort order. The
-        // slideshow's own listing, which sends only the names that are new to the order played,
-        // is read again as one of the folder.
-        let its_tree =
-            std::mem::take(&mut self.slideshow.reads_its_tree) && self.folder.is_listing();
-        let played_order = std::mem::take(&mut self.slideshow.keeps_played_order) || its_tree;
+        // The list may be in the order played, and a listing that runs may send only the names
+        // new to that order. Either is read again in the sort order.
+        let played_order = std::mem::take(&mut self.slideshow.keeps_played_order)
+            || (self.folder.is_listing() && self.folder.parts_are_new_names());
         if self.folder.recursive() != self.config.show_subfolders {
             self.folder.set_recursive(self.config.show_subfolders);
             self.slideshow.shuffled = false;
@@ -396,10 +403,19 @@ impl crate::App {
     pub(crate) fn set_random_order(&mut self, ctx: &egui::Context, on: bool) {
         self.config.slideshow_random = on;
         self.config.save();
-        if self.slideshow.shown_at.is_some() {
-            self.shuffle_list(ctx, on);
-            self.update_window_title(ctx);
+        if self.slideshow.shown_at.is_none() || self.list.files().is_empty() {
+            return;
         }
+        // The round goes on in either direction, also while the tree is still read: the images
+        // played keep their places, and only the others change their order.
+        self.slideshow.shuffled = on;
+        if on {
+            self.shuffle_the_rest(ctx);
+        } else if !self.folder.is_listing() {
+            // A listing on its way is merged in its order, which puts the rest in that order.
+            self.read_in_sort_order(ctx);
+        }
+        self.update_window_title(ctx);
     }
 
     /// Ctrl+= and Ctrl+-: the slideshow's delay a second shorter or longer.
@@ -474,6 +490,7 @@ pub(crate) fn next_slide(
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, run_background_until};
+    use std::ffi::OsString;
 
     /// A random slideshow with subfolders, without Repeat, started on the last image: it does
     /// not end before its list is read, and stopped before that, the list comes back in sort
@@ -653,8 +670,63 @@ mod tests {
         std::fs::remove_dir_all(&d).unwrap();
     }
 
-    /// A playlist back in its own order when random is turned off while it is read again: the
-    /// listing copies the list, which was still shuffled.
+    /// Asserts that the list starts with `kept`, the images played and decoded next when random
+    /// order was turned off, and holds the images after the places that stay in `order`.
+    fn assert_rest_in_order(app: &crate::App, kept: &[OsString], order: &[OsString]) {
+        let files = app.list.files();
+        assert_eq!(
+            files[..kept.len()],
+            *kept,
+            "the images played keep their places"
+        );
+        let k = app.places_that_stay().max(kept.len()).min(files.len());
+        let head: std::collections::HashSet<&OsString> = files[..k].iter().collect();
+        let rest: Vec<OsString> = (order.iter())
+            .filter(|f| !head.contains(f))
+            .cloned()
+            .collect();
+        assert_eq!(files[k..], rest, "the others in order");
+    }
+
+    /// R pressed while a slideshow in name order reads its tree shuffles the images not played
+    /// yet at once, and the images played and decoded next keep their places. Before, it only
+    /// read the tree again, and the round went on in name order with the new images swapped in,
+    /// while the title said random.
+    #[test]
+    fn random_on_while_the_tree_is_read_shuffles_the_rest() {
+        let d = std::env::temp_dir().join(format!("glimt-test-r-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for i in 0..40 {
+            image::RgbImage::new(2, 2)
+                .save(d.join(format!("{i:02}.png")))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = false;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        assert!(app.folder.is_listing(), "the tree is still read");
+        let kept = app.list.files()[..app.places_that_stay()].to_vec();
+        app.set_random_order(&ctx, true);
+        assert!(app.slideshow.is_shuffled());
+        let files = app.list.files();
+        assert_eq!(
+            files[..kept.len()],
+            kept,
+            "the images played keep their places"
+        );
+        let mut sorted = files[kept.len()..].to_vec();
+        sorted.sort();
+        assert_eq!(sorted.len(), 40 - kept.len());
+        assert_ne!(files[kept.len()..], sorted, "the rest shuffled");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A playlist's images not played yet go back to its own order when random is turned off
+    /// while it is read again: the listing copies the list, which was still shuffled. The images
+    /// played keep their places, so the round goes on with every image it has not shown.
     #[test]
     fn a_playlist_random_off_during_a_refresh_is_in_its_order() {
         let d = std::env::temp_dir().join(format!("glimt-test-m3u-off-{}", std::process::id()));
@@ -675,12 +747,20 @@ mod tests {
         assert!(app.slideshow.shuffled && app.list.files() != order);
         // A refresh on its way.
         app.start_listing(&ctx);
+        let kept = app.list.files()[..app.places_that_stay()].to_vec();
         app.set_random_order(&ctx, false);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
             .is_listing()
             && a.slideshow.saved_order.is_none()
             && a.status_bar.folder_total().is_some()));
+        assert_rest_in_order(&app, &kept, &order);
+        // Stopped, the whole playlist is in its own order.
+        app.stop_slideshow(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()
+            && a.slideshow.saved_order.is_none()));
         assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
     }
@@ -728,17 +808,25 @@ mod tests {
             // The round starts at the image shown when the list came: without Repeat it shows
             // every image.
             assert_eq!(app.list.files()[0], shown);
-            // Again, and random off before the list comes: the saved order, and its size.
+            // Again, and random off before the list comes: the images not played in the saved
+            // order, and its size. Stopped, all of them in the saved order.
             app.stop_slideshow(&ctx);
             app.start_slideshow(&ctx);
+            let kept = app.list.files()[..app.places_that_stay()].to_vec();
             app.set_random_order(&ctx, false);
             assert!(run_background_until(&mut app, &ctx, |a| !a
                 .folder
                 .is_listing()
                 && a.slideshow.saved_order.is_none()
                 && a.status_bar.folder_total().is_some()));
-            assert_eq!(app.list.files(), order);
+            assert_rest_in_order(&app, &kept, &order);
             assert!(app.status_bar.folder_total() > Some(0), "size");
+            app.stop_slideshow(&ctx);
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()
+                && a.slideshow.saved_order.is_none()));
+            assert_eq!(app.list.files(), order);
             std::fs::remove_dir_all(&d).unwrap();
         }
     }
