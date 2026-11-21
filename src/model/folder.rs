@@ -8,8 +8,8 @@ use crate::files::external::{Login, gio_mount};
 use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
-    FoldersRead, ListedName, NameHashes, NamesListed, Types, Unread, is_listed, list_folder,
-    list_tree, sort_files, walk,
+    FolderReadWhole, FoldersRead, ListedName, NameHashes, NamesListed, ReadWhole, Types, Unread,
+    is_listed, list_folder, list_tree, sort_files, walk,
 };
 use crate::support::format::NOT_COUNTED_ON_A_SHARE;
 use crate::support::lang::tr;
@@ -99,7 +99,7 @@ pub(crate) struct Folder {
     /// tree may take long.
     subdirs_rx: Receiving<Vec<PathBuf>>,
     /// The images of the tree found so far, as it is read, a folder of it at a time.
-    part_rx: Receiving<Vec<ListedName>>,
+    part_rx: Receiving<TreePart>,
     /// How long the window took to take the last part of the tree, in microseconds. The
     /// listing thread waits for four times as long before it sends the next part.
     part_taken_in: Arc<AtomicU64>,
@@ -388,18 +388,20 @@ impl Folder {
     }
 
     /// Takes every part of the tree that came, each of the images found since the part before,
-    /// as one part in name order. Returns `None` when none came.
-    fn take_new_names(&mut self) -> Option<Vec<ListedName>> {
-        let mut names: Vec<ListedName> = Vec::new();
+    /// as one part in name order, with the folders that they read whole. Returns `None` when
+    /// none came.
+    fn take_new_names(&mut self) -> Option<TreePart> {
+        let (mut names, mut read): TreePart = Default::default();
         let mut parts = 0;
-        while let Took::Answer(part) = self.part_rx.next() {
+        while let Took::Answer((part, part_read)) = self.part_rx.next() {
             names.extend(part);
+            read.add(part_read);
             parts += 1;
         }
         if parts > 1 {
             names.sort_unstable();
         }
-        (parts > 0).then_some(names)
+        (parts > 0).then_some((names, read))
     }
 
     /// Waits up to five seconds for the next part of the tree being read, and takes it. The
@@ -407,7 +409,7 @@ impl Folder {
     #[cfg(test)]
     pub(crate) fn wait_for_part(&mut self) -> Option<Vec<ListedName>> {
         (0..250).find_map(|_| match self.part_rx.latest() {
-            Took::Answer(part) => Some(part),
+            Took::Answer((part, _)) => Some(part),
             _ => {
                 std::thread::sleep(std::time::Duration::from_millis(20));
                 None
@@ -593,6 +595,10 @@ impl Folder {
     }
 }
 
+/// A part of a tree as a listing thread sends it: the images found, and the folders read
+/// whole where the list may hold a name that is gone.
+pub(crate) type TreePart = (Vec<ListedName>, ReadWhole);
+
 /// What a listing thread sends when it has read the folder.
 pub(crate) struct Listed {
     /// The subfolders of the folder listed.
@@ -773,43 +779,36 @@ impl Listing {
         }
     }
 
-    /// Sends the window a part of the tree read so far, `so_far`, unless the part before was
-    /// sent too short a time ago, as `sent` holds.
+    /// Notes the folder of the tree just read whole, `read`, and sends the window a part of
+    /// the tree read so far, unless the part before was sent too short a time ago, as `sent`
+    /// holds.
     fn send_part(
         &self,
-        so_far: &[ListedName],
+        read: &FolderReadWhole,
         sent: &mut PartsSent,
-        part_tx: &mpsc::SyncSender<Vec<ListedName>>,
+        part_tx: &mpsc::SyncSender<TreePart>,
     ) {
+        sent.listed_before.note_folder(read, &mut sent.read_whole);
         if sent.last.is_some_and(|(t, wait)| t.elapsed() < wait) {
             return;
         }
         let began = Instant::now();
-        // The slideshow's own listing sends only the images found since the part before, as
-        // the window merges each part into the order played. A copy of the whole tree so far
-        // cost the window a look at every name of it for each part, about half a second at
-        // 500,000 names.
-        let from = if self.parts_are_new_names {
-            sent.up_to
-        } else {
-            0
-        };
-        let before = &sent.listed_before;
-        let mut part: Vec<ListedName> = (so_far[from..].iter())
-            .filter(|f| before.is_empty() || !before.holds(&f.0))
-            .cloned()
-            .collect();
-        if part.is_empty() {
-            sent.up_to = so_far.len();
+        let Some(mut part) = sent.next_part(read.so_far, self.parts_are_new_names) else {
             return;
-        }
-        part.sort_unstable();
-        forget_passing_identities(&self.dir, &mut part);
+        };
+        forget_passing_identities(&self.dir, &mut part.0);
         // When the channel is full, the part before is not taken yet, so this one is left out,
-        // and its new images go with the next one.
-        if part_tx.try_send(part).is_ok() {
-            sent.up_to = so_far.len();
-            self.ctx.request_repaint();
+        // and its new images and the folders it read go with the next one.
+        match part_tx.try_send(part) {
+            Ok(()) => {
+                sent.up_to = read.so_far.len();
+                self.ctx.request_repaint();
+            }
+            Err(
+                mpsc::TrySendError::Full((_, read)) | mpsc::TrySendError::Disconnected((_, read)),
+            ) => {
+                sent.read_whole = read;
+            }
         }
         let in_window = self.part_taken_in.load(Ordering::Relaxed);
         let wait = next_part_after(began.elapsed(), Duration::from_micros(in_window));
@@ -822,7 +821,7 @@ impl Listing {
         mut self,
         before: Option<Vec<OsString>>,
         parts: bool,
-        part_tx: mpsc::SyncSender<Vec<ListedName>>,
+        part_tx: mpsc::SyncSender<TreePart>,
         subdirs_tx: mpsc::Sender<Vec<PathBuf>>,
     ) {
         // The folder is read once, also with the folders below it. Its own subfolders show at
@@ -834,6 +833,7 @@ impl Listing {
             last: None,
             up_to: 0,
             listed_before: std::mem::take(&mut self.listed_before).sorted(),
+            read_whole: ReadWhole::default(),
         };
         let listed = match self.recursive {
             true => list_tree(
@@ -846,9 +846,9 @@ impl Listing {
                         self.ctx.request_repaint();
                     }
                 },
-                |so_far| {
+                |read| {
                     if parts {
-                        self.send_part(so_far, &mut sent, &part_tx);
+                        self.send_part(read, &mut sent, &part_tx);
                     }
                 },
             ),
@@ -926,6 +926,34 @@ struct PartsSent {
     /// The hashes of the names that the list held when the listing began, sorted, which a part
     /// of new names only leaves out (`Listing`'s `listed_before`).
     listed_before: NameHashes,
+    /// The folders read whole since the last part sent where the list may hold a name that
+    /// is gone, which the next part carries.
+    read_whole: ReadWhole,
+}
+
+impl PartsSent {
+    /// Returns the next part of the tree read so far, `so_far`: the images found since the
+    /// part before when `new_only` (and of those, only the ones the list did not hold), or all
+    /// of them, in name order, with the folders read whole since the part before where a name
+    /// may be gone. Returns `None` when it would hold nothing.
+    fn next_part(&mut self, so_far: &[ListedName], new_only: bool) -> Option<TreePart> {
+        // The slideshow's own listing sends only the images found since the part before, as
+        // the window merges each part into the order played. A copy of the whole tree so far
+        // cost the window a look at every name of it for each part, about half a second at
+        // 500,000 names.
+        let from = if new_only { self.up_to } else { 0 };
+        let before = &self.listed_before;
+        let mut part: Vec<ListedName> = (so_far[from..].iter())
+            .filter(|f| before.is_empty() || !before.holds(&f.0))
+            .cloned()
+            .collect();
+        if part.is_empty() && self.read_whole.is_empty() {
+            self.up_to = so_far.len();
+            return None;
+        }
+        part.sort_unstable();
+        Some((part, std::mem::take(&mut self.read_whole)))
+    }
 }
 
 /// What was asked to be opened, and how it opens once its paths are looked up.
@@ -1657,7 +1685,7 @@ impl crate::App {
         };
         if let Some(part) = part {
             let began = Instant::now();
-            self.take_listed_files(ctx, part, false);
+            self.take_listing(ctx, part.0, false, &part.1);
             let took = u64::try_from(began.elapsed().as_micros()).unwrap_or(u64::MAX);
             self.folder.part_taken_in.store(took, Ordering::Relaxed);
         }
@@ -1821,14 +1849,27 @@ impl crate::App {
         self.notice.give(text);
     }
 
-    /// Takes the images of the folder read in the background as the list. That is all of them
-    /// when `whole`, and otherwise those of a tree found so far. The shown image and the
-    /// selection stay.
+    /// Takes the images of the folder read in the background as the list, as `take_listing`
+    /// does, from a listing that read no folder whole.
     pub(crate) fn take_listed_files(
         &mut self,
         ctx: &egui::Context,
         files: Vec<ListedName>,
         whole: bool,
+    ) {
+        self.take_listing(ctx, files, whole, &ReadWhole::default());
+    }
+
+    /// Takes the images of the folder read in the background as the list. That is all of them
+    /// when `whole`, and otherwise those of a tree found so far, which leave out the names
+    /// that the folders they `read` whole no longer hold. The shown image and the selection
+    /// stay.
+    fn take_listing(
+        &mut self,
+        ctx: &egui::Context,
+        files: Vec<ListedName>,
+        whole: bool,
+        read: &ReadWhole,
     ) {
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
@@ -1857,7 +1898,8 @@ impl crate::App {
                 false if self.folder.parts_are_new_names => NamesListed::NewOnly,
                 false => NamesListed::TreeSoFar,
             };
-            listing::merge_after(old, self.places_that_stay(), files, names, shuffled)
+            let kept = self.places_that_stay();
+            listing::merge_after(old, kept, files, names, shuffled, read)
         } else {
             files
         };
@@ -3338,7 +3380,7 @@ mod tests {
         app.start_slideshow(&ctx);
         // The part waits in its channel, beside the whole list, until it is taken here.
         let part = (0..250).find_map(|_| match app.folder.part_rx.latest() {
-            super::Took::Answer(part) => Some(part),
+            super::Took::Answer((part, _)) => Some(part),
             _ => {
                 std::thread::sleep(std::time::Duration::from_millis(20));
                 None
@@ -4298,11 +4340,12 @@ mod tests {
     /// order that the test chooses.
     struct FedListing {
         listing: std::sync::mpsc::Sender<super::Listed>,
-        parts: std::sync::mpsc::SyncSender<Vec<super::ListedName>>,
-        /// The names that the list held when the listing started, which its parts leave out.
-        listed_before: HashSet<OsString>,
-        /// The names that its parts sent.
-        sent: HashSet<OsString>,
+        parts: std::sync::mpsc::SyncSender<super::TreePart>,
+        /// What its parts sent, with the names that the list held when the listing started,
+        /// as the listing thread holds it.
+        sent: super::PartsSent,
+        /// The images that the walk found so far.
+        so_far: Vec<super::ListedName>,
         /// The folders still to read, relative to the folder shown, or `None` before the top.
         to_read: Option<Vec<PathBuf>>,
         /// The listing's stop flag, which another listing replaces.
@@ -4325,8 +4368,13 @@ mod tests {
         FedListing {
             listing,
             parts,
-            listed_before: app.list.files().iter().cloned().collect(),
-            sent: HashSet::new(),
+            sent: super::PartsSent {
+                last: None,
+                up_to: 0,
+                listed_before: super::NameHashes::of(app.list.files()).sorted(),
+                read_whole: super::ReadWhole::default(),
+            },
+            so_far: Vec::new(),
             to_read: None,
             stop: app.folder.listing_stop.clone(),
         }
@@ -4353,8 +4401,10 @@ mod tests {
     }
 
     /// Reads the next folder of the fed listing's walk and sends the images in it that are new
-    /// to the list as a part, as the listing thread does, and the window takes it. Returns
-    /// false when the walk has read every folder.
+    /// to the list as a part, with the folders read whole where a name may be gone, as the
+    /// listing thread does, and the window takes it. Afterwards the list holds no name of that
+    /// folder that it lacks now, nor one below a folder of it that is gone. Returns false when
+    /// the walk has read every folder.
     fn send_part(app: &mut crate::App, ctx: &eframe::egui::Context, fed: &mut FedListing) -> bool {
         let dir = app.folder.dir().to_path_buf();
         let rel = match &mut fed.to_read {
@@ -4370,15 +4420,43 @@ mod tests {
             dirs.iter()
                 .map(|d| d.strip_prefix(&dir).unwrap().to_path_buf()),
         );
-        let mut part: Vec<super::ListedName> = (files.into_iter())
-            .map(|(name, id)| (rel.join(name).into_os_string(), id))
-            .filter(|f| !fed.listed_before.contains(&f.0) && fed.sent.insert(f.0.clone()))
+        let first = fed.so_far.len();
+        let images: Vec<OsString> = (files.into_iter())
+            .map(|(name, _)| rel.join(name).into_os_string())
             .collect();
-        part.sort_unstable();
-        if !part.is_empty() {
+        (fed.so_far).extend(images.iter().map(|name| (name.clone(), None)));
+        let read = crate::model::listing::FolderReadWhole {
+            so_far: &fed.so_far,
+            first,
+            folder: &rel,
+            dirs: &dirs,
+        };
+        fed.sent
+            .listed_before
+            .note_folder(&read, &mut fed.sent.read_whole);
+        if let Some(part) = fed.sent.next_part(&fed.so_far, true) {
             fed.parts.send(part).unwrap();
+            fed.sent.up_to = fed.so_far.len();
         }
         app.receive_listing(ctx, std::time::Duration::ZERO);
+        // Nothing of the folder read is in the list that the folder no longer holds.
+        let subfolders: Vec<PathBuf> = (dirs.iter())
+            .map(|d| d.strip_prefix(&dir).unwrap().to_path_buf())
+            .collect();
+        for name in app.list.files() {
+            let Ok(below) = std::path::Path::new(name).strip_prefix(&rel) else {
+                continue;
+            };
+            let mut steps = below.components();
+            let Some(step) = steps.next() else {
+                continue;
+            };
+            let there = match steps.next() {
+                None => images.contains(name),
+                Some(_) => subfolders.contains(&rel.join(step)),
+            };
+            assert!(there, "{name:?} is gone from {rel:?}, which was read whole");
+        }
         true
     }
 
