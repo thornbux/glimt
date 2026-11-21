@@ -551,6 +551,8 @@ struct Listing {
     shuffled: bool,
     /// Set when another listing starts, so this one stops reading a tree.
     stop: Arc<AtomicBool>,
+    /// The images that the window waits for, which the walk of a tree on a share waits for.
+    awaited: crate::model::listing::ImagesAwaited,
     /// How long the window took to take the last part, in microseconds (`Folder`'s
     /// `part_taken_in`).
     part_taken_in: Arc<AtomicU64>,
@@ -570,7 +572,7 @@ impl Listing {
         let mut files: Vec<ListedName> = Vec::new();
         for d in folders {
             let listed = match self.recursive {
-                true => list_tree(d, self.types, &self.stop, |_| {}, |_| {})
+                true => list_tree(d, self.types, &self.stop, &self.awaited, |_| {}, |_| {})
                     .map(|(_, files, tree, unread)| (files, tree, unread)),
                 false => {
                     let tree = vec![(d.clone(), modified(d))];
@@ -721,6 +723,7 @@ impl Listing {
                 &self.dir,
                 self.types,
                 &self.stop,
+                &self.awaited,
                 |dirs| {
                     if subdirs_tx.send(dirs.to_vec()).is_ok() {
                         self.ctx.request_repaint();
@@ -1388,6 +1391,7 @@ impl crate::App {
             recursive,
             shuffled,
             stop,
+            awaited: self.decoding.images_awaited().clone(),
             part_taken_in: self.folder.part_taken_in.clone(),
             tx,
             size_tx,
