@@ -154,6 +154,11 @@ impl Decoding {
         }
     }
 
+    /// The number of images preloaded on each side (Preferences).
+    pub(crate) fn preload_count(&self) -> usize {
+        self.preload.load(Ordering::Relaxed)
+    }
+
     /// The images that the window waits for and that are not decoded yet.
     pub(crate) fn images_awaited(&self) -> &crate::model::listing::ImagesAwaited {
         &self.images_awaited
@@ -564,13 +569,25 @@ impl crate::App {
     }
 
     /// Returns the places of the images kept decoded: those that the window shows and shows
-    /// next (`awaited_places`), and the images read ahead on each side. Returns, second, how
-    /// many of them at the start may be decoded at full resolution.
+    /// next (`awaited_places`), and the images read ahead on each side, or those a slideshow
+    /// planned. Returns, second, how many of them at the start may be decoded at full
+    /// resolution.
     pub(crate) fn kept_places(&self) -> (Vec<usize>, usize) {
         let ahead = self.decoding.preload.load(Ordering::Relaxed) as isize;
         let (mut window, full) = self.awaited_places();
-        for d in (1..=ahead).flat_map(|d| [d, -d]) {
-            if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
+        // A slideshow reads ahead the images it planned and the one that Left shows, as its
+        // next images are not the list's neighbours.
+        let read_ahead: Vec<usize> = match self.slideshow.is_running() {
+            true => (self.slideshow.planned_places())
+                .chain(self.slideshow.previous_place())
+                .collect(),
+            false => (1..=ahead)
+                .flat_map(|d| [d, -d])
+                .filter_map(|d| self.step(d, false))
+                .collect(),
+        };
+        for i in read_ahead {
+            if !window.contains(&i) {
                 window.push(i);
             }
         }
@@ -590,9 +607,12 @@ impl crate::App {
         }
         let full = awaited.len();
         let n = self.list.panes().len() + 1;
-        let upcoming: Vec<usize> = (1..=n as isize)
-            .filter_map(|d| self.step_from(self.list.last_slide(), d, true))
-            .collect();
+        let upcoming: Vec<usize> = match self.slideshow.is_running() {
+            true => self.slideshow.planned_places().take(n).collect(),
+            false => (1..=n as isize)
+                .filter_map(|d| self.step_from(self.list.last_slide(), d, true))
+                .collect(),
+        };
         for i in self.list.panes().iter().copied().chain(upcoming) {
             if !awaited.contains(&i) {
                 awaited.push(i);
@@ -838,12 +858,11 @@ impl crate::App {
     }
 
     /// The panes after the first show the images that follow the shown one, except while a
-    /// slideshow changes them one at a time.
+    /// slideshow runs, which picks the images of every pane itself.
     pub(crate) fn fill_panes(&mut self) {
         let [c, r] = layout_grid(&self.config.layout);
         let n = c * r;
         let kept = self.slideshow.is_running()
-            && self.changes_one_pane_at_a_time()
             && self.list.panes().len() + 1 == n
             && self
                 .list

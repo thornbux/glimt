@@ -312,6 +312,12 @@ impl Panel {
         self.scroll_now || self.scroll_to_shown
     }
 
+    /// Whether the lists drawn next scroll to the shown image.
+    #[cfg(test)]
+    pub(crate) fn scrolls_to_shown(&self) -> bool {
+        self.scrolls_to_shown_image()
+    }
+
     pub(crate) fn row_step(&self) -> isize {
         self.row_step
     }
@@ -1332,6 +1338,7 @@ impl crate::App {
         });
         if changed {
             self.config.save();
+            self.leave_out_names_not_shown(ctx);
             self.start_listing(ctx);
         }
     }
@@ -1357,8 +1364,6 @@ impl crate::App {
         });
         if changed {
             self.config.save();
-            // A chosen order replaces a shuffled one (kept after a random slideshow).
-            self.slideshow.unshuffle();
             self.folder.sort_again();
             self.start_listing(ctx);
         }

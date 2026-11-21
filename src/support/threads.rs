@@ -217,23 +217,6 @@ impl<T> Receiving<T> {
         }
     }
 
-    /// The last of the messages queued, the earlier ones dropped: for a thread that sends the
-    /// state so far again and again. The receiver stays, as `next`. When the thread ended after
-    /// its last message, that message is given now and `Gone` at the next call, so the end is
-    /// still told once.
-    pub(crate) fn latest(&mut self) -> Took<T> {
-        let mut last = Took::Nothing;
-        loop {
-            match self.0.as_ref().map(mpsc::Receiver::try_recv) {
-                Some(Ok(answer)) => last = Took::Answer(answer),
-                // Also when the thread is gone: the receiver is kept, so that the next call
-                // finds it gone and tells.
-                _ if matches!(last, Took::Answer(_)) => return last,
-                _ => return self.next(),
-            }
-        }
-    }
-
     /// As `take`, waiting up to `timeout` for the answer.
     pub(crate) fn wait(&mut self, timeout: std::time::Duration) -> Took<T> {
         let took = self.wait_next(timeout);
@@ -870,23 +853,6 @@ mod tests {
         drop(tx);
         assert!(matches!(rx.take(), Took::Gone));
         assert!(matches!(rx.take(), Took::Nothing));
-        // A stream: the latest of what is queued, the receiver kept until the thread is gone.
-        let (tx, rx) = std::sync::mpsc::channel::<u8>();
-        let mut rx = super::Receiving::of(rx);
-        tx.send(1).unwrap();
-        tx.send(2).unwrap();
-        assert!(matches!(rx.latest(), Took::Answer(2)) && rx.is_some());
-        drop(tx);
-        assert!(matches!(rx.latest(), Took::Gone) && rx.is_none());
-        // A last message and then the end in the same moment: the message now, and the end at
-        // the next call, told once.
-        let (tx, rx) = std::sync::mpsc::channel::<u8>();
-        let mut rx = super::Receiving::of(rx);
-        tx.send(3).unwrap();
-        drop(tx);
-        assert!(matches!(rx.latest(), Took::Answer(3)));
-        assert!(matches!(rx.latest(), Took::Gone) && rx.is_none());
-        assert!(matches!(rx.latest(), Took::Nothing));
     }
 
     /// A worker stuck in a job (a read from a share that stopped answering) is given up, and

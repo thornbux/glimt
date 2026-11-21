@@ -245,9 +245,13 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          - P pauses\n\
          - R switches random order on and off\n\
          - Ctrl+= and Ctrl+- change the delay.\n\n\
-         Browsing during a slideshow gives the new image the full delay. With \"Include the images \
-         in subfolders\" in Preferences it shows those too; the list goes back to the folder when \
-         the slideshow stops.\n\n\
+         Browsing during a slideshow gives the new image the full delay. ← goes back through the \
+         images shown and → forward again, and past the newest one → shows the next image. Home \
+         starts over from the first image, and End shows the last one. The file list stays in \
+         its sort order, also in random order, and a stop keeps the image shown. With \"Include \
+         the images in subfolders\" in Preferences it shows those too, as they are read; the list \
+         goes back to the folder when the slideshow stops, unless the image shown is in a \
+         subfolder.\n\n\
          Each image fades into the next, in every pane of a layout. Preferences sets the fade to \
          Off, Short (the default) or Long, and CPU use Power saving turns it off. Browsing by hand \
          shows the image at once.",
@@ -894,7 +898,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Browsing in a slideshow",
-        "The new image gets the full delay",
+        "The new image gets the full delay; ← and → go back and forth through the images shown",
         "",
     ),
     (

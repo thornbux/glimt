@@ -1393,11 +1393,6 @@ msgstr "Verktyg"
 msgid "Put the old names back"
 msgstr "Sätt tillbaka de gamla namnen"
 
-#: src/main.rs
-#, fuzzy
-msgid "Random order is on: R turns it off to move images"
-msgstr "Slumpvis ordning är på: R stänger av den för att flytta bilder"
-
 #: src/model/collections.rs
 #, fuzzy
 msgid "The search shows the images in another order: clear it to move them"

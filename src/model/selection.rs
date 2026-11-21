@@ -396,6 +396,10 @@ impl crate::App {
     /// searching); with Shift the selection runs from where it started to the new image, as in a
     /// file manager, and moving without Shift clears it.
     pub(crate) fn move_along(&mut self, ctx: &egui::Context, action: Action) {
+        // A slideshow that runs goes through the images it showed.
+        if self.move_in_slideshow(ctx, action) {
+            return;
+        }
         // Along the list as shown: the search matches while searching.
         let row = self.panel.row_step();
         let delta = match action {
@@ -425,10 +429,6 @@ impl crate::App {
             }
         }
         self.show_file(ctx, to);
-        // Home in a running slideshow starts it over from the first image, as a new round.
-        if action == Action::First && self.slideshow.is_running() {
-            self.begin_round(to);
-        }
         if shift {
             self.list.set_range_end(Some(to));
         }
@@ -449,21 +449,13 @@ pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -
     Some(r as usize)
 }
 
-/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top.
-/// Several panes step by their number, so the round may end past the last row, not on the first.
-/// A shown file that the search hides (`None`) counts as before the first row, as in
-/// `next_row`, so the round from there shows every row before it ends.
-pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
-    row.map_or(-1, |r| r as isize) + delta as isize >= len as isize
-}
-
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
 
-    /// Next on the last image, a click on the shown image's row, a pane step that clamps to it
-    /// and a shuffle keep the shown image as it is. Its turn is not dropped, or written into the
-    /// file, as when another image is shown.
+    /// Next on the last image, a click on the shown image's row and a pane step that clamps to
+    /// it keep the shown image as it is. Its turn is not dropped, or written into the file, as
+    /// when another image is shown.
     #[test]
     fn the_shown_image_stays_as_it_is_when_it_stays() {
         let dir = std::env::temp_dir().join(format!("glimt-test-stays-{}", std::process::id()));
@@ -480,8 +472,6 @@ mod tests {
         app.viewing.set_turn((1, false), dir.join("a.png"));
         app.go_to_pane(&ctx, crate::ui::actions::Action::PaneLeft);
         assert_eq!((app.list.shown(), app.viewing.turn()), (0, (1, false)));
-        app.shuffle_list(&ctx, true);
-        assert_eq!(app.viewing.turn(), (1, false));
         // A decode of the shown image that failed is tried again when it is gone to again.
         app.list.decode_failed(0, "the share is away".into());
         app.show_file(&ctx, 0);
