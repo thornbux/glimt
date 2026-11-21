@@ -110,6 +110,173 @@ pub enum NamesListed {
     NewOnly,
 }
 
+/// The names that the list held when a listing began, as 64-bit hashes (`name_hash`), which
+/// the listing thread looks new names up in. They cost 8 bytes a name and no copy of the names:
+/// a copy of the list and a set over it held about 37 MB at 500,000 names for the whole walk.
+/// A name whose hash another one shares only waits for the whole list. Beside them it holds how
+/// many names each folder of the list has, by which the thread tells a folder it read whole that
+/// no longer holds all of them (`ReadWhole`).
+#[derive(Default)]
+pub struct NameHashes {
+    hashes: Vec<u64>,
+    /// How many names of the list lie directly in each folder, relative to the tree ("" is its
+    /// top).
+    in_folder: std::collections::HashMap<Vec<u8>, u32>,
+    /// For each folder above a folder of the list, the folders directly in it on the way there,
+    /// which `sorted` works out in the listing thread.
+    below: std::collections::HashMap<Vec<u8>, HashSet<Vec<u8>>>,
+}
+
+impl NameHashes {
+    /// The hashes of `names`, in their order, and how many lie in each folder. `sorted` puts
+    /// them in order to be looked up.
+    pub fn of(names: &[OsString]) -> NameHashes {
+        let mut in_folder: std::collections::HashMap<&[u8], u32> = Default::default();
+        // The names of a folder mostly come together, so its count is looked up once for them.
+        let mut last: Option<(&[u8], u32)> = None;
+        let mut hashes = Vec::with_capacity(names.len());
+        for name in names {
+            hashes.push(name_hash(name.as_encoded_bytes()));
+            let folder = folder_of(name.as_encoded_bytes());
+            match &mut last {
+                Some((at, count)) if *at == folder => *count += 1,
+                _ => {
+                    if let Some((at, count)) = last {
+                        *in_folder.entry(at).or_default() += count;
+                    }
+                    last = Some((folder, 1));
+                }
+            }
+        }
+        if let Some((at, count)) = last {
+            *in_folder.entry(at).or_default() += count;
+        }
+        let in_folder = (in_folder.into_iter())
+            .map(|(folder, count)| (folder.to_vec(), count))
+            .collect();
+        NameHashes {
+            hashes,
+            in_folder,
+            below: Default::default(),
+        }
+    }
+
+    /// Puts the hashes in order, in the listing thread, for `holds`, and works out the folders
+    /// below each folder for `note_folder`.
+    pub fn sorted(mut self) -> NameHashes {
+        self.hashes.sort_unstable();
+        for folder in self.in_folder.keys() {
+            let slashes = (folder.iter().enumerate()).filter(|(_, b)| **b == b'/');
+            let ends = slashes.map(|(at, _)| at).chain([folder.len()]);
+            let mut above: &[u8] = b"";
+            for end in ends.filter(|&end| end > 0) {
+                let child = &folder[..end];
+                self.below
+                    .entry(above.to_vec())
+                    .or_default()
+                    .insert(child.to_vec());
+                above = child;
+            }
+        }
+        self
+    }
+
+    /// Returns whether a name of these hashes, sorted, may be `name`.
+    pub fn holds(&self, name: &std::ffi::OsStr) -> bool {
+        (self.hashes)
+            .binary_search(&name_hash(name.as_encoded_bytes()))
+            .is_ok()
+    }
+
+    /// Whether no name was hashed, as for a listing whose parts are not new names only.
+    pub fn is_empty(&self) -> bool {
+        self.hashes.is_empty()
+    }
+
+    /// Notes in `read` the folder of `folder` that the walk read whole, when the list may hold a
+    /// name in or below it that is gone: fewer of the list's names were found in it than it
+    /// had, or a folder of the list below it is not among those it holds now.
+    pub fn note_folder(&self, folder: &FolderReadWhole, read: &mut ReadWhole) {
+        let at = folder.folder.as_os_str().as_encoded_bytes();
+        let images = &folder.so_far[folder.first..];
+        let found = images.iter().filter(|f| self.holds(&f.0)).count();
+        let fewer = self
+            .in_folder
+            .get(at)
+            .is_some_and(|&had| had as usize > found);
+        let subfolders: HashSet<Vec<u8>> = (folder.dirs.iter())
+            .filter_map(|d| d.file_name())
+            .map(|n| folder.folder.join(n).into_os_string().into_encoded_bytes())
+            .collect();
+        let vanished = (self.below.get(at)).is_some_and(|b| !b.is_subset(&subfolders));
+        if fewer || vanished {
+            read.folders.insert(at.to_vec());
+            let names = images.iter().map(|f| name_hash(f.0.as_encoded_bytes()));
+            let subfolders = subfolders.iter().map(|f| name_hash(f));
+            read.found.extend(names.chain(subfolders));
+        }
+    }
+}
+
+/// A folder of a tree that `list_tree` has read whole, as its `part` callback gets it.
+pub struct FolderReadWhole<'a> {
+    /// The images of the tree found so far, this folder's last.
+    pub so_far: &'a [ListedName],
+    /// How many of `so_far` were found before this folder.
+    pub first: usize,
+    /// The folder, relative to the tree.
+    pub folder: &'a Path,
+    /// The folders in it, as full paths.
+    pub dirs: &'a [PathBuf],
+}
+
+/// The folders that a part of a tree read whole where the list may hold a name that is gone,
+/// with the hashes of every image and folder found in them. The window leaves out of the list
+/// each name in such a folder, or below a folder of it, that was not found there
+/// (`leaves_out`), so a folder renamed or an image moved is not shown twice, nor tried under a
+/// name that is gone. Only the folders where the list's names were fewer are here, so the
+/// window looks at its names only when a part has one.
+#[derive(Default, Debug)]
+pub struct ReadWhole {
+    folders: HashSet<Vec<u8>>,
+    found: HashSet<u64>,
+}
+
+impl ReadWhole {
+    /// Whether no folder read may leave out a name.
+    pub fn is_empty(&self) -> bool {
+        self.folders.is_empty()
+    }
+
+    /// Adds the folders that `other` read whole, for several parts taken together.
+    pub fn add(&mut self, other: ReadWhole) {
+        self.folders.extend(other.folders);
+        self.found.extend(other.found);
+    }
+
+    /// Returns whether `name`, a name of the list relative to the tree, lies in a folder read
+    /// whole that no longer holds it, or below a folder read whole that no longer holds the
+    /// folder on its way. Each folder above it is one lookup.
+    pub fn leaves_out(&self, name: &std::ffi::OsStr) -> bool {
+        if self.folders.is_empty() {
+            return false;
+        }
+        let name = name.as_encoded_bytes();
+        let slashes = (name.iter().enumerate()).filter(|(_, b)| **b == b'/');
+        let ends: Vec<usize> = slashes.map(|(at, _)| at).chain([name.len()]).collect();
+        // The folder above each step on the way to the name: the top, then each folder.
+        let mut above = 0;
+        for end in ends {
+            let folder = &name[..above];
+            if self.folders.contains(folder) && !self.found.contains(&name_hash(&name[..end])) {
+                return true;
+            }
+            above = end;
+        }
+        false
+    }
+}
+
 /// The folders a listing read, each with the modification time it had when it was read, so the
 /// folder watcher sees a change made after the reading. The time is `None` when it could not be
 /// read.
@@ -139,7 +306,7 @@ pub type Unread = (PathBuf, std::io::Error);
 pub type ListedName = (OsString, Identity);
 
 /// The file types the list shows, as Geeqie's file classes in its file filter.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Types {
     pub images: bool,
     pub raw: bool,
@@ -501,8 +668,8 @@ fn inside(real: std::io::Result<PathBuf>, top: &Path) -> Option<PathBuf> {
 
 /// The folders in `dir`, as `list_folder` gives them, and the images in it and every folder
 /// below it, as paths relative to `dir`, in name order: `dir` read once. `top` gets `dir`'s own
-/// folders as soon as they are read, and `part` the images found so far after each folder that
-/// had some, to show them as the tree is read: a large tree takes long to read whole. Cut short
+/// folders as soon as they are read, and `part` each folder read whole, with the images found so
+/// far, to show them as the tree is read: a large tree takes long to read whole. Cut short
 /// when `stop` is set: another folder was opened, and the tree would be read for nothing. On a
 /// share it waits between folders while the window waits for an image of `awaited`.
 /// Returns, third, every folder of the tree that was read, `dir` first, for the folder watcher,
@@ -514,7 +681,7 @@ pub fn list_tree(
     stop: &std::sync::atomic::AtomicBool,
     awaited: &ImagesAwaited,
     top: impl FnOnce(&[PathBuf]),
-    mut part: impl FnMut(&[ListedName]),
+    mut part: impl FnMut(&FolderReadWhole),
 ) -> Result<ListedTree, Unread> {
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
@@ -536,15 +703,20 @@ pub fn list_tree(
             }
         };
         read.push((dir.join(&rel), modified));
-        if rel.as_os_str().is_empty() {
-            if let Some(top) = top.take() {
-                top(&dirs);
-            }
-            own = dirs;
+        let is_top = rel.as_os_str().is_empty();
+        if is_top && let Some(top) = top.take() {
+            top(&dirs);
         }
-        if !files.is_empty() {
-            out.extend((files.into_iter()).map(|(f, id)| (rel.join(f).into_os_string(), id)));
-            part(&out);
+        let first = out.len();
+        out.extend((files.into_iter()).map(|(f, id)| (rel.join(f).into_os_string(), id)));
+        part(&FolderReadWhole {
+            so_far: &out,
+            first,
+            folder: &rel,
+            dirs: &dirs,
+        });
+        if is_top {
+            own = dirs;
         }
         if on_a_share {
             wait_for_reads_that_go_first(stop, awaited);
@@ -755,25 +927,6 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// The shuffled `old` order without files that are gone, followed by new files in random order.
-/// Each file has the identity `new` lists it with.
-pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName> {
-    let old_set: HashSet<&OsString> = old.iter().collect();
-    let new_identities: std::collections::HashMap<&OsString, Identity> =
-        new.iter().map(|(f, id)| (f, *id)).collect();
-    let mut added: Vec<ListedName> = new
-        .iter()
-        .filter(|f| !old_set.contains(&f.0))
-        .cloned()
-        .collect();
-    shuffle(&mut added);
-    let mut out: Vec<ListedName> = (old.iter())
-        .filter_map(|f| Some((f.clone(), *new_identities.get(f)?)))
-        .collect();
-    out.extend(added);
-    out
-}
-
 /// Merges `new`, a tree's images read so far or all of them, into `old`, the list that a
 /// slideshow plays or that is in random order. Its first `kept` files keep their places: the
 /// images shown so far, which Previous goes back through. The new names go after them, so the
@@ -783,14 +936,17 @@ pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName>
 /// the whole list puts them in its own order, so that a slideshow without Repeat shows every
 /// image once. `names` says what `new` is. For a part of the tree, the files of `old` that it
 /// lacks are kept, as the walk may still find them. For the whole list, the files that `new`
-/// lacks are gone and are left out, and every file has the identity that `new` gives it.
-/// Returns `old` as it is when no name is new and none is gone.
+/// lacks are gone and are left out, and every file has the identity that `new` gives it. A part
+/// leaves out the files of `old` that the folders it `read` whole no longer hold
+/// (`ReadWhole::leaves_out`), also among the first `kept`. Returns `old` as it is when no name
+/// is new and none is gone.
 pub fn merge_after(
     old: Vec<ListedName>,
     kept: usize,
     new: Vec<ListedName>,
     names: NamesListed,
     shuffled: bool,
+    read: &ReadWhole,
 ) -> Vec<ListedName> {
     let whole = names == NamesListed::Whole;
     // Which names of `new` are not in `old`, by a look at each name of `old` in a set of the
@@ -809,10 +965,30 @@ pub fn merge_after(
             new.iter().map(|f| not_in_old.contains(&f.0)).collect()
         }
     };
-    if !whole && !is_new.contains(&true) {
+    if !whole && !is_new.contains(&true) && read.is_empty() {
         return old;
     }
-    let kept = kept.min(old.len());
+    let mut kept = kept.min(old.len());
+    // A part leaves out the names that the folders it read whole no longer hold, one look at
+    // each name only when a folder read may have lost one.
+    let old = match whole || read.is_empty() {
+        true => old,
+        false => {
+            let mut place = 0;
+            let before = kept;
+            let stays: Vec<ListedName> = (old.into_iter())
+                .filter(|f| {
+                    place += 1;
+                    let gone = read.leaves_out(&f.0);
+                    if gone && place <= before {
+                        kept -= 1;
+                    }
+                    !gone
+                })
+                .collect();
+            stays
+        }
+    };
     // The files of `old`, of which the first `kept` stay in their places.
     let (mut out, kept) = match whole {
         // Each file has the identity that `new` gives it, and one that `new` lacks is gone. A
@@ -866,6 +1042,22 @@ fn merged_by_name(a: Vec<ListedName>, b: Vec<ListedName>) -> Vec<ListedName> {
     out
 }
 
+/// Returns a 64-bit hash of a name's bytes, the same in every thread of this Glimt, as the
+/// listing thread looks up the hashes that the window made (`NameHashes`).
+pub fn name_hash(name: &[u8]) -> u64 {
+    use std::hash::Hasher;
+    let mut hasher = std::hash::DefaultHasher::new();
+    hasher.write(name);
+    hasher.finish()
+}
+
+/// Returns the folder of `name`, a path relative to a tree, as bytes: what comes before its
+/// last "/", or nothing for a name at the top.
+fn folder_of(name: &[u8]) -> &[u8] {
+    let last = name.iter().rposition(|&b| b == b'/');
+    last.map_or(&name[..0], |at| &name[..at])
+}
+
 /// Fisher–Yates with xorshift seeded from std's random hash key (no rand dependency).
 pub fn shuffle<T>(v: &mut [T]) {
     let mut x = random_seed();
@@ -902,6 +1094,68 @@ fn random_seed() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    /// A part of new names leaves out of the list the names that a folder it read whole no
+    /// longer holds: an image moved away, and every image below a subfolder renamed, also
+    /// among the images played, which keep their order. A folder read that holds every name of
+    /// the list is not noted, so its part costs the window no look at the list. Before, such
+    /// names stayed until the whole list came, which on a share is minutes away, and the
+    /// slideshow showed a renamed folder's images twice and tried the old names.
+    #[test]
+    fn a_part_leaves_out_what_its_folders_no_longer_hold() {
+        let names = |v: &[&str]| -> Vec<std::ffi::OsString> { v.iter().map(Into::into).collect() };
+        let list = names(&["t.png", "a/1.png", "a/2.png", "b/c/3.png", "d/4.png"]);
+        let hashes = super::NameHashes::of(&list).sorted();
+        let found = |v: &[&str]| -> Vec<super::ListedName> {
+            v.iter().map(|n| ((*n).into(), None)).collect()
+        };
+        let mut read = super::ReadWhole::default();
+        // The top holds t.png and the folders a and d, and b is renamed to e.
+        let top = found(&["t.png"]);
+        let dirs = [
+            std::path::PathBuf::from("/x/a"),
+            "/x/d".into(),
+            "/x/e".into(),
+        ];
+        let folder = |so_far, folder, dirs| super::FolderReadWhole {
+            so_far,
+            first: 0,
+            folder,
+            dirs,
+        };
+        hashes.note_folder(&folder(&top, std::path::Path::new(""), &dirs), &mut read);
+        // a holds 1.png only, and d all it had.
+        let a = found(&["a/1.png"]);
+        hashes.note_folder(&folder(&a, std::path::Path::new("a"), &[]), &mut read);
+        let d = found(&["d/4.png"]);
+        hashes.note_folder(&folder(&d, std::path::Path::new("d"), &[]), &mut read);
+        assert!(!read.folders.contains(b"d".as_slice()), "d lost nothing");
+        let gone: Vec<&std::ffi::OsString> = list.iter().filter(|n| read.leaves_out(n)).collect();
+        assert_eq!(gone, [&list[2], &list[3]]);
+        let old = found(&["a/2.png", "t.png", "b/c/3.png", "a/1.png", "d/4.png"]);
+        let new = found(&["e/c/3.png"]);
+        let merged = super::merge_after(old, 3, new, super::NamesListed::NewOnly, false, &read);
+        assert_eq!(merged, found(&["t.png", "a/1.png", "d/4.png", "e/c/3.png"]));
+    }
+
+    /// The names that a listing of new names only leaves out are handed to its thread as 8
+    /// bytes each, with no copy of the names, and every one of them is found. Before, the list
+    /// was copied and a set built over the copy, about 37 MB at 500,000 names, and 30 ms in the
+    /// window's thread instead of 10.
+    #[test]
+    fn the_names_listed_before_cost_eight_bytes_each() {
+        let names: Vec<std::ffi::OsString> = (0..10_000)
+            .map(|i| format!("{:02}/IMG_{i:06}.JPG", i / 1000).into())
+            .collect();
+        let hashes = super::NameHashes::of(&names).sorted();
+        assert_eq!(
+            std::mem::size_of_val(hashes.hashes.as_slice()),
+            8 * names.len()
+        );
+        assert!(names.iter().all(|n| hashes.holds(n)));
+        assert!(!hashes.holds(std::ffi::OsStr::new("10/IMG_010000.JPG")));
+        assert!(super::NameHashes::default().is_empty() && !hashes.is_empty());
+    }
+
     /// A tree on a share is read on only once a program started on a file (Play Video, Open
     /// With) has had a moment to read the start of its file. Before, the player's reads waited
     /// behind a look at each file of the tree. A tree on a disk of its own does not wait.
@@ -1144,7 +1398,11 @@ mod tests {
             &AtomicBool::new(false),
             &Default::default(),
             |_| {},
-            |p| parts.push(p.iter().map(|f| f.0.clone()).collect()),
+            |p| {
+                if p.so_far.len() > p.first {
+                    parts.push(p.so_far.iter().map(|f| f.0.clone()).collect())
+                }
+            },
         )
         .unwrap();
         assert_eq!(all.len(), 4);
@@ -1605,8 +1863,20 @@ mod tests {
         let names = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
         let mut new = listed(&["a", "b", "d"]);
         new[0].1 = std::num::NonZeroU64::new(1000);
-        let merged = super::merge_shuffled(&names(&["c", "a", "b"]), new.clone());
-        assert_eq!(merged, new);
+        let old = listed(&["c", "a", "b"]);
+        let merged = super::merge_after(
+            old,
+            2,
+            new.clone(),
+            super::NamesListed::Whole,
+            true,
+            &Default::default(),
+        );
+        // The image kept first has the identity the listing gives it, and the name gone is out.
+        assert_eq!(merged[0], new[0]);
+        let mut sorted = merged.clone();
+        sorted.sort();
+        assert_eq!(sorted, new);
         let kept = super::kept_order(names(&["b", "d", "a"]), &new).unwrap();
         assert_eq!(kept[2], new[0]);
     }
@@ -1625,6 +1895,7 @@ mod tests {
             listed(&["a", "e", "f"]),
             super::NamesListed::TreeSoFar,
             true,
+            &Default::default(),
         );
         assert_eq!(merged[..2], old[..2]);
         let mut rest = merged[2..].to_vec();
@@ -1638,6 +1909,7 @@ mod tests {
             new.clone(),
             super::NamesListed::Whole,
             true,
+            &Default::default(),
         );
         assert_eq!(whole[..2], [new[1].clone(), new[0].clone()]);
         assert_eq!(whole[2..], new[2..]);
@@ -1647,6 +1919,7 @@ mod tests {
             listed(&["a", "d"]),
             super::NamesListed::TreeSoFar,
             true,
+            &Default::default(),
         );
         assert_eq!(unchanged, old);
         // A list still empty, as before the first part of a tree, takes the part whole.
@@ -1656,11 +1929,19 @@ mod tests {
             listed(&["a", "b"]),
             super::NamesListed::TreeSoFar,
             true,
+            &Default::default(),
         );
         assert_eq!(first.len(), 2);
         // A part of new names only is taken as new without a look at the names before it.
         let new_only = super::NamesListed::NewOnly;
-        let part = super::merge_after(old.clone(), 4, listed(&["e", "f"]), new_only, true);
+        let part = super::merge_after(
+            old.clone(),
+            4,
+            listed(&["e", "f"]),
+            new_only,
+            true,
+            &Default::default(),
+        );
         assert_eq!(part[..4], old[..]);
         assert_eq!(part.len(), 6);
         let played = listed(&["m", "b", "x"]);
@@ -1670,6 +1951,7 @@ mod tests {
             listed(&["a", "c", "m", "z"]),
             super::NamesListed::TreeSoFar,
             false,
+            &Default::default(),
         );
         assert_eq!(part, listed(&["m", "a", "b", "c", "x", "z"]));
         let whole = super::merge_after(
@@ -1678,6 +1960,7 @@ mod tests {
             listed(&["z", "c", "a", "m"]),
             super::NamesListed::Whole,
             false,
+            &Default::default(),
         );
         assert_eq!(whole, listed(&["m", "a", "z", "c"]));
     }

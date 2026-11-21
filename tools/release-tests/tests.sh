@@ -6475,6 +6475,9 @@ else
                 shown=$now
                 sleep 0.2
             done
+            # The end of the sampling counts as a change for the gaps, so that a slideshow that
+            # stands still after its fifth slide fails too, but it is no slide.
+            echo "$(date +%s%3N) end" >>$changes
             # When the tree's walk read its last folder, s20 (on a share the sizes are not read
             # after it), when the first image of a subfolder was shown, and whether the image's
             # reads were slow too, in ms.
@@ -6484,10 +6487,11 @@ else
                 awk '{printf "%d", $3 * 1000}')
             slow_reads=$(grep -c "^READ /slow-tree-$order-$v/" $log)
             first_sub=$(grep -m1 "/s[0-9][0-9]/" $changes | cut -d' ' -f1)
-            # The longest time between two slides after the first image of a subfolder.
+            # The longest time between two slides after the first image of a subfolder, and
+            # from the last one to the end of the sampling.
             gap=$(awk -v from="${first_sub:-0}" '$1 >= from { if (last) { g = $1 - last
                 if (g > max) max = g } last = $1 } END { print max + 0 }' $changes)
-            slides=$(awk -v from="${first_sub:-0}" '$1 >= from' $changes | wc -l)
+            slides=$(awk -v from="${first_sub:-0}" '$1 >= from && $2 != "end"' $changes | wc -l)
             rm -f /tmp/lossy-slow
             quit
             got="$([ -n "$first_sub" ] && [ "$first_sub" -lt "${read_last:-0}" ] && echo before)"
@@ -6497,6 +6501,78 @@ else
                 expect "$order order: a subfolder's image before the tree was read, then a slide about every second" \
                     "$got" "before steady slow-reads"
             else note "old, $order order: $got (first subfolder image at ${first_sub:-none}, tree read at $read_last, $slides slides, longest gap $gap ms)"; fi
+            rm -rf $back $changes
+        done
+    done
+fi
+
+section "a slideshow of a tree on a slow share in name order: R during the walk shuffles the rest, F5 keeps the order played"
+# The tree of the section before, played in name order without Repeat. R (--remote random on)
+# after the third slide turns random order on, and the images not shown yet are shuffled at
+# once, also while the tree is still read: a slide after R comes before the one shown before it
+# in name order. F5 (run Refresh) after the third slide reads the tree again, and the order
+# played stays: no image is shown twice, and the slides go on in name order. 0.95.1's first
+# fixes only read the tree again for R, so the slides went on in name order while the setting
+# said random.
+faults=yes
+if ! grep -q " $share fuse.sshfs" /proc/mounts; then
+    fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
+else
+    for event in random refresh; do
+        for v in new old; do
+            as_version $v
+            back=/opt/lossy/walk-$event-$v d=$share/walk-$event-$v
+            rm -rf $back; mkdir -p $back
+            convert -size 300x200 xc:red $back/top.png
+            for k in $(seq -w 1 20); do
+                mkdir $back/s$k
+                convert -size 300x200 xc:lime $back/s$k/a.png
+                convert -size 300x200 xc:blue $back/s$k/b.png
+            done
+            config slideshow_subfolders=true slideshow_random=false slideshow_repeat=false \
+                slideshow_delay=1 slideshow_fade=0 thumbnails=false
+            echo /walk-$event-$v >/tmp/lossy-slow
+            start --slideshow $d
+            # Each image shown, by its name in the tree, every 0.2 s for twelve seconds, and the
+            # event after the third one.
+            changes=/tmp/walk-changes-$event-$v shown= n=0
+            : >$changes
+            for i in $(seq 60); do
+                now=$(remote current 2>/dev/null | tr -d '\0')
+                if [ -n "$now" ] && [ "$now" != "$shown" ]; then
+                    echo "${now#$d/}" >>$changes
+                    n=$((n + 1))
+                    if [ $n -eq 3 ] && [ $event = random ]; then
+                        remote random on >/dev/null 2>&1; echo EVENT >>$changes
+                    elif [ $n -eq 3 ]; then
+                        remote run Refresh >/dev/null 2>&1; echo EVENT >>$changes
+                    fi
+                fi
+                shown=$now
+                sleep 0.2
+            done
+            rm -f /tmp/lossy-slow
+            quit
+            # The slides after the event, how many came before the one before them in name
+            # order, and how many images were shown twice.
+            after=$(sed -n '/^EVENT$/,$p' $changes | tail -n +2)
+            slides=$(printf '%s\n' "$after" | grep -c .)
+            descents=$(printf '%s\n' "$after" |
+                LC_ALL=C awk 'NR > 1 && $0 < last { d++ } { last = $0 } END { print d + 0 }')
+            twice=$(grep -v '^EVENT$' $changes | sort | uniq -d | wc -l)
+            random=$(grep -c '^slideshow_random=true$' $XDG_CONFIG_HOME/glimt/config)
+            if [ $event = random ]; then
+                got="$([ "$slides" -ge 5 ] && echo slides) $([ "$descents" -gt 0 ] && echo shuffled)"
+                got="$got random=$random twice=$twice"
+                want="slides shuffled random=1 twice=0"
+            else
+                got="$([ "$slides" -ge 5 ] && echo slides) descents=$descents twice=$twice"
+                want="slides descents=0 twice=0"
+            fi
+            note "$v, $event during the walk, the slides: $(tr '\n' ' ' <$changes)"
+            if [ $v = new ]; then
+                expect "$event during the walk in name order" "$got" "$want"
+            else note "old, $event during the walk: $got"; fi
             rm -rf $back $changes
         done
     done

@@ -15,7 +15,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   before the subfolders' images came. The images shown this round keep their places, also
   after Previous, and so do the next images read ahead, so a new part of the tree no longer
   takes away a decode the next slide waits for. Left to run without Repeat, it shows every image
-  once (#256).
+  once, also through a refresh, a rename or a move while it runs, and R turned on or off while
+  it runs changes the order of only the images not shown yet, at once, also while the tree is
+  read (#256).
 - On a network share, the reading of a tree pauses between folders, for up to a second each,
   while an image that the window waits for is read: the shown one, the next one for the
   slideshow or an arrow key, or another pane. Before, the image was read behind the tree. With
