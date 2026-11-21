@@ -4569,10 +4569,10 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// `slideshow on` after `open`, with subfolders in random order, runs on the folder opened
-    /// and keeps its shuffle, which opening the folder would otherwise take away.
+    /// `slideshow on` after `open`, with subfolders in random order, runs on the folder opened,
+    /// in random order.
     #[test]
-    fn a_slideshow_after_an_open_keeps_its_shuffle() {
+    fn a_slideshow_after_an_open_runs_on_the_folder_opened() {
         let dir = std::env::temp_dir().join(format!("glimt-test-open-show-{}", std::process::id()));
         let other = dir.join("other");
         std::fs::create_dir_all(&other).unwrap();
@@ -4590,7 +4590,7 @@ mod tests {
         tx.send(("slideshow on".to_owned(), None, later())).unwrap();
         let shown = receive_remote_until(&mut app, &ctx, |app| app.slideshow.is_running());
         assert!(shown && app.folder.dir() == other);
-        assert!(app.slideshow.is_shuffled());
+        assert!(app.config.slideshow_random);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

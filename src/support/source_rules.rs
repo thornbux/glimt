@@ -2449,52 +2449,71 @@ fn whether_a_window_listens_is_asked_in_one_place() {
     );
 }
 
-/// While a slideshow keeps its order, every listing reaches the list through one merge,
-/// `merge_after` in `take_listing`, which keeps the images played in their places. Only the
-/// slideshow shuffles the list, in the window's thread: a new round, or R on for the images not
-/// played. A listing thread never shuffles what it lists. Before, a random listing was shuffled
-/// whole in its thread and merged by a second function, and a listing after the slideshow's
-/// walk took another branch that put the order played back into the sort order, so the round
-/// showed an image twice or never, and R during a walk in name order shuffled nothing. The
-/// calls are found qualified too (`listing::shuffle(&mut files)`) and with any argument
-/// (`shuffle(v.as_mut())`). Before, the patterns ended in `(&` after a space, so a qualified
-/// call or one without `&` passed.
+/// The slideshow never changes the order of the file list: no function of viewer/slideshow.rs
+/// reaches, however deep, a function that puts the list in an order (`REORDERS`). The list is
+/// always in the order its listing gives it, and the slideshow keeps its own state by the
+/// images' names: the round, the history and the images it picks next. Before, the slideshow
+/// put a random order, or the order it played, into the list itself, and merged every listing
+/// into that order, through parts, whole lists, R, Home, End, the end of a round and the sort.
+/// Four rounds of audits found images lost or shown twice in that merge.
 #[test]
-fn listings_reach_a_slideshow_through_one_merge() {
-    const SHUFFLES: &[(&str, &str)] = &[
-        ("viewer/slideshow.rs", "shuffle_list"),
-        ("viewer/slideshow.rs", "shuffle_the_rest"),
+fn the_slideshow_never_reorders_the_list() {
+    const REORDERS: &[(&str, &str)] = &[
+        ("model/folder.rs", "replace_files"),
+        ("model/folder.rs", "take_listing"),
+        ("model/folder.rs", "take_listed_files"),
+        ("model/list.rs", "replacing"),
+        ("model/list.rs", "set_files"),
+        ("model/list.rs", "rename"),
+        ("model/listing.rs", "sort_files"),
+        ("model/listing.rs", "merge_new_names"),
     ];
-    const SHUFFLES_IN: &[(&str, &str)] = &[("model/listing.rs", "merge_after")];
-    // Each call by itself, qualified, or as an argument, but not `unshuffle(`.
-    let wrong = outside_their_homes(&[
-        ("merge_after(", &[("model/folder.rs", "take_listing")]),
-        (" shuffle(", SHUFFLES),
-        ("::shuffle(", SHUFFLES),
-        ("(shuffle(", SHUFFLES),
-        (" shuffle_in(", SHUFFLES_IN),
-        ("::shuffle_in(", SHUFFLES_IN),
-        ("(shuffle_in(", SHUFFLES_IN),
-    ]);
+    let sources = rust_sources();
+    let graph = CallGraph::new(&sources);
+    let calls: Vec<Vec<Call>> = graph.functions.iter().map(|f| graph.calls_of(f)).collect();
+    let reorders =
+        |f: &Function| (REORDERS.iter()).any(|(file, name)| f.file == *file && f.name == *name);
+    let mut wrong = Vec::new();
+    for (start, f) in graph.functions.iter().enumerate() {
+        if f.file != "viewer/slideshow.rs" {
+            continue;
+        }
+        // The functions it reaches, each with the way there.
+        let mut way: std::collections::HashMap<usize, String> = [(start, f.name.clone())].into();
+        let mut next = vec![start];
+        while let Some(g) = next.pop() {
+            for call in &calls[g] {
+                let Some(callee) = call.callee else {
+                    continue;
+                };
+                if way.contains_key(&callee) {
+                    continue;
+                }
+                let through = format!("{} → {}", way[&g], graph.functions[callee].name);
+                if reorders(&graph.functions[callee]) {
+                    wrong.push(through.clone());
+                }
+                way.insert(callee, through);
+                next.push(callee);
+            }
+        }
+    }
     assert!(
         wrong.is_empty(),
-        "a listing merged or shuffled outside the one merge of take_listing:\n{}",
+        "the slideshow reaches a function that orders the list:\n{}",
         wrong.join("\n")
     );
 }
 
-/// A round of the slideshow begins in one place, `App::begin_round`, which every way a round
-/// begins calls: the start, a new random order, the slideshow going round past the end of the
-/// list, and Home while it runs. Before, only a start and a shuffle began a round, so a
-/// slideshow in name order that went round kept the mark of the round before, and R in its
-/// second round shuffled nothing.
+/// A round of the slideshow begins in one place, `Slideshow::begin_round`, which every way a
+/// round begins calls: the start, the end of a round with Repeat, and Home while it runs. Its
+/// round, the names shown in it, is cleared nowhere else.
 #[test]
 fn a_round_begins_in_one_place() {
-    let wrong =
-        outside_their_homes(&[("start_round_at(", &[("viewer/slideshow.rs", "begin_round")])]);
+    let wrong = outside_their_homes(&[("round.clear(", &[("viewer/slideshow.rs", "begin_round")])]);
     assert!(
         wrong.is_empty(),
-        "a round begun outside App::begin_round:\n{}",
+        "a round begun outside Slideshow::begin_round:\n{}",
         wrong.join("\n")
     );
 }

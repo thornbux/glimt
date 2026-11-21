@@ -122,11 +122,6 @@ pub(crate) struct List {
     /// Images of a collection being dragged in the file list, and the place they would go.
     dragging: Option<(HashSet<usize>, Option<usize>)>,
     last_slide: usize,
-    /// The furthest place shown in this round: by the shown image, or by the last pane that a
-    /// slideshow filled. `App::begin_round` starts a new round. The parts of a tree go in after it
-    /// (`App::take_listed_files`), so the images shown, also those that the user went back
-    /// from, keep their places.
-    played_up_to: usize,
     /// The files whose cells pan view draws this frame: their thumbnails are made and kept,
     /// also while the file list shows others.
     pan_thumbs: Vec<usize>,
@@ -137,8 +132,8 @@ pub(crate) struct List {
     /// that it is old, also when the list kept its length (another order).
     version: usize,
     /// The entries are the names in a list's file, not yet checked to be files, so no file
-    /// operation may start. A new `List` keeps it, because a shuffle or a move in the
-    /// collection puts the same names in another order. The whole listing clears it, and so
+    /// operation may start. A new `List` keeps it, because a move in the collection puts the
+    /// same names in another order. The whole listing clears it, and so
     /// does another folder opened.
     has_unchecked_entries: bool,
     /// The mark that Select Mark selected by and the selection it made, kept while the marks
@@ -360,23 +355,6 @@ impl List {
     /// Shows the image at place `i`.
     pub(crate) fn set_shown(&mut self, i: usize) {
         self.shown = i;
-        self.note_played(i);
-    }
-
-    /// Returns the furthest place shown in this round.
-    pub(crate) fn played_up_to(&self) -> usize {
-        self.played_up_to
-    }
-
-    /// Notes that the image at place `i` was shown in this round.
-    pub(crate) fn note_played(&mut self, i: usize) {
-        self.played_up_to = self.played_up_to.max(i);
-    }
-
-    /// Starts a new round at place `i`, so that only the images up to there count as shown in
-    /// it. `App::begin_round` is the one caller.
-    pub(crate) fn start_round_at(&mut self, i: usize) {
-        self.played_up_to = i;
     }
 
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
@@ -423,7 +401,6 @@ impl List {
         // pan view read a place past the end of the shorter list, and the window crashed.
         self.pan_thumbs.clear();
         self.last_slide -= removed.partition_point(|&r| r < self.last_slide);
-        self.played_up_to -= removed.partition_point(|&r| r < self.played_up_to);
     }
 
     /// Lets go of everything that holds a place in the list, because files were taken out of
@@ -544,17 +521,11 @@ impl List {
     /// Notes the image a slideshow of several panes showed last.
     pub(crate) fn set_last_slide(&mut self, i: usize) {
         self.last_slide = i;
-        self.note_played(i);
     }
 
     /// Shows the image at place `i` in pane `k` after the first.
     pub(crate) fn set_pane(&mut self, k: usize, i: usize) {
         self.panes[k] = i;
-    }
-
-    /// Forgets the panes' images, so they are filled again from the list as it is.
-    pub(crate) fn clear_panes(&mut self) {
-        self.panes.clear();
     }
 
     /// Takes the decoded images, by their places, to carry them into a new list by name.
@@ -798,7 +769,6 @@ mod tests {
             ("rubber_band", "reset"),
             ("dragging", "reset"),
             ("last_slide", "carried by name"),
-            ("played_up_to", "carried by name"),
             (
                 "pan_thumbs",
                 "reset: pan view names them again in its next frame",
@@ -853,7 +823,6 @@ mod tests {
             ("rubber_band", "forget_places"),
             ("dragging", "forget_places"),
             ("last_slide", "remove"),
-            ("played_up_to", "remove"),
             ("pan_thumbs", "remove"),
             ("sizes_and_dates", "not a place: by name"),
             ("version", "forget_places"),

@@ -1,5 +1,5 @@
 //! The file list: which files are images (by extension and file type), reading a folder or a tree
-//! of them, and sorting them (by name as numbers, date, size, EXIF date or shuffled).
+//! of them, and sorting them (by name as numbers, date, size or EXIF date).
 
 use crate::files::external::{is_heif, is_video};
 use crate::files::file_io::Identity;
@@ -98,19 +98,14 @@ thread_local! {
     pub(crate) static PROGRAMS_STARTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// What the names that `merge_after` merges into a list are.
+/// What the names of a listing that the window takes are (`App::take_listing`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NamesListed {
     /// The whole list.
     Whole,
-    /// A part of a tree: the images found so far.
+    /// A part of a tree: the images found so far, or only those that the list does not have
+    /// yet, as a listing of a tree sends them while a slideshow runs (`merge_new_names`).
     TreeSoFar,
-    /// A part of a tree: only images that the list does not have yet, as the slideshow's own
-    /// listing of its tree sends them.
-    NewOnly,
-    /// The list's own images after those kept in their places, put in another order (R off),
-    /// which may hold a few of the kept ones too.
-    Reordered,
 }
 
 /// The names that the list held when a listing began, as 64-bit hashes (`name_hash`), which
@@ -956,115 +951,28 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// Merges `new`, a tree's images read so far or all of them, into `old`, the list that a
-/// slideshow plays or that is in random order. Its first `kept` files keep their places: the
-/// images shown so far, which Previous goes back through. The new names go after them, so the
-/// images of the folders read later come up as soon as the others do. In random order
-/// (`shuffled`), they are shuffled in among the files of `old` not shown yet. In another order,
-/// a part of the tree is merged in by name among them, as the parts come in name order, and
-/// the whole list puts them in its own order, so that a slideshow without Repeat shows every
-/// image once. `names` says what `new` is. For a part of the tree, the files of `old` that it
-/// lacks are kept, as the walk may still find them. For the whole list, the files that `new`
-/// lacks are gone and are left out, and every file has the identity that `new` gives it. A part
-/// leaves out the files of `old` that the folders it `read` whole no longer hold
-/// (`ReadWhole::leaves_out`), also among the first `kept`. Returns `old` as it is when no name
-/// is new and none is gone.
-pub fn merge_after(
+/// Merges `new`, a part of a tree of only images that `old` lacks, into `old`, the list, so
+/// that the list keeps its order and grows. The part leaves out the names of `old` that the
+/// folders it `read` whole no longer hold (`ReadWhole::leaves_out`). Returns `old` as it is when
+/// no name is new and none is gone. A part of new names only needs no look at the names of
+/// `old` to tell which are new, so merging it takes time for its own names and a move of the
+/// others.
+pub fn merge_new_names(
     old: Vec<ListedName>,
-    kept: usize,
     new: Vec<ListedName>,
-    names: NamesListed,
-    shuffled: bool,
     read: &ReadWhole,
 ) -> Vec<ListedName> {
-    // The images after the first `kept` take the new order. A kept one is left out of it, so
-    // that one played while they were sorted keeps its place. Only the kept names are looked up.
-    if names == NamesListed::Reordered {
-        let mut out = old;
-        out.truncate(kept);
-        let kept: HashSet<OsString> = out.iter().map(|f| f.0.clone()).collect();
-        out.extend(new.into_iter().filter(|f| !kept.contains(&f.0)));
-        return out;
-    }
-    let whole = names == NamesListed::Whole;
-    // Which names of `new` are not in `old`, by a look at each name of `old` in a set of the
-    // names of `new`. A part of new names only needs no look, so merging it takes time for
-    // its own names and a move of the others, but no look at each of them.
-    let is_new: Vec<bool> = match names {
-        NamesListed::NewOnly => vec![true; new.len()],
-        _ => {
-            let mut not_in_old: HashSet<&OsString> = new.iter().map(|f| &f.0).collect();
-            for f in &old {
-                if not_in_old.is_empty() {
-                    break;
-                }
-                not_in_old.remove(&f.0);
-            }
-            new.iter().map(|f| not_in_old.contains(&f.0)).collect()
-        }
-    };
-    if !whole && !is_new.contains(&true) && read.is_empty() {
+    if new.is_empty() && read.is_empty() {
         return old;
     }
-    let mut kept = kept.min(old.len());
-    // A part leaves out the names that the folders it read whole no longer hold, one look at
-    // each name only when a folder read may have lost one.
-    let old = match whole || read.is_empty() {
+    // A look at each name only when a folder read may have lost one.
+    let old = match read.is_empty() {
         true => old,
-        false => {
-            let mut place = 0;
-            let before = kept;
-            let stays: Vec<ListedName> = (old.into_iter())
-                .filter(|f| {
-                    place += 1;
-                    let gone = read.leaves_out(&f.0);
-                    if gone && place <= before {
-                        kept -= 1;
-                    }
-                    !gone
-                })
-                .collect();
-            stays
-        }
+        false => (old.into_iter())
+            .filter(|f| !read.leaves_out(&f.0))
+            .collect(),
     };
-    // The files of `old`, of which the first `kept` stay in their places.
-    let (mut out, kept) = match whole {
-        // Each file has the identity that `new` gives it, and one that `new` lacks is gone. A
-        // name that `old` holds twice is kept once.
-        true => {
-            let mut identities: std::collections::HashMap<&OsString, Identity> =
-                new.iter().map(|(f, id)| (f, *id)).collect();
-            let mut still_listed =
-                |(name, _): ListedName| identities.remove(&name).map(|id| (name, id));
-            let mut old = old.into_iter();
-            let mut out: Vec<ListedName> = (old.by_ref().take(kept))
-                .filter_map(&mut still_listed)
-                .collect();
-            let shown = out.len();
-            out.extend(old.filter_map(still_listed));
-            (out, shown)
-        }
-        false => (old, kept),
-    };
-    if whole && !shuffled {
-        out.truncate(kept);
-        let shown: HashSet<OsString> = out.iter().map(|f| f.0.clone()).collect();
-        out.extend(new.into_iter().filter(|f| !shown.contains(&f.0)));
-        return out;
-    }
-    // The new names go after the others, and in random order each is shuffled in among those
-    // not shown, in place, so a part takes time for its own names only.
-    let before = out.len();
-    let added = (new.into_iter().zip(is_new)).filter_map(|(f, is_new)| is_new.then_some(f));
-    out.extend(added);
-    if shuffled {
-        shuffle_in(&mut out[kept..], before - kept);
-    } else {
-        let added = out.split_off(before);
-        let not_shown = out.split_off(kept);
-        out.extend(merged_by_name(not_shown, added));
-    }
-    out
+    merged_by_name(old, new)
 }
 
 /// Returns the files of `a` and `b`, two lists each in name order, together in name order.
@@ -1094,40 +1002,6 @@ pub fn name_hash(name: &[u8]) -> u64 {
 fn folder_of(name: &[u8]) -> &[u8] {
     let last = name.iter().rposition(|&b| b == b'/');
     last.map_or(&name[..0], |at| &name[..at])
-}
-
-/// Fisher–Yates with xorshift seeded from std's random hash key (no rand dependency).
-pub fn shuffle<T>(v: &mut [T]) {
-    let mut x = random_seed();
-    for i in (1..v.len()).rev() {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        v.swap(i, (x % (i as u64 + 1)) as usize);
-    }
-}
-
-/// Shuffles the elements of `v` from place `from` on in among those before them, which are in
-/// random order already, so that all of `v` is in random order. It takes time only for the
-/// elements from `from` on: each goes to a random place among those before it and itself, and
-/// the element there goes to its place.
-pub fn shuffle_in<T>(v: &mut [T], from: usize) {
-    let mut x = random_seed();
-    for i in from.max(1)..v.len() {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        v.swap(i, (x % (i as u64 + 1)) as usize);
-    }
-}
-
-/// Returns a random number other than zero, from std's random hash key, to seed xorshift with.
-fn random_seed() -> u64 {
-    use std::hash::{BuildHasher, Hasher};
-    std::collections::hash_map::RandomState::new()
-        .build_hasher()
-        .finish()
-        | 1
 }
 
 #[cfg(test)]
@@ -1170,10 +1044,10 @@ mod tests {
         assert!(!read.folders.contains(b"d".as_slice()), "d lost nothing");
         let gone: Vec<&std::ffi::OsString> = list.iter().filter(|n| read.leaves_out(n)).collect();
         assert_eq!(gone, [&list[2], &list[3]]);
-        let old = found(&["a/2.png", "t.png", "b/c/3.png", "a/1.png", "d/4.png"]);
+        let old = found(&["a/1.png", "a/2.png", "b/c/3.png", "d/4.png", "t.png"]);
         let new = found(&["e/c/3.png"]);
-        let merged = super::merge_after(old, 3, new, super::NamesListed::NewOnly, false, &read);
-        assert_eq!(merged, found(&["t.png", "a/1.png", "d/4.png", "e/c/3.png"]));
+        let merged = super::merge_new_names(old, new, &read);
+        assert_eq!(merged, found(&["a/1.png", "d/4.png", "e/c/3.png", "t.png"]));
     }
 
     /// A part keeps the names of a hidden folder that the walk reached through a link while
@@ -1950,137 +1824,29 @@ mod tests {
         (names.iter()).map(|n| ((*n).into(), identity(n))).collect()
     }
 
-    /// The order kept and a file read again keep the identity the new listing gives each name,
-    /// so a name that another file has taken since is told apart.
+    /// The order kept keeps the identity the new listing gives each name, so a name that
+    /// another file has taken since is told apart.
     #[test]
-    fn merge_keeps_shuffled_order() {
+    fn the_order_kept_has_the_identities_listed() {
         let names = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
         let mut new = listed(&["a", "b", "d"]);
         new[0].1 = std::num::NonZeroU64::new(1000);
-        let old = listed(&["c", "a", "b"]);
-        let merged = super::merge_after(
-            old,
-            2,
-            new.clone(),
-            super::NamesListed::Whole,
-            true,
-            &Default::default(),
-        );
-        // The image kept first has the identity the listing gives it, and the name gone is out.
-        assert_eq!(merged[0], new[0]);
-        let mut sorted = merged.clone();
-        sorted.sort();
-        assert_eq!(sorted, new);
         let kept = super::kept_order(names(&["b", "d", "a"]), &new).unwrap();
         assert_eq!(kept[2], new[0]);
     }
 
-    /// A part of a tree merged into a list in random order keeps the images shown so far in
-    /// their places and gets every new name once, after them, while the names the part lacks
-    /// stay. The whole list after it leaves out the names that are gone, with the identities
-    /// it gives. A part with no new name leaves the list as it is. In name order, a part goes
-    /// in by name after the images shown, and the whole list puts the others in its own order.
+    /// A part of new names goes into the list in its order and makes it grow, and the names of
+    /// the list stay, as the walk may still find them. A part with no new name and no folder
+    /// read whole leaves the list as it is, and a list still empty, as before the first part of
+    /// a tree, takes the part whole.
     #[test]
-    fn a_part_merged_into_a_random_order_keeps_the_images_shown() {
-        let old = listed(&["c", "a", "b", "d"]);
-        let merged = super::merge_after(
-            old.clone(),
-            2,
-            listed(&["a", "e", "f"]),
-            super::NamesListed::TreeSoFar,
-            true,
-            &Default::default(),
-        );
-        assert_eq!(merged[..2], old[..2]);
-        let mut rest = merged[2..].to_vec();
-        rest.sort();
-        assert_eq!(rest, listed(&["b", "d", "e", "f"]));
-        let mut new = listed(&["a", "c", "e"]);
-        new[0].1 = std::num::NonZeroU64::new(1000);
-        let whole = super::merge_after(
-            merged.clone(),
-            2,
-            new.clone(),
-            super::NamesListed::Whole,
-            true,
-            &Default::default(),
-        );
-        assert_eq!(whole[..2], [new[1].clone(), new[0].clone()]);
-        assert_eq!(whole[2..], new[2..]);
-        let unchanged = super::merge_after(
-            old.clone(),
-            4,
-            listed(&["a", "d"]),
-            super::NamesListed::TreeSoFar,
-            true,
-            &Default::default(),
-        );
-        assert_eq!(unchanged, old);
-        // A list still empty, as before the first part of a tree, takes the part whole.
-        let first = super::merge_after(
-            Vec::new(),
-            1,
-            listed(&["a", "b"]),
-            super::NamesListed::TreeSoFar,
-            true,
-            &Default::default(),
-        );
-        assert_eq!(first.len(), 2);
-        // A part of new names only is taken as new without a look at the names before it.
-        let new_only = super::NamesListed::NewOnly;
-        let part = super::merge_after(
-            old.clone(),
-            4,
-            listed(&["e", "f"]),
-            new_only,
-            true,
-            &Default::default(),
-        );
-        assert_eq!(part[..4], old[..]);
-        assert_eq!(part.len(), 6);
-        let played = listed(&["m", "b", "x"]);
-        let part = super::merge_after(
-            played,
-            1,
-            listed(&["a", "c", "m", "z"]),
-            super::NamesListed::TreeSoFar,
-            false,
-            &Default::default(),
-        );
-        assert_eq!(part, listed(&["m", "a", "b", "c", "x", "z"]));
-        let whole = super::merge_after(
-            part,
-            2,
-            listed(&["z", "c", "a", "m"]),
-            super::NamesListed::Whole,
-            false,
-            &Default::default(),
-        );
-        assert_eq!(whole, listed(&["m", "a", "z", "c"]));
-    }
-
-    /// Elements shuffled in among others in random order keep every element once, and each of
-    /// them can land at any place, the first among them.
-    #[test]
-    fn shuffle_in_keeps_all_elements_and_reaches_every_place() {
-        let mut first = std::collections::HashSet::new();
-        for _ in 0..400 {
-            let mut v: Vec<u32> = (0..20).collect();
-            super::shuffle_in(&mut v, 15);
-            let mut sorted = v.clone();
-            sorted.sort_unstable();
-            assert_eq!(sorted, (0..20).collect::<Vec<_>>());
-            first.insert(v.iter().position(|&e| e == 19).unwrap());
-        }
-        assert_eq!(first.len(), 20, "19 reached every place");
-    }
-
-    #[test]
-    fn shuffle_keeps_all_elements() {
-        let mut v: Vec<u32> = (0..100).collect();
-        super::shuffle(&mut v);
-        assert_ne!(v, (0..100).collect::<Vec<_>>());
-        v.sort();
-        assert_eq!(v, (0..100).collect::<Vec<_>>());
+    fn a_part_of_new_names_goes_into_the_list_in_its_order() {
+        let none = super::ReadWhole::default();
+        let old = listed(&["b", "d", "m"]);
+        let part = super::merge_new_names(old.clone(), listed(&["a", "c", "z"]), &none);
+        assert_eq!(part, listed(&["a", "b", "c", "d", "m", "z"]));
+        assert_eq!(super::merge_new_names(old.clone(), Vec::new(), &none), old);
+        let first = super::merge_new_names(Vec::new(), listed(&["a", "b"]), &none);
+        assert_eq!(first, listed(&["a", "b"]));
     }
 }

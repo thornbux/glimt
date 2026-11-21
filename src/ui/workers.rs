@@ -36,8 +36,8 @@ impl crate::App {
         }
         self.sum_selection_size(ctx);
         self.sum_match_size(ctx);
-        // --slideshow: once the folder is read, so random order shuffles all of it, or while its
-        // tree is read in parts, which the slideshow plays as they come.
+        // --slideshow: once the folder is read, so that random order picks from all of it, or
+        // while its tree is read in parts, which the slideshow plays as they come.
         let listed = !self.folder.is_listing() || self.folder.reads_tree_in_parts();
         if self.slideshow.starts_now(listed) {
             self.start_slideshow(ctx);
@@ -91,8 +91,6 @@ impl crate::App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         self.receive_sizes_and_dates();
-        self.receive_saved_order(ctx);
-        self.receive_sorted_rest(ctx);
         self.receive_real_folders(ctx);
         self.receive_exif_index(ctx);
         self.receive_operation_report(ctx);

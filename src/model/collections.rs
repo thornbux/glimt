@@ -179,11 +179,8 @@ impl crate::App {
         });
     }
 
-    /// The collection's file put in the order of the list, unless shuffled for a slideshow.
+    /// The collection's file put in the order of the list.
     pub(crate) fn save_collection_order(&mut self) {
-        if self.slideshow.is_shuffled() {
-            return;
-        }
         let ours: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
         self.edit_collection(move |all| reorder(all, &ours));
     }
@@ -206,11 +203,6 @@ impl crate::App {
         }
         // An empty collection: nothing to move, and no shown image to keep.
         if self.list.files().is_empty() {
-            return;
-        }
-        if self.slideshow.is_shuffled() {
-            self.notice
-                .give(tr("Random order is on: R turns it off to move images").into());
             return;
         }
         // A fuzzy search shows the best matches first, and terms joined by "|" show each term's
@@ -845,19 +837,6 @@ pub fn reorder(all: &mut [PathBuf], ours: &[PathBuf]) {
     }
 }
 
-/// `files` in the order of `saved`, a collection's file: shuffled ones put back, those it lacks
-/// (added since) after them, in the order they had.
-pub fn in_saved_order(saved: &[PathBuf], files: Vec<PathBuf>) -> Vec<PathBuf> {
-    let have: HashSet<&PathBuf> = files.iter().collect();
-    let mut ordered: Vec<PathBuf> = (saved.iter())
-        .filter(|p| have.contains(p))
-        .cloned()
-        .collect();
-    let placed: HashSet<PathBuf> = ordered.iter().cloned().collect();
-    ordered.extend(files.into_iter().filter(|p| !placed.contains(p)));
-    ordered
-}
-
 /// Adds `paths` to the collection in `file`, leaving out those it has. With `new` a collection
 /// not there yet is made, and without it that is a NotFound error, as `edit` says.
 pub fn append(file: &Path, paths: &[PathBuf], new: bool) -> std::io::Result<usize> {
@@ -1353,17 +1332,6 @@ mod tests {
         let mut all = p(&["/c", "/usb/a", "/b"]);
         super::reorder(&mut all, &p(&["/b", "/c"]));
         assert_eq!(all, p(&["/b", "/usb/a", "/c"]));
-    }
-
-    /// Shuffled files back in the saved order; one added since goes last.
-    #[test]
-    fn puts_back_the_saved_order() {
-        let p = |names: &[&str]| -> Vec<PathBuf> { names.iter().map(PathBuf::from).collect() };
-        let saved = p(&["/a", "/b", "/c", "/gone"]);
-        assert_eq!(
-            super::in_saved_order(&saved, p(&["/c", "/new", "/a", "/b"])),
-            p(&["/a", "/b", "/c", "/new"])
-        );
     }
 
     use std::path::PathBuf;

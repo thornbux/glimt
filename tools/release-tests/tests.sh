@@ -835,7 +835,7 @@ for v in new old; do
     key slash; xdotool type omega; sleep 2
     slideshow=$(busy)
     quit
-    # Four panes, one image at a time, no fade: a new round shuffles once, then goes on.
+    # Four panes, one image at a time, no fade: a new round begins once, then goes on.
     config slideshow_random=true slideshow_repeat=true slideshow_delay=1 slideshow_fade=0 layout=2x2 slideshow_one_image_at_a_time=2x2
     start --slideshow $d/show; sleep 4
     shot turns-a-$v
@@ -3004,9 +3004,9 @@ for v in new old; do
     config slideshow_random=true
     start $d/show.gqv
     sleep 2
-    key s; sleep 1          # the slideshow, shuffled
-    key Delete; sleep 1     # the shown one out of the collection while shuffled
-    key s; sleep 1          # stopped: back in the collection's order
+    key s; sleep 1          # the slideshow, in random order
+    key Delete; sleep 1     # the shown one out of the collection while it runs
+    key s; sleep 1          # stopped: the collection in its own order all along
     quit
     order=$(grep -o '[a-h]\.jpg' $d/show.gqv | tr '\n' ' ')
     # Seven left, in the order a to h.
@@ -6561,16 +6561,17 @@ else
     done
 fi
 
-section "a slideshow of a tree on a slow share: R off during the walk sorts the rest at once, F5 keeps the order played"
+section "a slideshow of a tree on a slow share: R off during the walk goes on in name order at once, F5 keeps the round"
 # The slow tree of the first of these sections, without Repeat. R off (--remote random off)
-# after the third slide of a random slideshow puts the images not shown yet in name order at
-# once, also while the tree is still read: after the few images decoded ahead, which keep their
-# places, every slide comes after the one before it in name order. The walk brings images
-# faster than the slideshow shows them, so the new ones come after the slide shown, and no check
+# after the third slide of a random slideshow has the next slides picked in name order at once,
+# also while the tree is still read: each slide is the next image in the list after the one
+# before it that was not shown. The first slide after R off may be the first of the list, when
+# the slide shown was the last one listed, so it is left out. The walk brings images faster
+# than the slideshow shows them, so the new ones come after the slide shown, and no check
 # depends on the random order itself. F5 (run Refresh) after the third slide of a slideshow in
-# name order reads the tree again, and the order played stays: no image is shown twice, and the
-# slides go on in name order. 0.95.1's first fixes left the rest in random order until the
-# walk had read the tree.
+# name order reads the tree again, and the round stays: no image is shown twice, and the slides
+# go on in name order. 0.95.1's first fixes left the rest in random order until the walk had
+# read the tree.
 faults=yes
 if ! grep -q " $share fuse.sshfs" /proc/mounts; then
     fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
@@ -6611,10 +6612,10 @@ else
             rm -f /tmp/lossy-slow
             quit
             # The slides after the event, how many came before the one before them in name
-            # order, and how many images were shown twice. After R off, the first five slides
-            # are left out: the images decoded ahead keep their places, in random order.
+            # order, and how many images were shown twice. After R off, the first slide is left
+            # out, which may be the first of the list.
             after=$(sed -n '/^EVENT$/,$p' $changes | tail -n +2)
-            [ $event = sorted ] && after=$(printf '%s\n' "$after" | tail -n +6)
+            [ $event = sorted ] && after=$(printf '%s\n' "$after" | tail -n +2)
             slides=$(printf '%s\n' "$after" | grep -c .)
             descents=$(printf '%s\n' "$after" |
                 LC_ALL=C awk 'NR > 1 && $0 < last { d++ } { last = $0 } END { print d + 0 }')

@@ -1393,11 +1393,6 @@ msgstr "Hulpmiddelen"
 msgid "Put the old names back"
 msgstr "De oude namen terugzetten"
 
-#: src/main.rs
-#, fuzzy
-msgid "Random order is on: R turns it off to move images"
-msgstr "Willekeurige volgorde staat aan: R zet hem uit om afbeeldingen te verplaatsen"
-
 #: src/model/collections.rs
 #, fuzzy
 msgid "The search shows the images in another order: clear it to move them"
