@@ -92,6 +92,7 @@ impl crate::App {
         self.receive_sizes();
         self.receive_sizes_and_dates();
         self.receive_saved_order(ctx);
+        self.receive_sorted_rest(ctx);
         self.receive_real_folders(ctx);
         self.receive_exif_index(ctx);
         self.receive_operation_report(ctx);

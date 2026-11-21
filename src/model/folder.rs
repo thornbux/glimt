@@ -1643,6 +1643,11 @@ impl crate::App {
         if self.file_operations.renames_files_in(&self.folder.dir) {
             return;
         }
+        // While the images not played are sorted (R off), the listings wait, so the list gains
+        // no name that the sorted ones lack. Each part's images go with the next part.
+        if self.slideshow.sorts_the_rest() {
+            return;
+        }
         // A thread that broke leaves no folders, and nothing waiting for it.
         if let Took::Answer(dirs) = self.folder.subdirs_rx.take() {
             self.folder.subdirs = dirs;
@@ -1658,7 +1663,7 @@ impl crate::App {
         };
         if let Some(part) = part {
             let began = Instant::now();
-            self.take_listing(ctx, part.0, false, &part.1);
+            self.take_listing(ctx, part.0, NamesListed::TreeSoFar, &part.1);
             let took = u64::try_from(began.elapsed().as_micros()).unwrap_or(u64::MAX);
             self.folder.part_taken_in.store(took, Ordering::Relaxed);
         }
@@ -1698,14 +1703,7 @@ impl crate::App {
         // were shown).
         let files = match files {
             Ok(files) => self.with_shown_files_of_parts(files, &left_out),
-            Err((path, e)) => {
-                self.notice
-                    .give(tf!("Could not open {name}:\n{e}", name = path.display(), e));
-                if !read.is_empty() {
-                    self.watch_folders_read(ctx, read, false);
-                }
-                return;
-            }
+            Err(unread) => return self.listing_failed(ctx, unread, read),
         };
         self.folder.whole_listings += 1;
         // Several folders shown together are listed as "/" with no subfolders, which are not
@@ -1741,6 +1739,22 @@ impl crate::App {
             )
         });
         self.tell_left_out(left_out);
+    }
+
+    /// Tells that the folder could not be read, `unread`, and keeps the list shown, with the
+    /// folders `read` watched, so that a change lists it again.
+    fn listing_failed(&mut self, ctx: &egui::Context, unread: Unread, read: FoldersRead) {
+        let (path, e) = unread;
+        self.notice
+            .give(tf!("Could not open {name}:\n{e}", name = path.display(), e));
+        if !read.is_empty() {
+            self.watch_folders_read(ctx, read, false);
+        }
+        // A list left in the order a slideshow played, by its merges or by R, goes back to the
+        // sort order without the folder, when no slideshow keeps that order.
+        if self.slideshow.keeps_played_order() && !self.slideshow.keeps_its_order() {
+            self.sort_the_rest(ctx);
+        }
     }
 
     /// Adds to a listing's `files` the files of the list shown that lie in a part `left_out`
@@ -1826,20 +1840,31 @@ impl crate::App {
         files: Vec<ListedName>,
         whole: bool,
     ) {
-        self.take_listing(ctx, files, whole, &ReadWhole::default());
+        let names = match whole {
+            true => NamesListed::Whole,
+            false => NamesListed::TreeSoFar,
+        };
+        self.take_listing(ctx, files, names, &ReadWhole::default());
+    }
+
+    /// Takes `rest`, the images after those that keep their places in the order played, put
+    /// in the sort order (`App::sort_the_rest`), as the list's order.
+    pub(crate) fn take_sorted_rest(&mut self, ctx: &egui::Context, rest: Vec<ListedName>) {
+        self.take_listing(ctx, rest, NamesListed::Reordered, &ReadWhole::default());
     }
 
     /// Takes the images of the folder read in the background as the list. That is all of them
-    /// when `whole`, and otherwise those of a tree found so far, which leave out the names
-    /// that the folders they `read` whole no longer hold. The shown image and the selection
-    /// stay.
+    /// for `NamesListed::Whole`, the list's own names put in another order for `Reordered`, and
+    /// otherwise those of a tree found so far, which leave out the names that the folders they
+    /// `read` whole no longer hold. The shown image and the selection stay.
     fn take_listing(
         &mut self,
         ctx: &egui::Context,
         files: Vec<ListedName>,
-        whole: bool,
+        listed: NamesListed,
         read: &ReadWhole,
     ) {
+        let whole = matches!(listed, NamesListed::Whole | NamesListed::Reordered);
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
         self.file_operations.leave_out_deleting(&mut files);
@@ -1859,13 +1884,16 @@ impl crate::App {
         // share can take minutes (#256).
         let merges = self.slideshow.keeps_its_order() || self.folder.parts_are_new_names;
         let shown_before = self.list.shown();
+        // A whole listing taken as it came is in the sort order.
+        if whole && !merges {
+            self.slideshow.forget_played_order();
+        }
         let files = if merges {
             self.slideshow.keep_played_order();
             let old = self.list.listed_names();
-            let names = match whole {
-                true => NamesListed::Whole,
-                false if self.folder.parts_are_new_names => NamesListed::NewOnly,
-                false => NamesListed::TreeSoFar,
+            let names = match listed {
+                NamesListed::TreeSoFar if self.folder.parts_are_new_names => NamesListed::NewOnly,
+                listed => listed,
             };
             let kept = self.places_that_stay();
             listing::merge_after(old, kept, files, names, shuffled, read)
@@ -4304,6 +4332,47 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A list whose order R changed during a slideshow goes back to the sort order when the
+    /// slideshow stops, also when the folder cannot be read again then: it is sorted without
+    /// the folder. Before, a failed relisting left it in random order until F5.
+    #[test]
+    fn the_sort_order_comes_back_when_the_relisting_after_a_stop_fails() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-r-fails-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..30 {
+            image::RgbImage::new(2, 2)
+                .save(dir.join(format!("{i:02}.png")))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let sorted = app.list.files().to_vec();
+        app.config.slideshow_subfolders = false;
+        app.config.slideshow_random = false;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        app.set_random_order(&ctx, true);
+        assert_ne!(app.list.files(), sorted, "shuffled");
+        app.stop_slideshow(&ctx);
+        assert!(app.folder.is_listing(), "read again in the sort order");
+        let fed = feed(&mut app);
+        let failed = super::Listed {
+            dirs: Vec::new(),
+            files: Err((dir.clone(), std::io::Error::other("the share went away"))),
+            left_out: Vec::new(),
+            read: Vec::new(),
+            read_in: std::time::Duration::ZERO,
+        };
+        fed.listing.send(failed).unwrap();
+        app.receive_listing(&ctx, std::time::Duration::ZERO);
+        let start = std::time::Instant::now();
+        while app.working() && start.elapsed() < std::time::Duration::from_secs(5) {
+            app.poll_background(&ctx);
+        }
+        assert_eq!(app.list.files(), sorted);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// The listing that `start_listing` started, read by the test a folder at a time in place of
     /// its thread, so that its parts and its whole list come between the other events in an
     /// order that the test chooses.
@@ -4561,6 +4630,14 @@ mod tests {
                 5 => {
                     let on = !app.config.slideshow_random;
                     app.set_random_order(&ctx, on);
+                    // R off sorts the images not played in a thread, which the listings wait
+                    // for.
+                    let start = std::time::Instant::now();
+                    while app.slideshow.sorts_the_rest()
+                        && start.elapsed() < std::time::Duration::from_secs(5)
+                    {
+                        app.receive_sorted_rest(&ctx);
+                    }
                 }
                 6 | 7 if !app.list.files().is_empty() => {
                     // A delete, or a move to another subfolder, of an image of the list. Both

@@ -108,6 +108,9 @@ pub enum NamesListed {
     /// A part of a tree: only images that the list does not have yet, as the slideshow's own
     /// listing of its tree sends them.
     NewOnly,
+    /// The list's own images after those kept in their places, put in another order (R off),
+    /// which may hold a few of the kept ones too.
+    Reordered,
 }
 
 /// The names that the list held when a listing began, as 64-bit hashes (`name_hash`), which
@@ -948,6 +951,15 @@ pub fn merge_after(
     shuffled: bool,
     read: &ReadWhole,
 ) -> Vec<ListedName> {
+    // The images after the first `kept` take the new order. A kept one is left out of it, so
+    // that one played while they were sorted keeps its place. Only the kept names are looked up.
+    if names == NamesListed::Reordered {
+        let mut out = old;
+        out.truncate(kept);
+        let kept: HashSet<OsString> = out.iter().map(|f| f.0.clone()).collect();
+        out.extend(new.into_iter().filter(|f| !kept.contains(&f.0)));
+        return out;
+    }
     let whole = names == NamesListed::Whole;
     // Which names of `new` are not in `old`, by a look at each name of `old` in a set of the
     // names of `new`. A part of new names only needs no look, so merging it takes time for
