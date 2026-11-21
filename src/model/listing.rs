@@ -73,6 +73,14 @@ const PROGRAM_STARTS_FOR: std::time::Duration = std::time::Duration::from_secs(3
 /// longer holds the walk.
 const IMAGE_AWAITED_FOR: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// How long the walk of a tree on a share waits at most, between two folders, for the images
+/// that the window waits for (`ImagesAwaited`). A slideshow of four panes with a delay of a
+/// second awaits four decodes after each other, and a held arrow key one after the other, so
+/// the walk would wait for as long as they go on. With this limit it reads a folder at least
+/// once in every second and the time that a folder takes to read, and the image awaited still
+/// has a second of the share to itself before each folder.
+const WALK_WAITS_FOR_IMAGES_AT_MOST: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// The folders where a listing found a link to a file (`holds_links`).
 /// shortcut: it only grows, by one path for each such folder listed; forget a folder at its
 /// next listing when a session lists very many of them.
@@ -440,11 +448,16 @@ pub(crate) fn a_program_is_starting() -> bool {
 }
 
 /// Waits while a program started on a file may still be reading its start, or while the window
-/// waits for an image (`awaited`), or until `stop` is set. The reading of a tree on a share
-/// calls it between folders, so that neither a video player started on the same share nor the
-/// next image is queued behind a look at each file of the tree.
+/// waits for an image (`awaited`) and for at most `WALK_WAITS_FOR_IMAGES_AT_MOST`, or until
+/// `stop` is set. The reading of a tree on a share calls it between folders, so that neither a
+/// video player started on the same share nor the next image is queued behind a look at each
+/// file of the tree.
 fn wait_for_reads_that_go_first(stop: &std::sync::atomic::AtomicBool, awaited: &ImagesAwaited) {
-    let awaited = || awaited.holds_the_walk_at(std::time::Instant::now());
+    let began = std::time::Instant::now();
+    let awaited = || {
+        let now = std::time::Instant::now();
+        now.duration_since(began) < WALK_WAITS_FOR_IMAGES_AT_MOST && awaited.holds_the_walk_at(now)
+    };
     while (a_program_is_starting() || awaited()) && !stop.load(std::sync::atomic::Ordering::Relaxed)
     {
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -924,6 +937,67 @@ mod tests {
             "on once the image is decoded: {took:?}"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The walk of a tree on a share waits for at most a second between two folders, however
+    /// many images the window awaits one after the other, so it still reaches the subfolders.
+    /// Before, each image held it for up to five seconds, and a slideshow of four panes with a
+    /// delay of a second, whose next images were awaited back to back, held it for as long as
+    /// it ran.
+    #[test]
+    fn a_tree_on_a_share_is_read_on_while_images_are_awaited_one_after_another() {
+        use super::ImagesAwaited;
+        use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-share-walks-on-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("1.jpg"), "x").unwrap();
+        std::fs::write(dir.join("sub").join("2.jpg"), "x").unwrap();
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        let (awaited, walked) = (
+            ImagesAwaited::default(),
+            std::sync::Arc::new(AtomicBool::new(false)),
+        );
+        // A new image is awaited every 50 ms, for 8 s at most. The first one is awaited before
+        // the walk begins, however late the thread starts.
+        awaited.set(vec!["first.jpg".into()]);
+        let decodes = {
+            let (awaited, walked) = (awaited.clone(), walked.clone());
+            std::thread::spawn(move || {
+                for n in 0..160 {
+                    if walked.load(Relaxed) {
+                        break;
+                    }
+                    awaited.set(vec![format!("{n}.jpg").into()]);
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            })
+        };
+        let types = super::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        let began = Instant::now();
+        let (_, files, _, _) = super::list_tree(
+            &dir,
+            types,
+            &AtomicBool::new(false),
+            &awaited,
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
+        let took = began.elapsed();
+        walked.store(true, Relaxed);
+        decodes.join().unwrap();
+        crate::files::file_ops::test_mount(&dir, None);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(took >= Duration::from_millis(1500), "it waited: {took:?}");
+        assert!(took < Duration::from_secs(4), "it read on: {took:?}");
     }
 
     /// A local FUSE folder, such as a KDE Vault, a mergerfs pool or the Flatpak's document

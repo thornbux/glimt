@@ -142,6 +142,6 @@
     <text x="20" y="924" font-size="12" fill="#57606a">Nothing heavy runs on the UI thread. Not drawn, but built the same way: the EXIF reader, the exif: index, folder sizes, Open With, mounts,</text>
     <text x="20" y="942" font-size="12" fill="#57606a">Check Images, Find Duplicates, printing, tools, the look-up of a path opened, and the list's sizes and dates (the_window_thread_never_waits_for_the_disk).</text>
     <text x="20" y="960" font-size="12" fill="#57606a">On a share (listing::is_on_a_share), the walk of a tree and the folder watch pause for 3 s after a program is started on a file (program_started),</text>
-    <text x="20" y="976" font-size="12" fill="#57606a">and the walk also while an image that the window waits for is decoded (ImagesAwaited, publish_awaited_images).</text>
+    <text x="20" y="976" font-size="12" fill="#57606a">and the walk also while an image that the window waits for is decoded, at most 1 s before each folder (ImagesAwaited, publish_awaited_images).</text>
   </g>
 </svg>
