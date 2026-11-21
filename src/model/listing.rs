@@ -692,6 +692,48 @@ pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName>
     out
 }
 
+/// Merges `new`, a tree's images read so far or all of them, into `old`, a list in random
+/// order whose files up to and with place `shown` have been shown. Those files keep their
+/// places, so Previous goes back through them. The new names are shuffled in among the files
+/// of `old` not shown yet, so the images of the folders read later come up as soon as the
+/// others do. When `whole` is false, `new` is a part of the tree and the files of `old` that it
+/// lacks are kept, as the walk may still find them. When `whole` is true, the files that `new`
+/// lacks are gone and are left out, and every file has the identity that `new` gives it.
+/// Returns `old` as it is when no name is new and none is gone.
+pub fn merge_shuffled_after(
+    old: Vec<ListedName>,
+    shown: usize,
+    new: Vec<ListedName>,
+    whole: bool,
+) -> Vec<ListedName> {
+    let old_set: HashSet<&OsString> = old.iter().map(|f| &f.0).collect();
+    let mut added: Vec<ListedName> = (new.iter())
+        .filter(|f| !old_set.contains(&f.0))
+        .cloned()
+        .collect();
+    if added.is_empty() && !whole {
+        return old;
+    }
+    let new_identities: std::collections::HashMap<&OsString, Identity> =
+        new.iter().map(|(f, id)| (f, *id)).collect();
+    let still_listed = |(name, identity): ListedName| match whole {
+        true => new_identities.get(&name).map(|&id| (name, id)),
+        false => Some((name, identity)),
+    };
+    let shown_count = (shown + 1).min(old.len());
+    let mut old = old.into_iter();
+    let mut out: Vec<ListedName> = (old.by_ref().take(shown_count))
+        .filter_map(still_listed)
+        .collect();
+    let mut not_shown: Vec<ListedName> = old.filter_map(still_listed).collect();
+    if !added.is_empty() {
+        not_shown.append(&mut added);
+        shuffle(&mut not_shown);
+    }
+    out.append(&mut not_shown);
+    out
+}
+
 /// Fisher–Yates with xorshift seeded from std's random hash key (no rand dependency).
 pub fn shuffle<T>(v: &mut [T]) {
     use std::hash::{BuildHasher, Hasher};
@@ -1267,6 +1309,30 @@ mod tests {
         assert_eq!(merged, new);
         let kept = super::kept_order(names(&["b", "d", "a"]), &new).unwrap();
         assert_eq!(kept[2], new[0]);
+    }
+
+    /// A part of a tree merged into a list in random order keeps the images shown so far in
+    /// their places and gets every new name once, after them, while the names the part lacks
+    /// stay. The whole list after it leaves out the names that are gone, with the identities
+    /// it gives. A part with no new name leaves the list as it is.
+    #[test]
+    fn a_part_merged_into_a_random_order_keeps_the_images_shown() {
+        let old = listed(&["c", "a", "b", "d"]);
+        let merged = super::merge_shuffled_after(old.clone(), 1, listed(&["a", "e", "f"]), false);
+        assert_eq!(merged[..2], old[..2]);
+        let mut rest = merged[2..].to_vec();
+        rest.sort();
+        assert_eq!(rest, listed(&["b", "d", "e", "f"]));
+        let mut new = listed(&["a", "c", "e"]);
+        new[0].1 = std::num::NonZeroU64::new(1000);
+        let whole = super::merge_shuffled_after(merged.clone(), 1, new.clone(), true);
+        assert_eq!(whole[..2], [new[1].clone(), new[0].clone()]);
+        assert_eq!(whole[2..], new[2..]);
+        let unchanged = super::merge_shuffled_after(old.clone(), 3, listed(&["a", "d"]), false);
+        assert_eq!(unchanged, old);
+        // A list still empty, as before the first part of a tree, takes the part whole.
+        let first = super::merge_shuffled_after(Vec::new(), 0, listed(&["a", "b"]), false);
+        assert_eq!(first.len(), 2);
     }
 
     #[test]
