@@ -8,8 +8,8 @@ use crate::files::external::{Login, gio_mount};
 use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
-    FoldersRead, ListedName, NamesListed, Types, Unread, is_listed, list_folder, list_tree,
-    sort_files, walk,
+    FoldersRead, ListedName, NameHashes, NamesListed, Types, Unread, is_listed, list_folder,
+    list_tree, sort_files, walk,
 };
 use crate::support::format::NOT_COUNTED_ON_A_SHARE;
 use crate::support::lang::tr;
@@ -625,10 +625,11 @@ struct Listing {
     /// Each part holds only the images found since the part before (`Folder`'s
     /// `parts_are_new_names`), and none of those that the list held when the listing began.
     parts_are_new_names: bool,
-    /// The names that the list held when the listing began, for a listing whose parts hold
-    /// only new names, and none otherwise. Glimt's own changes to the list's names start
-    /// another listing, so the list holds no other name of the tree until the whole list comes.
-    listed_before: Vec<OsString>,
+    /// The hashes of the names that the list held when the listing began, for a listing whose
+    /// parts hold only new names, and none otherwise. Glimt's own changes to the list's names
+    /// start another listing, so the list holds no other name of the tree until the whole list
+    /// comes.
+    listed_before: NameHashes,
     /// How long the window took to take the last part, in microseconds (`Folder`'s
     /// `part_taken_in`).
     part_taken_in: Arc<AtomicU64>,
@@ -795,7 +796,7 @@ impl Listing {
         };
         let before = &sent.listed_before;
         let mut part: Vec<ListedName> = (so_far[from..].iter())
-            .filter(|f| before.is_empty() || !before.contains(&f.0))
+            .filter(|f| before.is_empty() || !before.holds(&f.0))
             .cloned()
             .collect();
         if part.is_empty() {
@@ -818,7 +819,7 @@ impl Listing {
     /// Lists a folder, or its tree. `before` is the list in EXIF date order, which is kept if no
     /// name is new. `parts` sends a tree's images as they are read.
     fn folder(
-        self,
+        mut self,
         before: Option<Vec<OsString>>,
         parts: bool,
         part_tx: mpsc::SyncSender<Vec<ListedName>>,
@@ -832,7 +833,7 @@ impl Listing {
         let mut sent = PartsSent {
             last: None,
             up_to: 0,
-            listed_before: self.listed_before.iter().collect(),
+            listed_before: std::mem::take(&mut self.listed_before).sorted(),
         };
         let listed = match self.recursive {
             true => list_tree(
@@ -917,14 +918,14 @@ impl Listing {
 }
 
 /// What a listing thread sent of a tree's parts.
-struct PartsSent<'a> {
+struct PartsSent {
     /// When it sent the last part, and how long it waits after it before the next.
     last: Option<(Instant, Duration)>,
     /// How many of the images found so far the parts sent have held.
     up_to: usize,
-    /// The names that the list held when the listing began, which a part of new names only
-    /// leaves out (`Listing`'s `listed_before`).
-    listed_before: HashSet<&'a OsString>,
+    /// The hashes of the names that the list held when the listing began, sorted, which a part
+    /// of new names only leaves out (`Listing`'s `listed_before`).
+    listed_before: NameHashes,
 }
 
 /// What was asked to be opened, and how it opens once its paths are looked up.
@@ -1502,13 +1503,13 @@ impl crate::App {
         self.folder.listing_brings_new_names = self.folder.listing_sends_parts
             && self.folder.list_holds_tree != self.folder.listing_tree;
         self.folder.parts_are_new_names = plays;
-        // shortcut: the list copied in the UI thread, 8-17 ms for 500,000 names, once for each
-        // listing of a tree while the slideshow keeps its order; share it with the thread (an
-        // Arc in List) if folders grow far past that.
+        // shortcut: the list's names hashed in the UI thread, about 10 ms and 4 MB for 500,000
+        // names, once for each listing of a tree while the slideshow keeps its order; share the
+        // names with the thread (an Arc in List) if folders grow far past that.
         let listed_before = match self.folder.parts_are_new_names && self.folder.listing_sends_parts
         {
-            true => self.list.files().to_vec(),
-            false => Vec::new(),
+            true => NameHashes::of(self.list.files()),
+            false => NameHashes::default(),
         };
         self.folder.first_part_shown = None;
         self.folder.list_is_a_part = false;
