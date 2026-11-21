@@ -123,7 +123,7 @@ pub(crate) struct List {
     dragging: Option<(HashSet<usize>, Option<usize>)>,
     last_slide: usize,
     /// The furthest place shown in this round: by the shown image, or by the last pane that a
-    /// slideshow filled. A shuffle starts a new round. The parts of a tree go in after it
+    /// slideshow filled. `App::begin_round` starts a new round. The parts of a tree go in after it
     /// (`App::take_listed_files`), so the images shown, also those that the user went back
     /// from, keep their places.
     played_up_to: usize,
@@ -373,9 +373,10 @@ impl List {
         self.played_up_to = self.played_up_to.max(i);
     }
 
-    /// Starts a new round at the shown image, as the list was shuffled again.
-    pub(crate) fn start_round(&mut self) {
-        self.played_up_to = self.shown;
+    /// Starts a new round at place `i`, so that only the images up to there count as shown in
+    /// it. `App::begin_round` is the one caller.
+    pub(crate) fn start_round_at(&mut self, i: usize) {
+        self.played_up_to = i;
     }
 
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the

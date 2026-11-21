@@ -108,6 +108,9 @@ pub enum NamesListed {
     /// A part of a tree: only images that the list does not have yet, as the slideshow's own
     /// listing of its tree sends them.
     NewOnly,
+    /// The list's own images after those kept in their places, put in another order (R off),
+    /// which may hold a few of the kept ones too.
+    Reordered,
 }
 
 /// The names that the list held when a listing began, as 64-bit hashes (`name_hash`), which
@@ -195,7 +198,11 @@ impl NameHashes {
 
     /// Notes in `read` the folder of `folder` that the walk read whole, when the list may hold a
     /// name in or below it that is gone: fewer of the list's names were found in it than it
-    /// had, or a folder of the list below it is not among those it holds now.
+    /// had, or a folder of the list below it is not among those it holds now. A folder is judged
+    /// gone only by the rules the walk read its parent by (`lists_folder_named`). One that the
+    /// read leaves out by rule, a hidden folder while hidden files are not shown, is in the list
+    /// because the walk reached it through a link, so only its own read tells which of its
+    /// names are gone, and its names stay when its parent is read.
     pub fn note_folder(&self, folder: &FolderReadWhole, read: &mut ReadWhole) {
         let at = folder.folder.as_os_str().as_encoded_bytes();
         let images = &folder.so_far[folder.first..];
@@ -208,12 +215,21 @@ impl NameHashes {
             .filter_map(|d| d.file_name())
             .map(|n| folder.folder.join(n).into_os_string().into_encoded_bytes())
             .collect();
-        let vanished = (self.below.get(at)).is_some_and(|b| !b.is_subset(&subfolders));
+        let below = self.below.get(at).into_iter().flatten();
+        let is_read_by_rule = |child: &&Vec<u8>| {
+            let name = child.rsplit(|&b| b == b'/').next().unwrap_or(child);
+            lists_folder_named(name, folder.types)
+        };
+        let vanished = (below.clone())
+            .filter(is_read_by_rule)
+            .any(|child| !subfolders.contains(child));
         if fewer || vanished {
             read.folders.insert(at.to_vec());
             let names = images.iter().map(|f| name_hash(f.0.as_encoded_bytes()));
             let subfolders = subfolders.iter().map(|f| name_hash(f));
-            read.found.extend(names.chain(subfolders));
+            let reached_through_links = below.filter(|c| !is_read_by_rule(c)).map(|c| name_hash(c));
+            read.found
+                .extend(names.chain(subfolders).chain(reached_through_links));
         }
     }
 }
@@ -228,6 +244,8 @@ pub struct FolderReadWhole<'a> {
     pub folder: &'a Path,
     /// The folders in it, as full paths.
     pub dirs: &'a [PathBuf],
+    /// The types the walk lists, by which it left out a hidden folder.
+    pub types: Types,
 }
 
 /// The folders that a part of a tree read whole where the list may hold a name that is gone,
@@ -536,13 +554,18 @@ pub fn walk(dir: &Path, types: Types) -> impl Iterator<Item = Result<WalkedFolde
 /// giving a link's real path and `list` reading a folder. A test can then give the ids that a
 /// file system without unique inodes has, a real path that cannot be worked out, and a file
 /// made while a folder is read.
-fn walk_by(
+pub(crate) fn walk_by<Id, Real, List>(
     dir: &Path,
     types: Types,
-    file_id: impl Fn(&Path) -> Option<FileId>,
-    canonical: impl Fn(&Path) -> std::io::Result<PathBuf>,
-    list: impl Fn(&Path, Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)>,
-) -> impl Iterator<Item = Result<WalkedFolder, Unread>> {
+    file_id: Id,
+    canonical: Real,
+    list: List,
+) -> impl Iterator<Item = Result<WalkedFolder, Unread>> + use<Id, Real, List>
+where
+    Id: Fn(&Path) -> Option<FileId>,
+    Real: Fn(&Path) -> std::io::Result<PathBuf>,
+    List: Fn(&Path, Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)>,
+{
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
     let mut failed = false;
     let mut seen: HashSet<FileId> = HashSet::new();
@@ -714,6 +737,7 @@ pub fn list_tree(
             first,
             folder: &rel,
             dirs: &dirs,
+            types,
         });
         if is_top {
             own = dirs;
@@ -810,9 +834,7 @@ pub fn list_folder(dir: &Path, types: Types) -> std::io::Result<(Vec<PathBuf>, V
         let (file, folder) = kind(&entry);
         if file && is_listed(&path, types) {
             images.push((entry.file_name(), identity_of_entry(&entry)));
-        } else if folder
-            && (types.hidden || !entry.file_name().as_encoded_bytes().starts_with(b"."))
-        {
+        } else if folder && lists_folder_named(entry.file_name().as_encoded_bytes(), types) {
             dirs.push(path);
         }
     }
@@ -821,6 +843,13 @@ pub fn list_folder(dir: &Path, types: Types) -> std::io::Result<(Vec<PathBuf>, V
     dirs.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
     images.sort_unstable(); // byte-wise on Unix
     Ok((dirs, images))
+}
+
+/// Returns whether a folder read with `types` lists a folder in it named `name`: a hidden one
+/// only while hidden files are shown. The walk of a tree reads only the folders listed, and
+/// those it reaches through a link.
+pub fn lists_folder_named(name: &[u8], types: Types) -> bool {
+    types.hidden || !name.starts_with(b".")
 }
 
 /// Sort file names in `dir`; `case`: case-sensitive names ("B" before "a"). Everything but name
@@ -948,6 +977,15 @@ pub fn merge_after(
     shuffled: bool,
     read: &ReadWhole,
 ) -> Vec<ListedName> {
+    // The images after the first `kept` take the new order. A kept one is left out of it, so
+    // that one played while they were sorted keeps its place. Only the kept names are looked up.
+    if names == NamesListed::Reordered {
+        let mut out = old;
+        out.truncate(kept);
+        let kept: HashSet<OsString> = out.iter().map(|f| f.0.clone()).collect();
+        out.extend(new.into_iter().filter(|f| !kept.contains(&f.0)));
+        return out;
+    }
     let whole = names == NamesListed::Whole;
     // Which names of `new` are not in `old`, by a look at each name of `old` in a set of the
     // names of `new`. A part of new names only needs no look, so merging it takes time for
@@ -1121,6 +1159,7 @@ mod tests {
             first: 0,
             folder,
             dirs,
+            types: super::Types::NONE,
         };
         hashes.note_folder(&folder(&top, std::path::Path::new(""), &dirs), &mut read);
         // a holds 1.png only, and d all it had.
@@ -1135,6 +1174,61 @@ mod tests {
         let new = found(&["e/c/3.png"]);
         let merged = super::merge_after(old, 3, new, super::NamesListed::NewOnly, false, &read);
         assert_eq!(merged, found(&["t.png", "a/1.png", "d/4.png", "e/c/3.png"]));
+    }
+
+    /// A part keeps the names of a hidden folder that the walk reached through a link while
+    /// hidden files are not shown, also when the top folder that holds it is read whole and
+    /// noted for a name it lost: the top's read leaves the hidden folder out by rule, so it is
+    /// not gone. Its own read, through the link, finds every name it holds, and with hidden files
+    /// shown a hidden folder missing from the top is gone. Before, the top's read dropped its
+    /// names, and the walk filtered them out again as listed, so they came back only with the
+    /// whole list, minutes later on a share, and an image played was shown a second time.
+    #[test]
+    fn a_hidden_folder_reached_through_a_link_keeps_its_names() {
+        let list: Vec<std::ffi::OsString> = ["a.png", ".inner/c.png", "b/1.png", "sub/2.png"]
+            .map(Into::into)
+            .to_vec();
+        let hashes = super::NameHashes::of(&list).sorted();
+        let found = |v: &[&str]| -> Vec<super::ListedName> {
+            v.iter().map(|n| ((*n).into(), None)).collect()
+        };
+        // The top holds a.png and sub, which holds the link in -> ../.inner, and b is gone.
+        let top = found(&["a.png"]);
+        let dirs = [std::path::PathBuf::from("/x/sub")];
+        for hidden in [false, true] {
+            let types = super::Types {
+                hidden,
+                ..super::Types::NONE
+            };
+            let mut read = super::ReadWhole::default();
+            let folder = super::FolderReadWhole {
+                so_far: &top,
+                first: 0,
+                folder: std::path::Path::new(""),
+                dirs: &dirs,
+                types,
+            };
+            hashes.note_folder(&folder, &mut read);
+            let inner = found(&["a.png", ".inner/c.png"]);
+            let through_link = super::FolderReadWhole {
+                so_far: &inner,
+                first: 1,
+                folder: std::path::Path::new(".inner"),
+                dirs: &[],
+                types,
+            };
+            hashes.note_folder(&through_link, &mut read);
+            assert!(
+                !read.folders.contains(b".inner".as_slice()),
+                "it lost nothing"
+            );
+            let gone: Vec<&std::ffi::OsString> =
+                list.iter().filter(|n| read.leaves_out(n)).collect();
+            match hidden {
+                false => assert_eq!(gone, [&list[2]], "hidden off"),
+                true => assert_eq!(gone, [&list[1], &list[2]], "hidden on"),
+            }
+        }
     }
 
     /// The names that a listing of new names only leaves out are handed to its thread as 8

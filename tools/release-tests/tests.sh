@@ -6440,12 +6440,13 @@ section "a slideshow of a tree on a slow share: the subfolders' images while the
 # Glimt takes it for a share (file_io::is_network takes fuse.sshfs for one) and its walk of a
 # tree waits for the images that the window waits for. It reads each folder of /slow-tree-* in
 # half a second and each read of a file there in 0.3 s, as a share far away does, so the tree of
-# a folder with one image of its own and 2 in each of 20 subfolders takes more than ten seconds
-# to read, and so does the next image. A slideshow with its subfolders, a second for each
-# image, without Repeat, shows the subfolders' images while the tree is read, a slide about
-# every second, in random order and in name order. 0.95.0 took no part of the tree in either
-# order, so it stayed on the one image of the folder until the whole tree was read, or in name
-# order ended on it.
+# a folder with three images of its own and 6 in each of 20 subfolders takes more than ten
+# seconds to read, and so does the next image. A slideshow with its subfolders, a second for
+# each image, without Repeat, shows the subfolders' images while the tree is read, a slide about
+# every second, in random order and in name order. The walk brings images faster than the
+# slideshow shows them, so the round, which never waits for the walk, does not end before the
+# tree is read. 0.95.0 took no part of the tree in either order, so it went round the images of
+# the folder until the whole tree was read, or in name order ended on them.
 faults=yes
 if ! grep -q " $share fuse.sshfs" /proc/mounts; then
     fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
@@ -6455,11 +6456,10 @@ else
             as_version $v
             back=/opt/lossy/slow-tree-$order-$v d=$share/slow-tree-$order-$v
             rm -rf $back; mkdir -p $back
-            convert -size 300x200 xc:red $back/top.png
+            for t in a b c; do convert -size 300x200 xc:red $back/top-$t.png; done
             for k in $(seq -w 1 20); do
                 mkdir $back/s$k
-                convert -size 300x200 xc:lime $back/s$k/a.png
-                convert -size 300x200 xc:blue $back/s$k/b.png
+                for t in a b c d e f; do convert -size 300x200 xc:lime $back/s$k/$t.png; done
             done
             config slideshow_subfolders=true slideshow_random=$([ $order = random ] && echo true ||
                 echo false) slideshow_repeat=false slideshow_delay=1 slideshow_fade=0 \
@@ -6506,44 +6506,101 @@ else
     done
 fi
 
-section "a slideshow of a tree on a slow share in name order: R during the walk shuffles the rest, F5 keeps the order played"
-# The tree of the section before, played in name order without Repeat. R (--remote random on)
-# after the third slide turns random order on, and the images not shown yet are shuffled at
-# once, also while the tree is still read: a slide after R comes before the one shown before it
-# in name order. F5 (run Refresh) after the third slide reads the tree again, and the order
-# played stays: no image is shown twice, and the slides go on in name order. 0.95.1's first
-# fixes only read the tree again for R, so the slides went on in name order while the setting
-# said random.
+section "a slideshow of a tree on a slow share: the end of a round never waits for the walk"
+# The tree has two images of its own, nineteen empty subfolders and one that the tester may not
+# read, s10, on $share, slowed as in the section before, so its walk takes ten seconds and
+# brings no image. A slideshow with its subfolders, a second for each image, in name order with
+# Repeat, goes round the two images while the walk runs: no gap between two slides is longer
+# than two seconds, and the walk is still reading when the sampling ends. The folder that cannot
+# be read changes nothing. 0.95.1's first fixes held the end of every round until the walk had
+# read the tree, so the slideshow stood on the second image for the whole walk.
 faults=yes
 if ! grep -q " $share fuse.sshfs" /proc/mounts; then
     fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
 else
-    for event in random refresh; do
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/round-end-$v d=$share/round-end-$v
+        rm -rf $back; mkdir -p $back
+        convert -size 300x200 xc:red $back/a.png
+        convert -size 300x200 xc:blue $back/b.png
+        for k in $(seq -w 1 20); do mkdir $back/s$k; done
+        convert -size 300x200 xc:lime $back/s10/c.png
+        chmod 000 $back/s10
+        config slideshow_subfolders=true slideshow_random=false slideshow_repeat=true \
+            slideshow_delay=1 slideshow_fade=0 thumbnails=false
+        echo /round-end-$v >/tmp/lossy-slow
+        start --slideshow $d
+        # The image shown, every 0.2 s for six seconds, each change with its time in ms.
+        changes=/tmp/round-end-changes-$v shown=
+        : >$changes
+        for i in $(seq 30); do
+            now=$(remote current 2>/dev/null | tr -d '\0')
+            [ -n "$now" ] && [ "$now" != "$shown" ] && echo "$(date +%s%3N) $now" >>$changes
+            shown=$now
+            sleep 0.2
+        done
+        echo "$(date +%s%3N) end" >>$changes
+        sampled=$(date +%s%3N)
+        log=/tmp/sharefs.log
+        until_ok "grep -q '^READDIR /round-end-$v/s20 ' $log" 60
+        read_last=$(grep -m1 "^READDIR /round-end-$v/s20 " $log | awk '{printf "%d", $3 * 1000}')
+        rm -f /tmp/lossy-slow
+        quit
+        chmod 755 $back/s10
+        gap=$(awk '{ if (last) { g = $1 - last; if (g > max) max = g } last = $1 }
+            END { print max + 0 }' $changes)
+        slides=$(grep -vc ' end$' $changes)
+        got="$([ "$slides" -ge 4 ] && [ "$gap" -le 2000 ] && echo steady)"
+        got="$got $([ "${read_last:-0}" -gt "$sampled" ] && echo walk-still-reading)"
+        if [ $v = new ]; then
+            expect "the end of a round while the walk runs: a slide about every second" \
+                "$got" "steady walk-still-reading"
+        else note "old: $got ($slides slides, longest gap $gap ms, tree read at $read_last, sampled to $sampled)"; fi
+        rm -rf $back $changes
+    done
+fi
+
+section "a slideshow of a tree on a slow share: R off during the walk sorts the rest at once, F5 keeps the order played"
+# The slow tree of the first of these sections, without Repeat. R off (--remote random off)
+# after the third slide of a random slideshow puts the images not shown yet in name order at
+# once, also while the tree is still read: after the few images decoded ahead, which keep their
+# places, every slide comes after the one before it in name order. The walk brings images
+# faster than the slideshow shows them, so the new ones come after the slide shown, and no check
+# depends on the random order itself. F5 (run Refresh) after the third slide of a slideshow in
+# name order reads the tree again, and the order played stays: no image is shown twice, and the
+# slides go on in name order. 0.95.1's first fixes left the rest in random order until the
+# walk had read the tree.
+faults=yes
+if ! grep -q " $share fuse.sshfs" /proc/mounts; then
+    fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
+else
+    for event in sorted refresh; do
         for v in new old; do
             as_version $v
             back=/opt/lossy/walk-$event-$v d=$share/walk-$event-$v
             rm -rf $back; mkdir -p $back
-            convert -size 300x200 xc:red $back/top.png
+            for t in a b c; do convert -size 300x200 xc:red $back/top-$t.png; done
             for k in $(seq -w 1 20); do
                 mkdir $back/s$k
-                convert -size 300x200 xc:lime $back/s$k/a.png
-                convert -size 300x200 xc:blue $back/s$k/b.png
+                for t in a b c d e f; do convert -size 300x200 xc:lime $back/s$k/$t.png; done
             done
-            config slideshow_subfolders=true slideshow_random=false slideshow_repeat=false \
-                slideshow_delay=1 slideshow_fade=0 thumbnails=false
+            config slideshow_subfolders=true slideshow_repeat=false slideshow_delay=1 \
+                slideshow_fade=0 thumbnails=false \
+                slideshow_random=$([ $event = sorted ] && echo true || echo false)
             echo /walk-$event-$v >/tmp/lossy-slow
             start --slideshow $d
-            # Each image shown, by its name in the tree, every 0.2 s for twelve seconds, and the
-            # event after the third one.
+            # Each image shown, by its name in the tree, every 0.2 s for fourteen seconds, and
+            # the event after the third one.
             changes=/tmp/walk-changes-$event-$v shown= n=0
             : >$changes
-            for i in $(seq 60); do
+            for i in $(seq 70); do
                 now=$(remote current 2>/dev/null | tr -d '\0')
                 if [ -n "$now" ] && [ "$now" != "$shown" ]; then
                     echo "${now#$d/}" >>$changes
                     n=$((n + 1))
-                    if [ $n -eq 3 ] && [ $event = random ]; then
-                        remote random on >/dev/null 2>&1; echo EVENT >>$changes
+                    if [ $n -eq 3 ] && [ $event = sorted ]; then
+                        remote random off >/dev/null 2>&1; echo EVENT >>$changes
                     elif [ $n -eq 3 ]; then
                         remote run Refresh >/dev/null 2>&1; echo EVENT >>$changes
                     fi
@@ -6554,17 +6611,19 @@ else
             rm -f /tmp/lossy-slow
             quit
             # The slides after the event, how many came before the one before them in name
-            # order, and how many images were shown twice.
+            # order, and how many images were shown twice. After R off, the first five slides
+            # are left out: the images decoded ahead keep their places, in random order.
             after=$(sed -n '/^EVENT$/,$p' $changes | tail -n +2)
+            [ $event = sorted ] && after=$(printf '%s\n' "$after" | tail -n +6)
             slides=$(printf '%s\n' "$after" | grep -c .)
             descents=$(printf '%s\n' "$after" |
                 LC_ALL=C awk 'NR > 1 && $0 < last { d++ } { last = $0 } END { print d + 0 }')
             twice=$(grep -v '^EVENT$' $changes | sort | uniq -d | wc -l)
             random=$(grep -c '^slideshow_random=true$' $XDG_CONFIG_HOME/glimt/config)
-            if [ $event = random ]; then
-                got="$([ "$slides" -ge 5 ] && echo slides) $([ "$descents" -gt 0 ] && echo shuffled)"
+            if [ $event = sorted ]; then
+                got="$([ "$slides" -ge 4 ] && echo slides) descents=$descents"
                 got="$got random=$random twice=$twice"
-                want="slides shuffled random=1 twice=0"
+                want="slides descents=0 random=0 twice=0"
             else
                 got="$([ "$slides" -ge 5 ] && echo slides) descents=$descents twice=$twice"
                 want="slides descents=0 twice=0"
