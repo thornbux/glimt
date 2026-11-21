@@ -98,6 +98,18 @@ thread_local! {
     pub(crate) static PROGRAMS_STARTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// What the names that `merge_after` merges into a list are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NamesListed {
+    /// The whole list.
+    Whole,
+    /// A part of a tree: the images found so far.
+    TreeSoFar,
+    /// A part of a tree: only images that the list does not have yet, as the slideshow's own
+    /// listing of its tree sends them.
+    NewOnly,
+}
+
 /// The folders a listing read, each with the modification time it had when it was read, so the
 /// folder watcher sees a change made after the reading. The time is `None` when it could not be
 /// read.
@@ -769,50 +781,75 @@ pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName>
 /// (`shuffled`), they are shuffled in among the files of `old` not shown yet. In another order,
 /// a part of the tree is merged in by name among them, as the parts come in name order, and
 /// the whole list puts them in its own order, so that a slideshow without Repeat shows every
-/// image once. When `whole` is false, `new` is a part of the tree and the files of `old` that
-/// it lacks are kept, as the walk may still find them. When `whole` is true, the files that
-/// `new` lacks are gone and are left out, and every file has the identity that `new` gives it.
+/// image once. `names` says what `new` is. For a part of the tree, the files of `old` that it
+/// lacks are kept, as the walk may still find them. For the whole list, the files that `new`
+/// lacks are gone and are left out, and every file has the identity that `new` gives it.
 /// Returns `old` as it is when no name is new and none is gone.
 pub fn merge_after(
     old: Vec<ListedName>,
     kept: usize,
     new: Vec<ListedName>,
-    whole: bool,
+    names: NamesListed,
     shuffled: bool,
 ) -> Vec<ListedName> {
-    let old_set: HashSet<&OsString> = old.iter().map(|f| &f.0).collect();
-    let mut added: Vec<ListedName> = (new.iter())
-        .filter(|f| !old_set.contains(&f.0))
-        .cloned()
-        .collect();
-    if added.is_empty() && !whole {
+    let whole = names == NamesListed::Whole;
+    // Which names of `new` are not in `old`, by a look at each name of `old` in a set of the
+    // names of `new`. A part of new names only needs no look, so merging it takes time for
+    // its own names and a move of the others, but no look at each of them.
+    let is_new: Vec<bool> = match names {
+        NamesListed::NewOnly => vec![true; new.len()],
+        _ => {
+            let mut not_in_old: HashSet<&OsString> = new.iter().map(|f| &f.0).collect();
+            for f in &old {
+                if not_in_old.is_empty() {
+                    break;
+                }
+                not_in_old.remove(&f.0);
+            }
+            new.iter().map(|f| not_in_old.contains(&f.0)).collect()
+        }
+    };
+    if !whole && !is_new.contains(&true) {
         return old;
     }
-    let new_identities: std::collections::HashMap<&OsString, Identity> =
-        new.iter().map(|(f, id)| (f, *id)).collect();
-    let still_listed = |(name, identity): ListedName| match whole {
-        true => new_identities.get(&name).map(|&id| (name, id)),
-        false => Some((name, identity)),
-    };
     let kept = kept.min(old.len());
-    let mut old = old.into_iter();
-    let mut out: Vec<ListedName> = (old.by_ref().take(kept)).filter_map(still_listed).collect();
-    let mut not_shown: Vec<ListedName> = old.filter_map(still_listed).collect();
-    if shuffled {
-        if !added.is_empty() {
-            not_shown.append(&mut added);
-            shuffle(&mut not_shown);
+    // The files of `old`, of which the first `kept` stay in their places.
+    let (mut out, kept) = match whole {
+        // Each file has the identity that `new` gives it, and one that `new` lacks is gone. A
+        // name that `old` holds twice is kept once.
+        true => {
+            let mut identities: std::collections::HashMap<&OsString, Identity> =
+                new.iter().map(|(f, id)| (f, *id)).collect();
+            let mut still_listed =
+                |(name, _): ListedName| identities.remove(&name).map(|id| (name, id));
+            let mut old = old.into_iter();
+            let mut out: Vec<ListedName> = (old.by_ref().take(kept))
+                .filter_map(&mut still_listed)
+                .collect();
+            let shown = out.len();
+            out.extend(old.filter_map(still_listed));
+            (out, shown)
         }
-    } else if whole {
-        let shown: HashSet<&OsString> = out.iter().map(|f| &f.0).collect();
-        not_shown = (new.iter())
-            .filter(|f| !shown.contains(&f.0))
-            .cloned()
-            .collect();
-    } else {
-        not_shown = merged_by_name(not_shown, added);
+        false => (old, kept),
+    };
+    if whole && !shuffled {
+        out.truncate(kept);
+        let shown: HashSet<OsString> = out.iter().map(|f| f.0.clone()).collect();
+        out.extend(new.into_iter().filter(|f| !shown.contains(&f.0)));
+        return out;
     }
-    out.append(&mut not_shown);
+    // The new names go after the others, and in random order each is shuffled in among those
+    // not shown, in place, so a part takes time for its own names only.
+    let before = out.len();
+    let added = (new.into_iter().zip(is_new)).filter_map(|(f, is_new)| is_new.then_some(f));
+    out.extend(added);
+    if shuffled {
+        shuffle_in(&mut out[kept..], before - kept);
+    } else {
+        let added = out.split_off(before);
+        let not_shown = out.split_off(kept);
+        out.extend(merged_by_name(not_shown, added));
+    }
     out
 }
 
@@ -831,17 +868,36 @@ fn merged_by_name(a: Vec<ListedName>, b: Vec<ListedName>) -> Vec<ListedName> {
 
 /// Fisher–Yates with xorshift seeded from std's random hash key (no rand dependency).
 pub fn shuffle<T>(v: &mut [T]) {
-    use std::hash::{BuildHasher, Hasher};
-    let mut x = std::collections::hash_map::RandomState::new()
-        .build_hasher()
-        .finish()
-        | 1;
+    let mut x = random_seed();
     for i in (1..v.len()).rev() {
         x ^= x << 13;
         x ^= x >> 7;
         x ^= x << 17;
         v.swap(i, (x % (i as u64 + 1)) as usize);
     }
+}
+
+/// Shuffles the elements of `v` from place `from` on in among those before them, which are in
+/// random order already, so that all of `v` is in random order. It takes time only for the
+/// elements from `from` on: each goes to a random place among those before it and itself, and
+/// the element there goes to its place.
+pub fn shuffle_in<T>(v: &mut [T], from: usize) {
+    let mut x = random_seed();
+    for i in from.max(1)..v.len() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        v.swap(i, (x % (i as u64 + 1)) as usize);
+    }
+}
+
+/// Returns a random number other than zero, from std's random hash key, to seed xorshift with.
+fn random_seed() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish()
+        | 1
 }
 
 #[cfg(test)]
@@ -1563,26 +1619,83 @@ mod tests {
     #[test]
     fn a_part_merged_into_a_random_order_keeps_the_images_shown() {
         let old = listed(&["c", "a", "b", "d"]);
-        let merged = super::merge_after(old.clone(), 2, listed(&["a", "e", "f"]), false, true);
+        let merged = super::merge_after(
+            old.clone(),
+            2,
+            listed(&["a", "e", "f"]),
+            super::NamesListed::TreeSoFar,
+            true,
+        );
         assert_eq!(merged[..2], old[..2]);
         let mut rest = merged[2..].to_vec();
         rest.sort();
         assert_eq!(rest, listed(&["b", "d", "e", "f"]));
         let mut new = listed(&["a", "c", "e"]);
         new[0].1 = std::num::NonZeroU64::new(1000);
-        let whole = super::merge_after(merged.clone(), 2, new.clone(), true, true);
+        let whole = super::merge_after(
+            merged.clone(),
+            2,
+            new.clone(),
+            super::NamesListed::Whole,
+            true,
+        );
         assert_eq!(whole[..2], [new[1].clone(), new[0].clone()]);
         assert_eq!(whole[2..], new[2..]);
-        let unchanged = super::merge_after(old.clone(), 4, listed(&["a", "d"]), false, true);
+        let unchanged = super::merge_after(
+            old.clone(),
+            4,
+            listed(&["a", "d"]),
+            super::NamesListed::TreeSoFar,
+            true,
+        );
         assert_eq!(unchanged, old);
         // A list still empty, as before the first part of a tree, takes the part whole.
-        let first = super::merge_after(Vec::new(), 1, listed(&["a", "b"]), false, true);
+        let first = super::merge_after(
+            Vec::new(),
+            1,
+            listed(&["a", "b"]),
+            super::NamesListed::TreeSoFar,
+            true,
+        );
         assert_eq!(first.len(), 2);
+        // A part of new names only is taken as new without a look at the names before it.
+        let new_only = super::NamesListed::NewOnly;
+        let part = super::merge_after(old.clone(), 4, listed(&["e", "f"]), new_only, true);
+        assert_eq!(part[..4], old[..]);
+        assert_eq!(part.len(), 6);
         let played = listed(&["m", "b", "x"]);
-        let part = super::merge_after(played, 1, listed(&["a", "c", "m", "z"]), false, false);
+        let part = super::merge_after(
+            played,
+            1,
+            listed(&["a", "c", "m", "z"]),
+            super::NamesListed::TreeSoFar,
+            false,
+        );
         assert_eq!(part, listed(&["m", "a", "b", "c", "x", "z"]));
-        let whole = super::merge_after(part, 2, listed(&["z", "c", "a", "m"]), true, false);
+        let whole = super::merge_after(
+            part,
+            2,
+            listed(&["z", "c", "a", "m"]),
+            super::NamesListed::Whole,
+            false,
+        );
         assert_eq!(whole, listed(&["m", "a", "z", "c"]));
+    }
+
+    /// Elements shuffled in among others in random order keep every element once, and each of
+    /// them can land at any place, the first among them.
+    #[test]
+    fn shuffle_in_keeps_all_elements_and_reaches_every_place() {
+        let mut first = std::collections::HashSet::new();
+        for _ in 0..400 {
+            let mut v: Vec<u32> = (0..20).collect();
+            super::shuffle_in(&mut v, 15);
+            let mut sorted = v.clone();
+            sorted.sort_unstable();
+            assert_eq!(sorted, (0..20).collect::<Vec<_>>());
+            first.insert(v.iter().position(|&e| e == 19).unwrap());
+        }
+        assert_eq!(first.len(), 20, "19 reached every place");
     }
 
     #[test]

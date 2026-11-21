@@ -169,29 +169,40 @@ impl List {
 
     /// Returns the names of `files`, a new listing, that another file has taken since this list
     /// was made: a name of both whose identities are known and differ. The names at the same
-    /// places are compared in one pass, and only those after the first place that differs are
-    /// looked up, so a listing of 500,000 files in the same order costs no lookup.
+    /// places are compared in one pass, and only those at places that differ are looked up, so
+    /// a listing of 500,000 files in the same order costs no lookup, and nor does each place
+    /// after a few names shuffled in, as a tree's part in random order puts them. Before, every
+    /// name after the first place that differed was looked up.
     pub(crate) fn names_another_file_took(&self, files: &[ListedName]) -> Vec<OsString> {
-        let same_places = (self.files.iter().zip(files))
-            .take_while(|(old, (new, _))| old == &new)
-            .count();
-        let mut taken: Vec<OsString> = (0..same_places)
-            .filter(|&i| is_another_file(self.identity(i), files[i].1))
-            .map(|i| files[i].0.clone())
-            .collect();
-        if same_places < files.len() {
-            let rest: HashMap<&OsString, Identity> = (same_places..self.files.len())
-                .map(|i| (&self.files[i], self.identity(i)))
-                .collect();
-            taken.extend(
-                (files[same_places..].iter())
-                    .filter(|(name, new)| {
-                        rest.get(name)
-                            .is_some_and(|old| is_another_file(*old, *new))
-                    })
-                    .map(|(name, _)| name.clone()),
-            );
+        let both = self.files.len().min(files.len());
+        let mut taken: Vec<OsString> = Vec::new();
+        // The places of both where the names differ, in one pass of comparisons.
+        let mut differ: Vec<usize> = Vec::new();
+        for i in 0..both {
+            if self.files[i] != files[i].0 {
+                differ.push(i);
+            } else if is_another_file(self.identity(i), files[i].1) {
+                taken.push(files[i].0.clone());
+            }
         }
+        if differ.is_empty() && both == files.len() {
+            return taken;
+        }
+        // This list's names at those places and past the end of the new listing, by name.
+        let moved: HashMap<&OsString, Identity> = (differ.iter().copied())
+            .chain(both..self.files.len())
+            .map(|i| (&self.files[i], self.identity(i)))
+            .collect();
+        taken.extend(
+            (differ.into_iter().chain(both..files.len()))
+                .map(|i| &files[i])
+                .filter(|(name, new)| {
+                    moved
+                        .get(name)
+                        .is_some_and(|old| is_another_file(*old, *new))
+                })
+                .map(|(name, _)| name.clone()),
+        );
         taken
     }
 

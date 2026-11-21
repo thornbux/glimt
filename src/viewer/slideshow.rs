@@ -299,9 +299,12 @@ impl crate::App {
     pub(crate) fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow.shown_at = None;
         self.slideshow.paused = false;
-        // The listing that comes next is no longer the slideshow's, and in the sort order.
-        self.slideshow.reads_its_tree = false;
-        let played_order = std::mem::take(&mut self.slideshow.keeps_played_order);
+        // The listing that comes next is no longer the slideshow's, and in the sort order. The
+        // slideshow's own listing, which sends only the names that are new to the order played,
+        // is read again as one of the folder.
+        let its_tree =
+            std::mem::take(&mut self.slideshow.reads_its_tree) && self.folder.is_listing();
+        let played_order = std::mem::take(&mut self.slideshow.keeps_played_order) || its_tree;
         if self.folder.recursive() != self.config.show_subfolders {
             self.folder.set_recursive(self.config.show_subfolders);
             self.slideshow.shuffled = false;
@@ -603,10 +606,13 @@ mod tests {
         // The part waits in its channel, beside the whole list, until it is taken here.
         let part = app.folder.wait_for_part().expect("no part of the tree");
         app.take_listed_files(&ctx, part, false);
-        // The next part, as the walk would send it after the subfolders on a share: the tree
-        // read so far, in name order.
-        let part = ["a/1.png", "b.png", "c/3.png"].map(|name| (name.into(), None));
-        app.take_listed_files(&ctx, part.to_vec(), false);
+        // The next part, as the walk would send it after the subfolders on a share: the images
+        // new to the list, in name order.
+        let part: Vec<_> = (["a/1.png", "c/3.png"].into_iter())
+            .filter(|name| !app.list.files().iter().any(|f| f == name))
+            .map(|name| (name.into(), None))
+            .collect();
+        app.take_listed_files(&ctx, part, false);
         let merged: Vec<std::ffi::OsString> =
             ["b.png", "a/1.png", "c/3.png"].map(Into::into).to_vec();
         assert_eq!(
