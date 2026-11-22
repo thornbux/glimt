@@ -478,8 +478,11 @@ impl crate::App {
         self.slideshow.shown_at = None;
         self.slideshow.paused = false;
         self.slideshow.forget_names();
+        // The image shown is the one the user stopped on, which no whole list that comes after
+        // moves (`Folder::forget_image_shown_by_itself`).
+        self.folder.forget_image_shown_by_itself();
         let shown = self.list.files().get(self.list.shown());
-        let in_the_folder = shown.is_some_and(|name| !name.as_encoded_bytes().contains(&b'/'));
+        let in_the_folder = shown.is_some_and(|name| self.folder.holds_as_its_own(name));
         if self.folder.recursive() != self.config.show_subfolders
             && (self.config.show_subfolders || in_the_folder || shown.is_none())
         {

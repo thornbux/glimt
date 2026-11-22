@@ -365,6 +365,30 @@ impl Folder {
         self.listing_rx.is_some() || self.looking_up.is_some()
     }
 
+    /// Forgets that Glimt showed the first image of a tree's first part by itself
+    /// (`first_part_shown`), because an image was shown since, by the user, the slideshow or a
+    /// new list, or the slideshow stopped. A whole list that comes later then keeps the image
+    /// shown. Before, a stop on that image while the tree was read had the whole list go to its
+    /// first image, minutes later on a share.
+    pub(crate) fn forget_image_shown_by_itself(&mut self) {
+        self.first_part_shown = None;
+    }
+
+    /// Returns whether `name`, a name of the list, is one of the own images of the folder
+    /// shown, or of the folders shown together, and not of a subfolder. A collection's images
+    /// are all its own. The names of several folders are their paths without the leading "/",
+    /// so a name of the folder itself is no name without "/" there.
+    pub(crate) fn holds_as_its_own(&self, name: &OsString) -> bool {
+        if self.collection.is_some() {
+            return true;
+        }
+        let parent = Path::new(name).parent().unwrap_or(Path::new(""));
+        match self.folders.is_empty() {
+            true => parent.as_os_str().is_empty(),
+            false => (self.folders.iter()).any(|d| d.strip_prefix("/").unwrap_or(d) == parent),
+        }
+    }
+
     /// Whether a tree is being read in parts, whose images come after those listed so far: the
     /// tree of a folder opened, or of a slideshow with its subfolders.
     pub(crate) fn reads_tree_in_parts(&self) -> bool {
@@ -5138,7 +5162,10 @@ mod tests {
     /// on and off, a stop and a start, one image opened in an order that looks at the files and
     /// then its tree read (also as `--slideshow photo.jpg` with Include Subfolders), and a
     /// sidecar's relisting in EXIF date order that keeps the list's order. In such an order the
-    /// list has the key of each of its names after every event. The tree has a link into a
+    /// list has the key of each of its names after every event. Images picked with Ctrl+click
+    /// and then an arrow key, Home or End leave the image on screen as an action's only target,
+    /// a stop on an image of one of several folders given goes back to their own images, and a
+    /// whole list that comes after a stop keeps the image stopped on. The tree has a link into a
     /// hidden folder (hidden files not shown at first), a folder reached by two paths and a
     /// folder that cannot be read, its images have dates in another order than their names, and
     /// the walk is the listing thread's own. After each event no name is twice in the list, the
@@ -5335,6 +5362,57 @@ mod tests {
         assert!(app.folder.reads_tree_in_parts(), "its tree in parts: {at}");
     }
 
+    /// A `--slideshow` with the first two folders of `subfolders` in the tree `dir`, each with
+    /// its subfolders, stopped on an image of the first folder itself, as the step `at` of
+    /// `play_a_tree_through_events` makes it: the list goes back to the own images of both
+    /// folders, and the image stays shown. Before, a stop decided by a "/" in the name, which
+    /// every name of several folders holds, and the list kept the subfolders. Then `dir` is
+    /// opened again.
+    fn several_folders_stopped_on_their_own(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        dir: &std::path::Path,
+        subfolders: &[String],
+        at: &str,
+    ) {
+        app.stop_slideshow(ctx);
+        // As in `several_folders_with_slideshow`, the slideshow does not end before the stop.
+        let delay = std::mem::replace(&mut app.config.slideshow_delay, 3600);
+        let repeat = std::mem::replace(&mut app.config.slideshow_repeat, true);
+        let show_subfolders = std::mem::replace(&mut app.config.show_subfolders, false);
+        let both: Vec<PathBuf> = subfolders[..2].iter().map(|s| dir.join(s)).collect();
+        app.slideshow = crate::viewer::slideshow::Slideshow::new(true);
+        app.open_folders(ctx, both.clone());
+        app.receive_looked_up(ctx, std::time::Duration::from_secs(5));
+        assert!(run_background_until(app, ctx, |a| !a.folder.is_listing()));
+        assert!(
+            app.slideshow.is_running(),
+            "--slideshow did not start: {at}"
+        );
+        let own = |folder: &PathBuf| {
+            let name = folder.strip_prefix("/").unwrap().to_path_buf();
+            let images = super::list_folder(folder, app.shown_types()).unwrap().1;
+            (images.into_iter()).map(move |f| name.join(f.0).into_os_string())
+        };
+        let want: HashSet<OsString> = both.iter().flat_map(own).collect();
+        let first = app.list.files().iter().position(|f| want.contains(f));
+        if let Some(i) = first {
+            app.show_file(ctx, i);
+            let stopped_on = app.list.files().get(i).cloned();
+            app.stop_slideshow(ctx);
+            assert!(run_background_until(app, ctx, |a| !a.folder.is_listing()));
+            let list: HashSet<OsString> = app.list.files().iter().cloned().collect();
+            assert_eq!(list, want, "the folders' own images after a stop: {at}");
+            let now = app.list.files().get(app.list.shown()).cloned();
+            assert_eq!(now, stopped_on, "the image stopped on: {at}");
+        }
+        app.stop_slideshow(ctx);
+        app.config.slideshow_delay = delay;
+        app.config.slideshow_repeat = repeat;
+        app.config.show_subfolders = show_subfolders;
+        crate::support::test_support::open_now(app, ctx, dir.to_path_buf());
+    }
+
     /// One run of `a_slideshow_keeps_its_order_through_every_listing`.
     fn play_a_tree_through_events(seed: u64, random: bool, repeat: bool) {
         use crate::ui::actions::Action;
@@ -5409,8 +5487,21 @@ mod tests {
             (c.sort, c.sort_ascending, c.sort_case_sensitive)
         };
         for step in 0..200 {
-            let event = next(29);
+            let mut event = next(32);
             let at = format!("{case}, step {step}, event {event}");
+            // Images picked with Ctrl+click, and then an arrow key, Home or End in the slideshow,
+            // as events 12, 13, 15 and 16 make them: as anywhere, a move without Shift clears
+            // the selection, so a Delete, Move, keyword or mark after it acts on the image on
+            // screen.
+            let rows: Vec<usize> = (0..app.list.files().len())
+                .filter(|&i| app.list.shows_file(i))
+                .collect();
+            let picked_first = event == 29 && rows.len() > 2;
+            if picked_first {
+                let picked = [rows[next(rows.len())], rows[next(rows.len())]];
+                app.set_selection(&ctx, picked.into_iter().collect());
+                event = [12, 13, 15, 16][next(4)];
+            }
             let order_before = app.list.files().to_vec();
             let mut shown_before = shown_name(&app);
             // The names that the list shows before the event: the search's matches, or all.
@@ -5701,6 +5792,60 @@ mod tests {
                     renames_not_listed.clear();
                     list_order = order;
                 }
+                30 if subfolders.len() > 1 => {
+                    // A stop on an image of one of several folders given, itself and not in a
+                    // subfolder: the list goes back to the folders' own images.
+                    several_folders_stopped_on_their_own(&mut app, &ctx, &dir, &subfolders, &at);
+                    app.start_slideshow(&ctx);
+                    fed = None;
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                    }
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    seen = SlidesSeen::default();
+                    seen.begin(shown_name(&app).unwrap());
+                    same_image = shown_name(&app);
+                    renames_not_listed.clear();
+                    list_order = in_config(&app);
+                }
+                31 => {
+                    // The tree opened anew in an order by date, and stopped on the image that its
+                    // first part showed by itself. The whole list that comes after the stop keeps
+                    // the image shown.
+                    app.stop_slideshow(&ctx);
+                    let c = &mut app.config;
+                    (c.sort, c.sort_ascending, c.sort_case_sensitive) =
+                        (crate::model::listing::Sort::Date, next(2) == 0, true);
+                    crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+                    app.start_slideshow(&ctx);
+                    fed = None;
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    list_order = in_config(&app);
+                    renames_not_listed.clear();
+                    let Some(f) = fed.as_mut() else {
+                        continue;
+                    };
+                    send_part(&mut app, &ctx, f);
+                    app.stop_slideshow(&ctx);
+                    let stopped_on = shown_name(&app);
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                    }
+                    // A list still empty after the first part shows no image to keep.
+                    if stopped_on.is_some() {
+                        let now = shown_name(&app);
+                        assert_eq!(now, stopped_on, "a whole list after a stop: {at}");
+                    }
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    app.start_slideshow(&ctx);
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    seen = SlidesSeen::default();
+                    if let Some(name) = shown_name(&app) {
+                        seen.begin(name);
+                    }
+                    same_image = shown_name(&app);
+                }
                 28 => {
                     // A sidecar written in EXIF date order: the folder is read again, and as no
                     // name is new, its whole list keeps the list's order and comes without keys,
@@ -5798,6 +5943,10 @@ mod tests {
                     assert!(!others, "a tick held the slideshow: {at}");
                 }
             }
+            if picked_first {
+                let on_screen = Some(vec![app.list.shown()]);
+                assert_eq!(app.targets(), on_screen, "the targets after a key: {at}");
+            }
             feed_what_runs(&mut app, &ctx, &mut fed);
             // Nothing that the slideshow plans to show next is an image the search hides, as
             // the slideshow sees its plan at its next look.
@@ -5827,8 +5976,9 @@ mod tests {
             // Show Hidden Files turned off takes out the images of a hidden folder by their
             // names, also those that the walk reaches through a link, and brings those back.
             let hidden_off = event == 11 && !app.config.show_hidden;
-            // One image opened is the list alone until its tree is read.
-            let one_opened = matches!(event, 26 | 27);
+            // One image opened is the list alone until its tree is read, and so is a tree
+            // opened anew until its walk is read.
+            let one_opened = matches!(event, 26 | 27 | 31);
             let lost: Vec<&OsString> = (order_before.iter())
                 .filter(|f| !one_opened && disk.contains(*f) && !unique.contains(f))
                 .filter(|f| !(hidden_off && f.as_encoded_bytes().starts_with(b".")))

@@ -97,6 +97,10 @@ impl crate::App {
         }
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
         self.decoding.stop_fade();
+        // Glimt no longer shows the first image of a tree by itself, so a whole list that
+        // comes later does not go to its first image instead. A new list that shows its first
+        // part's image notes it again after this.
+        self.folder.forget_image_shown_by_itself();
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.viewing.is_turned();
         self.leave_image(ctx);
@@ -393,30 +397,39 @@ impl crate::App {
     }
 
     /// First, Previous, Next and Last, along the list as shown (the search matches while
-    /// searching); with Shift the selection runs from where it started to the new image, as in a
-    /// file manager, and moving without Shift clears it.
+    /// searching), or through the images a slideshow that runs showed. With Shift the selection
+    /// runs from where it started to the new image, as in a file manager, and moving without
+    /// Shift clears it, also in a slideshow. Before, the slideshow's keys went around this rule,
+    /// and a Delete, Move or keyword after them acted on a selection made before the slideshow
+    /// instead of on the image on screen.
     pub(crate) fn move_along(&mut self, ctx: &egui::Context, action: Action) {
-        // A slideshow that runs goes through the images it showed.
-        if self.move_in_slideshow(ctx, action) {
-            return;
-        }
-        // Along the list as shown: the search matches while searching.
-        let row = self.panel.row_step();
-        let delta = match action {
-            Action::First => -isize::MAX / 2,
-            Action::Previous => -row,
-            Action::Next => row,
-            _ => isize::MAX / 2,
-        };
-        let Some(to) = self.step(delta, false) else {
-            return;
+        let from = self.list.shown();
+        // The anchor is where the selection started, or the image shown before the move.
+        let shift = self.panel.extends_selection();
+        let anchor = shift.then(|| self.list.anchor_or_shown());
+        // A slideshow that runs goes through the images it showed, and shows the one it goes to.
+        let in_slideshow = self.move_in_slideshow(ctx, action);
+        let to = match in_slideshow {
+            true => self.list.shown(),
+            false => {
+                // Along the list as shown: the search matches while searching.
+                let row = self.panel.row_step();
+                let delta = match action {
+                    Action::First => -isize::MAX / 2,
+                    Action::Previous => -row,
+                    Action::Next => row,
+                    _ => isize::MAX / 2,
+                };
+                let Some(to) = self.step(delta, false) else {
+                    return;
+                };
+                to
+            }
         };
         // With Shift held on an arrow, Page Up/Down, Home or End, the selection runs from where
         // it started to the new image, as in a file manager. Moving in any other way clears it.
-        let shift = self.panel.extends_selection();
-        if shift {
-            let anchor = self.list.anchor_or_shown();
-            if !self.move_range_end(anchor, self.list.shown(), to) {
+        if let Some(anchor) = anchor {
+            if !self.move_range_end(anchor, from, to) {
                 self.list.clear_selection();
                 self.select_range(anchor, to);
             }
@@ -428,7 +441,9 @@ impl crate::App {
                 self.selection_changed(ctx);
             }
         }
-        self.show_file(ctx, to);
+        if !in_slideshow {
+            self.show_file(ctx, to);
+        }
         if shift {
             self.list.set_range_end(Some(to));
         }
