@@ -34,6 +34,13 @@ use std::time::{Duration, Instant};
 /// second, instead of 10,000 stats every second.
 const SUBFOLDERS_A_SECOND: usize = 1_000;
 
+/// How long the folder watcher's looks at a tree's subfolders on a share may take in each
+/// second, besides the open folders. A share such as gvfsd-smb serves its calls one at a time,
+/// so the watcher then holds at most a tenth of the share's time, and the image the window
+/// waits for has the rest. Before, it looked at up to 1,000 subfolders a second there, which
+/// filled the share's queue, and a slideshow's next image stood behind them for many seconds.
+const SHARE_LOOKS_A_SECOND: Duration = Duration::from_millis(100);
+
 /// How many times as long as the last listing took the window rests from it before a change
 /// that the watcher saw lists the folder again. A sync client that writes into a tree of
 /// 500,000 files every second then has it read at most a fifth of the time, while a small
@@ -1787,8 +1794,10 @@ impl crate::App {
     /// Watches the folders `read` in a thread of its own in place of the watcher before, from
     /// the times they had when they were read, or from their times now when `times_unknown`.
     /// Every second the open folders (or the collection's file) are looked at, and of a tree's
-    /// subfolders the next `SUBFOLDERS_A_SECOND`. One change sends one message, which reads the
-    /// folder again.
+    /// subfolders the next `SUBFOLDERS_A_SECOND`, or on a share as many as fit in
+    /// `SHARE_LOOKS_A_SECOND`, each through the gate (`listing::ReadsFirst`). One change sends
+    /// one message, which reads the folder again, and that listing waits for the images awaited
+    /// as every walk does.
     fn watch_folders_read(
         &mut self,
         ctx: &egui::Context,
@@ -1808,10 +1817,11 @@ impl crate::App {
         let mut places = self.folder.places();
         places.extend(self.folder.collection.clone());
         let with_subfolders = self.folder.walks_subfolders();
-        let (watcher_generation, tx, ctx) = (
+        let (watcher_generation, tx, ctx, awaited) = (
             self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
             ctx.clone(),
+            self.decoding.images_awaited().clone(),
         );
         // No busy pointer: it follows the folder's changes, and nobody waits for it.
         std::thread::spawn(move || {
@@ -1820,6 +1830,7 @@ impl crate::App {
                     .for_each(|(path, time)| *time = modified(path));
             }
             let on_a_share = is_any_on_a_share(&places, with_subfolders);
+            let mut gate = listing::ReadsFirst::new(Arc::default(), awaited, on_a_share);
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
@@ -1832,13 +1843,9 @@ impl crate::App {
                 if on_a_share && listing::a_program_is_starting() {
                     continue;
                 }
-                let mut changed = false;
-                for i in folders_this_second(open, read.len(), next) {
-                    let now = modified(&read[i].0);
-                    changed |= now != read[i].1;
-                    read[i].1 = now;
-                }
-                next = (next + SUBFOLDERS_A_SECOND) % (read.len() - open).max(1);
+                let (changed, looked) =
+                    look_this_second(&mut read, (open, next), on_a_share, &mut gate, modified);
+                next = (next + looked) % (read.len() - open).max(1);
                 if changed && watcher_generation.load(Ordering::Relaxed) == generation {
                     let _ = tx.send(());
                     ctx.request_repaint();
@@ -2762,6 +2769,37 @@ fn folders_this_second(open: usize, all: usize, next: usize) -> impl Iterator<It
     (0..open).chain((0..turn).map(move |k| open + (next + k) % subfolders))
 }
 
+/// Looks at the folders of `read` that the watcher looks at in a second, from the `next`th
+/// subfolder on, after the `open` folders first in it (`folders_this_second`), each with `look`
+/// and through `gate`, and keeps the times it found. On a share it looks at the subfolders only
+/// while the looks of this second have taken less than `SHARE_LOOKS_A_SECOND`, the time waited
+/// at the gate not counted. Returns whether a time changed, and how many subfolders it looked
+/// at.
+fn look_this_second(
+    read: &mut FoldersRead,
+    (open, next): (usize, usize),
+    on_a_share: bool,
+    gate: &mut listing::ReadsFirst,
+    look: impl Fn(&Path) -> Option<std::time::SystemTime>,
+) -> (bool, usize) {
+    let (mut changed, mut looked, mut spent) = (false, 0, Duration::ZERO);
+    for i in folders_this_second(open, read.len(), next) {
+        if i >= open {
+            if on_a_share && spent >= SHARE_LOOKS_A_SECOND {
+                break;
+            }
+            looked += 1;
+        }
+        let _turn = gate.before_work_nobody_waits_for(&read[i].0);
+        let began = Instant::now();
+        let now = look(&read[i].0);
+        spent += began.elapsed();
+        changed |= now != read[i].1;
+        read[i].1 = now;
+    }
+    (changed, looked)
+}
+
 /// Sends sizes as partial sums of 10,000 files, so the status bar fills in gradually. It stops
 /// when the receiver is gone. The closed channel tells the window that the sum is complete.
 pub(crate) fn send_sizes(
@@ -3541,6 +3579,40 @@ mod tests {
         assert_eq!(seen.len(), all);
         // Without subfolders, only the open folders are looked at.
         assert_eq!(super::folders_this_second(1, 1, 0).collect::<Vec<_>>(), [0]);
+    }
+
+    /// On a share the watcher's looks at the subfolders take at most `SHARE_LOOKS_A_SECOND`
+    /// of each second, however many there are, and the open folders are always looked at.
+    /// Elsewhere it looks at `SUBFOLDERS_A_SECOND` of them. Before, it looked at a thousand
+    /// subfolders a second on a share too, which filled a share that serves one call at a time.
+    #[test]
+    fn the_watcher_takes_a_small_share_of_a_shares_time() {
+        use std::time::Duration;
+        let look_ms = 20;
+        let read = |n: usize| -> crate::model::listing::FoldersRead {
+            (0..n)
+                .map(|k| (format!("/watched-{k}").into(), None))
+                .collect()
+        };
+        let look = |_: &std::path::Path| {
+            std::thread::sleep(Duration::from_millis(look_ms));
+            Some(std::time::SystemTime::UNIX_EPOCH)
+        };
+        let gate =
+            || crate::model::listing::ReadsFirst::new(Default::default(), Default::default(), true);
+        let mut on_share = read(2 + 500);
+        let (changed, looked) =
+            super::look_this_second(&mut on_share, (2, 0), true, &mut gate(), look);
+        let most = (super::SHARE_LOOKS_A_SECOND.as_millis() / look_ms as u128) as usize + 1;
+        assert!(changed);
+        assert!((1..=most).contains(&looked), "looked at {looked}");
+        assert!(
+            on_share[..2].iter().all(|(_, t)| t.is_some()),
+            "the open folders"
+        );
+        let mut local = read(2 + 1_500);
+        let (_, looked) = super::look_this_second(&mut local, (2, 0), false, &mut gate(), |_| None);
+        assert_eq!(looked, super::SUBFOLDERS_A_SECOND);
     }
 
     /// Another program, or another window's Rename Many, that swaps two names leaves the same

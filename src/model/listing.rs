@@ -85,13 +85,19 @@ const WALK_WAITS_FOR_IMAGES_AT_MOST: std::time::Duration = std::time::Duration::
 /// `WALK_WAITS_FOR_IMAGES_AT_MOST` to wait for the images awaited (`ReadsFirst`). On a share,
 /// where a look at a file's EXIF date takes about 5 ms, that is a pause of at most a second after
 /// about half a second of looks.
-const LOOKS_PER_PAUSE: usize = 100;
+const LOOKS_PER_PAUSE: u64 = 100;
 
 /// The folders where a listing found a link to a file (`holds_links`).
 /// shortcut: it only grows, by one path for each such folder listed; forget a folder at its
 /// next listing when a session lists very many of them.
 static FOLDERS_WITH_LINKS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
     std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Whether a look or read on a share that nobody waits for holds the one turn there is
+/// (`BackgroundTurn`). Such work goes one at a time, so that a share that serves its calls one at
+/// a time always has the image the window waits for next in its queue.
+static BACKGROUND_TURN_TAKEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// When a program was last started on the user's files: Play Video, Open With or a tool.
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
@@ -970,39 +976,60 @@ impl ImagesAwaited {
     }
 
     /// Returns whether the window waits, at `now`, for an image that it began to wait for less
-    /// than `IMAGE_AWAITED_FOR` before.
-    fn holds_the_walk_at(&self, now: std::time::Instant) -> bool {
-        (lock_even_if_poisoned(&self.0).iter())
-            .any(|(_, since)| now.saturating_duration_since(*since) < IMAGE_AWAITED_FOR)
+    /// than `IMAGE_AWAITED_FOR` before, unless it waits for `except` too. A decode read ahead
+    /// that waits so goes on as soon as its own image is awaited.
+    fn holds_the_walk_at(&self, now: std::time::Instant, except: Option<&Path>) -> bool {
+        let awaited = lock_even_if_poisoned(&self.0);
+        (except.is_none_or(|own| !awaited.iter().any(|(path, _)| path == own)))
+            && (awaited.iter())
+                .any(|(_, since)| now.saturating_duration_since(*since) < IMAGE_AWAITED_FOR)
+    }
+
+    /// Returns whether the window waits for the image `path`.
+    fn awaits(&self, path: &Path) -> bool {
+        (lock_even_if_poisoned(&self.0).iter()).any(|(p, _)| p == path)
     }
 }
 
-/// The reads on a share that go before the walk's own looks at its files: a program started on
-/// a file, and the images that the window waits for. Every look at a file in a listing's thread
-/// goes through `sort_key` here: a part's looks, the list put in another order after a sort
-/// change, and the sort of the whole list. Each look first waits for these reads, as the walk
-/// waits before each folder, so that hundreds of EXIF reads in a row never hold the image
-/// awaited. The looks wait for the images awaited for at most `WALK_WAITS_FOR_IMAGES_AT_MOST`
-/// in every `LOOKS_PER_PAUSE` looks, so a long run of looks always yields to the window, and the
-/// walk never stops for good. Before, the budget was a second for each part, and a part that
-/// put the whole list in another order, or the sort of the whole list, read on for minutes on a
-/// share with no pause after the first second.
+/// The one gate that every look and read Glimt makes in the background on a share goes
+/// through, so that the share serves the image that the window waits for first. A share such
+/// as gvfsd-smb serves its calls largely one at a time, so every look in the background stands
+/// in the same queue as the reads of that image. Before a look or a read, the gate waits while a
+/// program started on a file may still be reading its start, and while the window waits for an
+/// image (`ImagesAwaited`). Elsewhere nothing waits.
+///
+/// Two kinds of work go through it. Work that someone waits for, such as the listing that the
+/// user opened and the EXIF index of a search, goes through `before_a_look`, where a long run of
+/// looks shares one budget: the looks wait for the images awaited for at most
+/// `WALK_WAITS_FOR_IMAGES_AT_MOST` in every `LOOKS_PER_PAUSE` looks, so a run of looks always
+/// yields to the window, and never stops for good. The listing's own looks at its files (the
+/// walk's parts, the list put in another order, the sort of the whole list) go through
+/// `sort_key`, which makes such a look. Work that nobody waits for, such as the folder watcher,
+/// a thumbnail, an image read ahead or the list's sizes and dates, goes through
+/// `before_work_nobody_waits_for`. It waits as long as the window waits for another image,
+/// which is at most `IMAGE_AWAITED_FOR` for each image, so it runs between the image's decodes
+/// and never stops for good. Before, only the walk of a tree waited, and the folder watcher,
+/// the thumbnails, the images read ahead and the other readers held the slideshow's next image
+/// for many seconds.
 pub(crate) struct ReadsFirst {
     /// Set when another listing starts, which ends the wait.
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The images that the window waits for.
     awaited: ImagesAwaited,
-    /// Whether the places listed are on a share (`is_on_a_share`). Elsewhere nothing waits.
-    on_a_share: bool,
+    /// Whether the places read are on a share (`is_on_a_share`), or `None` when each path is
+    /// asked about on its own (`for_files_anywhere`).
+    on_a_share: Option<bool>,
+    /// The folder last asked about, and whether it is on a share.
+    folder_asked: Option<(PathBuf, bool)>,
     /// How many looks were made, which renews the wait's budget every `LOOKS_PER_PAUSE`.
-    looks: usize,
+    looks: u64,
     /// How long the looks since the budget was last renewed have waited.
     waited: std::time::Duration,
 }
 
 impl ReadsFirst {
-    /// Returns the reads that go first for a listing whose places are `on_a_share`, which
-    /// `stop` ends and which waits for the images `awaited`.
+    /// Returns the gate for a listing whose places are `on_a_share`, which `stop` ends and
+    /// which waits for the images `awaited`.
     pub(crate) fn new(
         stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
         awaited: ImagesAwaited,
@@ -1011,23 +1038,34 @@ impl ReadsFirst {
         ReadsFirst {
             stop,
             awaited,
-            on_a_share,
+            on_a_share: Some(on_a_share),
+            folder_asked: None,
             looks: 0,
             waited: std::time::Duration::ZERO,
         }
     }
 
-    /// Looks at the file `name` in `dir` for what it is sorted by in `by` (`sort_key`), after a
-    /// wait on a share for the reads that go first (`wait_for_reads_that_go_first`).
+    /// Returns the gate for a reader of files in any folder, which asks for each path whether it
+    /// is on a share, and waits for the images `awaited`.
+    pub(crate) fn for_files_anywhere(awaited: &ImagesAwaited) -> Self {
+        ReadsFirst {
+            on_a_share: None,
+            ..ReadsFirst::new(Default::default(), awaited.clone(), false)
+        }
+    }
+
+    /// Looks at the file `name` in `dir` for what it is sorted by in `by` (`sort_key`), after
+    /// the wait of a look (`before_a_look`).
     pub(crate) fn sort_key(&mut self, dir: &Path, name: &OsStr, by: Sort) -> SortKey {
-        self.wait_before_a_look();
+        self.before_a_look(dir);
         sort_key(dir, name, by)
     }
 
-    /// Waits, on a share, for the reads that go first, with what is left of the budget of the
-    /// last `LOOKS_PER_PAUSE` looks, which is renewed before every `LOOKS_PER_PAUSE`th look.
-    fn wait_before_a_look(&mut self) {
-        if !self.on_a_share {
+    /// Waits, when `path` is on a share, for the reads that go first, with what is left of the
+    /// budget of the last `LOOKS_PER_PAUSE` looks, which is renewed before every
+    /// `LOOKS_PER_PAUSE`th look.
+    pub(crate) fn before_a_look(&mut self, path: &Path) {
+        if !self.is_on_a_share(path) {
             return;
         }
         if self.looks.is_multiple_of(LOOKS_PER_PAUSE) {
@@ -1036,8 +1074,78 @@ impl ReadsFirst {
         self.looks += 1;
         let at_most = WALK_WAITS_FOR_IMAGES_AT_MOST.saturating_sub(self.waited);
         let began = std::time::Instant::now();
-        wait_for_reads_that_go_first(&self.stop, &self.awaited, at_most);
+        wait_for_reads_that_go_first(&self.stop, &self.awaited, None, at_most);
         self.waited += began.elapsed();
+    }
+
+    /// Waits, before a look at or read of `path` that nobody waits for, when `path` is on a
+    /// share and is not itself an image that the window waits for, for the reads that go
+    /// first, and then for the turn of such work (`BackgroundTurn`), for at most
+    /// `IMAGE_AWAITED_FOR` in all. Returns the turn, which the work holds until it is done.
+    /// Before, the images read ahead began together as soon as no image was awaited, and the
+    /// next one then waited behind the others.
+    pub(crate) fn before_work_nobody_waits_for(&mut self, path: &Path) -> BackgroundTurn {
+        use std::sync::atomic::Ordering;
+        let no_turn = BackgroundTurn { holds: false };
+        if !self.is_on_a_share(path) || self.awaited.awaits(path) {
+            return no_turn;
+        }
+        let began = std::time::Instant::now();
+        wait_for_reads_that_go_first(&self.stop, &self.awaited, Some(path), IMAGE_AWAITED_FOR);
+        loop {
+            let taken = BACKGROUND_TURN_TAKEN.compare_exchange(
+                false,
+                true,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            );
+            if taken.is_ok() {
+                return BackgroundTurn { holds: true };
+            }
+            // A turn held by a read on a share that stopped answering holds the others for at
+            // most this long, and the image awaited never waits for it.
+            if began.elapsed() >= IMAGE_AWAITED_FOR
+                || self.awaited.awaits(path)
+                || self.stop.load(Ordering::Relaxed)
+            {
+                return no_turn;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// Returns whether `path` is on a share: as the gate was made, or for a reader of files
+    /// anywhere as the mount table says, asked once for each folder in a row.
+    fn is_on_a_share(&mut self, path: &Path) -> bool {
+        if let Some(on_a_share) = self.on_a_share {
+            return on_a_share;
+        }
+        let folder = path.parent().unwrap_or(path);
+        match &self.folder_asked {
+            Some((asked, on_a_share)) if asked == folder => *on_a_share,
+            _ => {
+                let on_a_share = is_on_a_share(path, false);
+                self.folder_asked = Some((folder.to_path_buf(), on_a_share));
+                on_a_share
+            }
+        }
+    }
+}
+
+/// The turn of a look or read on a share that nobody waits for
+/// (`ReadsFirst::before_work_nobody_waits_for`), held until the work is done. One that does not
+/// hold it, elsewhere than on a share or for an image awaited, gives nothing back.
+#[must_use = "the work holds the turn until it is done"]
+pub(crate) struct BackgroundTurn {
+    /// Whether it holds the turn, which it gives back when it is dropped.
+    holds: bool,
+}
+
+impl Drop for BackgroundTurn {
+    fn drop(&mut self) {
+        if self.holds {
+            BACKGROUND_TURN_TAKEN.store(false, std::sync::atomic::Ordering::Release);
+        }
     }
 }
 
@@ -1241,20 +1349,21 @@ pub(crate) fn a_program_is_starting() -> bool {
 }
 
 /// Waits while a program started on a file may still be reading its start, or while the window
-/// waits for an image (`awaited`) and for at most `at_most`, or until `stop` is set. The
-/// reading of a tree on a share calls it between folders, with `WALK_WAITS_FOR_IMAGES_AT_MOST`,
-/// and a part of it before each look at a file (`ReadsFirst`), so that neither a video player
-/// started on the same share nor the next image is queued behind a look at each file of the
-/// tree.
+/// waits for an image of `awaited` other than `except` and for at most `at_most`, or until
+/// `stop` is set. The reading of a tree on a share calls it between folders, with
+/// `WALK_WAITS_FOR_IMAGES_AT_MOST`, and every other look or read in the background on a share
+/// through the gate (`ReadsFirst`), so that neither a video player started on the same share
+/// nor the next image is queued behind them.
 fn wait_for_reads_that_go_first(
     stop: &std::sync::atomic::AtomicBool,
     awaited: &ImagesAwaited,
+    except: Option<&Path>,
     at_most: std::time::Duration,
 ) {
     let began = std::time::Instant::now();
     let awaited = || {
         let now = std::time::Instant::now();
-        now.duration_since(began) < at_most && awaited.holds_the_walk_at(now)
+        now.duration_since(began) < at_most && awaited.holds_the_walk_at(now, except)
     };
     while (a_program_is_starting() || awaited()) && !stop.load(std::sync::atomic::Ordering::Relaxed)
     {
@@ -1326,7 +1435,21 @@ pub fn walk_tree(
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
     let (mut read, mut left_out) = (Vec::new(), Vec::new());
     let on_a_share = is_on_a_share(dir, true);
-    for walked in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
+    // Each look at an entry of a folder goes through the gate on a share, as the looks at the
+    // files of a part do.
+    let gate = std::cell::RefCell::new(ReadsFirst::new(
+        Default::default(),
+        awaited.clone(),
+        on_a_share,
+    ));
+    let list = |folder: &Path, types: Types| {
+        list_folder_after(folder, types, &mut || {
+            gate.borrow_mut().before_a_look(folder)
+        })
+    };
+    let canonical = |p: &Path| std::fs::canonicalize(p);
+    let walked = walk_by(dir, types, crate::images::save::file_id, canonical, list);
+    for walked in walked.take_while(|_| !stop.load(Relaxed)) {
         let (rel, dirs, files, modified) = match walked {
             Ok(walked) => walked,
             // The walk stops after an error for `dir`, so that one is the only error that
@@ -1352,7 +1475,7 @@ pub fn walk_tree(
         // part looks at each new image on the share, and each of those looks waits again
         // (`ReadsFirst`), for at most a second in every hundred looks.
         if on_a_share {
-            wait_for_reads_that_go_first(stop, awaited, WALK_WAITS_FOR_IMAGES_AT_MOST);
+            wait_for_reads_that_go_first(stop, awaited, None, WALK_WAITS_FOR_IMAGES_AT_MOST);
         }
         part(&FolderReadWhole {
             so_far: &out,
@@ -1439,6 +1562,19 @@ pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
 /// as empty, or as the part read, a folder on a share that failed for a moment emptied the
 /// list, and the selection with it.
 pub fn list_folder(dir: &Path, types: Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)> {
+    list_folder_after(dir, types, &mut || {})
+}
+
+/// Reads `dir` as `list_folder` does, and calls `before_each` before the look at each entry. A
+/// share that gives no entry's type with its names, as gvfsd-fuse does, has each entry looked at
+/// on its own, and the walk of a tree on a share passes each of those looks through the gate
+/// (`ReadsFirst::before_a_look`). Before, a folder of hundreds of entries held the share for
+/// that many calls in a row, and the image awaited waited behind them.
+fn list_folder_after(
+    dir: &Path,
+    types: Types,
+    before_each: &mut dyn FnMut(),
+) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)> {
     use crate::images::save::identity_of_entry;
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     let entries = match std::fs::read_dir(dir) {
@@ -1448,6 +1584,7 @@ pub fn list_folder(dir: &Path, types: Types) -> std::io::Result<(Vec<PathBuf>, V
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
+        before_each();
         let (file, folder) = kind(&entry);
         if file && is_listed(&path, types) {
             images.push((entry.file_name(), identity_of_entry(&entry)));
@@ -1837,14 +1974,14 @@ mod tests {
         use std::time::{Duration, Instant};
         let awaited = ImagesAwaited::default();
         let now = Instant::now();
-        assert!(!awaited.holds_the_walk_at(now));
+        assert!(!awaited.holds_the_walk_at(now, None));
         awaited.set(vec!["a.jpg".into()]);
-        assert!(awaited.holds_the_walk_at(Instant::now()));
+        assert!(awaited.holds_the_walk_at(Instant::now(), None));
         // An image still awaited keeps the time the window began to wait for it.
         awaited.set(vec!["a.jpg".into(), "b.jpg".into()]);
-        assert!(!awaited.holds_the_walk_at(now + IMAGE_AWAITED_FOR + Duration::from_secs(1)));
+        assert!(!awaited.holds_the_walk_at(now + IMAGE_AWAITED_FOR + Duration::from_secs(1), None));
         awaited.set(Vec::new());
-        assert!(!awaited.holds_the_walk_at(Instant::now()));
+        assert!(!awaited.holds_the_walk_at(Instant::now(), None));
         let dir = std::env::temp_dir().join(format!(
             "glimt-test-share-awaits-image-{}",
             std::process::id()

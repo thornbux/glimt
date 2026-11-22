@@ -477,7 +477,11 @@ arm becomes a method.
   refuses `Mutex::lock`), because a panic that `catch_panic` caught may have poisoned it. Do
   not hold a lock across a `catch_panic`, a channel send or a wait
   (`source_rules::locks_are_never_held_across_a_wait`). Two windows share only the files that
-  `file_io::edit_shared` writes, and the socket.
+  `file_io::edit_shared` writes, and the socket. A thread that nobody waits for, and every
+  worker pool, makes each look at or read of the user's files through the gate,
+  `listing::ReadsFirst` (`before_work_nobody_waits_for`), which on a share waits for the
+  images the window waits for, as a share such as gvfs serves one call at a time
+  (`source_rules::background_reads_on_a_share_go_through_the_gate`).
 - **A new way to show the list** (such as the grid in the image area, G) gets what every view
   of the list needs. The first grid missed these through five audit rounds:
   - its form from `file_list`'s parameters, never from the settings inside the functions that

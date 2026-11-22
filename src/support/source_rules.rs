@@ -755,6 +755,134 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "spawn_worker_pool(",
 ];
 
+/// The calls that look at or read the user's files, which a thread in the background makes on a
+/// share only through the gate (`background_reads_on_a_share_go_through_the_gate`): a look at a
+/// file or folder, a folder read, a file opened, and a decode. Glimt's own functions that make
+/// one, such as `list_folder` or `read_limited`, are found through the functions they reach.
+const BACKGROUND_READS: &[&str] = &[
+    "fs::metadata(",
+    ".metadata()",
+    "symlink_metadata(",
+    "canonicalize(",
+    "read_dir(",
+    "read_to_string(",
+    "fs::read(",
+    "File::open(",
+    "OpenOptions",
+    "from_decoder(",
+    "scaled(",
+    "from_memory(",
+];
+
+/// What passes a thread's looks and reads on a share through the gate (`listing::ReadsFirst`),
+/// which waits there for the images that the window waits for.
+const THE_GATE: &[&str] = &[
+    "ReadsFirst",
+    "before_a_look(",
+    "before_work_nobody_waits_for(",
+    "wait_for_reads_that_go_first(",
+];
+
+/// The threads in the background that read without the gate
+/// (`background_reads_on_a_share_go_through_the_gate`), as (file, function), each with the
+/// reason it needs none: it reads Glimt's own files or the system's, not the user's on a share;
+/// or someone waits for its answer, as for work with a busy pointer (a dialog the user opened, a
+/// question, a --remote client, an operation); or it starts a program, which
+/// `listing::program_started` lets go first; or it looks at no file on a share.
+const NEEDS_NO_GATE: &[(&str, &str, &str)] = &[
+    (
+        "features/print.rs",
+        "open_print",
+        "the Print dialog's previews, which it waits for",
+    ),
+    (
+        "features/print.rs",
+        "ask_captions",
+        "the Print dialog's captions, which it waits for",
+    ),
+    (
+        "features/remote.rs",
+        "remote_info",
+        "--remote info, whose client waits for it",
+    ),
+    (
+        "features/tools.rs",
+        "new",
+        "the tools' desktop files, Glimt's own",
+    ),
+    (
+        "files/file_io.rs",
+        "taken_in_background",
+        "the fingerprints that a question's act waits for",
+    ),
+    (
+        "files/file_ops.rs",
+        "with_real_folder",
+        "the look-up that an operation waits for",
+    ),
+    (
+        "files/file_ops.rs",
+        "rename_files_of",
+        "the look-up that a rename waits for",
+    ),
+    (
+        "images/colour.rs",
+        "read_desktop_screen",
+        "the screen's profile, the system's",
+    ),
+    (
+        "main.rs",
+        "on_exit",
+        "the socket removed at the close, Glimt's own",
+    ),
+    (
+        "metadata/lightroom.rs",
+        "look_at_typed_folders",
+        "the Lightroom dialog's look-ups",
+    ),
+    (
+        "model/collections.rs",
+        "listed",
+        "the collections' folder, Glimt's own",
+    ),
+    (
+        "model/search.rs",
+        "sum_match_size",
+        "it looks at no file on a share",
+    ),
+    (
+        "model/selection.rs",
+        "sum_selection_size",
+        "it looks at no file on a share",
+    ),
+    (
+        "ui/dialogs.rs",
+        "ask_rename_many",
+        "Rename Many's preview, which its dialog waits for",
+    ),
+    ("ui/help.rs", "logo", "the logo, Glimt's own"),
+    (
+        "ui/menus.rs",
+        "tools_menu",
+        "it starts a tool or the file manager",
+    ),
+    (
+        "ui/menus.rs",
+        "open_with_menu",
+        "the applications' desktop files, the system's",
+    ),
+    (
+        "ui/preferences.rs",
+        "cache_settings",
+        "the thumbnail cache, Glimt's own",
+    ),
+    (
+        "ui/theme.rs",
+        "read_theme_files_again",
+        "the theme files, Glimt's own",
+    ),
+];
+
 /// What starts work that writes, which closing waits for: a job, work in the background, a
 /// sidecar write of the user's keywords, alt text and stars, an operation that will leave an
 /// Undo, or the count of writing itself.
@@ -7069,22 +7197,7 @@ fn threads_without_pointer(text: &str) -> Vec<usize> {
         if names_a_pointer(&call_text(&code[..end], i, at).0, &holders) {
             continue;
         }
-        // Up to the statement's first line, then up the comments and attributes above it.
-        let mut first = i;
-        while first > 0
-            && !code[first - 1].trim().is_empty()
-            && !code[first - 1].ends_with([';', '{', '}', ','])
-        {
-            first -= 1;
-        }
-        while first > 0
-            && (code[first - 1].trim().is_empty() && !comments[first - 1].trim().is_empty()
-                || code[first - 1].trim_start().starts_with("#["))
-        {
-            first -= 1;
-        }
-        let says_why = (first..=i).any(|j| comments[j].contains("busy pointer:"));
-        if !says_why {
+        if !comment_above(&code, &comments, i).contains("busy pointer:") {
             found.push(i + 1);
         }
     }
@@ -7185,6 +7298,168 @@ fn finds_every_thread_without_the_busy_pointer() {
         fn g() {\n    let child = command.spawn()?;\n    \
         std::thread::scope(|scope| {\n        scope.spawn(f);\n    });\n}\n";
     assert_eq!(threads_without_pointer(text), [2, 7, 10, 15, 28]);
+}
+
+/// Every thread in the background that nobody waits for (its comment says "No busy pointer:")
+/// and every worker pool makes its looks at and reads of the user's files on a share only
+/// through the gate (`listing::ReadsFirst`), so that a share that serves one call at a time
+/// serves the image that the window waits for first. Such a thread that reaches one of
+/// `BACKGROUND_READS`, itself or through the crate's functions however deep, passes one of
+/// `THE_GATE` too, itself or through a function it calls. Before, only the walk of a tree
+/// waited, and the folder watcher, the thumbnails, the images read ahead and the other readers
+/// held a slideshow's next image on gvfs for many seconds. The threads that need no gate are
+/// listed with the reason.
+#[test]
+fn background_reads_on_a_share_go_through_the_gate() {
+    let found = ungated_background_readers(&rust_sources());
+    let is_excepted = |(file, function): &(String, String)| {
+        (NEEDS_NO_GATE.iter()).any(|e| (e.0, e.1) == (file, function))
+    };
+    let wrong: Vec<String> = (found.iter())
+        .filter(|f| !is_excepted(f))
+        .map(|(file, function)| format!("{file}: {function}"))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a thread in the background reads the user's files without the gate (listing::ReadsFirst, \
+         AGENTS.md):\n{}",
+        wrong.join("\n")
+    );
+    let unused: Vec<_> = (NEEDS_NO_GATE.iter())
+        .filter(|e| {
+            !found
+                .iter()
+                .any(|f| (f.0.as_str(), f.1.as_str()) == (e.0, e.1))
+        })
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "named here but no longer there: {unused:?}"
+    );
+}
+
+/// The check above finds a thread nobody waits for that reads through a function, and a worker
+/// pool whose work reads, and passes one that goes through the gate, itself or in a function it
+/// calls, a thread with a busy pointer, and one that reads nothing.
+#[test]
+fn finds_a_background_reader_without_the_gate() {
+    let text = "fn look(p: &Path) {\n    std::fs::metadata(p);\n}\n\
+        fn gated(p: &Path) {\n    gate.before_a_look(p);\n    look(p);\n}\n\
+        fn a() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || look(p));\n}\n\
+        fn b() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || gated(p));\n}\n\
+        fn c() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        gate.before_work_nobody_waits_for(p);\n        look(p);\n    });\n}\n\
+        fn d() {\n    // Its busy pointer: the listing.\n    std::thread::spawn(move || look(p));\n}\n\
+        fn e() {\n    // No busy pointer: a reaper.\n    std::thread::spawn(move || drop(p));\n}\n\
+        fn f() {\n    spawn_worker_pool(\n        1,\n        move |p| {\n            \
+        let m = p.metadata();\n        },\n    );\n}\n";
+    let sources = [("x.rs".to_owned(), text.to_owned())];
+    let found: Vec<String> = (ungated_background_readers(&sources).into_iter())
+        .map(|(_, function)| function)
+        .collect();
+    assert_eq!(found, ["a", "f"]);
+}
+
+/// Returns, as (file, function), the functions of `sources` outside the tests that start a
+/// thread whose comment above says "No busy pointer:", or a worker pool, whose work reaches one
+/// of `BACKGROUND_READS` and none of `THE_GATE`
+/// (`background_reads_on_a_share_go_through_the_gate`).
+fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, String)> {
+    let graph = CallGraph::new(sources);
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| graph.calls_of(f))
+        .collect();
+    let own_lines = |f: &Function| graph.lines[&f.file][f.lines.clone()].join("\n");
+    let reads: Vec<bool> = (graph.functions.iter().zip(&calls))
+        .map(|(f, calls)| {
+            let text = own_lines(f);
+            let handed = HANDED_TO_A_THREAD.iter().any(|h| text.contains(h));
+            calls
+                .iter()
+                .any(|c| c.callee.is_none() && BACKGROUND_READS.contains(&c.text.as_str()))
+                || (!handed && BACKGROUND_READS.iter().any(|r| text.contains(r)))
+        })
+        .collect();
+    let gates: Vec<bool> = (graph.functions.iter())
+        .map(|f| THE_GATE.iter().any(|g| own_lines(f).contains(g)))
+        .collect();
+    let (reads, gates) = (reaching(&calls, reads), reaching(&calls, gates));
+    let mut found = Vec::new();
+    for (file, text) in sources {
+        let (code, comments) = (code_lines(text), comment_lines(text));
+        let end = tests_start(&code);
+        let mut scopes = Vec::new();
+        for (i, line) in code[..end].iter().enumerate() {
+            scopes.extend(scope_names(line));
+            let at = match thread_start(line, &scopes) {
+                Some(at) if comment_above(&code, &comments, i).contains("No busy pointer:") => at,
+                _ => match line.find("spawn_worker_pool(") {
+                    Some(at) if !line.contains("fn spawn_worker_pool") => at,
+                    _ => continue,
+                },
+            };
+            let Some(f) =
+                (graph.functions.iter()).position(|f| f.file == *file && f.lines.contains(&i))
+            else {
+                continue;
+            };
+            let function = &graph.functions[f];
+            let (work, last) = call_text(&code[..end], i, at);
+            let whole = own_lines(function);
+            let opens = (function.lines.clone()).find(|&k| code[k].ends_with('{'));
+            let signature = code[*function.lines.start()..=opens.unwrap_or(i)].join(" ");
+            let callees: Vec<usize> = (i..=last)
+                .flat_map(|k| graph.callees(function, &whole, &signature, &code[k]))
+                .map(|(callee, _)| callee)
+                .collect();
+            let reads_here = BACKGROUND_READS.iter().any(|r| work.contains(r))
+                || callees.iter().any(|&g| reads[g]);
+            let gated =
+                THE_GATE.iter().any(|g| work.contains(g)) || callees.iter().any(|&g| gates[g]);
+            if reads_here && !gated {
+                found.push((file.clone(), function.name.clone()));
+            }
+        }
+    }
+    found.dedup();
+    found
+}
+
+/// Returns, for each function of `calls` (the calls of each function, by its index), whether it
+/// is one that `own` marks or calls one that reaches such a function, however deep.
+fn reaching(calls: &[Vec<Call>], mut own: Vec<bool>) -> Vec<bool> {
+    loop {
+        let mut changed = false;
+        for (i, calls) in calls.iter().enumerate() {
+            if !own[i] && calls.iter().any(|c| c.callee.is_some_and(|g| own[g])) {
+                own[i] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            return own;
+        }
+    }
+}
+
+/// Returns the comments just above the statement whose line `i` of `code` is, up to the
+/// statement's first line and then up the comments and attributes above it, with those of the
+/// statement's own lines.
+fn comment_above(code: &[String], comments: &[String], i: usize) -> String {
+    let mut first = i;
+    while first > 0
+        && !code[first - 1].trim().is_empty()
+        && !code[first - 1].ends_with([';', '{', '}', ','])
+    {
+        first -= 1;
+    }
+    while first > 0
+        && (code[first - 1].trim().is_empty() && !comments[first - 1].trim().is_empty()
+            || code[first - 1].trim_start().starts_with("#["))
+    {
+        first -= 1;
+    }
+    comments[first..=i].join(" ")
 }
 
 /// Returns the names, in `sources` outside the tests, of the fields, arguments and functions

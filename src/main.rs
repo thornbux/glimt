@@ -241,7 +241,7 @@ impl App {
         let thumbs = crate::ui::file_list::Thumbs::new(
             ctx,
             workers,
-            decoding.auto_rotate(),
+            (decoding.auto_rotate(), decoding.images_awaited()),
             config.save_thumbnails,
         );
         // A named Glimt listens in any case (`remote::Listener::new`). A kiosk listens too,
@@ -249,6 +249,7 @@ impl App {
         let listens_without_name = config.remote_control || start.kiosk;
         let (notice_sender, notices) = crate::support::threads::NoticeSender::new(ctx);
         let busy = Arc::default();
+        let awaited = decoding.images_awaited().clone();
         let mut app = App {
             ctx: ctx.clone(),
             desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
@@ -273,7 +274,7 @@ impl App {
             is_focus_from_keys: false,
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
-            info_panel: crate::ui::info_panel::InfoPanel::new(ctx, read.keyword_tree),
+            info_panel: crate::ui::info_panel::InfoPanel::new(ctx, read.keyword_tree, &awaited),
             notice: crate::viewer::view::Notice::new(
                 (read.colour_error.or_else(|| config_notice(&read.problems)))
                     .or(read.desktop_file_problem),

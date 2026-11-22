@@ -275,12 +275,15 @@ impl crate::App {
 
 /// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
 /// take jobs: so scrolling the list never delays the shown image. They are a pool that replaces
-/// a worker stuck on a share that stopped answering (`spawn_worker_pool`).
+/// a worker stuck on a share that stopped answering (`spawn_worker_pool`). On a share each
+/// thumbnail waits first for the images `awaited`
+/// (`ReadsFirst::before_work_nobody_waits_for`), because a thumbnail reads its file whole, as
+/// much as the image awaited.
 #[allow(clippy::type_complexity)] // the two channels' types, each used once, read best whole
 pub(crate) fn spawn_thumbnailers(
     ctx: &egui::Context,
     workers: usize,
-    rotate: &Arc<AtomicBool>,
+    (rotate, awaited): (&Arc<AtomicBool>, &listing::ImagesAwaited),
     on_screen: &OnScreenFiles,
     save: &Arc<AtomicBool>,
 ) -> (
@@ -289,8 +292,13 @@ pub(crate) fn spawn_thumbnailers(
 ) {
     let (thumb_jobs, thumb_rx) = mpsc::channel::<(PathBuf, PathBuf, u64)>();
     let (tx, thumbs_done) = mpsc::channel();
-    let (on_screen, rotate, save, ctx) =
-        (on_screen.clone(), rotate.clone(), save.clone(), ctx.clone());
+    let (on_screen, rotate, save, ctx, awaited) = (
+        on_screen.clone(),
+        rotate.clone(),
+        save.clone(),
+        ctx.clone(),
+        awaited.clone(),
+    );
     spawn_worker_pool(
         cores(),
         STUCK_AFTER,
@@ -310,6 +318,8 @@ pub(crate) fn spawn_thumbnailers(
             let wanted =
                 (lock_even_if_poisoned(&on_screen).iter()).any(|v| v.binary_search(&path).is_ok());
             let result = wanted.then(|| {
+                let _turn = listing::ReadsFirst::for_files_anywhere(&awaited)
+                    .before_work_nobody_waits_for(&path);
                 let (rotate, save) = (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
                 let large = LARGE_THUMBS.load(Ordering::Relaxed);
                 thumbs::thumbnail(&path, rotate, save, large)
