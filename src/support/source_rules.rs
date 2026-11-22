@@ -2544,7 +2544,8 @@ fn the_slideshows_plan_is_made_in_one_place() {
 }
 
 /// Every listing of a tree sends its images in parts as they are found: each function of
-/// `Listing` that reads a tree (`listing::list_tree`) sends parts (`Listing::send_part`), so
+/// `Listing` that reads a tree (`listing::list_tree` or `walk_tree`) sends parts
+/// (`Listing::send_part`), so
 /// the list grows while the tree is read, whatever kind of listing it is. Before, the listing of
 /// several folders read their trees whole, and a slideshow started on them with `--slideshow`
 /// waited for every folder of them, minutes on a share, before its first slide.
@@ -2561,7 +2562,7 @@ fn every_listing_of_a_tree_sends_parts() {
             continue;
         }
         let calls = graph.calls_of(f);
-        if calls_a(&calls, "list_tree") {
+        if calls_a(&calls, "list_tree") || calls_a(&calls, "walk_tree") {
             trees += 1;
             if !calls_a(&calls, "send_part") {
                 wrong.push(f.name.clone());

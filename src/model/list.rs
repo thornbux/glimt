@@ -3,7 +3,7 @@
 
 use crate::files::file_io::{FileFingerprint, Identity, is_another_file};
 use crate::images::decode::HistogramCounts;
-use crate::model::listing::ListedName;
+use crate::model::listing::{ListedName, SortKey};
 use crate::ui::file_list::RubberBand;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -85,6 +85,11 @@ pub(crate) struct List {
     /// what tells that another file has taken a name since: what was read of the old file is
     /// then dropped, and a write of the name is refused.
     identities: Vec<Identity>,
+    /// In an order that looks at the files, what each file of `files` is sorted by (its time,
+    /// size or EXIF date), at the same place, as the listing looked at it. A part of a tree goes
+    /// into its place by them, so the window looks at no file. It is empty in another order,
+    /// and for a list that came in another way than from a listing.
+    keys: Vec<SortKey>,
     shown: usize,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on. They are always
     /// files the list shows, so while searching they are matches only. No action then acts on
@@ -156,6 +161,33 @@ impl List {
     /// known.
     pub(crate) fn identity(&self, i: usize) -> Identity {
         self.identities.get(i).copied().flatten()
+    }
+
+    /// Takes what each file is sorted by, to merge a part of a tree into the list by it. A new
+    /// list is given them back with `set_keys`.
+    pub(crate) fn take_keys(&mut self) -> Vec<SortKey> {
+        std::mem::take(&mut self.keys)
+    }
+
+    /// Keeps `keys`, what each file is sorted by at its place, when there is one for each file.
+    pub(crate) fn set_keys(&mut self, keys: Vec<SortKey>) {
+        self.keys = match keys.len() == self.files.len() {
+            true => keys,
+            false => Vec::new(),
+        };
+    }
+
+    /// Returns what each of `files` is sorted by, as this list has it for the same names. It
+    /// is one pass over the list, and returns nothing when the list lacks the key of one.
+    pub(crate) fn keys_of(&self, files: &[ListedName]) -> Vec<SortKey> {
+        if self.keys.len() != self.files.len() {
+            return Vec::new();
+        }
+        let known: HashMap<&OsString, &SortKey> = self.files.iter().zip(&self.keys).collect();
+        (files.iter())
+            .map(|f| known.get(&f.0).map(|&key| key.clone()))
+            .collect::<Option<Vec<SortKey>>>()
+            .unwrap_or_default()
     }
 
     /// Returns the files with their identities, in the list's order, to put in another order.
@@ -385,6 +417,7 @@ impl List {
     pub(crate) fn forget_files(&mut self) {
         self.files.clear();
         self.identities.clear();
+        self.keys.clear();
     }
 
     /// Takes the files at the sorted places `removed` out of the list in one pass. The decoded
@@ -398,6 +431,11 @@ impl List {
         });
         let mut idx = 0;
         self.identities.retain(|_| {
+            idx += 1;
+            removed.binary_search(&(idx - 1)).is_err()
+        });
+        let mut idx = 0;
+        self.keys.retain(|_| {
             idx += 1;
             removed.binary_search(&(idx - 1)).is_err()
         });
@@ -731,6 +769,7 @@ impl List {
     /// Makes `files` the list.
     pub(crate) fn set_files(&mut self, files: Vec<OsString>) {
         self.identities = vec![None; files.len()];
+        self.keys.clear();
         self.files = files;
     }
 }
@@ -757,6 +796,7 @@ mod tests {
         const FATE: &[(&str, &str)] = &[
             ("files", "the new list"),
             ("identities", "the new list's, with its files"),
+            ("keys", "the listing's, with its files (take_listing)"),
             ("shown", "carried by name: the file shown"),
             (
                 "selected",
@@ -818,6 +858,7 @@ mod tests {
         const ON_REMOVE: &[(&str, &str)] = &[
             ("files", "remove"),
             ("identities", "remove"),
+            ("keys", "remove"),
             ("shown", "set by remove_indices"),
             ("selected", "forget_places"),
             ("hidden_selected", "forget_places"),
