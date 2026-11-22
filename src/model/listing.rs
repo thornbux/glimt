@@ -6,7 +6,7 @@ use crate::files::file_io::Identity;
 use crate::images::save::FileId;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::{images::raw, metadata::exif};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
@@ -102,8 +102,8 @@ thread_local! {
 }
 
 /// What a file is sorted by besides its name, in an order that looks at the file: its time,
-/// its size or its EXIF date, as `sort_files` sorts by it. The list keeps it for each of its
-/// files in such an order, so that a part of a tree goes into its place by it, and the window
+/// its size or its EXIF date, as `Rows::sorted` sorts by it. Each row of the list carries it in
+/// such an order (`Rows`), so that a part of a tree goes into its place by it, and the window
 /// looks at no file.
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SortKey {
@@ -121,7 +121,7 @@ pub enum SortKey {
 }
 
 /// Where the names of a list went when a part of a tree was merged into it
-/// (`merge_new_names`): the places of the names that the part left out, and the places among
+/// (`Rows::merged`): the places of the names that the part left out, and the places among
 /// the names that stayed before which the part's names went. The window carries what it holds
 /// by place (the decoded images, the decodes on their way, the panes) through it, with no look
 /// at a name.
@@ -142,6 +142,435 @@ impl PlacesMoved {
         }
         let stayed = i - self.gone.partition_point(|&g| g < i);
         Some(stayed + self.at.partition_point(|&a| a <= stayed))
+    }
+}
+
+/// What the rows of a list or of a part of one are sorted in, as `Rows` holds it.
+#[derive(Clone, Debug, Default, PartialEq)]
+enum RowOrder {
+    /// In no sort order: a collection's or a plain list's own order, or names taken as they
+    /// came, such as the one image opened.
+    #[default]
+    Unsorted,
+    /// In an order by the names alone (Name, Number or Extension), as (order, ascending, case).
+    ByName((Sort, bool, bool)),
+    /// In an order that looks at the files (Date, Created, Size or an EXIF date), as (order,
+    /// ascending, case), with what each row is sorted by in that order, at the row's place.
+    ByKey((Sort, bool, bool), Vec<SortKey>),
+}
+
+/// Where a part's rows go among a list's rows (`Rows::places_of`).
+enum Places {
+    /// The part is in another order than the list.
+    Refused,
+    /// The part brings nothing new and takes nothing out, so the list stays as it is.
+    AsTheyAre,
+    /// The places of the list's rows that the part takes out, and for each of the part's rows
+    /// the place among the rows that stay before which it goes (`PlacesMoved`).
+    Moved(Vec<usize>, Vec<usize>),
+}
+
+/// The rows of the file list, or of a part of a tree's listing: the names with the identities
+/// they were listed with, in the order the rows are in. In an order that looks at the files,
+/// each row carries what it is sorted by in that very order. Rows are made only in this module,
+/// and rows in such an order only with a key of that order for each row: by `Rows::sorted`, and
+/// by what is made from rows (a merge, a filter, places taken out), which carries each row's
+/// key with it. So no list or part in such an order exists without its keys, and the keys of
+/// two orders are never compared, because a part goes into a list only in the order the list
+/// is in (`Rows::merged`). Before, the list kept its keys apart from its order, and a list left
+/// without them, or with the keys of another order, took the parts of a tree in the wrong
+/// places.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Rows {
+    files: Vec<OsString>,
+    identities: Vec<Identity>,
+    order: RowOrder,
+}
+
+impl Rows {
+    /// Returns rows of `names` as they are, in no sort order.
+    pub fn unsorted(names: Vec<ListedName>) -> Rows {
+        let (files, identities) = names.into_iter().unzip();
+        Rows {
+            files,
+            identities,
+            order: RowOrder::Unsorted,
+        }
+    }
+
+    /// Returns rows of `names` in `order`, as the Sort menu puts them. In an order that looks at
+    /// the files, each name is given what it is sorted by from `key`, which is asked once for
+    /// each name, with its place in `names`, and the rows are put in order as `in_order`
+    /// compares them. `key` is where a file is looked at, so the window passes none that looks.
+    pub fn sorted(
+        mut names: Vec<ListedName>,
+        order: (Sort, bool, bool),
+        mut key: impl FnMut(usize, &OsString) -> SortKey,
+    ) -> Rows {
+        let (by, ascending, case) = order;
+        if !by.looks_at_files() {
+            // The names come in any order (a tree's walk, a collection's own). `sort_by_names`
+            // keeps the names that the order holds equal in the order it is given them, so they
+            // are put in byte order first, which is how `in_order` tells them apart.
+            names.sort_unstable();
+            sort_by_names(&mut names, by, ascending, case);
+            let (files, identities) = names.into_iter().unzip();
+            return Rows {
+                files,
+                identities,
+                order: RowOrder::ByName(order),
+            };
+        }
+        // The name as the order compares it is made once for each file, and the bytes only
+        // where both are the same, as `in_order` compares them.
+        let name = |f: &OsString| {
+            let s = f.to_string_lossy();
+            match case {
+                true => s.into_owned(),
+                false => s.to_lowercase(),
+            }
+        };
+        let mut keyed: Vec<(SortKey, String, ListedName)> = (names.into_iter().enumerate())
+            .map(|(i, f)| (key(i, &f.0), name(&f.0), f))
+            .collect();
+        keyed.sort_unstable_by(|a, b| {
+            (a.0.cmp(&b.0))
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.0.as_encoded_bytes().cmp(b.2.0.as_encoded_bytes()))
+        });
+        if !ascending {
+            keyed.reverse();
+        }
+        let mut rows = Rows::empty_in(&RowOrder::ByKey(order, Vec::new()), keyed.len());
+        for (key, _, (file, identity)) in keyed {
+            rows.push((file, identity), Some(key));
+        }
+        rows
+    }
+
+    /// Returns no rows, in the order of `like`, with room for `n`.
+    fn empty_in(like: &RowOrder, n: usize) -> Rows {
+        Rows {
+            files: Vec::with_capacity(n),
+            identities: Vec::with_capacity(n),
+            order: match like {
+                RowOrder::Unsorted => RowOrder::Unsorted,
+                RowOrder::ByName(order) => RowOrder::ByName(*order),
+                RowOrder::ByKey(order, _) => RowOrder::ByKey(*order, Vec::with_capacity(n)),
+            },
+        }
+    }
+
+    /// Adds the row of `name` at the end, with `key`, what it is sorted by, in an order that
+    /// looks at the files. Every caller has a key for each row of such an order, as it takes
+    /// them from rows of that order.
+    fn push(&mut self, (file, identity): ListedName, key: Option<SortKey>) {
+        self.files.push(file);
+        self.identities.push(identity);
+        if let (RowOrder::ByKey(_, keys), Some(key)) = (&mut self.order, key) {
+            keys.push(key);
+        }
+    }
+
+    /// The names of the rows, in their order.
+    pub fn files(&self) -> &[OsString] {
+        &self.files
+    }
+
+    /// Returns the identity of the file of the row at `i` as it was listed, or `None` when it
+    /// is not known.
+    pub fn identity(&self, i: usize) -> Identity {
+        self.identities.get(i).copied().flatten()
+    }
+
+    /// The number of rows.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    /// Whether there are no rows.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    /// Returns the order the rows are in, as (order, ascending, case), or `None` when they
+    /// are in no sort order.
+    pub fn order(&self) -> Option<(Sort, bool, bool)> {
+        match &self.order {
+            RowOrder::Unsorted => None,
+            RowOrder::ByName(order) | RowOrder::ByKey(order, _) => Some(*order),
+        }
+    }
+
+    /// Returns what the row at `i` is sorted by, in an order that looks at the files, or
+    /// `None` in another order.
+    pub fn key(&self, i: usize) -> Option<&SortKey> {
+        match &self.order {
+            RowOrder::ByKey(_, keys) => keys.get(i),
+            _ => None,
+        }
+    }
+
+    /// Returns the names with their identities, in the rows' order.
+    pub fn listed_names(&self) -> Vec<ListedName> {
+        (self.files.iter().cloned())
+            .zip(self.identities.iter().copied())
+            .collect()
+    }
+
+    /// Returns whether `other` holds the names of these rows, in their order and with the
+    /// identities they have here.
+    pub fn holds_the_files_of(&self, other: &Rows) -> bool {
+        self.files == other.files && self.identities == other.identities
+    }
+
+    /// Keeps only the rows whose names `keep` holds to, each with its key.
+    pub fn retain(&mut self, keep: impl FnMut(&OsString) -> bool) {
+        let kept: Vec<bool> = self.files.iter().map(keep).collect();
+        self.keep_places(|i| kept[i]);
+    }
+
+    /// Takes the rows at the sorted places `removed` out, each with its key, in one pass.
+    pub fn remove_places(&mut self, removed: &[usize]) {
+        self.keep_places(|i| removed.binary_search(&i).is_err());
+    }
+
+    /// Keeps the rows at the places that `keep` holds to, with their keys.
+    fn keep_places(&mut self, keep: impl Fn(usize) -> bool) {
+        fn retain<T>(items: &mut Vec<T>, keep: &impl Fn(usize) -> bool) {
+            let mut i = 0;
+            items.retain(|_| {
+                i += 1;
+                keep(i - 1)
+            });
+        }
+        retain(&mut self.files, &keep);
+        retain(&mut self.identities, &keep);
+        if let RowOrder::ByKey(_, keys) = &mut self.order {
+            retain(keys, &keep);
+        }
+    }
+
+    /// Gives the row at `i` the name `name`, because its file was renamed or moved within the
+    /// list. It keeps its identity, as a rename keeps the inode, and its key.
+    pub fn rename(&mut self, i: usize, name: OsString) {
+        if let Some(file) = self.files.get_mut(i) {
+            *file = name;
+        }
+    }
+
+    /// Forgets the identities of the files named `names`, in one pass over the rows.
+    pub fn forget_identities(&mut self, names: &HashSet<&OsStr>) {
+        for (name, identity) in self.files.iter().zip(&mut self.identities) {
+            if names.contains(name.as_os_str()) {
+                *identity = None;
+            }
+        }
+    }
+
+    /// Merges `new`, a part of a tree of only images that these rows lack, into these rows, the
+    /// list, so that the list keeps its order and grows. The part leaves out the rows that the
+    /// folders it `read` whole no longer hold (`ReadWhole::leaves_out`). Returns the merged rows
+    /// with where the rows of the list went, and `new` back when it is in another order than
+    /// these rows. An empty list takes the part in its order. A part of new names only needs no
+    /// look at the rows of the list to tell which are new, so merging it takes a few comparisons
+    /// for each of its own rows and a copy of the others, and no look at a file. In an order that
+    /// looks at the files, the rows are placed by their keys, which are of that one order in
+    /// both. Before, a part could be placed by the keys of another order than its own.
+    pub fn merged(&self, new: Rows, read: &ReadWhole) -> Result<(Rows, PlacesMoved), Rows> {
+        let (gone, at) = match self.places_of(&new, read) {
+            Places::Refused => return Err(new),
+            Places::AsTheyAre => return Ok((self.clone(), PlacesMoved::default())),
+            Places::Moved(gone, at) => (gone, at),
+        };
+        let like = self.order_after_merging(&new);
+        let old = (0..self.len()).map(|i| {
+            let row = (self.files[i].clone(), self.identities[i]);
+            (row, self.key(i).cloned())
+        });
+        let merged = Rows::interleaved(&like, (old, self.len()), &gone, new, &at);
+        Ok((merged, PlacesMoved { gone, at }))
+    }
+
+    /// Merges `new` into these rows as `merged` does, taking these rows' names and keys instead
+    /// of copying them, for rows that the caller owns, such as the list's rows put in another
+    /// order. Returns `new` back when it is in another order than these rows.
+    pub fn merged_into(self, new: Rows, read: &ReadWhole) -> Result<Rows, Rows> {
+        let (gone, at) = match self.places_of(&new, read) {
+            Places::Refused => return Err(new),
+            Places::AsTheyAre => return Ok(self),
+            Places::Moved(gone, at) => (gone, at),
+        };
+        let (like, n) = (self.order_after_merging(&new), self.len());
+        let Rows {
+            files,
+            identities,
+            order,
+        } = self;
+        let mut keys = match order {
+            RowOrder::ByKey(_, keys) => keys.into_iter(),
+            _ => Vec::new().into_iter(),
+        };
+        let old = (files.into_iter().zip(identities)).map(|row| (row, keys.next()));
+        Ok(Rows::interleaved(&like, (old, n), &gone, new, &at))
+    }
+
+    /// Returns the order of these rows with a part merged in, without keys: their own, or the
+    /// part's when they are none.
+    fn order_after_merging(&self, new: &Rows) -> RowOrder {
+        let like = match self.is_empty() {
+            true => &new.order,
+            false => &self.order,
+        };
+        Rows::empty_in(like, 0).order
+    }
+
+    /// Returns where the rows of `new`, a part, go among these rows, and which of these the
+    /// folders it `read` whole no longer hold (`merged`).
+    fn places_of(&self, new: &Rows, read: &ReadWhole) -> Places {
+        let same_order = match (&self.order, &new.order) {
+            (RowOrder::ByName(a), RowOrder::ByName(b))
+            | (RowOrder::ByKey(a, _), RowOrder::ByKey(b, _)) => a == b,
+            _ => false,
+        };
+        let Some(order) = new.order().filter(|_| same_order || self.is_empty()) else {
+            return Places::Refused;
+        };
+        // A look at each name only when a folder read may have lost one.
+        let gone: Vec<usize> = match read.is_empty() {
+            true => Vec::new(),
+            false => (0..self.len())
+                .filter(|&i| read.leaves_out(&self.files[i]))
+                .collect(),
+        };
+        if new.is_empty() && gone.is_empty() {
+            return Places::AsTheyAre;
+        }
+        let stayed: Vec<usize> = match gone.is_empty() {
+            true => Vec::new(),
+            false => (0..self.len())
+                .filter(|i| gone.binary_search(i).is_err())
+                .collect(),
+        };
+        let old_place = |s: usize| match gone.is_empty() {
+            true => s,
+            false => stayed[s],
+        };
+        let staying = self.len() - gone.len();
+        let none = SortKey::Name;
+        let old_key = |i: usize| self.key(i).unwrap_or(&none);
+        let new_key = |j: usize| new.key(j).unwrap_or(&none);
+        // The new names are in order, so each one is looked for after the one before.
+        let mut from = 0;
+        let at: Vec<usize> = (0..new.len())
+            .map(|j| {
+                let (mut low, mut high) = (from, staying);
+                while low < high {
+                    let middle = (low + high) / 2;
+                    let i = old_place(middle);
+                    let before = (old_key(i), &self.files[i]);
+                    match in_order(before, (new_key(j), &new.files[j]), order).is_le() {
+                        true => low = middle + 1,
+                        false => high = middle,
+                    }
+                }
+                from = low;
+                low
+            })
+            .collect();
+        Places::Moved(gone, at)
+    }
+
+    /// Returns the rows `old`, of which there are as many as it is given with, each with its
+    /// key, but for those at the sorted places `gone`, with the rows of `new` put in among them:
+    /// each before the row that stays at its place of `at`, counted among the rows that stay,
+    /// or at the end. The rows are in the order of `like`.
+    fn interleaved(
+        like: &RowOrder,
+        (old, n): (impl Iterator<Item = (ListedName, Option<SortKey>)>, usize),
+        gone: &[usize],
+        new: Rows,
+        at: &[usize],
+    ) -> Rows {
+        let mut merged = Rows::empty_in(like, n - gone.len() + new.len());
+        let Rows {
+            files,
+            identities,
+            order: new_order,
+        } = new;
+        let mut new_keys = match new_order {
+            RowOrder::ByKey(_, keys) => keys.into_iter(),
+            _ => Vec::new().into_iter(),
+        };
+        let mut new_rows = (files.into_iter().zip(identities))
+            .zip(at.iter().copied())
+            .peekable();
+        let staying = old
+            .enumerate()
+            .filter(|(i, _)| gone.binary_search(i).is_err());
+        for (s, (_, (row, key))) in staying.enumerate() {
+            while let Some((new_row, _)) = new_rows.next_if(|&(_, at)| at <= s) {
+                merged.push(new_row, new_keys.next());
+            }
+            merged.push(row, key);
+        }
+        for (row, _) in new_rows {
+            merged.push(row, new_keys.next());
+        }
+        merged
+    }
+
+    /// Returns the rows of `kept`, names of these rows in their order with the identities that
+    /// a new listing gave them, in the order of these rows, each with what it is sorted by here.
+    /// That is a whole list that kept the list's order (`kept_order`). It walks both in step,
+    /// with no map of the names. Returns `None` when a name of `kept` is not among these rows
+    /// in their order, as when its file left the list after the listing began. Before, such a
+    /// list was taken without its keys.
+    pub fn in_step(&self, kept: Vec<ListedName>) -> Option<Rows> {
+        let mut own = 0..self.len();
+        let mut rows = Rows::empty_in(&self.order, kept.len());
+        for (file, identity) in kept {
+            let i = own.find(|&i| self.files[i] == file)?;
+            rows.push((file, identity), self.key(i).cloned());
+        }
+        Some(rows)
+    }
+
+    /// Returns these rows with the rows of `kept` put in, each list of them after as many of
+    /// these rows as its number in `kept` says. In an order that looks at the files, each row
+    /// put in takes what the row before it is sorted by, or the first row's when it goes
+    /// first, so that the keys stay in their order. Rows put into no rows of their own are in no
+    /// sort order.
+    pub fn with_rows_put_in(self, mut kept: HashMap<usize, Vec<ListedName>>) -> Rows {
+        if kept.is_empty() {
+            return self;
+        }
+        if self.is_empty() {
+            return Rows::unsorted(kept.remove(&0).unwrap_or_default());
+        }
+        let put_in = kept.values().map(Vec::len).sum::<usize>();
+        let mut rows = Rows::empty_in(&self.order, self.len() + put_in);
+        let first_key = self.key(0).cloned();
+        for row in kept.remove(&0).unwrap_or_default() {
+            rows.push(row, first_key.clone());
+        }
+        let Rows {
+            files,
+            identities,
+            order,
+        } = self;
+        let mut keys = match order {
+            RowOrder::ByKey(_, keys) => keys.into_iter(),
+            _ => Vec::new().into_iter(),
+        };
+        for (i, row) in files.into_iter().zip(identities).enumerate() {
+            let key = keys.next();
+            rows.push(row, key.clone());
+            for row in kept.remove(&(i + 1)).unwrap_or_default() {
+                rows.push(row, key.clone());
+            }
+        }
+        rows
     }
 }
 
@@ -777,7 +1206,7 @@ pub fn list_tree(
     part: impl FnMut(&FolderReadWhole),
 ) -> Result<ListedTree, Unread> {
     walk_tree(dir, types, stop, awaited, top, part).map(|(own, mut out, read, left_out)| {
-        // In name order, as list_folder gives a single folder; sort_files builds on that.
+        // In name order, as list_folder gives a single folder; sort_by_names builds on that.
         out.sort_unstable();
         (own, out, read, left_out)
     })
@@ -941,14 +1370,10 @@ pub fn lists_folder_named(name: &[u8], types: Types) -> bool {
     types.hidden || !name.starts_with(b".")
 }
 
-/// Sort file names in `dir`; `case`: case-sensitive names ("B" before "a"). Everything but name
-/// and number needs a stat (or EXIF) per file, so this runs in the listing thread; ties fall
-/// back to the name.
-pub fn sort_files(dir: &Path, files: &mut [ListedName], by: Sort, ascending: bool, case: bool) {
-    if by.looks_at_files() {
-        sort_by_keys(dir, files, Vec::new(), (by, ascending, case));
-        return;
-    }
+/// Sorts `files` in an order by the names alone, `by`, with `case` for case-sensitive names
+/// ("B" before "a"), and ties back to the name. An order that looks at the files leaves them as
+/// they are, which `Rows::sorted` sorts by their keys instead.
+fn sort_by_names(files: &mut [ListedName], by: Sort, ascending: bool, case: bool) {
     let name = |(f, _): &ListedName| {
         let s = f.to_string_lossy();
         if case {
@@ -977,58 +1402,12 @@ pub fn sort_files(dir: &Path, files: &mut [ListedName], by: Sort, ascending: boo
             let ext = n.rsplit_once('.').map_or("", |e| e.1).to_owned();
             (ext, n)
         }),
-        // These look at the files, and `sort_by_keys` sorts by them above.
+        // These look at the files, and `Rows::sorted` sorts by them above.
         Sort::Date | Sort::Created | Sort::Size | Sort::ExifOriginal | Sort::ExifDigitized => {}
     }
     if !ascending {
         files.reverse();
     }
-}
-
-/// Sorts `files`, names in `dir` in any order, in `order`, an order that looks at the files,
-/// as `in_order` compares them, and returns what each is sorted by (`sort_key`), at its new
-/// place. A file whose key `known` holds at its place (what a part of the tree looked at
-/// before) is not looked at again, and every other file is looked at once. Returns nothing in
-/// an order by name, which it leaves to `sort_files`.
-pub fn sort_by_keys(
-    dir: &Path,
-    files: &mut [ListedName],
-    known: Vec<Option<SortKey>>,
-    (by, ascending, case): (Sort, bool, bool),
-) -> Vec<SortKey> {
-    if !by.looks_at_files() {
-        return Vec::new();
-    }
-    // The name as the order compares it is made once for each file, and the bytes only where
-    // both are the same, as `in_order` compares them.
-    let name = |f: &OsString| {
-        let s = f.to_string_lossy();
-        match case {
-            true => s.into_owned(),
-            false => s.to_lowercase(),
-        }
-    };
-    let known = known.into_iter().chain(std::iter::repeat_with(|| None));
-    let mut keyed: Vec<(SortKey, String, ListedName)> = (files.iter_mut().zip(known))
-        .map(|(f, key)| {
-            let key = key.unwrap_or_else(|| sort_key(dir, &f.0, by));
-            (key, name(&f.0), std::mem::take(f))
-        })
-        .collect();
-    keyed.sort_unstable_by(|a, b| {
-        (a.0.cmp(&b.0))
-            .then_with(|| a.1.cmp(&b.1))
-            .then_with(|| a.2.0.as_encoded_bytes().cmp(b.2.0.as_encoded_bytes()))
-    });
-    if !ascending {
-        keyed.reverse();
-    }
-    let mut keys = Vec::with_capacity(keyed.len());
-    for (f, (key, _, file)) in files.iter_mut().zip(keyed) {
-        *f = file;
-        keys.push(key);
-    }
-    keys
 }
 
 /// `before` in its order without the names gone, if `listed` has no name it lacks: a folder read
@@ -1073,131 +1452,6 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// Merges `new`, a part of a tree of only images that `old` lacks, in the list's order, into
-/// `old`, the list, so that the list keeps its order and grows. Each name comes with what it is
-/// sorted by (`SortKey`) in an order that looks at the files, and the keys of both are merged
-/// too: in such an order `old` has a key for each of its names and `new` for each of its own,
-/// and in another the keys are empty. The part leaves out the names of `old` that the folders
-/// it `read` whole no longer hold (`ReadWhole::leaves_out`). Returns `old` as it is when no name
-/// is new and none is gone, and with the merged list where the names of `old` went. A part of
-/// new names only needs no look at the names of `old` to tell which are new, so merging it takes
-/// a few comparisons for each of its own names and a move of the others, and no look at a file.
-/// Before, the listing thread kept a copy of the list's names with their keys to place each
-/// part, 56 to 64 MB at 500,000 names in an order by date.
-///
-/// Returns `None` when the part cannot be placed by its keys, because `old` or `new` lacks the
-/// key of a name in an order that looks at the files. That is a bug, as every way the list is
-/// made gives it its keys (`App::list_has_its_keys`). Before, such a part went in by name in
-/// silence, and every later part of the walk after it, while the list said Date.
-pub fn merge_new_names(
-    (old, old_keys): (Vec<ListedName>, Vec<SortKey>),
-    (new, new_keys): (Vec<ListedName>, Vec<SortKey>),
-    read: &ReadWhole,
-    order: (Sort, bool, bool),
-) -> Option<(Vec<ListedName>, Vec<SortKey>, PlacesMoved)> {
-    let keyed = order.0.looks_at_files();
-    if keyed && (old_keys.len() != old.len() || new_keys.len() != new.len()) {
-        return None;
-    }
-    if new.is_empty() && read.is_empty() {
-        return Some((old, old_keys, PlacesMoved::default()));
-    }
-    // A look at each name only when a folder read may have lost one.
-    let mut gone = Vec::new();
-    let (old, old_keys) = match read.is_empty() {
-        true => (old, old_keys),
-        false => {
-            let keys = old_keys
-                .into_iter()
-                .map(Some)
-                .chain(std::iter::repeat(None));
-            let mut kept = Vec::with_capacity(old.len());
-            for (i, (f, key)) in old.into_iter().zip(keys).enumerate() {
-                match read.leaves_out(&f.0) {
-                    true => gone.push(i),
-                    false => kept.push((f, key)),
-                }
-            }
-            let (old, keys): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
-            (old, keys.into_iter().flatten().collect())
-        }
-    };
-    let none = SortKey::Name;
-    let old_key = |i: usize| if keyed { &old_keys[i] } else { &none };
-    let new_key = |i: usize| if keyed { &new_keys[i] } else { &none };
-    // The new names are in order, so each one is looked for after the one before.
-    let mut from = 0;
-    let at: Vec<usize> = (new.iter().enumerate())
-        .map(|(j, f)| {
-            let (mut low, mut high) = (from, old.len());
-            while low < high {
-                let middle = (low + high) / 2;
-                let before = (old_key(middle), &old[middle].0);
-                match in_order(before, (new_key(j), &f.0), order).is_le() {
-                    true => low = middle + 1,
-                    false => high = middle,
-                }
-            }
-            from = low;
-            low
-        })
-        .collect();
-    let keys = match keyed {
-        true => insert_at(old_keys, new_keys, &at),
-        false => Vec::new(),
-    };
-    let names = insert_at(old, new, &at);
-    Some((names, keys, PlacesMoved { gone, at }))
-}
-
-/// Gives `old`, the list, the keys that the first part of a tree's listing looked up for its
-/// names (`looked_up`), when it lacks them in `order`, an order that looks at the files, and
-/// puts it in that order. A list that came in another way than from a listing has no keys: the
-/// one image opened while its folder is read, or a slideshow of the subfolders started before
-/// the folder was read. Returns `old` as it is when it has its keys or nothing was looked up,
-/// and whether its names moved. Returns it without keys when a name of it was not looked up,
-/// which `merge_new_names` then refuses. The names are looked up in a map only here, for a
-/// list that had no keys, which is one image or none.
-pub fn with_keys_looked_up(
-    (old, old_keys): (Vec<ListedName>, Vec<SortKey>),
-    looked_up: Vec<(OsString, SortKey)>,
-    order: (Sort, bool, bool),
-) -> ((Vec<ListedName>, Vec<SortKey>), bool) {
-    if looked_up.is_empty() || old_keys.len() == old.len() || !order.0.looks_at_files() {
-        return ((old, old_keys), false);
-    }
-    let mut keys: std::collections::HashMap<OsString, SortKey> = looked_up.into_iter().collect();
-    let keyed: Option<Vec<(SortKey, ListedName)>> = (old.iter())
-        .map(|f| Some((keys.remove(&f.0)?, f.clone())))
-        .collect();
-    let Some(mut keyed) = keyed else {
-        return ((old, Vec::new()), false);
-    };
-    let compare = |a: &(SortKey, ListedName), b: &(SortKey, ListedName)| {
-        in_order((&a.0, &a.1.0), (&b.0, &b.1.0), order)
-    };
-    let moved = !keyed.is_sorted_by(|a, b| compare(a, b).is_le());
-    keyed.sort_by(compare);
-    let (keys, old): (Vec<SortKey>, Vec<ListedName>) = keyed.into_iter().unzip();
-    ((old, keys), moved)
-}
-
-/// Returns `old` with each of `new` put before the element of `old` at its place of `at`, in
-/// one pass, or at the end for a place past it. The places are in order, and new elements of
-/// one place keep their order.
-pub fn insert_at<T>(old: Vec<T>, new: Vec<T>, at: &[usize]) -> Vec<T> {
-    let mut out = Vec::with_capacity(old.len() + new.len());
-    let mut new = new.into_iter().zip(at.iter().copied()).peekable();
-    for (i, f) in old.into_iter().enumerate() {
-        while let Some((n, _)) = new.next_if(|&(_, at)| at <= i) {
-            out.push(n);
-        }
-        out.push(f);
-    }
-    out.extend(new.map(|(n, _)| n));
-    out
-}
-
 /// Returns what `file`, a name in `dir`, is sorted by besides its name in the order `by`: a look
 /// at the file in an order that looks at the files, which only a thread may make, and
 /// `SortKey::Name` otherwise.
@@ -1229,8 +1483,8 @@ pub fn sort_key(dir: &Path, file: &OsStr, by: Sort) -> SortKey {
 }
 
 /// Compares two files, each with its `sort_key` and its name, in the order `(by, ascending,
-/// case)`, as `sort_files` puts them: by their keys, then by their names as the order takes
-/// them, and then byte by byte, which is the order in which `sort_files` leaves names that the
+/// case)`, as `Rows::sorted` puts them: by their keys, then by their names as the order takes
+/// them, and then byte by byte, which is the order in which `Rows::sorted` leaves names that the
 /// order holds equal. Descending is the other way round.
 pub fn in_order(
     a: (&SortKey, &OsString),
@@ -1323,23 +1577,21 @@ mod tests {
         assert!(!read.folders.contains(b"d".as_slice()), "d lost nothing");
         let gone: Vec<&std::ffi::OsString> = list.iter().filter(|n| read.leaves_out(n)).collect();
         assert_eq!(gone, [&list[2], &list[3]]);
-        let old = found(&["a/1.png", "a/2.png", "b/c/3.png", "d/4.png", "t.png"]);
-        let new = found(&["e/c/3.png"]);
+        let names = ["a/1.png", "a/2.png", "b/c/3.png", "d/4.png", "t.png"];
         let by_name = (super::Sort::Name, true, true);
-        let merged = super::merge_new_names((old, Vec::new()), (new, Vec::new()), &read, by_name);
+        let old = rows_of(found(&names), &[], by_name);
+        let new = rows_of(found(&["e/c/3.png"]), &[], by_name);
+        let (merged, _) = old.merged(new, &read).unwrap();
         let want = found(&["a/1.png", "d/4.png", "e/c/3.png", "t.png"]);
-        let (merged, keys, _) = merged.unwrap();
-        assert_eq!((merged, keys), (want, Vec::new()));
+        assert_eq!(merged.listed_names(), want);
         // In an order by date, the keys of the names left out go with them.
         let time = |t| super::SortKey::Time(Some(t));
-        let old = found(&["a/1.png", "a/2.png", "b/c/3.png", "d/4.png", "t.png"]);
-        let old_keys = [1, 2, 3, 4, 5].map(time).to_vec();
-        let new = (found(&["e/c/3.png"]), vec![time(4)]);
         let by_date = (super::Sort::Date, true, true);
-        let (merged, keys, _) =
-            super::merge_new_names((old, old_keys), new, &read, by_date).unwrap();
-        assert_eq!(merged, found(&["a/1.png", "d/4.png", "e/c/3.png", "t.png"]));
-        assert_eq!(keys, [1, 4, 4, 5].map(time));
+        let old = rows_of(found(&names), &[1, 2, 3, 4, 5].map(time), by_date);
+        let new = rows_of(found(&["e/c/3.png"]), &[time(4)], by_date);
+        let (merged, _) = old.merged(new, &read).unwrap();
+        assert_eq!(merged.listed_names(), want);
+        assert_eq!(keys_of(&merged), [1, 4, 4, 5].map(time));
     }
 
     /// A part keeps the names of a hidden folder that the walk reached through a link while
@@ -2085,18 +2337,11 @@ mod tests {
         assert_eq!(super::natural_cmp("a(2).jpg", "a(10).jpg"), Less);
         assert_eq!(super::natural_cmp("a(10).jpg", "a(100).jpg"), Less);
         let mut v = listed(&["b10", "B2", "a1", "b9"]);
-        super::sort_files(
-            std::path::Path::new("."),
-            &mut v,
-            super::Sort::Number,
-            false,
-            false,
-        );
+        super::sort_by_names(&mut v, super::Sort::Number, false, false);
         assert_eq!(v, listed(&["b10", "b9", "B2", "a1"]));
         // Equal numbers in name order.
         let mut v = listed(&["a1", "a01"]);
-        let dot = std::path::Path::new(".");
-        super::sort_files(dot, &mut v, super::Sort::Number, true, false);
+        super::sort_by_names(&mut v, super::Sort::Number, true, false);
         let os = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
         let kept = super::kept_order(os(&["c", "a", "gone", "b"]), &listed(&["a", "b", "c"]));
         assert_eq!(kept, Some(listed(&["c", "a", "b"])));
@@ -2106,7 +2351,7 @@ mod tests {
         );
         assert_eq!(v, listed(&["a01", "a1"]));
         let mut v = listed(&["b.png", "c.JPG", "a.mp4", "d.jpg", "e"]);
-        super::sort_files(dot, &mut v, super::Sort::Extension, true, false);
+        super::sort_by_names(&mut v, super::Sort::Extension, true, false);
         assert_eq!(v, listed(&["e", "c.JPG", "d.jpg", "a.mp4", "b.png"]));
     }
 
@@ -2114,6 +2359,23 @@ mod tests {
     fn listed(names: &[&str]) -> Vec<super::ListedName> {
         let identity = |n: &str| std::num::NonZeroU64::new(n.bytes().map(u64::from).sum());
         (names.iter()).map(|n| ((*n).into(), identity(n))).collect()
+    }
+
+    /// Returns rows of `names` in `order`, each sorted by the key at its place in `keys` in an
+    /// order that looks at the files, as a listing's thread makes them, with no file looked at.
+    fn rows_of(
+        names: Vec<super::ListedName>,
+        keys: &[super::SortKey],
+        order: (super::Sort, bool, bool),
+    ) -> super::Rows {
+        super::Rows::sorted(names, order, |i, _| keys[i].clone())
+    }
+
+    /// Returns what each row of `rows` is sorted by, in their order.
+    fn keys_of(rows: &super::Rows) -> Vec<super::SortKey> {
+        (0..rows.len())
+            .filter_map(|i| rows.key(i).cloned())
+            .collect()
     }
 
     /// The order kept keeps the identity the new listing gives each name, so a name that
@@ -2129,20 +2391,20 @@ mod tests {
 
     /// A part of new names goes into the list in its order and makes it grow, and the names of
     /// the list stay, as the walk may still find them: by name with and without Case,
-    /// descending and by number, and in an order that looks at the files by what each name is
-    /// sorted by, which the list keeps for its names and the part brings for its own, so no file
-    /// is looked at. A part with no new name and no folder read whole leaves the list as it is,
-    /// and a list still empty, as before the first part of a tree, takes the part whole.
-    /// Before, a part was merged by its bytes in every order.
+    /// descending and by number, and in an order that looks at the files by what each row is
+    /// sorted by, which the list's rows carry and the part's rows bring, so no file is looked
+    /// at. A part with no new name and no folder read whole leaves the list as it is, and a list
+    /// still empty, as before the first part of a tree, takes the part whole. Before, a part was
+    /// merged by its bytes in every order.
     #[test]
     fn a_part_of_new_names_goes_into_the_list_in_its_order() {
         use super::{Sort, SortKey};
         let none = super::ReadWhole::default();
         let by = |by, ascending, case| (by, ascending, case);
-        let merge = |old: Vec<super::ListedName>, new, order| {
-            super::merge_new_names((old, Vec::new()), (new, Vec::new()), &none, order)
-                .unwrap()
-                .0
+        let merge = |old: &[&str], new: &[&str], order| {
+            let old = rows_of(listed(old), &[], order);
+            let (merged, _) = old.merged(rows_of(listed(new), &[], order), &none).unwrap();
+            merged.listed_names()
         };
         let cases = [
             (
@@ -2171,75 +2433,61 @@ mod tests {
             ),
         ];
         for (order, old, new, merged) in cases {
-            let part = merge(listed(&old), listed(&new), order);
+            let part = merge(&old, &new, order);
             assert_eq!(part, listed(&merged.split(' ').collect::<Vec<_>>()));
         }
         // By date, by the keys of both: x first, y between b and c, and z after c, whose time
         // is the same, by its name. Descending, the other way round.
         let time = |t| SortKey::Time(Some(t));
         for ascending in [true, false] {
-            let mut old = (listed(&["a", "b", "c"]), [2, 4, 9].map(time).to_vec());
-            let mut new = (listed(&["x", "y", "z"]), [1, 5, 9].map(time).to_vec());
+            let order = by(Sort::Date, ascending, true);
+            let old = rows_of(listed(&["a", "b", "c"]), &[2, 4, 9].map(time), order);
+            let new = rows_of(listed(&["x", "y", "z"]), &[1, 5, 9].map(time), order);
             let (mut want, mut keys) = (["x", "a", "b", "y", "c", "z"], [1, 2, 4, 5, 9, 9]);
             if !ascending {
-                for part in [&mut old, &mut new] {
-                    part.0.reverse();
-                    part.1.reverse();
-                }
                 want.reverse();
                 keys.reverse();
             }
-            let order = by(Sort::Date, ascending, true);
-            let (part, merged, _) = super::merge_new_names(old, new, &none, order).unwrap();
-            assert_eq!((part, merged), (listed(&want), keys.map(time).to_vec()));
+            let (merged, _) = old.merged(new, &none).unwrap();
+            assert_eq!(merged.listed_names(), listed(&want));
+            assert_eq!(keys_of(&merged), keys.map(time));
         }
-        let old = listed(&["b", "d", "m"]);
-        let name = || by(Sort::Name, true, true);
-        assert_eq!(merge(old.clone(), Vec::new(), name()), old);
-        let first = merge(Vec::new(), listed(&["a", "b"]), name());
-        assert_eq!(first, listed(&["a", "b"]));
+        let name = by(Sort::Name, true, true);
+        assert_eq!(merge(&["b", "d", "m"], &[], name), listed(&["b", "d", "m"]));
+        assert_eq!(merge(&[], &["a", "b"], name), listed(&["a", "b"]));
     }
 
-    /// In an order that looks at the files, a part goes in by the keys or not at all: a list
-    /// without the keys of its names refuses it, and gets them from those the first part looked
-    /// up, in their order, and then takes it by them. Before, such a part went in by name, and
-    /// so did every later part of the walk, while the list said Date. Where the names of the
-    /// list went (`PlacesMoved`) is where the merge put them, and a name left out has no place.
+    /// A part goes into the list only in the very order the list is in: a list in another
+    /// order, by name, by another key or the other way round, or in no order, gives the part
+    /// back, and keys of two orders are never compared. An empty list takes the part in its
+    /// order. Where the rows of the list went (`PlacesMoved`) is where the merge put them, and
+    /// a name left out has no place. Before, a list of one image keyed by date took the parts of
+    /// an order by size by its date, and a list without keys took parts by name in silence.
     #[test]
-    fn a_part_goes_in_by_the_keys_or_not_at_all() {
+    fn a_part_goes_into_a_list_of_its_own_order_or_not_at_all() {
         use super::{Sort, SortKey};
         let time = |t| SortKey::Time(Some(t));
-        let by_date = (Sort::Date, true, true);
+        let size = |n| SortKey::Size(Some(n));
         let none = super::ReadWhole::default();
-        let new = || (listed(&["n", "o"]), [1, 3].map(time).to_vec());
-        let unkeyed = (listed(&["a", "z"]), Vec::new());
-        assert_eq!(
-            super::merge_new_names(unkeyed.clone(), new(), &none, by_date),
-            None
-        );
-        let keyed = (listed(&["a"]), vec![time(2)]);
-        let new_unkeyed = (listed(&["n"]), Vec::new());
-        assert_eq!(
-            super::merge_new_names(keyed, new_unkeyed, &none, by_date),
-            None
-        );
-        // The first part looked at the list's names: z has the time 0 and a 2.
-        let looked_up = vec![("a".into(), time(2)), ("z".into(), time(0))];
-        let (old, moved) = super::with_keys_looked_up(unkeyed.clone(), looked_up, by_date);
-        assert!(moved, "z goes before a");
-        assert_eq!(old, (listed(&["z", "a"]), vec![time(0), time(2)]));
-        let (names, keys, _) = super::merge_new_names(old, new(), &none, by_date).unwrap();
-        assert_eq!(names, listed(&["z", "n", "a", "o"]));
-        assert_eq!(keys, [0, 1, 2, 3].map(time));
-        // A name not looked up leaves the list without keys, which a part then cannot go into.
-        let looked_up = vec![("a".into(), time(2))];
-        let (old, _) = super::with_keys_looked_up(unkeyed, looked_up, by_date);
-        assert_eq!(old.1, Vec::new());
-        // In an order by name nothing is looked up, and the part goes in by name.
-        let by_name = (Sort::Name, true, true);
-        let (names, _, _) =
-            super::merge_new_names((listed(&["b"]), Vec::new()), new(), &none, by_name).unwrap();
-        assert_eq!(names, listed(&["b", "n", "o"]));
+        let (by_date, by_size) = ((Sort::Date, true, true), (Sort::Size, true, true));
+        let part = || rows_of(listed(&["n", "o"]), &[1, 3].map(size), by_size);
+        let lists = [
+            rows_of(listed(&["a"]), &[time(2)], by_date),
+            rows_of(listed(&["a"]), &[time(2)], (Sort::Created, true, true)),
+            rows_of(listed(&["a"]), &[size(2)], (Sort::Size, false, true)),
+            rows_of(listed(&["a"]), &[], (Sort::Name, true, true)),
+            super::Rows::unsorted(listed(&["a"])),
+        ];
+        for list in lists {
+            let order = list.order();
+            assert_eq!(list.merged(part(), &none).err(), Some(part()), "{order:?}");
+        }
+        let empty = super::Rows::default();
+        assert_eq!(empty.merged(part(), &none).unwrap().0, part());
+        let list = rows_of(listed(&["a"]), &[size(2)], by_size);
+        let (merged, _) = list.merged(part(), &none).unwrap();
+        assert_eq!(merged.listed_names(), listed(&["n", "a", "o"]));
+        assert_eq!(keys_of(&merged), [1, 2, 3].map(size));
         // The places through the merge, with a folder read whole that lost a name: d/2.png goes.
         let hashes = super::NameHashes::of(&["d/1.png".into(), "d/2.png".into()]).sorted();
         let mut read = super::ReadWhole::default();
@@ -2252,26 +2500,49 @@ mod tests {
             types: super::Types::NONE,
         };
         hashes.note_folder(&folder, &mut read);
+        let by_name = (Sort::Name, true, true);
         let old = listed(&["a.png", "d/1.png", "d/2.png", "x.png"]);
         let new = listed(&["0.png", "b.png", "e.png", "y.png"]);
-        let merged =
-            super::merge_new_names((old.clone(), Vec::new()), (new, Vec::new()), &read, by_name);
-        let (names, _, places) = merged.unwrap();
+        let list = rows_of(old.clone(), &[], by_name);
+        let (merged, places) = list.merged(rows_of(new, &[], by_name), &read).unwrap();
         for (i, name) in old.iter().enumerate() {
             let place = places.new_place(i);
             match name.0 == "d/2.png" {
                 true => assert_eq!(place, None),
-                false => assert_eq!(place.map(|k| &names[k]), Some(name)),
+                false => assert_eq!(place.map(|k| &merged.files()[k]), Some(&name.0)),
             }
         }
     }
 
-    /// The order that a part goes into the list by (`in_order`) is the order that `sort_files`
+    /// A whole list that kept the list's order takes what each name is sorted by from the
+    /// list's rows, walking both in step, and gives `None` when a name of it is not among them,
+    /// as when its file left the list after the listing began. Before, the list then took the
+    /// whole list without its keys, and the parts of the next listing of the tree waited for a
+    /// look at every file of the list.
+    #[test]
+    fn a_whole_list_in_the_lists_order_takes_the_lists_keys() {
+        use super::{Sort, SortKey};
+        let exif = |d: &str| SortKey::Exif(false, Some(d.into()));
+        let order = (Sort::ExifOriginal, true, true);
+        let keys = ["2001", "2002", "2003"].map(exif);
+        let list = rows_of(listed(&["c", "a", "b"]), &keys, order);
+        assert_eq!(list.files(), ["c", "a", "b"]);
+        let mut kept = listed(&["c", "b"]);
+        kept[1].1 = std::num::NonZeroU64::new(7);
+        let rows = list.in_step(kept.clone()).unwrap();
+        assert_eq!(rows.listed_names(), kept);
+        assert_eq!(rows.order(), Some(order));
+        assert_eq!(keys_of(&rows), [exif("2001"), exif("2003")]);
+        assert_eq!(list.in_step(listed(&["c", "d"])), None, "d left the list");
+        assert_eq!(list.in_step(listed(&["b", "c"])), None, "another order");
+    }
+
+    /// The order that a part goes into the list by (`in_order`) is the order that `Rows::sorted`
     /// sorts the whole list in, in every order, ascending and descending, with and without
     /// Case, for files whose names, dates and sizes differ in other ways.
     #[test]
     fn a_part_goes_in_by_the_order_of_the_whole_list() {
-        use super::{SORTS, in_order, sort_files, sort_key};
+        use super::{SORTS, in_order, sort_key};
         let dir = std::env::temp_dir().join(format!("glimt-test-in-order-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2299,11 +2570,12 @@ mod tests {
         }
         for (sort, _, _) in SORTS {
             for (ascending, case) in [(true, true), (true, false), (false, true), (false, false)] {
-                let mut files = listed(&names);
-                files.sort_unstable();
-                sort_files(&dir, &mut files, sort, ascending, case);
-                let key = |f: &super::ListedName| sort_key(&dir, &f.0, sort);
                 let order = (sort, ascending, case);
+                let rows = super::Rows::sorted(listed(&names), order, |_, name| {
+                    sort_key(&dir, name, sort)
+                });
+                let files = rows.listed_names();
+                let key = |f: &super::ListedName| sort_key(&dir, &f.0, sort);
                 for pair in files.windows(2) {
                     let (a, b) = ((&key(&pair[0]), &pair[0].0), (&key(&pair[1]), &pair[1].0));
                     assert!(

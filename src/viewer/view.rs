@@ -578,10 +578,10 @@ impl crate::App {
     pub(crate) fn kept_places(&self) -> (Vec<usize>, usize) {
         let ahead = self.decoding.preload.load(Ordering::Relaxed) as isize;
         let (mut window, full) = self.awaited_places();
-        // A slideshow reads ahead the images it planned and the one that Left shows, as its
+        // A slideshow reads ahead the images it shows next and the one that Left shows, as its
         // next images are not the list's neighbours.
         let read_ahead: Vec<usize> = match self.slideshow.is_running() {
-            true => (self.slideshow.planned_places())
+            true => (self.slideshow.next_places())
                 .chain(self.slideshow.previous_place())
                 .collect(),
             false => (1..=ahead)
@@ -611,7 +611,7 @@ impl crate::App {
         let full = awaited.len();
         let n = self.list.panes().len() + 1;
         let upcoming: Vec<usize> = match self.slideshow.is_running() {
-            true => self.slideshow.planned_places().take(n).collect(),
+            true => self.slideshow.next_places().take(n).collect(),
             false => (1..=n as isize)
                 .filter_map(|d| self.step_from(self.list.last_slide(), d, true))
                 .collect(),
