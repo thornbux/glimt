@@ -71,6 +71,11 @@ pub(crate) struct Slideshow {
     shown_elsewhere: u64,
     /// The images picked to come next, so that they are decoded before their slide.
     planned: VecDeque<PlacedName>,
+    /// How many images the slideshow shows next and reads ahead: the panes times one more than
+    /// the images read ahead on each side (`plan_next`). `next_places` gives no more than
+    /// these, so the images kept decoded stay within the memory level's budget, however far
+    /// Left goes back.
+    plan_length: usize,
     /// In random order, the places of the images that the search shows and that this round
     /// has not shown or planned. A pick takes one at random and swaps the last one into its
     /// place, so each pick costs the same at any size of folder. An image shown meanwhile in
@@ -362,6 +367,7 @@ impl Slideshow {
     /// Plans images to come next in `files`, among `rows`, until `length` are planned or none
     /// is left.
     fn plan_next(&mut self, files: &[OsString], rows: Option<&[usize]>, length: usize) {
+        self.plan_length = length;
         while self.planned.len() < length {
             let Some(i) = self.pick(files, rows) else {
                 return;
@@ -384,12 +390,15 @@ impl Slideshow {
     /// next slide shows (`next_slide`), what the tick waits for, and what is read ahead
     /// (`kept_places`) and awaited on a share (`awaited_places`). Before, the images read ahead
     /// and awaited were only the images planned, so after Left the image that the next slide
-    /// showed was decoded again, and on a share its read waited behind the walk.
+    /// showed was decoded again, and on a share its read waited behind the walk. The list holds
+    /// at most the plan's length (`plan_length`), the history first. Before, it held the whole
+    /// history after the image shown, and each press of Left kept one more image decoded.
     pub(crate) fn next_places(&self) -> impl Iterator<Item = usize> + '_ {
         let after_shown = self.history.len() - self.back.min(self.history.len());
         (self.history.range(after_shown..))
             .filter_map(|kept| kept.place)
             .chain(self.planned_places())
+            .take(self.plan_length)
     }
 
     /// Returns the places of the pool, for the tests to check that the search shows each.
@@ -1093,6 +1102,45 @@ mod tests {
         );
         tick(&mut app, &ctx);
         assert_eq!(app.list.shown(), newest, "the next slide after Left");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// However many times Left goes back, the images kept decoded stay within the slideshow's
+    /// bound: the image shown, the one before it, and the plan's length of images shown next.
+    /// Before, every image of the history after the one shown was kept decoded, so each press
+    /// of Left held one more image, 33 MB at 4K.
+    #[test]
+    fn left_many_times_keeps_the_images_decoded_within_the_bound() {
+        use crate::ui::actions::Action;
+        let names: Vec<String> = (0..60).map(|i| format!("{i:02}.png")).collect();
+        let d = folder_of(
+            "left-bound",
+            &names.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let (mut app, ctx) = app_on(&d);
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        for _ in 0..40 {
+            tick(&mut app, &ctx);
+        }
+        let bound = 2 + (1 + app.decoding.preload_count());
+        for press in 0..30 {
+            app.move_along(&ctx, Action::Previous);
+            let start = std::time::Instant::now();
+            while !app.list.decodes_pending().is_empty()
+                && start.elapsed() < std::time::Duration::from_secs(5)
+            {
+                app.receive_decoded(&ctx);
+            }
+            let (kept, _) = app.kept_places();
+            let decoded = app.list.loaded_images().len();
+            assert!(
+                kept.len() <= bound && decoded <= bound,
+                "after {} presses: {} kept, {decoded} decoded, bound {bound}",
+                press + 1,
+                kept.len()
+            );
+        }
         std::fs::remove_dir_all(&d).unwrap();
     }
 
