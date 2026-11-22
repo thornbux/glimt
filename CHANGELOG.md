@@ -33,8 +33,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the list at once. Before, a tree read on a share kept them, and the slideshow showed them,
   until the tree was read again.
 - On a network share, the reading of a tree pauses between folders, for up to a second each,
-  while an image that the window waits for is read: the shown one, the next one for the
-  slideshow or an arrow key, or another pane. Before, the image was read behind the tree. With
+  and in an order by date, size or EXIF date also between its looks at the images, for up to a
+  second for each folder's images, while an image that the window waits for is read: the shown
+  one, the next one for the slideshow or an arrow key, or another pane. Before, the image was
+  read behind the tree. With
   many images in a tree, each part of it costs the window no more in random order than in name
   order (#256).
 
