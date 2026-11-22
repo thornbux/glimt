@@ -72,9 +72,13 @@ pub(crate) struct Slideshow {
     /// The images picked to come next, so that they are decoded before their slide.
     planned: VecDeque<PlacedName>,
     /// How many images the slideshow shows next and reads ahead: the panes times one more than
-    /// the images read ahead on each side (`plan_next`). `next_places` gives no more than
-    /// these, so the images kept decoded stay within the memory level's budget, however far
-    /// Left goes back.
+    /// the images read ahead on each side (`plan_next`). That is the next slide in every pane
+    /// and as many slides after it as browsing reads ahead on one side. `next_places` gives no
+    /// more than these, the history after the image shown first, so the images kept decoded do
+    /// not grow however far Left goes back. This is the slideshow's own bound, not the memory
+    /// level's budget for browsing. With the images shown and the one that Left shows, it keeps
+    /// more than browsing at some levels: 4 images against 3 at Low with one pane, and 29
+    /// against about 18 in 2×2 at High.
     plan_length: usize,
     /// In random order, the places of the images that the search shows and that this round
     /// has not shown or planned. A pick takes one at random and swaps the last one into its
