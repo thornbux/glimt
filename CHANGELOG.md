@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.95.1] - 2026-11-22
+
 ### Changed
 
 - Several folders shown together are one list in the sort order. In Name order the list is now
@@ -4591,7 +4593,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.95.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.95.1...HEAD
+[0.95.1]: https://github.com/thornbux/glimt/compare/v0.95.0...v0.95.1
 [0.95.0]: https://github.com/thornbux/glimt/compare/v0.94.0...v0.95.0
 [0.94.0]: https://github.com/thornbux/glimt/compare/v0.93.0...v0.94.0
 [0.93.0]: https://github.com/thornbux/glimt/compare/v0.92.0...v0.93.0
