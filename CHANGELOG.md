@@ -35,6 +35,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   size, EXIF date, number or extension, descending and without Case, and each image is looked
   at once. After another order is chosen, the list is put in the new order in the background,
   and the tree's images go in by it from then on. Before, they went in by name until the whole tree was read.
+- In a slideshow, ←, →, Home and End clear the selection, also with Shift, so Delete, Move or a
+  keyword after them acts on the image shown. Before, they acted on a selection made before the
+  slideshow.
 - Show Hidden Files turned off, or a type left out in the Types menu, takes those images out of
   the list at once. Before, a tree read on a share kept them, and the slideshow showed them,
   until the tree was read again.
