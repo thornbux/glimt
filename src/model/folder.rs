@@ -652,8 +652,10 @@ struct Listing {
 }
 
 impl Listing {
-    /// Lists several folders, each folder (with its subfolders) after the other. A folder that
-    /// cannot be read is left out, and sent with the list, so the others are still listed.
+    /// Lists several folders, each folder (with its subfolders) after the other, as one list in
+    /// the sort order, which in the default order by name is the names' byte order across the
+    /// folders. A folder that cannot be read is left out, and sent with the list, so the others
+    /// are still listed.
     /// With their subfolders, their images come in parts as they are found, as a tree's do, by
     /// their names in the list: the folder's path without its leading "/" and the name below it.
     fn folders(mut self, folders: &[PathBuf], part_tx: mpsc::SyncSender<TreePart>) {
@@ -665,10 +667,7 @@ impl Listing {
         let mut so_far: Vec<ListedName> = Vec::new();
         // A folder inside another one given is read twice, and its second read is no part.
         let mut folders_read: HashSet<PathBuf> = HashSet::new();
-        // Where the images of each folder given begin among those found.
-        let mut starts = Vec::new();
         for d in folders {
-            starts.push(so_far.len());
             let at = d.strip_prefix("/").unwrap_or(d).to_path_buf();
             let mut part = |read: &FolderReadWhole| {
                 let folder = at.join(read.folder);
@@ -718,14 +717,6 @@ impl Listing {
         if self.recursive {
             files = so_far;
             known = sent.keys_in(self.by);
-            // In an order by name, each folder's images in name order, one folder after the
-            // other, as a folder's tree is listed.
-            if !self.by.looks_at_files() {
-                starts.push(files.len());
-                for range in starts.windows(2) {
-                    files[range[0]..range[1]].sort_unstable();
-                }
-            }
         }
         // A folder inside another one given has its images listed once.
         if nested || !self.recursive {
@@ -735,9 +726,15 @@ impl Listing {
             (files, known) = kept.unzip();
         }
         let order = (self.by, self.ascending, self.case);
+        // The whole list is in the order its parts go in by (`listing::in_order`): byte order of
+        // the names for the default order, by name with Case, and the sort order otherwise. So
+        // the rows never move when the whole list comes after the parts. Before, each folder's
+        // images came in name order one folder after the other, in the order the folders were
+        // given, while the parts went in by byte order across them.
         let keys = match self.by.looks_at_files() {
             true => listing::sort_by_keys(&self.dir, &mut files, known, order),
             false => {
+                files.sort_unstable();
                 sort_files(&self.dir, &mut files, self.by, self.ascending, self.case);
                 Vec::new()
             }
@@ -4037,6 +4034,55 @@ mod tests {
         app.open_folders(&ctx, vec![dir.join("link"), dir.join("a")]);
         app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         assert!(app.folder.folders.is_empty() && app.folder.dir == real.join("a"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Several folders given out of name order, with and without their subfolders, are one
+    /// list in the order their parts go in by: byte order in the default order by name with
+    /// Case, and the sort order otherwise. So the rows never move when the whole list comes after
+    /// the parts. Before, each folder's images came in name order one folder after the other,
+    /// in the order the folders were given, while the parts went in by byte order across them.
+    #[test]
+    fn several_folders_are_one_list_in_the_order_of_their_parts() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-folders-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for name in ["b/1.png", "b/s/2.png", "a/3.png", "a/s/4.png"] {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let real = dir.canonicalize().unwrap();
+        let at = real.strip_prefix("/").unwrap().to_path_buf();
+        for subfolders in [false, true] {
+            let (mut app, ctx) = app_on(&dir);
+            app.config.show_subfolders = subfolders;
+            app.open_folders(&ctx, vec![real.join("b"), real.join("a")]);
+            app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
+            let mut want: Vec<OsString> = match subfolders {
+                true => vec!["a/3.png", "a/s/4.png", "b/1.png", "b/s/2.png"],
+                false => vec!["a/3.png", "b/1.png"],
+            }
+            .into_iter()
+            .map(|n| at.join(n).into_os_string())
+            .collect();
+            assert_eq!(app.list.files(), want, "with subfolders {subfolders}");
+            // Descending, the other way round.
+            app.config.sort_ascending = false;
+            app.folder.sort_again();
+            app.start_listing(&ctx);
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
+            want.reverse();
+            assert_eq!(
+                app.list.files(),
+                want,
+                "descending, with subfolders {subfolders}"
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
