@@ -262,7 +262,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          to the selection with Ctrl or Shift held (in a collection, start it between the images, \
          as dragging an image moves it).\n\n\
          - Ctrl+click toggles a file\n\
-         - Shift+click or Shift with the arrow keys, Page Up/Down, Home and End selects a range\n\
+         - Shift+click or Shift with the arrow keys, Page Up/Down, Home and End selects a range \
+         (outside a slideshow: in a slideshow the arrow keys, Home and End show another image \
+         and clear the selection, also with Shift, so Delete and the like act on the image shown)\n\
          - Ctrl+A selects all (the matches while searching)\n\
          - Ctrl+Shift+A none\n\
          - Ctrl+Shift+I inverts the selection.\n\n\
@@ -898,7 +900,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Browsing in a slideshow",
-        "The new image gets the full delay; ← and → go back and forth through the images shown",
+        "The new image gets the full delay; ← and → go back and forth through the images shown; \
+         ←, →, Home and End clear the selection, also with Shift",
         "",
     ),
     (
