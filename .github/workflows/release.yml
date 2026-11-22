@@ -255,7 +255,11 @@ jobs:
   # the actions are by their commits: a tag can be moved, and this one runs privileged and its
   # bundle is signed. A new runtime: its tag's digest from
   # `docker buildx imagetools inspect ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-XX.YY`.
+  #
+  # Left out until 1.0, at the maintainer's word: no Flatpak bundle is built or published.
+  # Remove the `if` to build it again.
   flatpak:
+    if: false
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08@sha256:6ed6921bb5a9e1a916989971844f159b854b7b225880c381fa34f7a158863039

@@ -9,6 +9,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- No Flatpak bundle is built with the releases until 1.0. The other packages are as before.
 - Several folders shown together are one list in the sort order. In Name order the list is now
   in name order, whatever order the folders were given in. Before, each folder's images came
   in the order the folders were given.

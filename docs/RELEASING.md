@@ -38,7 +38,7 @@ branch made from it and merged back into it; `main` gets the release branch only
    workflow never sees the tag before `main` holds it. The release workflow builds and
    publishes the packages (below).
 8. **After the tag.** Check that the Release workflow ended green, with every package,
-   `SHA256SUMS` and the attestations, and the Flatpak bundle.
+   `SHA256SUMS` and the attestations. Until 1.0 no Flatpak bundle is built (*The Flatpak*).
 9. **Flathub.** A pull request to Flathub's repository (below). The website (glimt-web) is
    updated when the maintainer asks.
 
@@ -197,6 +197,10 @@ when the binary is inside `$APPDIR`, because every program started from an AppIm
 its `$APPIMAGE`.
 
 ### The Flatpak
+
+Until 1.0 the release workflow builds no Flatpak bundle: the maintainer left it out, and its
+job carries `if: false`. The manifest and `flatpak/cargo-sources.json` are still kept up to date,
+so the job can be turned on again by removing that line.
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`
 in Flathub's `freedesktop-26.08` image, pinned by its digest (change both with
