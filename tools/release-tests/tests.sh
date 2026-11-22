@@ -6507,8 +6507,8 @@ else
 fi
 
 section "a slideshow of a tree on a slow share: the end of a round never waits for the walk"
-# The tree has two images of its own, nineteen empty subfolders and one that the tester may not
-# read, s10, on $share, slowed as in the section before, so its walk takes ten seconds and
+# The tree has two images of its own, thirty-nine empty subfolders and one that the tester may not
+# read, s10, on $share, slowed as in the section before, so its walk takes twenty seconds and
 # brings no image. A slideshow with its subfolders, a second for each image, in name order with
 # Repeat, goes round the two images while the walk runs: no gap between two slides is longer
 # than two seconds, and the walk is still reading when the sampling ends. The folder that cannot
@@ -6524,17 +6524,20 @@ else
         rm -rf $back; mkdir -p $back
         convert -size 300x200 xc:red $back/a.png
         convert -size 300x200 xc:blue $back/b.png
-        for k in $(seq -w 1 20); do mkdir $back/s$k; done
+        for k in $(seq -w 1 40); do mkdir $back/s$k; done
         convert -size 300x200 xc:lime $back/s10/c.png
         chmod 000 $back/s10
         config slideshow_subfolders=true slideshow_random=false slideshow_repeat=true \
             slideshow_delay=1 slideshow_fade=0 thumbnails=false
         echo /round-end-$v >/tmp/lossy-slow
         start --slideshow $d
-        # The image shown, every 0.2 s for six seconds, each change with its time in ms.
+        # The image shown, every 0.2 s for six seconds by the clock, each change with its time in
+        # ms. A count of samples took longer than the walk on a loaded computer, as each look
+        # is a --remote call.
         changes=/tmp/round-end-changes-$v shown=
         : >$changes
-        for i in $(seq 30); do
+        until_ms=$(($(date +%s%3N) + 6000))
+        while [ "$(date +%s%3N)" -lt $until_ms ]; do
             now=$(remote current 2>/dev/null | tr -d '\0')
             [ -n "$now" ] && [ "$now" != "$shown" ] && echo "$(date +%s%3N) $now" >>$changes
             shown=$now
@@ -6543,8 +6546,8 @@ else
         echo "$(date +%s%3N) end" >>$changes
         sampled=$(date +%s%3N)
         log=/tmp/sharefs.log
-        until_ok "grep -q '^READDIR /round-end-$v/s20 ' $log" 60
-        read_last=$(grep -m1 "^READDIR /round-end-$v/s20 " $log | awk '{printf "%d", $3 * 1000}')
+        until_ok "grep -q '^READDIR /round-end-$v/s40 ' $log" 60
+        read_last=$(grep -m1 "^READDIR /round-end-$v/s40 " $log | awk '{printf "%d", $3 * 1000}')
         rm -f /tmp/lossy-slow
         quit
         chmod 755 $back/s10
