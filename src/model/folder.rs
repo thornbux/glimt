@@ -117,8 +117,7 @@ pub(crate) struct Folder {
     /// each of the images found since the part before that the list lacks. Every listing of a
     /// tree does (`source_rules::every_listing_of_a_tree_sends_parts`).
     listing_sends_parts: bool,
-    /// What the list shown was read and sorted as: the folder, the order, ascending, case and
-    /// subfolders.
+    /// What the list shown was read and sorted as (`ListedAs`).
     listed_as: Option<ListedAs>,
     /// The image the first part of a tree showed by itself. The whole list then goes to its
     /// first image instead.
@@ -624,8 +623,9 @@ impl Folder {
     }
 }
 
-/// What a list was read and sorted as: the folder, the order, ascending, case and subfolders.
-type ListedAs = (PathBuf, listing::Sort, bool, bool, bool);
+/// What a list was read and sorted as: the folder, the types shown, the order, ascending, case
+/// and subfolders.
+pub(crate) type ListedAs = (PathBuf, Types, listing::Sort, bool, bool, bool);
 
 /// A part of a tree as a listing thread sends it.
 pub(crate) struct TreePart {
@@ -1772,7 +1772,14 @@ impl crate::App {
             by,
             listing::Sort::ExifOriginal | listing::Sort::ExifDigitized
         );
-        let same = Some((self.folder.dir.clone(), by, ascending, case, recursive));
+        let same = Some((
+            self.folder.dir.clone(),
+            types,
+            by,
+            ascending,
+            case,
+            recursive,
+        ));
         let before = (exif && !self.folder.lists_tree_in_parts && collection.is_none())
             .then_some(())
             .filter(|_| folders.is_empty() && self.folder.listed_as == same)
@@ -1850,13 +1857,36 @@ impl crate::App {
     /// watcher cannot place below it, reads the whole tree. Before, a change in any one
     /// subfolder read the whole tree again, which on a share takes minutes.
     pub(crate) fn relist_changes(&mut self, ctx: &egui::Context) {
-        let c = &self.config;
-        let dir = self.folder.dir.clone();
-        let listed_whole_as = (dir, c.sort, c.sort_ascending, c.sort_case_sensitive, true);
+        let listed_whole_as = self.tree_listed_as();
         self.folder.next_listing_from = (self.folder)
             .subfolder_changed(&listed_whole_as)
             .unwrap_or_default();
         self.start_listing(ctx);
+    }
+
+    /// Returns what a whole listing of the open folder's tree is read and sorted as now
+    /// (`ListedAs`), with the types shown and the order chosen.
+    pub(crate) fn tree_listed_as(&self) -> ListedAs {
+        let c = &self.config;
+        let (dir, types) = (self.folder.dir.clone(), self.shown_types());
+        (
+            dir,
+            types,
+            c.sort,
+            c.sort_ascending,
+            c.sort_case_sensitive,
+            true,
+        )
+    }
+
+    /// Returns whether the list is the whole tree of the open folder as `tree_listed_as` gives
+    /// it now, read whole by a listing that is done, and nothing asked for it to be read whole
+    /// again. A slideshow of the subfolders then plays it without reading the tree again. A
+    /// change that the watcher saw is read afterwards as it is otherwise (`relist_changes`).
+    pub(crate) fn lists_the_tree_whole(&self) -> bool {
+        let f = &self.folder;
+        let listed = f.listed_as == Some(self.tree_listed_as());
+        f.recursive && !f.is_listing() && !f.relist_whole && listed
     }
 
     /// Returns what the parts of the listing that starts, in `order`, are made from, with its
@@ -2089,11 +2119,13 @@ impl crate::App {
         self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
         self.list.set_unchecked_entries(false);
         self.settle_sidecar_writes_waiting_for_the_list(ctx);
+        let types = self.shown_types();
         let c = &self.config;
         self.folder.listed_as =
             (self.folder.collection.is_none() && self.folder.folders.is_empty()).then(|| {
                 (
                     self.folder.dir.clone(),
+                    types,
                     c.sort,
                     c.sort_ascending,
                     c.sort_case_sensitive,

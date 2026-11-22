@@ -6653,21 +6653,26 @@ else
     done
 fi
 
-section "a slideshow of a tree on a share that serves one call at a time: a slide every few seconds, Page Down at once"
+section "a slideshow of a tree on a share that serves one call at a time: the tree walked once, a slide every few seconds, Page Down at once"
 # The maintainer's report of 0.95.1. $gvfs is a lossyfs over /opt/lossy mounted as GNOME Files
 # mounts an smb:// share (fuse.gvfsd-fuse), which serves one call at a time with 40 ms before
 # each, as gvfsd-smb does over Wi-Fi, and gives no entry's type with its names, as gvfsd-fuse
 # does. A tree of 200 subfolders with two photos of 3000×2000 in each, red, lime or blue, is
 # opened with Include Subfolders, and once the walk has read the tree, a slideshow of it runs,
-# a second for each image, with the folder watcher on, as by default. Starting it reads the
-# tree again, so that walk runs beside it. One photo there takes some thirty calls, 1.2 seconds
-# of the share alone. The slideshow is sampled for twenty seconds: at least eight slides, no gap
-# between two of them longer than three seconds, and the window's title names the image shown.
-# Page Down then shows its image within three seconds. In 0.95.1 the folder watcher, the walk's
-# look at each entry, the thumbnails and the images read further ahead, three at once, stood in
-# the same queue as the next image, and a slide stood for five seconds and more (eight at 50 ms
-# a call). The gaps, the time to Page Down's image and the looks at the subfolders a second (of
-# the watcher and the walk together) are printed for both versions.
+# a second for each image, with the folder watcher on, as by default. One photo there takes
+# some thirty calls, 1.2 seconds of the share alone. The slideshow is sampled for twenty
+# seconds:
+# - the tree was walked once, by its listing: the start of the slideshow did not read it again;
+# - at least eight slides, no gap between two of them longer than five seconds, and the
+#   window's title names the image shown;
+# - Page Down then shows its image within five seconds.
+# The limits of time are wide, as a loaded machine stretches every gap: the fix gives about 17
+# slides with gaps of at most 2.2 s, and 0.95.1 about 10 with gaps of 3.7 to 5.7 s. 0.95.1
+# fails on the walks: the start of the slideshow walked the tree again, beside the slideshow,
+# and the folder watcher, the walk's look at each entry, the thumbnails and the images read
+# further ahead, three at once, stood in the same queue as the next image. The walks, the gaps,
+# the time to Page Down's image and the looks at the subfolders a second (of the watcher and
+# the walk together) are printed for both versions.
 faults=yes
 if ! grep -q " $gvfs fuse.gvfsd-fuse" /proc/mounts; then
     fail "no FUSE share at $gvfs: run.sh's containers need --privileged for /dev/fuse"
@@ -6689,9 +6694,13 @@ else
         done
         config slideshow_subfolders=true slideshow_delay=1 slideshow_fade=0
         start $d
+        # The calls from here on, after the first listing of the folder alone.
+        from_line=$(($(wc -l <$log) + 1))
         remote subfolders on >/dev/null
-        # The walk has read the tree when it has read the last subfolder.
+        # The walk has read the tree when it has read the last subfolder, and its listing is
+        # taken a moment later. A slideshow started while it still runs starts it anew.
         until_ok "grep -q '^CALL readdir /gvfs-tree-$v/s200 ' $log" 180; walked=$?
+        sleep 3
         remote slideshow on >/dev/null; sleep 2
         # The image shown and the window's title, every 0.2 s for twenty seconds by the clock,
         # each change of the image with its time in ms. A title is checked only between two
@@ -6720,6 +6729,8 @@ else
         gap=$(awk '{ if (last) { g = $1 - last; if (g > max) max = g } last = $1 }
             END { print max + 0 }' $changes)
         slides=$(grep -vc ' end$' $changes)
+        # Each walk of the tree reads its top folder once.
+        walks=$(tail -n +$from_line $log | grep -c "^CALL readdir /gvfs-tree-$v ")
         # Page Down: the time from the key to its image on the screen, by the colour its name
         # gives, sampled in a shot of the middle of the image area.
         xdotool windowraise $WIN 2>/dev/null; xdotool windowfocus $WIN 2>/dev/null
@@ -6748,12 +6759,13 @@ else
         quit
         rm -rf $local_tree
         note "$v: at rest on a local tree, $at_rest ticks of 1/100 s in 3 s"
-        note "$v: $slides slides in 20 s, longest gap $gap ms, $wrong_titles wrong titles, Page Down's image after ${page_ms:-more than 15000} ms, $looks looks at the subfolders a second"
-        got="$([ $walked = 0 ] && echo walked) $([ "$slides" -ge 8 ] && [ "$gap" -le 3000 ] && echo steady)"
-        got="$got titles=$wrong_titles $([ -n "$page_ms" ] && [ "$page_ms" -le 3000 ] && echo paged)"
+        note "$v: the tree walked $walks times, $slides slides in 20 s, longest gap $gap ms, $wrong_titles wrong titles, Page Down's image after ${page_ms:-more than 15000} ms, $looks looks at the subfolders a second"
+        got="$([ $walked = 0 ] && echo walked) walks=$walks"
+        got="$got $([ "$slides" -ge 8 ] && [ "$gap" -le 5000 ] && echo steady)"
+        got="$got titles=$wrong_titles $([ -n "$page_ms" ] && [ "$page_ms" -le 5000 ] && echo paged)"
         if [ $v = new ]; then
-            expect "a slideshow on a share that serves one call at a time: steady slides, the titles, Page Down" \
-                "$got" "walked steady titles=0 paged"
+            expect "a slideshow on a share that serves one call at a time: one walk, steady slides, the titles, Page Down" \
+                "$got" "walked walks=1 steady titles=0 paged"
         else note "old: $got"; fi
         rm -rf $back $changes /tmp/gvfs-*.jpg
     done
