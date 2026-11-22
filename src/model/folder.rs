@@ -2990,7 +2990,12 @@ fn look_this_second(
         let _turn = gate.before_work_nobody_waits_for(&read[i].0);
         let began = Instant::now();
         let now = look(&read[i].0);
-        spent += began.elapsed();
+        // Only the subfolders' looks count, as the open folders are looked at every second.
+        // Before, the open folders' looks took the subfolders' time, and on a share the watcher
+        // came round to a subfolder only every few seconds.
+        if i >= open {
+            spent += began.elapsed();
+        }
         if now != read[i].1 {
             changed.push(read[i].0.clone());
         }
@@ -3868,6 +3873,18 @@ mod tests {
             super::look_this_second(&mut on_share, (2, 0), true, &mut gate(), look);
         let most = (super::SHARE_LOOKS_A_SECOND.as_millis() / look_ms as u128) as usize + 1;
         assert_eq!(changed.len(), 2 + looked);
+        // The open folders' looks take none of the subfolders' time, also when they are slow.
+        let slow_open = |p: &std::path::Path| {
+            let open = p.ends_with("watched-0") || p.ends_with("watched-1");
+            std::thread::sleep(Duration::from_millis(if open { 150 } else { look_ms }));
+            None
+        };
+        let (_, looked) =
+            super::look_this_second(&mut read(2 + 500), (2, 0), true, &mut gate(), slow_open);
+        assert!(
+            looked >= 2,
+            "looked at {looked} subfolders after slow open folders"
+        );
         assert!((1..=most).contains(&looked), "looked at {looked}");
         assert!(
             on_share[..2].iter().all(|(_, t)| t.is_some()),
