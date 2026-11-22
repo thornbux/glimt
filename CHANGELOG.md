@@ -35,12 +35,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   size, EXIF date, number or extension, descending and without Case, and each image is looked
   at once. After another order is chosen, the list is put in the new order in the background,
   and the tree's images go in by it from then on. Before, they went in by name until the whole tree was read.
+- In a slideshow, ←, →, Home and End clear the selection, also with Shift, so Delete, Move or a
+  keyword after them acts on the image shown. Before, they acted on a selection made before the
+  slideshow.
 - Show Hidden Files turned off, or a type left out in the Types menu, takes those images out of
   the list at once. Before, a tree read on a share kept them, and the slideshow showed them,
   until the tree was read again.
 - On a network share, the reading of a tree pauses between folders, for up to a second each,
   and in an order by date, size or EXIF date also between its looks at the images, for up to a
-  second for each folder's images, while an image that the window waits for is read: the shown
+  second in every hundred looks, also while the list is put in another sort order and when the
+  whole list is sorted, while an image that the window waits for is read: the shown
   one, the next one for the slideshow or an arrow key, or another pane. Before, the image was
   read behind the tree. With
   many images in a tree, each part of it costs the window no more in random order than in name
