@@ -643,11 +643,11 @@ impl PartsFrom {
         let (by, ascending, case) = self.order;
         let on_a_share = (self.places.iter()).any(|d| listing::is_on_a_share(d, self.recursive));
         PartsSent {
-            reads_first: listing::ReadsFirst {
-                stop: self.stop.clone(),
-                awaited: self.awaited.clone(),
+            reads_first: listing::ReadsFirst::new(
+                self.stop.clone(),
+                self.awaited.clone(),
                 on_a_share,
-            },
+            ),
             last: None,
             up_to: 0,
             listed_before: std::mem::take(&mut self.listed_before).sorted(),
@@ -1032,9 +1032,10 @@ struct PartsSent {
     /// them is looked at once in the walk. A hash that two names share is left out, and both
     /// names are looked at again.
     keys_sorted_anew: Vec<(u64, SortKey)>,
-    /// The reads on a share that each look at a file waits for. Before, a part looked at the
-    /// new images of every folder since the part before, 600 to 900 EXIF reads in a row, after
-    /// one wait before the folder, and the image awaited queued behind them (#256).
+    /// The reads on a share that each look at a file waits for, the parts' looks, the list's
+    /// rows put in another order and the sort of the whole list alike. Before, a part looked at
+    /// the new images of every folder since the part before, 600 to 900 EXIF reads in a row,
+    /// after one wait before the folder, and the image awaited queued behind them (#256).
     reads_first: listing::ReadsFirst,
 }
 
@@ -1063,13 +1064,9 @@ impl PartsSent {
         if by.looks_at_files() {
             self.keys.resize(so_far.len(), None);
         }
-        // Each look waits for the reads that go first, for at most a second in all.
-        let mut waited = Duration::ZERO;
-        let reads_first = &self.reads_first;
-        let mut look = |name: &OsString| {
-            reads_first.wait(&mut waited);
-            listing::sort_key(&dir, name, by)
-        };
+        // Each look waits for the reads that go first (`ReadsFirst`).
+        let reads_first = &mut self.reads_first;
+        let mut look = |name: &OsString| reads_first.sort_key(&dir, name, by);
         // The list's own rows are put in the listing's order once, before the walk's parts go
         // into them.
         if !self.to_sort_anew.is_empty() {
@@ -1106,7 +1103,8 @@ impl PartsSent {
     /// Returns `files`, the images of the whole list, as rows in the listing's order. Each image
     /// is sorted by what `known` holds at its place (what a part looked at), or else by what it
     /// was sorted by when the list's names were put in the listing's order, and the others are
-    /// looked at now. So each image is looked at once in the walk.
+    /// looked at now, each look after the wait for the reads that go first (`ReadsFirst`). So
+    /// each image is looked at once in the walk.
     fn sorted(&mut self, files: Vec<ListedName>, mut known: Vec<Option<SortKey>>) -> Rows {
         let (dir, by, ascending, case) = self.order.clone();
         let anew = std::mem::take(&mut self.keys_sorted_anew);
@@ -1118,7 +1116,7 @@ impl PartsSent {
         Rows::sorted(files, (by, ascending, case), |i, name| {
             (known.get_mut(i).and_then(Option::take))
                 .or_else(|| sorted_anew(name))
-                .unwrap_or_else(|| listing::sort_key(&dir, name, by))
+                .unwrap_or_else(|| self.reads_first.sort_key(&dir, name, by))
         })
     }
 }
@@ -4891,10 +4889,10 @@ mod tests {
 
     /// On a share, in an order that looks at the files, a part's looks at its images wait for
     /// the image that the window waits for, before each look and not only before the folder,
-    /// and a part's looks wait for it at most `WALK_WAITS_FOR_IMAGES_AT_MOST` in all, so the walk
-    /// never stops for good. On a disk of its own they never wait. Before, a part looked at the
-    /// new images of every folder since the part before in a row, 600 to 900 EXIF reads after
-    /// one wait, and the image awaited queued behind them (#256).
+    /// and a hundred looks wait for it at most `WALK_WAITS_FOR_IMAGES_AT_MOST` in all, so the
+    /// walk never stops for good. On a disk of its own they never wait. Before, a part looked at
+    /// the new images of every folder since the part before in a row, 600 to 900 EXIF reads
+    /// after one wait, and the image awaited queued behind them (#256).
     #[test]
     fn a_parts_looks_wait_for_the_image_awaited() {
         use std::time::{Duration, Instant};
@@ -4947,12 +4945,75 @@ mod tests {
             took >= Duration::from_millis(350),
             "the looks waited: {took:?}"
         );
-        // An image awaited all along holds a part's looks for a second in all, not for each.
+        // An image awaited all along holds a part's 40 looks for a second in all, not for each,
+        // as they are fewer than the hundred looks that share one budget.
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
         awaited.set(vec![dir.join("a.png")]);
-        let took = part_of(&mut fed, 40);
+        let took = part_of(&mut fed, 0);
         assert!(
             took >= Duration::from_millis(900) && took < Duration::from_millis(2500),
             "a second in all: {took:?}"
+        );
+        crate::files::file_ops::test_mount(&dir, None);
+        awaited.set(Vec::new());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// On a share, in an order that looks at the files, the looks that put the list's rows in
+    /// another order after a sort change, and the looks of the sort of the whole list, wait for
+    /// the image that the window waits for, as a part's looks do: up to a second in every
+    /// hundred looks, so that a long run of them pauses again and again and never stops for
+    /// good. Before, the list put in another order shared one second with the part's own looks,
+    /// and the sort of the whole list never waited, so on a share minutes of EXIF reads went
+    /// before the slideshow's next image.
+    #[test]
+    fn every_look_of_a_walk_waits_for_the_image_awaited() {
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-rekey-waits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("s")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.sort = crate::model::listing::Sort::Date;
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        let awaited = app.decoding.images_awaited().clone();
+        let names = |prefix: &str, n: usize| -> Vec<super::ListedName> {
+            (0..n)
+                .map(|i| (format!("{prefix}/{i}.png").into(), None))
+                .collect()
+        };
+        // The list's 250 names put in the listing's order with the first part: three budgets.
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        fed.sent.to_sort_anew = names("s", 250);
+        awaited.set(vec![dir.join("a.png")]);
+        let began = Instant::now();
+        assert!(fed.sent.next_part(&[]).is_some());
+        let took = began.elapsed();
+        assert!(
+            took >= Duration::from_millis(2700) && took < Duration::from_millis(6000),
+            "the list put in another order paused in each hundred looks: {took:?}"
+        );
+        // The sort of a whole list of 150 names: two budgets. The image is awaited anew, as one
+        // awaited for longer than `IMAGE_AWAITED_FOR` no longer holds the walk.
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        awaited.set(Vec::new());
+        awaited.set(vec![dir.join("a.png")]);
+        let began = Instant::now();
+        let whole = fed.sent.sorted(names("w", 150), Vec::new());
+        let took = began.elapsed();
+        assert_eq!(whole.len(), 150);
+        assert!(
+            took >= Duration::from_millis(1800) && took < Duration::from_millis(4500),
+            "the whole list's sort paused in each hundred looks: {took:?}"
         );
         crate::files::file_ops::test_mount(&dir, None);
         awaited.set(Vec::new());
