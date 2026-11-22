@@ -177,15 +177,26 @@ impl List {
         };
     }
 
-    /// Returns what each of `files` is sorted by, as this list has it for the same names. It
-    /// is one pass over the list, and returns nothing when the list lacks the key of one.
-    pub(crate) fn keys_of(&self, files: &[ListedName]) -> Vec<SortKey> {
-        if self.keys.len() != self.files.len() {
+    /// Returns whether the list lacks the key of one of its names, as a list that came in
+    /// another way than from a listing does.
+    pub(crate) fn lacks_keys(&self) -> bool {
+        self.keys.len() != self.files.len()
+    }
+
+    /// Returns what each of `files` is sorted by, as this list has it, when `files` are names
+    /// of the list in its order, as a whole list that kept the list's order is
+    /// (`listing::kept_order`). It walks both in step, with no map of the names. Returns nothing
+    /// when the list lacks its keys or `files` are not in its order.
+    pub(crate) fn keys_in_step(&self, files: &[ListedName]) -> Vec<SortKey> {
+        if self.lacks_keys() {
             return Vec::new();
         }
-        let known: HashMap<&OsString, &SortKey> = self.files.iter().zip(&self.keys).collect();
+        let mut own = self.files.iter().zip(&self.keys);
         (files.iter())
-            .map(|f| known.get(&f.0).map(|&key| key.clone()))
+            .map(|f| {
+                own.find(|(name, _)| **name == f.0)
+                    .map(|(_, key)| key.clone())
+            })
             .collect::<Option<Vec<SortKey>>>()
             .unwrap_or_default()
     }
