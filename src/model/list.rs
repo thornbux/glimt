@@ -115,6 +115,9 @@ pub(crate) struct List {
     /// Whether each file is among `matches`, by its place, so the selection can be kept to the
     /// files shown in one step per selected file. Empty when there is no search.
     is_match: Vec<bool>,
+    /// Goes up whenever the search's matches are set, so what was worked out from them (the
+    /// slideshow's plan) can tell that they are others.
+    matches_version: usize,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     /// A rectangle being dragged in the icon grid to select.
@@ -293,6 +296,11 @@ impl List {
         self.matches.as_deref()
     }
 
+    /// The version of the search's matches, which goes up whenever they are set.
+    pub(crate) fn matches_version(&self) -> usize {
+        self.matches_version
+    }
+
     /// The total size of the search matches, as far as it is summed.
     pub(crate) fn match_size(&self) -> u64 {
         self.match_size
@@ -337,6 +345,7 @@ impl List {
             files,
             identities,
             version: old.version + 1,
+            matches_version: old.matches_version + 1,
             has_unchecked_entries: old.has_unchecked_entries,
             ..Default::default()
         }
@@ -622,6 +631,7 @@ impl List {
             }
         }
         self.matches = matches;
+        self.matches_version += 1;
         // One step per selected file, not per file, as this runs at every letter typed.
         let hidden: Vec<usize> = (self.selected.iter().copied())
             .filter(|&i| !self.shows_file(i))
@@ -765,6 +775,7 @@ mod tests {
             ("decodes_pending", "carried by name"),
             ("matches", "worked out again: update_search"),
             ("is_match", "worked out again with the matches"),
+            ("matches_version", "goes up in List::replacing"),
             ("match_size", "worked out again: update_search"),
             ("rubber_band", "reset"),
             ("dragging", "reset"),
@@ -819,6 +830,7 @@ mod tests {
             ("decodes_pending", "forget_places"),
             ("matches", "worked out again: update_search"),
             ("is_match", "worked out again: update_search"),
+            ("matches_version", "goes up in update_search"),
             ("match_size", "worked out again: update_search"),
             ("rubber_band", "forget_places"),
             ("dragging", "forget_places"),

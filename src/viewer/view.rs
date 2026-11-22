@@ -553,6 +553,9 @@ impl crate::App {
             return;
         }
         self.fill_panes();
+        // A slideshow reads ahead the images it planned, so its plan is made again first when
+        // what it was made from changed.
+        self.follow_list_in_slideshow();
         let (window, full) = self.kept_places();
         self.decoding
             .full_resolution_count

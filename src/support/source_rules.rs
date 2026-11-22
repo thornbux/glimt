@@ -2518,6 +2518,31 @@ fn a_round_begins_in_one_place() {
     );
 }
 
+/// The slideshow's plan (the images planned, the pool and whether a pick found none) is made
+/// in one place, `Slideshow::make_plan`, which makes it again whenever what it was made from
+/// differs: the list's version, the search's, the image shown, the order and the round. Its
+/// fields are emptied and what it was made from is written nowhere else, so no change can reach
+/// the slideshow only through a caller that makes the plan again. Before, the plan was made
+/// again at a few callers, and an image clicked during a slideshow or a search changed during
+/// one left the old plan in place, so the slideshow went back to where it was or showed images
+/// that the search hid.
+#[test]
+fn the_slideshows_plan_is_made_in_one_place() {
+    let home: &[(&str, &str)] = &[("viewer/slideshow.rs", "make_plan")];
+    let wrong = outside_their_homes(&[
+        ("made_from =", home),
+        ("planned.clear(", home),
+        ("pool.clear(", home),
+        ("found_none = false", home),
+        ("forget_order(", &[]),
+    ]);
+    assert!(
+        wrong.is_empty(),
+        "the slideshow's plan made outside Slideshow::make_plan:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A notice is given only through `Notice::give`, which gives it a number of its own, so a
 /// screen reader reads out a notice given again with the same text. Before, the screen reader's
 /// code told a notice given again by its text's address, and the second of two notices given

@@ -4746,17 +4746,20 @@ mod tests {
     /// whatever order: parts of its walk, whole lists, F5, a delete, a move and a rename of a
     /// file and of a subfolder, another sort order (by name with and without Case, descending,
     /// by date and by number), Show Hidden Files on and off, R on and off, Left, Right, Home and
-    /// End, its own steps, Repeat on and off, and a stop and a start. The tree has a link into a
+    /// End, its own steps, an image shown by hand, a search narrowed, widened and cleared, Repeat
+    /// on and off, and a stop and a start. The tree has a link into a
     /// hidden folder (hidden files not shown at first), a folder reached by two paths and a
     /// folder that cannot be read, its images have dates in another order than their names, and
     /// the walk is the listing thread's own. After each event no name is twice in the list, the
     /// list is in its sort order, none is gone from it that the tree on disk still holds, and
     /// after each whole list and each stop the list is the tree on disk in its sort order. After
     /// another order is chosen, the list keeps the order it is in until its whole list comes,
-    /// and its listing sends no part meanwhile. The slideshow shows no image twice in a round.
-    /// Without Repeat it ends at the step after every image listed was shown, and not before,
-    /// and with Repeat the next round begins only then. No tick holds the slideshow. After R off
-    /// the next image is the next one in the list that the round has not shown, Left goes back
+    /// and its listing sends no part meanwhile. The slideshow shows no image twice in a round,
+    /// and neither shows nor plans an image that the search hides.
+    /// Without Repeat it ends at the step after every image the search shows was shown, and not
+    /// before, and with Repeat the next round begins only then. No tick holds the slideshow.
+    /// After R off, and in order after an image shown by hand, the next image is the next row
+    /// after the one shown that the round has not shown, Left goes back
     /// through the images shown and Right forward again, and a stop keeps the image shown,
     /// scrolled to in the list. The events come from a seeded xorshift, in both orders, with
     /// Repeat on and off at the start. Before, the slideshow put its own order into the list and
@@ -4843,6 +4846,23 @@ mod tests {
             .collect()
     }
 
+    /// Returns the name of the next row after the image shown that `round` lacks, among the
+    /// rows that the list shows (the search's matches, or every image), going on from the first
+    /// row after the last. A shown image that the search hides counts as before the first row.
+    /// Returns `None` when the round has shown every row.
+    fn next_unshown(app: &crate::App, round: &HashSet<OsString>) -> Option<OsString> {
+        let files = app.list.files();
+        let rows: Vec<usize> = match app.list.matches() {
+            Some(m) => m.to_vec(),
+            None => (0..files.len()).collect(),
+        };
+        let start = (rows.iter().position(|&i| i == app.list.shown())).map_or(0, |r| r + 1);
+        (0..rows.len())
+            .map(|d| &files[rows[(start + d) % rows.len()]])
+            .find(|f| !round.contains(*f))
+            .cloned()
+    }
+
     /// One run of `a_slideshow_keeps_its_order_through_every_listing`.
     fn play_a_tree_through_events(seed: u64, random: bool, repeat: bool) {
         use crate::ui::actions::Action;
@@ -4917,10 +4937,17 @@ mod tests {
             (c.sort, c.sort_ascending, c.sort_case_sensitive)
         };
         for step in 0..200 {
-            let event = next(21);
+            let event = next(25);
             let at = format!("{case}, step {step}, event {event}");
             let order_before = app.list.files().to_vec();
-            let shown_before = shown_name(&app);
+            let mut shown_before = shown_name(&app);
+            // The names that the list shows before the event: the search's matches, or all.
+            let rows_before: Vec<OsString> = (order_before.iter().enumerate())
+                .filter(|&(i, _)| app.list.shows_file(i))
+                .map(|(_, name)| name.clone())
+                .collect();
+            // The image shown before the event, under its new name when the event renamed it.
+            let mut same_image = shown_before.clone();
             // The step of the slideshow that this event made: a new image picked (true), or a
             // step through the history (false).
             let mut picked = None;
@@ -4952,12 +4979,7 @@ mod tests {
                     // shown that the round has not shown.
                     if !on && seen.back == 0 && app.list.files().len() > 1 {
                         seen.round.extend(shown_before.clone());
-                        let files = app.list.files();
-                        let from = app.list.shown();
-                        let expected = (1..=files.len())
-                            .map(|d| &files[(from + d) % files.len()])
-                            .find(|f| !seen.round.contains(*f))
-                            .cloned();
+                        let expected = next_unshown(&app, &seen.round);
                         decode_all(&mut app, &ctx);
                         let before = seen.round.clone();
                         app.slideshow_tick(&ctx);
@@ -4996,6 +5018,9 @@ mod tests {
                         continue;
                     }
                     let new = new.into_os_string();
+                    if same_image.as_ref() == Some(&old) {
+                        same_image = Some(new.clone());
+                    }
                     if seen.round.remove(&old) {
                         seen.round.insert(new.clone());
                     }
@@ -5086,18 +5111,25 @@ mod tests {
                     };
                     app.move_along(&ctx, key);
                     let now = shown_name(&app).unwrap();
-                    let expected = match event {
-                        15 => app.list.files().first(),
-                        _ => app.list.files().last(),
+                    // The first or the last row that the list shows, of the search's matches.
+                    let files = app.list.files();
+                    let expected = match (app.list.matches(), event) {
+                        (None, 15) => files.first(),
+                        (None, _) => files.last(),
+                        (Some(m), 15) => m.first().map(|&i| &files[i]),
+                        (Some(m), _) => m.last().map(|&i| &files[i]),
                     };
-                    assert_eq!(Some(&now), expected, "Home or End: {at}");
+                    if let Some(expected) = expected {
+                        assert_eq!(&now, expected, "Home or End: {at}");
+                    }
+                    // Shown as a click shows it, it joins the history when it is another image.
+                    if Some(&now) != same_image.as_ref() {
+                        seen.history.push(now.clone());
+                        seen.back = 0;
+                    }
                     match event {
-                        15 => seen.begin(now),
-                        _ => {
-                            seen.round.insert(now.clone());
-                            seen.history.push(now);
-                            seen.back = 0;
-                        }
+                        15 => seen.round = [now].into(),
+                        _ => _ = seen.round.insert(now),
                     }
                 }
                 17 => app.config.slideshow_repeat = !app.config.slideshow_repeat,
@@ -5118,6 +5150,38 @@ mod tests {
                     app.folder.sort_again();
                     app.start_listing(&ctx);
                 }
+                21 | 22 if !app.list.files().is_empty() => {
+                    // An image shown by hand: a click in the file list, on a pane or
+                    // `--remote show`. It is shown in this round, and in order the next slide is
+                    // the next row after it that the round has not shown.
+                    let i = next(app.list.files().len());
+                    app.show_file(&ctx, i);
+                    let now = shown_name(&app).unwrap();
+                    let another = Some(&now) != same_image.as_ref();
+                    if another {
+                        seen.round.insert(now.clone());
+                        seen.history.push(now.clone());
+                        seen.back = 0;
+                        same_image = Some(now.clone());
+                    }
+                    if another && !app.config.slideshow_random {
+                        let expected = next_unshown(&app, &seen.round);
+                        shown_before = Some(now);
+                        decode_all(&mut app, &ctx);
+                        app.slideshow_tick(&ctx);
+                        picked = Some(true);
+                        if let Some(expected) = expected.filter(|_| app.slideshow.is_running()) {
+                            let what = "after an image shown by hand";
+                            assert_eq!(shown_name(&app), Some(expected), "{what}: {at}");
+                        }
+                    }
+                }
+                23 | 24 => {
+                    // A search narrowed, widened or cleared while the slideshow runs.
+                    let queries = ["", "re:^s", "re:^s[01]/", r"re:[0-2]\.png$", "re:^t"];
+                    app.search.set_query(queries[next(queries.len())]);
+                    app.update_search(&ctx);
+                }
                 _ => {
                     app.stop_slideshow(&ctx);
                     assert_eq!(
@@ -5128,22 +5192,36 @@ mod tests {
                     assert!(app.panel.scrolls_to_shown(), "scrolled to it: {at}");
                 }
             }
+            // An image that came into the first pane in another way than by the slideshow (the
+            // next one after the image shown was deleted, or gone from the list) is shown in this
+            // round, as the newest of the history.
+            let now = shown_name(&app);
+            if picked.is_none()
+                && !matches!(event, 15 | 16)
+                && app.slideshow.is_running()
+                && now.is_some()
+                && now != same_image
+            {
+                let now = now.clone().unwrap();
+                seen.round.insert(now.clone());
+                seen.history.push(now);
+                seen.back = 0;
+            }
             if picked == Some(true) {
                 // A new image: one the round has not shown, or the first of a new round with
-                // Repeat once every image listed was shown. Without Repeat, the slideshow stops
-                // at that step instead. The image on screen counts as shown, also when it came
-                // there because the one before it was deleted.
+                // Repeat once every image that the search shows was shown. Without Repeat, the
+                // slideshow stops at that step instead. The image on screen counts as shown,
+                // also when it came there because the one before it was deleted.
                 seen.round.extend(shown_before.clone());
-                let all_shown = order_before.iter().all(|f| seen.round.contains(f));
-                let now = shown_name(&app);
+                let all_shown = rows_before.iter().all(|f| seen.round.contains(f));
                 if !app.slideshow.is_running() {
-                    assert!(all_shown, "stopped before every image was shown: {at}");
+                    assert!(all_shown, "stopped before every match was shown: {at}");
                     assert!(!app.config.slideshow_repeat, "stopped with Repeat: {at}");
-                } else if order_before.len() > 1 {
+                } else if now != shown_before {
                     let now = now.clone().unwrap();
                     assert!(
-                        now != shown_before.clone().unwrap_or_default(),
-                        "a tick held the slideshow: {at}"
+                        app.list.shows_file(app.list.shown()),
+                        "a slide that the search hides: {now:?}, {at}"
                     );
                     if all_shown {
                         assert!(app.config.slideshow_repeat, "went on without Repeat: {at}");
@@ -5156,9 +5234,27 @@ mod tests {
                     seen.round.insert(now.clone());
                     seen.history.push(now);
                     seen.back = 0;
+                } else {
+                    // It stays only when the search shows no other image than the one on
+                    // screen.
+                    let others = rows_before.iter().any(|f| Some(f) != shown_before.as_ref());
+                    assert!(!others, "a tick held the slideshow: {at}");
                 }
             }
             feed_what_runs(&mut app, &ctx, &mut fed);
+            // Nothing that the slideshow plans to show next is an image the search hides, as
+            // the slideshow sees its plan at its next look.
+            if app.slideshow.is_running() {
+                app.follow_list_in_slideshow();
+                let hidden: Vec<usize> = (app.slideshow.planned_places())
+                    .chain(app.slideshow.pool().iter().copied())
+                    .filter(|&i| !app.list.shows_file(i))
+                    .collect();
+                assert!(
+                    hidden.is_empty(),
+                    "planned, the search hides {hidden:?}: {at}"
+                );
+            }
             let files = app.list.files().to_vec();
             let unique: HashSet<&OsString> = files.iter().collect();
             assert_eq!(unique.len(), files.len(), "a name twice in the list: {at}");
