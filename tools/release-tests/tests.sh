@@ -6771,6 +6771,54 @@ else
     done
 fi
 
+section "a change in one subfolder of a tree on a share that serves one call at a time: that subfolder read again, not the tree"
+# $gvfs as in the section before, with a tree of 30 subfolders, two small images in each. Once
+# the walk has read it, a slideshow of it runs, and another program changes the subfolder s05
+# behind the share's back, as a NAS's indexer does: a file made and taken away there. The folder
+# watcher sees it, and after the window's rest from the last listing (four times as long as it
+# took) s05 alone is read again: one more READDIR of s05 in the share's log, and none of the
+# tree's top folder, which every walk of the tree reads. 0.95.1 walked the tree again, both
+# at the start of the slideshow and for the change.
+faults=yes
+if ! grep -q " $gvfs fuse.gvfsd-fuse" /proc/mounts; then
+    fail "no FUSE share at $gvfs: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/gvfs-change-$v d=$gvfs/gvfs-change-$v log=/tmp/gvfsfs.log
+        rm -rf $back; mkdir -p $back
+        for k in $(seq -w 1 30); do
+            mkdir $back/s$k
+            for c in red blue; do convert -size 300x200 xc:$c $back/s$k/$c.png; done
+        done
+        config slideshow_subfolders=true slideshow_delay=1 slideshow_fade=0
+        start $d
+        from_line=$(($(wc -l <$log) + 1))
+        remote subfolders on >/dev/null
+        until_ok "grep -q '^CALL readdir /gvfs-change-$v/s30 ' $log" 120; walked=$?
+        sleep 3
+        remote slideshow on >/dev/null; sleep 2
+        touch $back/s05/.indexed; rm $back/s05/.indexed
+        # The change is read once the watcher has come round to s05, a look at a subfolder a
+        # second or less while the slideshow runs, and after the rest, about a minute here.
+        until_ok "[ \$(tail -n +$from_line $log | grep -c '^CALL readdir /gvfs-change-$v/s05 ') -ge 2 ]" 300
+        read_again=$?
+        sleep 3
+        walks=$(tail -n +$from_line $log | grep -c "^CALL readdir /gvfs-change-$v ")
+        s05_reads=$(tail -n +$from_line $log | grep -c "^CALL readdir /gvfs-change-$v/s05 ")
+        shown=$(remote current 2>/dev/null | tr -d '\0')
+        quit
+        got="$([ $walked = 0 ] && echo walked) $([ $read_again = 0 ] && echo read-again)"
+        got="$got walks=$walks s05=$s05_reads $([ -n "$shown" ] && echo shown)"
+        note "$v: the tree walked $walks times, s05 read $s05_reads times"
+        if [ $v = new ]; then
+            expect "a change in one subfolder during a slideshow on a share: only it read again" \
+                "$got" "walked read-again walks=1 s05=2 shown"
+        else note "old: $got"; fi
+        rm -rf $back
+    done
+fi
+
 section "a Move to a share that stops answering: given up after a minute, the photo free again"
 # STALL-2. lossyfs holds every look at /stall-move-* while /tmp/lossy-stall names it. A Move
 # there waits for the folder's real path and file system, and holds its photo meanwhile. After
