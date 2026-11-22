@@ -3,7 +3,7 @@
 
 use crate::files::file_io::{FileFingerprint, Identity, is_another_file};
 use crate::images::decode::HistogramCounts;
-use crate::model::listing::{ListedName, SortKey};
+use crate::model::listing::{ListedName, Rows};
 use crate::ui::file_list::RubberBand;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -78,18 +78,14 @@ impl LoadedImage {
 /// panes, the decoded images) is carried over by name there, in the one place.
 #[derive(Default)]
 pub(crate) struct List {
-    /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
-    /// memory in large folders, where the path would otherwise be repeated for every file.
-    files: Vec<OsString>,
-    /// The identity of each file of `files`, at the same place, as the listing read it. It is
-    /// what tells that another file has taken a name since: what was read of the old file is
-    /// then dropped, and a write of the name is refused.
-    identities: Vec<Identity>,
-    /// In an order that looks at the files, what each file of `files` is sorted by (its time,
-    /// size or EXIF date), at the same place, as the listing looked at it. A part of a tree goes
-    /// into its place by them, so the window looks at no file. It is empty in another order,
-    /// and for a list that came in another way than from a listing.
-    keys: Vec<SortKey>,
+    /// The images in `dir`, file name only (the full path is built on demand by `path`), which
+    /// saves memory in large folders, where the path would otherwise be repeated for every
+    /// file. Each row has the identity of its file as the listing read it, which tells that
+    /// another file has taken the name since: what was read of the old file is then dropped,
+    /// and a write of the name is refused. The rows hold the order they are in, and in an order
+    /// that looks at the files each row's time, size or EXIF date in that order, by which a
+    /// part of a tree goes into its place with no look at a file (`Rows`).
+    rows: Rows,
     shown: usize,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on. They are always
     /// files the list shows, so while searching they are matches only. No action then acts on
@@ -154,58 +150,24 @@ pub(crate) struct List {
 impl List {
     /// The images in `dir`, by file name only.
     pub(crate) fn files(&self) -> &[OsString] {
-        &self.files
+        self.rows.files()
+    }
+
+    /// The rows of the list: the names with their identities, in the order they are in, and in
+    /// an order that looks at the files with what each is sorted by.
+    pub(crate) fn rows(&self) -> &Rows {
+        &self.rows
     }
 
     /// Returns the identity of the file at place `i` as it was listed, or `None` when it is not
     /// known.
     pub(crate) fn identity(&self, i: usize) -> Identity {
-        self.identities.get(i).copied().flatten()
-    }
-
-    /// Takes what each file is sorted by, to merge a part of a tree into the list by it. A new
-    /// list is given them back with `set_keys`.
-    pub(crate) fn take_keys(&mut self) -> Vec<SortKey> {
-        std::mem::take(&mut self.keys)
-    }
-
-    /// Keeps `keys`, what each file is sorted by at its place, when there is one for each file.
-    pub(crate) fn set_keys(&mut self, keys: Vec<SortKey>) {
-        self.keys = match keys.len() == self.files.len() {
-            true => keys,
-            false => Vec::new(),
-        };
-    }
-
-    /// Returns whether the list lacks the key of one of its names, as a list that came in
-    /// another way than from a listing does.
-    pub(crate) fn lacks_keys(&self) -> bool {
-        self.keys.len() != self.files.len()
-    }
-
-    /// Returns what each of `files` is sorted by, as this list has it, when `files` are names
-    /// of the list in its order, as a whole list that kept the list's order is
-    /// (`listing::kept_order`). It walks both in step, with no map of the names. Returns nothing
-    /// when the list lacks its keys or `files` are not in its order.
-    pub(crate) fn keys_in_step(&self, files: &[ListedName]) -> Vec<SortKey> {
-        if self.lacks_keys() {
-            return Vec::new();
-        }
-        let mut own = self.files.iter().zip(&self.keys);
-        (files.iter())
-            .map(|f| {
-                own.find(|(name, _)| **name == f.0)
-                    .map(|(_, key)| key.clone())
-            })
-            .collect::<Option<Vec<SortKey>>>()
-            .unwrap_or_default()
+        self.rows.identity(i)
     }
 
     /// Returns the files with their identities, in the list's order, to put in another order.
     pub(crate) fn listed_names(&self) -> Vec<ListedName> {
-        (self.files.iter().cloned())
-            .zip(self.identities.iter().copied())
-            .collect()
+        self.rows.listed_names()
     }
 
     /// Returns the names of `files`, a new listing, that another file has taken since this list
@@ -214,16 +176,17 @@ impl List {
     /// a listing of 500,000 files in the same order costs no lookup, and nor does each place
     /// after a few names shuffled in, as a tree's part in random order puts them. Before, every
     /// name after the first place that differed was looked up.
-    pub(crate) fn names_another_file_took(&self, files: &[ListedName]) -> Vec<OsString> {
-        let both = self.files.len().min(files.len());
+    pub(crate) fn names_another_file_took(&self, rows: &Rows) -> Vec<OsString> {
+        let (own, files) = (self.files(), rows.files());
+        let both = own.len().min(files.len());
         let mut taken: Vec<OsString> = Vec::new();
         // The places of both where the names differ, in one pass of comparisons.
         let mut differ: Vec<usize> = Vec::new();
         for i in 0..both {
-            if self.files[i] != files[i].0 {
+            if own[i] != files[i] {
                 differ.push(i);
-            } else if is_another_file(self.identity(i), files[i].1) {
-                taken.push(files[i].0.clone());
+            } else if is_another_file(self.identity(i), rows.identity(i)) {
+                taken.push(files[i].clone());
             }
         }
         if differ.is_empty() && both == files.len() {
@@ -231,40 +194,40 @@ impl List {
         }
         // This list's names at those places and past the end of the new listing, by name.
         let moved: HashMap<&OsString, Identity> = (differ.iter().copied())
-            .chain(both..self.files.len())
-            .map(|i| (&self.files[i], self.identity(i)))
+            .chain(both..own.len())
+            .map(|i| (&own[i], self.identity(i)))
             .collect();
+        let taken_since = |i: usize| {
+            (moved.get(&files[i])).is_some_and(|old| is_another_file(*old, rows.identity(i)))
+        };
         taken.extend(
             (differ.into_iter().chain(both..files.len()))
-                .map(|i| &files[i])
-                .filter(|(name, new)| {
-                    moved
-                        .get(name)
-                        .is_some_and(|old| is_another_file(*old, *new))
-                })
-                .map(|(name, _)| name.clone()),
+                .filter(|&i| taken_since(i))
+                .map(|i| files[i].clone()),
         );
         taken
     }
 
-    /// Returns whether `files` are the files of the list, in its order and with the identities
-    /// it knows them by. A name that another file has taken counts as another file.
-    pub(crate) fn is_listed_as(&self, files: &[ListedName]) -> bool {
-        files.len() == self.files.len()
-            && (files.iter().zip(&self.files).zip(&self.identities)).all(
-                |(((name, identity), own), own_identity)| name == own && identity == own_identity,
-            )
+    /// Takes the order of `rows`, and in an order that looks at the files what each row is
+    /// sorted by, when `rows` hold the files of the list, in its order and with the identities
+    /// it knows them by. A name that another file has taken counts as another file. The list
+    /// stays the same list otherwise, with its selection and search. Returns `rows` back when
+    /// they hold other files, or the same ones in another order.
+    pub(crate) fn take_order_of(&mut self, rows: Rows) -> Result<(), Rows> {
+        match self.rows.holds_the_files_of(&rows) {
+            true => {
+                self.rows = rows;
+                Ok(())
+            }
+            false => Err(rows),
+        }
     }
 
     /// Forgets the identities of the files named `names`, because Glimt wrote them anew (a
     /// turn saved, a tool's change), which may have given them other inodes. The listing that
     /// follows gives them their new ones. It is one pass over the list.
     pub(crate) fn forget_identities(&mut self, names: &HashSet<&std::ffi::OsStr>) {
-        for (name, identity) in self.files.iter().zip(&mut self.identities) {
-            if names.contains(name.as_os_str()) {
-                *identity = None;
-            }
-        }
+        self.rows.forget_identities(names);
     }
 
     /// The place of the shown image in the list.
@@ -304,7 +267,7 @@ impl List {
         places: impl IntoIterator<Item = &'a usize>,
     ) -> HashMap<OsString, Identity> {
         (places.into_iter())
-            .filter_map(|&i| Some((self.files.get(i)?.clone(), self.identity(i))))
+            .filter_map(|&i| Some((self.files().get(i)?.clone(), self.identity(i))))
             .collect()
     }
 
@@ -379,14 +342,12 @@ impl List {
         self.version
     }
 
-    /// A new list of `files`. Nothing of the list before is in it but its version, which goes
+    /// A new list of `rows`. Nothing of the list before is in it but its version, which goes
     /// up, so what was worked out from the old places can tell that it is old, and whether its
     /// entries are still unchecked.
-    pub(crate) fn replacing(old: &List, files: Vec<ListedName>) -> List {
-        let (files, identities) = files.into_iter().unzip();
+    pub(crate) fn replacing(old: &List, rows: Rows) -> List {
         List {
-            files,
-            identities,
+            rows,
             version: old.version + 1,
             matches_version: old.matches_version + 1,
             has_unchecked_entries: old.has_unchecked_entries,
@@ -412,9 +373,7 @@ impl List {
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
     /// list. It keeps its identity, as a rename keeps the inode.
     pub(crate) fn rename(&mut self, i: usize, name: OsString) {
-        if let Some(file) = self.files.get_mut(i) {
-            *file = name;
-        }
+        self.rows.rename(i, name);
     }
 
     /// Marks the list as another, because names in it changed in place. What was made for the
@@ -426,30 +385,14 @@ impl List {
     /// Forgets the files, because another folder opens, where a file of the same name is
     /// another image.
     pub(crate) fn forget_files(&mut self) {
-        self.files.clear();
-        self.identities.clear();
-        self.keys.clear();
+        self.rows = Rows::default();
     }
 
     /// Takes the files at the sorted places `removed` out of the list in one pass. The decoded
     /// images and the decode errors of the others move to their new places, and the panes are
     /// cleared, so `refill_preload` fills them again from the list as it is.
     pub(crate) fn remove(&mut self, removed: &[usize]) {
-        let mut idx = 0;
-        self.files.retain(|_| {
-            idx += 1;
-            removed.binary_search(&(idx - 1)).is_err()
-        });
-        let mut idx = 0;
-        self.identities.retain(|_| {
-            idx += 1;
-            removed.binary_search(&(idx - 1)).is_err()
-        });
-        let mut idx = 0;
-        self.keys.retain(|_| {
-            idx += 1;
-            removed.binary_search(&(idx - 1)).is_err()
-        });
+        self.rows.remove_places(removed);
         self.loaded_images = without_indices(std::mem::take(&mut self.loaded_images), removed);
         self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
         self.full_resolution_errors =
@@ -674,7 +617,7 @@ impl List {
     pub(crate) fn set_matches(&mut self, matches: Option<Vec<usize>>) -> bool {
         self.is_match.clear();
         if let Some(m) = &matches {
-            self.is_match.resize(self.files.len(), false);
+            self.is_match.resize(self.files().len(), false);
             for &i in m {
                 self.is_match[i] = true;
             }
@@ -779,9 +722,7 @@ impl List {
 impl List {
     /// Makes `files` the list.
     pub(crate) fn set_files(&mut self, files: Vec<OsString>) {
-        self.identities = vec![None; files.len()];
-        self.keys.clear();
-        self.files = files;
+        self.rows = Rows::unsorted(files.into_iter().map(|f| (f, None)).collect());
     }
 }
 
@@ -805,9 +746,7 @@ mod tests {
     #[test]
     fn every_field_is_carried_or_reset_on_a_new_list() {
         const FATE: &[(&str, &str)] = &[
-            ("files", "the new list"),
-            ("identities", "the new list's, with its files"),
-            ("keys", "the listing's, with its files (take_listing)"),
+            ("rows", "the new list, each row with its identity and key"),
             ("shown", "carried by name: the file shown"),
             (
                 "selected",
@@ -867,9 +806,7 @@ mod tests {
     #[test]
     fn every_field_follows_files_taken_out_of_the_list() {
         const ON_REMOVE: &[(&str, &str)] = &[
-            ("files", "remove"),
-            ("identities", "remove"),
-            ("keys", "remove"),
+            ("rows", "remove"),
             ("shown", "set by remove_indices"),
             ("selected", "forget_places"),
             ("hidden_selected", "forget_places"),

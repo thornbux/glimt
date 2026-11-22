@@ -2465,8 +2465,11 @@ fn the_slideshow_never_reorders_the_list() {
         ("model/list.rs", "replacing"),
         ("model/list.rs", "set_files"),
         ("model/list.rs", "rename"),
-        ("model/listing.rs", "sort_files"),
-        ("model/listing.rs", "merge_new_names"),
+        ("model/list.rs", "take_order_of"),
+        ("model/listing.rs", "sort_by_names"),
+        ("model/listing.rs", "sorted"),
+        ("model/listing.rs", "merged"),
+        ("model/listing.rs", "in_step"),
     ];
     let sources = rust_sources();
     let graph = CallGraph::new(&sources);
