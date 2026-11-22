@@ -2200,9 +2200,12 @@ impl crate::App {
         following.or_else(preceding).cloned().unwrap_or(shown)
     }
 
-    /// Gives files in the list new names in place, for a file moved or renamed that keeps its
-    /// place. The list's version goes up and the search runs again, so the matches follow the
-    /// new names. The listing that follows finds the same names and would change nothing.
+    /// Gives files in the list new names, for a file moved or renamed. A file whose new name
+    /// keeps its place in the list's order keeps its place. Otherwise the list is put in its
+    /// order again by the rows' own comparison (`Rows::rename`), with no look at a file, and the
+    /// image shown, the selection and what else is held by place follow the files by name. The
+    /// list's version goes up and the search runs again, so the matches follow the new names.
+    /// The listing that follows finds the same names and would change nothing.
     pub(crate) fn rename_in_list(&mut self, ctx: &egui::Context, names: Vec<(usize, OsString)>) {
         if names.is_empty() {
             return;
@@ -2210,11 +2213,21 @@ impl crate::App {
         let renames: Vec<(OsString, OsString)> = (names.iter())
             .filter_map(|(i, name)| Some((self.list.files().get(*i)?.clone(), name.clone())))
             .collect();
-        for (i, name) in names {
-            self.list.rename(i, name);
-        }
+        let in_order = self.list.rename(&names);
         self.list.note_names_changed();
         self.slideshow.follow_renames(&renames);
+        if let Some(rows) = in_order {
+            let shown = self.list.files().get(self.list.shown()).cloned();
+            let selected = self.list.selected_with_hidden();
+            let selected = self.list.names_with_identities(&selected);
+            // The list is still the one listed, in its sort order, so a listing that follows
+            // may keep that order as before.
+            let listed_as = self.folder.listed_as.take();
+            self.replace_list(ctx, rows, shown, None);
+            self.folder.listed_as = listed_as;
+            self.reselect(ctx, &selected);
+            return;
+        }
         self.update_search(ctx);
         self.follow_list_in_slideshow();
     }
@@ -5020,6 +5033,60 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A rename moves the renamed row to its place in the list's order, by name in Name order
+    /// and in an EXIF order among images with no EXIF date, so that the parts of a tree read
+    /// after it go in at their places, and the image shown and the selection stay on the renamed
+    /// file. Before, the row kept its place under its new name, and a later part was placed by a
+    /// binary search over rows out of order.
+    #[test]
+    fn a_rename_keeps_the_rows_in_their_order() {
+        use crate::model::listing::Sort;
+        for order in [(Sort::Name, true, true), (Sort::ExifOriginal, true, true)] {
+            let dir = std::env::temp_dir().join(format!(
+                "glimt-test-rename-order-{:?}-{}",
+                order.0,
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            for name in ["a.png", "b.png", "c.png", "d.png", "m/1.png", "m/2.png"] {
+                std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+                image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            }
+            let (mut app, ctx) = app_on(&dir);
+            let c = &mut app.config;
+            (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
+            app.start_listing(&ctx);
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
+            // The tree is read a folder at a time, and the folder m is not read yet.
+            app.folder.show_subfolders(true);
+            app.start_listing(&ctx);
+            let mut fed = feed(&mut app);
+            assert!(send_part(&mut app, &ctx, &mut fed));
+            app.show_file(&ctx, 0);
+            app.set_selection(&ctx, [0, 2].into());
+            std::fs::rename(dir.join("a.png"), dir.join("z.png")).unwrap();
+            app.rename_in_list(&ctx, vec![(0, "z.png".into())]);
+            let at = format!("after the rename, {order:?}");
+            let files: Vec<&OsString> = app.list.files().iter().collect();
+            assert_in_order(&dir, &files, order, &at);
+            assert_eq!(app.list.rows().order(), Some(order), "{at}");
+            let name = |i: usize| app.list.files()[i].to_str().unwrap().to_owned();
+            assert_eq!(name(app.list.shown()), "z.png", "the image shown: {at}");
+            let selected: Vec<String> = app.list.selected().iter().map(|&i| name(i)).collect();
+            assert_eq!(selected, ["c.png", "z.png"], "the selection: {at}");
+            while send_part(&mut app, &ctx, &mut fed) {}
+            let names = ["b.png", "c.png", "d.png", "m/1.png", "m/2.png", "z.png"];
+            assert_eq!(
+                app.list.files(),
+                names.map(OsString::from),
+                "the folder read after the rename: {order:?}"
+            );
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
     /// The listing that `start_listing` started, read by the test a folder at a time in place of
     /// its thread, so that its parts and its whole list come between the other events in an
     /// order that the test chooses.
@@ -5579,9 +5646,6 @@ mod tests {
         let mut seen = SlidesSeen::default();
         seen.begin(shown_name(&app).unwrap());
         let mut renamed = 0;
-        // The files renamed in place since the last whole list, which keep their places in the
-        // list until the folder is read again.
-        let mut renames_not_listed: HashSet<OsString> = HashSet::new();
         let in_config = |app: &crate::App| {
             let c = &app.config;
             (c.sort, c.sort_ascending, c.sort_case_sensitive)
@@ -5624,7 +5688,6 @@ mod tests {
                     {
                         send_whole(&mut app, &ctx, f);
                         assert_list_holds_the_tree(&app, &at);
-                        renames_not_listed.clear();
                     }
                     // A part goes in only into a list of the listing's order, which the first
                     // part after another order was chosen puts the list in.
@@ -5637,7 +5700,6 @@ mod tests {
                     if let Some(f) = fed.as_ref() {
                         send_whole(&mut app, &ctx, f);
                         assert_list_holds_the_tree(&app, &at);
-                        renames_not_listed.clear();
                     }
                 }
                 4 => app.refresh(&ctx),
@@ -5679,11 +5741,15 @@ mod tests {
                     }
                 }
                 8 if !app.list.files().is_empty() => {
-                    // A rename of a file: its name changes in place, and the folder is read
-                    // again.
+                    // A rename of a file, in its folder or to a name at the top that comes after
+                    // every subfolder, also those not read yet: the row goes to its place in the
+                    // list's order, and the folder is read again.
                     let i = next(app.list.files().len());
                     let old = app.list.files()[i].clone();
-                    let new = PathBuf::from(&old).with_file_name(format!("renamed{step}.png"));
+                    let new = match next(2) {
+                        0 => PathBuf::from(&old).with_file_name(format!("renamed{step}.png")),
+                        _ => PathBuf::from(format!("zz{step}.png")),
+                    };
                     if std::fs::rename(dir.join(&old), dir.join(&new)).is_err() {
                         continue;
                     }
@@ -5697,7 +5763,6 @@ mod tests {
                     for name in seen.history.iter_mut().filter(|n| **n == old) {
                         *name = new.clone();
                     }
-                    renames_not_listed.insert(new.clone());
                     app.rename_in_list(&ctx, vec![(i, new)]);
                     app.start_listing(&ctx);
                 }
@@ -5863,7 +5928,6 @@ mod tests {
                     seen = SlidesSeen::default();
                     seen.begin(shown_name(&app).unwrap());
                     same_image = shown_name(&app);
-                    renames_not_listed.clear();
                 }
                 26 | 27 => {
                     // One image opened in an order that looks at the files, from the file
@@ -5894,7 +5958,6 @@ mod tests {
                     seen = SlidesSeen::default();
                     seen.begin(shown_name(&app).unwrap());
                     same_image = shown_name(&app);
-                    renames_not_listed.clear();
                 }
                 30 if subfolders.len() > 1 => {
                     // A stop on an image of one of several folders given, itself and not in a
@@ -5910,7 +5973,6 @@ mod tests {
                     seen = SlidesSeen::default();
                     seen.begin(shown_name(&app).unwrap());
                     same_image = shown_name(&app);
-                    renames_not_listed.clear();
                 }
                 31 => {
                     // The tree opened anew in an order by date, and stopped on the image that its
@@ -5924,7 +5986,6 @@ mod tests {
                     app.start_slideshow(&ctx);
                     fed = None;
                     feed_what_runs(&mut app, &ctx, &mut fed);
-                    renames_not_listed.clear();
                     let Some(f) = fed.as_mut() else {
                         continue;
                     };
@@ -5971,7 +6032,6 @@ mod tests {
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     if let Some(f) = fed.as_ref() {
                         send_whole(&mut app, &ctx, f);
-                        renames_not_listed.clear();
                     }
                     app.start_listing(&ctx);
                     feed_what_runs(&mut app, &ctx, &mut fed);
@@ -6037,7 +6097,6 @@ mod tests {
                     seen = SlidesSeen::default();
                     seen.begin(shown_name(&app).unwrap());
                     same_image = shown_name(&app);
-                    renames_not_listed.clear();
                 }
                 23 | 24 => {
                     // A search narrowed, widened or cleared while the slideshow runs.
@@ -6145,11 +6204,9 @@ mod tests {
             assert_eq!(unique.len(), files.len(), "a name twice in the list: {at}");
             // No image the list held is gone from it while the tree on disk holds it.
             let disk: HashSet<OsString> = tree_on_disk(&app).0.into_iter().map(|f| f.0).collect();
-            // The list is in its order, but for the names that are gone and those renamed in
-            // place, whose files the order cannot look at.
-            let in_place: Vec<&OsString> = (files.iter())
-                .filter(|f| !renames_not_listed.contains(*f) && disk.contains(*f))
-                .collect();
+            // The list is in its order, but for the names that are gone, whose files the order
+            // cannot look at.
+            let in_place: Vec<&OsString> = files.iter().filter(|f| disk.contains(*f)).collect();
             // The list is in the order that its rows hold, and in an order that looks at the
             // files every row carries a key of that order.
             if let Some(order) = app.list.rows().order() {
@@ -6176,7 +6233,6 @@ mod tests {
                 let kept = shown_name(&app);
                 if let Some(f) = fed.as_ref() {
                     send_whole(&mut app, &ctx, f);
-                    renames_not_listed.clear();
                 }
                 feed_what_runs(&mut app, &ctx, &mut fed);
                 assert_list_holds_the_tree(&app, &at);

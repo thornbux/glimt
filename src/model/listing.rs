@@ -357,12 +357,41 @@ impl Rows {
         }
     }
 
-    /// Gives the row at `i` the name `name`, because its file was renamed or moved within the
-    /// list. It keeps its identity, as a rename keeps the inode, and its key.
-    pub fn rename(&mut self, i: usize, name: OsString) {
-        if let Some(file) = self.files.get_mut(i) {
-            *file = name;
+    /// Gives the rows at the places of `renames` their new names, because their files were
+    /// renamed or moved within the list. Each keeps its identity, as a rename keeps the inode,
+    /// and its key, as a rename keeps the file's times and size. Returns `None` when every row
+    /// is still in the order the rows are in. Otherwise it returns the rows put in their order
+    /// by their own comparison (`in_order`), with no look at a file, and leaves these rows in no
+    /// order, so that they never claim an order they are not in. The caller then replaces them
+    /// with the rows returned. Before, a renamed row kept its place under its new name in an
+    /// order by name, and a later part of a tree was placed by a binary search over rows out of
+    /// order.
+    pub fn rename(&mut self, renames: &[(usize, OsString)]) -> Option<Rows> {
+        for (i, name) in renames {
+            if let Some(file) = self.files.get_mut(*i) {
+                *file = name.clone();
+            }
         }
+        let order = self.order()?;
+        let none = SortKey::Name;
+        let row = |i: usize| (self.key(i).unwrap_or(&none), &self.files[i]);
+        let in_place = |i: usize| {
+            let after =
+                |a: usize| a + 1 >= self.len() || in_order(row(a), row(a + 1), order).is_le();
+            (i == 0 || after(i - 1)) && after(i)
+        };
+        if (renames.iter()).all(|(i, _)| *i >= self.len() || in_place(*i)) {
+            return None;
+        }
+        let mut places: Vec<usize> = (0..self.len()).collect();
+        places.sort_by(|&a, &b| in_order(row(a), row(b), order));
+        let mut sorted = Rows::empty_in(&self.order, self.len());
+        for i in places {
+            let name = (self.files[i].clone(), self.identities[i]);
+            sorted.push(name, self.key(i).cloned());
+        }
+        self.order = RowOrder::Unsorted;
+        Some(sorted)
     }
 
     /// Forgets the identities of the files named `names`, in one pass over the rows.

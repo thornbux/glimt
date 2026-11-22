@@ -372,8 +372,8 @@ impl List {
 
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
     /// list. It keeps its identity, as a rename keeps the inode.
-    pub(crate) fn rename(&mut self, i: usize, name: OsString) {
-        self.rows.rename(i, name);
+    pub(crate) fn rename(&mut self, renames: &[(usize, OsString)]) -> Option<Rows> {
+        self.rows.rename(renames)
     }
 
     /// Marks the list as another, because names in it changed in place. What was made for the
