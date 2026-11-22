@@ -3,7 +3,7 @@
 
 use crate::files::file_io::{FileFingerprint, Identity, is_another_file};
 use crate::images::decode::HistogramCounts;
-use crate::model::listing::ListedName;
+use crate::model::listing::{ListedName, SortKey};
 use crate::ui::file_list::RubberBand;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -85,6 +85,11 @@ pub(crate) struct List {
     /// what tells that another file has taken a name since: what was read of the old file is
     /// then dropped, and a write of the name is refused.
     identities: Vec<Identity>,
+    /// In an order that looks at the files, what each file of `files` is sorted by (its time,
+    /// size or EXIF date), at the same place, as the listing looked at it. A part of a tree goes
+    /// into its place by them, so the window looks at no file. It is empty in another order,
+    /// and for a list that came in another way than from a listing.
+    keys: Vec<SortKey>,
     shown: usize,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on. They are always
     /// files the list shows, so while searching they are matches only. No action then acts on
@@ -115,6 +120,9 @@ pub(crate) struct List {
     /// Whether each file is among `matches`, by its place, so the selection can be kept to the
     /// files shown in one step per selected file. Empty when there is no search.
     is_match: Vec<bool>,
+    /// Goes up whenever the search's matches are set, so what was worked out from them (the
+    /// slideshow's plan) can tell that they are others.
+    matches_version: usize,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     /// A rectangle being dragged in the icon grid to select.
@@ -153,6 +161,33 @@ impl List {
     /// known.
     pub(crate) fn identity(&self, i: usize) -> Identity {
         self.identities.get(i).copied().flatten()
+    }
+
+    /// Takes what each file is sorted by, to merge a part of a tree into the list by it. A new
+    /// list is given them back with `set_keys`.
+    pub(crate) fn take_keys(&mut self) -> Vec<SortKey> {
+        std::mem::take(&mut self.keys)
+    }
+
+    /// Keeps `keys`, what each file is sorted by at its place, when there is one for each file.
+    pub(crate) fn set_keys(&mut self, keys: Vec<SortKey>) {
+        self.keys = match keys.len() == self.files.len() {
+            true => keys,
+            false => Vec::new(),
+        };
+    }
+
+    /// Returns what each of `files` is sorted by, as this list has it for the same names. It
+    /// is one pass over the list, and returns nothing when the list lacks the key of one.
+    pub(crate) fn keys_of(&self, files: &[ListedName]) -> Vec<SortKey> {
+        if self.keys.len() != self.files.len() {
+            return Vec::new();
+        }
+        let known: HashMap<&OsString, &SortKey> = self.files.iter().zip(&self.keys).collect();
+        (files.iter())
+            .map(|f| known.get(&f.0).map(|&key| key.clone()))
+            .collect::<Option<Vec<SortKey>>>()
+            .unwrap_or_default()
     }
 
     /// Returns the files with their identities, in the list's order, to put in another order.
@@ -293,6 +328,11 @@ impl List {
         self.matches.as_deref()
     }
 
+    /// The version of the search's matches, which goes up whenever they are set.
+    pub(crate) fn matches_version(&self) -> usize {
+        self.matches_version
+    }
+
     /// The total size of the search matches, as far as it is summed.
     pub(crate) fn match_size(&self) -> u64 {
         self.match_size
@@ -337,6 +377,7 @@ impl List {
             files,
             identities,
             version: old.version + 1,
+            matches_version: old.matches_version + 1,
             has_unchecked_entries: old.has_unchecked_entries,
             ..Default::default()
         }
@@ -376,6 +417,7 @@ impl List {
     pub(crate) fn forget_files(&mut self) {
         self.files.clear();
         self.identities.clear();
+        self.keys.clear();
     }
 
     /// Takes the files at the sorted places `removed` out of the list in one pass. The decoded
@@ -389,6 +431,11 @@ impl List {
         });
         let mut idx = 0;
         self.identities.retain(|_| {
+            idx += 1;
+            removed.binary_search(&(idx - 1)).is_err()
+        });
+        let mut idx = 0;
+        self.keys.retain(|_| {
             idx += 1;
             removed.binary_search(&(idx - 1)).is_err()
         });
@@ -622,6 +669,7 @@ impl List {
             }
         }
         self.matches = matches;
+        self.matches_version += 1;
         // One step per selected file, not per file, as this runs at every letter typed.
         let hidden: Vec<usize> = (self.selected.iter().copied())
             .filter(|&i| !self.shows_file(i))
@@ -721,6 +769,7 @@ impl List {
     /// Makes `files` the list.
     pub(crate) fn set_files(&mut self, files: Vec<OsString>) {
         self.identities = vec![None; files.len()];
+        self.keys.clear();
         self.files = files;
     }
 }
@@ -747,6 +796,7 @@ mod tests {
         const FATE: &[(&str, &str)] = &[
             ("files", "the new list"),
             ("identities", "the new list's, with its files"),
+            ("keys", "the listing's, with its files (take_listing)"),
             ("shown", "carried by name: the file shown"),
             (
                 "selected",
@@ -765,6 +815,7 @@ mod tests {
             ("decodes_pending", "carried by name"),
             ("matches", "worked out again: update_search"),
             ("is_match", "worked out again with the matches"),
+            ("matches_version", "goes up in List::replacing"),
             ("match_size", "worked out again: update_search"),
             ("rubber_band", "reset"),
             ("dragging", "reset"),
@@ -807,6 +858,7 @@ mod tests {
         const ON_REMOVE: &[(&str, &str)] = &[
             ("files", "remove"),
             ("identities", "remove"),
+            ("keys", "remove"),
             ("shown", "set by remove_indices"),
             ("selected", "forget_places"),
             ("hidden_selected", "forget_places"),
@@ -819,6 +871,7 @@ mod tests {
             ("decodes_pending", "forget_places"),
             ("matches", "worked out again: update_search"),
             ("is_match", "worked out again: update_search"),
+            ("matches_version", "goes up in update_search"),
             ("match_size", "worked out again: update_search"),
             ("rubber_band", "forget_places"),
             ("dragging", "forget_places"),

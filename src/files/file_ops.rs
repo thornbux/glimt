@@ -618,10 +618,21 @@ impl FileOperations {
     }
 
     /// Leaves out of `files` those still being deleted, so a refresh does not bring them back.
-    pub(crate) fn leave_out_deleting(&self, files: &mut Vec<crate::model::listing::ListedName>) {
-        if !self.deleting.is_empty() {
-            files.retain(|f| !self.deleting.contains(&f.0));
+    /// Leaves the files still being deleted out of `files`, a listing, and their keys out of
+    /// `keys`, what each is sorted by at its place, when there is one for each file.
+    pub(crate) fn leave_out_deleting(
+        &self,
+        files: &mut Vec<crate::model::listing::ListedName>,
+        keys: &mut Vec<crate::model::listing::SortKey>,
+    ) {
+        if self.deleting.is_empty() {
+            return;
         }
+        if keys.len() == files.len() {
+            let mut kept = (files.iter()).map(|f| !self.deleting.contains(&f.0));
+            keys.retain(|_| kept.next().unwrap_or(false));
+        }
+        files.retain(|f| !self.deleting.contains(&f.0));
     }
 
     /// Whether the running Rename Many may rename files that a list of `dir` shows: the
