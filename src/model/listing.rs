@@ -1265,7 +1265,27 @@ where
     Real: Fn(&Path) -> std::io::Result<PathBuf>,
     List: Fn(&Path, Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)>,
 {
-    let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
+    walk_by_from((dir, Path::new("")), types, file_id, canonical, list)
+}
+
+/// Walks the tree at `dir` as `walk_by` does, but only the folder `from` in it, a path relative
+/// to `dir`, and the folders below it. Its folders and images are named relative to `dir`, as
+/// in a walk of the whole tree, so a subfolder read again replaces its own names in the list. An
+/// error for `from` stops it, as one for `dir` stops the walk of the whole tree.
+pub(crate) fn walk_by_from<Id, Real, List>(
+    (dir, from): (&Path, &Path),
+    types: Types,
+    file_id: Id,
+    canonical: Real,
+    list: List,
+) -> impl Iterator<Item = Result<WalkedFolder, Unread>> + use<Id, Real, List>
+where
+    Id: Fn(&Path) -> Option<FileId>,
+    Real: Fn(&Path) -> std::io::Result<PathBuf>,
+    List: Fn(&Path, Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)>,
+{
+    let start = from.to_path_buf();
+    let (dir, mut todo) = (dir.to_path_buf(), vec![start.clone()]);
     let mut failed = false;
     let mut seen: HashSet<FileId> = HashSet::new();
     let folder_id = move |full: &Path| file_id(full).unwrap_or_else(|| Err(real_dir(full)));
@@ -1277,7 +1297,8 @@ where
             }
             let mut rel = todo.pop()?;
             let full = dir.join(&rel);
-            let is_top = rel.as_os_str().is_empty();
+            // The folder the walk starts from, the top of the tree or a subfolder of it.
+            let is_top = rel == start;
             // A followed link's folder is named by its real path in the tree, so every file has
             // one name, the one `--remote select`'s client gives and marks and stars are kept
             // by. Named through the link, the file was another name than its own. A folder that
@@ -1413,18 +1434,23 @@ pub fn list_tree(
     top: impl FnOnce(&[PathBuf]),
     part: impl FnMut(&FolderReadWhole),
 ) -> Result<ListedTree, Unread> {
-    walk_tree(dir, types, stop, awaited, top, part).map(|(own, mut out, read, left_out)| {
-        // In name order, as list_folder gives a single folder; sort_by_names builds on that.
-        out.sort_unstable();
-        (own, out, read, left_out)
-    })
+    let whole = Path::new("");
+    walk_tree((dir, whole), types, stop, awaited, top, part).map(
+        |(own, mut out, read, left_out)| {
+            // In name order, as list_folder gives a single folder; sort_by_names builds on that.
+            out.sort_unstable();
+            (own, out, read, left_out)
+        },
+    )
 }
 
 /// Reads the tree at `dir` as `list_tree` does, but gives its images in the order the walk
 /// found them, which is the order of the images that `part` gets. The listing of a tree keeps
 /// what it looked at of each image by its place in that order, for the sort of the whole list.
+/// With `from` other than empty, it reads only that subfolder of the tree and the folders below
+/// it (`walk_by_from`), with their names relative to `dir`, and `top` is not called.
 pub fn walk_tree(
-    dir: &Path,
+    (dir, from): (&Path, &Path),
     types: Types,
     stop: &std::sync::atomic::AtomicBool,
     awaited: &ImagesAwaited,
@@ -1448,7 +1474,13 @@ pub fn walk_tree(
         })
     };
     let canonical = |p: &Path| std::fs::canonicalize(p);
-    let walked = walk_by(dir, types, crate::images::save::file_id, canonical, list);
+    let walked = walk_by_from(
+        (dir, from),
+        types,
+        crate::images::save::file_id,
+        canonical,
+        list,
+    );
     for walked in walked.take_while(|_| !stop.load(Relaxed)) {
         let (rel, dirs, files, modified) = match walked {
             Ok(walked) => walked,

@@ -55,7 +55,7 @@ impl crate::App {
             ctx.request_repaint_after(left);
         }
         if self.folder.wants_relist() && !self.folder.is_listing() {
-            self.start_listing(ctx);
+            self.relist_changes(ctx);
         }
         self.slideshow_tick(ctx);
         if let Some(all) = self.folder.take_together() {
