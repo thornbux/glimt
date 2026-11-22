@@ -126,17 +126,18 @@ impl Decoding {
         let full_resolution_count = Arc::new(AtomicUsize::new(1));
         let preload = Arc::new(AtomicUsize::new(config.preload));
         let auto_rotate = Arc::new(AtomicBool::new(config.exif_rotate));
+        let images_awaited = crate::model::listing::ImagesAwaited::default();
         let (decode_requests, decoded) = spawn_decoders(
             ctx,
             workers,
-            &kept_images,
+            (&kept_images, &images_awaited),
             &full_resolution_count,
             &auto_rotate,
         );
         Decoding {
             kept_images,
             full_resolution_count,
-            images_awaited: Default::default(),
+            images_awaited,
             preload,
             auto_rotate,
             view_box: [1920, 1080],
@@ -2076,21 +2077,26 @@ pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
 
 /// Starts the decode workers, `workers` threads that take jobs and send back what they decoded,
 /// in a pool that replaces a worker stuck on a share that stopped answering. They skip images
-/// the list has moved past (`kept_images`).
+/// the list has moved past (`kept_images`). On a share an image read ahead waits first for the
+/// images `awaited`, the next one first (`ReadsFirst::before_work_nobody_waits_for`).
 pub(crate) fn spawn_decoders(
     ctx: &egui::Context,
     workers: usize,
-    kept_images: &Arc<Mutex<Vec<PathBuf>>>,
+    (kept_images, awaited): (
+        &Arc<Mutex<Vec<PathBuf>>>,
+        &crate::model::listing::ImagesAwaited,
+    ),
     full_resolution_count: &Arc<AtomicUsize>,
     auto_rotate: &Arc<AtomicBool>,
 ) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
     let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
     let (done_tx, done) = mpsc::channel();
-    let (kept_images, full_resolution_count, auto_rotate, ctx) = (
+    let (kept_images, full_resolution_count, auto_rotate, ctx, awaited) = (
         kept_images.clone(),
         full_resolution_count.clone(),
         auto_rotate.clone(),
         ctx.clone(),
+        awaited.clone(),
     );
     crate::support::threads::spawn_worker_pool(
         workers,
@@ -2108,6 +2114,10 @@ pub(crate) fn spawn_decoders(
                 request_number,
                 max_box,
             } = job;
+            // An image read ahead lets the images awaited go first. It is judged after the
+            // wait, as the user may have moved past it meanwhile.
+            let _turn = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
+                .before_work_nobody_waits_for(&path);
             // This cancels work, skipping images the user has already moved past.
             let (wanted, is_shown) = {
                 let kept = lock_even_if_poisoned(&kept_images);

@@ -492,10 +492,16 @@ impl crate::App {
         }
         if self.config.slideshow_subfolders {
             // The images of the subfolders too, listed in the background. The images already
-            // listed play at once, while the whole tree is read again, which on a share can take
-            // minutes, and the tree's images join the list in parts as they are read.
+            // listed play at once, while the tree is read, which on a share can take minutes,
+            // and the tree's images join the list in parts as they are read. A tree already
+            // listed whole as it would be read now is not read again, and a listing that runs
+            // starts anew as before. Before, the tree was read again at every start, also just
+            // after it had been read whole.
+            let listed = self.lists_the_tree_whole();
             self.folder.set_recursive(true);
-            self.start_listing(ctx);
+            if !listed {
+                self.start_listing(ctx);
+            }
         }
         self.follow_list_in_slideshow();
         self.refill_preload();
@@ -781,6 +787,36 @@ mod tests {
         app.slideshow.shown_at =
             Some(std::time::Instant::now() - std::time::Duration::from_secs(9999));
         app.slideshow_tick(ctx);
+    }
+
+    /// A slideshow of the subfolders started on a tree that is listed whole, as it would be
+    /// read now, plays that list and does not read the tree again. One started after Show Hidden
+    /// Files changed reads it, as the list is not what a listing would read now. Before, every
+    /// start read the whole tree again, which on a share takes minutes.
+    #[test]
+    fn a_slideshow_of_a_tree_listed_whole_does_not_read_it_again() {
+        let d = folder_of("listed-whole", &["a.png", "s1/b.png", "s2/c.png"]);
+        let (mut app, ctx) = app_on(&d);
+        // View → Subfolders on too, so that the stop below keeps the tree.
+        (app.config.slideshow_subfolders, app.config.show_subfolders) = (true, true);
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        let listings = app.folder.whole_listings();
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .folder
+            .whole_listings()
+            > listings));
+        assert_eq!(app.list.files().len(), 3);
+        app.start_slideshow(&ctx);
+        assert!(!app.folder.is_listing(), "the tree was read again");
+        app.stop_slideshow(&ctx);
+        assert!(!run_background_until(&mut app, &ctx, |app| app
+            .folder
+            .is_listing()));
+        app.config.show_hidden = !app.config.show_hidden;
+        app.start_slideshow(&ctx);
+        assert!(app.folder.is_listing(), "a list of other files was played");
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     /// A random slideshow with subfolders, without Repeat, started on the last image of the

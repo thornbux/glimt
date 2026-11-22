@@ -34,6 +34,13 @@ use std::time::{Duration, Instant};
 /// second, instead of 10,000 stats every second.
 const SUBFOLDERS_A_SECOND: usize = 1_000;
 
+/// How long the folder watcher's looks at a tree's subfolders on a share may take in each
+/// second, besides the open folders. A share such as gvfsd-smb serves its calls one at a time,
+/// so the watcher then holds at most a tenth of the share's time, and the image the window
+/// waits for has the rest. Before, it looked at up to 1,000 subfolders a second there, which
+/// filled the share's queue, and a slideshow's next image stood behind them for many seconds.
+const SHARE_LOOKS_A_SECOND: Duration = Duration::from_millis(100);
+
 /// How many times as long as the last listing took the window rests from it before a change
 /// that the watcher saw lists the folder again. A sync client that writes into a tree of
 /// 500,000 files every second then has it read at most a fifth of the time, while a small
@@ -110,9 +117,8 @@ pub(crate) struct Folder {
     /// each of the images found since the part before that the list lacks. Every listing of a
     /// tree does (`source_rules::every_listing_of_a_tree_sends_parts`).
     listing_sends_parts: bool,
-    /// What the list shown was read and sorted as: the folder, the order, ascending, case and
-    /// subfolders.
-    listed_as: Option<(PathBuf, listing::Sort, bool, bool, bool)>,
+    /// What the list shown was read and sorted as (`ListedAs`).
+    listed_as: Option<ListedAs>,
     /// The image the first part of a tree showed by itself. The whole list then goes to its
     /// first image instead.
     first_part_shown: Option<OsString>,
@@ -127,6 +133,20 @@ pub(crate) struct Folder {
     /// The watcher saw the folder change, and the folder is read again once the window has
     /// rested from the last listing (`relist_after_rest`).
     change_waits: bool,
+    /// The folders that the watcher saw change since the last listing began.
+    changes_seen: Vec<PathBuf>,
+    /// The folder is to be read whole when it is read again, as something other than the
+    /// watcher asked for it (`relist_later`).
+    relist_whole: bool,
+    /// The subfolder of the tree, relative to it, that the next listing reads again in place of
+    /// the whole tree, or empty for the whole tree (`App::relist_changes`).
+    next_listing_from: PathBuf,
+    /// The subfolder of the tree that the listing that runs reads again, or empty when it reads
+    /// the whole tree.
+    listing_from: PathBuf,
+    /// The folders that the watcher watches, as the last listings read them, so that a subfolder
+    /// read again replaces only its own folders in it.
+    watched: FoldersRead,
     /// Until when the window rests from the last listing before a change lists it again.
     rest_until: Instant,
     /// How many whole listings were taken since the start. Work that waits for the folder to be
@@ -135,9 +155,9 @@ pub(crate) struct Folder {
     /// The generation of the folder watcher, which each new watcher counts up. Opening another
     /// folder ends the old thread.
     watcher_generation: Arc<AtomicUsize>,
-    /// The watcher saw the folder change.
-    changed_tx: mpsc::Sender<()>,
-    changed_rx: mpsc::Receiver<()>,
+    /// The watcher saw these folders change.
+    changed_tx: mpsc::Sender<Vec<PathBuf>>,
+    changed_rx: mpsc::Receiver<Vec<PathBuf>>,
     /// File → Open Recent's folders and collections, those opened last, newest first.
     recent: Vec<PathBuf>,
     /// Go → Back / Forward's earlier locations. Each is the file shown, or the folder if it had
@@ -200,6 +220,11 @@ impl Folder {
             listing_stop: Arc::default(),
             relist_when_done: false,
             change_waits: false,
+            changes_seen: Vec::new(),
+            relist_whole: false,
+            next_listing_from: PathBuf::new(),
+            listing_from: PathBuf::new(),
+            watched: Vec::new(),
             rest_until: Instant::now(),
             whole_listings: 0,
             watcher_generation: Arc::new(AtomicUsize::new(0)),
@@ -420,6 +445,7 @@ impl Folder {
     /// runs.
     pub(crate) fn relist_later(&mut self) {
         self.relist_when_done = true;
+        self.relist_whole = true;
     }
 
     /// Notes, when `changed`, that the watcher saw the folder change. A change has the folder
@@ -452,9 +478,39 @@ impl Folder {
         self.whole_listings
     }
 
-    /// Whether the folder watcher saw the folder change since this was last asked.
-    pub(crate) fn changed_on_disk(&self) -> bool {
-        self.changed_rx.try_iter().count() > 0
+    /// Whether the folder watcher saw the folder change since this was last asked. The folders
+    /// it saw change are kept for the next listing (`App::relist_changes`).
+    pub(crate) fn changed_on_disk(&mut self) -> bool {
+        let mut changed = false;
+        for folders in self.changed_rx.try_iter() {
+            self.changes_seen.extend(folders);
+            changed = true;
+        }
+        changed
+    }
+
+    /// Returns the subfolder of the tree, relative to it, that holds every change the watcher
+    /// saw since the last listing began, when reading it again is enough: the whole tree is
+    /// listed (`listed_whole_as` gives how), nothing else asked for it to be read whole, and
+    /// the open folder itself did not change. Returns `None` when the tree is read whole.
+    fn subfolder_changed(&self, listed_whole_as: &ListedAs) -> Option<PathBuf> {
+        let one_tree = self.collection.is_none() && self.folders.is_empty() && self.recursive;
+        let listed = self.listed_as.as_ref() == Some(listed_whole_as);
+        if self.relist_whole || self.changes_seen.is_empty() || !one_tree || !listed {
+            return None;
+        }
+        let below = |p: &PathBuf| {
+            let rel = p.strip_prefix(&self.dir).ok()?;
+            (!rel.as_os_str().is_empty()).then(|| rel.to_path_buf())
+        };
+        let changed: Vec<PathBuf> = self.changes_seen.iter().map(below).collect::<Option<_>>()?;
+        let mut common: Vec<std::path::Component> = changed[0].components().collect();
+        for rel in &changed[1..] {
+            let same = (common.iter().zip(rel.components())).take_while(|(a, b)| *a == b);
+            common.truncate(same.count());
+        }
+        let common: PathBuf = common.into_iter().collect();
+        (!common.as_os_str().is_empty()).then_some(common)
     }
 
     /// Opens `all` as folders shown together, after the frame.
@@ -567,6 +623,10 @@ impl Folder {
     }
 }
 
+/// What a list was read and sorted as: the folder, the types shown, the order, ascending, case
+/// and subfolders.
+pub(crate) type ListedAs = (PathBuf, Types, listing::Sort, bool, bool, bool);
+
 /// A part of a tree as a listing thread sends it.
 pub(crate) struct TreePart {
     /// The images found since the part before that the list lacks, in the listing's order,
@@ -605,6 +665,9 @@ pub(crate) enum ListedRows {
     /// (`listing::kept_order`). No file was looked at, so the window gives each name what it is
     /// sorted by from its own rows (`Rows::in_step`).
     InListOrder(Vec<ListedName>),
+    /// A subfolder of the tree was read again, and its parts brought what changed there. The
+    /// rest of the list stays as it is.
+    InParts,
 }
 
 /// What a listing of a tree makes its parts from, as the window gives it to the listing thread
@@ -671,6 +734,9 @@ struct Listing {
     ascending: bool,
     case: bool,
     recursive: bool,
+    /// The subfolder of the tree, relative to it, that is read again in place of the whole
+    /// tree, or empty for the whole tree.
+    from: PathBuf,
     /// Set when another listing starts, so this one stops reading a tree.
     stop: Arc<AtomicBool>,
     /// The images that the window waits for, which the walk of a tree on a share waits for.
@@ -726,8 +792,18 @@ impl Listing {
             // The images of a tree are those of its parts, in the order they were found, as
             // what the parts looked at is kept by that order.
             let listed = match self.recursive {
-                true => walk_tree(d, self.types, &self.stop, &self.awaited, |_| {}, &mut part)
-                    .map(|(_, _, tree, unread)| (Vec::new(), tree, unread)),
+                true => {
+                    let whole = (d.as_path(), Path::new(""));
+                    walk_tree(
+                        whole,
+                        self.types,
+                        &self.stop,
+                        &self.awaited,
+                        |_| {},
+                        &mut part,
+                    )
+                }
+                .map(|(_, _, tree, unread)| (Vec::new(), tree, unread)),
                 false => {
                     let tree = vec![(d.clone(), modified(d))];
                     (list_folder(d, self.types).map(|(_, files)| (files, tree, Vec::new())))
@@ -900,6 +976,37 @@ impl Listing {
         sent.last = Some((Instant::now(), wait));
     }
 
+    /// Sends what the walk of the subfolder `from` found, `files`, as the last part, and then
+    /// the listing as done with the folders it `read` and those `left_out`. The list takes the
+    /// parts in, which replace the subfolder's names with what it holds now, and keeps the
+    /// rest of the tree as it is.
+    fn send_subfolder_read_again(
+        &self,
+        files: &[ListedName],
+        (read, left_out): (FoldersRead, Vec<Unread>),
+        mut sent: PartsSent,
+        part_tx: &mpsc::SyncSender<TreePart>,
+    ) {
+        // The last part is sent whatever the time since the part before, and the listing waits
+        // until the window has room for it, so that the list takes it before the listing ends.
+        if let Some(part) = sent.next_part(files) {
+            if part_tx.send(part).is_err() {
+                return;
+            }
+            self.ctx.request_repaint();
+        }
+        let listed = Listed {
+            dirs: Vec::new(),
+            files: Ok(ListedRows::InParts),
+            left_out,
+            read,
+            read_in: self.started.elapsed(),
+        };
+        if self.tx.send(listed).is_ok() {
+            self.ctx.request_repaint();
+        }
+    }
+
     /// Lists a folder, or its tree, whose images it sends as they are read. `before` is the
     /// list in EXIF date order, which is kept if no name is new.
     fn folder(
@@ -918,7 +1025,7 @@ impl Listing {
         // what the parts looked at is kept by, for the sort of the whole list.
         let listed = match self.recursive {
             true => walk_tree(
-                &self.dir,
+                (&self.dir, &self.from),
                 self.types,
                 &self.stop,
                 &self.awaited,
@@ -949,6 +1056,9 @@ impl Listing {
                 return self.send_unread(unread, read);
             }
         };
+        if !self.from.as_os_str().is_empty() {
+            return self.send_subfolder_read_again(&files, (read, left_out), sent, &part_tx);
+        }
         // In an order that looks at the files, each image that a part looked at is not looked
         // at again, so each is looked at once in the walk.
         let rows = match before.and_then(|before| listing::kept_order(before, &files)) {
@@ -1637,6 +1747,9 @@ impl crate::App {
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case_sensitive);
         let recursive = self.folder.recursive;
+        // A subfolder read again, which only `relist_changes` asks for.
+        let from = std::mem::take(&mut self.folder.next_listing_from);
+        self.folder.listing_from = from.clone();
         let collection = self
             .folder
             .collection
@@ -1659,7 +1772,14 @@ impl crate::App {
             by,
             listing::Sort::ExifOriginal | listing::Sort::ExifDigitized
         );
-        let same = Some((self.folder.dir.clone(), by, ascending, case, recursive));
+        let same = Some((
+            self.folder.dir.clone(),
+            types,
+            by,
+            ascending,
+            case,
+            recursive,
+        ));
         let before = (exif && !self.folder.lists_tree_in_parts && collection.is_none())
             .then_some(())
             .filter(|_| folders.is_empty() && self.folder.listed_as == same)
@@ -1698,6 +1818,7 @@ impl crate::App {
             ascending,
             case,
             recursive,
+            from: from.clone(),
             stop,
             awaited: self.decoding.images_awaited().clone(),
             parts,
@@ -1719,10 +1840,53 @@ impl crate::App {
         });
         self.folder.listing_rx = Receiving::of(rx);
         self.folder.listing_version = self.list.version();
-        self.status_bar.sum_folder(size_rx);
+        // A subfolder read again leaves the folder's size as it is.
+        if from.as_os_str().is_empty() {
+            self.status_bar.sum_folder(size_rx);
+        }
         self.folder.relist_when_done = false;
         // This listing reads every change seen before it.
         self.folder.change_waits = false;
+        self.folder.changes_seen.clear();
+        self.folder.relist_whole = false;
+    }
+
+    /// Reads the folder again after the folder watcher saw it change: only the subfolder of the
+    /// tree that holds every change seen (`Folder::subfolder_changed`), when that is enough,
+    /// and the whole folder or tree otherwise. A change in the open folder itself, or one the
+    /// watcher cannot place below it, reads the whole tree. Before, a change in any one
+    /// subfolder read the whole tree again, which on a share takes minutes.
+    pub(crate) fn relist_changes(&mut self, ctx: &egui::Context) {
+        let listed_whole_as = self.tree_listed_as();
+        self.folder.next_listing_from = (self.folder)
+            .subfolder_changed(&listed_whole_as)
+            .unwrap_or_default();
+        self.start_listing(ctx);
+    }
+
+    /// Returns what a whole listing of the open folder's tree is read and sorted as now
+    /// (`ListedAs`), with the types shown and the order chosen.
+    pub(crate) fn tree_listed_as(&self) -> ListedAs {
+        let c = &self.config;
+        let (dir, types) = (self.folder.dir.clone(), self.shown_types());
+        (
+            dir,
+            types,
+            c.sort,
+            c.sort_ascending,
+            c.sort_case_sensitive,
+            true,
+        )
+    }
+
+    /// Returns whether the list is the whole tree of the open folder as `tree_listed_as` gives
+    /// it now, read whole by a listing that is done, and nothing asked for it to be read whole
+    /// again. A slideshow of the subfolders then plays it without reading the tree again. A
+    /// change that the watcher saw is read afterwards as it is otherwise (`relist_changes`).
+    pub(crate) fn lists_the_tree_whole(&self) -> bool {
+        let f = &self.folder;
+        let listed = f.listed_as == Some(self.tree_listed_as());
+        f.recursive && !f.is_listing() && !f.relist_whole && listed
     }
 
     /// Returns what the parts of the listing that starts, in `order`, are made from, with its
@@ -1787,14 +1951,20 @@ impl crate::App {
     /// Watches the folders `read` in a thread of its own in place of the watcher before, from
     /// the times they had when they were read, or from their times now when `times_unknown`.
     /// Every second the open folders (or the collection's file) are looked at, and of a tree's
-    /// subfolders the next `SUBFOLDERS_A_SECOND`. One change sends one message, which reads the
-    /// folder again.
+    /// subfolders the next `SUBFOLDERS_A_SECOND`, or on a share as many as fit in
+    /// `SHARE_LOOKS_A_SECOND`, each through the gate (`listing::ReadsFirst`). The folders that
+    /// changed in a second go in one message. A change in subfolders of a tree reads only the
+    /// subfolder that holds them again (`relist_changes`), and that listing waits for the
+    /// images awaited as every walk does. The folders read are kept (`Folder`'s `watched`).
     fn watch_folders_read(
         &mut self,
         ctx: &egui::Context,
         mut read: FoldersRead,
         times_unknown: bool,
     ) {
+        if !times_unknown {
+            self.folder.watched = read.clone();
+        }
         let generation = self
             .folder
             .watcher_generation
@@ -1808,10 +1978,11 @@ impl crate::App {
         let mut places = self.folder.places();
         places.extend(self.folder.collection.clone());
         let with_subfolders = self.folder.walks_subfolders();
-        let (watcher_generation, tx, ctx) = (
+        let (watcher_generation, tx, ctx, awaited) = (
             self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
             ctx.clone(),
+            self.decoding.images_awaited().clone(),
         );
         // No busy pointer: it follows the folder's changes, and nobody waits for it.
         std::thread::spawn(move || {
@@ -1820,6 +1991,7 @@ impl crate::App {
                     .for_each(|(path, time)| *time = modified(path));
             }
             let on_a_share = is_any_on_a_share(&places, with_subfolders);
+            let mut gate = listing::ReadsFirst::new(Arc::default(), awaited, on_a_share);
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
@@ -1832,15 +2004,11 @@ impl crate::App {
                 if on_a_share && listing::a_program_is_starting() {
                     continue;
                 }
-                let mut changed = false;
-                for i in folders_this_second(open, read.len(), next) {
-                    let now = modified(&read[i].0);
-                    changed |= now != read[i].1;
-                    read[i].1 = now;
-                }
-                next = (next + SUBFOLDERS_A_SECOND) % (read.len() - open).max(1);
-                if changed && watcher_generation.load(Ordering::Relaxed) == generation {
-                    let _ = tx.send(());
+                let (changed, looked) =
+                    look_this_second(&mut read, (open, next), on_a_share, &mut gate, modified);
+                next = (next + looked) % (read.len() - open).max(1);
+                if !changed.is_empty() && watcher_generation.load(Ordering::Relaxed) == generation {
+                    let _ = tx.send(changed);
                     ctx.request_repaint();
                 }
             }
@@ -1918,8 +2086,17 @@ impl crate::App {
         let rows = match files {
             Ok(ListedRows::Rows(rows)) => Some(self.with_shown_files_of_parts(rows, &left_out)),
             Ok(ListedRows::InListOrder(kept)) => self.list.rows().in_step(kept),
+            Ok(ListedRows::InParts) => {
+                return self.take_subfolder_read_again(ctx, (read, read_in), left_out);
+            }
+            // A subfolder that could not be read again has the whole tree read.
+            Err(_) if !self.folder.listing_from.as_os_str().is_empty() => {
+                self.folder.listing_from = PathBuf::new();
+                return self.folder.relist_later();
+            }
             Err(unread) => return self.listing_failed(ctx, unread, read),
         };
+        self.folder.listing_from = PathBuf::new();
         self.folder.whole_listings += 1;
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
@@ -1942,17 +2119,44 @@ impl crate::App {
         self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
         self.list.set_unchecked_entries(false);
         self.settle_sidecar_writes_waiting_for_the_list(ctx);
+        let types = self.shown_types();
         let c = &self.config;
         self.folder.listed_as =
             (self.folder.collection.is_none() && self.folder.folders.is_empty()).then(|| {
                 (
                     self.folder.dir.clone(),
+                    types,
                     c.sort,
                     c.sort_ascending,
                     c.sort_case_sensitive,
                     self.folder.recursive,
                 )
             });
+        self.tell_left_out(left_out);
+    }
+
+    /// Takes the end of a listing that read the subfolder `listing_from` of the tree again,
+    /// whose parts the list has taken: the folders it `read` replace that subfolder's folders
+    /// among those watched, and the parts `left_out` are told. It counts as a whole listing,
+    /// as the list is the tree as it is now. `read_in` is how long it took.
+    fn take_subfolder_read_again(
+        &mut self,
+        ctx: &egui::Context,
+        (read, read_in): (FoldersRead, Duration),
+        left_out: Vec<Unread>,
+    ) {
+        let from = self
+            .folder
+            .dir
+            .join(std::mem::take(&mut self.folder.listing_from));
+        self.folder.whole_listings += 1;
+        self.folder.list_is_a_part = false;
+        let mut watched = std::mem::take(&mut self.folder.watched);
+        watched.retain(|(path, _)| !path.starts_with(&from));
+        watched.extend(read);
+        self.watch_folders_read(ctx, watched, false);
+        self.folder.rest_until = Instant::now() + read_in * REST_AFTER_LISTING;
+        self.settle_sidecar_writes_waiting_for_the_list(ctx);
         self.tell_left_out(left_out);
     }
 
@@ -2762,6 +2966,44 @@ fn folders_this_second(open: usize, all: usize, next: usize) -> impl Iterator<It
     (0..open).chain((0..turn).map(move |k| open + (next + k) % subfolders))
 }
 
+/// Looks at the folders of `read` that the watcher looks at in a second, from the `next`th
+/// subfolder on, after the `open` folders first in it (`folders_this_second`), each with `look`
+/// and through `gate`, and keeps the times it found. On a share it looks at the subfolders only
+/// while the looks of this second have taken less than `SHARE_LOOKS_A_SECOND`, the time waited
+/// at the gate not counted. Returns the folders whose times changed, and how many subfolders it
+/// looked at.
+fn look_this_second(
+    read: &mut FoldersRead,
+    (open, next): (usize, usize),
+    on_a_share: bool,
+    gate: &mut listing::ReadsFirst,
+    look: impl Fn(&Path) -> Option<std::time::SystemTime>,
+) -> (Vec<PathBuf>, usize) {
+    let (mut changed, mut looked, mut spent) = (Vec::new(), 0, Duration::ZERO);
+    for i in folders_this_second(open, read.len(), next) {
+        if i >= open {
+            if on_a_share && spent >= SHARE_LOOKS_A_SECOND {
+                break;
+            }
+            looked += 1;
+        }
+        let _turn = gate.before_work_nobody_waits_for(&read[i].0);
+        let began = Instant::now();
+        let now = look(&read[i].0);
+        // Only the subfolders' looks count, as the open folders are looked at every second.
+        // Before, the open folders' looks took the subfolders' time, and on a share the watcher
+        // came round to a subfolder only every few seconds.
+        if i >= open {
+            spent += began.elapsed();
+        }
+        if now != read[i].1 {
+            changed.push(read[i].0.clone());
+        }
+        read[i].1 = now;
+    }
+    (changed, looked)
+}
+
 /// Sends sizes as partial sums of 10,000 files, so the status bar fills in gradually. It stops
 /// when the receiver is gone. The closed channel tells the window that the sum is complete.
 pub(crate) fn send_sizes(
@@ -3455,7 +3697,10 @@ mod tests {
         app.folder.rest_until = std::time::Instant::now() + std::time::Duration::from_secs(1);
         let before = app.folder.whole_listings();
         for _ in 0..3 {
-            app.folder.changed_tx.send(()).unwrap();
+            app.folder
+                .changed_tx
+                .send(vec![app.folder.dir.clone()])
+                .unwrap();
             app.poll_background(&ctx);
             assert!(!app.folder.is_listing(), "listed during the rest");
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -3466,6 +3711,67 @@ mod tests {
             .folder
             .is_listing()));
         assert_eq!(app.folder.whole_listings(), before + 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A change that the watcher saw in one subfolder of a tree reads that subfolder again, and
+    /// not the whole tree: its rows are what it holds now, also with a folder below it added and
+    /// one removed, and the rows of the other subfolders stay as they were. A change in the open
+    /// folder itself still reads the whole tree. Before, any change read the whole tree again,
+    /// which on a share takes minutes.
+    #[test]
+    fn a_change_in_one_subfolder_reads_only_that_subfolder_again() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-subfolder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for sub in ["s1", "s2/deep"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        for name in ["a.png", "s1/b.png", "s2/c.png", "s2/deep/d.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        let whole_listings = |app: &crate::App| app.folder.whole_listings();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |app| whole_listings(
+            app
+        ) > before));
+        let names = |app: &crate::App| -> Vec<String> {
+            let files = app.list.files().iter();
+            files.map(|f| f.to_string_lossy().into_owned()).collect()
+        };
+        assert_eq!(
+            names(&app),
+            ["a.png", "s1/b.png", "s2/c.png", "s2/deep/d.png"]
+        );
+        // s1 loses its image unseen: only a walk of the whole tree would take it out.
+        std::fs::remove_file(dir.join("s1/b.png")).unwrap();
+        std::fs::remove_file(dir.join("s2/c.png")).unwrap();
+        std::fs::remove_dir_all(dir.join("s2/deep")).unwrap();
+        std::fs::create_dir_all(dir.join("s2/new")).unwrap();
+        for name in ["s2/e.png", "s2/new/f.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let changed = vec![dir.join("s2"), dir.join("s2/deep")];
+        app.folder.changed_tx.send(changed).unwrap();
+        app.folder.rest_until = std::time::Instant::now();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |app| whole_listings(
+            app
+        ) > before));
+        assert_eq!(
+            names(&app),
+            ["a.png", "s1/b.png", "s2/e.png", "s2/new/f.png"]
+        );
+        // A change of the open folder itself reads the whole tree.
+        app.folder.changed_tx.send(vec![dir.clone()]).unwrap();
+        app.folder.rest_until = std::time::Instant::now();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |app| whole_listings(
+            app
+        ) > before));
+        assert_eq!(names(&app), ["a.png", "s2/e.png", "s2/new/f.png"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3541,6 +3847,52 @@ mod tests {
         assert_eq!(seen.len(), all);
         // Without subfolders, only the open folders are looked at.
         assert_eq!(super::folders_this_second(1, 1, 0).collect::<Vec<_>>(), [0]);
+    }
+
+    /// On a share the watcher's looks at the subfolders take at most `SHARE_LOOKS_A_SECOND`
+    /// of each second, however many there are, and the open folders are always looked at.
+    /// Elsewhere it looks at `SUBFOLDERS_A_SECOND` of them. Before, it looked at a thousand
+    /// subfolders a second on a share too, which filled a share that serves one call at a time.
+    #[test]
+    fn the_watcher_takes_a_small_share_of_a_shares_time() {
+        use std::time::Duration;
+        let look_ms = 20;
+        let read = |n: usize| -> crate::model::listing::FoldersRead {
+            (0..n)
+                .map(|k| (format!("/watched-{k}").into(), None))
+                .collect()
+        };
+        let look = |_: &std::path::Path| {
+            std::thread::sleep(Duration::from_millis(look_ms));
+            Some(std::time::SystemTime::UNIX_EPOCH)
+        };
+        let gate =
+            || crate::model::listing::ReadsFirst::new(Default::default(), Default::default(), true);
+        let mut on_share = read(2 + 500);
+        let (changed, looked) =
+            super::look_this_second(&mut on_share, (2, 0), true, &mut gate(), look);
+        let most = (super::SHARE_LOOKS_A_SECOND.as_millis() / look_ms as u128) as usize + 1;
+        assert_eq!(changed.len(), 2 + looked);
+        // The open folders' looks take none of the subfolders' time, also when they are slow.
+        let slow_open = |p: &std::path::Path| {
+            let open = p.ends_with("watched-0") || p.ends_with("watched-1");
+            std::thread::sleep(Duration::from_millis(if open { 150 } else { look_ms }));
+            None
+        };
+        let (_, looked) =
+            super::look_this_second(&mut read(2 + 500), (2, 0), true, &mut gate(), slow_open);
+        assert!(
+            looked >= 2,
+            "looked at {looked} subfolders after slow open folders"
+        );
+        assert!((1..=most).contains(&looked), "looked at {looked}");
+        assert!(
+            on_share[..2].iter().all(|(_, t)| t.is_some()),
+            "the open folders"
+        );
+        let mut local = read(2 + 1_500);
+        let (_, looked) = super::look_this_second(&mut local, (2, 0), false, &mut gate(), |_| None);
+        assert_eq!(looked, super::SUBFOLDERS_A_SECOND);
     }
 
     /// Another program, or another window's Rename Many, that swaps two names leaves the same

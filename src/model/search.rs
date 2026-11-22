@@ -5,6 +5,7 @@
 
 use crate::model::folder::{add_sent_sizes, send_sizes_unless_on_a_share};
 use crate::model::list::FileRow;
+use crate::model::listing::{ImagesAwaited, ReadsFirst};
 use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
@@ -469,11 +470,12 @@ impl crate::App {
             let (tx, rx) = answer_channel(&self.busy);
             let names: Vec<OsString> = self.search.exif_to_read_again.drain().collect();
             let (dir, ctx) = (self.folder.dir().to_path_buf(), ctx.clone());
+            let awaited = self.decoding.images_awaited().clone();
             let pointer = Working::new(&self.busy);
             self.search.exif_index_stop = Arc::default();
             let stop = self.search.exif_index_stop.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(exif_index(&dir, &names, &stop));
+                let _ = tx.send(exif_index(&dir, &names, (&stop, &awaited)));
                 drop(pointer);
                 ctx.request_repaint();
             });
@@ -491,11 +493,12 @@ impl crate::App {
                     self.list.files().to_vec(),
                     ctx.clone(),
                 );
+                let awaited = self.decoding.images_awaited().clone();
                 let pointer = Working::new(&self.busy);
                 self.search.exif_index_stop = Arc::default();
                 let stop = self.search.exif_index_stop.clone();
                 std::thread::spawn(move || {
-                    let _ = tx.send(exif_index(&dir, &files, &stop));
+                    let _ = tx.send(exif_index(&dir, &files, (&stop, &awaited)));
                     drop(pointer);
                     ctx.request_repaint();
                 });
@@ -799,19 +802,23 @@ fn in_parallel(
 }
 
 /// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
+/// It ends when `stop` is set, and on a share each file's read waits for the images `awaited`
+/// first, as a look through the gate (`ReadsFirst::before_a_look`).
 pub fn exif_index(
     dir: &Path,
     files: &[OsString],
-    stop: &std::sync::atomic::AtomicBool,
+    (stop, awaited): (&std::sync::atomic::AtomicBool, &ImagesAwaited),
 ) -> HashMap<OsString, String> {
     let index = crate::support::threads::in_parts(files, small_alloc_threads(), |part, _| {
         let mut out = Vec::with_capacity(part.len());
+        let mut gate = ReadsFirst::for_files_anywhere(awaited);
         for name in part {
             // When the folder is gone from the window, no one waits for this.
             if stop.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }
             let path = dir.join(name);
+            gate.before_a_look(&path);
             // A file that breaks its reader has no text. A whole part lost would leave 1/N of
             // the folder out of every exif: search, in silence.
             let text = crate::support::threads::catch_panic(|| {

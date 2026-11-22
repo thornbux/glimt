@@ -5,6 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A slideshow on a network share that serves one request at a time, such as an SMB share opened
+  in GNOME Files over Wi-Fi, moves on as soon as the share has brought the next image, also with
+  Include Subfolders in a tree of many folders. Before, an image could stand for many seconds,
+  the title stood still with it, and Page Down changed the title but its image came late
+  (reported for 0.95.1), because Glimt's own looks in the background (the folder watcher, the
+  reading of the tree, the thumbnails, the images read further ahead and the other readers)
+  stood in the share's queue before the next image. They now wait for the image the window
+  waits for, one at a time, and the folder watcher takes at most a tenth of the share's time.
+- A slideshow with Include Subfolders started on a tree that is already read whole plays it
+  without reading the tree again, and a change that the folder watcher sees in one subfolder of
+  a tree reads only that subfolder again, with the folders added or removed below it. Before,
+  both read the whole tree again, which on a network share takes minutes (reported for 0.95.1).
+
 ## [0.95.1] - 2026-11-22
 
 ### Changed

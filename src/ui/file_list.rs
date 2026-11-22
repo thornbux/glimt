@@ -5,7 +5,7 @@ use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
 use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
-use crate::model::listing::{SORTS, Types, list_folder};
+use crate::model::listing::{ImagesAwaited, ReadsFirst, SORTS, Types, list_folder};
 use crate::support::format::{
     NOT_COUNTED_ON_A_SHARE, count, human_size, local_time, middle_cut, size_text, thousands,
 };
@@ -111,17 +111,18 @@ pub(crate) struct Thumbs {
 
 impl Thumbs {
     /// Thumbnails with workers of their own, so scrolling the list never delays the shown
-    /// image. `rotate` is the decoders' Auto Rotate.
+    /// image. `rotate` is the decoders' Auto Rotate, and on a share each thumbnail waits for
+    /// the images `awaited` first.
     pub(crate) fn new(
         ctx: &egui::Context,
         workers: usize,
-        rotate: &Arc<AtomicBool>,
+        (rotate, awaited): (&Arc<AtomicBool>, &ImagesAwaited),
         save: bool,
     ) -> Self {
         let on_screen: OnScreenFiles = Arc::default();
         let saves_to_cache = Arc::new(AtomicBool::new(save));
         let (requests, answers) =
-            spawn_thumbnailers(ctx, workers, rotate, &on_screen, &saves_to_cache);
+            spawn_thumbnailers(ctx, workers, (rotate, awaited), &on_screen, &saves_to_cache);
         Thumbs {
             textures: HashMap::new(),
             pending: HashMap::new(),
@@ -507,14 +508,20 @@ impl StatusBar {
     }
 
     /// Asks the background for the size and date of the file `name` of the list, at `path`.
-    pub(crate) fn ask_size_and_date(&mut self, ctx: &egui::Context, name: OsString, path: PathBuf) {
+    /// On a share each look waits for the images `awaited` first.
+    pub(crate) fn ask_size_and_date(
+        &mut self,
+        (ctx, awaited): (&egui::Context, &ImagesAwaited),
+        name: OsString,
+        path: PathBuf,
+    ) {
         let asked = self.sizes_and_dates_asked.get_or_insert_with(|| {
             let (asked, questions) = mpsc::channel::<(OsString, PathBuf)>();
             let (found, answers) = mpsc::channel();
-            let ctx = ctx.clone();
+            let (ctx, gate) = (ctx.clone(), ReadsFirst::for_files_anywhere(awaited));
             // No busy pointer: the list's sizes and dates, a look-up nobody waits for, shown when
             // it comes.
-            std::thread::spawn(move || answer_sizes_and_dates(&questions, &found, &ctx));
+            std::thread::spawn(move || answer_sizes_and_dates(&questions, &found, &ctx, gate));
             self.sizes_and_dates_found = Receiving::of(answers);
             asked
         });
@@ -1048,8 +1055,8 @@ impl crate::App {
         if self.list.sizes_and_dates().len() >= 20_000 {
             self.list.forget_sizes_and_dates();
         }
-        let ctx = self.ctx.clone();
-        (self.status_bar).ask_size_and_date(&ctx, name.clone(), self.path(i));
+        let (ctx, awaited) = (self.ctx.clone(), self.decoding.images_awaited().clone());
+        (self.status_bar).ask_size_and_date((&ctx, &awaited), name.clone(), self.path(i));
         self.list.note_size_and_date_asked(name);
         None
     }
@@ -1158,9 +1165,11 @@ impl crate::App {
         for dir in unread {
             self.tree.children.insert(dir.clone(), None);
             let (tx, ctx) = (self.tree.subfolders_sender.clone(), ui.ctx().clone());
+            let mut gate = ReadsFirst::for_files_anywhere(self.decoding.images_awaited());
             // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
             // when it comes.
             std::thread::spawn(move || {
+                let _turn = gate.before_work_nobody_waits_for(&dir);
                 // Not told: the tree shows no subfolders of a folder it could not read, and opening
                 // that folder tells why.
                 let subdirs = list_folder(&dir, folders).map(|l| l.0).unwrap_or_default();
@@ -2157,6 +2166,7 @@ fn answer_sizes_and_dates(
     questions: &mpsc::Receiver<(OsString, PathBuf)>,
     found: &mpsc::Sender<SizeAndDate>,
     ctx: &egui::Context,
+    mut gate: ReadsFirst,
 ) {
     use std::os::unix::fs::MetadataExt;
     let mut waiting = Vec::new();
@@ -2180,6 +2190,7 @@ fn answer_sizes_and_dates(
         // A look that failed (a share that dropped for a moment, a file just deleted) is no size
         // and no date. It is answered as unknown, so the row stays blank and is asked again
         // when it is drawn again, never shown as 0 bytes of 1970.
+        let _turn = gate.before_work_nobody_waits_for(&path);
         let d = std::fs::metadata(&path).map(|m| (m.len(), m.mtime())).ok();
         let is_known = d.is_some();
         if found.send((name, path, d)).is_err() {
@@ -2578,7 +2589,8 @@ mod tests {
     #[test]
     fn a_thumbnail_forgotten_while_made_is_stale() {
         let ctx = eframe::egui::Context::default();
-        let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
+        let mut thumbs =
+            super::Thumbs::new(&ctx, 0, (&Default::default(), &Default::default()), false);
         let name = std::ffi::OsStr::new("a.jpg");
         thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), None);
         let old = thumbs.last_request_number;
@@ -2606,7 +2618,8 @@ mod tests {
     #[test]
     fn a_thumbnail_of_a_file_whose_name_another_took_is_made_again() {
         let ctx = eframe::egui::Context::default();
-        let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
+        let mut thumbs =
+            super::Thumbs::new(&ctx, 0, (&Default::default(), &Default::default()), false);
         let name = std::ffi::OsStr::new("a.jpg");
         let (first, second) = (std::num::NonZeroU64::new(1), std::num::NonZeroU64::new(2));
         thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), first);
@@ -2660,7 +2673,8 @@ mod tests {
             asked.send((name, std::env::temp_dir())).unwrap();
         }
         drop(asked);
-        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default());
+        let gate = crate::model::listing::ReadsFirst::for_files_anywhere(&Default::default());
+        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default(), gate);
         drop(found);
         let answers: Vec<_> = answers.into_iter().collect();
         assert_eq!(answers.len(), count);
@@ -2682,7 +2696,8 @@ mod tests {
         let gone = std::env::temp_dir().join(format!("glimt-test-no-size-{}", std::process::id()));
         asked.send(("gone".into(), gone)).unwrap();
         drop(asked);
-        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default());
+        let gate = crate::model::listing::ReadsFirst::for_files_anywhere(&Default::default());
+        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default(), gate);
         drop(found);
         let answers: Vec<_> = answers.into_iter().collect();
         assert_eq!(answers.len(), 1);
