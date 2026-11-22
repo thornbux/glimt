@@ -1115,9 +1115,9 @@ impl crate::App {
         // Shown once the folders above it are read.
         if follow && let Some(i) = rows.iter().position(|r| r.1 == self.folder.dir()) {
             // A row and the space below it, as show_rows lays them out.
-            let step = row_h + ui.spacing().item_spacing.y;
-            let top = i as f32 * step - ui.available_height() / 2.0;
-            area = area.vertical_scroll_offset(top.max(0.0));
+            let (step, view) = (row_h + ui.spacing().item_spacing.y, ui.available_height());
+            let height = rows.len() as f32 * step - ui.spacing().item_spacing.y;
+            area = scrolled_within(ui, area, i as f32 * step - view / 2.0, height);
             self.tree.opened_up_to = self.folder.dir().to_path_buf();
         }
         let mut toggled = None;
@@ -1566,7 +1566,8 @@ impl crate::App {
             let off = egui::scroll_area::State::load(ctx, ui.make_persistent_id("files"))
                 .map_or(0.0, |s| s.clamped_offset().y);
             if top < off || top + pitch > off + view {
-                area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
+                let height = count.div_ceil(cols) as f32 * pitch - ui.spacing().item_spacing.y;
+                area = scrolled_within(ui, area, top - view / 2.0, height);
             }
         }
         let scrolled = area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
@@ -2190,6 +2191,27 @@ fn answer_sizes_and_dates(
     }
 }
 
+/// Returns `area`, to be shown in `ui`, set to scroll to `offset`, kept between the top and the
+/// end of its content of `height` in the height that `ui` has left. This is the one place a
+/// scroll area is given its offset (`source_rules::scroll_offsets_stay_within_the_content`).
+///
+/// egui takes an offset past the end for an overscroll that a finger dragged. It springs that
+/// back over about a second, and asks for each frame at once, so a list scrolled to one of its
+/// last rows was drawn as fast as the window could. egui judges the overscroll by the end of
+/// the content in the frame before, which can be a point off when the panel's height changed.
+/// So `ui` also draws its scroll areas without that spring in this frame, and egui then puts
+/// the offset within this frame's content at once.
+pub(crate) fn scrolled_within(
+    ui: &mut egui::Ui,
+    area: egui::ScrollArea,
+    offset: f32,
+    height: f32,
+) -> egui::ScrollArea {
+    ui.spacing_mut().scroll.kinetic.rubber_band = false;
+    let end = height - ui.available_height();
+    area.vertical_scroll_offset(offset.min(end).max(0.0))
+}
+
 /// The places along a row or column of items `size` long, one every `step`, that the span
 /// `lo..hi` (from the first item's start) overlaps.
 pub(crate) fn places_overlapped(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range<usize> {
@@ -2665,5 +2687,111 @@ mod tests {
         let answers: Vec<_> = answers.into_iter().collect();
         assert_eq!(answers.len(), 1);
         assert_eq!(answers[0].2, None);
+    }
+
+    /// A random slideshow asks between two slides only for the frames of its timer and of the
+    /// decodes that come in, in every layout: one pane, two and four panes together or one at
+    /// a time, and Compare. Only a few of its frames ask for the next one at once. The frames
+    /// run on a clock of the test's own, which goes on by the time each frame asks to wait, so
+    /// the test needs no real seconds. A slow decode, as when the other tests run beside it,
+    /// adds frames that wait, but none asked for at once. Before, the file list
+    /// scrolled to an image in its last rows past the end of its content, and egui sprang it
+    /// back over about a second of frames, each one asked for at once. Without a vertical sync
+    /// the window then drew as fast as it could, 576 ticks in 3 s in the release tests.
+    #[test]
+    fn a_slideshow_asks_only_for_the_frames_it_needs() {
+        use eframe::egui;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-slideshow-frames-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut names: Vec<String> = (1..7).map(|i| format!("alpha{i}.png")).collect();
+        names.push("omega.png".into());
+        for name in &names {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let last = names.len() - 1;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let frame_time = Duration::from_secs_f64(1.0 / 60.0);
+        for (layout, one_pane_at_a_time, comparing) in [
+            ("1", false, false),
+            ("1", false, true),
+            ("2x1", false, false),
+            ("2x1", true, false),
+            ("2x2", false, false),
+            ("2x2", true, false),
+        ] {
+            let case =
+                format!("{layout}, one pane at a time {one_pane_at_a_time}, Compare {comparing}");
+            let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+            app.config.layout = layout.into();
+            app.config.slideshow_one_image_at_a_time = match one_pane_at_a_time {
+                true => layout.into(),
+                false => String::new(),
+            };
+            app.config.slideshow_random = true;
+            app.config.slideshow_repeat = true;
+            app.config.slideshow_delay = 1;
+            app.config.slideshow_fade = 0;
+            app.is_comparing = comparing;
+            // A thread that asks for a frame, as a decode or a thumbnail does when it is done,
+            // wakes the window.
+            let woken = Arc::new(AtomicBool::new(false));
+            let wakes = Arc::clone(&woken);
+            ctx.set_request_repaint_callback(move |_| wakes.store(true, Ordering::Relaxed));
+            app.start_slideshow(&ctx);
+            let on_screen = |app: &crate::App| {
+                let mut all = vec![app.list.shown()];
+                all.extend(app.images_in_other_panes());
+                all
+            };
+            let (mut clock, mut before) = (0.0, on_screen(&app));
+            let (mut slides, mut at_once, mut most, mut last_shown) = (0, 0, 0, 0);
+            while last_shown < 2 && slides < 300 {
+                let input = egui::RawInput {
+                    time: Some(clock),
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                let out = ctx.run_ui(input, |ui| app.frame_ui(ui));
+                woken.store(false, Ordering::Relaxed);
+                let delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+                assert!(delay < Duration::MAX, "no next frame asked for: {case}");
+                at_once += usize::from(delay.is_zero());
+                // A frame asked for later comes then, unless a thread wakes the window first.
+                let mut passed = delay.max(frame_time);
+                let waited = Instant::now();
+                while passed > frame_time && waited.elapsed() < Duration::from_millis(10) {
+                    if woken.load(Ordering::Relaxed) {
+                        passed = frame_time;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                clock += passed.as_secs_f64();
+                app.slideshow.let_time_pass(passed);
+                let now = on_screen(&app);
+                if now != before {
+                    slides += 1;
+                    // The first two slides are left out, while the thumbnails come in.
+                    if slides > 2 {
+                        most = most.max(at_once);
+                        if now[0] == last && before[0] != last {
+                            last_shown += 1;
+                        }
+                    }
+                    (before, at_once) = (now, 0);
+                }
+            }
+            assert_eq!(last_shown, 2, "the last image was not shown: {case}");
+            assert!(
+                most <= 12,
+                "{most} frames asked for at once in a slide: {case}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

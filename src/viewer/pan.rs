@@ -364,7 +364,7 @@ impl crate::App {
         if let Some(d) = pan.scroll_to_day.take()
             && let Some(row) = pan.rows.iter().find(|r| r.1 == Row::Heading(d))
         {
-            area = area.vertical_scroll_offset(row.0);
+            area = crate::ui::file_list::scrolled_within(ui, area, row.0, pan.height);
         }
         area.show_viewport(ui, |ui, view| {
             ui.set_height(pan.height);
