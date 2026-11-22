@@ -378,6 +378,20 @@ impl Slideshow {
         self.planned.iter().filter_map(|kept| kept.place)
     }
 
+    /// Returns the places of the images that the slideshow shows next, the next one first. When
+    /// Left went back, these are first the images of the history after the one shown, which the
+    /// next slide and Right show again, and then the images planned. This one list is what the
+    /// next slide shows (`next_slide`), what the tick waits for, and what is read ahead
+    /// (`kept_places`) and awaited on a share (`awaited_places`). Before, the images read ahead
+    /// and awaited were only the images planned, so after Left the image that the next slide
+    /// showed was decoded again, and on a share its read waited behind the walk.
+    pub(crate) fn next_places(&self) -> impl Iterator<Item = usize> + '_ {
+        let after_shown = self.history.len() - self.back.min(self.history.len());
+        (self.history.range(after_shown..))
+            .filter_map(|kept| kept.place)
+            .chain(self.planned_places())
+    }
+
     /// Returns the places of the pool, for the tests to check that the search shows each.
     #[cfg(test)]
     pub(crate) fn pool(&self) -> &[usize] {
@@ -543,8 +557,8 @@ impl crate::App {
         slideshow.plan_next(files, rows, n * (1 + ahead));
     }
 
-    /// Switch image when the time is up. Waits for a planned image that is still decoding, so
-    /// the slideshow never shows a black screen.
+    /// Switch image when the time is up. Waits while the next image (`Slideshow::next_places`)
+    /// is still decoding, so the slideshow never shows a black screen.
     pub(crate) fn slideshow_tick(&mut self, ctx: &egui::Context) {
         let Some(last) = self.slideshow.shown_at else {
             return;
@@ -564,18 +578,19 @@ impl crate::App {
             return;
         }
         self.follow_list_in_slideshow();
-        let next = self.slideshow.planned_places().next();
+        let next = self.slideshow.next_places().next();
         let pending = next.is_some_and(|i| self.list.decodes_pending().contains_key(&(i, false)));
-        if pending && self.slideshow.back == 0 {
+        if pending {
             return;
         }
         self.next_slide(ctx);
     }
 
-    /// Shows the next slide: the image after the one shown in the history when Left went back,
-    /// and otherwise the next images planned. When every image listed has been shown, Repeat
-    /// begins a new round at once and the slideshow stops without it. It never waits for the
-    /// listing of a tree, whose images join the round as they come.
+    /// Shows the next slide, the first of `Slideshow::next_places`: the image after the one
+    /// shown in the history when Left went back, and otherwise the next images planned. When
+    /// every image listed has been shown, Repeat begins a new round at once and the slideshow
+    /// stops without it. It never waits for the listing of a tree, whose images join the round
+    /// as they come.
     fn next_slide(&mut self, ctx: &egui::Context) {
         if let Some(place) = self.slideshow.step_through_history(false) {
             self.show_file(ctx, place);
@@ -1029,6 +1044,55 @@ mod tests {
             1,
             "on from the start, past the first shown at Home"
         );
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// After Left, the image that the next slide and Right show, the one shown before Left, is
+    /// the next image read ahead and awaited, also on a share, and the tick waits for its
+    /// decode as for an image planned. Before, only the images planned were read ahead and
+    /// awaited, so after Left that image was dropped and decoded again, the tick showed it
+    /// before its decode came, and on a share its read waited behind the walk of the tree.
+    #[test]
+    fn after_left_the_next_slide_is_read_ahead_and_awaited() {
+        use crate::ui::actions::Action;
+        let names: Vec<String> = (0..12).map(|i| format!("{i:02}.png")).collect();
+        let d = folder_of(
+            "after-left",
+            &names.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let (mut app, ctx) = app_on(&d);
+        app.config.slideshow_random = true;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        for _ in 0..3 {
+            tick(&mut app, &ctx);
+        }
+        let newest = app.list.shown();
+        app.move_along(&ctx, Action::Previous);
+        let back_at = app.list.shown();
+        assert_ne!(back_at, newest, "Left");
+        // The decoded images go, so that each image read ahead is asked for again.
+        app.list.keep_loaded_images(|_, _| false);
+        app.refill_preload();
+        let (kept, _) = app.kept_places();
+        assert_eq!(
+            kept.get(1),
+            Some(&newest),
+            "the next image after Left, read ahead"
+        );
+        let awaited = app.decoding.images_awaited().paths();
+        assert!(awaited.contains(&app.path(newest)), "awaited: {awaited:?}");
+        // Its decode is not taken yet, so the tick waits for it.
+        app.slideshow.shown_at =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(9999));
+        app.slideshow_tick(&ctx);
+        assert_eq!(
+            app.list.shown(),
+            back_at,
+            "the tick waits for the next image"
+        );
+        tick(&mut app, &ctx);
+        assert_eq!(app.list.shown(), newest, "the next slide after Left");
         std::fs::remove_dir_all(&d).unwrap();
     }
 
