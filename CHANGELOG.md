@@ -15,6 +15,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   reading of the tree, the thumbnails, the images read further ahead and the other readers)
   stood in the share's queue before the next image. They now wait for the image the window
   waits for, one at a time, and the folder watcher takes at most a tenth of the share's time.
+- A slideshow with Include Subfolders started on a tree that is already read whole plays it
+  without reading the tree again, and a change that the folder watcher sees in one subfolder of
+  a tree reads only that subfolder again, with the folders added or removed below it. Before,
+  both read the whole tree again, which on a network share takes minutes (reported for 0.95.1).
 
 ## [0.95.1] - 2026-11-22
 
