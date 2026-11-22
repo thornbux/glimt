@@ -52,6 +52,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   read behind the tree. With
   many images in a tree, each part of it costs the window no more in random order than in name
   order (#256).
+- The file list, the folder tree and Pan view no longer keep the processor busy for about a
+  second after they scroll to one of their last rows, as a slideshow often does. Before, they
+  scrolled past their end and sprang back, drawing every frame they could meanwhile.
 
 ## [0.95.0] - 2026-11-20
 

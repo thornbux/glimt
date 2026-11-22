@@ -2546,6 +2546,23 @@ fn the_slideshows_plan_is_made_in_one_place() {
     );
 }
 
+/// A scroll area is given its offset in one place, `file_list::scrolled_within`, which keeps
+/// the offset within the content. egui takes an offset past the end for an overscroll that a
+/// finger dragged, and springs it back over about a second, asking for every frame at once.
+/// Before, the file list, the folder tree and Pan view each set the offset by themselves, and
+/// a slideshow that showed one of the file list's last rows drew as fast as the window could
+/// until the list stood still.
+#[test]
+fn scroll_offsets_stay_within_the_content() {
+    let wrong =
+        outside_their_homes(&[("scroll_offset(", &[("ui/file_list.rs", "scrolled_within")])]);
+    assert!(
+        wrong.is_empty(),
+        "a scroll area given its offset outside file_list::scrolled_within:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Every listing of a tree sends its images in parts as they are found: each function of
 /// `Listing` that reads a tree (`listing::list_tree` or `walk_tree`) sends parts
 /// (`Listing::send_part`), so

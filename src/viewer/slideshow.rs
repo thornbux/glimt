@@ -134,6 +134,13 @@ impl Slideshow {
         }
     }
 
+    /// Moves the time the image shown came up `passed` earlier, as if that much time went by,
+    /// so that a test can run a slideshow on a clock of its own.
+    #[cfg(test)]
+    pub(crate) fn let_time_pass(&mut self, passed: std::time::Duration) {
+        self.shown_at = self.shown_at.and_then(|at| at.checked_sub(passed));
+    }
+
     /// Whether --slideshow starts it now, once the folder is `listed`: only once.
     pub(crate) fn starts_now(&mut self, listed: bool) -> bool {
         let now = self.start_after_listing && listed;
