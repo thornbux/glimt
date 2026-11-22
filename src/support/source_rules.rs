@@ -2543,6 +2543,39 @@ fn the_slideshows_plan_is_made_in_one_place() {
     );
 }
 
+/// Every listing of a tree sends its images in parts as they are found: each function of
+/// `Listing` that reads a tree (`listing::list_tree`) sends parts (`Listing::send_part`), so
+/// the list grows while the tree is read, whatever kind of listing it is. Before, the listing of
+/// several folders read their trees whole, and a slideshow started on them with `--slideshow`
+/// waited for every folder of them, minutes on a share, before its first slide.
+#[test]
+fn every_listing_of_a_tree_sends_parts() {
+    let sources = rust_sources();
+    let graph = CallGraph::new(&sources);
+    let calls_a = |calls: &[Call], name: &str| {
+        (calls.iter()).any(|call| call.callee.is_some_and(|c| graph.functions[c].name == name))
+    };
+    let (mut trees, mut wrong) = (0, Vec::new());
+    for f in &graph.functions {
+        if f.file != "model/folder.rs" || f.owner.as_deref() != Some("Listing") {
+            continue;
+        }
+        let calls = graph.calls_of(f);
+        if calls_a(&calls, "list_tree") {
+            trees += 1;
+            if !calls_a(&calls, "send_part") {
+                wrong.push(f.name.clone());
+            }
+        }
+    }
+    assert!(trees >= 2, "the listings of a tree are not found");
+    assert!(
+        wrong.is_empty(),
+        "a listing of a tree that sends no parts: {}",
+        wrong.join(", ")
+    );
+}
+
 /// A notice is given only through `Notice::give`, which gives it a number of its own, so a
 /// screen reader reads out a notice given again with the same text. Before, the screen reader's
 /// code told a notice given again by its text's address, and the second of two notices given
