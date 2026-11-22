@@ -184,7 +184,7 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
 Each release also gets `SHA256SUMS` of its files and a build provenance for each file, signed
 by GitHub through `actions/attest-build-provenance`; `gh attestation verify FILE -R
 thornbux/glimt` checks it. A new file to publish goes in both, and the Flatpak's line is added
-by its own job.
+by its own job (not until 1.0, see *The Flatpak*).
 
 ### The AppImage
 

@@ -25,7 +25,7 @@ images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse".
 - **Every format a photographer meets**, RAW and HEIC included, and more through formats you
   add (DICOM, FITS, microscopy …). Imports Lightroom Classic catalogs.
 - **One binary** for any distribution with glibc 2.28 or newer: `.deb`, `.rpm`, `.tar.gz`,
-  AppImage and Flatpak.
+  and AppImage. A Flatpak comes with 1.0.
 
 ## On the website
 
