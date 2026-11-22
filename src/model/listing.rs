@@ -105,6 +105,9 @@ thread_local! {
     // How many times this thread looked at a file for what it is sorted by (`sort_key`), so that
     // a test can count the looks of a listing that it drives in its own thread.
     pub(crate) static FILES_LOOKED_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    // How many times this thread compared two rows with `in_order`, so that a test can count the
+    // comparisons that a rename makes.
+    pub(crate) static ROWS_COMPARED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// What a file is sorted by besides its name, in an order that looks at the file: its time,
@@ -363,9 +366,9 @@ impl Rows {
     /// is still in the order the rows are in. Otherwise it returns the rows put in their order
     /// by their own comparison (`in_order`), with no look at a file, and leaves these rows in no
     /// order, so that they never claim an order they are not in. The caller then replaces them
-    /// with the rows returned. Before, a renamed row kept its place under its new name in an
-    /// order by name, and a later part of a tree was placed by a binary search over rows out of
-    /// order.
+    /// with the rows returned. Only the renamed rows are out of place, so each of them is put
+    /// back by a binary search among the rows that stayed, and the rows are copied once. Before,
+    /// every row was sorted again on the window thread, which took 40 ms at 500,000 names.
     pub fn rename(&mut self, renames: &[(usize, OsString)]) -> Option<Rows> {
         for (i, name) in renames {
             if let Some(file) = self.files.get_mut(*i) {
@@ -383,13 +386,26 @@ impl Rows {
         if (renames.iter()).all(|(i, _)| *i >= self.len() || in_place(*i)) {
             return None;
         }
-        let mut places: Vec<usize> = (0..self.len()).collect();
-        places.sort_by(|&a, &b| in_order(row(a), row(b), order));
-        let mut sorted = Rows::empty_in(&self.order, self.len());
-        for i in places {
-            let name = (self.files[i].clone(), self.identities[i]);
-            sorted.push(name, self.key(i).cloned());
+        let mut gone: Vec<usize> = (renames.iter().map(|(i, _)| *i))
+            .filter(|&i| i < self.len())
+            .collect();
+        gone.sort_unstable();
+        gone.dedup();
+        let mut moved = gone.clone();
+        moved.sort_by(|&a, &b| in_order(row(a), row(b), order));
+        let mut new = Rows::empty_in(&self.order, moved.len());
+        for i in moved {
+            new.push(
+                (self.files[i].clone(), self.identities[i]),
+                self.key(i).cloned(),
+            );
         }
+        let at = self.places_among_staying(&gone, &new, order);
+        let old = (0..self.len()).map(|i| {
+            let row = (self.files[i].clone(), self.identities[i]);
+            (row, self.key(i).cloned())
+        });
+        let sorted = Rows::interleaved(&self.order, (old, self.len()), &gone, new, &at);
         self.order = RowOrder::Unsorted;
         Some(sorted)
     }
@@ -481,6 +497,20 @@ impl Rows {
         if new.is_empty() && gone.is_empty() {
             return Places::AsTheyAre;
         }
+        let at = self.places_among_staying(&gone, new, order);
+        Places::Moved(gone, at)
+    }
+
+    /// Returns, for each row of `new`, rows in `order`, the place among the rows that stay
+    /// when those at the sorted places `gone` are taken out, before which it goes
+    /// (`interleaved`). Each place is found by a binary search with `in_order`, after the place
+    /// of the row before.
+    fn places_among_staying(
+        &self,
+        gone: &[usize],
+        new: &Rows,
+        order: (Sort, bool, bool),
+    ) -> Vec<usize> {
         let stayed: Vec<usize> = match gone.is_empty() {
             true => Vec::new(),
             false => (0..self.len())
@@ -497,7 +527,7 @@ impl Rows {
         let new_key = |j: usize| new.key(j).unwrap_or(&none);
         // The new names are in order, so each one is looked for after the one before.
         let mut from = 0;
-        let at: Vec<usize> = (0..new.len())
+        (0..new.len())
             .map(|j| {
                 let (mut low, mut high) = (from, staying);
                 while low < high {
@@ -512,8 +542,7 @@ impl Rows {
                 from = low;
                 low
             })
-            .collect();
-        Places::Moved(gone, at)
+            .collect()
     }
 
     /// Returns the rows `old`, of which there are as many as it is given with, each with its
@@ -1561,6 +1590,8 @@ pub fn in_order(
     b: (&SortKey, &OsString),
     (by, ascending, case): (Sort, bool, bool),
 ) -> std::cmp::Ordering {
+    #[cfg(test)]
+    ROWS_COMPARED.set(ROWS_COMPARED.get() + 1);
     let bytes = || a.1.as_encoded_bytes().cmp(b.1.as_encoded_bytes());
     let name = |f: &OsString| {
         let s = f.to_string_lossy();
@@ -2446,6 +2477,64 @@ mod tests {
         (0..rows.len())
             .filter_map(|i| rows.key(i).cloned())
             .collect()
+    }
+
+    /// A rename that puts rows out of their order puts each of them back at its place by a
+    /// binary search, with about 2·log2(n) comparisons for each renamed row, and gives the rows
+    /// that `Rows::sorted` gives for the new names, in Name order with and without Case, in
+    /// Number order, descending, and in an EXIF order where some files have no date. Before,
+    /// the rename sorted every row again on the window thread, with an allocation in each
+    /// comparison when Case was off.
+    #[test]
+    fn a_rename_puts_its_rows_back_by_a_binary_search() {
+        use super::{ROWS_COMPARED, Sort, SortKey};
+        let n = 10_000;
+        let names: Vec<String> = (0..n)
+            .map(|i| match i % 2 {
+                0 => format!("img{i}.png"),
+                _ => format!("IMG{i}.png"),
+            })
+            .collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let renames = [("img0.png", "zzz.png"), ("img5000.png", "aaa.png")];
+        let orders = [
+            (Sort::Name, true, false),
+            (Sort::Name, true, true),
+            (Sort::Number, true, false),
+            (Sort::Name, false, false),
+            (Sort::ExifOriginal, true, true),
+        ];
+        for order in orders {
+            // Every third file has no EXIF date, and the others have dates that run backwards.
+            let key = |i: usize| match order.0 {
+                Sort::ExifOriginal if i.is_multiple_of(3) => SortKey::Exif(true, None),
+                Sort::ExifOriginal => SortKey::Exif(false, Some(format!("{:05}", n - i))),
+                _ => SortKey::Name,
+            };
+            let keys: Vec<SortKey> = (0..n).map(key).collect();
+            let mut rows = rows_of(listed(&names), &keys, order);
+            let place = |rows: &super::Rows, name: &str| {
+                rows.files().iter().position(|f| f == name).unwrap()
+            };
+            let at: Vec<(usize, std::ffi::OsString)> = (renames.iter())
+                .map(|(old, new)| (place(&rows, old), (*new).into()))
+                .collect();
+            ROWS_COMPARED.set(0);
+            let renamed = rows.rename(&at).expect("the renamed rows are out of place");
+            let compared = ROWS_COMPARED.get();
+            let bound = renames.len() * 2 * (n as f64).log2().ceil() as usize;
+            assert!(compared <= bound, "{compared} comparisons, {order:?}");
+            let mut new_names = listed(&names);
+            for (old, new) in renames {
+                let row = new_names.iter_mut().find(|(f, _)| f == old).unwrap();
+                row.0 = new.into();
+            }
+            let expected = rows_of(new_names, &keys, order);
+            assert_eq!(renamed.listed_names(), expected.listed_names(), "{order:?}");
+            assert_eq!(keys_of(&renamed), keys_of(&expected), "{order:?}");
+            assert_eq!(renamed.order(), Some(order));
+            assert_eq!(rows.order(), None, "the rows left behind claim no order");
+        }
     }
 
     /// The order kept keeps the identity the new listing gives each name, so a name that
