@@ -5,19 +5,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Several folders shown together are one list in the sort order. In Name order the list is now
+  in name order, whatever order the folders were given in. Before, each folder's images came
+  in the order the folders were given.
+
 ### Fixed
 
 - A slideshow with Include Subfolders shows the subfolders' images while the tree is still
   read, in random order and in name order, also when it was started with `--slideshow`, of one
   folder or of several, while the folder opened was still being read, or after another sort
   order was chosen. Before, it played only the images of the folder
-  opened until the whole tree was read, which on a network share can take minutes: it stood
-  still in a folder with no images of its own, and in name order without Repeat it ended
-  before the subfolders' images came. The next images are read ahead and stay the next ones
+  opened until the whole tree was read, which on a network share can take minutes, and it
+  stood still in a folder with no images of its own. The next images are read ahead and stay the next ones
   when more of the tree comes, so a new part of the tree no longer takes away a decode the next
   slide waits for. A round never waits for the tree: it shows each image listed once, and those
   read later join it. With Repeat the next round begins at once, and without it the slideshow
-  stops once every image listed has been shown (#256).
+  stops once every image listed so far has been shown, also when more of the tree is still
+  being read (#256).
 - The file list stays in its sort order during a slideshow, also in random order, and only
   grows as a tree is read. The slideshow picks its images itself, among those the search shows:
   in name order the next one in the list that the round has not shown, also after an image
@@ -27,8 +33,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   selected and scrolled to in the list. Before, the slideshow put its own order into the list.
 - While a tree is read, its images go into the list in the sort order chosen, also by date,
   size, EXIF date, number or extension, descending and without Case, and each image is looked
-  at once. After another order is chosen, they go in by the order before until the whole tree is
-  read in the new one. Before, they went in by name until the whole tree was read.
+  at once. After another order is chosen, the list is put in the new order in the background,
+  and the tree's images go in by it from then on. Before, they went in by name until the whole tree was read.
 - Show Hidden Files turned off, or a type left out in the Types menu, takes those images out of
   the list at once. Before, a tree read on a share kept them, and the slideshow showed them,
   until the tree was read again.
