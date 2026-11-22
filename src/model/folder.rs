@@ -5536,16 +5536,19 @@ mod tests {
             let mut event = next(32);
             let at = format!("{case}, step {step}, event {event}");
             // Images picked with Ctrl+click, and then an arrow key, Home or End in the slideshow,
-            // as events 12, 13, 15 and 16 make them: as anywhere, a move without Shift clears
-            // the selection, so a Delete, Move, keyword or mark after it acts on the image on
-            // screen.
+            // as events 12, 13, 15 and 16 make them, half of the time with Shift held: as
+            // anywhere, a move without Shift clears the selection, so a Delete, Move, keyword or
+            // mark after it acts on the image on screen. In a slideshow a move with Shift is a
+            // plain move too, as its moves are not along the rows.
             let rows: Vec<usize> = (0..app.list.files().len())
                 .filter(|&i| app.list.shows_file(i))
                 .collect();
             let picked_first = event == 29 && rows.len() > 2;
+            let with_shift = picked_first && next(2) == 0;
             if picked_first {
                 let picked = [rows[next(rows.len())], rows[next(rows.len())]];
                 app.set_selection(&ctx, picked.into_iter().collect());
+                app.panel.set_extends_selection(with_shift);
                 event = [12, 13, 15, 16][next(4)];
             }
             let order_before = app.list.files().to_vec();
@@ -5990,8 +5993,26 @@ mod tests {
                 }
             }
             if picked_first {
+                app.panel.set_extends_selection(false);
                 let on_screen = Some(vec![app.list.shown()]);
-                assert_eq!(app.targets(), on_screen, "the targets after a key: {at}");
+                let shift = match with_shift {
+                    true => "Shift and ",
+                    false => "",
+                };
+                assert_eq!(
+                    app.targets(),
+                    on_screen,
+                    "the targets after {shift}a key: {at}"
+                );
+                // Nothing is selected but images that were on screen.
+                let never_shown: Vec<&OsString> = (app.list.selected().iter())
+                    .map(|&i| &app.list.files()[i])
+                    .filter(|name| !seen.history.contains(name))
+                    .collect();
+                assert!(
+                    never_shown.is_empty(),
+                    "selected, never shown: {never_shown:?}, {at}"
+                );
             }
             feed_what_runs(&mut app, &ctx, &mut fed);
             // Nothing that the slideshow plans to show next is an image the search hides, as

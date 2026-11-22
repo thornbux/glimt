@@ -401,14 +401,18 @@ impl crate::App {
     /// runs from where it started to the new image, as in a file manager, and moving without
     /// Shift clears it, also in a slideshow. Before, the slideshow's keys went around this rule,
     /// and a Delete, Move or keyword after them acted on a selection made before the slideshow
-    /// instead of on the image on screen.
+    /// instead of on the image on screen. In a slideshow, a move with Shift is a plain move,
+    /// which clears the selection too. The slideshow's moves are picks and steps through the
+    /// images it showed, not steps along the rows, so a range from where the selection started
+    /// would select rows that were never on screen, thousands of them in random order.
     pub(crate) fn move_along(&mut self, ctx: &egui::Context, action: Action) {
         let from = self.list.shown();
-        // The anchor is where the selection started, or the image shown before the move.
-        let shift = self.panel.extends_selection();
-        let anchor = shift.then(|| self.list.anchor_or_shown());
         // A slideshow that runs goes through the images it showed, and shows the one it goes to.
         let in_slideshow = self.move_in_slideshow(ctx, action);
+        // The anchor is where the selection started, or the image shown before the move. Only
+        // a move along the rows has one.
+        let shift = self.panel.extends_selection() && !in_slideshow;
+        let anchor = shift.then(|| self.list.anchor_or_shown());
         let to = match in_slideshow {
             true => self.list.shown(),
             false => {
