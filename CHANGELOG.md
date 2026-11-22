@@ -8,8 +8,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A slideshow with Include Subfolders shows the subfolders' images while the tree is still
-  read, in random order and in name order, also when it was started with `--slideshow` or while
-  the folder opened was still being read. Before, it played only the images of the folder
+  read, in random order and in name order, also when it was started with `--slideshow`, of one
+  folder or of several, while the folder opened was still being read, or after another sort
+  order was chosen. Before, it played only the images of the folder
   opened until the whole tree was read, which on a network share can take minutes: it stood
   still in a folder with no images of its own, and in name order without Repeat it ended
   before the subfolders' images came. The next images are read ahead and stay the next ones
@@ -18,14 +19,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   read later join it. With Repeat the next round begins at once, and without it the slideshow
   stops once every image listed has been shown (#256).
 - The file list stays in its sort order during a slideshow, also in random order, and only
-  grows as a tree is read. The slideshow picks its images itself: in name order the next one in
-  the list that the round has not shown, in random order any of them. R changes only how the
+  grows as a tree is read. The slideshow picks its images itself, among those the search shows:
+  in name order the next one in the list that the round has not shown, also after an image
+  shown by hand, in random order any of them. R changes only how the
   next image is picked, at once, and the round goes on. ← goes back through the images shown and
   → forward again, Home starts over from the first image, and a stop keeps the image shown,
   selected and scrolled to in the list. Before, the slideshow put its own order into the list.
 - While a tree is read, its images go into the list in the sort order chosen, also by date,
-  size, EXIF date, number or extension, descending and without Case. Before, they went in by
-  name until the whole tree was read.
+  size, EXIF date, number or extension, descending and without Case, and each image is looked
+  at once. After another order is chosen, they go in by the order before until the whole tree is
+  read in the new one. Before, they went in by name until the whole tree was read.
 - Show Hidden Files turned off, or a type left out in the Types menu, takes those images out of
   the list at once. Before, a tree read on a share kept them, and the slideshow showed them,
   until the tree was read again.
