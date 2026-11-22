@@ -636,7 +636,7 @@ impl Listing {
         let (mut read, mut left_out) = (Vec::new(), Vec::new());
         let mut files: Vec<ListedName> = Vec::new();
         let nested = (folders.iter()).any(|d| folders.iter().any(|o| o != d && d.starts_with(o)));
-        let mut sent = self.parts_sent();
+        let mut sent = self.parts_sent(folders);
         // The images found so far, by their names in the list, which the parts are made of.
         let mut so_far: Vec<ListedName> = Vec::new();
         // A folder inside another one given is read twice, and its second read is no part.
@@ -824,10 +824,17 @@ impl Listing {
     }
 
     /// Returns what the listing sends of a tree's parts before it has sent any, from the names
-    /// of the list when the listing began.
-    fn parts_sent(&mut self) -> PartsSent {
+    /// of the list when the listing began. Its looks at the files wait for the reads that go
+    /// first when one of `places`, the places listed, is on a share.
+    fn parts_sent(&mut self, places: &[PathBuf]) -> PartsSent {
         let (by, ascending, case) = self.part_order;
+        let on_a_share = (places.iter()).any(|d| listing::is_on_a_share(d, self.recursive));
         PartsSent {
+            reads_first: listing::ReadsFirst {
+                stop: self.stop.clone(),
+                awaited: self.awaited.clone(),
+                on_a_share,
+            },
             last: None,
             up_to: 0,
             listed_before: std::mem::take(&mut self.listed_before).sorted(),
@@ -888,7 +895,7 @@ impl Listing {
         // Its images come too, a folder of the tree at a time, each part in the order the list
         // is in. The first images are sent at once, and after them at most four times a second,
         // because the window merges each part into the whole list.
-        let mut sent = self.parts_sent();
+        let mut sent = self.parts_sent(&[self.dir.clone()]);
         // The images of a tree come in the order the walk found them, which is the order that
         // what the parts looked at is kept by, for the sort of the whole list.
         let listed = match self.recursive {
@@ -1003,6 +1010,10 @@ struct PartsSent {
     /// The names of the list that came without keys (`Listing`'s `unkeyed`), with what each
     /// is sorted by once a part has looked at it, until a part that holds them is sent.
     unkeyed: Vec<(OsString, Option<SortKey>)>,
+    /// The reads on a share that each look at a file waits for. Before, a part looked at the
+    /// new images of every folder since the part before, 600 to 900 EXIF reads in a row, after
+    /// one wait before the folder, and the image awaited queued behind them (#256).
+    reads_first: listing::ReadsFirst,
 }
 
 impl PartsSent {
@@ -1028,27 +1039,29 @@ impl PartsSent {
         if looks {
             self.keys.resize(so_far.len(), None);
         }
+        // Each look waits for the reads that go first, for at most a second in all.
+        let mut waited = Duration::ZERO;
+        let reads_first = &self.reads_first;
+        let mut look = |name: &OsString| {
+            reads_first.wait(&mut waited);
+            listing::sort_key(&dir, name, by)
+        };
         let mut part: Vec<(SortKey, ListedName)> = (new.into_iter())
             .map(|i| {
                 let key = match looks {
-                    true => (self.keys[i]
-                        .get_or_insert_with(|| listing::sort_key(&dir, &so_far[i].0, by)))
-                    .clone(),
+                    true => (self.keys[i].get_or_insert_with(|| look(&so_far[i].0))).clone(),
                     false => SortKey::Name,
                 };
                 (key, so_far[i].clone())
             })
             .collect();
+        let listed_keys = (self.unkeyed.iter_mut())
+            .map(|(name, key)| (name.clone(), key.get_or_insert_with(|| look(name)).clone()))
+            .collect();
         // In the order the list is in, as `merge_new_names` places them.
         let order = (by, ascending, case);
         part.sort_by(|a, b| listing::in_order((&a.0, &a.1.0), (&b.0, &b.1.0), order));
         let (keys, names): (Vec<SortKey>, Vec<ListedName>) = part.into_iter().unzip();
-        let listed_keys = (self.unkeyed.iter_mut())
-            .map(|(name, key)| {
-                let key = key.get_or_insert_with(|| listing::sort_key(&dir, name, by));
-                (name.clone(), key.clone())
-            })
-            .collect();
         Some(TreePart {
             names,
             read: std::mem::take(&mut self.read_whole),
@@ -4799,6 +4812,76 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// On a share, in an order that looks at the files, a part's looks at its images wait for
+    /// the image that the window waits for, before each look and not only before the folder,
+    /// and a part's looks wait for it at most `WALK_WAITS_FOR_IMAGES_AT_MOST` in all, so the walk
+    /// never stops for good. On a disk of its own they never wait. Before, a part looked at the
+    /// new images of every folder since the part before in a row, 600 to 900 EXIF reads after
+    /// one wait, and the image awaited queued behind them (#256).
+    #[test]
+    fn a_parts_looks_wait_for_the_image_awaited() {
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-looks-wait-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("s")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.sort = crate::model::listing::Sort::Date;
+        app.folder.show_subfolders(true);
+        // The list in Date order, whose parts go in by the files' dates.
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        // A part of 40 new images, found in a folder after the walk's wait before it.
+        let part_of = |fed: &mut FedListing, from: usize| {
+            fed.so_far = (0..from + 40)
+                .map(|i| (format!("s/{i}.png").into(), None))
+                .collect();
+            fed.sent.up_to = from;
+            let began = Instant::now();
+            assert!(fed.sent.next_part(&fed.so_far).is_some());
+            began.elapsed()
+        };
+        let awaited = app.decoding.images_awaited().clone();
+        awaited.set(vec![dir.join("a.png")]);
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        let took = part_of(&mut fed, 0);
+        assert!(
+            took < Duration::from_millis(200),
+            "a disk of its own: {took:?}"
+        );
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        // The image became awaited after the walk's wait before the folder, and is decoded while
+        // the part looks at its images.
+        awaited.set(vec![dir.join("a.png")]);
+        let decoded = awaited.clone();
+        let later = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            decoded.set(Vec::new());
+        });
+        let took = part_of(&mut fed, 0);
+        later.join().unwrap();
+        assert!(
+            took >= Duration::from_millis(350),
+            "the looks waited: {took:?}"
+        );
+        // An image awaited all along holds a part's looks for a second in all, not for each.
+        awaited.set(vec![dir.join("a.png")]);
+        let took = part_of(&mut fed, 40);
+        assert!(
+            took >= Duration::from_millis(900) && took < Duration::from_millis(2500),
+            "a second in all: {took:?}"
+        );
+        crate::files::file_ops::test_mount(&dir, None);
+        awaited.set(Vec::new());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// The listing that `start_listing` started, read by the test a folder at a time in place of
     /// its thread, so that its parts and its whole list come between the other events in an
     /// order that the test chooses.
@@ -4892,6 +4975,12 @@ mod tests {
             listing,
             parts,
             sent: super::PartsSent {
+                // The thread's own stop is set above, and the test's parts wait on.
+                reads_first: crate::model::listing::ReadsFirst {
+                    stop: std::sync::Arc::default(),
+                    awaited: app.decoding.images_awaited().clone(),
+                    on_a_share: crate::model::listing::is_on_a_share(app.folder.dir(), true),
+                },
                 last: None,
                 up_to: 0,
                 listed_before: super::NameHashes::of(app.list.files()).sorted(),

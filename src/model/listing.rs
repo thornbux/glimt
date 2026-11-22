@@ -484,6 +484,35 @@ impl ImagesAwaited {
     }
 }
 
+/// The reads on a share that go before the walk's own looks at its files: a program started on
+/// a file, and the images that the window waits for. A part of a tree, in an order that looks
+/// at the files, waits for them before each look at an image (`wait`), as the walk waits before
+/// each folder, so that hundreds of EXIF reads in a row never hold the image awaited.
+pub(crate) struct ReadsFirst {
+    /// Set when another listing starts, which ends the wait.
+    pub(crate) stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The images that the window waits for.
+    pub(crate) awaited: ImagesAwaited,
+    /// Whether the places listed are on a share (`is_on_a_share`). Elsewhere nothing waits.
+    pub(crate) on_a_share: bool,
+}
+
+impl ReadsFirst {
+    /// Waits, on a share, for the reads that go first (`wait_for_reads_that_go_first`), and
+    /// adds the time it waited to `waited`, what the looks of one part have waited so far. They
+    /// wait for the images awaited for at most `WALK_WAITS_FOR_IMAGES_AT_MOST` in all, so a
+    /// part's looks never stop for good.
+    pub(crate) fn wait(&self, waited: &mut std::time::Duration) {
+        if !self.on_a_share {
+            return;
+        }
+        let at_most = WALK_WAITS_FOR_IMAGES_AT_MOST.saturating_sub(*waited);
+        let began = std::time::Instant::now();
+        wait_for_reads_that_go_first(&self.stop, &self.awaited, at_most);
+        *waited += began.elapsed();
+    }
+}
+
 /// A JPEG by its name: the one test, for the scaled decode, Check Images, duplicates, the
 /// orientation field and the EXIF read.
 pub fn is_jpeg(path: &Path) -> bool {
@@ -684,15 +713,20 @@ pub(crate) fn a_program_is_starting() -> bool {
 }
 
 /// Waits while a program started on a file may still be reading its start, or while the window
-/// waits for an image (`awaited`) and for at most `WALK_WAITS_FOR_IMAGES_AT_MOST`, or until
-/// `stop` is set. The reading of a tree on a share calls it between folders, so that neither a
-/// video player started on the same share nor the next image is queued behind a look at each
-/// file of the tree.
-fn wait_for_reads_that_go_first(stop: &std::sync::atomic::AtomicBool, awaited: &ImagesAwaited) {
+/// waits for an image (`awaited`) and for at most `at_most`, or until `stop` is set. The
+/// reading of a tree on a share calls it between folders, with `WALK_WAITS_FOR_IMAGES_AT_MOST`,
+/// and a part of it before each look at a file (`ReadsFirst`), so that neither a video player
+/// started on the same share nor the next image is queued behind a look at each file of the
+/// tree.
+fn wait_for_reads_that_go_first(
+    stop: &std::sync::atomic::AtomicBool,
+    awaited: &ImagesAwaited,
+    at_most: std::time::Duration,
+) {
     let began = std::time::Instant::now();
     let awaited = || {
         let now = std::time::Instant::now();
-        now.duration_since(began) < WALK_WAITS_FOR_IMAGES_AT_MOST && awaited.holds_the_walk_at(now)
+        now.duration_since(began) < at_most && awaited.holds_the_walk_at(now)
     };
     while (a_program_is_starting() || awaited()) && !stop.load(std::sync::atomic::Ordering::Relaxed)
     {
@@ -786,11 +820,11 @@ pub fn walk_tree(
         }
         let first = out.len();
         out.extend((files.into_iter()).map(|(f, id)| (rel.join(f).into_os_string(), id)));
-        // The wait comes before the part, which in an order that looks at the files looks at
-        // each new image of the folder on the share, so those looks wait for the images awaited
-        // too, and then the next folder is read.
+        // The wait comes before the folder's part. In an order that looks at the files, the
+        // part looks at each new image on the share, and each of those looks waits again
+        // (`ReadsFirst`), for at most a second in all, and then the next folder is read.
         if on_a_share {
-            wait_for_reads_that_go_first(stop, awaited);
+            wait_for_reads_that_go_first(stop, awaited, WALK_WAITS_FOR_IMAGES_AT_MOST);
         }
         part(&FolderReadWhole {
             so_far: &out,
