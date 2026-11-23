@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:f1cac3eb-72ac-59cc-8c49-938def69cb53",
+ "serialNumber": "urn:uuid:d92c5529-b50a-5af8-8f1f-c751eb67866b",
  "version": 1,
  "metadata": {
   "tools": {
@@ -14,16 +14,16 @@
   },
   "component": {
    "type": "application",
-   "bom-ref": "pkg:cargo/glimt@0.95.1",
+   "bom-ref": "pkg:cargo/glimt@0.95.2",
    "name": "glimt",
-   "version": "0.95.1",
+   "version": "0.95.2",
    "description": "Fast, lightweight image viewer for Linux, inspired by Geeqie",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/glimt@0.95.1",
+   "purl": "pkg:cargo/glimt@0.95.2",
    "externalReferences": [
     {
      "type": "vcs",
@@ -8282,7 +8282,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/glimt@0.95.1",
+   "ref": "pkg:cargo/glimt@0.95.2",
    "dependsOn": [
     "pkg:cargo/arboard@3.7.0",
     "pkg:cargo/eframe@0.37.0",
