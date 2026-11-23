@@ -360,9 +360,8 @@ as_version() {
 }
 # config SETTING=VALUE…: the settings file.
 config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
-# The folder of the added formats' desktop files. OLD before 0.75.0 reads only its old name,
-# decoders, so it gets that; NEW reads both, and the old one is still read for good.
-formats_dir() { if [ "$V" = old ]; then echo $XDG_DATA_HOME/glimt/decoders; else echo $XDG_DATA_HOME/glimt/formats; fi; }
+# The folder of the added formats' desktop files.
+formats_dir() { echo $XDG_DATA_HOME/glimt/formats; }
 # The start of a section: its title, and NEW with nothing left by a section before, neither in
 # the homes nor in /tmp/stub, as run.sh may start a part at any section. The working folder and
 # the variables a section exports for itself are reset too; a new one of those goes in the list.
@@ -3307,26 +3306,24 @@ quit
 expect "the tool ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
 expect "Stop Stamp in Edit → Tools ended the tool" "$left" "ended"
 
-# In the folder's old name, plugins, which every version reads: NEW still reads it.
-section "a tool with MimeType= in the old plugins folder: given only the selected files of its types"
+section "a tool with MimeType=: given only the selected files of its types"
 for v in new old; do
     as_version $v
     d=/tmp/tool-types-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/plugins
+    mkdir -p $d $XDG_DATA_HOME/glimt/tools
     convert -size 64x64 xc:red $d/a.png
     convert -size 64x64 xc:red $d/b.jpg
     printf '#!/bin/sh\necho "$@" >>%s/ran\n' $d >/tmp/stub/pngonly; chmod +x /tmp/stub/pngonly
     printf '[Desktop Entry]\nName=PngOnly\nExec=pngonly %%F\nMimeType=image/png;\n' \
-        >$XDG_DATA_HOME/glimt/plugins/pngonly.desktop
+        >$XDG_DATA_HOME/glimt/tools/pngonly.desktop
     config
     start $d/a.png; sleep 2
     remote select $d/a.png $d/b.jpg >/dev/null 2>&1
-    # The menu was Plugins before 0.75.0.
-    menu Edit $([ $v = old ] && echo Plugins || echo Tools) PngOnly; until_ok "[ -s $d/ran ]" 2
+    menu Edit Tools PngOnly; until_ok "[ -s $d/ran ]" 2
     quit
-    rm -f $XDG_DATA_HOME/glimt/plugins/pngonly.desktop
+    rm -f $XDG_DATA_HOME/glimt/tools/pngonly.desktop
     got=$(sed "s|$d/||g" $d/ran 2>/dev/null)
-    if [ $v = new ]; then expect "the tool in plugins/ ran on a.png only" "$got" "a.png"
+    if [ $v = new ]; then expect "the tool ran on a.png only" "$got" "a.png"
     else note "old: $got"; fi
 done
 

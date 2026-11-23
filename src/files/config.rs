@@ -1577,9 +1577,7 @@ mod tests {
                 CheckedBy("a_name_with_a_line_break_is_refused_at_the_add"),
             ),
             ("$XDG_DATA_HOME/glimt/tools", READ_ONLY),
-            ("$XDG_DATA_HOME/glimt/plugins", READ_ONLY),
             ("$XDG_DATA_HOME/glimt/formats", READ_ONLY),
-            ("$XDG_DATA_HOME/glimt/decoders", READ_ONLY),
             (
                 "/etc/glimt/lock-settings",
                 NoneToBreak("Glimt only asks whether it is there"),
@@ -1808,9 +1806,8 @@ mod tests {
         #[cfg(not(feature = "marks"))]
         files.push("file $XDG_STATE_HOME/glimt/marks".to_owned());
         let data = super::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
-        for (old, new) in crate::features::tools::RENAMED_FOLDERS {
-            files.push(shown(data.as_ref().map(|d| d.join(new))));
-            files.push(shown(data.as_ref().map(|d| d.join(old))));
+        for kind in ["tools", "formats"] {
+            files.push(shown(data.as_ref().map(|d| d.join(kind))));
         }
         files.push(format!("file {}", super::LOCK_FILE));
         let runtime = runtime_folder();

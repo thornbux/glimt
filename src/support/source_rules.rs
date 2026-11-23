@@ -843,11 +843,6 @@ const NEEDS_NO_GATE: &[(&str, &str, &str)] = &[
     ("ui/help.rs", "logo", "the logo, Glimt's own"),
     (
         "ui/menus.rs",
-        "tools_menu",
-        "it starts a tool or the file manager",
-    ),
-    (
-        "ui/menus.rs",
         "open_with_menu",
         "it opens the files in the application that the user chose and waits to see",
     ),

@@ -1,8 +1,7 @@
 //! Added formats: programs that turn a file of a format Glimt does not read itself (JPEG 2000,
 //! FITS, DICOM, OpenEXR …) into an image, so they need no code or library in Glimt. Each is a
 //! desktop file in `glimt/formats` in the XDG data folders (`~/.local/share/glimt/formats`
-//! first), or in the folder's old name `glimt/decoders` (`tools::RENAMED_FOLDERS`), read once
-//! at start:
+//! first), read once at start:
 //!
 //! ```text
 //! [Glimt Format]
@@ -11,9 +10,9 @@
 //! Exec=ffmpeg -v error -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
 //! ```
 //!
-//! The group's header is not checked, so files with the header that formats had before 0.76.0
-//! are read as well. In `Exec`, `%f` is the file, also inside a word that has no quotes, and
-//! `%%` is a `%`.
+//! The group's header is not checked, except that the header formats had before 0.76.0 is no
+//! longer read (`parse`). In `Exec`, `%f` is the file, also inside a word that has no quotes,
+//! and `%%` is a `%`.
 //! The other `%` codes are kept for later meanings, so a file should not use them.
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
@@ -175,6 +174,12 @@ pub(crate) fn ran_out_of_memory(err: &str) -> bool {
 /// The added format of a desktop file. Returns `None` without a name, extensions, or %f in its
 /// command (also inside a word without quotes, as ImageMagick's %f[0] for a file's first frame).
 fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
+    // The header that formats had before 0.76.0 is no longer read. Any other header is not
+    // checked, as before.
+    let header = (text.lines()).find(|l| !(l.trim().is_empty() || l.starts_with('#')));
+    if header.map(str::trim) == Some("[Glimt Decoder]") {
+        return None;
+    }
     let value = crate::features::tools::desktop_entry_values(text);
     let exts: Vec<String> = (value("Extensions")?.split(';'))
         .map(|e| e.trim().trim_start_matches('.').to_lowercase())
@@ -229,7 +234,7 @@ mod tests {
             )
             .unwrap();
         let cat = super::parse(
-            "[Glimt Decoder]\nName=Test\nExtensions=xyz; .XY2\nExec=sh -c \"cat \\\"${0#x}\\\"\" x%f\n",
+            "[Glimt Format]\nName=Test\nExtensions=xyz; .XY2\nExec=sh -c \"cat \\\"${0#x}\\\"\" x%f\n",
             &dir,
         )
         .unwrap();
@@ -409,7 +414,7 @@ mod tests {
     /// A format's desktop files broken in thousands of ways: read without a panic.
     #[test]
     fn survives_broken_format_files() {
-        let seed = b"[Glimt Decoder]\nName=JPEG 2000\nExtensions=jp2;j2k\n\
+        let seed = b"[Glimt Format]\nName=JPEG 2000\nExtensions=jp2;j2k\n\
                      Exec=ffmpeg -v error -i \"%f\" -f image2pipe -vcodec ppm -\n";
         for bytes in crate::support::test_support::broken(seed) {
             super::parse(&String::from_utf8_lossy(&bytes), Path::new("/"));
@@ -418,23 +423,21 @@ mod tests {
 
     /// The desktop file of an added format is frozen in 1.x: Name, Extensions (separated by ;,
     /// the dot optional, endings of two parts) and Exec, with %f for the file, also inside a
-    /// word, and %% for a %. Its first group is read whatever its header says, so both
-    /// [Glimt Format], which the examples write since 0.76.0, and [Glimt Decoder] are read.
+    /// word, and %% for a %, under [Glimt Format] as the examples write it. The header of
+    /// before 0.76.0, [Glimt Decoder], is not read.
     #[test]
     fn a_formats_desktop_keys_and_codes_are_kept() {
         let dir = Path::new("/formats");
-        for header in ["[Glimt Format]", "[Glimt Decoder]"] {
-            let text =
-                format!("{header}\nName=Test\nExtensions=a; .B;nii.gz\nExec=conv %f[0] 100%%\n");
-            let format = super::parse(&text, dir).expect(header);
-            assert_eq!(format.name, "Test");
-            assert_eq!(format.exts, [".a", ".b", ".nii.gz"]);
-            let words = format.arguments(Path::new("/p/a.b"));
-            assert_eq!(
-                words,
-                ["conv", "/p/a.b[0]", "100%"].map(std::ffi::OsString::from)
-            );
-        }
+        let entry = "Name=Test\nExtensions=a; .B;nii.gz\nExec=conv %f[0] 100%%\n";
+        let format = super::parse(&format!("# A comment\n\n[Glimt Format]\n{entry}"), dir).unwrap();
+        assert_eq!(format.name, "Test");
+        assert_eq!(format.exts, [".a", ".b", ".nii.gz"]);
+        let words = format.arguments(Path::new("/p/a.b"));
+        assert_eq!(
+            words,
+            ["conv", "/p/a.b[0]", "100%"].map(std::ffi::OsString::from)
+        );
+        assert!(super::parse(&format!("[Glimt Decoder]\n{entry}"), dir).is_none());
         // A `%%` is read before the `f` after it, so `%%f` is the text "%f", and a command
         // with no `%f` but that one is no format.
         let text = "[Glimt Format]\nName=T\nExtensions=a\nExec=conv %f x%%f\n";

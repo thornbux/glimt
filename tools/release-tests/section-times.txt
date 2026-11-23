@@ -105,7 +105,7 @@
 16	a kiosk: a visitor's keys change no saved setting
 15	a kiosk without a runtime folder: told, and Ctrl+Q is its way out; with one, Ctrl+Q is refused
 11	Edit → Tools from the menu: the tool runs on the shown file, Glimt answering meanwhile
-15	a tool with MimeType= in the old plugins folder: given only the selected files of its types
+15	a tool with MimeType=: given only the selected files of its types
 15	zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -
 5	several folders on the command line: one list, each image with its folder
 9	Open Folder Recursive: the folder with its subfolders, and Include Subfolders on

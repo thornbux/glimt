@@ -5,9 +5,10 @@
 # codes, the command-line options, the actions a script may run, the %field% names of the
 # templates, the keys of a theme file, the files Glimt owns and the group words of the sharing
 # file. A line is never taken out or changed. New ones are
-# added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed later
-# keeps its line: the code's table of old names maps it to the new name, which is still read,
-# and the new name is added at the end.
+# added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed after
+# 1.0 keeps its line: a table of old names in the code maps it to the new name, which is still
+# read, and the new name is added at the end. Before 1.0 the maintainer took out the old names
+# of 0.74.0 to 0.80.0 (0.96.0).
 setting preload
 setting remember_dir
 setting keep_recent
@@ -336,9 +337,7 @@ file $XDG_STATE_HOME/glimt/sharing
 file $XDG_STATE_HOME/glimt/marks
 file $XDG_DATA_HOME/glimt/collections
 file $XDG_DATA_HOME/glimt/tools
-file $XDG_DATA_HOME/glimt/plugins
 file $XDG_DATA_HOME/glimt/formats
-file $XDG_DATA_HOME/glimt/decoders
 file /etc/glimt/lock-settings
 file $XDG_RUNTIME_DIR/glimt/glimt-NAME.sock
 file $XDG_RUNTIME_DIR/glimt/focused

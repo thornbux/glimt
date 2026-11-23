@@ -1,6 +1,6 @@
 //! Tools, as Geeqie's plugins: programs in desktop files (`*.desktop`), in the Edit → Tools menu,
 //! run on the selected files. They are read from `glimt/tools` in the XDG data folders
-//! (`~/.local/share/glimt/tools` first), and from the folders' old names in `RENAMED_FOLDERS`.
+//! (`~/.local/share/glimt/tools` first).
 //! Geeqie's own plugins are not read: many of them ask a running Geeqie for things with
 //! `geeqie --remote`. The desktop files of added formats are read with the same `desktop_files`
 //! and `desktop_entry_values`.
@@ -12,16 +12,6 @@ use std::path::{Path, PathBuf};
 
 /// The field codes of a tool's `Exec` that stand for one file, without their `%`.
 const TOOL_FILE_CODES: [&str; 2] = ["f", "u"];
-
-/// The folders of desktop files that 0.75.0 renamed, by their old name and the new one, in
-/// Glimt's folder of the user's data folder and of the system's. Glimt reads the old folder too,
-/// forever, and creates only the new one. It opens the old one while only the old one exists
-/// (`folder_to_open`), as the user's tools are there. A desktop file in both under the same name
-/// counts once, from the new folder. The desktop files keep their format: no key names a plugin
-/// or a decoder. An added format's group header is `[Glimt Format]` in the examples since
-/// 0.76.0, and was `[Glimt Decoder]` before. Any header is read, as it is never checked, so the
-/// old one is read forever.
-pub const RENAMED_FOLDERS: [(&str, &str); 2] = [("plugins", "tools"), ("decoders", "formats")];
 
 /// The tools running, by name and process ID, for Stop in Edit → Tools: one may be an
 /// editor that stays open for hours, or a script that never ends.
@@ -208,38 +198,21 @@ pub fn desktop_files(kind: &str) -> Vec<(PathBuf, String)> {
     desktop_files_in(home.into_iter().chain(system), kind)
 }
 
-/// Returns the desktop files in the folder `kind` of each of `glimt_dirs`, with their text, and
-/// those in the folder's old name of `RENAMED_FOLDERS` after it. The first file of a name
-/// counts, so an earlier folder of `glimt_dirs` hides a later one, and the new folder hides the
-/// old one.
+/// Returns the desktop files in the folder `kind` of each of `glimt_dirs`, with their text. The
+/// first file of a name counts, so an earlier folder of `glimt_dirs` hides a later one.
 fn desktop_files_in(
     glimt_dirs: impl Iterator<Item = PathBuf>,
     kind: &str,
 ) -> Vec<(PathBuf, String)> {
-    let old_name = RENAMED_FOLDERS.iter().find(|r| r.1 == kind).map(|r| r.0);
     let mut seen = std::collections::HashSet::new();
     glimt_dirs
-        .flat_map(|d| std::iter::once(d.join(kind)).chain(old_name.map(|old| d.join(old))))
+        .map(|d| d.join(kind))
         .flat_map(|dir| std::fs::read_dir(&dir).into_iter().flatten().flatten())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
         .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
         .filter_map(|p| Some((p.clone(), crate::images::decode::read_text(&p).ok()?)))
         .collect()
-}
-
-/// Returns the folder `kind` of `glimt_home` that Edit → Tools opens. That is the old name of
-/// `RENAMED_FOLDERS` while only the old folder exists, as the user's tools are there, and the
-/// new one otherwise, which the caller creates.
-pub fn folder_to_open(glimt_home: &Path, kind: &str) -> PathBuf {
-    let new = glimt_home.join(kind);
-    let old_name = RENAMED_FOLDERS.iter().find(|r| r.1 == kind).map(|r| r.0);
-    use crate::files::file_io::is_surely_gone;
-    // An old folder that could not be looked at may hold the user's tools, so it is opened.
-    match old_name.map(|old| glimt_home.join(old)) {
-        Some(old) if !is_surely_gone(&old) && is_surely_gone(&new) => old,
-        _ => new,
-    }
 }
 
 /// The system's data folders, from $XDG_DATA_DIRS, which tools, added formats and the MIME
@@ -586,27 +559,26 @@ mod tests {
         );
     }
 
-    /// The folders' old names in `RENAMED_FOLDERS` are still read. A desktop file in both under
-    /// the same name counts once, from the new folder, and the user's folder hides the system's.
+    /// A desktop file of the user's hides the system's of the same name. The folders' old
+    /// names, plugins and decoders, are not read.
     #[test]
-    fn reads_the_old_folders_and_the_new_one_wins() {
+    fn the_users_folder_hides_the_systems() {
         let dir = std::env::temp_dir().join(format!("glimt-test-folders-{}", std::process::id()));
         let (user, system) = (dir.join("user"), dir.join("system"));
         let write = |folder: &Path, name: &str, text: &str| {
             std::fs::create_dir_all(folder).unwrap();
             std::fs::write(folder.join(name), text).unwrap();
         };
-        write(&user.join("tools"), "both.desktop", "new");
-        write(&user.join("plugins"), "both.desktop", "old");
-        write(&user.join("plugins"), "old.desktop", "old only");
-        write(&system.join("tools"), "old.desktop", "the system's");
+        write(&user.join("tools"), "both.desktop", "the user's");
+        write(&system.join("tools"), "both.desktop", "the system's");
+        write(&system.join("tools"), "system.desktop", "the system's only");
+        write(&user.join("tools"), "notes.txt", "not a desktop file");
+        write(&user.join("plugins"), "old.desktop", "in the old folder");
         write(
-            &system.join("plugins"),
-            "system.desktop",
-            "the system's old",
+            &user.join("decoders"),
+            "format.desktop",
+            "in the old folder",
         );
-        write(&user.join("plugins"), "notes.txt", "not a desktop file");
-        write(&user.join("decoders"), "format.desktop", "an added format");
         let mut found: Vec<(String, String)> =
             desktop_files_in([user.clone(), system.clone()].into_iter(), "tools")
                 .into_iter()
@@ -614,27 +586,11 @@ mod tests {
                 .collect();
         found.sort();
         let expected = [
-            ("system/plugins/system.desktop", "the system's old"),
-            ("user/plugins/old.desktop", "old only"),
-            ("user/tools/both.desktop", "new"),
+            ("system/tools/system.desktop", "the system's only"),
+            ("user/tools/both.desktop", "the user's"),
         ];
         assert_eq!(found, expected.map(|(p, t)| (p.to_owned(), t.to_owned())));
-        let formats = desktop_files_in([user, system].into_iter(), "formats");
-        assert_eq!(formats.len(), 1);
-        assert!(formats[0].0.ends_with("decoders/format.desktop"));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    /// Edit → Tools opens the old folder only while the new one does not exist.
-    #[test]
-    fn opens_the_old_folder_only_while_there_is_no_new_one() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-open-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(folder_to_open(&dir, "tools"), dir.join("tools"));
-        std::fs::create_dir_all(dir.join("plugins")).unwrap();
-        assert_eq!(folder_to_open(&dir, "tools"), dir.join("plugins"));
-        std::fs::create_dir_all(dir.join("tools")).unwrap();
-        assert_eq!(folder_to_open(&dir, "tools"), dir.join("tools"));
+        assert!(desktop_files_in([user, system].into_iter(), "formats").is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

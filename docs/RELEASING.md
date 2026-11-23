@@ -168,9 +168,9 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
   tool finds them.
 - `examples/tools` and `examples/formats` are installed as examples, not as active tools: in
   `/usr/share/doc/glimt/examples/` in the `.deb` and `.rpm` (scripts 755, so they work when
-  copied), and as `examples/` in the tar.gz. Glimt reads `/usr/share/glimt/{tools,formats}`
-  (and the old `{plugins,decoders}`), but nothing is put there. Each example needs programs
-  the package cannot count on (Ollama, spd-say, exiftool, ImageMagick, Python modules), and it
+  copied), and as `examples/` in the tar.gz. Glimt reads `/usr/share/glimt/{tools,formats}`,
+  but nothing is put there. Each example needs programs the package cannot count on (Ollama,
+  spd-say, exiftool, ImageMagick, Python modules), and it
   would sit in the menu for everyone and fail. A user copies the ones wanted to
   `~/.local/share/glimt/{tools,formats}` (Edit → Tools → Open the Tools Folder). The examples
   are not in the AppImage or the Flatpak, as no README is: their files are out of the user's
