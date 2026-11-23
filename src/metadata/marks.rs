@@ -485,7 +485,9 @@ pub fn move_old_marks_file() -> Option<String> {
 /// move that failed is told, and the old file is used where it is.
 fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
     use crate::files::file_io::{is_surely_gone, lock_beside, lock_or_tell};
-    if is_surely_gone(old) {
+    // One file under both names has nothing to move, and its one lock, taken twice by this
+    // thread, would wait for itself at every start.
+    if is_surely_gone(old) || is_one_file(old, new) {
         return MarksMove::Done;
     }
     let failed = |e: &dyn std::fmt::Display| {
@@ -524,6 +526,13 @@ fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
         Ok(()) => MarksMove::Done,
         Err(e) => failed(&e),
     }
+}
+
+/// Returns whether `old` and `new` name one marks file: one file under two names, as when
+/// $XDG_STATE_HOME and $XDG_DATA_HOME are one folder or one is a link to the other.
+fn is_one_file(old: &Path, new: &Path) -> bool {
+    use crate::images::save::file_id;
+    matches!((file_id(old), file_id(new)), (Some(Ok(a)), Some(Ok(b))) if a == b)
 }
 
 /// Moves `old`, a file of Glimt's own that no window writes meanwhile, to `new`, which is not
@@ -1036,6 +1045,28 @@ mod tests {
             told.len() == 1 && told[0].starts_with("Could not move the marks file"),
             "{told:?}"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// When $XDG_STATE_HOME and $XDG_DATA_HOME are one folder, or one is a link to the other,
+    /// the old and the new marks file are one file with one lock. There is nothing to move, and
+    /// the start does not wait for the lock that it holds itself.
+    #[test]
+    fn one_marks_file_under_both_names_is_not_moved() {
+        use super::{MarksMove, move_marks_file};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-one-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("data/glimt");
+        std::fs::create_dir_all(&data).unwrap();
+        std::os::unix::fs::symlink(&data, dir.join("state")).unwrap();
+        let line = "1\t3\t/photos/a.jpg\n";
+        let file = data.join("marks");
+        std::fs::write(&file, line).unwrap();
+        for old in [file.clone(), dir.join("state/marks")] {
+            assert_eq!(move_marks_file(&old, &file), MarksMove::Done);
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), line);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
