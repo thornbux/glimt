@@ -2178,9 +2178,11 @@ impl crate::App {
                     Ok(log) => (log, None),
                     Err(e) => (None, Some(e)),
                 };
-                let (back, left, mut errors) = move_back(pairs, move_log.as_mut());
+                let (back, left, errors) = move_back(pairs, move_log.as_mut());
+                // The log's failure is told as a failed write of its own, beside the Undo's
+                // text. Before, it was one of the errors, and only the first error was told.
                 let log_failure = start_failure.or_else(|| move_log.as_mut()?.take_failure());
-                errors.extend(log_dir.zip(log_failure).map(log_not_saved));
+                let log_warning = log_dir.zip(log_failure).map(log_not_saved);
                 let files = count(back.len(), "file");
                 // Those that did not go back stay to be undone again, as the trash's do.
                 let _ = report_tx.send(OperationReport {
@@ -2191,14 +2193,15 @@ impl crate::App {
                     move_log,
                     ..Default::default()
                 });
-                Some(match errors.first() {
+                let told = match errors.first() {
                     Some(first) => Told::FailedWrite(tf!(
                         "Undo failed ({count}): {first}",
                         count = count(errors.len(), "error"),
                         first
                     )),
                     None => Told::Notice(tf!("{files} moved back", files)),
-                })
+                };
+                with_failed_write(Some(told), log_warning)
             })),
             Undo::Trash(trash_move) => self.undo_trash(ctx, trash_move, undone),
         }
@@ -2264,26 +2267,23 @@ impl crate::App {
                     log.note(step);
                 }
             };
-            let (back, mut error) = restore_noting(&trash_move, trash_dirs, &mut note);
+            let (back, error) = restore_noting(&trash_move, trash_dirs, &mut note);
+            // The log's and the collection's failures are each told as a failed write of its
+            // own. Before, each was dropped when a file could not come back either.
             log_failure = log_failure.or_else(|| undo_log.as_mut()?.take_failure());
-            if let Some(warning) = log_dir.zip(log_failure).map(log_not_saved) {
-                error.get_or_insert(warning);
-            }
+            let log_warning = log_dir.zip(log_failure).map(log_not_saved);
             // What went with the files comes back with them: their places in the
             // collection, their marks and their stars.
             let set: HashSet<&Path> = back.iter().map(PathBuf::as_path).collect();
             let returned = |p: &Path| p.ancestors().any(|a| set.contains(a));
-            if let Some((file, removed)) = &trash_move.collection {
-                let removed: Vec<_> = (removed.iter())
-                    .filter(|(_, p)| returned(p))
-                    .cloned()
-                    .collect();
-                if let Err(e) =
-                    collections::edit_open_collection(file, |all| put_back(all, &removed))
-                {
-                    error.get_or_insert(e);
-                }
-            }
+            let collection_failure =
+                (trash_move.collection.as_ref()).and_then(|(file, removed)| {
+                    let removed: Vec<_> = (removed.iter())
+                        .filter(|(_, p)| returned(p))
+                        .cloned()
+                        .collect();
+                    collections::edit_open_collection(file, |all| put_back(all, &removed)).err()
+                });
             // Those not put back (a name taken, a rename that failed) stay to be undone
             // again, with their marks and places, which would be lost with this Undo.
             let (marks, kept) = all_marks.into_iter().partition(|(p, _)| returned(p));
@@ -2321,11 +2321,15 @@ impl crate::App {
                 count = count(back.len(), "file")
             );
             // The files that came back are told too when others did not.
-            Some(match error {
+            let told = match error {
                 None => Told::Notice(done),
                 Some(e) if back.is_empty() => Told::FailedWrite(tf!("Undo failed: {e}", e)),
                 Some(e) => Told::FailedWrite(format!("{done}; {}", tf!("Undo failed: {e}", e))),
-            })
+            };
+            with_failed_write(
+                with_failed_write(Some(told), log_warning),
+                collection_failure,
+            )
         });
     }
 
@@ -7649,6 +7653,70 @@ mod tests {
         assert!(d.join("sub/a.png").exists(), "moved without its log");
         assert_eq!(app.window.failed_writes_told(), 1);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// An Undo of a move whose log cannot be made, and whose file cannot go back as its name
+    /// is taken, tells both as failed writes of their own. Before, the log's failure was the
+    /// second of the errors, and only the first was told.
+    #[test]
+    fn an_undo_of_a_move_tells_its_log_beside_another_error() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-move-log-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        super::keep_job_logs_in_a_test(&dir);
+        let (mut app, ctx) = app_on(&dir);
+        let a = dir.join("a.png");
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        app.transfer(picked, dir.join("sub"), false);
+        let moved = |app: &crate::App| app.file_operations.undo.is_some() && !app.working();
+        assert!(run_background_until(&mut app, &ctx, moved));
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        // A file where the folder of the logs goes, so that no log can be made in it.
+        std::fs::remove_dir_all(dir.join("jobs")).unwrap();
+        std::fs::write(dir.join("jobs"), b"").unwrap();
+        std::fs::write(&a, b"another").unwrap();
+        let before = app.window.failed_writes_told();
+        app.undo(&ctx);
+        let done = |app: &crate::App| !app.working() && app.file_operations.undo.is_some();
+        assert!(run_background_until(&mut app, &ctx, done));
+        assert_eq!(app.window.failed_writes_told(), before + 2);
+        let text = app.notice.text().unwrap_or_default().to_owned();
+        assert!(text.contains("jobs"), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Undo from the trash whose log cannot be made, and whose file cannot come back, tells
+    /// both as failed writes of their own. Before, the log's failure was dropped when a file
+    /// could not come back.
+    #[test]
+    fn an_undo_from_the_trash_tells_its_log_beside_another_error() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-undo-trash-log-told-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file where the folder of the logs goes, so that no log can be made in it.
+        std::fs::write(dir.join("jobs"), b"").unwrap();
+        super::keep_job_logs_in_a_test(&dir);
+        let (mut app, ctx) = app_on(&dir);
+        app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
+            files: vec![dir.join("a.png")],
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since: std::time::SystemTime::now(),
+            marks: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            collection: None,
+        }));
+        app.undo(&ctx);
+        let done = |app: &crate::App| !app.working() && app.file_operations.undo.is_some();
+        assert!(run_background_until(&mut app, &ctx, done));
+        assert_eq!(app.window.failed_writes_told(), 2);
+        let text = app.notice.text().unwrap_or_default().to_owned();
+        assert!(text.contains("jobs"), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A Move holds its files back from the request, while its folder's real path is looked
