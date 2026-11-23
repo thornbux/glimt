@@ -292,13 +292,17 @@ impl crate::App {
             ctx.clone(),
         );
         let mut gate = gate_for_sizes(&places, self.decoding.images_awaited());
+        // A new search drops the receiver, which stops the looks of this sum.
+        let sum = Receiving::of(rx);
+        let is_wanted = sum.is_waited_for();
         // No busy pointer: the matches' size in the status bar, a look-up nobody waits for, shown
         // when it comes.
         std::thread::spawn(move || {
-            let sizes = (names.iter()).filter_map(|n| size_through(&mut gate, &dir.join(n)));
+            let size = |n: &OsString| size_through(&mut gate, &dir.join(n), &is_wanted);
+            let sizes = names.iter().filter_map(size);
             send_sizes_unless_on_a_share(&places, with_subfolders, sizes, tx, &ctx);
         });
-        self.search.match_size_rx = Receiving::of(rx);
+        self.search.match_size_rx = sum;
     }
 
     /// Takes the exif: search index once it is read, and runs the search again with it.

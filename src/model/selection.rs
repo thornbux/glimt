@@ -3,6 +3,7 @@
 use crate::model::folder::total_size_unless_on_a_share;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
+use crate::support::threads::Receiving;
 use crate::tf;
 use crate::ui::actions::Action;
 use crate::ui::file_list::SizeDue;
@@ -331,6 +332,9 @@ impl crate::App {
         );
         let awaited = self.decoding.images_awaited().clone();
         let (tx, rx) = mpsc::channel();
+        // A new selection drops the receiver, which stops the looks of this sum.
+        let sum = Receiving::of(rx);
+        let is_wanted = sum.is_waited_for();
         // No busy pointer: the selection's size in the status bar, a look-up nobody waits for,
         // shown when it comes.
         std::thread::spawn(move || {
@@ -341,14 +345,14 @@ impl crate::App {
                     &places,
                     with_subfolders,
                     &paths,
-                    &awaited,
+                    (&awaited, &is_wanted),
                 ))
                 .is_ok()
             {
                 ctx.request_repaint();
             }
         });
-        self.status_bar.sum_selection(rx);
+        self.status_bar.sum_selection(sum);
     }
 
     /// The files that an action on the selection acts on: the selected files, otherwise the

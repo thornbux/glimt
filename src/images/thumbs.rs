@@ -253,7 +253,8 @@ fn remove_orphaned_thumbnails_in(
             let Some(path) = source.flatten() else {
                 continue;
             };
-            // Every thumbnail of the cache is wanted until it is looked at.
+            // Always wanted: the user asked for the whole cache to be gone through, and is told
+            // when it ends.
             let _turn = gate.before_work_nobody_waits_for(&path, || true);
             // Only a file that is surely not there counts as gone. A share that answers with an
             // error for a moment is no reason to delete the thumbnail.
