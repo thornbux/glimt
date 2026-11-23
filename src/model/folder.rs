@@ -2008,8 +2008,14 @@ impl crate::App {
                 if on_a_share && listing::a_program_is_starting() {
                     continue;
                 }
-                let (changed, looked) =
-                    look_this_second(&mut read, (open, next), on_a_share, &mut gate, modified);
+                let is_wanted = || watcher_generation.load(Ordering::Relaxed) == generation;
+                let (changed, looked) = look_this_second(
+                    &mut read,
+                    (open, next),
+                    on_a_share,
+                    (&mut gate, &is_wanted),
+                    modified,
+                );
                 next = (next + looked) % (read.len() - open).max(1);
                 if !changed.is_empty() && watcher_generation.load(Ordering::Relaxed) == generation {
                     let _ = tx.send(changed);
@@ -2981,7 +2987,8 @@ fn folders_this_second(open: usize, all: usize, next: usize) -> impl Iterator<It
 
 /// Looks at the folders of `read` that the watcher looks at in a second, from the `next`th
 /// subfolder on, after the `open` folders first in it (`folders_this_second`), each with `look`
-/// and through `gate`, and keeps the times it found. On a share it looks at the subfolders only
+/// and through `gate` while `is_wanted` says the watcher still runs, and keeps the times it
+/// found. On a share it looks at the subfolders only
 /// while the looks of this second have taken less than `SHARE_LOOKS_A_SECOND`, the time waited
 /// at the gate not counted. Returns the folders whose times changed, and how many subfolders it
 /// looked at.
@@ -2989,7 +2996,7 @@ fn look_this_second(
     read: &mut FoldersRead,
     (open, next): (usize, usize),
     on_a_share: bool,
-    gate: &mut listing::ReadsFirst,
+    (gate, is_wanted): (&mut listing::ReadsFirst, &dyn Fn() -> bool),
     look: impl Fn(&Path) -> Option<std::time::SystemTime>,
 ) -> (Vec<PathBuf>, usize) {
     let (mut changed, mut looked, mut spent) = (Vec::new(), 0, Duration::ZERO);
@@ -3000,8 +3007,10 @@ fn look_this_second(
             }
             looked += 1;
         }
-        // Every folder watched is wanted while the watcher runs.
-        let _turn = gate.before_work_nobody_waits_for(&read[i].0, || true);
+        // A watcher that a newer one replaced looks at nothing more.
+        let Some(_turn) = gate.before_work_nobody_waits_for(&read[i].0, is_wanted) else {
+            break;
+        };
         let began = Instant::now();
         let now = look(&read[i].0);
         // Only the subfolders' looks count, as the open folders are looked at every second.
@@ -3057,19 +3066,20 @@ pub(crate) fn send_sizes_unless_on_a_share(
 /// Returns the sum of the sizes of `paths`, as `total_size` does, or `NOT_COUNTED_ON_A_SHARE`
 /// without a look at any file when a folder of `places` is on a share, or with
 /// `with_subfolders` has one mounted below it. Each look goes through the gate
-/// (`gate_for_sizes`), which waits for the images `awaited`.
+/// (`gate_for_sizes`), which waits for the images `awaited`, and is made only while
+/// `is_wanted` says that the sum is still waited for.
 pub(crate) fn total_size_unless_on_a_share(
     places: &[PathBuf],
     with_subfolders: bool,
     paths: &[PathBuf],
-    awaited: &listing::ImagesAwaited,
+    (awaited, is_wanted): (&listing::ImagesAwaited, &dyn Fn() -> bool),
 ) -> u64 {
     if is_any_on_a_share(places, with_subfolders) {
         return NOT_COUNTED_ON_A_SHARE;
     }
     let mut gate = gate_for_sizes(places, awaited);
     (paths.iter())
-        .filter_map(|path| size_through(&mut gate, path))
+        .filter_map(|path| size_through(&mut gate, path, is_wanted))
         .sum()
 }
 
@@ -3089,11 +3099,17 @@ pub(crate) fn gate_for_sizes(
     }
 }
 
-/// Returns the size of the file at `path`, looked at through `gate`. Returns `None` when it
-/// cannot be looked at.
-pub(crate) fn size_through(gate: &mut listing::ReadsFirst, path: &Path) -> Option<u64> {
-    // Every size asked for is wanted until it is summed.
-    let _turn = gate.before_work_nobody_waits_for(path, || true)?;
+/// Returns the size of the file at `path`, looked at through `gate` while `is_wanted` says that
+/// the sum is still waited for. Returns `None` when it cannot be looked at, or is not wanted.
+/// Before, every size was looked at, also those of a sum that a new selection or search had
+/// replaced, and on a share each took the turn ahead of the thumbnails and the images read
+/// ahead.
+pub(crate) fn size_through(
+    gate: &mut listing::ReadsFirst,
+    path: &Path,
+    is_wanted: &dyn Fn() -> bool,
+) -> Option<u64> {
+    let _turn = gate.before_work_nobody_waits_for(path, is_wanted)?;
     Some(path.metadata().ok()?.len())
 }
 
@@ -3971,7 +3987,7 @@ mod tests {
             || crate::model::listing::ReadsFirst::new(Default::default(), Default::default(), true);
         let mut on_share = read(2 + 500);
         let (changed, looked) =
-            super::look_this_second(&mut on_share, (2, 0), true, &mut gate(), look);
+            super::look_this_second(&mut on_share, (2, 0), true, (&mut gate(), &|| true), look);
         let most = (super::SHARE_LOOKS_A_SECOND.as_millis() / look_ms as u128) as usize + 1;
         assert_eq!(changed.len(), 2 + looked);
         // The open folders' looks take none of the subfolders' time, also when they are slow.
@@ -3980,8 +3996,13 @@ mod tests {
             std::thread::sleep(Duration::from_millis(if open { 150 } else { look_ms }));
             None
         };
-        let (_, looked) =
-            super::look_this_second(&mut read(2 + 500), (2, 0), true, &mut gate(), slow_open);
+        let (_, looked) = super::look_this_second(
+            &mut read(2 + 500),
+            (2, 0),
+            true,
+            (&mut gate(), &|| true),
+            slow_open,
+        );
         assert!(
             looked >= 2,
             "looked at {looked} subfolders after slow open folders"
@@ -3992,7 +4013,8 @@ mod tests {
             "the open folders"
         );
         let mut local = read(2 + 1_500);
-        let (_, looked) = super::look_this_second(&mut local, (2, 0), false, &mut gate(), |_| None);
+        let (_, looked) =
+            super::look_this_second(&mut local, (2, 0), false, (&mut gate(), &|| true), |_| None);
         assert_eq!(looked, super::SUBFOLDERS_A_SECOND);
     }
 
@@ -5104,7 +5126,7 @@ mod tests {
             &app.folder.places(),
             true,
             &paths,
-            &Default::default(),
+            (&Default::default(), &|| true),
         );
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
         // On a disk of its own they are summed.
@@ -5114,7 +5136,7 @@ mod tests {
                 &app.folder.places(),
                 true,
                 &paths,
-                &Default::default()
+                (&Default::default(), &|| true)
             ) > 0
         );
         std::fs::remove_dir_all(dir).unwrap();
@@ -5146,10 +5168,20 @@ mod tests {
         assert_eq!(app.list.files(), ["a.png", "nas/b.png"]);
         assert_eq!(app.status_bar.folder_total(), Some(NOT_COUNTED_ON_A_SHARE));
         let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
-        let total = super::total_size_unless_on_a_share(&places, true, &paths, &Default::default());
+        let total = super::total_size_unless_on_a_share(
+            &places,
+            true,
+            &paths,
+            (&Default::default(), &|| true),
+        );
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
         assert!(
-            super::total_size_unless_on_a_share(&places, false, &paths, &Default::default()) > 0
+            super::total_size_unless_on_a_share(
+                &places,
+                false,
+                &paths,
+                (&Default::default(), &|| true)
+            ) > 0
         );
         test_mount(&dir.join("nas"), None);
         std::fs::remove_dir_all(dir).unwrap();
@@ -5186,7 +5218,7 @@ mod tests {
             &places,
             app.folder.walks_subfolders(),
             &paths,
-            &Default::default(),
+            (&Default::default(), &|| true),
         );
         assert!(total > 0 && total != crate::support::format::NOT_COUNTED_ON_A_SHARE);
         test_mount(&dir.join("nas"), None);
@@ -6863,8 +6895,12 @@ mod tests {
         });
         let began = Instant::now();
         let places = [std::path::PathBuf::from("/")];
-        let total =
-            super::total_size_unless_on_a_share(&places, false, &[dir.join("a.png")], &awaited);
+        let total = super::total_size_unless_on_a_share(
+            &places,
+            false,
+            &[dir.join("a.png")],
+            (&awaited, &|| true),
+        );
         assert!(
             began.elapsed() >= Duration::from_millis(250),
             "{:?}",
@@ -6872,6 +6908,26 @@ mod tests {
         );
         assert!(total > 0 && total != crate::support::format::NOT_COUNTED_ON_A_SHARE);
         decoded.join().unwrap();
+        // A sum whose receiver is dropped, as a new selection or search drops it, looks at no
+        // more files, also while it waits at the gate. Before, it waited out the image and
+        // looked at every file, each through the turn, for nobody.
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut sum = crate::support::threads::Receiving::of(rx);
+        let (is_wanted, paths) = (sum.is_waited_for(), [dir.join("a.png")]);
+        let given = awaited.clone();
+        let began = Instant::now();
+        let summing = std::thread::spawn(move || {
+            let total =
+                super::total_size_unless_on_a_share(&places, false, &paths, (&given, &is_wanted));
+            tx.send(total).unwrap_or_default();
+            began.elapsed()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        sum.clear();
+        let took = summing.join().unwrap();
+        assert!(took < Duration::from_secs(1), "{took:?}");
+        awaited.set(Vec::new());
         test_mount(&dir, None);
         std::fs::remove_dir_all(&dir).unwrap();
     }

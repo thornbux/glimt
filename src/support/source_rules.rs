@@ -7335,6 +7335,67 @@ fn finds_a_background_reader_without_the_gate() {
     assert_eq!(found, ["a", "f"]);
 }
 
+/// Work that goes through the gate for work nobody waits for
+/// (`ReadsFirst::before_work_nobody_waits_for`) is judged wanted by a real check, such as
+/// whether the receiver of its answer is still there (`Receiving::is_waited_for`), so that work
+/// nobody waits for any more leaves the turn to the rest. A call outside the tests that passes
+/// a constant `|| true` says why its work is always wanted, in a comment just above it that
+/// starts with "Always wanted:". Before, the sums of a selection or search replaced since passed
+/// `|| true`, and each looked at every file on a share through the turn, for nobody.
+#[test]
+fn work_through_the_gate_is_judged_wanted() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        wrong.extend((work_not_judged_wanted(&text).iter()).map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "work through the gate passes a constant `|| true` as whether it is wanted (pass a real \
+         check, or say why in a comment above it: \"Always wanted:\"):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` outside the tests where a call of
+/// `before_work_nobody_waits_for` passes a constant `true` as whether its work is wanted,
+/// without a comment just above it that says "Always wanted:".
+fn work_not_judged_wanted(text: &str) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let end = tests_start(&code);
+    let call = "before_work_nobody_waits_for(";
+    let mut found = Vec::new();
+    for (i, line) in code[..end].iter().enumerate() {
+        for (at, _) in line.match_indices(call) {
+            if line[..at].ends_with("fn ") {
+                continue;
+            }
+            let text: String = (call_text(&code[..end], i, at).0)
+                .split_whitespace()
+                .collect();
+            let is_constant = ["||true", "||{true}"].iter().any(|c| text.contains(c));
+            if is_constant && !comment_above(&code, &comments, i).contains("Always wanted:") {
+                found.push(i + 1);
+            }
+        }
+    }
+    found
+}
+
+/// The check above finds `|| true` given on the call's line, on a line of its own and in
+/// braces, and passes a real check, the function's own definition and a call whose comment
+/// says why it is always wanted.
+#[test]
+fn finds_work_through_the_gate_not_judged_wanted() {
+    let text = "fn before_work_nobody_waits_for(p: &Path, is_wanted: impl Fn() -> bool) {}\n\
+        fn a() {\n    let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n\
+        fn b() {\n    let _turn = gate.before_work_nobody_waits_for(\n        p,\n        \
+        move || { true },\n    );\n}\n\
+        fn c() {\n    let _turn = gate.before_work_nobody_waits_for(p, &is_wanted);\n}\n\
+        fn d() {\n    // Always wanted: the user waits for all of it.\n    \
+        let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n";
+    assert_eq!(work_not_judged_wanted(text), [3, 6]);
+}
+
 /// Returns, as (file, function), the functions of `sources` outside the tests that start a
 /// thread whose comment above says "No busy pointer:", or a worker pool, whose work reaches one
 /// of `BACKGROUND_READS` and none of `THE_GATE`

@@ -163,8 +163,10 @@ pub(crate) enum Took<T> {
 /// A background thread's receiver, `none` while nothing runs. Its messages come only through
 /// `take`, `next`, `latest` and `wait`, each of which tells once when the thread is gone
 /// (`Took::Gone`) and forgets the receiver then, so no receiver polled by hand can leave the
-/// window waiting for a thread that broke.
-pub(crate) struct Receiving<T>(Option<mpsc::Receiver<T>>);
+/// window waiting for a thread that broke. Beside the receiver it holds a mark that lives as
+/// long as the receiver, by which the thread can ask whether its answer is still waited for
+/// (`is_waited_for`).
+pub(crate) struct Receiving<T>(Option<(mpsc::Receiver<T>, Arc<()>)>);
 
 // By hand, as a derive would ask the answer itself for a default, which a `Working` has not.
 impl<T> Default for Receiving<T> {
@@ -179,7 +181,16 @@ impl<T> Receiving<T> {
     }
 
     pub(crate) fn of(rx: mpsc::Receiver<T>) -> Self {
-        Receiving(Some(rx))
+        Receiving(Some((rx, Arc::new(()))))
+    }
+
+    /// Returns, for the thread that answers, whether this still waits for its answer. It stops
+    /// waiting when it is cleared, replaced or dropped, or once it has taken the answer. So the
+    /// work of a thread whose answer nobody waits for any more, such as the sum of a selection
+    /// changed since, can stop before it reads more files on a share.
+    pub(crate) fn is_waited_for(&self) -> impl Fn() -> bool + Send + 'static {
+        let mark = (self.0.as_ref()).map_or_else(std::sync::Weak::new, |(_, m)| Arc::downgrade(m));
+        move || mark.strong_count() > 0
     }
 
     pub(crate) fn is_some(&self) -> bool {
@@ -207,7 +218,7 @@ impl<T> Receiving<T> {
     /// The next message of a thread that sends several; the receiver stays until `clear`, or
     /// the thread is gone.
     pub(crate) fn next(&mut self) -> Took<T> {
-        match self.0.as_ref().map(mpsc::Receiver::try_recv) {
+        match self.0.as_ref().map(|(rx, _)| rx.try_recv()) {
             None | Some(Err(mpsc::TryRecvError::Empty)) => Took::Nothing,
             Some(Ok(answer)) => Took::Answer(answer),
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
@@ -229,7 +240,7 @@ impl<T> Receiving<T> {
     /// As `next`, waiting up to `timeout` for the next message. Only a background thread waits
     /// so, for the messages of another, never the window's thread.
     pub(crate) fn wait_next(&mut self, timeout: std::time::Duration) -> Took<T> {
-        match self.0.as_ref().map(|rx| rx.recv_timeout(timeout)) {
+        match self.0.as_ref().map(|(rx, _)| rx.recv_timeout(timeout)) {
             None | Some(Err(mpsc::RecvTimeoutError::Timeout)) => Took::Nothing,
             Some(Ok(answer)) => Took::Answer(answer),
             Some(Err(mpsc::RecvTimeoutError::Disconnected)) => {

@@ -1035,6 +1035,9 @@ pub(crate) struct ReadsFirst {
     looks: u64,
     /// How long the looks since the budget was last renewed have waited.
     waited: std::time::Duration,
+    /// Who holds the turn of the work that nobody waits for: `BACKGROUND_TURN`, or in a test
+    /// a holder of its own, so that no other test's work takes its turns.
+    turns: &'static TurnHolder,
 }
 
 impl ReadsFirst {
@@ -1051,6 +1054,7 @@ impl ReadsFirst {
             on_a_share: Some(on_a_share),
             looks: 0,
             waited: std::time::Duration::ZERO,
+            turns: &BACKGROUND_TURN,
         }
     }
 
@@ -1107,6 +1111,9 @@ impl ReadsFirst {
             return Some(BackgroundTurn { held: None });
         }
         let began = std::time::Instant::now();
+        // The work waits in the order it came for the turn, so that a thread that takes and
+        // gives back the turn in a loop lets the work that waited before its next take go first.
+        let ticket = self.turns.queue();
         loop {
             if !is_wanted() {
                 return None;
@@ -1123,7 +1130,7 @@ impl ReadsFirst {
             let goes_first = a_program_is_starting()
                 || (now.duration_since(began) < IMAGE_AWAITED_FOR
                     && self.awaited.holds_the_walk_at(now, Some(path)));
-            if !goes_first && let Some(turn) = BACKGROUND_TURN.take(now) {
+            if !goes_first && let Some(turn) = ticket.take(now) {
                 return Some(turn);
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
@@ -1155,10 +1162,13 @@ impl ReadsFirst {
     }
 }
 
-/// The turns given so far, and the number of the one held with the time it was taken.
+/// The turns given so far, the number of the one held with the time it was taken, the tickets
+/// given so far, and those of the work that still waits for the turn.
 struct Turns {
     given: u64,
     held: Option<(u64, std::time::Instant)>,
+    tickets: u64,
+    waiting: std::collections::BTreeSet<u64>,
 }
 
 /// Who holds the one turn of the work on a share that nobody waits for (`BACKGROUND_TURN`).
@@ -1169,26 +1179,59 @@ impl TurnHolder {
         TurnHolder(std::sync::Mutex::new(Turns {
             given: 0,
             held: None,
+            tickets: 0,
+            waiting: std::collections::BTreeSet::new(),
         }))
     }
 
-    /// Takes the turn at `now`, when nobody holds it or its holder took it `IMAGE_AWAITED_FOR`
-    /// or longer before. Returns `None` while another holds it. So a holder stuck on a share
-    /// that stopped answering is passed, and the work after it still goes one at a time.
-    /// Before, the turn of a stuck holder was never given back, and from then on all work on a
-    /// share waited that long and went on together without the turn.
-    fn take(&'static self, now: std::time::Instant) -> Option<BackgroundTurn> {
+    /// Puts work in the queue for the turn. Returns its ticket, which leaves the queue when it
+    /// is dropped.
+    fn queue(&'static self) -> TurnTicket {
         let mut turns = lock_even_if_poisoned(&self.0);
+        turns.tickets += 1;
+        let number = turns.tickets;
+        turns.waiting.insert(number);
+        TurnTicket {
+            holder: self,
+            number,
+        }
+    }
+}
+
+/// The place of work in the queue for the turn of a `TurnHolder` (`TurnHolder::queue`).
+struct TurnTicket {
+    holder: &'static TurnHolder,
+    number: u64,
+}
+
+impl TurnTicket {
+    /// Takes the turn at `now`, when this ticket is the oldest still waiting and nobody holds
+    /// the turn, or its holder took it `IMAGE_AWAITED_FOR` or longer before. Returns `None`
+    /// otherwise. So a holder stuck on a share that stopped answering is passed, and the work
+    /// after it still goes one at a time, in the order it came. Before, the turn went to
+    /// whoever asked first once it was free, and a thread that gave it back and asked again in
+    /// a loop kept it for as long as the loop ran, while the other work waited.
+    fn take(&self, now: std::time::Instant) -> Option<BackgroundTurn> {
+        let mut turns = lock_even_if_poisoned(&self.holder.0);
         let is_held = (turns.held)
             .is_some_and(|(_, since)| now.saturating_duration_since(since) < IMAGE_AWAITED_FOR);
-        if is_held {
+        if is_held || turns.waiting.first() != Some(&self.number) {
             return None;
         }
+        turns.waiting.remove(&self.number);
         turns.given += 1;
         turns.held = Some((turns.given, now));
         Some(BackgroundTurn {
-            held: Some((self, turns.given)),
+            held: Some((self.holder, turns.given)),
         })
+    }
+}
+
+impl Drop for TurnTicket {
+    fn drop(&mut self) {
+        lock_even_if_poisoned(&self.holder.0)
+            .waiting
+            .remove(&self.number);
     }
 }
 
@@ -1198,7 +1241,7 @@ impl TurnHolder {
 #[must_use = "the work holds the turn until it is done"]
 pub(crate) struct BackgroundTurn {
     /// The holder of the turn and the number of this turn, when it holds one. Its drop gives
-    /// the turn back only while no other work has passed it (`TurnHolder::take`).
+    /// the turn back only while no other work has passed it (`TurnTicket::take`).
     held: Option<(&'static TurnHolder, u64)>,
 }
 
@@ -2987,42 +3030,47 @@ mod tests {
     /// disk of its own. Work that is no longer wanted leaves, also while it waits. A turn
     /// waited for is not taken while an image is awaited, also one awaited after the wait
     /// began. Before, the work that waited took the turn as soon as it was free, and after
-    /// `IMAGE_AWAITED_FOR` every work waiting went on at once without it.
+    /// `IMAGE_AWAITED_FOR` every work waiting went on at once without it. The test has a holder
+    /// of the turn of its own, so that no other test's work can take its turns.
     #[test]
     fn work_nobody_waits_for_goes_one_at_a_time_after_the_images_awaited() {
-        use super::{BACKGROUND_TURN, IMAGE_AWAITED_FOR, ImagesAwaited, ReadsFirst};
+        use super::{IMAGE_AWAITED_FOR, ImagesAwaited, ReadsFirst, TurnHolder};
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Arc, mpsc};
         use std::time::{Duration, Instant};
+        static TURN: TurnHolder = TurnHolder::new();
         let awaited = ImagesAwaited::default();
-        let share = || ReadsFirst::new(Default::default(), awaited.clone(), true);
+        let gate = |on_a_share| ReadsFirst {
+            turns: &TURN,
+            ..ReadsFirst::new(Default::default(), awaited.clone(), on_a_share)
+        };
+        let share = || gate(true);
         let (a, b) = (
             std::path::Path::new("/share/a.jpg"),
             std::path::Path::new("/share/b.jpg"),
         );
-        // Another test's work may hold the turn for a moment.
-        let take = || loop {
-            if let Some(turn) = BACKGROUND_TURN.take(Instant::now()) {
-                break turn;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        };
-        let held = take();
+        let take = || TURN.queue().take(Instant::now());
+        let held = take().unwrap();
         // The image awaited, work elsewhere than on a share and work not wanted go at once.
         awaited.set(vec![a.into()]);
         let now = Instant::now();
         let goes = share().before_work_nobody_waits_for(a, || true).unwrap();
         assert!(goes.held.is_none());
-        let mut local = ReadsFirst::new(Default::default(), awaited.clone(), false);
-        assert!((local.before_work_nobody_waits_for(b, || true).unwrap().held).is_none());
+        assert!(
+            (gate(false)
+                .before_work_nobody_waits_for(b, || true)
+                .unwrap()
+                .held)
+                .is_none()
+        );
         assert!(share().before_work_nobody_waits_for(b, || false).is_none());
         assert!(now.elapsed() < Duration::from_millis(500));
         // Work that waits for the image awaited leaves once it is no longer wanted.
         let wanted = Arc::new(AtomicBool::new(true));
         let (tx, rx) = mpsc::channel();
-        let (gate, still) = (share(), wanted.clone());
+        let (gate_b, still) = (share(), wanted.clone());
         let waiter = std::thread::spawn(move || {
-            let mut gate = gate;
+            let mut gate = gate_b;
             tx.send(
                 gate.before_work_nobody_waits_for(b, || still.load(Ordering::Relaxed))
                     .is_none(),
@@ -3037,14 +3085,14 @@ mod tests {
         // One at a time: work waits while the turn is held, and while an image is awaited
         // that the window began to wait for after the work began to wait.
         awaited.set(Vec::new());
-        let (tx, rx) = mpsc::channel();
-        let gate = share();
+        let ((tx, rx), (release, released)) = (mpsc::channel(), mpsc::channel::<()>());
+        let gate_b = share();
         let waiter = std::thread::spawn(move || {
-            let mut gate = gate;
+            let mut gate = gate_b;
             let turn = gate.before_work_nobody_waits_for(b, || true).unwrap();
             tx.send(turn.held.is_some()).unwrap();
             // Held until the test has seen that another work cannot take it.
-            std::thread::sleep(Duration::from_millis(300));
+            released.recv().unwrap();
         });
         std::thread::sleep(Duration::from_millis(200));
         assert!(rx.try_recv().is_err(), "the turn is held");
@@ -3054,25 +3102,24 @@ mod tests {
         assert!(rx.try_recv().is_err(), "an image is awaited");
         awaited.set(Vec::new());
         assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap());
-        assert!(
-            BACKGROUND_TURN.take(Instant::now()).is_none(),
-            "one at a time"
-        );
+        assert!(take().is_none(), "one at a time");
+        release.send(()).unwrap();
         waiter.join().unwrap();
         // The turn was given back when it was dropped.
-        drop(take());
+        drop(take().unwrap());
         // Work that waited `IMAGE_AWAITED_FOR` for an image no longer waits for it, but still
-        // waits for the turn.
+        // waits for the turn, which work that came before it takes meanwhile.
         awaited.set(vec![a.into()]);
+        let before = TURN.queue();
         let (tx, rx) = mpsc::channel();
-        let gate = share();
+        let gate_b = share();
         let waiter = std::thread::spawn(move || {
-            let mut gate = gate;
+            let mut gate = gate_b;
             let turn = gate.before_work_nobody_waits_for(b, || true).unwrap();
             tx.send(turn.held.is_some()).unwrap();
         });
         std::thread::sleep(IMAGE_AWAITED_FOR - Duration::from_secs(1));
-        let held = take();
+        let held = before.take(Instant::now()).unwrap();
         std::thread::sleep(Duration::from_millis(1500));
         assert!(rx.try_recv().is_err(), "the turn is held");
         drop(held);
@@ -3080,17 +3127,69 @@ mod tests {
         waiter.join().unwrap();
         awaited.set(Vec::new());
         // A holder stuck on a share is passed after `IMAGE_AWAITED_FOR`, and only by one.
-        static TURN: super::TurnHolder = super::TurnHolder::new();
         let now = Instant::now();
-        let stuck = TURN.take(now).unwrap();
-        assert!(TURN.take(now + Duration::from_secs(1)).is_none());
-        let passing = TURN.take(now + IMAGE_AWAITED_FOR).unwrap();
+        let at = |later| TURN.queue().take(now + later);
+        let stuck = at(Duration::ZERO).unwrap();
+        assert!(at(Duration::from_secs(1)).is_none());
+        let passing = at(IMAGE_AWAITED_FOR).unwrap();
         drop(stuck);
         assert!(
-            TURN.take(now + IMAGE_AWAITED_FOR).is_none(),
+            at(IMAGE_AWAITED_FOR).is_none(),
             "the stuck one gave back no turn"
         );
         drop(passing);
-        assert!(TURN.take(now + IMAGE_AWAITED_FOR).is_some());
+        assert!(at(IMAGE_AWAITED_FOR).is_some());
+    }
+
+    /// Work that waits for the turn gets it before a thread that takes and gives back the turn
+    /// in a loop takes it again, as the work is served in the order it came. Before, the turn
+    /// went to whoever asked first once it was free. The loop asks again at once, and the work
+    /// waiting only every 20 ms, so the work waited for a time left to chance, up to as long as
+    /// the loop ran: the thumbnails and the images read ahead of a collection on a share,
+    /// behind the sum of its 2,000 sizes.
+    #[test]
+    fn a_loop_of_turns_lets_the_work_waiting_go_first() {
+        use super::{ReadsFirst, TurnHolder};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, mpsc};
+        use std::time::{Duration, Instant};
+        static TURN: TurnHolder = TurnHolder::new();
+        let share = || ReadsFirst {
+            turns: &TURN,
+            ..ReadsFirst::new(Default::default(), Default::default(), true)
+        };
+        let looping = Arc::new(AtomicBool::new(true));
+        let (still, mut gate) = (looping.clone(), share());
+        let looper = std::thread::spawn(move || {
+            let is_wanted = || still.load(Ordering::Relaxed);
+            while is_wanted() {
+                let _turn = gate
+                    .before_work_nobody_waits_for(std::path::Path::new("/share/a.jpg"), is_wanted);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        // Five works, one after the other, each wait for at most about one turn of the loop.
+        // Before, each waited for a time left to chance, often for more than a second.
+        let (tx, rx) = mpsc::channel();
+        let mut gate = share();
+        let waiter = std::thread::spawn(move || {
+            let mut longest = Duration::ZERO;
+            for _ in 0..5 {
+                std::thread::sleep(Duration::from_millis(30));
+                let began = Instant::now();
+                let turn = gate
+                    .before_work_nobody_waits_for(std::path::Path::new("/share/b.jpg"), || true);
+                assert!(turn.is_some_and(|t| t.held.is_some()));
+                longest = longest.max(began.elapsed());
+            }
+            tx.send(longest).unwrap();
+        });
+        let longest = rx.recv_timeout(Duration::from_secs(10));
+        looping.store(false, Ordering::Relaxed);
+        looper.join().unwrap();
+        waiter.join().unwrap();
+        let longest = longest.expect("the work waiting got the turn while the loop ran");
+        assert!(longest < Duration::from_millis(250), "{longest:?}");
     }
 }

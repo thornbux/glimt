@@ -638,8 +638,8 @@ impl StatusBar {
     }
 
     /// The selection's size, summed in the background.
-    pub(crate) fn sum_selection(&mut self, sum: mpsc::Receiver<u64>) {
-        self.selection_sum = Receiving::of(sum);
+    pub(crate) fn sum_selection(&mut self, sum: Receiving<u64>) {
+        self.selection_sum = sum;
     }
 
     /// Keeps what the image area showed: the pane the status bar tells about, the panes as
@@ -1175,7 +1175,8 @@ impl crate::App {
             // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
             // when it comes.
             std::thread::spawn(move || {
-                // The tree wants every folder it asked about.
+                // Always wanted: the tree marks the folder as asked about and asks no more, so it
+                // shows the folder's subfolders only from this answer.
                 let _turn = gate.before_work_nobody_waits_for(&dir, || true);
                 // Not told: the tree shows no subfolders of a folder it could not read, and opening
                 // that folder tells why.
@@ -2197,8 +2198,8 @@ fn answer_sizes_and_dates(
         // A look that failed (a share that dropped for a moment, a file just deleted) is no size
         // and no date. It is answered as unknown, so the row stays blank and is asked again
         // when it is drawn again, never shown as 0 bytes of 1970.
-        // A question that waits is wanted, as the newest are kept and the older ones dropped
-        // above.
+        // Always wanted: a question that waits is one of the newest, as the older ones were
+        // answered as dropped above, and the row drawn waits for it.
         let _turn = gate.before_work_nobody_waits_for(&path, || true);
         let d = std::fs::metadata(&path).map(|m| (m.len(), m.mtime())).ok();
         let is_known = d.is_some();
