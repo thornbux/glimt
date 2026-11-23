@@ -5900,6 +5900,21 @@ mod tests {
                 }
             }
         }
+
+        /// Notes the image on screen in `app` as shown in this round, as the newest of the
+        /// history, when it is not `same_image` and so came into the first pane in another way
+        /// than by the slideshow: the image shown was deleted or left the list, and the next one
+        /// took its place. The slideshow notes it too (`follow_list_in_slideshow`). Then
+        /// `same_image` is that image.
+        fn note_shown_elsewhere(&mut self, app: &crate::App, same_image: &mut Option<OsString>) {
+            let now = app.list.files().get(app.list.shown()).cloned();
+            if app.slideshow.is_running() && now.is_some() && now != *same_image {
+                self.round.extend(now.clone());
+                self.history.extend(now.clone());
+                self.back = 0;
+                *same_image = now;
+            }
+        }
     }
 
     /// Asserts that `names`, files in `dir`, are in the order `order` (`listing::in_order`).
@@ -6357,17 +6372,19 @@ mod tests {
                         (Some(m), 15) => m.first().map(|&i| &files[i]),
                         (Some(m), _) => m.last().map(|&i| &files[i]),
                     };
+                    // When the search shows no image, Home and End do nothing.
                     if let Some(expected) = expected {
                         assert_eq!(&now, expected, "Home or End: {at}");
-                    }
-                    // Shown as a click shows it, it joins the history when it is another image.
-                    if Some(&now) != same_image.as_ref() {
-                        seen.history.push(now.clone());
-                        seen.back = 0;
-                    }
-                    match event {
-                        15 => seen.round = [now].into(),
-                        _ => _ = seen.round.insert(now),
+                        // Shown as a click shows it, it joins the history when it is another
+                        // image.
+                        if Some(&now) != same_image.as_ref() {
+                            seen.history.push(now.clone());
+                            seen.back = 0;
+                        }
+                        match event {
+                            15 => seen.round = [now].into(),
+                            _ => _ = seen.round.insert(now),
+                        }
                     }
                 }
                 17 => app.config.slideshow_repeat = !app.config.slideshow_repeat,
@@ -6536,6 +6553,9 @@ mod tests {
                     if let Some(f) = fed.as_ref() {
                         send_whole(&mut app, &ctx, f);
                     }
+                    // The whole list may have taken the image shown out, and the next one is
+                    // shown before the image deleted below, which may be that one.
+                    seen.note_shown_elsewhere(&app, &mut same_image);
                     app.start_listing(&ctx);
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     let before = app.list.files().to_vec();
@@ -6617,21 +6637,12 @@ mod tests {
                     assert!(app.panel.scrolls_to_shown(), "scrolled to it: {at}");
                 }
             }
-            // An image that came into the first pane in another way than by the slideshow (the
-            // next one after the image shown was deleted, or gone from the list) is shown in this
-            // round, as the newest of the history.
-            let now = shown_name(&app);
-            if picked.is_none()
-                && !matches!(event, 15 | 16)
-                && app.slideshow.is_running()
-                && now.is_some()
-                && now != same_image
-            {
-                let now = now.clone().unwrap();
-                seen.round.insert(now.clone());
-                seen.history.push(now);
-                seen.back = 0;
+            // An image that came into the first pane in another way than by the slideshow is
+            // shown in this round.
+            if picked.is_none() && !matches!(event, 15 | 16) {
+                seen.note_shown_elsewhere(&app, &mut same_image);
             }
+            let now = shown_name(&app);
             if picked == Some(true) {
                 // A new image: one the round has not shown, or the first of a new round with
                 // Repeat once every image that the search shows was shown. Without Repeat, the
@@ -6664,6 +6675,12 @@ mod tests {
                     // screen.
                     let others = rows_before.iter().any(|f| Some(f) != shown_before.as_ref());
                     assert!(!others, "a tick held the slideshow: {at}");
+                    // Every image the search shows was shown, and with Repeat the tick began a
+                    // new round, in which only the image on screen counts as shown. An empty
+                    // list has no tick.
+                    if !order_before.is_empty() {
+                        seen.round = shown_before.iter().cloned().collect();
+                    }
                 }
             }
             if picked_first {
@@ -6700,6 +6717,20 @@ mod tests {
                 assert!(
                     hidden.is_empty(),
                     "planned, the search hides {hidden:?}: {at}"
+                );
+            }
+            // The round the test keeps is the slideshow's own, for every image of the list.
+            // Before, the test missed the new round that a tick with Repeat begins when the
+            // search shows no image it has not shown, and failed later, only in the runs whose
+            // order by creation time led there.
+            if app.slideshow.is_running() {
+                let differ: Vec<(&OsString, bool)> = (app.list.files().iter())
+                    .map(|f| (f, seen.round.contains(f)))
+                    .filter(|&(f, in_ours)| in_ours != app.slideshow.has_shown(f))
+                    .collect();
+                assert!(
+                    differ.is_empty(),
+                    "the round differs, (name, in ours): {differ:?}, {at}"
                 );
             }
             let files = app.list.files().to_vec();
