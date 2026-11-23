@@ -1694,6 +1694,9 @@ mod tests {
         let keys = state.lines().filter_map(|l| l.split_once('='));
         now.extend(keys.map(|(key, _)| format!("state {key}")));
         now.extend(remote_names());
+        // The keys of --remote info's lines, which scripts read.
+        let info = crate::features::remote::info_keys().into_iter();
+        now.extend(info.map(|key| format!("info_key {key}")));
         now.extend(template_fields());
         now.extend(theme_keys());
         now.extend(owned_files());

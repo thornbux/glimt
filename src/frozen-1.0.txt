@@ -2,13 +2,14 @@
 # AGENTS.md): the settings' keys, the values of the settings that take a name (those of
 # config::NAMED in its order, because a value's place is the number it was written as before),
 # the window state's keys, the --remote commands with the words of their choices and the exit
-# codes, the command-line options, the actions a script may run, the %field% names of the
-# templates, the keys of a theme file, the files Glimt owns and the group words of the sharing
-# file. A line is never taken out or changed. New ones are
+# codes, the keys of --remote info's lines, the command-line options, the actions a script may
+# run, the %field% names of the templates, the keys of a theme file, the files Glimt owns and the
+# group words of the sharing file. A line is never taken out or changed. New ones are
 # added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed after
 # 1.0 keeps its line: a table of old names in the code maps it to the new name, which is still
 # read, and the new name is added at the end. Before 1.0 the maintainer took out the old names
-# of 0.74.0 to 0.80.0 (0.96.0).
+# of 0.74.0 to 0.80.0, and renamed or took out the names that the review of this file found
+# misleading (0.96.0).
 setting preload
 setting remember_dir
 setting keep_recent
@@ -533,3 +534,26 @@ field flash
 field gps
 file $XDG_DATA_HOME/glimt/marks
 file $XDG_DATA_HOME/glimt/.marks.lock
+info_key path
+info_key size
+info_key modified
+info_key width
+info_key height
+info_key format
+info_key orientation
+info_key stars
+info_key marks
+info_key keywords
+info_key comment
+info_key alt_text
+info_key extended_description
+info_key exif.camera
+info_key exif.lens
+info_key exif.taken
+info_key exif.exposure
+info_key exif.aperture
+info_key exif.iso
+info_key exif.focal_length
+info_key exif.exposure_bias
+info_key exif.flash
+info_key exif.gps

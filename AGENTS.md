@@ -109,6 +109,8 @@ release that drops its format, so that no user's file or mark is lost in the upg
   `BACK_UP_FAILED`, `BACK_UP_NO_FOLDER`);
 - the command-line options of `START_OPTIONS` with `--remote` and `--remote-all` (`option`
   lines);
+- the keys of the lines that `--remote info` prints (`info_key` lines, from
+  `remote::info_keys`: `INFO_KEYS`, and `exif.` with each field of `exif::FIELDS`);
 - the `%field%` names of the templates (`field` lines). Each is checked to be filled, for a test
   image, in the templates it belongs to: the full screen info and the print caption (`name`,
   `path`, `position`, `dimensions`, `marks`, `keywords`, `comment`, `file_size`, and the field
