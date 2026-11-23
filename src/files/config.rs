@@ -303,7 +303,7 @@ config! {
     /// How colours outside the target are brought in: perceptual, relative, saturation or
     /// absolute. Only profiles with tables for it (LUT profiles) tell them apart.
     rendering_intent: String = "perceptual".to_owned(),
-    /// The interface's language, as a translation's code (no_nb), a language's own code (nb),
+    /// The interface's language, as a translation's code (nb, pt_BR), a language's code (pt),
     /// or "en". When it is empty, the system's language is used.
     language: String = String::new(),
     /// Marks and stars shown in the file list and overlay (marks feature).

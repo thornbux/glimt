@@ -169,8 +169,6 @@ value language fr
 value language is
 value language it
 value language nl
-value language no_nb
-value language no_nn
 value language pl
 value language pt_BR
 value language fi
@@ -531,3 +529,5 @@ value thumbnail_size large
 value print_printer "PDF file"
 value print_paper 10x15cm
 value print_paper 13x18cm
+value language nb
+value language nn

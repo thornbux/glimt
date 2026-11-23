@@ -45,13 +45,13 @@ pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
     ("it", "Italiano", &["it"], include_str!("../../po/it.po")),
     ("nl", "Nederlands", &["nl"], include_str!("../../po/nl.po")),
     (
-        "no_nb",
+        "nb",
         "Norsk bokmål",
         &["nb", "no"],
         include_str!("../../po/no_nb.po"),
     ),
     (
-        "no_nn",
+        "nn",
         "Norsk nynorsk",
         &["nn"],
         include_str!("../../po/no_nn.po"),
@@ -187,7 +187,7 @@ fn language(locale: &str) -> Option<String> {
     if lang == "en" {
         return None;
     }
-    // A translation's own code comes first, as "no_nn" starts with bokmål's "no".
+    // A translation's own code comes first, as "pt_BR" names its country too.
     LANGUAGES
         .iter()
         .find(|l| l.0 == name)
@@ -411,11 +411,12 @@ mod tests {
     #[test]
     fn the_language_setting_reads_a_language_code() {
         for (setting, code) in [
-            ("no_nb", Some("no_nb")),
-            ("nb", Some("no_nb")),
-            ("no", Some("no_nb")),
-            ("nn", Some("no_nn")),
-            ("no_nn", Some("no_nn")),
+            ("nb", Some("nb")),
+            ("no", Some("nb")),
+            ("nn", Some("nn")),
+            // The values of 0.95 and older, read now as a locale is: "no" is bokmål.
+            ("no_nb", Some("nb")),
+            ("no_nn", Some("nb")),
             ("pt", Some("pt_BR")),
             ("pt_BR", Some("pt_BR")),
             ("de", Some("de")),
@@ -428,7 +429,7 @@ mod tests {
                 "{setting}"
             );
         }
-        for setting in ["en", "EN", "en_GB", "nb", "pt_BR", "no_nn"] {
+        for setting in ["en", "EN", "en_GB", "nb", "pt_BR", "nn"] {
             assert!(super::is_language(setting), "{setting}");
         }
         assert!(!super::is_language("xx"));
@@ -442,7 +443,7 @@ mod tests {
     fn numbers_take_the_language_marks() {
         assert_eq!(super::number_separators_of("en"), (",", "."));
         assert_eq!(super::number_separators_of("de"), (".", ","));
-        assert_eq!(super::number_separators_of("no_nb"), ("\u{a0}", ","));
+        assert_eq!(super::number_separators_of("nb"), ("\u{a0}", ","));
         for l in super::LANGUAGES {
             assert_ne!(super::number_separators_of(l.0), (",", "."), "{}", l.0);
         }
@@ -521,11 +522,11 @@ msgstr[1] "bilder"
     /// Locale names to the translation built in; English, C and others to none.
     #[test]
     fn finds_the_language() {
-        for l in ["nb_NO.UTF-8", "nb", "no_NO", "nb_NO@euro", "no_nb"] {
-            assert_eq!(super::language(l).as_deref(), Some("no_nb"), "{l}");
+        for l in ["nb_NO.UTF-8", "nb", "no_NO", "nb_NO@euro"] {
+            assert_eq!(super::language(l).as_deref(), Some("nb"), "{l}");
         }
-        for l in ["nn_NO.UTF-8", "nn", "no_nn"] {
-            assert_eq!(super::language(l).as_deref(), Some("no_nn"), "{l}");
+        for l in ["nn_NO.UTF-8", "nn"] {
+            assert_eq!(super::language(l).as_deref(), Some("nn"), "{l}");
         }
         assert_eq!(super::language("de_DE.UTF-8").as_deref(), Some("de"));
         assert_eq!(super::language("pl_PL.UTF-8").as_deref(), Some("pl"));
@@ -702,7 +703,7 @@ msgstr[1] "bilder"
             let entries = (1..lines.len()).filter(|&i| lines[i].starts_with("msgid "));
             let entries = entries.filter(|&i| lines[i] != "msgid \"\"");
             let fuzzy = |i: usize| lines[i - 1] == "#, fuzzy";
-            let wrong: Vec<&str> = match *code == "no_nb" {
+            let wrong: Vec<&str> = match *code == "nb" {
                 true => entries.filter(|&i| fuzzy(i)).map(|i| lines[i]).collect(),
                 false => entries.filter(|&i| !fuzzy(i)).map(|i| lines[i]).collect(),
             };
