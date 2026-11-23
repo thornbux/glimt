@@ -1381,9 +1381,8 @@ impl crate::App {
             entries: Err(e),
         } = &found
         {
-            return self
-                .notice
-                .give_error(format!("{display}: {e}", display = file.display()));
+            let cause = e.to_string();
+            return (self.notice).give_error_because(file.display().to_string(), cause);
         }
         self.step_history(opening.history);
         match found {
@@ -2183,8 +2182,8 @@ impl crate::App {
     /// folders `read` watched, so that a change lists it again.
     fn listing_failed(&mut self, ctx: &egui::Context, unread: Unread, read: FoldersRead) {
         let (path, e) = unread;
-        self.notice
-            .give_error(tf!("Could not open {name}:\n{e}", name = path.display(), e));
+        let heading = tf!("Could not open {name}", name = path.display());
+        self.notice.give_error_because(heading, e.to_string());
         if !read.is_empty() {
             self.watch_folders_read(ctx, read, false);
         }
@@ -2246,12 +2245,13 @@ impl crate::App {
         let Some((path, e)) = new.first() else {
             return;
         };
-        let mut text = tf!("Could not open {name}:\n{e}", name = path.display(), e);
+        let mut cause = e.to_string();
         if new.len() > 1 {
             let n = new.len() - 1;
-            text += &tf!(", and {n} more", n);
+            cause += &tf!(", and {n} more", n);
         }
-        self.notice.give_error(text);
+        let heading = tf!("Could not open {name}", name = path.display());
+        self.notice.give_error_because(heading, cause);
     }
 
     /// Takes the images of the folder read in the background as the list, as `take_listing`
@@ -3520,7 +3520,7 @@ mod tests {
             .folder
             .is_listing()));
         let told = app.notice.text().unwrap_or_default().to_owned();
-        let start = format!("Could not open {}:\n", unread.display());
+        let start = format!("Could not open {}\n", unread.display());
         assert!(told.starts_with(&start), "{told}");
         // A refresh that fails keeps the list and the selection.
         crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
@@ -3604,7 +3604,7 @@ mod tests {
         listed(&mut app);
         let in_root = |f: &str| real.join(f).strip_prefix("/").unwrap().to_owned();
         assert_eq!(app.list.files(), [in_root("a/1.png"), in_root("b/1.png")]);
-        let start = format!("Could not open {}:\n", real.join("loop").display());
+        let start = format!("Could not open {}\n", real.join("loop").display());
         let told = app.notice.text().unwrap_or_default().to_owned();
         assert!(told.starts_with(&start), "{told}");
         // A change that lists the folders again does not tell it again, and F5 does.

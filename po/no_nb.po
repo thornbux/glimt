@@ -2831,6 +2831,10 @@ msgstr "Kunne ikke gi samlingen nytt navn: {e}"
 msgid "Could not open {name}:\n{e}"
 msgstr "Kunne ikke åpne {name}:\n{e}"
 
+#: src/model/folder.rs
+msgid "Could not open {name}"
+msgstr "Kunne ikke åpne {name}"
+
 #: src/images/save.rs
 msgid "only JPEG, PNG and WebP can store the rotation"
 msgstr "bare JPEG, PNG og WebP kan lagre rotasjonen"

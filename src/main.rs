@@ -548,7 +548,7 @@ fn start_notice(
     old_marks_file_left: Option<String>,
     old_files: &[String],
 ) -> crate::viewer::view::Notice {
-    let mut notice = crate::viewer::view::Notice::new(error.clone());
+    let mut notice = crate::viewer::view::Notice::new(error.iter().cloned().collect(), Vec::new());
     if error.is_none()
         && let Some(left) = old_marks_file_left
     {

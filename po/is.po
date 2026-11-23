@@ -3523,6 +3523,11 @@ msgstr "Gat ekki endurnefnt safnið: {e}"
 msgid "Could not open {name}:\n{e}"
 msgstr "Gat ekki opnað {name}:\n{e}"
 
+#: src/model/folder.rs
+#, fuzzy
+msgid "Could not open {name}"
+msgstr "Gat ekki opnað {name}"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"

@@ -3523,6 +3523,11 @@ msgstr "Kunde inte byta namn på samlingen: {e}"
 msgid "Could not open {name}:\n{e}"
 msgstr "Kunde inte öppna {name}:\n{e}"
 
+#: src/model/folder.rs
+#, fuzzy
+msgid "Could not open {name}"
+msgstr "Kunde inte öppna {name}"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"

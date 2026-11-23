@@ -1723,14 +1723,14 @@ pub fn take_save_error() -> Option<String> {
     }
 }
 
-/// Takes the warnings that edits went on without their lock, one line for each. They are not
-/// failed writes, as each edit was made. Returns `None` when there is no new one.
-pub fn take_lock_warning() -> Option<String> {
+/// Takes the warnings that edits went on without their lock, each to be shown as a message of
+/// its own. They are not failed writes, as each edit was made.
+pub fn take_lock_warnings() -> Vec<String> {
     #[cfg(not(test))]
     let warnings = std::mem::take(&mut lock_even_if_poisoned(&LOCKS_TOLD).warnings);
     #[cfg(test)]
     let warnings = std::mem::take(&mut lock_even_if_poisoned(told_here()).locks.warnings);
-    (!warnings.is_empty()).then(|| warnings.join("\n"))
+    warnings
 }
 
 /// Takes the note of the saves over files with other names (hard links), once no file is being
@@ -4333,7 +4333,7 @@ mod tests {
             !failed.iter().any(|e| e.starts_with("Could not lock")),
             "an edit that was made is told as a failed write: {failed:?}"
         );
-        let warning = super::take_lock_warning().unwrap_or_default();
+        let warning = super::take_lock_warnings().join("\n");
         assert!(warning.starts_with("Could not lock"), "{warning:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -4351,18 +4351,18 @@ mod tests {
         std::fs::create_dir_all(downloads.join(".trip.gqv.lock")).unwrap();
         std::fs::create_dir_all(downloads.join(".other.gqv.lock")).unwrap();
         std::fs::create_dir_all(own.join(".marks.lock")).unwrap();
-        super::take_lock_warning();
+        super::take_lock_warnings();
         assert!(super::file_lock(&downloads.join("trip.gqv")).is_none());
-        let first = super::take_lock_warning().unwrap_or_default();
+        let first = super::take_lock_warnings().join("\n");
         assert!(first.contains("trip.gqv"), "{first:?}");
         assert!(super::file_lock(&downloads.join("other.gqv")).is_none());
         assert_eq!(
-            super::take_lock_warning(),
-            None,
+            super::take_lock_warnings(),
+            Vec::<String>::new(),
             "told twice for one folder"
         );
         assert!(super::file_lock(&own.join("marks")).is_none());
-        let other = super::take_lock_warning().unwrap_or_default();
+        let other = super::take_lock_warnings().join("\n");
         assert!(other.contains(".marks.lock"), "{other:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }

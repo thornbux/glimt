@@ -2841,6 +2841,10 @@ msgstr ""
 msgid "Could not open {name}:\n{e}"
 msgstr ""
 
+#: src/model/folder.rs
+msgid "Could not open {name}"
+msgstr ""
+
 #: src/images/save.rs
 msgid "only JPEG, PNG and WebP can store the rotation"
 msgstr ""

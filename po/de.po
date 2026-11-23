@@ -3523,6 +3523,11 @@ msgstr "Konnte die Sammlung nicht umbenennen: {e}"
 msgid "Could not open {name}:\n{e}"
 msgstr "Konnte {name} nicht öffnen:\n{e}"
 
+#: src/model/folder.rs
+#, fuzzy
+msgid "Could not open {name}"
+msgstr "Konnte {name} nicht öffnen"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"

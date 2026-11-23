@@ -2733,7 +2733,7 @@ fn a_close_takes_the_failed_writes_first() {
             &[("ui/window.rs", "ask_to_close")],
         ),
         ("take_save_error(", &[("ui/workers.rs", "take_saves")]),
-        ("take_lock_warning(", &[("ui/workers.rs", "take_saves")]),
+        ("take_lock_warnings(", &[("ui/workers.rs", "take_saves")]),
         ("take_saved(", &[("ui/workers.rs", "take_saves")]),
         ("self.notices.", &[("ui/workers.rs", "take_saves")]),
     ];
