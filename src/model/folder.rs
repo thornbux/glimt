@@ -665,9 +665,11 @@ pub(crate) enum ListedRows {
     /// (`listing::kept_order`). No file was looked at, so the window gives each name what it is
     /// sorted by from its own rows (`Rows::in_step`).
     InListOrder(Vec<ListedName>),
-    /// A subfolder of the tree was read again, and its parts brought what changed there. The
-    /// rest of the list stays as it is.
-    InParts,
+    /// A subfolder of the tree was read again, and its parts brought the names new there. These
+    /// are every name the subfolder holds now, with the identities it was found with, which the
+    /// names that stayed take (`App::rows_with_subfolder_read_again`). The rest of the list
+    /// stays as it is.
+    InParts(Vec<ListedName>),
 }
 
 /// What a listing of a tree makes its parts from, as the window gives it to the listing thread
@@ -977,27 +979,29 @@ impl Listing {
     }
 
     /// Sends what the walk of the subfolder `from` found, `files`, as the last part, and then
-    /// the listing as done with the folders it `read` and those `left_out`. The list takes the
-    /// parts in, which replace the subfolder's names with what it holds now, and keeps the
-    /// rest of the tree as it is.
+    /// the listing as done with the folders it `read` and those `left_out`, and with every name
+    /// of the subfolder and the identity it was found with. The list takes the parts in, which
+    /// replace the subfolder's names with what it holds now, and keeps the rest of the tree as
+    /// it is.
     fn send_subfolder_read_again(
         &self,
-        files: &[ListedName],
+        mut files: Vec<ListedName>,
         (read, left_out): (FoldersRead, Vec<Unread>),
         mut sent: PartsSent,
         part_tx: &mpsc::SyncSender<TreePart>,
     ) {
         // The last part is sent whatever the time since the part before, and the listing waits
         // until the window has room for it, so that the list takes it before the listing ends.
-        if let Some(part) = sent.next_part(files) {
+        if let Some(part) = sent.next_part(&files) {
             if part_tx.send(part).is_err() {
                 return;
             }
             self.ctx.request_repaint();
         }
+        forget_passing_identities(&self.dir, &mut files);
         let listed = Listed {
             dirs: Vec::new(),
-            files: Ok(ListedRows::InParts),
+            files: Ok(ListedRows::InParts(files)),
             left_out,
             read,
             read_in: self.started.elapsed(),
@@ -1057,7 +1061,7 @@ impl Listing {
             }
         };
         if !self.from.as_os_str().is_empty() {
-            return self.send_subfolder_read_again(&files, (read, left_out), sent, &part_tx);
+            return self.send_subfolder_read_again(files, (read, left_out), sent, &part_tx);
         }
         // In an order that looks at the files, each image that a part looked at is not looked
         // at again, so each is looked at once in the walk.
@@ -2065,10 +2069,10 @@ impl crate::App {
         self.folder.subdirs_rx.clear();
         self.folder.part_rx.clear();
         let Listed {
-            dirs,
+            mut dirs,
             files,
             left_out,
-            read,
+            mut read,
             read_in,
         } = listed;
         // A folder that could not be read is told, and the list shown stays with its selection.
@@ -2086,8 +2090,10 @@ impl crate::App {
         let rows = match files {
             Ok(ListedRows::Rows(rows)) => Some(self.with_shown_files_of_parts(rows, &left_out)),
             Ok(ListedRows::InListOrder(kept)) => self.list.rows().in_step(kept),
-            Ok(ListedRows::InParts) => {
-                return self.take_subfolder_read_again(ctx, (read, read_in), left_out);
+            // A subfolder read again ends as a whole one does (`rows_with_subfolder_read_again`).
+            Ok(ListedRows::InParts(names)) => {
+                (dirs, read) = self.folders_with_subfolder_read_again(read);
+                self.rows_with_subfolder_read_again(names)
             }
             // A subfolder that could not be read again has the whole tree read.
             Err(_) if !self.folder.listing_from.as_os_str().is_empty() => {
@@ -2135,29 +2141,36 @@ impl crate::App {
         self.tell_left_out(left_out);
     }
 
-    /// Takes the end of a listing that read the subfolder `listing_from` of the tree again,
-    /// whose parts the list has taken: the folders it `read` replace that subfolder's folders
-    /// among those watched, and the parts `left_out` are told. It counts as a whole listing,
-    /// as the list is the tree as it is now. `read_in` is how long it took.
-    fn take_subfolder_read_again(
-        &mut self,
-        ctx: &egui::Context,
-        (read, read_in): (FoldersRead, Duration),
-        left_out: Vec<Unread>,
-    ) {
-        let from = self
-            .folder
-            .dir
-            .join(std::mem::take(&mut self.folder.listing_from));
-        self.folder.whole_listings += 1;
-        self.folder.list_is_a_part = false;
-        let mut watched = std::mem::take(&mut self.folder.watched);
+    /// Returns the list's rows, whose parts brought the names new in the subfolder read again,
+    /// with the identities that its listing found, `names`, given to the names that stayed. The
+    /// other names keep theirs. This is the whole list of the tree as it is now, each row with
+    /// what it is sorted by (`Rows::in_step`), which gives `None` only for names out of step.
+    /// A subfolder read again then ends as a whole listing does, so that what the last step of
+    /// a whole listing does is done for it too: a name that another file has taken keeps
+    /// nothing of the file it held, the sizes and dates are read again, the preload is refilled
+    /// and the list is noted as listed whole. Before, its end kept the identities of the names
+    /// that stayed, and the decodes of a file saved over under its own name were dropped as
+    /// another file's until F5.
+    fn rows_with_subfolder_read_again(&self, names: Vec<ListedName>) -> Option<Rows> {
+        let found: HashMap<OsString, crate::files::file_io::Identity> = names.into_iter().collect();
+        let mut rows = self.list.rows().listed_names();
+        for (name, identity) in &mut rows {
+            if let Some(&now) = found.get(name) {
+                *identity = now;
+            }
+        }
+        self.list.rows().in_step(rows)
+    }
+
+    /// Returns the open folder's own folders, which a subfolder read again leaves as they are,
+    /// and the folders watched with those of the subfolder `listing_from` replaced by the
+    /// folders that its listing `read`.
+    fn folders_with_subfolder_read_again(&self, read: FoldersRead) -> (Vec<PathBuf>, FoldersRead) {
+        let from = self.folder.dir.join(&self.folder.listing_from);
+        let mut watched = self.folder.watched.clone();
         watched.retain(|(path, _)| !path.starts_with(&from));
         watched.extend(read);
-        self.watch_folders_read(ctx, watched, false);
-        self.folder.rest_until = Instant::now() + read_in * REST_AFTER_LISTING;
-        self.settle_sidecar_writes_waiting_for_the_list(ctx);
-        self.tell_left_out(left_out);
+        (self.folder.subdirs.clone(), watched)
     }
 
     /// Tells that the folder could not be read, `unread`, and keeps the list shown, with the
@@ -3764,6 +3777,11 @@ mod tests {
             names(&app),
             ["a.png", "s1/b.png", "s2/e.png", "s2/new/f.png"]
         );
+        // The list is still the tree listed whole, so the next change reads only its subfolder.
+        assert!(
+            app.folder.listed_as.is_some(),
+            "the list forgot how it was listed"
+        );
         // A change of the open folder itself reads the whole tree.
         app.folder.changed_tx.send(vec![dir.clone()]).unwrap();
         app.folder.rest_until = std::time::Instant::now();
@@ -3772,6 +3790,54 @@ mod tests {
             app
         ) > before));
         assert_eq!(names(&app), ["a.png", "s2/e.png", "s2/new/f.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A subfolder read again gives a name that another file has taken the new file's identity,
+    /// as a whole listing does, so the name keeps nothing of the file it held: the image decoded
+    /// of it is dropped and the new file's image comes. Before, the names that stayed kept the
+    /// identities of the files they held, and every decode of the new file was dropped as
+    /// another file's, until F5.
+    #[test]
+    fn a_subfolder_read_again_gives_a_name_its_new_file() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-subfolder-taken-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("s2")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(dir.join("s2/a.png"))
+            .unwrap();
+        image::RgbImage::new(6, 6)
+            .save(dir.join("s2/b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        let whole_listings = |app: &crate::App| app.folder.whole_listings();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |a| whole_listings(a) > before));
+        // The test sends the change itself, so the real watcher is silenced.
+        (app.folder.watcher_generation).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(app.list.files(), ["s2/a.png", "s2/b.png"]);
+        let identity = app.list.identity(0);
+        assert!(identity.is_some(), "the listing gave no identity");
+        app.refill_preload();
+        let size = |a: &crate::App| a.list.loaded_images().get(&0).map(|s| s.original_size);
+        assert!(run_background_until(&mut app, &ctx, |a| size(a) == Some([4, 4])));
+        for (from, to) in [("a.png", "c.png"), ("b.png", "a.png"), ("c.png", "b.png")] {
+            std::fs::rename(dir.join("s2").join(from), dir.join("s2").join(to)).unwrap();
+        }
+        app.folder.changed_tx.send(vec![dir.join("s2")]).unwrap();
+        app.folder.rest_until = std::time::Instant::now();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |a| whole_listings(a) > before));
+        assert_ne!(
+            app.list.identity(0),
+            identity,
+            "s2/a.png keeps the old file's identity"
+        );
+        assert_ne!(size(&app), Some([4, 4]), "s2/a.png shows the photo it held");
+        assert!(run_background_until(&mut app, &ctx, |a| size(a) == Some([6, 6])));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
