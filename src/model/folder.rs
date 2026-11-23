@@ -3758,6 +3758,10 @@ mod tests {
             names(&app),
             ["a.png", "s1/b.png", "s2/c.png", "s2/deep/d.png"]
         );
+        // The test sends the change itself, so the real watcher is silenced. Seen by it, the
+        // change of s1 read the whole tree, when the watcher looked between these changes and
+        // the change sent.
+        (app.folder.watcher_generation).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // s1 loses its image unseen: only a walk of the whole tree would take it out.
         std::fs::remove_file(dir.join("s1/b.png")).unwrap();
         std::fs::remove_file(dir.join("s2/c.png")).unwrap();
@@ -3766,6 +3770,8 @@ mod tests {
         for name in ["s2/e.png", "s2/new/f.png"] {
             image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
         }
+        // The watcher looks every second, so it would have seen s1 change by now.
+        std::thread::sleep(std::time::Duration::from_millis(1500));
         let changed = vec![dir.join("s2"), dir.join("s2/deep")];
         app.folder.changed_tx.send(changed).unwrap();
         app.folder.rest_until = std::time::Instant::now();
