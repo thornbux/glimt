@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The notices at the foot of the image are easier to see and read: near-white text on a dark
+  card, at most 70 % of the image's width and wrapped over several lines, with the cause of a
+  problem on its own lines under a short heading. An error or a refusal has a red stripe and a
+  warning sign, and an ordinary notice, such as Saved, a blue stripe. Before, every notice was
+  one long line of light red text on a see-through band across the whole image.
+
 ## [0.95.2] - 2026-11-23
 
 ### Fixed
