@@ -440,8 +440,8 @@ config! {
     /// The video feature's command line that plays a video. When it is empty, the default
     /// application plays it.
     video_player: String = String::new(),
-    /// The print dialog's choices: the printer chosen last (empty for a PDF file), the paper
-    /// and the file names.
+    /// The print dialog's choices: the printer chosen last (print::PDF_FILE for a PDF file,
+    /// empty while none was chosen) and the paper (a value of print::PAPERS).
     print_printer: String = String::new(),
     print_paper: String = String::from("A4"),
     /// Which way the paper is turned: "auto", "portrait" or "landscape". With "auto", a wide

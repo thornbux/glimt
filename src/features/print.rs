@@ -16,16 +16,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
-/// Paper sizes in points (1/72 inch), portrait. There are office papers, and photo papers in
-/// cm.
-pub const PAPERS: [(&str, [f32; 2]); 7] = [
-    ("A4", [595.28, 841.89]),
-    ("Letter", [612.0, 792.0]),
-    ("A3", [841.89, 1190.55]),
-    ("A5", [419.53, 595.28]),
-    ("Legal", [612.0, 1008.0]),
-    ("10 × 15 cm", [283.46, 425.2]),
-    ("13 × 18 cm", [368.5, 510.24]),
+/// Paper sizes as (the print_paper setting's value, the label the dialog shows, the size in
+/// points of 1/72 inch, portrait). There are office papers, and photo papers in cm. A photo
+/// paper's value has no space and no "×", so that it can be typed in the settings file.
+pub const PAPERS: [(&str, &str, [f32; 2]); 7] = [
+    ("A4", "A4", [595.28, 841.89]),
+    ("Letter", "Letter", [612.0, 792.0]),
+    ("A3", "A3", [841.89, 1190.55]),
+    ("A5", "A5", [419.53, 595.28]),
+    ("Legal", "Legal", [612.0, 1008.0]),
+    ("10x15cm", "10 × 15 cm", [283.46, 425.2]),
+    ("13x18cm", "13 × 18 cm", [368.5, 510.24]),
 ];
 
 /// The values of print_orientation, which the print dialog writes. Another value turns the
@@ -65,7 +66,9 @@ pub const PER_PAGE: [(usize, [usize; 2]); 7] = [
 pub const SYSTEM_DIALOG: &str = "System print dialog";
 
 /// The printer choice that saves a PDF file instead, kept as the print_printer setting's value.
-pub const PDF_FILE: &str = "";
+/// It has a space, which no CUPS printer's name has, as `SYSTEM_DIALOG` does. An empty value
+/// means that nothing has been chosen yet, and the dialog then chooses CUPS's default printer.
+pub const PDF_FILE: &str = "PDF file";
 
 /// The most images the preview shows, which is the most on one page.
 const MAX_PREVIEWS: usize = 20;
@@ -289,7 +292,7 @@ impl crate::App {
                 });
                 print_texts(ui, c);
                 ui.horizontal(|ui| {
-                    let label = if c.print_printer.is_empty() {
+                    let label = if saves_pdf(&c.print_printer) {
                         tr("Save PDF… (Enter)")
                     } else {
                         tr("Print (Enter)")
@@ -311,12 +314,8 @@ impl crate::App {
     /// Takes what the print dialog's threads sent: the printers, the previews and the captions.
     fn receive_print_answers(&mut self, ctx: &egui::Context, dialog: &mut PrintDialog) {
         if let Took::Answer((names, default)) = dialog.printers_rx.take() {
-            // The printer used last is chosen, and otherwise CUPS's default. A PDF file is
-            // chosen if neither is there.
             let c = &mut self.config;
-            if !names.contains(&c.print_printer) {
-                c.print_printer = default.filter(|d| names.contains(d)).unwrap_or_default();
-            }
+            c.print_printer = chosen_printer(&c.print_printer, &names, default);
             dialog.printers = Some(names);
         }
         loop {
@@ -356,7 +355,7 @@ impl crate::App {
             copies: dialog.copies,
         };
         match c.print_printer.clone() {
-            p if p == PDF_FILE => self.pick(ctx, false, Pick::SavePdf(job)),
+            p if saves_pdf(&p) => self.pick(ctx, false, Pick::SavePdf(job)),
             p => self.print(ctx, job, PrintTo::Printer(p)),
         }
     }
@@ -930,6 +929,23 @@ fn printers_from(names: &str, default: &str) -> (Vec<String>, Option<String>) {
     (names, default)
 }
 
+/// Returns the printer the dialog chooses once CUPS's printers `names` and its default
+/// `default` are known, with `remembered`, the print_printer setting, chosen last. The one
+/// chosen last is kept while it is there, a PDF file among them, and otherwise CUPS's default
+/// is chosen, or a PDF file when there is none.
+fn chosen_printer(remembered: &str, names: &[String], default: Option<String>) -> String {
+    if remembered == PDF_FILE || names.iter().any(|n| n == remembered) {
+        return remembered.to_owned();
+    }
+    (default.filter(|d| names.contains(d))).unwrap_or_else(|| PDF_FILE.to_owned())
+}
+
+/// Returns whether the printer choice `printer` saves a PDF file. Nothing chosen yet saves one
+/// too, until CUPS's printers are known and `chosen_printer` chooses.
+fn saves_pdf(printer: &str) -> bool {
+    printer == PDF_FILE || printer.is_empty()
+}
+
 /// `lp`'s options: the printer, copies, title, and both sides of the paper if asked. CUPS
 /// prints one side on a printer that cannot do both.
 fn lp_args(printer: &str, copies: u32, sides: Option<&str>, title: &str) -> Vec<String> {
@@ -1020,7 +1036,7 @@ pub fn layout_from_settings(c: &crate::files::config::Config) -> Layout {
     let paper = (PAPERS.iter())
         .find(|p| p.0 == c.print_paper)
         .unwrap_or(&PAPERS[0])
-        .1;
+        .2;
     Layout {
         orientation: Orientation::from(&c.print_orientation),
         margin: c.print_margin as f32 * POINTS_PER_MM,
@@ -1114,7 +1130,7 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
         ui.label(tr("Printer:"));
         let shown = |p: &str| {
             match p {
-                "" => tr("PDF file"),
+                p if saves_pdf(p) => tr("PDF file"),
                 SYSTEM_DIALOG => tr(SYSTEM_DIALOG),
                 p => p,
             }
@@ -1136,11 +1152,12 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
         }
         ui.end_row();
         ui.label(tr("Paper:"));
+        let paper = (print::PAPERS.iter()).find(|p| p.0 == c.print_paper);
         egui::ComboBox::from_id_salt("paper")
-            .selected_text(c.print_paper.clone())
+            .selected_text(paper.unwrap_or(&print::PAPERS[0]).1)
             .show_ui(ui, |ui| {
-                for (name, _) in print::PAPERS {
-                    crate::ui::menus::choice(ui, &mut c.print_paper, name.to_owned(), name);
+                for (value, label, _) in print::PAPERS {
+                    crate::ui::menus::choice(ui, &mut c.print_paper, value.to_owned(), label);
                 }
             });
         ui.end_row();
@@ -1181,7 +1198,7 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
         ui.label(tr("Margin (mm):"));
         ui.add(egui::DragValue::new(&mut c.print_margin).range(0..=50));
         ui.end_row();
-        if !c.print_printer.is_empty() {
+        if !saves_pdf(&c.print_printer) {
             ui.label(tr("Copies:"));
             ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
             ui.end_row();
@@ -1257,6 +1274,26 @@ mod tests {
         }
     }
 
+    /// A PDF file chosen last stays chosen while CUPS has a printer, and so does a printer
+    /// chosen last. Nothing chosen yet, or a printer that is gone, gives CUPS's default, and a
+    /// PDF file without one. Before, a PDF file was the empty value, which no printer's name
+    /// is, so the dialog chose CUPS's default in its place every time.
+    #[test]
+    fn a_pdf_file_chosen_last_stays_chosen_while_cups_has_a_printer() {
+        use super::{PDF_FILE, chosen_printer};
+        let names = vec!["Office".to_owned(), "Home_Laser".to_owned()];
+        let office = Some("Office".to_owned());
+        assert_eq!(chosen_printer(PDF_FILE, &names, office.clone()), PDF_FILE);
+        assert_eq!(
+            chosen_printer("Home_Laser", &names, office.clone()),
+            "Home_Laser"
+        );
+        assert_eq!(chosen_printer("", &names, office.clone()), "Office");
+        assert_eq!(chosen_printer("Gone", &names, office), "Office");
+        assert_eq!(chosen_printer("", &[], None), PDF_FILE);
+        assert!(super::saves_pdf(PDF_FILE) && super::saves_pdf("") && !super::saves_pdf("Office"));
+    }
+
     /// A page's image that cannot be made a JPEG (wider than JPEG allows) is an error, not an
     /// empty image. Before, the encoder's error was dropped and the page printed blank.
     #[test]
@@ -1272,7 +1309,7 @@ mod tests {
     #[test]
     fn decodes_for_the_room_left() {
         use super::{Layout, PAPERS, POINTS_PER_MM, max_pixels};
-        let photo = PAPERS.iter().find(|p| p.0.starts_with("10")).unwrap().1;
+        let photo = PAPERS.iter().find(|p| p.0.starts_with("10")).unwrap().2;
         let wide = Layout {
             margin: 50.0 * POINTS_PER_MM,
             ..Layout::new(photo, 1)
@@ -1295,10 +1332,10 @@ mod tests {
         // Landscape pages turn on the short edge.
         let wide = Layout {
             orientation: Orientation::Landscape,
-            ..Layout::new(PAPERS[0].1, 1)
+            ..Layout::new(PAPERS[0].2, 1)
         };
         assert_eq!(sides(&wide), "two-sided-short-edge");
-        assert_eq!(sides(&Layout::new(PAPERS[0].1, 1)), "two-sided-long-edge");
+        assert_eq!(sides(&Layout::new(PAPERS[0].2, 1)), "two-sided-long-edge");
     }
 
     /// On both sides of the paper, every page of an Automatic job turns as the first one does,
@@ -1307,7 +1344,7 @@ mod tests {
     #[test]
     fn both_sides_turn_every_page_one_way() {
         use super::{Layout, PAPERS, lay_out_page, layout_and_sides};
-        let auto = Layout::new(PAPERS[0].1, 1);
+        let auto = Layout::new(PAPERS[0].2, 1);
         let is_landscape = |l: &Layout, size| {
             let [w, h] = lay_out_page(l, &[size], false).size;
             w > h
@@ -1357,7 +1394,7 @@ mod tests {
     #[test]
     fn writes_page_text() {
         use super::{Layout, PAPERS, lay_out_page};
-        let a4 = PAPERS[0].1;
+        let a4 = PAPERS[0].2;
         let layout = Layout {
             header: "Trip".into(),
             footer: "Page %page% of %pages%".into(),
@@ -1407,7 +1444,7 @@ mod tests {
     #[test]
     fn fills_the_box() {
         use super::{Layout, PAPERS, lay_out_page};
-        let a4 = PAPERS[0].1;
+        let a4 = PAPERS[0].2;
         let cell = |fill| {
             lay_out_page(
                 &Layout {
@@ -1443,7 +1480,7 @@ mod tests {
     #[test]
     fn scales_one_image() {
         use super::{Layout, PAPERS, lay_out_page};
-        let a4 = PAPERS[0].1;
+        let a4 = PAPERS[0].2;
         let full = lay_out_page(&Layout::new(a4, 1), &[[100, 100]], false).cells[0].image;
         let half = lay_out_page(
             &Layout {
@@ -1477,7 +1514,7 @@ mod tests {
     #[test]
     fn keeps_the_margin() {
         use super::{Layout, PAPERS, POINTS_PER_MM, lay_out_page};
-        let a4 = PAPERS[0].1;
+        let a4 = PAPERS[0].2;
         let at = |mm: f32| {
             lay_out_page(
                 &Layout {
@@ -1500,7 +1537,7 @@ mod tests {
     #[test]
     fn turns_the_paper() {
         use super::{Layout, Orientation, PAPERS, lay_out_page};
-        let a4 = PAPERS[0].1;
+        let a4 = PAPERS[0].2;
         let wide = [[60, 40]; 6];
         let auto = |per| lay_out_page(&Layout::new(a4, per), &wide[..per], false);
         assert_eq!(auto(1).size, [a4[1], a4[0]]);
@@ -1527,7 +1564,7 @@ mod tests {
         let wide = image::DynamicImage::new_rgba8(40, 20);
         let tall = image::DynamicImage::new_rgb8(20, 40);
         let mut pdf = Vec::new();
-        let layout = super::Layout::new(super::PAPERS[0].1, 1);
+        let layout = super::Layout::new(super::PAPERS[0].2, 1);
         super::pdf(
             [(wide, Some("Ålesund (1).jpg".into())), (tall, None)].into_iter(),
             &layout,
@@ -1565,7 +1602,7 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let job = super::PrintJob {
             paths: vec![png],
-            layout: super::Layout::new(super::PAPERS[0].1, 1),
+            layout: super::Layout::new(super::PAPERS[0].2, 1),
             caption: None,
             two_sided: false,
             rotate: false,
@@ -1595,7 +1632,7 @@ mod tests {
         let mut print_to = |at_pick| {
             let job = super::PrintJob {
                 paths: vec![png.clone()],
-                layout: super::Layout::new(super::PAPERS[0].1, 1),
+                layout: super::Layout::new(super::PAPERS[0].2, 1),
                 caption: None,
                 two_sided: false,
                 rotate: false,
@@ -1639,7 +1676,7 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let job = super::PrintJob {
             paths: vec![jpg.clone()],
-            layout: super::Layout::new(super::PAPERS[0].1, 1),
+            layout: super::Layout::new(super::PAPERS[0].2, 1),
             caption: None,
             two_sided: false,
             rotate: false,
@@ -1664,7 +1701,7 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let job = super::PrintJob {
             paths: vec![png],
-            layout: super::Layout::new(super::PAPERS[0].1, 1),
+            layout: super::Layout::new(super::PAPERS[0].2, 1),
             caption: None,
             two_sided: false,
             rotate: false,
@@ -1715,7 +1752,7 @@ mod tests {
         let mut pdf = Vec::new();
         super::pdf(
             pages,
-            &super::Layout::new(super::PAPERS[0].1, 4),
+            &super::Layout::new(super::PAPERS[0].2, 4),
             2,
             &mut pdf,
         )
@@ -1755,7 +1792,7 @@ mod tests {
             seen.borrow_mut().push(written.get());
             (image::RgbImage::new(60, 40).into(), None)
         });
-        let layout = super::Layout::new(super::PAPERS[0].1, 4);
+        let layout = super::Layout::new(super::PAPERS[0].2, 4);
         super::pdf(images, &layout, 1, Counted(&written)).unwrap();
         let seen = seen.into_inner();
         assert!(seen[1] > seen[0]);

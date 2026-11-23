@@ -153,8 +153,6 @@ value print_paper Letter
 value print_paper A3
 value print_paper A5
 value print_paper Legal
-value print_paper 10 × 15 cm
-value print_paper 13 × 18 cm
 value print_orientation auto
 value print_orientation portrait
 value print_orientation landscape
@@ -344,7 +342,6 @@ sharing group:keywords
 sharing group:preview
 sharing group:other
 value print_printer System print dialog
-value print_printer ""
 exit done 0
 exit check_config_problems 1
 exit back_up_failed 1
@@ -531,3 +528,6 @@ setting print_caption_template
 value thumbnail_size small
 value thumbnail_size medium
 value thumbnail_size large
+value print_printer "PDF file"
+value print_paper 10x15cm
+value print_paper 13x18cm
