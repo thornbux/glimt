@@ -15,10 +15,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Marks and stars are kept in `~/.local/share/glimt/marks` (`$XDG_DATA_HOME`), beside the
   collections, where backups look for the data you made, instead of `~/.local/state/glimt`. The
   first start moves the file there, before the window opens, and never loses it: when the move
-  fails, Glimt says so and keeps the marks where they were. When both places hold a marks file
-  (a Glimt 0.95 window still open, or an old backup copied back), the new one is used, the old
-  one is left as it is, and Glimt says so at each start. A backup script of your own needs the
-  new path.
+  fails, Glimt says so and keeps the marks where they were. It leaves a link in the old place,
+  so a Glimt 0.95 window still open goes on with the same file. When both places hold a marks
+  file with different marks (an old backup copied back), the new one is used, the old one is
+  left as it is, and Glimt says so at each start. A backup script of your own needs the new
+  path.
 - Before 1.0 freezes them, names that misled are renamed. Each old name is no longer read, so
   its setting goes back to its default once, and `glimt --check-config` names its line:
   - the settings `exif_rotate`, `print_template` and `thumb_size` are now `auto_rotate`,
