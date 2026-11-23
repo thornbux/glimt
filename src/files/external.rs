@@ -831,7 +831,7 @@ pub fn open_own_folder(dir: &Path, notices: &crate::support::threads::NoticeSend
     if let Err(e) = std::fs::create_dir_all(dir) {
         let folder = format!("{}: {e}", dir.display());
         // A window that is gone has nothing to show it in.
-        let _ = notices.send(crate::tf!("Could not make {folder}", folder));
+        let _ = notices.send_error(crate::tf!("Could not make {folder}", folder));
         return;
     }
     open_url(&dir.to_string_lossy());

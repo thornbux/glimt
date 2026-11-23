@@ -900,6 +900,7 @@ msgstr[1] "bilder"
             ".selected_text(",
             ".text(",
             ".give(",
+            ".give_error(",
             "Window::new(",
             "Button::new(",
             "button(",

@@ -780,7 +780,7 @@ impl crate::App {
             false => Vec::new(),
         };
         if found.is_empty() {
-            self.notice.give(
+            self.notice.give_error(
                 tr("The files asked about are no longer in the list: nothing was done").into(),
             );
             return None;
@@ -805,20 +805,21 @@ impl crate::App {
         let renaming = self.file_operations.renaming.is_some();
         let refused = if saving {
             self.notice
-                .give(tr("Still saving a rotation: try again in a moment").into());
+                .give_error(tr("Still saving a rotation: try again in a moment").into());
             true
         } else if writing {
             self.notice
-                .give(tr("Still writing keywords: try again in a moment").into());
+                .give_error(tr("Still writing keywords: try again in a moment").into());
             true
         } else if renaming {
-            self.notice.give(tr("Rename Many is still renaming").into());
+            self.notice
+                .give_error(tr("Rename Many is still renaming").into());
             true
         } else if !self.is_list_checked() {
             true
         } else if self.is_changed_by_running_work(paths) {
             self.notice
-                .give(tr("Still working on these files: try again in a moment").into());
+                .give_error(tr("Still working on these files: try again in a moment").into());
             true
         } else {
             false
@@ -838,7 +839,7 @@ impl crate::App {
         }
         if self.folder.is_listing() {
             self.notice
-                .give(tr("Still working on these files: try again in a moment").into());
+                .give_error(tr("Still working on these files: try again in a moment").into());
         } else {
             // No listing runs that would check the list in a moment, so waiting would not help.
             self.tell_background_stopped(tr("Reading the folder"));
@@ -1204,7 +1205,7 @@ impl crate::App {
         };
         let left = files.len() - names.len();
         if left > 0 {
-            self.notice.give(tf!(
+            self.notice.give_error(tf!(
                 "The trash refused {count} ({kind}) that the list no longer shows. Nothing was deleted.",
                 count = count(left, "file"),
                 kind
@@ -1417,7 +1418,7 @@ impl crate::App {
                     drop(held_back);
                     match found {
                         Ok(found) => then(app, ctx, found),
-                        Err(_) => app.notice.give(tf!(
+                        Err(_) => app.notice.give_error(tf!(
                             "{folder} did not answer within a minute, so nothing was done",
                             folder = folder.display()
                         )),
@@ -1471,7 +1472,7 @@ impl crate::App {
     ) {
         let paths = picked.paths().to_vec();
         if let Some(text) = refused_transfer(&paths, &dest, is_copy, |_| dest_file_system.clone()) {
-            self.notice.give(text);
+            self.notice.give_error(text);
             return;
         }
         // A copy changes none of the files it reads, but it holds them: a Rename Many that ran
@@ -1597,7 +1598,7 @@ impl crate::App {
             .collect();
         let unique: HashSet<&PathBuf> = to.iter().collect();
         if unique.len() < to.len() {
-            self.notice.give(
+            self.notice.give_error(
                 tr("The pattern gives several files the same name; add # for a number").into(),
             );
             return;
@@ -1657,7 +1658,7 @@ impl crate::App {
             (held_back_files, true),
             found,
             move |app, ctx, refused| match refused {
-                Some(refused) => app.notice.give(not_renamed(refused)),
+                Some(refused) => app.notice.give_error(not_renamed(refused)),
                 None => app.start_renaming(ctx, (listed, to), picked, undoing),
             },
         );
@@ -2129,7 +2130,7 @@ impl crate::App {
         self.receive_renames(ctx);
         if Arc::strong_count(&self.file_operations.undo_on_the_way) > 1 {
             self.notice
-                .give(tr("Still working on these files: try again in a moment").into());
+                .give_error(tr("Still working on these files: try again in a moment").into());
             return;
         }
         // This asks before the undo is taken, so one that is refused stays to be done again.
@@ -2793,7 +2794,7 @@ impl crate::App {
         // failure is told.
         std::thread::spawn(move || {
             if let Err(e) = external::set_wallpaper(&path) {
-                let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));
+                let _ = tx.send_error(tf!("Could not set the wallpaper: {e}", e));
             }
         });
     }
@@ -3034,6 +3035,7 @@ fn with_warning(told: Option<Told>, warning: Option<String>) -> Option<Told> {
     Some(match told {
         Some(Told::FailedWrite(text)) => Told::FailedWrite(format!("{text}\n{warning}")),
         Some(Told::Notice(text)) => Told::Notice(format!("{text}\n{warning}")),
+        Some(Told::Error(text)) => Told::Error(format!("{text}\n{warning}")),
         None => Told::Notice(warning),
     })
 }
@@ -8947,8 +8949,9 @@ mod tests {
             .text()
             .is_some()));
         assert!(!app.modal_open());
-        let told = app.notice.set_aside().unwrap().0;
+        let told = app.notice.text().unwrap().to_owned();
         assert!(told.contains("2 files (fuse.rclone)"), "{told}");
+        app.notice.clear();
         // The delete takes the file out of the list as it starts, as `delete_now` does.
         app.file_operations.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);

@@ -421,6 +421,9 @@ impl<J: Send + 'static> Drop for JobNote<J> {
 pub(crate) enum Told {
     /// A text for the notice over the image.
     Notice(String),
+    /// A text for the notice over the image that tells of something that went wrong, other
+    /// than a failed write, such as a program that could not be started.
+    Error(String),
     /// A write that failed. The window shows it, and a close that waited for the writing stays
     /// open, so the user sees it.
     FailedWrite(String),
@@ -447,6 +450,13 @@ impl NoticeSender {
     /// window is gone, as `mpsc::Sender::send` does.
     pub(crate) fn send(&self, text: String) -> Result<(), mpsc::SendError<Told>> {
         let sent = self.tx.send(Told::Notice(text));
+        self.ctx.request_repaint();
+        sent
+    }
+
+    /// Sends `text` as `send` does, as an error, which the window shows as one.
+    pub(crate) fn send_error(&self, text: String) -> Result<(), mpsc::SendError<Told>> {
+        let sent = self.tx.send(Told::Error(text));
         self.ctx.request_repaint();
         sent
     }
@@ -741,6 +751,7 @@ pub(crate) fn told_work(
         };
         match catch_panic(work).unwrap_or_else(broke) {
             Some(Told::Notice(text)) => drop(notices.send(text)),
+            Some(Told::Error(text)) => drop(notices.send_error(text)),
             Some(Told::FailedWrite(text)) => notices.send_failed_write(text),
             None => {}
         }

@@ -198,7 +198,7 @@ impl crate::App {
     ) {
         if self.folder.collection().is_none() {
             self.notice
-                .give(tr("Only the images of a collection can be moved").into());
+                .give_error(tr("Only the images of a collection can be moved").into());
             return;
         }
         // An empty collection: nothing to move, and no shown image to keep.
@@ -210,7 +210,7 @@ impl crate::App {
         // or a line drawn between two rows would land somewhere else in the collection than it
         // shows. This is the one place that keys and drags both reach.
         if !self.search_rows_are_in_list_order() {
-            self.notice.give(
+            self.notice.give_error(
                 tr("The search shows the images in another order: clear it to move them").into(),
             );
             return;
@@ -222,7 +222,7 @@ impl crate::App {
             && picked.iter().any(|i| rows.binary_search(i).is_err())
         {
             self.notice
-                .give(tr("The search hides files this would act on: clear it first").into());
+                .give_error(tr("The search hides files this would act on: clear it first").into());
             return;
         }
         let shown = self.list.files().get(self.list.shown()).cloned();
