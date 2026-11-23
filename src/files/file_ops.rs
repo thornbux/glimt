@@ -983,7 +983,7 @@ impl crate::App {
                     })
                     .map(Told::Notice),
             };
-            // The log's warning goes with the delete's own text, so that neither hides the other.
+            // The log's failure is told as a failed write of its own, beside the delete's text.
             let log_failure = start_failure.or_else(|| delete_log.as_mut()?.take_failure());
             let warning = delete_log_dir.zip(log_failure).map(log_not_saved);
             let mut told = with_failed_write(told, warning);
@@ -1510,7 +1510,7 @@ impl crate::App {
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
             };
             let failed = !errors.is_empty() || job.is_stopped();
-            // The log's failure goes with the Move's own text, so that neither hides the other.
+            // The log's failure is told as a failed write of its own, beside the Move's text.
             let told = match errors.first() {
                 Some(first) => {
                     let verb = tr(if is_copy { "Copy" } else { "Move" });
