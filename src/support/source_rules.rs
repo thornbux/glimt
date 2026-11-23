@@ -3032,10 +3032,6 @@ fn every_setting_has_a_control_in_preferences() {
         ("print_header", "the print dialog"),
         ("print_footer", "the print dialog"),
         ("print_two_sided", "the print dialog"),
-        (
-            "app_name_first",
-            "retired in 0.76.0, read once into window_title",
-        ),
     ];
     let preferences = code_lines(&source("ui/preferences.rs")).join("\n");
     let drawing = preferences.split("#[cfg(test)]").next().unwrap_or_default();

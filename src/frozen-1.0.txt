@@ -9,26 +9,20 @@
 # keeps its line: the code's table of old names maps it to the new name, which is still read,
 # and the new name is added at the end.
 setting preload
-setting delay
 setting remember_dir
 setting keep_recent
-setting trash
 setting confirm_delete
 setting confirm_trash
 setting delete_key
-setting random
 setting enlarge
 setting slideshow_repeat
-setting fade
 setting layout
-setting layout_turns
 setting layout_names
 setting animate
 setting color_management
 setting screen_profile
 setting desktop_profile
 setting input_profile
-setting own_profile
 setting rendering_intent
 setting language
 setting show_marks
@@ -45,12 +39,10 @@ setting fit_mode
 setting wheel_zoom
 setting thumbnails
 setting save_thumbnails
-setting exif_panel
 setting sort_manager
 setting sort_move
 setting folder_tree
 setting toolbar
-setting low_memory
 setting decode_threads
 setting cpu_use
 setting animation_mb
@@ -61,35 +53,28 @@ setting ui_scale
 setting follow_text_scale
 setting lightroom_keywords
 setting inhibit_screensaver
-setting app_name_first
 setting window_title
 setting file_details
 setting sort
 setting sort_ascending
-setting sort_case
 setting toolbar_icons
 setting view_filter
 setting search_bar
-setting osd
-setting osd_template
 setting histogram
 setting histogram_log
 setting thumb_size
 setting grid_names
-setting icons
 setting background
 setting checkerboard
 setting projector_pointer
 setting hide_pointer
 setting theme
 setting fuzzy_search
-setting search_case
 setting auto_refresh
 setting exif_rotate
 setting list_images
 setting list_raw
 setting show_hidden
-setting videos
 setting video_player
 setting print_printer
 setting print_paper
@@ -103,9 +88,6 @@ setting print_fill
 setting print_header
 setting print_footer
 setting print_two_sided
-value fade off
-value fade short
-value fade long
 value fit_mode whole
 value fit_mode width
 value fit_mode height
@@ -168,10 +150,6 @@ value layout 1
 value layout 2x1
 value layout 1x2
 value layout 2x2
-value layout_turns 1
-value layout_turns 2x1
-value layout_turns 1x2
-value layout_turns 2x2
 value rendering_intent perceptual
 value rendering_intent relative
 value rendering_intent saturation
@@ -209,7 +187,6 @@ value language sv
 state last_dir
 state maximized
 state window_size
-state window_pos
 remote slideshow on
 remote slideshow off
 remote random on

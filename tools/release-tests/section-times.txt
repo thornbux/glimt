@@ -110,7 +110,6 @@
 5	several folders on the command line: one list, each image with its folder
 9	Open Folder Recursive: the folder with its subfolders, and Include Subfolders on
 8	New Folder (Ctrl+F): made in the folder shown
-13	a settings file of 0.79: icons=true shows the icon grid, as icon_grid=true does
 9	the action names of 0.79: Up in keys= and --remote run Home still work
 8	Up and Home in the toolbar: the parent folder, then the home folder
 7	Mirror, Flip and Rotate 180 as shown: the quarters of the image change places

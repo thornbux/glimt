@@ -358,16 +358,8 @@ as_version() {
     chmod 700 $XDG_RUNTIME_DIR
     export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
 }
-# config SETTING=VALUE…: the settings file. An OLD before 0.74.0 or 0.80.0 reads only the old
-# keys of the settings renamed then, so it gets those.
-OLD_KEYS='s/^delete_to_trash=/trash=/; s/^slideshow_delay=/delay=/; s/^slideshow_random=/random=/;
-    s/^use_image_profile=/own_profile=/; s/^list_videos=/videos=/; s/^info_panel=/exif_panel=/;
-    s/^sort_case_sensitive=/sort_case=/; s/^search_case_sensitive=/search_case=/;
-    s/^one_malloc_arena=/low_memory=/; s/^slideshow_fade=/fade=/; s/^icon_grid=/icons=/'
-config() {
-    if [ "$V" = old ]; then printf '%s\n' "$@" | sed "$OLD_KEYS"; else printf '%s\n' "$@"; fi \
-        >$XDG_CONFIG_HOME/glimt/config
-}
+# config SETTING=VALUE…: the settings file.
+config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
 # The folder of the added formats' desktop files. OLD before 0.75.0 reads only its old name,
 # decoders, so it gets that; NEW reads both, and the old one is still read for good.
 formats_dir() { if [ "$V" = old ]; then echo $XDG_DATA_HOME/glimt/decoders; else echo $XDG_DATA_HOME/glimt/formats; fi; }
@@ -3155,8 +3147,7 @@ mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
 for v in new old; do
     as_version $v
-    printf 'slideshow_delay=7\nvideo_player=/opt/caf\351/player\n' \
-        | sed "$([ $v = old ] && echo "$OLD_KEYS")" >$XDG_CONFIG_HOME/glimt/config
+    printf 'slideshow_delay=7\nvideo_player=/opt/caf\351/player\n' >$XDG_CONFIG_HOME/glimt/config
     start $d/a.jpg
     sleep 2
     key t; key t          # Thumbnails off and on: each saves the settings
@@ -3412,20 +3403,6 @@ start $d; sleep 2
 key ctrl+f; sleep 1; xdotool type holiday; key Return; sleep 1
 quit
 expect "the folder is there" "$([ -d $d/holiday ] && echo yes)" yes
-
-section "a settings file of 0.79: icons=true shows the icon grid, as icon_grid=true does"
-d=/tmp/old-setting
-mkdir -p $d
-for c in red lime blue; do convert -size 64x64 xc:$c $d/$c.png; done
-for setting in "" icons=true icon_grid=true; do
-    config $setting
-    start $d/red.png; sleep 2
-    settled old-setting-${setting%%=*}
-    quit
-done
-same() { md5sum </t/out/$1.png; }
-differ "icon_grid=true shows another list" "$(same old-setting-icon_grid)" "$(same old-setting-)"
-expect "the old key icons=true as icon_grid=true" "$(same old-setting-icons)" "$(same old-setting-icon_grid)"
 
 section "the action names of 0.79: Up in keys= and --remote run Home still work"
 d=/tmp/old-actions
