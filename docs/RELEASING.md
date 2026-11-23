@@ -13,7 +13,8 @@ branch made from it and merged back into it; `main` gets the release branch only
 1. **The version.** The version in `Cargo.toml` and in the header of `docs/glimt.1`, a section
    in `CHANGELOG.md` with its link (`source_rules::every_release_in_the_changelog_has_its_link`),
    and a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`. New command-line
-   options go in the man page too. The release workflow checks each. After the bump, run
+   options go in the man page too. The release workflow checks each, and CI validates the
+   metainfo and the desktop file (`appstreamcli`, `desktop-file-validate`). After the bump, run
    `cargo update -p glimt --offline`, `python3 tools/sbom.py` and `python3 tools/flatpak-sources.py`
    (through `tools/check.sh "…"` on a computer without cargo), so `Cargo.lock`, `sbom.cdx.json`
    and `flatpak/cargo-sources.json` follow the version; CI refuses a commit where they do not.

@@ -44,6 +44,18 @@ jobs:
           toolchain: "1.95"
       - run: cargo check --locked
       - run: cargo check --locked --all-features
+  # The desktop file and the metainfo that every package installs, checked against their formats:
+  # the release workflow only looks for the version's line in the metainfo.
+  desktop-files:
+    name: Desktop file and metainfo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq desktop-file-utils appstream
+      - run: desktop-file-validate assets/glimt.desktop
+      - run: appstreamcli validate --no-net assets/io.github.thornbux.Glimt.metainfo.xml
   check:
     name: ${{ matrix.features == '' && 'default features' || matrix.features }}
     runs-on: ubuntu-latest
