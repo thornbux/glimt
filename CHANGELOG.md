@@ -13,6 +13,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
   warning sign, and an ordinary notice, such as Saved, a blue stripe. Before, every notice was
   one long line of light red text on a see-through band across the whole image.
 
+### Removed
+
+- The old names that 0.74.0 to 0.80.0 renamed are no longer read, now that 1.0 is near: the
+  settings' old keys (such as `trash`, `delay`, `osd`, `icons` and `low_memory`), the window
+  state's `window_pos`, the retired `app_name_first`, the actions' old names in `keys=` and
+  `--remote run` (such as `Up`, `Home`, `Escape`, `Prev` and `ExifRotate`), `--remote prev`,
+  and the theme name `Contrast`. Such a setting goes to its default, the theme `Contrast` to
+  the desktop's look, and `glimt --check-config` names the line of an old key or action. Use
+  the new names, which every version since 0.80.0 reads.
+- Tools are no longer read from the old folder `~/.local/share/glimt/plugins`, nor added formats
+  from `~/.local/share/glimt/decoders` or with the old header `[Glimt Decoder]`. Glimt leaves
+  those folders as they are, and while they hold desktop files it says so at each start and in
+  `glimt --check-config`: move their desktop files into `tools` and `formats`, and give an added
+  format the header `[Glimt Format]`.
+
 ## [0.95.2] - 2026-11-23
 
 ### Fixed

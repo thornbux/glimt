@@ -117,7 +117,7 @@ release that drops its format, so that no user's file or mark is lost in the upg
 - the keys of a theme file (`theme_key`, from `Theme::file_from`, each read by
   `Theme::parse`);
 - the files and folders Glimt owns (`file` lines, from `config_path` and the other functions
-  that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::glimt_folder_in`,
+  that name them, `LOCK_FILE`, `remote::glimt_folder_in`,
   `remote::socket_name` and `FOCUSED_FILE`);
 - the names of the lock files, frozen like the files (`file` lines, from `file_io::lock_beside`,
   `remote::socket_lock` and `xmp::LOCK_FOLDER`), and which of the sidecars' lock files a
@@ -149,8 +149,7 @@ The tests that hold this:
   `cli::Command::named`), nor by `--remote`.
 - `a_tools_desktop_keys_and_codes_are_kept` and `a_formats_desktop_keys_and_codes_are_kept`
   hold the desktop files of tools and added formats. An added format is read under
-  `[Glimt Format]` and `[Glimt Decoder]` alike, and the `%` codes other than `%f %F %u %U %%`
-  are reserved for later.
+  `[Glimt Format]`, and the `%` codes other than `%f %F %u %U %%` are reserved for later.
 - `keeps_what_it_does_not_understand`: the marks file keeps mark bits and lines it does not
   understand, when a line has two fields and a path, so a later Glimt can add to it.
 - The `keys=` format is pinned by `src/keys-1.0.txt` and its test: every action (also one
@@ -186,25 +185,26 @@ No test pins the following, so they are kept by hand:
   `bits\tstars\tpath`, the keyword tree's `A|B|C`, a path to a line;
 - the reserved `%` codes of `Exec`, which the manual names.
 
-A frozen name that misleads its reader is renamed only through a table of old names. There is
-one table for each kind of name, beside the code that reads it: `config::RENAMED_SETTINGS`,
-`config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`),
-`remote::RENAMED_COMMANDS`, `theme::RENAMED_THEMES` and `tools::RENAMED_FOLDERS`.
+Glimt 0.96.0 dropped every old name that 0.74.0 to 0.80.0 had renamed (the settings' and
+window state's keys, the actions, `--remote prev`, a theme, the folders `plugins` and
+`decoders` and the header `[Glimt Decoder]`), so 1.0 starts with no table of old names. From
+1.0 on, a frozen name that misleads its reader is renamed only through a table of old names,
+one for each kind of name, beside the code that reads it. The first rename of a kind adds its
+table, and with it:
 
 - Glimt reads the old name too, forever, and writes only the new one. When a settings or state
   file holds both, the new one counts.
-- The old line stays in the frozen file and the new name is added at its end. The tests accept
-  an old name only when its table maps it to a name that is read now.
-- `theme::RENAMED_THEMES` is for the built-in themes, as the theme setting stores them. A theme
-  file of the user's own keeps its old name, and Save as Theme refuses an old name.
-- `tools::RENAMED_FOLDERS` is for the folders of tools and added formats. Glimt creates them
-  only under the new name.
+- The old line stays in the frozen file and the new name is added at its end. The frozen test
+  is taught to accept an old name only when its table maps it to a name that is read now, and a
+  test checks that no old name is a name now, so a later name cannot be read as another.
+- A built-in theme's old name stays the user's when a theme file of the user's has it, and Save
+  as Theme refuses an old name.
+- A folder is created only under its new name, and opened under its old one while only that
+  one is there, as the user's files are there.
 - A retired setting keeps its key. Its value is read once into the setting that took its place,
-  and from then on it is written as its default (`app_name_first`, moved into
-  `window_title`).
-- Every old value, of a retired setting or a renamed theme, is mapped in one function,
-  `config::old_values_mapped`, which `Config::parse`, `parse_checked` and the save's `merged`
-  all call.
+  and from then on it is written as its default.
+- Every old value is mapped in one function, which `Config::parse`, `parse_checked` and the
+  save's `merged` all call.
 
 ## Language
 
@@ -444,8 +444,8 @@ arm becomes a method.
   extension list behind `#[cfg(feature = "...")]`, and its settings shown in Preferences only
   when built in. Never break the default build. "Tool"
   means only the desktop files in Edit → Tools, and "added format" only those in
-  `glimt/formats`. They were once plugins and decoder plugins, and their old folders are
-  still read (`tools::RENAMED_FOLDERS`).
+  `glimt/formats`. They were once plugins and decoder plugins, whose old folders 0.96.0 no
+  longer reads.
 - **A file operation** (one that starts a job or background work) joins the contract in
   file_ops.rs's tests. It gets an entry in `contract_ops()` that says what it does to the
   contract's folder and what must hold afterwards (the file, its sidecar, its stars, held back

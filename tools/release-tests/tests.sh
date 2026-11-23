@@ -363,19 +363,10 @@ as_version() {
     chmod 700 $XDG_RUNTIME_DIR
     export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
 }
-# config SETTING=VALUE…: the settings file. An OLD before 0.74.0 or 0.80.0 reads only the old
-# keys of the settings renamed then, so it gets those.
-OLD_KEYS='s/^delete_to_trash=/trash=/; s/^slideshow_delay=/delay=/; s/^slideshow_random=/random=/;
-    s/^use_image_profile=/own_profile=/; s/^list_videos=/videos=/; s/^info_panel=/exif_panel=/;
-    s/^sort_case_sensitive=/sort_case=/; s/^search_case_sensitive=/search_case=/;
-    s/^one_malloc_arena=/low_memory=/; s/^slideshow_fade=/fade=/; s/^icon_grid=/icons=/'
-config() {
-    if [ "$V" = old ]; then printf '%s\n' "$@" | sed "$OLD_KEYS"; else printf '%s\n' "$@"; fi \
-        >$XDG_CONFIG_HOME/glimt/config
-}
-# The folder of the added formats' desktop files. OLD before 0.75.0 reads only its old name,
-# decoders, so it gets that; NEW reads both, and the old one is still read for good.
-formats_dir() { if [ "$V" = old ]; then echo $XDG_DATA_HOME/glimt/decoders; else echo $XDG_DATA_HOME/glimt/formats; fi; }
+# config SETTING=VALUE…: the settings file.
+config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
+# The folder of the added formats' desktop files.
+formats_dir() { echo $XDG_DATA_HOME/glimt/formats; }
 # The start of a section: its title, and NEW with nothing left by a section before, neither in
 # the homes nor in /tmp/stub, as run.sh may start a part at any section. The working folder and
 # the variables a section exports for itself are reset too; a new one of those goes in the list.
@@ -1655,7 +1646,7 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
-section "--remote previous, and the words from before 0.74.0: prev and run Prev still taken"
+section "--remote previous and run Previous: each one image back"
 d=/tmp/remote-previous
 mkdir -p $d
 for f in a b c d; do convert -size 64x64 xc:red $d/$f.png; done
@@ -1663,13 +1654,10 @@ config
 start $d/d.png; sleep 2
 remote previous >/dev/null 2>&1; sleep 1
 after_previous=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
-remote prev >/dev/null 2>&1; sleep 1
-after_prev=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
-remote run Prev >/dev/null 2>&1; sleep 1
+remote run Previous >/dev/null 2>&1; sleep 1
 after_run=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
 quit
-expect "previous, prev and run Prev each one image back" "$after_previous $after_prev $after_run" \
-    "c.png b.png a.png"
+expect "previous and run Previous each one image back" "$after_previous $after_run" "c.png b.png"
 
 section "--remote select while Preferences is open: answered at once"
 for v in new old; do
@@ -3200,8 +3188,7 @@ mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
 for v in new old; do
     as_version $v
-    printf 'slideshow_delay=7\nvideo_player=/opt/caf\351/player\n' \
-        | sed "$([ $v = old ] && echo "$OLD_KEYS")" >$XDG_CONFIG_HOME/glimt/config
+    printf 'slideshow_delay=7\nvideo_player=/opt/caf\351/player\n' >$XDG_CONFIG_HOME/glimt/config
     start $d/a.jpg
     sleep 2
     key t; key t          # Thumbnails off and on: each saves the settings
@@ -3364,26 +3351,24 @@ quit
 expect "the tool ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
 expect "Stop Stamp in Edit → Tools ended the tool" "$left" "ended"
 
-# In the folder's old name, plugins, which every version reads: NEW still reads it.
-section "a tool with MimeType= in the old plugins folder: given only the selected files of its types"
+section "a tool with MimeType=: given only the selected files of its types"
 for v in new old; do
     as_version $v
     d=/tmp/tool-types-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/plugins
+    mkdir -p $d $XDG_DATA_HOME/glimt/tools
     convert -size 64x64 xc:red $d/a.png
     convert -size 64x64 xc:red $d/b.jpg
     printf '#!/bin/sh\necho "$@" >>%s/ran\n' $d >/tmp/stub/pngonly; chmod +x /tmp/stub/pngonly
     printf '[Desktop Entry]\nName=PngOnly\nExec=pngonly %%F\nMimeType=image/png;\n' \
-        >$XDG_DATA_HOME/glimt/plugins/pngonly.desktop
+        >$XDG_DATA_HOME/glimt/tools/pngonly.desktop
     config
     start $d/a.png; sleep 2
     remote select $d/a.png $d/b.jpg >/dev/null 2>&1
-    # The menu was Plugins before 0.75.0.
-    menu Edit $([ $v = old ] && echo Plugins || echo Tools) PngOnly; until_ok "[ -s $d/ran ]" 2
+    menu Edit Tools PngOnly; until_ok "[ -s $d/ran ]" 2
     quit
-    rm -f $XDG_DATA_HOME/glimt/plugins/pngonly.desktop
+    rm -f $XDG_DATA_HOME/glimt/tools/pngonly.desktop
     got=$(sed "s|$d/||g" $d/ran 2>/dev/null)
-    if [ $v = new ]; then expect "the tool in plugins/ ran on a.png only" "$got" "a.png"
+    if [ $v = new ]; then expect "the tool ran on a.png only" "$got" "a.png"
     else note "old: $got"; fi
 done
 
@@ -3457,36 +3442,6 @@ start $d; sleep 2
 key ctrl+f; sleep 1; xdotool type holiday; key Return; sleep 1
 quit
 expect "the folder is there" "$([ -d $d/holiday ] && echo yes)" yes
-
-section "a settings file of 0.79: icons=true shows the icon grid, as icon_grid=true does"
-d=/tmp/old-setting
-mkdir -p $d
-for c in red lime blue; do convert -size 64x64 xc:$c $d/$c.png; done
-for setting in "" icons=true icon_grid=true; do
-    config $setting
-    start $d/red.png; sleep 2
-    settled old-setting-${setting%%=*}
-    quit
-done
-same() { md5sum </t/out/$1.png; }
-differ "icon_grid=true shows another list" "$(same old-setting-icon_grid)" "$(same old-setting-)"
-expect "the old key icons=true as icon_grid=true" "$(same old-setting-icons)" "$(same old-setting-icon_grid)"
-
-section "the action names of 0.79: Up in keys= and --remote run Home still work"
-d=/tmp/old-actions
-mkdir -p $d/sub
-convert -size 64x64 xc:red $d/sub/a.png
-convert -size 64x64 xc:blue $d/b.png
-convert -size 64x64 xc:lime $HOME/h.png
-config "keys=Up=F9"
-start $d/sub/a.png; sleep 2
-key F9; sleep 2
-up=$(remote current 2>/dev/null | tr -d '\0')
-remote run Home >/dev/null 2>&1; ran=$?
-sleep 2
-home=$(remote current 2>/dev/null | tr -d '\0')
-quit
-expect "F9 for Up goes to the parent, run Home to the home folder" "$up $ran $home" "$d/b.png 0 $HOME/h.png"
 
 section "Up and Home in the toolbar: the parent folder, then the home folder"
 d=/tmp/up-home

@@ -285,7 +285,8 @@ fn check_config(file: Option<PathBuf>) -> ! {
         eprintln!("glimt: no home folder, so no settings file");
         std::process::exit(CHECK_CONFIG_PROBLEMS);
     };
-    let desktop_file_problems = crate::features::tools::desktop_file_problems();
+    let mut desktop_file_problems = crate::features::tools::desktop_file_problems();
+    desktop_file_problems.extend(crate::features::tools::old_desktop_files());
     let (out, err, code) = config_report(config_check(&path, given), &desktop_file_problems);
     out.iter().for_each(|line| println!("{line}"));
     err.iter().for_each(|line| eprintln!("{line}"));

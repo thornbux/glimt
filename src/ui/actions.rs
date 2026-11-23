@@ -496,36 +496,10 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::SelectMark6,
 ];
 
-/// The actions renamed in 0.74.0 and later, as (old name, new name). The keys= setting and
-/// `glimt --remote run` take the old names too, forever, so users' settings and scripts keep
-/// working, and only the new names are written and listed.
-pub(crate) const RENAMED_ACTIONS: [(&str, &str); 17] = [
-    ("HideTools", "HideFileList"),
-    ("Overlay", "FullScreenInfo"),
-    ("Play", "PlayVideo"),
-    ("Faster", "SlideshowFaster"),
-    ("Slower", "SlideshowSlower"),
-    ("Keywords", "FocusKeywords"),
-    ("Copy", "CopyTo"),
-    ("Move", "MoveTo"),
-    ("ViewFilter", "NextFilter"),
-    ("ExifPanel", "InfoPanel"),
-    ("Prev", "Previous"),
-    // 0.76.0: the same abbreviation as Prev, beside NextPage and the label Previous Page.
-    ("PrevPage", "PreviousPage"),
-    // 0.80.0: a script could not tell that CopyFiles copies to the clipboard, not to a folder.
-    ("CopyFiles", "CopyFilesToClipboard"),
-    // 0.80.0: a view toggle, while the Rotate actions turn the files.
-    ("ExifRotate", "AutoRotate"),
-    // 0.80.0: these three were named after their keys, not after what they do.
-    ("Escape", "LeaveFullScreen"),
-    ("Up", "ParentFolder"),
-    ("Home", "HomeFolder"),
-];
-
 /// Everything the user can do from a menu or a shortcut. The variants' names are stored in the
-/// settings for the user's own keys (`{a:?}`). A variant is renamed only through
-/// `RENAMED_ACTIONS`, because otherwise the users' keys for it would be lost.
+/// settings for the user's own keys (`{a:?}`) and taken by `--remote run`. A variant renamed
+/// without a table of old names that maps its old name to it would lose the users' keys and
+/// scripts for it (AGENTS.md).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Action {
     OpenFile,
@@ -686,7 +660,6 @@ impl Action {
     /// src/keys-1.0.txt, or `None` when there is no such action or it is not in
     /// `SCRIPT_ACTIONS`.
     pub fn for_script(name: &str) -> Option<Action> {
-        let name = action_name_now(name);
         (SCRIPT_ACTIONS.iter())
             .find(|a| format!("{a:?}") == name)
             .copied()
@@ -1119,7 +1092,6 @@ impl std::str::FromStr for Keys {
             // cannot read or without "=", is kept as it is for the build that wrote it, and
             // `--check-config` tells it.
             let (name, combo) = item.split_once('=').unwrap_or((item, ""));
-            let name = action_name_now(name);
             match (
                 ALL.iter().find(|a| format!("{a:?}") == name),
                 combo_of(combo),
@@ -1825,14 +1797,6 @@ fn combo_of(combo: &str) -> Option<(egui::Modifiers, egui::Key)> {
     Some((mods, key))
 }
 
-/// Returns the name an action has now: the new name of one renamed in `RENAMED_ACTIONS`, and
-/// `name` itself for every other.
-fn action_name_now(name: &str) -> &str {
-    (RENAMED_ACTIONS.iter())
-        .find(|r| r.0 == name)
-        .map_or(name, |r| r.1)
-}
-
 /// Returns the key of a Copy or Cut event (C or X), which egui-winit sends for Ctrl+C and
 /// Ctrl+X instead of a key press, or `None` for any other event.
 pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
@@ -2458,10 +2422,9 @@ mod tests {
             unpinned_keys.is_empty(),
             "add these at the end of src/keys-1.0.txt as `key NAME`: {unpinned_keys:?}"
         );
-        // An old name passes when RENAMED_ACTIONS maps it to an action's name now.
         for name in frozen_actions {
             assert!(
-                actions.iter().any(|a| a == super::action_name_now(name)),
+                actions.iter().any(|a| a == name),
                 "the action {name} is gone: it is in users' keys= since 1.0"
             );
         }
@@ -2470,53 +2433,6 @@ mod tests {
             assert!(
                 eframe::egui::Key::from_name(name).is_some(),
                 "the key {name} is gone: it is in users' keys= since 1.0"
-            );
-        }
-    }
-
-    /// Each renamed action is read by its old name in keys= and by `--remote run`, and only its
-    /// new name is written.
-    #[test]
-    fn old_action_names_are_read_and_only_new_ones_written() {
-        use super::Keys;
-        for (old, new) in super::RENAMED_ACTIONS {
-            let keys: Keys = format!("{old}=Ctrl+F12").parse().unwrap();
-            assert_eq!(keys.to_string(), format!("{new}=Ctrl+F12"), "{old}");
-            assert_eq!(Action::for_script(old), Action::for_script(new), "{old}");
-        }
-        assert_eq!(Action::for_script("Prev"), Some(Action::Previous));
-    }
-
-    /// The actions renamed in 0.80.0 run the same action by their old names, in keys= and by
-    /// `--remote run`, so the users' keys and scripts of 0.79 keep working.
-    #[test]
-    fn actions_renamed_in_0_80_keep_their_keys_and_scripts() {
-        use super::Keys;
-        for (old, new) in [
-            ("CopyFiles", Action::CopyFilesToClipboard),
-            ("ExifRotate", Action::AutoRotate),
-            ("Escape", Action::LeaveFullScreen),
-            ("Up", Action::ParentFolder),
-            ("Home", Action::HomeFolder),
-        ] {
-            assert_eq!(Action::for_script(old), Some(new), "{old}");
-            let by_old: Keys = format!("{old}=Ctrl+F12").parse().unwrap();
-            let by_new: Keys = format!("{new:?}=Ctrl+F12").parse().unwrap();
-            assert_eq!(by_old.to_string(), by_new.to_string(), "{old}");
-            assert!(by_old.unusable_items().is_empty(), "{old}");
-        }
-    }
-
-    /// No old name in `RENAMED_ACTIONS` is an action's name now. An action given an old name
-    /// later would otherwise be read in keys= and by `--remote run` as the one it was renamed
-    /// to, so its keys would run that other action.
-    #[test]
-    fn old_action_names_are_not_names_now() {
-        let actions = variants(true);
-        for (old, _) in super::RENAMED_ACTIONS {
-            assert!(
-                !actions.iter().any(|a| a == old),
-                "{old} is an old name in RENAMED_ACTIONS, so no action can have it"
             );
         }
     }

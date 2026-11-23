@@ -407,9 +407,7 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          files are given to the program directly, never through a shell. With MimeType= in the \
          desktop file, as image/x-canon-cr2;image/x-nikon-nef; or image/*, the tool is given \
          only the files of those types, and Glimt says how many it leaves out. The types are \
-         those shared-mime-info names, not their aliases or parent types. The folder's old name, \
-         ~/.local/share/glimt/plugins, is still read; a desktop file of the same name in tools \
-         comes first.\n\n\
+         those shared-mime-info names, not their aliases or parent types.\n\n\
          A tool that is still running, such as an editor left open, is listed at the bottom of \
          the menu as Stop and its name, which ends it and what it started.\n\n\
          /usr/share/doc/glimt/examples/tools (examples/tools in the tar.gz and the \
@@ -440,9 +438,7 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          shown as any other, with thumbnails. The command runs without a shell, for 30 seconds at \
          most, and with at most 4096 MB of memory, which Preferences → Memory and CPU can raise for \
          a program such as Java; the program finds that limit in GLIMT_FORMAT_MEMORY_MB. When it \
-         runs out of memory, Glimt says so. The folder's old name, \
-         ~/.local/share/glimt/decoders, and the old header [Glimt \
-         Decoder] are still read.\n\n\
+         runs out of memory, Glimt says so.\n\n\
          /usr/share/doc/glimt/examples/formats (examples/formats in the tar.gz and the \
          source) has formats for:\n\n\
          - JPEG 2000 (ffmpeg)\n\

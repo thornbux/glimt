@@ -615,9 +615,7 @@ impl crate::App {
                 let notices = self.notice_sender.clone();
                 // No busy pointer: the file manager may stay open for hours, and nothing waits for
                 // it.
-                std::thread::spawn(move || {
-                    open_own_folder(&tools::folder_to_open(&home, "tools"), &notices)
-                });
+                std::thread::spawn(move || open_own_folder(&home.join("tools"), &notices));
             }
             let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
                 return;

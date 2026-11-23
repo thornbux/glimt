@@ -40,7 +40,7 @@
 3	glimt --action-list: each action once with its label, and --remote run takes the first
 10	--remote run while a text field has the focus: not done, exit 3 and the reason
 8	--wait --remote run: done once the setting is written, exit 3 when its folder is read-only
-7	--remote previous, and the words from before 0.74.0: prev and run Prev still taken
+7	--remote previous and run Previous: each one image back
 11	--remote select while Preferences is open: answered at once
 8	--remote select through a linked folder: the files are found
 8	--remote select: right after open, files of the list selected, the others printed
@@ -105,13 +105,11 @@
 16	a kiosk: a visitor's keys change no saved setting
 15	a kiosk without a runtime folder: told, and Ctrl+Q is its way out; with one, Ctrl+Q is refused
 11	Edit → Tools from the menu: the tool runs on the shown file, Glimt answering meanwhile
-15	a tool with MimeType= in the old plugins folder: given only the selected files of its types
+15	a tool with MimeType=: given only the selected files of its types
 15	zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -
 5	several folders on the command line: one list, each image with its folder
 9	Open Folder Recursive: the folder with its subfolders, and Include Subfolders on
 8	New Folder (Ctrl+F): made in the folder shown
-13	a settings file of 0.79: icons=true shows the icon grid, as icon_grid=true does
-9	the action names of 0.79: Up in keys= and --remote run Home still work
 8	Up and Home in the toolbar: the parent folder, then the home folder
 7	Mirror, Flip and Rotate 180 as shown: the quarters of the image change places
 7	Play Video (Enter) runs the player set in Preferences with the file

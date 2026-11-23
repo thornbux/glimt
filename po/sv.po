@@ -4087,3 +4087,13 @@ msgstr "{photo} finns där igen, så den behåller sina markeringar och stjärno
 #, fuzzy
 msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
 msgstr "{folder} har loggar som Glimt 0.92 eller äldre lämnade när det stoppades under Byt namn på flera, en flytt eller en borttagning. Denna Glimt läser dem inte längre: starta Glimt 0.94 en gång för att rätta till dem. Till dess sparas de."
+
+#: src/features/tools.rs
+#, fuzzy
+msgid "{folder} holds tools or added formats that Glimt no longer reads: move their desktop files to {new_folder}"
+msgstr "{folder} innehåller verktyg eller tillagda format som Glimt inte längre läser: flytta deras desktop-filer till {new_folder}"
+
+#: src/features/tools.rs
+#, fuzzy
+msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
+msgstr "{file} läses inte in: rubriken [Glimt Decoder] läses inte längre. Skriv [Glimt Format] i stället"

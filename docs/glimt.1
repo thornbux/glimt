@@ -387,17 +387,7 @@ Only the actions that change no file, sidecar, mark or collection, not even thro
 the user then clicks in, are taken (showing, browsing, selecting, the panels and windows, the
 settings and the clipboard), and none while a dialog asks the user or a text field has the focus;
 .B glimt \-\-action\-list
-lists them. An action that was renamed is still taken by its old name, here and in
-.BR keys= ,
-such as
-.B Up
-for
-.B ParentFolder
-or
-.B ExifRotate
-for
-.BR AutoRotate ;
-the list shows only the new names. Any other name exits with 2, and a
+lists them. Any other name exits with 2, and a
 .B run
 refused exits with 3.
 .TP
@@ -593,9 +583,6 @@ next to it, read by darktable and digiKam too.
 .I $XDG_DATA_HOME/glimt/tools
 Tools (Edit \(-> Tools): desktop files whose command runs on the selected files (default
 .IR ~/.local/share/glimt/tools ).
-The folder's old name,
-.IR plugins ,
-is still read.
 .TP
 .I $XDG_STATE_HOME/glimt/jobs
 One log for each job that changes files while it runs (Rename Many, a Move, a Delete, a Move to
@@ -636,9 +623,6 @@ sidecars, one of which a window holds while it writes a sidecar.
 Added formats: desktop files whose command turns a file of a format Glimt does not read itself
 into an image on its standard output (default
 .IR ~/.local/share/glimt/formats ).
-The folder's old name,
-.IR decoders ,
-is still read.
 .TP
 .I $XDG_DATA_HOME/glimt/collections
 Collections, as Geeqie .gqv files (default

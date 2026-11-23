@@ -40,6 +40,7 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
         config,
         problems: Vec::new(),
         desktop_file_problem: None,
+        old_desktop_files: Vec::new(),
         #[cfg(feature = "marks")]
         marks: crate::metadata::marks::read_marks(),
         window_state: None,

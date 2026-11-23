@@ -162,38 +162,6 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("cpu_use", &["saving", "balanced", "full"]),
 ];
 
-/// The settings renamed in 0.74.0 and later, as (old key, new key). A settings file is read by
-/// the old keys too, forever, so the users' files keep working, and only the new keys are
-/// written. When a file holds both keys of a setting, the value of the new key is the one used.
-const RENAMED_SETTINGS: [(&str, &str); 14] = [
-    ("trash", "delete_to_trash"),
-    ("delay", "slideshow_delay"),
-    ("random", "slideshow_random"),
-    ("own_profile", "use_image_profile"),
-    ("videos", "list_videos"),
-    ("sort_case", "sort_case_sensitive"),
-    ("search_case", "search_case_sensitive"),
-    ("exif_panel", "info_panel"),
-    // 0.76.0: "OSD" is jargon that the menus and the action had already dropped.
-    ("osd", "full_screen_info"),
-    ("osd_template", "full_screen_info_template"),
-    // 0.76.0: "turns" was a word of its own. The menu says One Image at a Time.
-    ("layout_turns", "slideshow_one_image_at_a_time"),
-    // 0.80.0: low_memory=true is the default Medium level, and it means one malloc arena.
-    ("low_memory", "one_malloc_arena"),
-    // 0.80.0: the one slideshow setting without slideshow_ (the option --fade keeps its name).
-    ("fade", "slideshow_fade"),
-    // 0.80.0: beside toolbar_icons and thumbnails, icons did not say which it was.
-    ("icons", "icon_grid"),
-];
-
-/// The window state's keys renamed in 0.74.0, as (old key, new key). They are read as the
-/// keys of `RENAMED_SETTINGS` are.
-const RENAMED_STATE: [(&str, &str); 1] = [("window_pos", "window_position")];
-
-/// The window title that the retired app_name_first=true stood for.
-const APP_NAME_FIRST_TITLE: &str = "%app% - %name%";
-
 /// The key of the last folder in the window state file, beside `WindowState`'s keys.
 pub const LAST_DIR: &str = "last_dir";
 
@@ -408,10 +376,6 @@ config! {
     lightroom_keywords: bool = true,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool = true,
-    /// Retired in 0.76.0. It was the window title "Glimt - image name" instead of "image name -
-    /// Glimt". Its true is read once into `window_title` (`move_app_name_first`), and it is
-    /// written as false.
-    app_name_first: bool = false,
     /// The window title, from a template of %name%, %path%, %folder%, %app% and %id%. When it is
     /// empty, the title is "image name - Glimt".
     window_title: String = String::new(),
@@ -507,10 +471,7 @@ impl Config {
     pub fn parse(text: &str) -> Self {
         let mut c = Config::default();
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
-            let key = key.trim();
-            if !old_key_overridden(key, text) {
-                c.set(setting_key_now(key), value.trim());
-            }
+            c.set(key.trim(), value.trim());
         }
         c.preload = c.preload.min(20);
         c.decode_threads = c.decode_threads.clamp(1, 8);
@@ -532,7 +493,6 @@ impl Config {
         c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
-        old_values_mapped(&mut c);
         unknown_choices_reset(&mut c);
         c
     }
@@ -556,23 +516,9 @@ impl Config {
                 continue;
             };
             let (key, value) = (key.trim(), value.trim());
-            // The setting's key now, also for a line with its old key.
-            let now = setting_key_now(key);
-            // The line of an old key beside its new key is passed over, as `parse` does. It is
-            // told, because a value changed there by hand would otherwise be lost unseen.
-            if old_key_overridden(key, text) {
-                problems.push(format!(
-                    "line {n}: {key} is the old name of {now}, which this file also sets; \
-                     this line is ignored"
-                ));
-                continue;
-            }
-            let has_key = |&(_, l): &(usize, &str)| {
-                let key = l.split_once('=').map(|(o, _)| o.trim());
-                key.filter(|o| !old_key_overridden(o, text))
-                    .map(setting_key_now)
-                    == Some(now)
-            };
+            let now = key;
+            let has_key =
+                |&(_, l): &(usize, &str)| l.split_once('=').map(|(o, _)| o.trim()) == Some(now);
             let again = lines[..k].iter().any(has_key);
             let later = lines[k + 1..].iter().any(has_key);
             let mut alone = Config::default();
@@ -613,7 +559,6 @@ impl Config {
                     }
                 }
                 Some(true) => {
-                    old_values_mapped(&mut alone);
                     let wanted = value_in(&alone.to_text(), now);
                     let wrong = match choices().iter().any(|c| c.0 == now) {
                         true => "is not a value it takes",
@@ -895,47 +840,14 @@ pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
     state_value(state, LAST_DIR).map(PathBuf::from)
 }
 
-/// Returns the value of `key` in the window state's text. A key renamed in `RENAMED_STATE` is
-/// read by its old name when the text does not hold the new one. Returns `None` when neither
-/// is there with a value.
-pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
-    let old_key = RENAMED_STATE.iter().find(|r| r.1 == key).map(|r| r.0);
-    state_line_value(state, key).or_else(|| state_line_value(state, old_key?))
-}
-
 /// Returns the value of the first line of `key` in the window state's text, or `None` when no
 /// line has that key with a value.
-fn state_line_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
+pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
     state.lines().find_map(|l| {
         l.strip_prefix(key)?
             .strip_prefix('=')
             .filter(|v| !v.is_empty())
     })
-}
-
-/// Returns the key a setting has now: the new key of one renamed in `RENAMED_SETTINGS`, and
-/// `key` itself for every other.
-fn setting_key_now(key: &str) -> &str {
-    (RENAMED_SETTINGS.iter())
-        .find(|r| r.0 == key)
-        .map_or(key, |r| r.1)
-}
-
-/// Whether the line of `key` in the settings file `text` is passed over. That is so when `key`
-/// is the old key of a renamed setting and `text` also sets its new key, whose value counts.
-fn old_key_overridden(key: &str, text: &str) -> bool {
-    let key = key.trim();
-    let now = setting_key_now(key);
-    now != key && (text.lines()).any(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == now))
-}
-
-/// Maps the old values in `c` to what they are now: the retired app_name_first=true moved
-/// into the window title, and the old name of a built-in theme (`RENAMED_THEMES`). `parse`,
-/// `parse_checked` and `merged` all map them here, so a file with an old value is read without
-/// a problem, and a save writes the new value.
-fn old_values_mapped(c: &mut Config) {
-    move_app_name_first(&mut c.app_name_first, &mut c.window_title);
-    c.theme = crate::ui::theme::theme_name_now(&c.theme).to_owned();
 }
 
 /// Returns the settings that take one of a few values named outside `NAMED`, each with the
@@ -1006,15 +918,6 @@ fn unknown_layouts(value: &str) -> impl Iterator<Item = &str> {
     (value.split(',')).filter(move |l| !l.is_empty() && !layouts.iter().any(|known| known.0 == *l))
 }
 
-/// Moves the retired app_name_first=true into the window title it stood for, when the user has
-/// no title of their own. The setting is false afterwards, so it is moved only once, and a
-/// title the user empties later stays empty.
-fn move_app_name_first(app_name_first: &mut bool, window_title: &mut String) {
-    if std::mem::take(app_name_first) && window_title.is_empty() {
-        *window_title = APP_NAME_FIRST_TITLE.to_owned();
-    }
-}
-
 /// The `value` of `key` as the code holds it. A name becomes its place in its list, and other
 /// values stay as given.
 fn by_number(key: &str, value: &str) -> String {
@@ -1059,35 +962,13 @@ pub fn locked() -> bool {
 /// `on_disk` is kept, because another window may have changed that setting since. The result
 /// keeps the file's own order, its comments and blank lines, with the settings it lacks after
 /// them. Settings this Glimt does not know, from a newer one (a Flatpak beside a .deb), stay.
-/// The line of a setting's old key in `RENAMED_SETTINGS` goes, and its new key takes its value.
 fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
     let pairs = |text: &str| -> std::collections::HashMap<String, String> {
         (text.lines().filter_map(|l| l.split_once('=')))
             .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
             .collect()
     };
-    let (saved, mut theirs) = (pairs(saved), pairs(on_disk));
-    // A value under a setting's old key on disk counts as the new key's when the file lacks the
-    // new key, as `Config::parse` reads it. An older Glimt that shares the file writes it so.
-    for (old, new) in RENAMED_SETTINGS {
-        if let Some(value) = theirs.remove(old) {
-            theirs.entry(new.to_owned()).or_insert(value);
-        }
-    }
-    // The old values on disk are mapped as `Config::parse` maps them, so a save writes the new
-    // ones and the old ones are read only once. These are the retired app_name_first=true, moved
-    // into the window title, and the old name of a theme.
-    let mut disk = Config::default();
-    for (key, value) in &theirs {
-        disk.set(key, value);
-    }
-    let before = disk.to_text();
-    old_values_mapped(&mut disk);
-    for (was, now) in before.lines().zip(disk.to_text().lines()) {
-        if let Some((key, value)) = now.split_once('=').filter(|_| was != now) {
-            theirs.insert(key.to_owned(), value.to_owned());
-        }
-    }
+    let (saved, theirs) = (pairs(saved), pairs(on_disk));
     let line = |l: &str| -> String {
         let value = l
             .split_once('=')
@@ -1104,12 +985,6 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
     let mut done = std::collections::HashSet::new();
     let mut text = String::new();
     for l in on_disk.lines() {
-        // The line of an old key goes, because its new key is written instead. So after one
-        // save the file holds only new keys, and no line in it is ignored without a word.
-        let is_old_key = |k: &str| setting_key_now(k) != k && mine.contains_key(setting_key_now(k));
-        if key(l).is_some_and(|k| is_old_key(&k)) {
-            continue;
-        }
         match key(l).filter(|k| mine.contains_key(k)) {
             // Ours, once (a setting set twice by hand comes out once).
             Some(k) => {
@@ -1390,7 +1265,6 @@ mod tests {
         assert!(Config::default().remember_window && Config::default().inhibit_screensaver);
         assert!(!Config::parse("remember_window=false").remember_window);
         assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
-        assert!(!Config::default().app_name_first);
         assert!(!Config::default().file_details && Config::parse("file_details=true").file_details);
         let c =
             Config::parse("sort=exif_digitized\nsort_ascending=false\nsort_case_sensitive=false");
@@ -1406,7 +1280,6 @@ mod tests {
         assert!(Config::default().search_bar && !Config::parse("search_bar=false").search_bar);
         assert_eq!(Config::parse("toolbar_icons=1").toolbar_icons, 1);
         assert_eq!(Config::parse("toolbar_icons=9").toolbar_icons, 2);
-        assert!(!Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(eframe::egui::vec2(1000.0, 700.5)),
             position: Some(eframe::egui::pos2(10.0, -20.0)),
@@ -1508,9 +1381,6 @@ mod tests {
         ] {
             assert!(text.contains(line), "{text}");
         }
-        // A built-in theme is read by its old name too, and written by its new one.
-        let theme = Config::parse("theme=Contrast").to_text();
-        assert!(theme.contains("\ntheme=High Contrast Light\n"), "{theme}");
         let (_, problems) = Config::parse_checked("slideshow_fade=9\nfit_mode=wide");
         assert!(problems[0].contains("long is used") && problems[1].contains("not a value"));
         for (k, (name, _, _)) in super::FADES.iter().enumerate() {
@@ -1607,10 +1477,9 @@ mod tests {
         let frozen: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
-        // An old name passes when its table of old names maps it to a name that is read now.
         let gone: Vec<&&str> = frozen
             .iter()
-            .filter(|f| !now.contains(&frozen_name_now(f)))
+            .filter(|f| !now.iter().any(|n| n == **f))
             .collect();
         assert!(
             gone.is_empty(),
@@ -1632,142 +1501,6 @@ mod tests {
                 .filter_map(|l| l.strip_prefix(prefix.as_str()))
                 .collect();
             assert_eq!(pinned, values, "{key} gains values only at its end");
-        }
-    }
-
-    /// The retired app_name_first=true becomes the window title it stood for, once: a title of
-    /// the user's own stays, a save writes the title and app_name_first=false, and a title
-    /// emptied afterwards stays empty. --check-config finds nothing wrong with the old line.
-    #[test]
-    fn app_name_first_is_read_once_into_the_window_title() {
-        use super::Config;
-        let old = "app_name_first=true\n";
-        let c = Config::parse(old);
-        assert_eq!(
-            (c.app_name_first, c.window_title.as_str()),
-            (false, "%app% - %name%")
-        );
-        let own = Config::parse("app_name_first=true\nwindow_title=%name%\n");
-        assert_eq!(own.window_title, "%name%");
-        assert_eq!(Config::parse_checked(old).1, Vec::<String>::new());
-        // Saved by a window that changed another setting: the title is written, not the old
-        // setting's true.
-        let saved = c.to_text();
-        let ours = saved.replace("thumbnails=true", "thumbnails=false");
-        let written = super::merged(&ours, &saved, old);
-        let again = Config::parse(&written);
-        assert_eq!(
-            (again.window_title.as_str(), again.thumbnails),
-            ("%app% - %name%", false)
-        );
-        assert!(written.contains("app_name_first=false\n"), "{written}");
-        // The user empties the title: it stays empty after a save and a load.
-        let mut emptied = Config::parse(&written);
-        emptied.window_title.clear();
-        let written = super::merged(&emptied.to_text(), &saved, &written);
-        assert_eq!(Config::parse(&written).window_title, "");
-    }
-
-    /// A built-in theme's old name is no problem for --check-config or the window, and a save
-    /// writes the new name in its place. Before, `parse_checked` told `theme=Contrast` as out of
-    /// range at every start, and a save kept the old name, as it was the same value there.
-    #[test]
-    fn an_old_theme_name_is_read_without_a_problem_and_saved_new() {
-        use super::Config;
-        for (old, new) in crate::ui::theme::RENAMED_THEMES {
-            let text = format!("theme={old}\n");
-            let (config, problems) = Config::parse_checked(&text);
-            assert_eq!(
-                (config.theme.as_str(), problems),
-                (new, Vec::<String>::new())
-            );
-            let saved = config.to_text();
-            let written = super::merged(&saved, &saved, &text);
-            assert!(written.contains(&format!("theme={new}\n")), "{written}");
-            assert!(!written.contains(&format!("theme={old}\n")), "{written}");
-        }
-    }
-
-    /// Each renamed setting is read by its old key too, and a file with both keys has the value
-    /// of the new one, wherever it stands. Only the new key is written, also by a save into the
-    /// file on disk, which takes the old key's line out. --check-config finds nothing wrong with
-    /// an old key alone, and tells the line of one that its new key overrides. The window
-    /// state's renamed keys are read the same way, and its file is written whole.
-    #[test]
-    fn old_keys_are_read_and_only_new_ones_written() {
-        use super::Config;
-        let defaults = Config::default().to_text();
-        for (old, new) in super::RENAMED_SETTINGS {
-            let value = super::value_in(&defaults, new);
-            // Another value than the default: another of its choices (in `choices()` or in
-            // `NAMED`, as slideshow_fade's), a bool turned, a number one larger, or a text with
-            // a letter more.
-            let named = super::NAMED.map(|(key, values)| (key, values.to_vec()));
-            let choice = (super::choices().into_iter().chain(named))
-                .find(|c| c.0 == new)
-                .and_then(|c| c.1.into_iter().find(|v| *v != value));
-            let other = match (choice, value.as_str()) {
-                (Some(choice), _) => choice.to_owned(),
-                (_, "true") => "false".to_owned(),
-                (_, "false") => "true".to_owned(),
-                (_, text) => text
-                    .parse::<u64>()
-                    .map_or_else(|_| format!("{text}x"), |n| (n + 1).to_string()),
-            };
-            let text = format!("{old}={other}\n");
-            let written = Config::parse(&text).to_text();
-            assert_eq!(super::value_in(&written, new), other, "{old} is not read");
-            let old_line = format!("{old}=");
-            assert!(
-                !written.lines().any(|l| l.starts_with(&old_line)),
-                "{old} written"
-            );
-            assert_eq!(Config::parse_checked(&text).1, Vec::<String>::new());
-            for (both, line) in [
-                (format!("{new}={value}\n{old}={other}\n"), 2),
-                (format!("{old}={other}\n{new}={value}\n"), 1),
-            ] {
-                let written = Config::parse(&both).to_text();
-                assert_eq!(super::value_in(&written, new), value, "{both}");
-                let ignored = format!(
-                    "line {line}: {old} is the old name of {new}, which this file also sets; \
-                     this line is ignored"
-                );
-                assert_eq!(Config::parse_checked(&both).1, [ignored]);
-                // A save takes the old line out and keeps the new key's value.
-                let saved = super::merged(&defaults, &defaults, &both);
-                assert!(!saved.lines().any(|l| l.starts_with(&old_line)), "{saved}");
-                assert_eq!(super::value_in(&saved, new), value);
-            }
-            // A save of a file with only the old key writes its value under the new key.
-            let saved = super::merged(&defaults, &defaults, &text);
-            assert!(!saved.lines().any(|l| l.starts_with(&old_line)), "{saved}");
-            assert_eq!(super::value_in(&saved, new), other);
-        }
-        let position = |text: &str| super::WindowState::parse(text).position;
-        let at = |x, y| Some(eframe::egui::pos2(x, y));
-        assert_eq!(position("window_pos=10,20\n"), at(10.0, 20.0));
-        assert_eq!(
-            position("window_pos=10,20\nwindow_position=1,2\n"),
-            at(1.0, 2.0)
-        );
-        let written = super::WindowState::parse("window_pos=10,20\n").to_text();
-        assert!(written.contains("window_position=10,20\n") && !written.contains("window_pos="));
-    }
-
-    /// The settings renamed in 0.80.0 give the same settings under their old keys as under
-    /// their new ones, and not the defaults, so a settings file of 0.79 keeps its choices.
-    #[test]
-    fn settings_renamed_in_0_80_keep_their_values() {
-        use super::Config;
-        for (old, new, value) in [
-            ("low_memory", "one_malloc_arena", "false"),
-            ("fade", "slideshow_fade", "long"),
-            ("icons", "icon_grid", "true"),
-        ] {
-            let by_old = Config::parse(&format!("{old}={value}\n"));
-            assert_eq!(by_old, Config::parse(&format!("{new}={value}\n")), "{old}");
-            assert_ne!(by_old, Config::default(), "{old} is not read");
         }
     }
 
@@ -1844,9 +1577,7 @@ mod tests {
                 CheckedBy("a_name_with_a_line_break_is_refused_at_the_add"),
             ),
             ("$XDG_DATA_HOME/glimt/tools", READ_ONLY),
-            ("$XDG_DATA_HOME/glimt/plugins", READ_ONLY),
             ("$XDG_DATA_HOME/glimt/formats", READ_ONLY),
-            ("$XDG_DATA_HOME/glimt/decoders", READ_ONLY),
             (
                 "/etc/glimt/lock-settings",
                 NoneToBreak("Glimt only asks whether it is there"),
@@ -1904,70 +1635,6 @@ mod tests {
                 }
                 NoneToBreak(why) => assert!(!why.is_empty(), "{file} gives no reason"),
             }
-        }
-    }
-
-    /// No old name in a table of old names is a setting, a window state key or a --remote
-    /// command now. One given an old name later would otherwise be read as the name it was
-    /// renamed to, and never under its own.
-    #[test]
-    fn old_names_are_not_names_now() {
-        use crate::features::remote::{COMMANDS, RENAMED_COMMANDS};
-        let now = names_now();
-        for (kind, table) in [
-            ("setting", &super::RENAMED_SETTINGS[..]),
-            ("state", &super::RENAMED_STATE[..]),
-        ] {
-            for (old, _) in table {
-                assert!(
-                    !now.contains(&format!("{kind} {old}")),
-                    "{kind} {old} is an old name in a table of old names, so it is no name now"
-                );
-            }
-        }
-        for (old, _) in crate::ui::theme::RENAMED_THEMES {
-            assert!(
-                !now.contains(&format!("value theme {old}")),
-                "{old} is an old name in RENAMED_THEMES, so it is no theme now"
-            );
-        }
-        // The commands are read from `COMMANDS` itself, which also has the release tests' "where".
-        for (old, _) in RENAMED_COMMANDS {
-            assert!(
-                !(COMMANDS.iter()).any(|(usage, _)| usage.split(' ').next() == Some(old)),
-                "remote {old} is an old name in RENAMED_COMMANDS, so it is no command now"
-            );
-        }
-    }
-
-    /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting, a window
-    /// state key, a --remote command or an action renamed in its table of old names gets its
-    /// new name, as does the setting of a value line, and every other line is returned as it is.
-    fn frozen_name_now(line: &str) -> String {
-        let (kind, name) = line.split_once(' ').unwrap_or((line, ""));
-        // A remote command's line may have a word of its choice after the command's own, and a
-        // value line has its value after the setting's key.
-        let (name, rest) = match kind {
-            "remote" | "value" => name.split_once(' ').map_or((name, ""), |(n, r)| (n, r)),
-            _ => (name, ""),
-        };
-        let table: &[(&str, &str)] = match kind {
-            "setting" | "value" => &super::RENAMED_SETTINGS,
-            "state" => &super::RENAMED_STATE,
-            "remote" => &crate::features::remote::RENAMED_COMMANDS,
-            "script" => &crate::ui::actions::RENAMED_ACTIONS,
-            _ => &[],
-        };
-        // A built-in theme renamed in RENAMED_THEMES is the value of the theme setting now.
-        let rest = match (kind, name) {
-            ("value", "theme") => crate::ui::theme::theme_name_now(rest),
-            _ => rest,
-        };
-        match table.iter().find(|r| r.0 == name) {
-            Some((_, new)) if rest.is_empty() => format!("{kind} {new}"),
-            Some((_, new)) => format!("{kind} {new} {rest}"),
-            None if kind == "value" => format!("{kind} {name} {rest}"),
-            None => line.to_owned(),
         }
     }
 
@@ -2139,9 +1806,8 @@ mod tests {
         #[cfg(not(feature = "marks"))]
         files.push("file $XDG_STATE_HOME/glimt/marks".to_owned());
         let data = super::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
-        for (old, new) in crate::features::tools::RENAMED_FOLDERS {
-            files.push(shown(data.as_ref().map(|d| d.join(new))));
-            files.push(shown(data.as_ref().map(|d| d.join(old))));
+        for kind in ["tools", "formats"] {
+            files.push(shown(data.as_ref().map(|d| d.join(kind))));
         }
         files.push(format!("file {}", super::LOCK_FILE));
         let runtime = runtime_folder();

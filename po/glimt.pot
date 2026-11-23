@@ -3294,3 +3294,11 @@ msgstr ""
 #: src/files/journal.rs
 msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
 msgstr ""
+
+#: src/features/tools.rs
+msgid "{folder} holds tools or added formats that Glimt no longer reads: move their desktop files to {new_folder}"
+msgstr ""
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
+msgstr ""

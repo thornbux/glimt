@@ -1,8 +1,8 @@
 # The names in keys= of the settings file as of 1.0, each with its kind: `action` for an
 # action, `key` for the name of a default key. Never taken out or changed; new ones are added
-# below (see AGENTS.md and the test in actions.rs). A renamed action keeps its line,
-# RENAMED_ACTIONS in actions.rs maps it to the new name, and the new name is added below. A
-# name that is both an action and a key (Delete, Escape, Home, Up) has a line of each kind.
+# below (see AGENTS.md and the test in actions.rs). A renamed action keeps its line, a table
+# of old names in actions.rs maps it to the new name, and the new name is added below. A
+# name that is both an action and a key (such as Delete) has a line of each kind.
 key A
 action AboveEachOther
 action Animate
@@ -11,7 +11,6 @@ key C
 key CloseBracket
 action CloseWindow
 action Compare
-action Copy
 action CopyImage
 key D
 action Delete
@@ -22,16 +21,12 @@ key E
 key End
 key Enter
 key Equals
-action Escape
 key Escape
-action ExifPanel
-action ExifRotate
 action ExifWindow
 key F
 key F1
 key F11
 key F5
-action Faster
 action FindDuplicates
 action First
 action FitHeight
@@ -43,24 +38,20 @@ action FullScreen
 key G
 key H
 action Help
-action HideTools
 action Histogram
 action HistogramLog
-action Home
 key Home
 key I
 action Icons
 action InvertSelection
 key J
 key K
-action Keywords
 key L
 action Last
 key Left
 key M
 key Minus
 action Mirror
-action Move
 action MoveEarlier
 action MoveFirst
 action MoveLast
@@ -76,7 +67,6 @@ key O
 action OneImage
 key OpenBracket
 action OpenCollection
-action Overlay
 key P
 key PageDown
 key PageUp
@@ -86,11 +76,8 @@ action PaneLeft
 action PaneRight
 action PaneUp
 action Pause
-action Play
 key Plus
 action Preferences
-action Prev
-action PrevPage
 action Print
 key Q
 action Quit
@@ -108,16 +95,13 @@ action SelectAll
 action SelectNone
 key Slash
 action Slideshow
-action Slower
 action SortManager
 key Space
 key T
 action Thumbnails
 key U
-action Up
 key Up
 key V
-action ViewFilter
 key W
 key X
 key Y
@@ -143,7 +127,6 @@ action Back
 action Forward
 action CopyPath
 action CopyPathUnquoted
-action CopyFiles
 action SaveOrientation
 action FitFill
 action Subfolders
