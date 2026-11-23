@@ -12,6 +12,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
   problem on its own lines under a short heading. An error or a refusal has a red stripe and a
   warning sign, and an ordinary notice, such as Saved, a blue stripe. Before, every notice was
   one long line of light red text on a see-through band across the whole image.
+- Marks and stars are kept in `~/.local/share/glimt/marks` (`$XDG_DATA_HOME`), beside the
+  collections, where backups look for the data you made, instead of `~/.local/state/glimt`. The
+  first start moves the file there, before the window opens, and never loses it: when the move
+  fails, Glimt says so and keeps the marks where they were. When both places hold a marks file
+  (a Glimt 0.95 window still open, or an old backup copied back), the new one is used, the old
+  one is left as it is, and Glimt says so at each start. A backup script of your own needs the
+  new path.
+- Before 1.0 freezes them, names that misled are renamed. Each old name is no longer read, so
+  its setting goes back to its default once, and `glimt --check-config` names its line:
+  - the settings `exif_rotate`, `print_template` and `thumb_size` are now `auto_rotate`,
+    `print_caption_template` and `thumbnail_size`;
+  - the photo papers of `print_paper` are stored as `10x15cm` and `13x18cm` (the dialog still
+    shows "10 × 15 cm" and "13 × 18 cm");
+  - the languages Norwegian bokmål and nynorsk are stored as `nb` and `nn`. A stored `no_nb`
+    or `no_nn` now gives bokmål: nynorsk users choose Norsk nynorsk once more;
+  - the actions `Icons` and `Pause` are now `IconGrid` and `PauseSlideshow`, in `keys=` and in
+    `--remote run`; their menu labels and keys are unchanged;
+  - the EXIF fields of the full screen info and the print caption are named as `--remote info`
+    names them: `%file_size%`, `%taken%`, `%exposure%`, `%aperture%`, `%iso%`,
+    `%focal_length%`, and `%camera%`, `%lens%`, `%exposure_bias%`, `%flash%` and `%gps%`,
+    instead of the info panel's labels (`%Taken%`, `%Focal length%` …). The default full screen
+    info follows by itself; a template of your own needs its EXIF fields renamed.
 
 ### Removed
 
@@ -27,6 +49,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   those folders as they are, and while they hold desktop files it says so at each start and in
   `glimt --check-config`: move their desktop files into `tools` and `formats`, and give an added
   format the header `[Glimt Format]`.
+
+### Fixed
+
+- The print dialog remembers PDF file as the choice also when CUPS has a printer. Before, it
+  chose CUPS's default printer again at every print, because "PDF file" was stored as an empty
+  value, which also meant that nothing was chosen yet.
 
 ## [0.95.2] - 2026-11-23
 
