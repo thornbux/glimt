@@ -470,6 +470,18 @@ settled() {
 # the time is up, and the check after it then says what is wrong.
 until_ok() { local n=$(( ${2:-10} * 10 )); until eval "$1" >/dev/null 2>&1; do n=$((n - 1)); [ $n -le 0 ] && return 1; sleep 0.1; done; }
 until_current() { until_ok "[ \"\$(remote current 2>/dev/null | tr -d '\\0')\" = \"$1\" ]" ${2:-10}; }
+# until_listed FILE [SECONDS]: waits until no folder is being listed and FILE is in the list, up
+# to SECONDS (60); false when the time is up. `--remote select` waits while a folder is listed
+# and then prints the files that are not in the list, so it prints nothing only then. It also
+# shows FILE.
+until_listed() {
+    local until=$(( $(date +%s) + ${2:-60} ))
+    while [ "$(date +%s)" -lt $until ]; do
+        remote select "$1" >/tmp/not-listed 2>/dev/null && [ ! -s /tmp/not-listed ] && return 0
+        sleep 0.5
+    done
+    return 1
+}
 until_file() { until_ok "[ -e \"$1\" ]" ${2:-10}; }
 until_gone() { until_ok "[ ! -e \"$1\" ]" ${2:-10}; }
 # The colour at X,Y of a screenshot: red, green, blue, yellow, magenta, cyan or other.
@@ -6657,22 +6669,26 @@ section "a slideshow of a tree on a share that serves one call at a time: the tr
 # The maintainer's report of 0.95.1. $gvfs is a lossyfs over /opt/lossy mounted as GNOME Files
 # mounts an smb:// share (fuse.gvfsd-fuse), which serves one call at a time with 40 ms before
 # each, as gvfsd-smb does over Wi-Fi, and gives no entry's type with its names, as gvfsd-fuse
-# does. A tree of 200 subfolders with two photos of 3000×2000 in each, red, lime or blue, is
-# opened with Include Subfolders, and once the walk has read the tree, a slideshow of it runs,
+# does. A tree of 200 subfolders with two photos of 3000×2000 in each, red, lime, blue and
+# yellow in turn, is opened with Include Subfolders, and once the walk's listing is taken (no
+# folder listed, and the last image in the list), a slideshow of it runs,
 # a second for each image, with the folder watcher on, as by default. One photo there takes
 # some thirty calls, 1.2 seconds of the share alone. The slideshow is sampled for twenty
 # seconds:
 # - the tree was walked once, by its listing: the start of the slideshow did not read it again;
 # - at least eight slides, no gap between two of them longer than five seconds, and the
 #   window's title names the image shown;
-# - Page Down then shows its image within five seconds.
-# The limits of time are wide, as a loaded machine stretches every gap: the fix gives about 17
-# slides with gaps of at most 2.2 s, and 0.95.1 about 10 with gaps of 3.7 to 5.7 s. 0.95.1
-# fails on the walks: the start of the slideshow walked the tree again, beside the slideshow,
-# and the folder watcher, the walk's look at each entry, the thumbnails and the images read
-# further ahead, three at once, stood in the same queue as the next image. The walks, the gaps,
-# the time to Page Down's image and the looks at the subfolders a second (of the watcher and
-# the walk together) are printed for both versions.
+# - with the slideshow stopped, and s100/1-blue.jpg shown, Page Down shows s100/2-yellow.jpg on
+#   the screen within five seconds. A slide cannot stand in for it, and the image before it has
+#   another colour.
+# The limits of time are wide, as a loaded machine stretches every gap: the fix gives about 16
+# slides with gaps of at most 2.4 s, and 0.95.1 about 6 to 10 with gaps of 3.7 to 7 s, but a
+# run of 0.95.1 may pass the gaps. 0.95.1 fails on the walks: the start of the slideshow walked
+# the tree again, beside the slideshow, and that walk also holds back the image selected for
+# Page Down. A build of this one without the gate's waits for work nobody waits for gave the
+# same slides, gaps and Page Down as with them here, so these numbers check the walk, not the
+# gate. The walks, the gaps, the time to Page Down's image and the looks at the subfolders a
+# second (of the watcher and the walk together) are printed for both versions.
 faults=yes
 if ! grep -q " $gvfs fuse.gvfsd-fuse" /proc/mounts; then
     fail "no FUSE share at $gvfs: run.sh's containers need --privileged for /dev/fuse"
@@ -6681,15 +6697,17 @@ else
         as_version $v
         back=/opt/lossy/gvfs-tree-$v d=$gvfs/gvfs-tree-$v log=/tmp/gvfsfs.log
         rm -rf $back; mkdir -p $back
-        for c in red lime blue; do
+        # Four colours in turn, so that no image has the colour of the one before or after it,
+        # also round the end of the list (400 images).
+        colours=(red lime blue yellow)
+        for c in ${colours[@]}; do
             convert -size 3000x2000 xc:$c -attenuate 0.2 +noise Gaussian -quality 90 /tmp/gvfs-$c.jpg
         done
-        colours=(red lime blue)
         for k in $(seq -w 1 200); do
             mkdir $back/s$k
             for t in 1 2; do
-                c=${colours[$(( (10#$k * 2 + t) % 3 ))]}
-                ln /tmp/gvfs-$c.jpg $back/s$k/$c-$t.jpg
+                c=${colours[$(( ((10#$k - 1) * 2 + t - 1) % 4 ))]}
+                ln /tmp/gvfs-$c.jpg $back/s$k/$t-$c.jpg
             done
         done
         config slideshow_subfolders=true slideshow_delay=1 slideshow_fade=0
@@ -6698,14 +6716,15 @@ else
         from_line=$(($(wc -l <$log) + 1))
         remote subfolders on >/dev/null
         # The walk has read the tree when it has read the last subfolder, and its listing is
-        # taken a moment later. A slideshow started while it still runs starts it anew.
-        until_ok "grep -q '^CALL readdir /gvfs-tree-$v/s200 ' $log" 180; walked=$?
-        sleep 3
+        # taken once no folder is listed and the list holds the last image. A slideshow started
+        # while the walk still runs starts it anew.
+        until_ok "grep -q '^CALL readdir /gvfs-tree-$v/s200 ' $log" 180 &&
+            until_listed $d/s200/2-yellow.jpg 60; walked=$?
         remote slideshow on >/dev/null; sleep 2
         # The image shown and the window's title, every 0.2 s for twenty seconds by the clock,
         # each change of the image with its time in ms. A title is checked only between two
         # looks that found the same image, so that a slide that comes between them is no fault.
-        changes=/tmp/gvfs-changes-$v shown= wrong_titles=0
+        changes=/tmp/gvfs-changes-$v shown= wrong_titles=0 stopped=
         : >$changes
         sampled_from=$(date +%s%3N)
         until_ms=$((sampled_from + 20000))
@@ -6731,30 +6750,37 @@ else
         slides=$(grep -vc ' end$' $changes)
         # Each walk of the tree reads its top folder once.
         walks=$(tail -n +$from_line $log | grep -c "^CALL readdir /gvfs-tree-$v ")
-        # Page Down: the time from the key to its image on the screen, by the colour its name
-        # gives, sampled in a shot of the middle of the image area.
+        # Page Down, with the slideshow stopped, so that no slide can stand in for its image:
+        # s100/1-blue.jpg is shown, and the key must show s100/2-yellow.jpg. The time from the
+        # key to its colour on the screen, sampled in a shot of the middle of the image area,
+        # where blue was before.
+        remote slideshow off >/dev/null
+        remote select $d/s100/1-blue.jpg >/dev/null 2>&1
+        until_screen() {
+            local until_ms=$(( $(date +%s%3N) + $2 ))
+            while [ "$(date +%s%3N)" -lt $until_ms ]; do
+                import -window root -crop 200x200+600+300 /t/out/gvfs-page-$v.png 2>/dev/null
+                convert /t/out/gvfs-page-$v.png -resize 1x1! /t/out/gvfs-page-$v-mean.png
+                [ "$(colour gvfs-page-$v-mean 0 0)" = $1 ] && return 0
+                sleep 0.1
+            done
+            return 1
+        }
+        until_screen blue 15000 && sleep 3 &&
+            [ "$(remote current 2>/dev/null | tr -d '\0')" = $d/s100/1-blue.jpg ] && stopped=stopped
         xdotool windowraise $WIN 2>/dev/null; xdotool windowfocus $WIN 2>/dev/null
-        before=$(remote current 2>/dev/null | tr -d '\0')
-        pressed=$(date +%s%3N)
+        pressed=$(date +%s%3N) page_ms=
         xdotool key Page_Down 2>/dev/null
-        until_ok "[ \"\$(remote current 2>/dev/null | tr -d '\\0')\" != '$before' ]" 5
-        paged=$(remote current 2>/dev/null | tr -d '\0') page_ms=
-        want=$(basename "$paged" | cut -d- -f1)
-        until_ms=$((pressed + 15000))
-        while [ "$(date +%s%3N)" -lt $until_ms ]; do
-            import -window root -crop 200x200+600+300 /t/out/gvfs-page-$v.png 2>/dev/null
-            convert /t/out/gvfs-page-$v.png -resize 1x1! /t/out/gvfs-page-$v-mean.png
-            got=$(colour gvfs-page-$v-mean 0 0)
-            [ "$got" = "${want/lime/green}" ] && { page_ms=$(( $(date +%s%3N) - pressed )); break; }
-            sleep 0.1
-        done
+        until_screen yellow 15000 && page_ms=$(( $(date +%s%3N) - pressed ))
+        paged=$(remote current 2>/dev/null | tr -d '\0')
+        [ "$paged" = $d/s100/2-yellow.jpg ] || page_ms=
         quit
         # The processor at rest on a local tree of the same photos, which the share's rules
         # must not change.
         local_tree=/tmp/gvfs-local-$v
         rm -rf $local_tree; mkdir -p $local_tree; cp -al $back/. $local_tree/
         config slideshow_subfolders=true
-        start $local_tree/s001/red-1.jpg
+        start $local_tree/s001/1-red.jpg
         sleep 3; at_rest=$(busy)
         quit
         rm -rf $local_tree
@@ -6762,10 +6788,10 @@ else
         note "$v: the tree walked $walks times, $slides slides in 20 s, longest gap $gap ms, $wrong_titles wrong titles, Page Down's image after ${page_ms:-more than 15000} ms, $looks looks at the subfolders a second"
         got="$([ $walked = 0 ] && echo walked) walks=$walks"
         got="$got $([ "$slides" -ge 8 ] && [ "$gap" -le 5000 ] && echo steady)"
-        got="$got titles=$wrong_titles $([ -n "$page_ms" ] && [ "$page_ms" -le 5000 ] && echo paged)"
+        got="$got titles=$wrong_titles ${stopped:-running} $([ -n "$page_ms" ] && [ "$page_ms" -le 5000 ] && echo paged)"
         if [ $v = new ]; then
             expect "a slideshow on a share that serves one call at a time: one walk, steady slides, the titles, Page Down" \
-                "$got" "walked walks=1 steady titles=0 paged"
+                "$got" "walked walks=1 steady titles=0 stopped paged"
         else note "old: $got"; fi
         rm -rf $back $changes /tmp/gvfs-*.jpg
     done
@@ -6795,8 +6821,9 @@ else
         start $d
         from_line=$(($(wc -l <$log) + 1))
         remote subfolders on >/dev/null
-        until_ok "grep -q '^CALL readdir /gvfs-change-$v/s30 ' $log" 120; walked=$?
-        sleep 3
+        # The walk is done once no folder is listed and the list holds the tree's last image.
+        until_ok "grep -q '^CALL readdir /gvfs-change-$v/s30 ' $log" 120 &&
+            until_listed $d/s30/red.png 60; walked=$?
         remote slideshow on >/dev/null; sleep 2
         touch $back/s05/.indexed; rm $back/s05/.indexed
         # The change is read once the watcher has come round to s05, a look at a subfolder a
