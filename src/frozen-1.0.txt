@@ -480,9 +480,6 @@ sidecar_lock /x/a.xmp by its folder's device 1 and inode 2 is sidecar-locks/6
 sidecar_lock /x/a.xmp by its folder's real path /y is sidecar-locks/30
 sidecar_lock /x/a.xmp by its path as written is sidecar-locks/1
 lock_kind lock file flock
-lock_kind plan flock
-lock_kind move log flock
-lock_kind delete log flock
 sharing group:filename
 file $XDG_STATE_HOME/glimt/jobs
 lock_kind job log flock

@@ -1964,22 +1964,8 @@ mod tests {
         let held = crate::files::file_io::open_and_lock(&lock).unwrap();
         lines.push(format!("lock_kind lock file {}", kind(&lock)));
         drop(held);
-        let plan = crate::files::journal::start_journal(&dir.join("plans"), &[]).unwrap();
-        let path = std::fs::read_dir(dir.join("plans")).unwrap().flatten();
-        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
-        lines.push(format!("lock_kind plan {}", kind(&path)));
-        drop(plan);
-        let log = crate::files::journal::start_move_log(&dir.join("logs"), "move").unwrap();
-        let path = std::fs::read_dir(dir.join("logs")).unwrap().flatten();
-        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
-        lines.push(format!("lock_kind move log {}", kind(&path)));
-        drop(log);
-        let log =
-            crate::files::journal::start_delete_log(&dir.join("deletes"), "delete", None).unwrap();
-        let path = std::fs::read_dir(dir.join("deletes")).unwrap().flatten();
-        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
-        lines.push(format!("lock_kind delete log {}", kind(&path)));
-        drop(log);
+        // A plan of Rename Many, a move's log and a delete's log are each a job log, which
+        // `JobLog::start` makes and locks.
         let log = crate::files::job_log::JobLog::start(&dir.join("jobs"), "move", &[]).unwrap();
         let path = std::fs::read_dir(dir.join("jobs")).unwrap().flatten();
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();

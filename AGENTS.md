@@ -127,9 +127,9 @@ release that drops its format, so that no user's file or mark is lost in the upg
   run at once must take the same lock for one file, or both read it and the last write drops
   the other's change. A plan of Rename Many, a move log and a delete log are each locked as
   the file itself, which tells one still running from one cut short. Every lock is a flock
-  (`lock_kind` lines, for a lock file of `file_io::open_and_lock`, a plan of
-  `journal::start_journal`, a move log of `start_move_log` and a delete log of
-  `start_delete_log`, each a job log): a lock of another kind (fcntl) would keep every name and
+  (`lock_kind` lines, for a lock file of `file_io::open_and_lock` and for a job log, which a
+  plan of `journal::start_journal`, a move log of `start_move_log` and a delete log of
+  `start_delete_log` each are): a lock of another kind (fcntl) would keep every name and
   exclude nothing. The folders of the logs of Glimt 0.92 and older (`renames/`, `moves/` and
   `deletes/`, with their lists beside them) were taken out in 0.95, which no longer reads them;
 - the words of a job log (`job_record` lines, from `job_log::HEADER`, `VERSION`, `JOB_KINDS`
