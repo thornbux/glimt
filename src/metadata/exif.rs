@@ -5,20 +5,22 @@
 use image::metadata::Orientation;
 use std::path::Path;
 
-/// The labels of the panel's rows, in the order `read` gives them. `--remote info` prints a
-/// line for each, also for a file that lacks it, so a script always finds the same keys. A new
-/// row goes at the end, as scripts read these keys.
-pub const LABELS: [&str; 10] = [
-    "Camera",
-    "Lens",
-    "Taken",
-    "Exposure",
-    "Aperture",
-    "ISO",
-    "Focal length",
-    "Exposure bias",
-    "Flash",
-    "GPS",
+/// The panel's EXIF rows, in the order `read` gives them, each as (its field, its label). The
+/// field names the row in a template (%focal_length%) and in `--remote info`
+/// (exif.focal_length), which prints a line for each, also for a file that lacks it, so a
+/// script always finds the same keys. The fields are frozen (src/frozen-1.0.txt), and a new row
+/// goes at the end. The label is only the panel's text, which `read` gives each row by.
+pub const FIELDS: [(&str, &str); 10] = [
+    ("camera", "Camera"),
+    ("lens", "Lens"),
+    ("taken", "Taken"),
+    ("exposure", "Exposure"),
+    ("aperture", "Aperture"),
+    ("iso", "ISO"),
+    ("focal_length", "Focal length"),
+    ("exposure_bias", "Exposure bias"),
+    ("flash", "Flash"),
+    ("gps", "GPS"),
 ];
 
 /// The start of a JPEG's APP1 segment that holds a part of its extended XMP
@@ -1739,8 +1741,14 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
     rows
 }
 
+/// Returns the label of the EXIF row that the template field `field` names (`FIELDS`), or
+/// `None` when it names none.
+pub fn label_of_field(field: &str) -> Option<&'static str> {
+    FIELDS.iter().find(|f| f.0 == field).map(|f| f.1)
+}
+
 /// Returns a row's value as the panel shows it, with the flash's in the language in use. The
-/// rows keep English, which the exif: search and the templates' %Flash% read.
+/// rows keep English, which the exif: search and the print caption's %flash% read.
 pub fn shown_value<'a>(label: &str, value: &'a str) -> &'a str {
     match (label, value) {
         ("Flash", "Fired") => crate::support::lang::tr("Fired"),
@@ -2234,59 +2242,14 @@ mod tests {
         );
     }
 
-    /// A block with every field the panel shows gives a row for each of `LABELS`, in their
+    /// A block with every field the panel shows gives a row for each of `FIELDS`, in their
     /// order, so `--remote info`, which prints only those, misses none of `parse`'s rows.
     #[test]
     fn the_rows_are_the_labels() {
-        let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
-        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
-            d.extend(tag.to_le_bytes());
-            d.extend(kind.to_le_bytes());
-            d.extend(count.to_le_bytes());
-            d.extend(value.to_le_bytes());
-        };
-        // The offsets count from "II", 6 bytes into the block.
-        let at = |d: &Vec<u8>| d.len() - 6;
-        // IFD0 at 8, with the make at 50, the Exif directory at 56 and the GPS one at 215.
-        d.extend(3u16.to_le_bytes());
-        entry(&mut d, 0x010f, 2, 6, 50);
-        entry(&mut d, 0x8769, 4, 1, 56);
-        entry(&mut d, 0x8825, 4, 1, 215);
-        d.extend(0u32.to_le_bytes());
-        d.extend(b"Canon\0");
-        assert_eq!(at(&d), 56);
-        // The Exif directory, its values from 158: the date, the lens, and the rationals of
-        // the exposure, aperture, focal length and exposure bias. ISO and flash are inline.
-        d.extend(8u16.to_le_bytes());
-        entry(&mut d, 0xa434, 2, 5, 178);
-        entry(&mut d, 0x9003, 2, 20, 158);
-        entry(&mut d, 0x829a, 5, 1, 183);
-        entry(&mut d, 0x829d, 5, 1, 191);
-        entry(&mut d, 0x8827, 3, 1, 400);
-        entry(&mut d, 0x920a, 5, 1, 199);
-        entry(&mut d, 0x9204, 10, 1, 207);
-        entry(&mut d, 0x9209, 3, 1, 1);
-        d.extend(0u32.to_le_bytes());
-        assert_eq!(at(&d), 158);
-        d.extend(b"2020:01:02 03:04:05\0Lens\0");
-        for v in [1u32, 250, 28, 10, 50, 1, 1, 1] {
-            d.extend(v.to_le_bytes());
-        }
-        assert_eq!(at(&d), 215);
-        // The GPS directory, its two rationals at 269.
-        d.extend(4u16.to_le_bytes());
-        entry(&mut d, 1, 2, 2, u32::from(b'N'));
-        entry(&mut d, 2, 5, 1, 269);
-        entry(&mut d, 3, 2, 2, u32::from(b'E'));
-        entry(&mut d, 4, 5, 1, 277);
-        d.extend(0u32.to_le_bytes());
-        assert_eq!(at(&d), 269);
-        for v in [60u32, 1, 10, 1] {
-            d.extend(v.to_le_bytes());
-        }
+        let d = crate::support::test_support::exif_with_every_row();
         let rows = super::parse(&d);
         let labels: Vec<&str> = rows.iter().map(|r| r.0).collect();
-        assert_eq!(labels, super::LABELS, "{rows:?}");
+        assert_eq!(labels, super::FIELDS.map(|f| f.1), "{rows:?}");
     }
 
     /// An EXIF block with strings, rationals, a short and the Exif directory.

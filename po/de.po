@@ -2374,8 +2374,8 @@ msgstr "Text unter jedem Bild:"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
-msgstr "Wie die Bildinfo im Vollbild: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
+msgstr "Wie die Bildinfo im Vollbild: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
 #, fuzzy
@@ -3290,8 +3290,8 @@ msgstr "keins, sRGB"
 
 #: src/ui/preferences.rs
 #, fuzzy
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Felder: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% und jede Bezeichnung der Infoleiste mit ihrem englischen Namen, etwa %Camera% oder %ISO%. Ein | beginnt einen Teil, der wegfällt, wenn seine Felder leer sind."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty."
+msgstr "Felder: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size% und die EXIF-Felder %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% und %gps%. Ein | beginnt einen Teil, der wegfällt, wenn seine Felder leer sind."
 
 #: src/ui/preferences.rs
 #, fuzzy
@@ -4097,3 +4097,13 @@ msgstr "{folder} enthält Werkzeuge oder hinzugefügte Formate, die Glimt nicht 
 #, fuzzy
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr "{file} wird nicht geladen: Die Kopfzeile [Glimt Decoder] wird nicht mehr gelesen. Schreiben Sie stattdessen [Glimt Format]"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr "Die Markierungsdatei {from} konnte nicht nach {to} verschoben werden: {e}. Die Markierungen bleiben, wo sie sind."
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr "Die Markierungsdatei von Glimt 0.95 oder älter bleibt in {old}, da auch {new} vorhanden ist. Die Markierungen aus {new} werden verwendet: Führe die beiden von Hand zusammen oder entferne die alte."

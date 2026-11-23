@@ -109,10 +109,13 @@ release that drops its format, so that no user's file or mark is lost in the upg
   `BACK_UP_FAILED`, `BACK_UP_NO_FOLDER`);
 - the command-line options of `START_OPTIONS` with `--remote` and `--remote-all` (`option`
   lines);
+- the keys of the lines that `--remote info` prints (`info_key` lines, from
+  `remote::info_keys`: `INFO_KEYS`, and `exif.` with each field of `exif::FIELDS`);
 - the `%field%` names of the templates (`field` lines). Each is checked to be filled, for a test
   image, in the templates it belongs to: the full screen info and the print caption (`name`,
-  `path`, `position`, `dimensions`, `marks`, `keywords`, `comment`, and the EXIF labels of the
-  default full screen info), the window title (`name`, `path`, `folder`, `app`) and the page
+  `path`, `position`, `dimensions`, `marks`, `keywords`, `comment`, `file_size`, and the field
+  of each EXIF row of the info panel, `exif::FIELDS`, whose labels are UI text that a field
+  does not follow), the window title (`name`, `path`, `folder`, `app`) and the page
   header and footer (`page`, `pages`). `%%` is a `%` in each of them;
 - the keys of a theme file (`theme_key`, from `Theme::file_from`, each read by
   `Theme::parse`);
@@ -126,9 +129,9 @@ release that drops its format, so that no user's file or mark is lost in the upg
   run at once must take the same lock for one file, or both read it and the last write drops
   the other's change. A plan of Rename Many, a move log and a delete log are each locked as
   the file itself, which tells one still running from one cut short. Every lock is a flock
-  (`lock_kind` lines, for a lock file of `file_io::open_and_lock`, a plan of
-  `journal::start_journal`, a move log of `start_move_log` and a delete log of
-  `start_delete_log`, each a job log): a lock of another kind (fcntl) would keep every name and
+  (`lock_kind` lines, for a lock file of `file_io::open_and_lock` and for a job log, which a
+  plan of `journal::start_journal`, a move log of `start_move_log` and a delete log of
+  `start_delete_log` each are): a lock of another kind (fcntl) would keep every name and
   exclude nothing. The folders of the logs of Glimt 0.92 and older (`renames/`, `moves/` and
   `deletes/`, with their lists beside them) were taken out in 0.95, which no longer reads them;
 - the words of a job log (`job_record` lines, from `job_log::HEADER`, `VERSION`, `JOB_KINDS`
@@ -308,7 +311,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/metadata.rs` | **The metadata/ folder:** what is said about an image |
 | `src/metadata/exif.rs` | The EXIF (TIFF) reader, and writing a JPEG's orientation |
 | `src/metadata/lightroom.rs` | Import Lightroom Catalog, through `sqlite3` |
-| `src/metadata/marks.rs` | Marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks` |
+| `src/metadata/marks.rs` | Marks 1–6 and stars, kept in `$XDG_DATA_HOME/glimt/marks`, and the move of the file from `$XDG_STATE_HOME` |
 | `src/metadata/xmp.rs` | XMP sidecars: keywords, comment, alt text, stars; sidecars that follow their files |
 | `src/files.rs` | **The files/ folder:** how files change on disk |
 | `src/files/config.rs` | `Config` (the `config!` macro), the window state, the XDG paths |

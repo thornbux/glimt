@@ -59,7 +59,7 @@ avif = []
 jxl = ["dep:jxl-oxide"]
 # SVG images, drawn in Rust by resvg.
 svg = ["dep:resvg", "dep:flate2"]
-# Geeqie's marks 1-6 and 0-5 stars, kept in ~/.local/state/glimt/marks.
+# Geeqie's marks 1-6 and 0-5 stars, kept in ~/.local/share/glimt/marks.
 marks = []
 # The release tests only: glimt --remote where LABEL prints where the menu item, button or
 # choice with that text is, so the tests click it without coordinates of their own. Never in

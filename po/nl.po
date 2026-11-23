@@ -2374,8 +2374,8 @@ msgstr "Tekst onder elke afbeelding:"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
-msgstr "Zoals de afbeeldingsinfo in volledig scherm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
+msgstr "Zoals de afbeeldingsinfo in volledig scherm: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
 #, fuzzy
@@ -3290,8 +3290,8 @@ msgstr "geen, sRGB"
 
 #: src/ui/preferences.rs
 #, fuzzy
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Velden: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% en elk label van het infopaneel met de Engelse naam, zoals %Camera% of %ISO%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty."
+msgstr "Velden: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size% en de EXIF-velden %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% en %gps%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
 
 #: src/ui/preferences.rs
 #, fuzzy
@@ -4097,3 +4097,13 @@ msgstr "{folder} bevat hulpmiddelen of toegevoegde formaten die Glimt niet meer 
 #, fuzzy
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr "{file} wordt niet geladen: de kop [Glimt Decoder] wordt niet meer gelezen. Schrijf in plaats daarvan [Glimt Format]"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr "Kon het markeringenbestand {from} niet naar {to} verplaatsen: {e}. De markeringen blijven waar ze zijn."
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr "Het markeringenbestand van Glimt 0.95 of ouder blijft in {old}, omdat {new} er ook is. De markeringen van {new} worden gebruikt: voeg de twee met de hand samen, of verwijder het oude."

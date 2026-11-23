@@ -2,13 +2,14 @@
 # AGENTS.md): the settings' keys, the values of the settings that take a name (those of
 # config::NAMED in its order, because a value's place is the number it was written as before),
 # the window state's keys, the --remote commands with the words of their choices and the exit
-# codes, the command-line options, the actions a script may run, the %field% names of the
-# templates, the keys of a theme file, the files Glimt owns and the group words of the sharing
-# file. A line is never taken out or changed. New ones are
+# codes, the keys of --remote info's lines, the command-line options, the actions a script may
+# run, the %field% names of the templates, the keys of a theme file, the files Glimt owns and the
+# group words of the sharing file. A line is never taken out or changed. New ones are
 # added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed after
 # 1.0 keeps its line: a table of old names in the code maps it to the new name, which is still
 # read, and the new name is added at the end. Before 1.0 the maintainer took out the old names
-# of 0.74.0 to 0.80.0 (0.96.0).
+# of 0.74.0 to 0.80.0, and renamed or took out the names that the review of this file found
+# misleading (0.96.0).
 setting preload
 setting remember_dir
 setting keep_recent
@@ -63,7 +64,6 @@ setting view_filter
 setting search_bar
 setting histogram
 setting histogram_log
-setting thumb_size
 setting grid_names
 setting background
 setting checkerboard
@@ -72,7 +72,6 @@ setting hide_pointer
 setting theme
 setting fuzzy_search
 setting auto_refresh
-setting exif_rotate
 setting list_images
 setting list_raw
 setting show_hidden
@@ -81,7 +80,6 @@ setting print_printer
 setting print_paper
 setting print_orientation
 setting print_caption
-setting print_template
 setting print_per_page
 setting print_margin
 setting print_scale
@@ -96,9 +94,6 @@ value fit_mode fill
 value histogram off
 value histogram rgb
 value histogram brightness
-value thumb_size small
-value thumb_size medium
-value thumb_size large
 value toolbar_icons small
 value toolbar_icons medium
 value toolbar_icons large
@@ -159,8 +154,6 @@ value print_paper Letter
 value print_paper A3
 value print_paper A5
 value print_paper Legal
-value print_paper 10 × 15 cm
-value print_paper 13 × 18 cm
 value print_orientation auto
 value print_orientation portrait
 value print_orientation landscape
@@ -177,8 +170,6 @@ value language fr
 value language is
 value language it
 value language nl
-value language no_nb
-value language no_nn
 value language pl
 value language pt_BR
 value language fi
@@ -232,12 +223,6 @@ field folder
 field app
 field page
 field pages
-field File size
-field Taken
-field Exposure
-field Aperture
-field ISO
-field Focal length
 script About
 script AboveEachOther
 script Animate
@@ -264,7 +249,6 @@ script HiddenFiles
 script HideFileList
 script Histogram
 script HistogramLog
-script Icons
 script InvertSelection
 script KeyboardMap
 script Last
@@ -285,7 +269,6 @@ script PaneLeft
 script PaneRight
 script PaneUp
 script PathBar
-script Pause
 script Preferences
 script Previous
 script PreviousPage
@@ -334,7 +317,6 @@ file $XDG_CONFIG_HOME/glimt/themes
 file $XDG_STATE_HOME/glimt/state
 file $XDG_STATE_HOME/glimt/recent
 file $XDG_STATE_HOME/glimt/sharing
-file $XDG_STATE_HOME/glimt/marks
 file $XDG_DATA_HOME/glimt/collections
 file $XDG_DATA_HOME/glimt/tools
 file $XDG_DATA_HOME/glimt/formats
@@ -350,7 +332,6 @@ sharing group:keywords
 sharing group:preview
 sharing group:other
 value print_printer System print dialog
-value print_printer ""
 exit done 0
 exit check_config_problems 1
 exit back_up_failed 1
@@ -493,7 +474,6 @@ file $XDG_CONFIG_HOME/glimt/.sort-folders.lock
 file $XDG_STATE_HOME/glimt/.recent.lock
 file $XDG_STATE_HOME/glimt/.sharing.lock
 file $XDG_DATA_HOME/glimt/collections/.NAME.gqv.lock
-file $XDG_STATE_HOME/glimt/.marks.lock
 file $XDG_RUNTIME_DIR/glimt/glimt-NAME.lock
 file $XDG_RUNTIME_DIR/glimt/sidecar-locks
 sidecar_lock files 64
@@ -501,9 +481,6 @@ sidecar_lock /x/a.xmp by its folder's device 1 and inode 2 is sidecar-locks/6
 sidecar_lock /x/a.xmp by its folder's real path /y is sidecar-locks/30
 sidecar_lock /x/a.xmp by its path as written is sidecar-locks/1
 lock_kind lock file flock
-lock_kind plan flock
-lock_kind move log flock
-lock_kind delete log flock
 sharing group:filename
 file $XDG_STATE_HOME/glimt/jobs
 lock_kind job log flock
@@ -531,3 +508,52 @@ job_record record old-log
 job_record record found
 job_record record written
 job_record record volume
+setting thumbnail_size
+setting auto_rotate
+setting print_caption_template
+value thumbnail_size small
+value thumbnail_size medium
+value thumbnail_size large
+value print_printer "PDF file"
+value print_paper 10x15cm
+value print_paper 13x18cm
+value language nb
+value language nn
+script IconGrid
+script PauseSlideshow
+field file_size
+field camera
+field lens
+field taken
+field exposure
+field aperture
+field iso
+field focal_length
+field exposure_bias
+field flash
+field gps
+file $XDG_DATA_HOME/glimt/marks
+file $XDG_DATA_HOME/glimt/.marks.lock
+info_key path
+info_key size
+info_key modified
+info_key width
+info_key height
+info_key format
+info_key orientation
+info_key stars
+info_key marks
+info_key keywords
+info_key comment
+info_key alt_text
+info_key extended_description
+info_key exif.camera
+info_key exif.lens
+info_key exif.taken
+info_key exif.exposure
+info_key exif.aperture
+info_key exif.iso
+info_key exif.focal_length
+info_key exif.exposure_bias
+info_key exif.flash
+info_key exif.gps

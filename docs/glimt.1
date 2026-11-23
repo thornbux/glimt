@@ -572,8 +572,11 @@ File \(-> Open Recent's folders and collections, newest first, one on each line.
 .I $XDG_STATE_HOME/glimt/sharing
 What File \(-> Copy for Sharing left out the last time, one word on each line.
 .TP
-.I $XDG_STATE_HOME/glimt/marks
-Marks and stars, in builds with the marks feature.
+.I $XDG_DATA_HOME/glimt/marks
+Marks and stars, in builds with the marks feature. Glimt 0.95 and older kept them in
+.IR $XDG_STATE_HOME/glimt/marks ;
+the first start of a later Glimt moves that file here. When both are there, the one here is
+used, the old one is left as it is, and the window says so.
 .TP
 .IB file .xmp
 Keywords, comment, alt text and extended description, and (if chosen) stars of
@@ -592,7 +595,10 @@ size and time) of each file, of which size and time are compared. A job cut shor
 a kill is put right at the next start: the start offers to put a Rename Many right, so that only
 a photo that is still the one planned is renamed, the marks, stars and collection entries of the
 files moved follow them, those of the files deleted are forgotten, and a sidecar put aside goes
-back beside a photo that is still there.
+back beside a photo that is still there. A log written again at a start names the log it was
+written from in its
+.B old\-log
+record, which is a log of this folder, not one of the old logs below.
 Only a name that is surely gone from a folder that is there counts as gone: a file at the name
 keeps its marks, and a name whose folder is not there, as on a stick not plugged in yet, keeps
 them too, and the log stays for a later start.

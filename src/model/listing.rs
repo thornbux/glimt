@@ -43,7 +43,8 @@ pub const SVG_EXTS: &[&str] = if cfg!(feature = "svg") {
     &[]
 };
 
-/// Each order with its config value and menu label.
+/// Each order with its config value and menu label. "date" is the file's modification time, the
+/// name it had before the other dates came; the help says so.
 pub const SORTS: [(Sort, &str, &str); 8] = [
     (Sort::Name, "name", "Sort by name"),
     (Sort::Number, "number", "Sort by number"),

@@ -1,5 +1,5 @@
 //! Optional marks and ratings (`cargo build --features marks`): Geeqie's marks 1–6 and 0–5
-//! stars, kept by full path in `$XDG_STATE_HOME/glimt/marks`, one file as "bits\tstars\tpath"
+//! stars, kept by full path in `$XDG_DATA_HOME/glimt/marks`, one file as "bits\tstars\tpath"
 //! lines. They follow files that Glimt copies, moves and renames, and go with those it deletes;
 //! files renamed or moved outside Glimt lose them.
 
@@ -36,6 +36,11 @@ static UNWRITTEN_EDITS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Vec
 /// are made in the writer's thread, so a thread-local of the test would not reach them.
 #[cfg(test)]
 static UNREADABLE_IN_TEST: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether this window keeps the marks file where Glimt 0.95 and older kept it,
+/// `$XDG_STATE_HOME/glimt`, because its move to `$XDG_DATA_HOME/glimt` at start failed.
+static MARKS_IN_OLD_FOLDER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Mark bits (bit 0 = mark 1) and stars, by path.
 type MarksByPath = HashMap<PathBuf, (u8, u8)>;
@@ -316,6 +321,18 @@ thread_local! {
     static TEST_WRITES_QUEUED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// What `move_marks_file` did with the marks file of Glimt 0.95 and older.
+#[derive(Debug, PartialEq)]
+enum MarksMove {
+    /// The old file was moved to its new place, or there was none to move.
+    Done,
+    /// Both files are there. The new one is used, and the old one is left as it is, which the
+    /// text tells the user.
+    BothKept(String),
+    /// The old file could not be moved, which was told, and is used where it is.
+    Failed,
+}
+
 /// What a window did, applied to the file as it is then.
 enum Edit {
     /// A change of the files picked, each checked to be the one listed before it is made.
@@ -422,13 +439,114 @@ fn own_writes_queued() -> bool {
     WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0
 }
 
+/// Returns the marks file, `$XDG_DATA_HOME/glimt/marks`, or where Glimt 0.95 and older kept it
+/// while it could not be moved from there (`move_old_marks_file`). Returns `None` when neither
+/// $HOME nor the XDG folder is set.
 pub(crate) fn marks_file() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(file) = TEST_FILE.with(|f| f.borrow().clone()) {
         return Some(file);
     }
+    match MARKS_IN_OLD_FOLDER.load(std::sync::atomic::Ordering::Relaxed) {
+        true => old_marks_file(),
+        false => crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt")
+            .map(|d| d.join("marks")),
+    }
+}
+
+/// Returns where Glimt 0.95 and older kept the marks file, `$XDG_STATE_HOME/glimt/marks`, the
+/// folder for state that can be made again, which marks cannot.
+fn old_marks_file() -> Option<PathBuf> {
     crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
         .map(|d| d.join("marks"))
+}
+
+/// Moves the marks file of Glimt 0.95 and older to its place now (`move_marks_file`). It waits
+/// for the disk, so `main` calls it before the window opens and before the marks are read. A
+/// move that failed leaves this window with the old file, where it is. Returns the notice that
+/// both files are there, when they are.
+pub fn move_old_marks_file() -> Option<String> {
+    let (old, new) = (old_marks_file()?, marks_file()?);
+    match move_marks_file(&old, &new) {
+        MarksMove::Done => None,
+        MarksMove::BothKept(text) => Some(text),
+        MarksMove::Failed => {
+            MARKS_IN_OLD_FOLDER.store(true, std::sync::atomic::Ordering::Relaxed);
+            None
+        }
+    }
+}
+
+/// Moves the marks file `old` to `new` when only `old` is there. It holds the lock of each
+/// meanwhile, which every window of every version takes to write the file (`lock_beside`), so
+/// that no window writes either file during the move. On one disk the move is a rename, and to
+/// another a copy that is on disk before the old file is removed (`put_file`), so the marks are
+/// never lost. When both are there, the new one is used and the old one is left as it is. A
+/// move that failed is told, and the old file is used where it is.
+fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
+    use crate::files::file_io::{is_surely_gone, lock_beside, lock_or_tell};
+    if is_surely_gone(old) {
+        return MarksMove::Done;
+    }
+    let failed = |e: &dyn std::fmt::Display| {
+        crate::files::file_io::save_failed(crate::tf!(
+            "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are.",
+            from = old.display(),
+            to = new.display(),
+            e
+        ));
+        // A move that failed after the copy was made may have left the file only at `new`.
+        match is_surely_gone(old) {
+            true => MarksMove::Done,
+            false => MarksMove::Failed,
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(new.parent().unwrap_or(Path::new("."))) {
+        return failed(&e);
+    }
+    // The new place's lock first, which this version's windows take, and then the old place's,
+    // which older versions take. Every window that moves takes them in this order.
+    let _new_lock = lock_beside(new).and_then(|lock| lock_or_tell(&lock));
+    let _old_lock = lock_beside(old).and_then(|lock| lock_or_tell(&lock));
+    // Another window may have moved it while this one waited for the locks.
+    if is_surely_gone(old) {
+        return MarksMove::Done;
+    }
+    // A new file that could not be looked at counts as there, so the old one is left alone.
+    if !is_surely_gone(new) {
+        return MarksMove::BothKept(crate::tf!(
+            "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one.",
+            old = old.display(),
+            new = new.display()
+        ));
+    }
+    match move_own_file(old, new) {
+        Ok(()) => MarksMove::Done,
+        Err(e) => failed(&e),
+    }
+}
+
+/// Moves `old`, a file of Glimt's own that no window writes meanwhile, to `new`, which is not
+/// there, and makes the move lasting: a rename on one disk, and to another a copy that is on
+/// disk with its name before the old file is removed. A failure leaves the file at `old`, or
+/// under both names.
+fn move_own_file(old: &Path, new: &Path) -> std::io::Result<()> {
+    use crate::files::file_io::{put_file, remove_own, rename_never_over, sync_folder_of};
+    #[cfg(test)]
+    let renamed = match crate::files::file_io::MOVES_CROSS_DEVICES.get() {
+        true => Err(std::io::ErrorKind::CrossesDevices.into()),
+        // Glimt's own: the marks file, under the locks of both places.
+        false => rename_never_over(old, new),
+    };
+    // Glimt's own: the marks file, under the locks of both places.
+    #[cfg(not(test))]
+    let renamed = rename_never_over(old, new);
+    match renamed {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => (put_file(old, new, true))
+            .and_then(|()| sync_folder_of(new))
+            .and_then(|()| remove_own(old)),
+        renamed => renamed.and_then(|()| sync_folder_of(new)),
+    }
 }
 
 /// Leaves out of `edit` the names that a line of the marks file cannot hold, and tells the user
@@ -624,7 +742,7 @@ fn save(edit: Edit) {
 }
 
 /// Makes `edits` to the marks file `file`, in the writer's thread. Marks set where there is no
-/// marks file, as neither $HOME nor $XDG_STATE_HOME is set, are told as not saved.
+/// marks file, as neither $HOME nor $XDG_DATA_HOME is set, are told as not saved.
 fn write_to(file: Option<PathBuf>, edits: Vec<Edit>) {
     // Only a change can add marks, so the other edits make no marks file where none is.
     let adds = edits.iter().any(|edit| matches!(edit, Edit::Change(..)));
@@ -865,6 +983,61 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 #[cfg(test)]
 mod tests {
     use crate::support::threads::lock_even_if_poisoned;
+
+    /// The marks file of Glimt 0.95 and older is moved to its new place when only it is there,
+    /// also to another disk. When both are there, both are kept as they are and the user is
+    /// told. With neither there is nothing to do. A move that fails keeps the old file where it
+    /// is, which the window then uses, and is told.
+    #[test]
+    fn the_old_marks_file_is_moved_and_never_lost() {
+        use super::{MarksMove, move_marks_file};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (old, new) = (dir.join("state/marks"), dir.join("data/glimt/marks"));
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        let line = "1\t3\t/photos/a.jpg\n";
+        // Only the old one, on one disk and to another.
+        for crosses_devices in [false, true] {
+            std::fs::write(&old, line).unwrap();
+            crate::files::file_io::MOVES_CROSS_DEVICES.set(crosses_devices);
+            assert_eq!(move_marks_file(&old, &new), MarksMove::Done);
+            crate::files::file_io::MOVES_CROSS_DEVICES.set(false);
+            assert_eq!(std::fs::read_to_string(&new).unwrap(), line);
+            assert!(!old.exists());
+            std::fs::remove_file(&new).unwrap();
+        }
+        // Both: neither is changed, and the notice names the old one.
+        std::fs::write(&old, line).unwrap();
+        std::fs::write(&new, "2\t0\t/photos/b.jpg\n").unwrap();
+        let MarksMove::BothKept(text) = move_marks_file(&old, &new) else {
+            panic!("not both kept");
+        };
+        assert!(text.contains(&old.display().to_string()), "{text}");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), line);
+        assert_eq!(
+            std::fs::read_to_string(&new).unwrap(),
+            "2\t0\t/photos/b.jpg\n"
+        );
+        // Neither.
+        std::fs::remove_file(&old).unwrap();
+        std::fs::remove_file(&new).unwrap();
+        assert_eq!(move_marks_file(&old, &new), MarksMove::Done);
+        assert!(!old.exists() && !new.exists());
+        // A move that fails, here as the new folder's place is a file.
+        std::fs::write(&old, line).unwrap();
+        std::fs::write(dir.join("blocked"), "").unwrap();
+        let blocked = dir.join("blocked/glimt/marks");
+        crate::files::file_io::take_saves_failed();
+        assert_eq!(move_marks_file(&old, &blocked), MarksMove::Failed);
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), line);
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(
+            told.len() == 1 && told[0].starts_with("Could not move the marks file"),
+            "{told:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Reads the marks file again as `refresh` does, and takes what it read, as the window
     /// does at its next frames.
@@ -1586,7 +1759,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A mark set where there is no marks file, as neither $HOME nor $XDG_STATE_HOME is set,
+    /// A mark set where there is no marks file, as neither $HOME nor $XDG_DATA_HOME is set,
     /// is told as not saved. Before, it was dropped without a word.
     #[test]
     fn marks_without_a_marks_file_are_told() {

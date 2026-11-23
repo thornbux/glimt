@@ -129,8 +129,8 @@ pdftoppm -png -r 50 -f 1 -l 1 -singlefile /tmp/sheet.pdf /t/out/contact-sheet
 quit
 
 # Other stars in Glimt than in the catalog, for the import to ask about.
-mkdir -p $XDG_STATE_HOME/glimt
-printf '0\t3\t%s\n' $P/Summer/fjord_sunrise.jpg >$XDG_STATE_HOME/glimt/marks
+mkdir -p $XDG_DATA_HOME/glimt
+printf '0\t3\t%s\n' $P/Summer/fjord_sunrise.jpg >$XDG_DATA_HOME/glimt/marks
 start $P/Summer/fjord_sunrise.jpg
 sleep 3
 answer /tmp/glimt-demo/Lightroom.lrcat

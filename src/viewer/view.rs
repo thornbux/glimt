@@ -144,7 +144,7 @@ impl Decoding {
         let kept_images = Arc::new(Mutex::new(Vec::new()));
         let full_resolution_count = Arc::new(AtomicUsize::new(1));
         let preload = Arc::new(AtomicUsize::new(config.preload));
-        let auto_rotate = Arc::new(AtomicBool::new(config.exif_rotate));
+        let auto_rotate = Arc::new(AtomicBool::new(config.auto_rotate));
         let images_awaited = crate::model::listing::ImagesAwaited::default();
         let (decode_requests, decoded) = spawn_decoders(
             ctx,
@@ -744,7 +744,7 @@ impl crate::App {
             let identity = d.read.and_then(|f| std::num::NonZeroU64::new(f.0?.1));
             let wanted = self.is_file(idx, &d.path)
                 && !crate::files::file_io::is_another_file(identity, self.list.identity(idx))
-                && d.rotated == self.config.exif_rotate
+                && d.rotated == self.config.auto_rotate
                 && d.page.0 == if idx == self.list.shown() { self.viewing.page } else { 0 }
                 && lock_even_if_poisoned(&self.decoding.kept_images).contains(&d.path)
                 // Full resolution is kept for each image on screen: the shown one, the compared
@@ -1170,11 +1170,16 @@ impl crate::App {
                 "marks" => self.mark_text(self.list.shown()),
                 "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
                 "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
-                label => self
+                "file_size" => (self
                     .info_panel
-                    .exif_row(&path, label)
-                    .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
-                    .unwrap_or_default(),
+                    .exif_row(&path, crate::ui::info_panel::FILE_SIZE))
+                .unwrap_or_default()
+                .to_owned(),
+                field => (crate::metadata::exif::label_of_field(field))
+                    .and_then(|label| Some((label, self.info_panel.exif_row(&path, label)?)))
+                    .map(|(label, value)| crate::metadata::exif::shown_value(label, value))
+                    .unwrap_or_default()
+                    .to_owned(),
             },
         )
     }

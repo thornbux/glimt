@@ -79,7 +79,13 @@ pub(crate) const MAX_SLIDESHOW_DELAY: u64 = 60;
 /// The full screen info, as Geeqie writes its overlay template. Fields are in percent signs,
 /// `|` stands between the parts of a line, and `\n` starts a new line. A part whose fields are
 /// all empty is left out. The default shows what Glimt always showed.
-pub(crate) const FULL_SCREEN_INFO_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
+pub(crate) const FULL_SCREEN_INFO_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%file_size%|%taken%|%exposure%|%aperture%|ISO %iso%|\
+     %focal_length%|%marks%";
+
+/// The default full screen info of Glimt 0.95 and older, whose EXIF fields were the info
+/// panel's English labels. Each save wrote the default into the settings file too, so a file
+/// that holds this text is read as the default of now (`old_default_template_mapped`).
+const OLD_FULL_SCREEN_INFO_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
      %Focal length%|%marks%";
 
 /// Preferences → CPU use, as (name, hover text). Power saving makes thumbnails one at a time,
@@ -153,7 +159,7 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("slideshow_fade", &["off", "short", "long"]),
     ("fit_mode", &["whole", "width", "height", "fill"]),
     ("histogram", &["off", "rgb", "brightness"]),
-    ("thumb_size", &["small", "medium", "large"]),
+    ("thumbnail_size", &["small", "medium", "large"]),
     ("toolbar_icons", &["small", "medium", "large"]),
     (
         "view_filter",
@@ -303,7 +309,7 @@ config! {
     /// How colours outside the target are brought in: perceptual, relative, saturation or
     /// absolute. Only profiles with tables for it (LUT profiles) tell them apart.
     rendering_intent: String = "perceptual".to_owned(),
-    /// The interface's language, as a translation's code (no_nb), a language's own code (nb),
+    /// The interface's language, as a translation's code (nb, pt_BR), a language's code (pt),
     /// or "en". When it is empty, the system's language is used.
     language: String = String::new(),
     /// Marks and stars shown in the file list and overlay (marks feature).
@@ -352,6 +358,8 @@ config! {
     toolbar: bool = true,
     /// One malloc arena for all threads. It uses much less memory, and decoding is up to about
     /// 8 % slower. It is read only at startup, because glibc must be set before threads start.
+    /// It is glibc's M_ARENA_MAX, so with another C library or allocator it is ignored, as a
+    /// setting that goes out of use is, and the help says so.
     one_malloc_arena: bool = true,
     /// How many images are decoded at once, at most the number of cores. It is read at startup.
     decode_threads: usize = 4,
@@ -401,7 +409,7 @@ config! {
     histogram_log: bool = false,
     /// The thumbnail size: small (96×72), medium (128×96) or large (192×144, from the
     /// freedesktop "large" cache), as an index.
-    thumb_size: u8 = 0,
+    thumbnail_size: u8 = 0,
     /// The file name under each thumbnail of a grid: the icon grid, the grid in the image area
     /// and pan view. Without it the cells are shorter, so more rows fit.
     grid_names: bool = true,
@@ -428,7 +436,7 @@ config! {
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif
     /// information").
-    exif_rotate: bool = true,
+    auto_rotate: bool = true,
     /// List images (Types menu in the status bar).
     list_images: bool = true,
     /// List camera RAW files.
@@ -440,8 +448,8 @@ config! {
     /// The video feature's command line that plays a video. When it is empty, the default
     /// application plays it.
     video_player: String = String::new(),
-    /// The print dialog's choices: the printer chosen last (empty for a PDF file), the paper
-    /// and the file names.
+    /// The print dialog's choices: the printer chosen last (print::PDF_FILE for a PDF file,
+    /// empty while none was chosen) and the paper (a value of print::PAPERS).
     print_printer: String = String::new(),
     print_paper: String = String::from("A4"),
     /// Which way the paper is turned: "auto", "portrait" or "landscape". With "auto", a wide
@@ -450,7 +458,7 @@ config! {
     print_caption: bool = true,
     /// The text under each printed image, as the full screen info's template (%name%, EXIF
     /// fields, %keywords% …).
-    print_template: String = String::from("%name%"),
+    print_caption_template: String = String::from("%name%"),
     /// The images on each page. It is 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
     print_per_page: usize = 1,
     /// Around the printed page, in millimetres (0 to 50).
@@ -487,13 +495,14 @@ impl Config {
         c.added_format_memory_mb = c.added_format_memory_mb.clamp(512, 65536);
         c.ui_scale = c.ui_scale.clamp(50, 300);
         c.histogram = c.histogram.min(2);
-        c.thumb_size = c.thumb_size.min(2);
+        c.thumbnail_size = c.thumbnail_size.min(2);
         c.webp_quality = c.webp_quality.min(100);
         c.jpeg_quality = c.jpeg_quality.clamp(1, 100);
         c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
         unknown_choices_reset(&mut c);
+        old_default_template_mapped(&mut c);
         c
     }
 
@@ -522,7 +531,9 @@ impl Config {
             let again = lines[..k].iter().any(has_key);
             let later = lines[k + 1..].iter().any(has_key);
             let mut alone = Config::default();
-            match alone.set(now, value) {
+            let set = alone.set(now, value);
+            old_default_template_mapped(&mut alone);
+            match set {
                 None => problems.push(format!("line {n}: there is no setting {key}")),
                 Some(false) => problems.push(format!(
                     "line {n}: {key}={value} is not a value it takes; {} is used",
@@ -879,6 +890,16 @@ fn choices() -> [(&'static str, Vec<&'static str>); 9] {
             crate::images::colour::INPUT_PROFILES.map(|p| p.0).to_vec(),
         ),
     ]
+}
+
+/// Puts the full screen info's template back to the default when it is the default of Glimt
+/// 0.95 and older (`OLD_FULL_SCREEN_INFO_TEMPLATE`), as that settings file holds the default
+/// that the user never changed. A template of the user's own keeps its old fields, which no
+/// longer fill.
+fn old_default_template_mapped(c: &mut Config) {
+    if c.full_screen_info_template == OLD_FULL_SCREEN_INFO_TEMPLATE {
+        c.full_screen_info_template = FULL_SCREEN_INFO_TEMPLATE.to_owned();
+    }
 }
 
 /// Puts each setting of `choices()` whose value it does not take back to its default, as
@@ -1304,7 +1325,7 @@ mod tests {
         );
         assert_eq!(Config::parse("background=#12").background.0, [0, 0, 0]);
         assert!(!Config::parse("save_thumbnails=false").save_thumbnails);
-        assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
+        assert!(Config::default().auto_rotate && !Config::parse("auto_rotate=false").auto_rotate);
         assert!(Config::default().list_videos && !Config::parse("list_videos=false").list_videos);
         assert_eq!(
             Config::parse("video_player= mpv --fs ").video_player,
@@ -1504,6 +1525,23 @@ mod tests {
         }
     }
 
+    /// A settings file that holds the full screen info's default of Glimt 0.95 and older, which
+    /// each save wrote, gives the default of now, whose EXIF fields are named as the templates
+    /// name them now, and --check-config finds nothing wrong in it. A template of the user's own
+    /// is kept as it is.
+    #[test]
+    fn the_old_default_full_screen_info_is_read_as_the_default() {
+        let line = format!(
+            "full_screen_info_template={}",
+            super::OLD_FULL_SCREEN_INFO_TEMPLATE
+        );
+        let template = super::Config::parse(&line).full_screen_info_template;
+        assert_eq!(template, super::FULL_SCREEN_INFO_TEMPLATE);
+        assert_eq!(super::Config::parse_checked(&line).1, Vec::<String>::new());
+        let own = super::Config::parse("full_screen_info_template=%name% %Taken%");
+        assert_eq!(own.full_screen_info_template, "%name% %Taken%");
+    }
+
     /// The man page's FILES names each file and folder that Glimt owns, as src/frozen-1.0.txt
     /// pins them, so a new one cannot ship without its line. The page lacked `recent` and
     /// `sharing` before. Each is named by its path in Glimt's folder, because the last part
@@ -1567,7 +1605,7 @@ mod tests {
                 CheckedBy("a_line_break_in_a_name_adds_nothing_to_the_choice"),
             ),
             (
-                "$XDG_STATE_HOME/glimt/marks",
+                "$XDG_DATA_HOME/glimt/marks",
                 CheckedBy("a_name_with_a_line_break_is_refused_with_a_notice"),
             ),
             ("$XDG_STATE_HOME/glimt/renames", NUL),
@@ -1608,7 +1646,7 @@ mod tests {
             ("$XDG_STATE_HOME/glimt/.recent.lock", LOCK),
             ("$XDG_STATE_HOME/glimt/.sharing.lock", LOCK),
             ("$XDG_DATA_HOME/glimt/collections/.NAME.gqv.lock", LOCK),
-            ("$XDG_STATE_HOME/glimt/.marks.lock", LOCK),
+            ("$XDG_DATA_HOME/glimt/.marks.lock", LOCK),
             ("$XDG_RUNTIME_DIR/glimt/glimt-NAME.lock", LOCK),
             (
                 "$XDG_RUNTIME_DIR/glimt/sidecar-locks",
@@ -1658,6 +1696,9 @@ mod tests {
         let keys = state.lines().filter_map(|l| l.split_once('='));
         now.extend(keys.map(|(key, _)| format!("state {key}")));
         now.extend(remote_names());
+        // The keys of --remote info's lines, which scripts read.
+        let info = crate::features::remote::info_keys().into_iter();
+        now.extend(info.map(|key| format!("info_key {key}")));
         now.extend(template_fields());
         now.extend(theme_keys());
         now.extend(owned_files());
@@ -1697,10 +1738,9 @@ mod tests {
 
     /// Returns a "field" line for each `%field%` that src/frozen-1.0.txt pins and that fills in
     /// the templates it belongs to: the full screen info and the print caption, the window
-    /// title, or the page header and footer. They are filled for a PNG with every EXIF label
-    /// that the default full screen info shows, and with keywords and a comment in its sidecar.
-    /// A field renamed where it is read, or an EXIF label relabelled, so stops filling, and the
-    /// default full screen info would lose it unseen.
+    /// title, or the page header and footer. They are filled for a PNG with every EXIF row of
+    /// the info panel, and with keywords and a comment in its sidecar. A field renamed where it
+    /// is read so stops filling, and the default full screen info would lose it unseen.
     fn template_fields() -> Vec<String> {
         let pinned: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
             .filter_map(|l| l.strip_prefix("field "))
@@ -1714,7 +1754,9 @@ mod tests {
         let file = dir.join("a.png");
         let out = std::fs::File::create(&file).unwrap();
         let mut encoder = image::codecs::png::PngEncoder::new(out);
-        image::ImageEncoder::set_exif_metadata(&mut encoder, exif_of_every_label()).unwrap();
+        // The TIFF structure, without the "Exif\0\0" before it in a JPEG.
+        let exif = crate::support::test_support::exif_with_every_row()[6..].to_vec();
+        image::ImageEncoder::set_exif_metadata(&mut encoder, exif).unwrap();
         image::RgbImage::new(4, 2)
             .write_with_encoder(encoder)
             .unwrap();
@@ -1734,7 +1776,7 @@ mod tests {
         for _ in 0..250 {
             app.poll_background(&ctx);
             full = app.full_screen_info_text(&ctx);
-            if ["dimensions:", "ISO:", "keywords:"]
+            if ["dimensions:", "iso:", "keywords:"]
                 .iter()
                 .all(|f| full.contains(f))
             {
@@ -1804,7 +1846,7 @@ mod tests {
         files.push(shown(crate::metadata::marks::marks_file()));
         // The marks file is pinned also in a build without the marks feature.
         #[cfg(not(feature = "marks"))]
-        files.push("file $XDG_STATE_HOME/glimt/marks".to_owned());
+        files.push("file $XDG_DATA_HOME/glimt/marks".to_owned());
         let data = super::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
         for kind in ["tools", "formats"] {
             files.push(shown(data.as_ref().map(|d| d.join(kind))));
@@ -1843,7 +1885,7 @@ mod tests {
         ));
         // The marks file's lock is pinned also in a build without the marks feature.
         #[cfg(not(feature = "marks"))]
-        files.push("file $XDG_STATE_HOME/glimt/.marks.lock".to_owned());
+        files.push("file $XDG_DATA_HOME/glimt/.marks.lock".to_owned());
         let runtime = runtime_folder();
         let socket = runtime.join(crate::features::remote::socket_name("NAME"));
         let socket_lock = crate::features::remote::socket_lock(&socket);
@@ -1927,22 +1969,8 @@ mod tests {
         let held = crate::files::file_io::open_and_lock(&lock).unwrap();
         lines.push(format!("lock_kind lock file {}", kind(&lock)));
         drop(held);
-        let plan = crate::files::journal::start_journal(&dir.join("plans"), &[]).unwrap();
-        let path = std::fs::read_dir(dir.join("plans")).unwrap().flatten();
-        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
-        lines.push(format!("lock_kind plan {}", kind(&path)));
-        drop(plan);
-        let log = crate::files::journal::start_move_log(&dir.join("logs"), "move").unwrap();
-        let path = std::fs::read_dir(dir.join("logs")).unwrap().flatten();
-        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
-        lines.push(format!("lock_kind move log {}", kind(&path)));
-        drop(log);
-        let log =
-            crate::files::journal::start_delete_log(&dir.join("deletes"), "delete", None).unwrap();
-        let path = std::fs::read_dir(dir.join("deletes")).unwrap().flatten();
-        let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
-        lines.push(format!("lock_kind delete log {}", kind(&path)));
-        drop(log);
+        // A plan of Rename Many, a move's log and a delete's log are each a job log, which
+        // `JobLog::start` makes and locks.
         let log = crate::files::job_log::JobLog::start(&dir.join("jobs"), "move", &[]).unwrap();
         let path = std::fs::read_dir(dir.join("jobs")).unwrap().flatten();
         let path = path.map(|e| e.path()).find(|p| p.is_file()).unwrap();
@@ -1981,39 +2009,6 @@ mod tests {
             Some(format!("theme_key {}", line.split_once('=')?.0))
         });
         keys.collect()
-    }
-
-    /// Returns an EXIF block (TIFF, little-endian) with the date taken, the exposure, the
-    /// aperture, the ISO and the focal length: every EXIF label of the default full screen info.
-    fn exif_of_every_label() -> Vec<u8> {
-        // A directory of (tag, type, count, value or offset) entries, and no next one.
-        let directory = |block: &mut Vec<u8>, entries: &[(u16, u16, u32, u32)]| {
-            block.extend((entries.len() as u16).to_le_bytes());
-            for (tag, kind, count, value) in entries {
-                block.extend(tag.to_le_bytes());
-                block.extend(kind.to_le_bytes());
-                block.extend(count.to_le_bytes());
-                block.extend(value.to_le_bytes());
-            }
-            block.extend(0u32.to_le_bytes());
-        };
-        let mut block = b"II*\0\x08\0\0\0".to_vec();
-        // IFD0 at 8 has one entry, the Exif IFD at 26, which has five; its values start at 92.
-        directory(&mut block, &[(0x8769, 4, 1, 26)]);
-        let exif = [
-            (0x829a, 5, 1, 112),
-            (0x829d, 5, 1, 120),
-            (0x8827, 3, 1, 400),
-            (0x9003, 2, 20, 92),
-            (0x920a, 5, 1, 128),
-        ];
-        directory(&mut block, &exif);
-        block.extend(b"2020:01:02 03:04:05\0");
-        // The exposure 1/250 s, the aperture f/2.8 and the focal length 50 mm.
-        for value in [1u32, 250, 28, 10, 50, 1] {
-            block.extend(value.to_le_bytes());
-        }
-        block
     }
 
     /// Returns the values of the settings that name something outside `NAMED`. They are

@@ -1061,11 +1061,10 @@ fn is_info(command: &str) -> bool {
 
 /// The answer of `--remote info` for the file at `path`, with its (mark bits, stars) in
 /// `marks`, or `None` when marks are not built in. Its form is frozen, as scripts read it:
-/// one `key<TAB>value` line for each of `INFO_KEYS` and then each EXIF row of
-/// `exif::LABELS`, always all of them in this order, and an empty value where the file has
-/// none. Each value is `escaped`, so it stays on its line and a script can undo it. The path
-/// is the file's bytes, also when they are not UTF-8, as `current` gives them. A path that is
-/// not a regular file has every value but its path empty.
+/// one `key<TAB>value` line for each of `info_keys`, always all of them in this order, and an
+/// empty value where the file has none. Each value is `escaped`, so it stays on its line and a
+/// script can undo it. The path is the file's bytes, also when they are not UTF-8, as `current`
+/// gives them. A path that is not a regular file has every value but its path empty.
 fn info_record(path: &Path, marks: Option<(u8, u8)>) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
     let is_file = crate::files::file_io::is_surely_file(path);
@@ -1075,14 +1074,10 @@ fn info_record(path: &Path, marks: Option<(u8, u8)>) -> Vec<u8> {
         None => Default::default(),
     };
     let exif_value = |label: &str| exif_rows.iter().find(|r| r.0 == label).map(|r| r.1.clone());
-    let exif_lines = (crate::metadata::exif::LABELS.iter()).map(|label| {
-        let value = exif_value(label).unwrap_or_default();
-        (info_exif_key(label), escaped(value.as_bytes(), b""))
-    });
+    let exif_values = (crate::metadata::exif::FIELDS.iter())
+        .map(|(_, label)| escaped(exif_value(label).unwrap_or_default().as_bytes(), b""));
     let path = escaped(path.as_os_str().as_bytes(), b"");
-    let lines = (INFO_KEYS.iter().map(|k| k.to_string()))
-        .zip([path].into_iter().chain(values))
-        .chain(exif_lines);
+    let lines = (info_keys().into_iter()).zip([path].into_iter().chain(values).chain(exif_values));
     let mut record = Vec::new();
     for (key, value) in lines {
         record.extend_from_slice(key.as_bytes());
@@ -1142,10 +1137,14 @@ fn info_values(
     (values, exif_rows)
 }
 
-/// The key of `--remote info`'s line for the EXIF row `label`: "exif." and the label in lower
-/// case, with "_" for a space, such as "exif.focal_length".
-fn info_exif_key(label: &str) -> String {
-    format!("exif.{}", label.to_lowercase().replace(' ', "_"))
+/// Returns the keys of `--remote info`'s lines, in their order: each of `INFO_KEYS`, and then
+/// for each EXIF row "exif." and its field (`exif::FIELDS`), such as "exif.focal_length".
+/// Scripts read them, so src/frozen-1.0.txt pins them (`info_key` lines).
+pub(crate) fn info_keys() -> Vec<String> {
+    let exif = (crate::metadata::exif::FIELDS.iter()).map(|f| format!("exif.{}", f.0));
+    (INFO_KEYS.iter().map(|k| k.to_string()))
+        .chain(exif)
+        .collect()
 }
 
 /// Returns `value` as `--remote info` writes it, so it stays one value on one line and a
@@ -4624,9 +4623,7 @@ mod tests {
         std::fs::write(&file, &png).unwrap();
         let record = super::info_record(&file, Some((0, 0)));
         let lines = info_lines(&String::from_utf8(record).unwrap());
-        let keys: Vec<String> = (super::INFO_KEYS.iter().map(|k| k.to_string()))
-            .chain(crate::metadata::exif::LABELS.map(super::info_exif_key))
-            .collect();
+        let keys = super::info_keys();
         assert_eq!(lines.iter().map(|l| l.0.clone()).collect::<Vec<_>>(), keys);
         let filled: Vec<(&str, &str)> = (lines.iter())
             .filter(|l| !l.1.is_empty() && !["path", "size", "modified"].contains(&&*l.0))

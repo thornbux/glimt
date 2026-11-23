@@ -97,7 +97,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Last, NONE, Key::End),
         (SelectNone, CTRL_SHIFT, Key::A),
         (InvertSelection, CTRL_SHIFT, Key::I),
-        (Icons, CTRL, Key::I),
+        (IconGrid, CTRL, Key::I),
         (SelectAll, CTRL, Key::A),
         (Preferences, CTRL, Key::O),
         (ZoomIn, NONE, Key::Equals),
@@ -169,7 +169,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         // Before S (slideshow), which would also match with Shift.
         (SortManager, SHIFT, Key::S),
         (Slideshow, NONE, Key::S),
-        (Pause, NONE, Key::P),
+        (PauseSlideshow, NONE, Key::P),
         (RandomOrder, NONE, Key::R),
         (SlideshowFaster, CTRL, Key::Equals),
         (SlideshowSlower, CTRL, Key::Minus),
@@ -230,7 +230,7 @@ pub const ALL: &[Action] = &[
     Action::Histogram,
     Action::HistogramLog,
     Action::HomeFolder,
-    Action::Icons,
+    Action::IconGrid,
     Action::ImportLightroom,
     Action::InfoPanel,
     Action::InvertSelection,
@@ -276,7 +276,7 @@ pub const ALL: &[Action] = &[
     Action::PaneUp,
     Action::ParentFolder,
     Action::PathBar,
-    Action::Pause,
+    Action::PauseSlideshow,
     Action::PlayVideo,
     Action::Preferences,
     Action::Previous,
@@ -367,7 +367,7 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
     Action::First,
     Action::Last,
     Action::Slideshow,
-    Action::Pause,
+    Action::PauseSlideshow,
     Action::SlideshowFaster,
     Action::SlideshowSlower,
     Action::RandomOrder,
@@ -434,7 +434,7 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::Histogram,
     Action::HistogramLog,
     Action::HomeFolder,
-    Action::Icons,
+    Action::IconGrid,
     Action::InvertSelection,
     Action::KeyboardMap,
     Action::Last,
@@ -457,7 +457,7 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::PaneUp,
     Action::ParentFolder,
     Action::PathBar,
-    Action::Pause,
+    Action::PauseSlideshow,
     Action::Preferences,
     Action::Previous,
     Action::PreviousPage,
@@ -620,7 +620,7 @@ pub enum Action {
     Rate4,
     #[cfg(feature = "marks")]
     Rate5,
-    Icons,
+    IconGrid,
     Toolbar,
     PathBar,
     Thumbnails,
@@ -634,7 +634,7 @@ pub enum Action {
     FolderTree,
     Refresh,
     Slideshow,
-    Pause,
+    PauseSlideshow,
     RandomOrder,
     SlideshowFaster,
     SlideshowSlower,
@@ -830,7 +830,7 @@ impl Action {
             Rate4 => "★★★★",
             #[cfg(feature = "marks")]
             Rate5 => "★★★★★",
-            Icons => "View Images as Icons",
+            IconGrid => "View Images as Icons",
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
@@ -844,7 +844,7 @@ impl Action {
             FolderTree => "Show Folder Tree",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
-            Pause => "Pause Slideshow",
+            PauseSlideshow => "Pause Slideshow",
             RandomOrder => "Random Order",
             SlideshowFaster => "Faster",
             SlideshowSlower => "Slower",
@@ -976,7 +976,7 @@ impl Action {
             Rate4 => "\u{e46a}", // star
             #[cfg(feature = "marks")]
             Rate5 => "\u{e46a}", // star
-            Icons => "\u{ec8c}",                               // grid-nine
+            IconGrid => "\u{ec8c}",                            // grid-nine
             Toolbar => "\u{eca0}",                             // toolbox
             PathBar => "\u{e89c}",                             // signpost
             Thumbnails => "\u{e836}",                          // images
@@ -987,7 +987,7 @@ impl Action {
             SortManager => "\u{e444}",                         // sort-ascending
             PanView => "\u{e7b4}",                             // calendar-dots
             Slideshow => "\u{e3d0}",                           // play
-            Pause => "\u{e39e}",                               // pause
+            PauseSlideshow => "\u{e39e}",                      // pause
             RandomOrder => "\u{e422}",                         // shuffle
             SlideshowFaster => "\u{e6a6}",                     // fast-forward
             SlideshowSlower => "\u{e6a8}",                     // rewind
@@ -1027,9 +1027,9 @@ impl Action {
             | PaneRight | PaneUp | PaneDown | Animate | Subfolders | HiddenFiles
             | OpenCollection | ImportLightroom | RenameCollection | TrashCollection
             | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage | PreviousPage
-            | Icons | Toolbar | PathBar | Thumbnails | ThumbnailGrid | GridNames | InfoPanel
+            | IconGrid | Toolbar | PathBar | Thumbnails | ThumbnailGrid | GridNames | InfoPanel
             | ExifWindow | FocusKeywords | SortManager | PanView | FolderTree | Refresh
-            | Slideshow | Pause | RandomOrder | SlideshowFaster | SlideshowSlower
+            | Slideshow | PauseSlideshow | RandomOrder | SlideshowFaster | SlideshowSlower
             | LeaveFullScreen | NewWindow | WindowTitle | WindowName | Projector
             | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => Target::NoFile,
             #[cfg(feature = "marks")]
@@ -1381,7 +1381,7 @@ impl crate::App {
             | Action::InfoPanel
             | Action::SortManager
             | Action::FullScreenInfo
-            | Action::Icons
+            | Action::IconGrid
             | Action::FolderTree
             | Action::HistogramLog
             | Action::Animate => self.toggle_setting(action),
@@ -1432,7 +1432,7 @@ impl crate::App {
                 self.config.projector_pointer = !self.config.projector_pointer;
                 self.config.save();
             }
-            Action::AutoRotate => self.set_exif_rotate(!self.config.exif_rotate),
+            Action::AutoRotate => self.set_auto_rotate(!self.config.auto_rotate),
             Action::NextFilter => {
                 self.set_view_filter((self.config.view_filter + 1) % FILTERS.len())
             }
@@ -1458,11 +1458,11 @@ impl crate::App {
             Action::Slideshow if self.slideshow.is_running() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
             // Resuming gives the shown image the full delay again.
-            Action::Pause if self.slideshow.is_running() => {
+            Action::PauseSlideshow if self.slideshow.is_running() => {
                 self.slideshow.toggle_pause();
                 self.update_window_title(ctx);
             }
-            Action::Pause => {}
+            Action::PauseSlideshow => {}
             Action::RandomOrder => self.set_random_order(ctx, !self.config.slideshow_random),
             Action::SlideshowFaster | Action::SlideshowSlower => self.change_delay(ctx, action),
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.

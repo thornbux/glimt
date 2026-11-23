@@ -2374,8 +2374,8 @@ msgstr "Testo sotto ogni immagine:"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
-msgstr "Come le info a schermo intero: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
+msgstr "Come le info a schermo intero: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
 #, fuzzy
@@ -3290,8 +3290,8 @@ msgstr "nessuno, sRGB"
 
 #: src/ui/preferences.rs
 #, fuzzy
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Campi: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% e ogni etichetta del pannello informazioni con il suo nome inglese, come %Camera% o %ISO%. Una | inizia una parte, omessa quando i suoi campi sono vuoti."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty."
+msgstr "Campi: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size% e i campi EXIF %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% e %gps%. Una | inizia una parte, omessa quando i suoi campi sono vuoti."
 
 #: src/ui/preferences.rs
 #, fuzzy
@@ -4097,3 +4097,13 @@ msgstr "{folder} contiene strumenti o formati aggiunti che Glimt non legge più:
 #, fuzzy
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr "{file} non viene caricato: l'intestazione [Glimt Decoder] non viene più letta. Scrivi invece [Glimt Format]"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr "Impossibile spostare il file dei segni {from} in {to}: {e}. I segni restano dove sono."
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr "Il file dei segni di Glimt 0.95 o precedente resta in {old}, perché esiste anche {new}. Si usano i segni di {new}: unisci i due a mano, o rimuovi il vecchio."

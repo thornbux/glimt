@@ -297,14 +297,14 @@ mod tests {
         };
         let value = |f: &str| match f {
             "name" => "a.jpg".to_owned(),
-            "ISO" => "200".to_owned(),
+            "iso" => "200".to_owned(),
             _ => String::new(),
         };
         for template in [
             crate::files::config::FULL_SCREEN_INFO_TEMPLATE,
-            "Scale 100% · %name% | %ISO%",
+            "Scale 100% · %name% | %iso%",
             "50% %name% 20%",
-            "%name%%ISO%|%comment%\\n%keywords% 5%",
+            "%name%%iso%|%comment%\\n%keywords% 5%",
             "%ISO",
             "a % b % c %name%",
         ] {
@@ -317,7 +317,7 @@ mod tests {
     fn fills_templates() {
         let value = |f: &str| match f {
             "name" => "a.jpg".to_owned(),
-            "ISO" => "200".to_owned(),
+            "iso" => "200".to_owned(),
             _ => String::new(),
         };
         let fill = |t| super::fill_template(t, value);
@@ -326,14 +326,14 @@ mod tests {
             "a.jpg\nISO 200"
         );
         assert_eq!(
-            fill("%Taken%|x %name%|%comment%\\n%keywords%\\n50%"),
+            fill("%taken%|x %name%|%comment%\\n%keywords%\\n50%"),
             "x a.jpg\n50%"
         );
         assert_eq!(fill(""), "");
         // "%%" is a "%", which a part keeps, and not an empty field that takes it along.
         assert_eq!(fill("50%% of 100%%"), "50% of 100%");
         assert_eq!(
-            fill("%name% 100%%|%Taken% %%|%%%name%"),
+            fill("%name% 100%%|%taken% %%|%%%name%"),
             "a.jpg 100% · %a.jpg"
         );
     }

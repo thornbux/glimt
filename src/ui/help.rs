@@ -346,7 +346,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          first. Combined, the list is in its own order.\n\n\
          The sort menu at the bottom left sorts by name, number, date, file creation date, \
          EXIF date original, EXIF date digitized, size or extension; the Types menu beside it \
-         chooses what the list shows: images, RAW files and videos.",
+         chooses what the list shows: images, RAW files and videos. The date is when the file \
+         was last changed, its modification time.",
     ),
     (
         "Keywords and comments",
@@ -384,8 +385,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          paper every page turns as the first one), portrait or landscape\n\
          - Margin: 0 to 50 mm.\n\n\
          Fill each box cuts each image to its box instead of fitting it in. The text under each \
-         image comes from a template, as the full screen info's: %name% by default, or %Taken%, \
-         %Camera%, %keywords%, %comment% and the other fields. Text at the top and bottom of each \
+         image comes from a template, as the full screen info's: %name% by default, or %taken%, \
+         %camera%, %keywords%, %comment% and the other fields. Text at the top and bottom of each \
          page may hold %page% and %pages%. In each of these templates %% is a %.\n\n\
          It goes to a printer through CUPS (lp), on both sides of the paper if the printer can, or \
          into a PDF file; in the Flatpak, the System print dialog choice hands it to the \
@@ -631,8 +632,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          stays, as the busy pointer, and also while a window or menu is open. Preferences → \
          Image turns this off.\n\n\
          In full screen, I shows or hides the name, place and EXIF over the image. Preferences → \
-         Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %Camera% \
-         and the other info panel labels, | between parts that are left out when empty, \\n for a \
+         Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %camera%, \
+         %taken% and the other fields that Preferences lists, | between parts that are left out when empty, \\n for a \
          new line, %% for a %.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
          %path%, %folder%, %app% and %id% (what glimt --name or --remote reaches it by), such as \
@@ -701,7 +702,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          - Low decodes one image at a time and preloads one on each side\n\
          - Medium (the default) four and two\n\
          - High eight and five.\n\n\
-         Details shows them, and other values are Custom. On slow storage such as SMB or NFS \
+         Details shows them, and other values are Custom. One malloc arena among them is \
+         glibc's limit on its memory pools (M_ARENA_MAX); with another C library or allocator it \
+         does nothing, and the setting one_malloc_arena is ignored. On slow storage such as SMB or NFS \
          shares, Medium or High keep browsing quick, as the next images are read while you look; \
          Low waits for each file.\n\n\
          CPU use below it:\n\n\
@@ -941,7 +944,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Marks and stars (marks feature)",
-        "1–6 toggle, Ctrl+1–6 select, Alt+0–5 stars (main keyboard); kept in ~/.local/state/glimt/marks; mark: and stars: in the search field",
+        "1–6 toggle, Ctrl+1–6 select, Alt+0–5 stars (main keyboard); kept in ~/.local/share/glimt/marks; mark: and stars: in the search field",
         "Alt+keypad for stars, kept in XMP; marks filter buttons",
     ),
     (

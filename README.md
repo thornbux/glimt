@@ -157,7 +157,9 @@ cp -r glimt-backup-2026-10-16/data/.   ~/.local/share/glimt/
 ```
 
 In the Flatpak the three folders are `~/.var/app/io.github.thornbux.Glimt/config/glimt`,
-`…/data/glimt` and `…/.local/state/glimt`. Keywords, comments and alt text are in the XMP
+`…/data/glimt` and `…/.local/state/glimt`. A backup made by Glimt 0.95 or older has the marks
+file in `state/`: copied back, it is moved to `data/` at the next start, unless the data folder
+has a marks file already, which is then used. Keywords, comments and alt text are in the XMP
 sidecars beside the photos, and go with a backup of the photo folders.
 
 ## Tested on

@@ -2065,8 +2065,8 @@ msgid "Text under each image:"
 msgstr "Tekst under hvert bilde:"
 
 #: src/features/print.rs
-msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
-msgstr "Som bildeinformasjonen i fullskjerm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
+msgstr "Som bildeinformasjonen i fullskjerm: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
 msgid "%page% is the page's number, %pages% how many there are"
@@ -2645,8 +2645,8 @@ msgid "none, sRGB"
 msgstr "ingen, sRGB"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Felt: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hver etikett i infopanelet med sitt engelske navn, som %Camera% eller %ISO%. En | starter en del, som utelates når feltene i den er tomme."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty."
+msgstr "Felt: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size% og EXIF-feltene %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% og %gps%. En | starter en del, som utelates når feltene i den er tomme."
 
 #: src/ui/preferences.rs
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
@@ -3292,3 +3292,11 @@ msgstr "{folder} har verktøy eller tilføyde formater som Glimt ikke lenger les
 #: src/features/tools.rs
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr "{file} lastes ikke: overskriften [Glimt Decoder] leses ikke lenger. Skriv [Glimt Format] i stedet"
+
+#: src/metadata/marks.rs
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr "Kunne ikke flytte merkefilen {from} til {to}: {e}. Merkene blir der de er."
+
+#: src/metadata/marks.rs
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr "Merkefilen fra Glimt 0.95 eller eldre er latt være i {old}, fordi {new} også finnes. Merkene i {new} brukes: slå de to sammen for hånd, eller fjern den gamle."
