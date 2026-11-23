@@ -11,8 +11,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   card, at most 70 % of the image's width and wrapped over several lines. Each failed write,
   and each thing Glimt tells at its start, is a message of its own, so that none hides
   another. An error or a refusal has a red stripe and a warning sign, and an ordinary notice,
-  such as Saved, a blue stripe; a job log that could not be saved now counts as a failed
-  write, which `--remote … --wait` reports. Before, every notice was
+  such as Saved, a blue stripe; a job log that could not be saved, also by an Undo beside
+  another error, now counts as a failed write, which `--remote … --wait` reports. A name with
+  a line break refused by a mark or by Add to Collection is told as an error, under what was
+  added. Before, every notice was
   one long line of light red text on a see-through band across the whole image.
 - Marks and stars are kept in `~/.local/share/glimt/marks` (`$XDG_DATA_HOME`), beside the
   collections, where backups look for the data you made, instead of `~/.local/state/glimt`. The
