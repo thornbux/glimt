@@ -575,8 +575,9 @@ What File \(-> Copy for Sharing left out the last time, one word on each line.
 .I $XDG_DATA_HOME/glimt/marks
 Marks and stars, in builds with the marks feature. Glimt 0.95 and older kept them in
 .IR $XDG_STATE_HOME/glimt/marks ;
-the first start of a later Glimt moves that file here. When both are there, the one here is
-used, the old one is left as it is, and the window says so.
+the first start of a later Glimt moves that file here and leaves a link to it in the old place,
+through which a Glimt 0.95 window still open writes the same file. When both are there with
+different marks, the one here is used, the old one is left as it is, and the window says so.
 .TP
 .IB file .xmp
 Keywords, comment, alt text and extended description, and (if chosen) stars of
