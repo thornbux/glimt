@@ -570,11 +570,18 @@ NOTICE_WHITE='r>0.9 && g>0.9 && b>0.9'
 notice_pixels() { matching $1 1040x300+240+500 "($NOTICE_RED) || ($NOTICE_BLUE)"; }
 # until_notice NAME [SECONDS]: shots NAME until one shows a notice, up to SECONDS (10); false
 # when none came.
-until_notice() {
+until_notice() { until_notice_drawn notice_pixels "$@"; }
+# until_error_notice NAME [SECONDS]: as until_notice, for an error's notice only (red), which a
+# failed write must give. An ordinary notice ("Moved", "Saved") in its place does not count.
+until_error_notice() { until_notice_drawn error_pixels "$@"; }
+# The pixels of an error's notice in the screenshot NAME.
+error_pixels() { matching $1 1040x300+240+500 "$NOTICE_RED"; }
+# until_notice_drawn COUNT NAME [SECONDS]: shots NAME until COUNT finds a notice in it.
+until_notice_drawn() {
     local i
-    for i in $(seq $(( ${2:-10} * 2 ))); do
-        shot $1
-        [ "$(notice_pixels $1)" -gt 20 ] && return 0
+    for i in $(seq $(( ${3:-10} * 2 ))); do
+        shot $2
+        [ "$($1 $2)" -gt 20 ] && return 0
         sleep 0.5
     done
     return 1
@@ -5115,7 +5122,7 @@ else
             start $d/a.jpg
             answer $to
             if [ $op = move ]; then key ctrl+m; else key ctrl+c; fi
-            until_notice full-$op-$v; told=$?
+            until_error_notice full-$op-$v; told=$?
             quit
             got="$([ "$(cat $d/a.jpg $d/a.jpg.xmp | md5sum)" = "$sums" ] && echo kept)"
             got="$got,$(ls -A $to | tr '\n' ' '),$(grep -cxF "$star_line" $MARKS)"
@@ -5138,7 +5145,7 @@ else
             config save_orientation=true
             start $d/$f
             key bracketright; key space
-            until_notice full-turn-$f-$v; told=$?
+            until_error_notice full-turn-$f-$v; told=$?
             quit
             got="$([ "$(md5sum <$d/$f)" = "$sum" ] && echo kept),$(ls -A $d | tr '\n' ' '),$([ $told = 0 ] && echo told)"
             if [ $v = new ]; then
@@ -5166,7 +5173,7 @@ XMP
         for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
         sleep 1
         menu Animals
-        until_notice full-sidecar-$v; told=$?
+        until_error_notice full-sidecar-$v; told=$?
         quit
         got="$([ "$(md5sum <$d/a.jpg.xmp)" = "$sum" ] && echo kept),$(ls -A $d | tr '\n' ' '),$([ $told = 0 ] && echo told)"
         if [ $v = new ]; then
@@ -5202,7 +5209,7 @@ else
         start $lossy/$v/lost-a.jpg
         answer $to
         key ctrl+m
-        until_notice lossy-move-$v; told_move=$?
+        until_error_notice lossy-move-$v; told_move=$?
         quit
         # A Move that simply went through also leaves one copy and a notice. So the share must
         # have answered EIO, and Glimt must have said that the photo may be under both names.
@@ -5210,7 +5217,7 @@ else
         start $lossy/$v/lost-b.jpg
         key ctrl+r; sleep 1; key ctrl+a
         xdotool type --delay 30 kept-b.jpg; key Return
-        until_notice lossy-rename-$v; told_rename=$?
+        until_error_notice lossy-rename-$v; told_rename=$?
         quit
         eio() { grep -qx "EIO /$v/$1" /tmp/lossyfs.log && echo EIO; }
         move="$(copies "$a") $([ $told_move = 0 ] && echo told) $(eio lost-a.jpg) $both"
@@ -5252,7 +5259,7 @@ with open(sys.argv[2], 'wb') as f:
     start $d/a.jpg
     key bracketright; key space      # turned, then the next image, which saves the turn
     writing=$(kill -0 $writer 2>/dev/null && echo writing)
-    until_notice growing-$v 4; told=$?
+    until_error_notice growing-$v 4; told=$?
     wait $writer
     sleep 1
     quit
@@ -6152,7 +6159,7 @@ STUB
             # with its sidecar, and nothing was left partway.
             [ $fault = full ] && leave_free 16384 $disk
             key ctrl+a; key ctrl+d
-            until_notice trash-$fault-$v 20; told=$?
+            until_error_notice trash-$fault-$v 20; told=$?
             sleep 2
             # Where each photo and sidecar is: here, in the trash with its .trashinfo, or lost.
             places=$(for f in $names; do for g in $f $f.xmp; do
@@ -6222,7 +6229,7 @@ with open(sys.argv[1], 'w') as m:
         start $d/a.jpg
         leave_free 0
         key alt+3
-        until_notice own-marks-$v; told=$?
+        until_error_notice own-marks-$v; told=$?
         sleep 1
         kept=$([ "$(md5sum <$MARKS)" = "$sum" ] && echo kept)
         failed=$(grep -c "Could not save .*marks" /tmp/glimt.err)
@@ -6249,7 +6256,7 @@ with open(sys.argv[1], 'w') as m:
         start $c/Big.gqv
         leave_free 0
         key Delete
-        until_notice own-collection-$v; told=$?
+        until_error_notice own-collection-$v; told=$?
         sleep 1
         kept=$([ "$(md5sum <$c/Big.gqv)" = "$sum" ] && echo kept)
         failed=$(grep -c "Could not save the collection" /tmp/glimt.err)
@@ -6281,7 +6288,7 @@ with open(sys.argv[1], 'w') as m:
         key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
         xdotool type --delay 30 '##'; sleep 0.4
         key Return
-        until_notice own-rename-$v 20; told=$?
+        until_error_notice own-rename-$v 20; told=$?
         sleep 3
         quit
         rm -f $full/.fill
@@ -6351,7 +6358,7 @@ else
             start $d/a.jpg
             answer $to
             if [ $op = move ]; then key ctrl+m; else key ctrl+c; fi
-            until_notice split-$op-$v 20; told=$?
+            until_error_notice split-$op-$v 20; told=$?
             sleep 2
             # The control that Glimt put the photo at the target before its sidecar failed
             # there, and so took the photo back: else the check passes on a Move that never
@@ -6405,7 +6412,7 @@ else
         start $d/a.jpg
         answer $to
         key ctrl+m
-        until_notice refused-$v 20; told=$?
+        until_error_notice refused-$v 20; told=$?
         sleep 2
         # The control that the photo was copied to the target and only its unlink at the
         # source refused, which is told by the target's name: a Move refused before the copy
@@ -6468,7 +6475,7 @@ else
                     key ctrl+shift+s; sleep 1
                     touch /tmp/lossy-eio; menu "Save…" ;;
             esac
-            until_notice eio-$op-$v 20; told=$?
+            until_error_notice eio-$op-$v 20; told=$?
             sleep 2
             rm -f /tmp/lossy-eio
             quit
@@ -6948,7 +6955,7 @@ else
         start $d/a.jpg
         echo /stall-move-$v >/tmp/lossy-stall
         answer $lossy/stall-move-$v/to; key ctrl+m
-        until_notice stall-move-$v 75; told=$?
+        until_error_notice stall-move-$v 75; told=$?
         answer $d/sub; key ctrl+m
         until_file $d/sub/a.jpg 10; moved=$?
         held=$(grep -q "^STALL /stall-move-$v" /tmp/lossyfs.log && echo held)
@@ -6988,7 +6995,7 @@ else
         menu File "Copy for Sharing…"; sleep 3
         leave_free $(( $(stat -c %s $d/a.jpg) + 65536 ))
         menu "Copy…"
-        until_notice share-full-$v 20; told=$?
+        until_error_notice share-full-$v 20; told=$?
         sleep 2
         control=$(cp $d/b.jpg $out/control 2>/dev/null || echo full); rm -f $out/control
         quit
@@ -7012,7 +7019,7 @@ else
         start $d/a.png
         leave_free 0
         key shift+c; sleep 0.5; crop_part; key Return
-        until_notice crop-full-$v 20; told=$?
+        until_error_notice crop-full-$v 20; told=$?
         sleep 1
         got="$(ls -A $d | tr '\n' ' '),$([ "$(md5sum <$d/a.png)" = "$sum" ] && echo kept),$([ $told = 0 ] && echo told)"
         # The control: with room again, the same crop is saved.
@@ -7038,7 +7045,7 @@ else
         leave_free 0
         key ctrl+shift+s; sleep 1
         menu "Save…"
-        until_notice save-as-full-$v 20; told=$?
+        until_error_notice save-as-full-$v 20; told=$?
         sleep 1
         got="$(ls -A $out | tr '\n' ' '),$([ "$(md5sum <$d/a.jpg)" = "$sum" ] && echo kept),$([ $told = 0 ] && echo told)"
         rm -f $full/.fill
