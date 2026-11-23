@@ -1603,7 +1603,7 @@ mod tests {
                 CheckedBy("a_line_break_in_a_name_adds_nothing_to_the_choice"),
             ),
             (
-                "$XDG_STATE_HOME/glimt/marks",
+                "$XDG_DATA_HOME/glimt/marks",
                 CheckedBy("a_name_with_a_line_break_is_refused_with_a_notice"),
             ),
             ("$XDG_STATE_HOME/glimt/renames", NUL),
@@ -1644,7 +1644,7 @@ mod tests {
             ("$XDG_STATE_HOME/glimt/.recent.lock", LOCK),
             ("$XDG_STATE_HOME/glimt/.sharing.lock", LOCK),
             ("$XDG_DATA_HOME/glimt/collections/.NAME.gqv.lock", LOCK),
-            ("$XDG_STATE_HOME/glimt/.marks.lock", LOCK),
+            ("$XDG_DATA_HOME/glimt/.marks.lock", LOCK),
             ("$XDG_RUNTIME_DIR/glimt/glimt-NAME.lock", LOCK),
             (
                 "$XDG_RUNTIME_DIR/glimt/sidecar-locks",
@@ -1841,7 +1841,7 @@ mod tests {
         files.push(shown(crate::metadata::marks::marks_file()));
         // The marks file is pinned also in a build without the marks feature.
         #[cfg(not(feature = "marks"))]
-        files.push("file $XDG_STATE_HOME/glimt/marks".to_owned());
+        files.push("file $XDG_DATA_HOME/glimt/marks".to_owned());
         let data = super::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
         for kind in ["tools", "formats"] {
             files.push(shown(data.as_ref().map(|d| d.join(kind))));
@@ -1880,7 +1880,7 @@ mod tests {
         ));
         // The marks file's lock is pinned also in a build without the marks feature.
         #[cfg(not(feature = "marks"))]
-        files.push("file $XDG_STATE_HOME/glimt/.marks.lock".to_owned());
+        files.push("file $XDG_DATA_HOME/glimt/.marks.lock".to_owned());
         let runtime = runtime_folder();
         let socket = runtime.join(crate::features::remote::socket_name("NAME"));
         let socket_lock = crate::features::remote::socket_lock(&socket);

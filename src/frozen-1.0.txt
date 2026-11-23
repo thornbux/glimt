@@ -316,7 +316,6 @@ file $XDG_CONFIG_HOME/glimt/themes
 file $XDG_STATE_HOME/glimt/state
 file $XDG_STATE_HOME/glimt/recent
 file $XDG_STATE_HOME/glimt/sharing
-file $XDG_STATE_HOME/glimt/marks
 file $XDG_DATA_HOME/glimt/collections
 file $XDG_DATA_HOME/glimt/tools
 file $XDG_DATA_HOME/glimt/formats
@@ -474,7 +473,6 @@ file $XDG_CONFIG_HOME/glimt/.sort-folders.lock
 file $XDG_STATE_HOME/glimt/.recent.lock
 file $XDG_STATE_HOME/glimt/.sharing.lock
 file $XDG_DATA_HOME/glimt/collections/.NAME.gqv.lock
-file $XDG_STATE_HOME/glimt/.marks.lock
 file $XDG_RUNTIME_DIR/glimt/glimt-NAME.lock
 file $XDG_RUNTIME_DIR/glimt/sidecar-locks
 sidecar_lock files 64
@@ -536,3 +534,5 @@ field focal_length
 field exposure_bias
 field flash
 field gps
+file $XDG_DATA_HOME/glimt/marks
+file $XDG_DATA_HOME/glimt/.marks.lock

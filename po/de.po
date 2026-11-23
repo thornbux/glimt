@@ -4097,3 +4097,13 @@ msgstr "{folder} enthält Werkzeuge oder hinzugefügte Formate, die Glimt nicht 
 #, fuzzy
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr "{file} wird nicht geladen: Die Kopfzeile [Glimt Decoder] wird nicht mehr gelesen. Schreiben Sie stattdessen [Glimt Format]"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr "Die Markierungsdatei {from} konnte nicht nach {to} verschoben werden: {e}. Die Markierungen bleiben, wo sie sind."
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr "Die Markierungsdatei von Glimt 0.95 oder älter bleibt in {old}, da auch {new} vorhanden ist. Die Markierungen aus {new} werden verwendet: Führe die beiden von Hand zusammen oder entferne die alte."

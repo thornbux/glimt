@@ -309,7 +309,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/metadata.rs` | **The metadata/ folder:** what is said about an image |
 | `src/metadata/exif.rs` | The EXIF (TIFF) reader, and writing a JPEG's orientation |
 | `src/metadata/lightroom.rs` | Import Lightroom Catalog, through `sqlite3` |
-| `src/metadata/marks.rs` | Marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks` |
+| `src/metadata/marks.rs` | Marks 1–6 and stars, kept in `$XDG_DATA_HOME/glimt/marks`, and the move of the file from `$XDG_STATE_HOME` |
 | `src/metadata/xmp.rs` | XMP sidecars: keywords, comment, alt text, stars; sidecars that follow their files |
 | `src/files.rs` | **The files/ folder:** how files change on disk |
 | `src/files/config.rs` | `Config` (the `config!` macro), the window state, the XDG paths |

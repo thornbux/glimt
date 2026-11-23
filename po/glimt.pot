@@ -3302,3 +3302,11 @@ msgstr ""
 #: src/features/tools.rs
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr ""
+
+#: src/metadata/marks.rs
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr ""
+
+#: src/metadata/marks.rs
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr ""

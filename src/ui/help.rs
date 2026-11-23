@@ -941,7 +941,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Marks and stars (marks feature)",
-        "1–6 toggle, Ctrl+1–6 select, Alt+0–5 stars (main keyboard); kept in ~/.local/state/glimt/marks; mark: and stars: in the search field",
+        "1–6 toggle, Ctrl+1–6 select, Alt+0–5 stars (main keyboard); kept in ~/.local/share/glimt/marks; mark: and stars: in the search field",
         "Alt+keypad for stars, kept in XMP; marks filter buttons",
     ),
     (

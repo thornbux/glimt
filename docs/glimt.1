@@ -572,8 +572,11 @@ File \(-> Open Recent's folders and collections, newest first, one on each line.
 .I $XDG_STATE_HOME/glimt/sharing
 What File \(-> Copy for Sharing left out the last time, one word on each line.
 .TP
-.I $XDG_STATE_HOME/glimt/marks
-Marks and stars, in builds with the marks feature.
+.I $XDG_DATA_HOME/glimt/marks
+Marks and stars, in builds with the marks feature. Glimt 0.95 and older kept them in
+.IR $XDG_STATE_HOME/glimt/marks ;
+the first start of a later Glimt moves that file here. When both are there, the one here is
+used, the old one is left as it is, and the window says so.
 .TP
 .IB file .xmp
 Keywords, comment, alt text and extended description, and (if chosen) stars of

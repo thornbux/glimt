@@ -4108,3 +4108,13 @@ msgstr "{folder} har verktøy eller tilføydde format som Glimt ikkje lenger les
 #, fuzzy
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr "{file} blir ikkje lasta: overskrifta [Glimt Decoder] blir ikkje lenger lesen. Skriv [Glimt Format] i staden"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr "Kunne ikkje flytte merkefila {from} til {to}: {e}. Merka blir verande der dei er."
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr "Merkefila frå Glimt 0.95 eller eldre er late vere i {old}, fordi {new} òg finst. Merka i {new} blir brukte: slå dei to saman for hand, eller fjern den gamle."

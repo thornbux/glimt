@@ -172,6 +172,9 @@ struct ReadAtStart {
     /// The old folders of tools and added formats, and the desktop files with an old header,
     /// that Glimt no longer reads (`tools::old_desktop_files`), as the window tells them.
     old_desktop_files: Vec<String>,
+    /// That the marks file of Glimt 0.95 and older was left in its place, as the marks file is
+    /// in its new place too (`marks::move_old_marks_file`), as the window tells it.
+    old_marks_file_left: Option<String>,
     #[cfg(feature = "marks")]
     marks: crate::metadata::marks::Marks,
     /// The window state file's text, read once for both Remember Window and Remember Last
@@ -281,6 +284,7 @@ impl App {
             notice: start_notice(
                 (read.colour_error.or_else(|| config_notice(&read.problems)))
                     .or(read.desktop_file_problem),
+                read.old_marks_file_left,
                 &read.old_desktop_files,
             ),
             notice_sender,
@@ -535,12 +539,21 @@ fn config_notice(problems: &[String]) -> Option<String> {
 }
 
 /// Returns the notice the window starts with: the problem met while starting, `error`, when
-/// there is one, and otherwise the first of the desktop files no longer read, `old_files`, as an
+/// there is one, and otherwise that an old marks file was left beside the new one,
+/// `old_marks_file_left`, or the first of the desktop files no longer read, `old_files`, as an
 /// ordinary notice with where to see them all. It is told at each start while they are there,
 /// because remembering that it was told would need a new file or setting, which 1.x freezes.
-fn start_notice(error: Option<String>, old_files: &[String]) -> crate::viewer::view::Notice {
+fn start_notice(
+    error: Option<String>,
+    old_marks_file_left: Option<String>,
+    old_files: &[String],
+) -> crate::viewer::view::Notice {
     let mut notice = crate::viewer::view::Notice::new(error.clone());
-    if let (None, Some(first)) = (error, old_files.first()) {
+    if error.is_none()
+        && let Some(left) = old_marks_file_left
+    {
+        notice.give(left);
+    } else if let (None, Some(first)) = (error, old_files.first()) {
         let more = match old_files.len() - 1 {
             0 => String::new(),
             n => tf!("; and {n} more (glimt --check-config)", n),
@@ -551,7 +564,8 @@ fn start_notice(error: Option<String>, old_files: &[String]) -> crate::viewer::v
 }
 
 /// Returns what the window starts from of Glimt's own files, with the settings `config` and
-/// their `problems` read already: the colour profiles are read and set up, the marks file, the
+/// their `problems` read already: the colour profiles are read and set up, the marks file of
+/// Glimt 0.95 and older is moved to its new place, the marks file, the
 /// window state, Open Recent, the Sort Manager's folders and the keyword tree are read, and the
 /// desktop files of added formats and tools are checked. It waits for the disk, so `main` calls
 /// it before the window opens.
@@ -559,7 +573,14 @@ fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
     let colour_error = crate::images::colour::set_up_colour(&config);
     let desktop_file_problems = crate::features::tools::desktop_file_problems();
     let old_desktop_files = crate::features::tools::old_desktop_files();
-    for problem in desktop_file_problems.iter().chain(&old_desktop_files) {
+    // Before the marks are read, which then come from the new place.
+    #[cfg(feature = "marks")]
+    let old_marks_file_left = crate::metadata::marks::move_old_marks_file();
+    #[cfg(not(feature = "marks"))]
+    let old_marks_file_left = None;
+    for problem in
+        (desktop_file_problems.iter().chain(&old_desktop_files)).chain(&old_marks_file_left)
+    {
         eprintln!("glimt: {problem}");
     }
     // Parsed by `WindowState::parse`, which config's survives_broken_files feeds broken input.
@@ -575,6 +596,7 @@ fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
         colour_error,
         desktop_file_problem: desktop_file_problems.into_iter().next(),
         old_desktop_files,
+        old_marks_file_left,
         #[cfg(feature = "marks")]
         marks: crate::metadata::marks::read_marks(),
         window_state,

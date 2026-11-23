@@ -4119,3 +4119,13 @@ msgstr "{folder} obsahuje nástroje nebo přidané formáty, které Glimt už ne
 #, fuzzy
 msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
 msgstr "{file} se nenačte: hlavička [Glimt Decoder] se už nečte. Napište místo ní [Glimt Format]"
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are."
+msgstr "Soubor značek {from} nelze přesunout do {to}: {e}. Značky zůstávají, kde jsou."
+
+#: src/metadata/marks.rs
+#, fuzzy
+msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
+msgstr "Soubor značek z Glimtu 0.95 nebo staršího zůstává v {old}, protože existuje i {new}. Používají se značky z {new}: spojte oba ručně, nebo starý odstraňte."

@@ -9,9 +9,10 @@ use crate::support::lang::tr;
 use std::path::{Path, PathBuf};
 
 /// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,
-/// sort folders and themes (config), marks and stars (state), and collections, tools and
-/// added formats (data). Thumbnails are not: they are made again. A folder that could not be
-/// looked at is kept, so that the backup fails and says so rather than leave it out.
+/// sort folders and themes (config), the window state, Open Recent and Copy for Sharing's
+/// choice (state), and marks and stars, collections, tools and added formats (data).
+/// Thumbnails are not: they are made again. A folder that could not be looked at is kept, so
+/// that the backup fails and says so rather than leave it out.
 pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     [
         ("config", xdg_dir("XDG_CONFIG_HOME", ".config", "glimt")),

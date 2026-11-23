@@ -361,6 +361,15 @@ as_version() {
         XDG_STATE_HOME=$H/.local/state XDG_DATA_HOME=$H/.local/share
     mkdir -p $XDG_CACHE_HOME $XDG_CONFIG_HOME/glimt $XDG_RUNTIME_DIR /tmp/stub
     chmod 700 $XDG_RUNTIME_DIR
+    # The marks file: in $XDG_DATA_HOME/glimt since 0.96.0, and in $XDG_STATE_HOME/glimt in the
+    # releases before, which the last release may be.
+    export MARKS=$XDG_DATA_HOME/glimt/marks
+    if [ $1 = old ]; then
+        case "$($BIN --version 2>/dev/null)" in
+            "glimt 0."[0-8][0-9].*|"glimt 0.9"[0-5].*) MARKS=$XDG_STATE_HOME/glimt/marks ;;
+        esac
+    fi
+    mkdir -p "$(dirname $MARKS)"
     export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
 }
 # config SETTING=VALUE…: the settings file.
@@ -1128,7 +1137,7 @@ EOF
     convert -size 40x30 xc:blue $d/other/b.png
     # Marks 1 and 4 (bits 9) and three stars.
     mkdir -p $XDG_STATE_HOME/glimt
-    printf '9\t3\t%s\n' $d/a.jpg >$XDG_STATE_HOME/glimt/marks
+    printf '9\t3\t%s\n' $d/a.jpg >$MARKS
     config auto_refresh=false
     start $d/a.jpg
     sleep 1
@@ -1235,7 +1244,7 @@ for v in new old; do
     head -c 25000000 /dev/urandom >$d/000.jpg
     for i in $(seq -w 1 239); do ln $d/000.jpg $d/$i.jpg; done
     mkdir -p $XDG_STATE_HOME/glimt    # a part may start at this section
-    for f in $d/*.jpg; do printf '1\t0\t%s\n' $f; done >$XDG_STATE_HOME/glimt/marks
+    for f in $d/*.jpg; do printf '1\t0\t%s\n' $f; done >$MARKS
     config
     start $d
     sleep 2
@@ -1250,7 +1259,7 @@ for v in new old; do
     ended=$(kill -0 $GPID 2>/dev/null && echo runs || echo ended)
     quit
     moved="$(find $to -name '*.jpg' -size 24415k | wc -l) $(ls -A $d | wc -l)"
-    marks="$(grep -c "	$to/" $XDG_STATE_HOME/glimt/marks) $(grep -c "	$d/" $XDG_STATE_HOME/glimt/marks)"
+    marks="$(grep -c "	$to/" $MARKS) $(grep -c "	$d/" $MARKS)"
     rm -rf $d $to    # 6 GB
     if [ $v = new ]; then
         expect "the window waits for the move" "$waited" waits
@@ -1807,7 +1816,7 @@ for v in new old; do
     d=/tmp/stars-follow-$v
     mkdir -p $d $XDG_STATE_HOME/glimt
     for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
-    printf '0\t4\t%s/a.png\n0\t2\t%s/b.png\n' $d $d >$XDG_STATE_HOME/glimt/marks
+    printf '0\t4\t%s/a.png\n0\t2\t%s/b.png\n' $d $d >$MARKS
     config confirm_delete=false
     start $d
     sleep 1
@@ -1817,7 +1826,7 @@ for v in new old; do
     key Return; sleep 1
     key Home; key shift+Delete; until_gone $d/b.png; sleep 1    # b, first after the rename
     quit
-    got="$(sort $XDG_STATE_HOME/glimt/marks | tr '\t\n' '  ')"
+    got="$(sort $MARKS | tr '\t\n' '  ')"
     if [ $v = new ]; then expect "the four stars on x, none left for b" "$got" "0 4 $d/x "
     else note "old: $got"; fi
 done
@@ -1828,14 +1837,14 @@ for v in new old; do
     d=/tmp/marks-error-$v
     mkdir -p $d $XDG_STATE_HOME/glimt
     convert -size 64x64 xc:red $d/a.png
-    chmod 555 $XDG_STATE_HOME/glimt
+    chmod 555 "$(dirname $MARKS)"
     config
     start $d
     sleep 2
     key alt+3; sleep 2                  # three stars
     told=$(grep -c "Could not save .*marks" /tmp/glimt.err)
     quit
-    chmod 755 $XDG_STATE_HOME/glimt
+    chmod 755 "$(dirname $MARKS)"
     if [ $v = new ]; then expect "the failed save told" "$told" 1
     else note "old: $told"; fi
 done
@@ -1846,18 +1855,45 @@ for v in new old; do
     d=/tmp/marks-windows-$v
     mkdir -p $d $XDG_STATE_HOME/glimt
     convert -size 64x64 xc:red $d/a.png
-    rm -f $XDG_STATE_HOME/glimt/marks
+    rm -f $MARKS
     config
     start $d
     sleep 2
     # As if marked in another window: mark 1 on a.png, which this one has not seen.
-    printf '1\t0\t%s/a.png\n' $d >$XDG_STATE_HOME/glimt/marks
+    printf '1\t0\t%s/a.png\n' $d >$MARKS
     key 1; sleep 2                       # mark 1 toggled: off, as it was on
-    got=$(grep -c "a.png" $XDG_STATE_HOME/glimt/marks)
+    got=$(grep -c "a.png" $MARKS)
     quit
     if [ $v = new ]; then expect "the mark taken off" "$got" 0
     else note "old: $got"; fi
 done
+
+section "a mark the last release set is kept by the new build, which moves the marks file"
+# The last release sets a mark, in $XDG_STATE_HOME before 0.96.0. The new build, started on the
+# same home, moves the file to $XDG_DATA_HOME before its window opens, and shows the mark.
+d=/tmp/marks-upgrade
+mkdir -p $d
+convert -size 64x64 xc:red $d/a.png
+as_version old
+old_marks=$MARKS
+config
+start $d
+sleep 2
+key 1; sleep 2                       # mark 1 on a.png
+quit
+set_by_old=$(grep -c "a.png" $old_marks 2>/dev/null)
+# The new build, on the last release's home.
+export V=new BIN=/opt/glimt-new
+start $d
+sleep 2
+shown=$(remote info $d/a.png 2>/dev/null | awk -F '\t' '$1 == "marks" {print $2}')
+quit
+expect "the last release set the mark" "$set_by_old" 1
+expect "the mark in the new place" "$(grep -c "a.png" $XDG_DATA_HOME/glimt/marks 2>/dev/null)" 1
+if [ "$old_marks" != $XDG_DATA_HOME/glimt/marks ]; then
+    expect "no marks file left in the old place" "$(ls $old_marks 2>/dev/null | wc -l | tr -d ' ')" 0
+fi
+expect "the mark shown by the new build" "$shown" 1
 
 section "stars to XMP for two files, the first one's sidecar not writable: the second still gets them"
 for v in new old; do
@@ -2115,7 +2151,7 @@ on_mount() {
     quit
     expect "$name: Rename Many with the sidecar" "$(ls $d | tr '\n' ' ')" \
         "n_1.jpg n_2.jpg n_2.jpg.xmp sub "
-    note "$name: $(grep -c . $XDG_STATE_HOME/glimt/marks 2>/dev/null) stars kept in marks"
+    note "$name: $(grep -c . $MARKS 2>/dev/null) stars kept in marks"
 }
 mkdir -p /tmp/rclone-back /tmp/rclone
 rclone mount --daemon /tmp/rclone-back /tmp/rclone 2>/dev/null
@@ -3223,7 +3259,7 @@ for v in new old; do
     mkdir -p $d/to $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt
     convert -size 300x200 xc:red $d/a.jpg
     printf '#GQview collection\n"%s/a.jpg"\n' $d >$XDG_DATA_HOME/glimt/collections/Mine.gqv
-    printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+    printf '0\t4\t%s/a.jpg\n' $d >$MARKS
     config theme=Light
     answer $d/to
     start $d
@@ -3231,7 +3267,7 @@ for v in new old; do
     menu File "Back Up Glimt's Data…"; sleep 3
     quit
     b=$(ls -d $d/to/glimt-backup-* 2>/dev/null | head -1)
-    got="$(cat "$b/config/config" 2>/dev/null | grep -c theme=Light) $(ls "$b/data/collections" 2>/dev/null) $(cut -f2 "$b/state/marks" 2>/dev/null)"
+    got="$(cat "$b/config/config" 2>/dev/null | grep -c theme=Light) $(ls "$b/data/collections" 2>/dev/null) $(cut -f2 "$b"/{data,state}/marks 2>/dev/null)"
     if [ $v = new ]; then expect "the settings, the collection and the stars in the backup" "$got" "1 Mine.gqv 4"
     else note "old: $got"; fi
 done
@@ -3991,7 +4027,7 @@ SQL
 mkdir -p $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt
 printf '#GQview collection\n"%s"\n' $d/photos/2024/a.jpg \
     >"$XDG_DATA_HOME/glimt/collections/Travel - Norway.gqv"
-printf '0\t2\t%s\n' $d/photos/2024/a.jpg >$XDG_STATE_HOME/glimt/marks
+printf '0\t2\t%s\n' $d/photos/2024/a.jpg >$MARKS
 config xmp_stars=true
 start $d/photos/2024
 sleep 2
@@ -4007,7 +4043,7 @@ coll="$XDG_DATA_HOME/glimt/collections/Travel - Norway.gqv"
 expect "the collection that was there gets the image it lacked, the other once" \
     "$(grep -c "^\"$d/photos/2024/[ab].jpg\"$" "$coll" 2>/dev/null)" 2
 expect "the keyword under its parent" "$(grep -cx 'Places|Oslo' $XDG_CONFIG_HOME/glimt/keywords)" 1
-stars=$(sort $XDG_STATE_HOME/glimt/marks | cut -f2 | tr '\n' ' ')
+stars=$(sort $MARKS | cut -f2 | tr '\n' ' ')
 expect "Glimt's stars kept, the new ones taken" "$stars" "2 3 "
 expect "the new stars in XMP too" "$(grep -c 'xmp:Rating="3"' $d/photos/2024/b.jpg.xmp)" 1
 expect "the image's keyword in its sidecar, with its place in the tree" \
@@ -4171,7 +4207,7 @@ for v in new old; do
     echo '<x:xmpmeta>old</x:xmpmeta>' >$d/a.jpg.xmp
     gio trash $d/a.jpg.xmp
     touch -d '1 hour ago' $H/.local/share/Trash/info/a.jpg.xmp.trashinfo
-    printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+    printf '0\t4\t%s/a.jpg\n' $d >$MARKS
     config confirm_trash=false
     start $d/a.jpg
     sleep 2
@@ -4187,7 +4223,7 @@ for v in new old; do
     key ctrl+z; sleep 1              # nothing left to undo: the old name stays
     shot undo-$v
     quit
-    stars=$(grep -c "^0	4	$d/a.jpg\$" $XDG_STATE_HOME/glimt/marks 2>/dev/null)
+    stars=$(grep -c "^0	4	$d/a.jpg\$" $MARKS 2>/dev/null)
     if [ $v = new ]; then
         expect "a.jpg in the trash (the control)" "$trashed" "b.jpg "
         expect "Ctrl+Z brings a.jpg back from the trash, not another file's old sidecar" "$back" "a.jpg b.jpg "
@@ -4741,14 +4777,14 @@ d=/tmp/cutshort-finish
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
 plan_in_jobs $XDG_STATE_HOME/glimt/jobs/crashed 0 $d/a.jpg $d/c.jpg    # a.jpg -> c.jpg, not started
-printf '1\t0\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+printf '1\t0\t%s/a.jpg\n' $d >$MARKS
 config
 start $d
 sleep 3
 shot cut-short-finish
 menu "Finish the renaming"; sleep 3
 quit
-got="$(ls -A $d | tr '\n' ' ')$(grep -c 'c\.jpg' $XDG_STATE_HOME/glimt/marks) $(grep -c 'a\.jpg' $XDG_STATE_HOME/glimt/marks)"
+got="$(ls -A $d | tr '\n' ' ')$(grep -c 'c\.jpg' $MARKS) $(grep -c 'a\.jpg' $MARKS)"
 expect "c.jpg there, its mark on c.jpg, none on a.jpg" "$got" "c.jpg 1 0"
 
 section "size and date columns with thumbnails: the list wide enough for the names"
@@ -5072,7 +5108,7 @@ else
             blue_photo 800x600 $d/a.jpg
             echo "sidecar of a" >$d/a.jpg.xmp
             star_line=$(printf '0\t4\t%s/a.jpg' $d)
-            echo "$star_line" >$XDG_STATE_HOME/glimt/marks
+            echo "$star_line" >$MARKS
             sums="$(cat $d/a.jpg $d/a.jpg.xmp | md5sum)"
             leave_free $(( $(stat -c %s $d/a.jpg) / 2 ))
             config
@@ -5082,7 +5118,7 @@ else
             until_notice full-$op-$v; told=$?
             quit
             got="$([ "$(cat $d/a.jpg $d/a.jpg.xmp | md5sum)" = "$sums" ] && echo kept)"
-            got="$got,$(ls -A $to | tr '\n' ' '),$(grep -cxF "$star_line" $XDG_STATE_HOME/glimt/marks)"
+            got="$got,$(ls -A $to | tr '\n' ' '),$(grep -cxF "$star_line" $MARKS)"
             got="$got,$([ $told = 0 ] && echo told)"
             if [ $v = new ]; then
                 expect "$op to a full disk: photo and sidecar kept, nothing left there, the stars kept, told" \
@@ -5279,7 +5315,7 @@ for v in new old; do
     head -c 10000000 /dev/urandom >$d/001.jpg
     for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
     for i in $(seq -w 1 200); do echo "sidecar $i" >$d/$i.jpg.xmp; done
-    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$XDG_STATE_HOME/glimt/marks
+    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
     config
     start $d
     sleep 2
@@ -5290,7 +5326,7 @@ for v in new old; do
     kill -9 $GPID; wait $GPID 2>/dev/null
     moved=$(ls $to | grep -c 'jpg$')
     start $to; sleep 2; quit         # a new start, which may put things right
-    got=$(python3 - $d $to $XDG_STATE_HOME/glimt/marks <<'PY'
+    got=$(python3 - $d $to $MARKS <<'PY'
 import os, sys
 d, to, marks = sys.argv[1:]
 stars = {}
@@ -5326,7 +5362,7 @@ PY
     d=/tmp/killed-rename-$v
     rm -rf $d $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
     convert -size 32x32 xc:blue /tmp/killed-base.jpg
-    python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+    python3 - $d $MARKS <<'PY'
 import sys
 d, marks = sys.argv[1:]
 base = open("/tmp/killed-base.jpg", "rb").read()
@@ -5360,7 +5396,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID
     sleep 1
     quit
     # Named: files NNNNN.jpg; renamed: NNNNN.jpg holds photo 10001 - NNNNN; starred: its stars on it.
-    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+    got=$(python3 - $d $MARKS <<'PY'
 import os, sys
 d, marks = sys.argv[1:]
 base = len(open("/tmp/killed-base.jpg", "rb").read())
@@ -5430,7 +5466,7 @@ STUB
         convert -size 32x32 xc:blue $d/0001.jpg
         for i in $(seq -w 2 1000); do ln $d/0001.jpg $d/$i.jpg; done
         for i in $(seq -w 1 1000); do echo "sidecar $i" >$d/$i.jpg.xmp; done
-        for i in $(seq -w 1 1000); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$XDG_STATE_HOME/glimt/marks
+        for i in $(seq -w 1 1000); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
         ls $d | grep 'jpg$' >/tmp/killed-names
         config confirm_trash=false confirm_delete=false
         locker=
@@ -5485,7 +5521,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID $how)
         # later photo has stars, and whether it has a sidecar. Bare: photos still there without
         # their stars or without their sidecar beside them (in the trash, or under a hidden name
         # of a delete for good).
-        got=$(python3 - $d $XDG_STATE_HOME/glimt/marks "$first" <<'PY'
+        got=$(python3 - $d $MARKS "$first" <<'PY'
 import os, sys
 d, marks, first = sys.argv[1:]
 stars = {}
@@ -5546,7 +5582,7 @@ for v in new old; do
     rm -rf $d $to; mkdir -p $d $to
     head -c 10000000 /dev/urandom >$d/001.jpg
     for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
-    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$XDG_STATE_HOME/glimt/marks
+    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
     config
     BIN=/opt/glimt-old start $d
     sleep 2
@@ -5561,7 +5597,7 @@ for v in new old; do
     }
     old_logs=$(move_logs)
     BIN=$second start $to; sleep 2; BIN=$second quit
-    got=$(python3 - $d $to $XDG_STATE_HOME/glimt/marks <<'PY'
+    got=$(python3 - $d $to $MARKS <<'PY'
 import os, sys
 d, to, marks = sys.argv[1:]
 stars = {}
@@ -5603,7 +5639,7 @@ for v in new old; do
     d=/tmp/old-plan-$v
     rm -rf $d; mkdir -p $d
     convert -size 32x32 xc:blue /tmp/old-plan-base.jpg
-    python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+    python3 - $d $MARKS <<'PY'
 import sys
 d, marks = sys.argv[1:]
 base = open("/tmp/old-plan-base.jpg", "rb").read()
@@ -5637,7 +5673,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID
     sleep 1
     BIN=$second quit
     # Named: files NNNN.jpg; renamed: NNNN.jpg holds photo 2001 - NNNN; starred: its stars on it.
-    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+    got=$(python3 - $d $MARKS <<'PY'
 import os, sys
 d, marks = sys.argv[1:]
 base = len(open("/tmp/old-plan-base.jpg", "rb").read())
@@ -5682,7 +5718,7 @@ stick() {
 }
 # The job logs in jobs/, not the folders beside them, and the marks with three stars.
 job_logs() { find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' '; }
-starred() { awk -F'\t' '$2 == 3' $XDG_STATE_HOME/glimt/marks | wc -l | tr -d ' '; }
+starred() { awk -F'\t' '$2 == 3' $MARKS | wc -l | tr -d ' '; }
 # hold_lock FILE: holds its flock from outside, as another window would, until the next kill.
 hold_lock() {
     rm -f /tmp/lock-held
@@ -5751,7 +5787,7 @@ PY
 # marks_for DIR: three stars for each photo of /tmp/stick-names in DIR. collection_of DIR FILE:
 # a collection of them.
 marks_for() {
-    while read n; do printf '0\t3\t%s/%s\n' $1 $n; done </tmp/stick-names >$XDG_STATE_HOME/glimt/marks
+    while read n; do printf '0\t3\t%s/%s\n' $1 $n; done </tmp/stick-names >$MARKS
 }
 collection_of() {
     { echo '#GQview collection'; while read n; do echo "\"$1/$n\""; done </tmp/stick-names; } >$2
@@ -5803,7 +5839,7 @@ else
     kill_and_take_out Move 100
     start /tmp/stick-elsewhere; sleep 3; quit
     expect "Move killed with $moved of 100 moved, the stick back: each photo with its stars and its collection entry, the log gone" \
-        "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $saved $d $to) $(job_logs)" \
+        "$(python3 /tmp/stick-check.py $MARKS $saved $d $to) $(job_logs)" \
         "100 100 100 0 0 0"
     expect "killed in the middle of the Move" "$([ $moved -gt 0 ] && [ $moved -lt 100 ] && echo yes)" yes
     rm -rf $d $to $saved
@@ -5844,7 +5880,7 @@ while time.time() < end:
         start /tmp/stick-elsewhere; sleep 3; quit
         there=$((1000 - gone))
         expect "$how killed with $gone of 1000 gone, the stick back: each photo there with its stars and collection entry, none left for one that went, the log gone" \
-            "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $shown $d) $(job_logs)" \
+            "$(python3 /tmp/stick-check.py $MARKS $shown $d) $(job_logs)" \
             "$there $there $there 0 0 0"
         expect "killed in the middle of the $how" "$([ $gone -gt 0 ] && [ $gone -lt 1000 ] && echo yes)" yes
         rm -rf $d $shown $trash
@@ -5900,7 +5936,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     note "Undo: logs left $LOGS_LEFT, starred $STARRED_LEFT"
     start /tmp/stick-elsewhere; sleep 3; quit
     expect "Undo from the trash killed with $back of 1000 back, the stick back: each photo back with its stars and collection entry, the log gone" \
-        "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $shown $d) $(job_logs)" \
+        "$(python3 /tmp/stick-check.py $MARKS $shown $d) $(job_logs)" \
         "$back $back $back 0 0 0"
     expect "killed in the middle of the Undo" "$([ $back -gt 0 ] && [ $back -lt 1000 ] && echo yes)" yes
     rm -rf $d $shown $trash
@@ -5934,7 +5970,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
         start /tmp/stick-elsewhere; sleep 3; quit
         if [ $how = rename ]; then
             expect "Rename Folder killed, the stick back: each photo with its stars and collection entry at the new name, the log gone" \
-                "$(python3 /tmp/stick-check.py $XDG_STATE_HOME/glimt/marks $saved /mnt/stick/Renamed) $(job_logs)" \
+                "$(python3 /tmp/stick-check.py $MARKS $saved /mnt/stick/Renamed) $(job_logs)" \
                 "20 20 20 0 0 0"
         else
             expect "Move Folder to Trash killed, the stick back: no marks left for its photos, the log gone" \
@@ -5948,7 +5984,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     d=/mnt/stick/many
     rm -rf $d $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
     convert -size 32x32 xc:blue /tmp/stick-base.jpg
-    python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+    python3 - $d $MARKS <<'PY'
 import sys
 d, marks = sys.argv[1:]
 base = open("/tmp/stick-base.jpg", "rb").read()
@@ -5973,14 +6009,14 @@ while time.time() < end:
     kill_and_take_out "Rename Many" 400
     # Its marks have stars of 1 to 5, three on 400 of them: all 2,000 are counted here.
     expect "Rename Many killed, started without the stick: every mark kept" \
-        "$(awk -F'\t' 'NF == 3' $XDG_STATE_HOME/glimt/marks | wc -l | tr -d ' ')" 2000
+        "$(awk -F'\t' 'NF == 3' $MARKS | wc -l | tr -d ' ')" 2000
     start $d
     sleep 3
     menu "Finish the renaming"
     until_ok "! ls -A $d | grep -q '^\.' && [ \$(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f | wc -l) = 0 ]" 60
     sleep 1
     quit
-    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+    got=$(python3 - $d $MARKS <<'PY'
 import os, sys
 d, marks = sys.argv[1:]
 base = len(open("/tmp/stick-base.jpg", "rb").read())
@@ -6104,9 +6140,9 @@ STUB
                 blue_photo 300x200 $d/$f
                 echo "sidecar of $f" >$d/$f.xmp
                 printf '0\t3\t%s/%s\n' $d $f
-            done >$XDG_STATE_HOME/glimt/marks
+            done >$MARKS
             sums=$(cd $d && for f in $names; do md5sum $f $f.xmp; done)
-            marks=$(sort $XDG_STATE_HOME/glimt/marks)
+            marks=$(sort $MARKS)
             config confirm_trash=false
             start $d
             # The disk full but for four blocks, one for each .trashinfo. Glimt trashes the three
@@ -6140,7 +6176,7 @@ STUB
             got="$(echo "$places" | grep -q lost && echo lost || echo "none lost")"
             got="$got,$(echo "$places" | grep -q ':here' && echo "$places" | grep -q ':trash' && echo partway)"
             got="$got,$([ "$whole" = "$sums" ] && echo whole),$([ $told = 0 ] && echo told)"
-            undone="$back,$([ "$(sort $XDG_STATE_HOME/glimt/marks)" = "$marks" ] && echo "stars kept")"
+            undone="$back,$([ "$(sort $MARKS)" = "$marks" ] && echo "stars kept")"
             if [ $v = new ]; then
                 if [ $fault = gio ]; then
                     expect "gio failed on stuck-b.jpg (the control)" "$(grep -c '/stuck-b\.jpg$' /tmp/gio-refused 2>/dev/null)" 1
@@ -6180,21 +6216,21 @@ import sys
 with open(sys.argv[1], 'w') as m:
     for i in range(10000):
         m.write(f'0\t2\t/tmp/elsewhere/{i:05d}.jpg\n')
-    m.write('0\t1\t$d/a.jpg\n')" $XDG_STATE_HOME/glimt/marks
-        sum=$(md5sum <$XDG_STATE_HOME/glimt/marks)
+    m.write('0\t1\t$d/a.jpg\n')" $MARKS
+        sum=$(md5sum <$MARKS)
         config
         start $d/a.jpg
         leave_free 0
         key alt+3
         until_notice own-marks-$v; told=$?
         sleep 1
-        kept=$([ "$(md5sum <$XDG_STATE_HOME/glimt/marks)" = "$sum" ] && echo kept)
+        kept=$([ "$(md5sum <$MARKS)" = "$sum" ] && echo kept)
         failed=$(grep -c "Could not save .*marks" /tmp/glimt.err)
         # The control: with room again, the next star is saved, and the other stars with it.
         rm -f $full/.fill
         key alt+4
-        until_ok "grep -q '^0	4	$d/a.jpg\$' $XDG_STATE_HOME/glimt/marks"
-        saved="$(grep -c "^0	4	$d/a.jpg\$" $XDG_STATE_HOME/glimt/marks) $(grep -c '^0	2	/tmp/elsewhere/' $XDG_STATE_HOME/glimt/marks)"
+        until_ok "grep -q '^0	4	$d/a.jpg\$' $MARKS"
+        saved="$(grep -c "^0	4	$d/a.jpg\$" $MARKS) $(grep -c '^0	2	/tmp/elsewhere/' $MARKS)"
         quit
         if [ $v = new ]; then
             expect "the marks file on a full disk: as it was, the failure told" \
@@ -6236,7 +6272,7 @@ with open(sys.argv[1], 'w') as m:
         for i in $(seq -w 1 20); do
             convert -size 64x64 xc:blue -set comment "photo $i" $d/$i.jpg
             printf '0\t%d\t%s/%s.jpg\n' $((10#$i % 5 + 1)) $d $i
-        done >$XDG_STATE_HOME/glimt/marks
+        done >$MARKS
         rm -f $d/a.jpg
         rm -rf $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/jobs
         config sort_ascending=false
@@ -6250,7 +6286,7 @@ with open(sys.argv[1], 'w') as m:
         quit
         rm -f $full/.fill
         # Each photo by its comment: its name now, and the stars the marks file gives that name.
-        got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+        got=$(python3 - $d $MARKS <<'PY'
 import os, subprocess, sys
 d, marks = sys.argv[1:]
 stars = {}
@@ -6303,7 +6339,7 @@ else
             rm -rf $d $to; mkdir -p $d $to
             blue_photo 800x600 $d/a.jpg
             echo "sidecar of a" >$d/a.jpg.xmp
-            printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+            printf '0\t4\t%s/a.jpg\n' $d >$MARKS
             photo=$(md5sum <$d/a.jpg) side=$(md5sum <$d/a.jpg.xmp)
             # Room for the photo's pages and not one more. The control: the photo alone fits,
             # and its sidecar then does not.
@@ -6326,7 +6362,7 @@ else
             # Each folder: P for the photo whole there, S for its sidecar whole there.
             at() { echo "$([ "$(md5sum <$1/a.jpg 2>/dev/null)" = "$photo" ] && echo P)$([ "$(md5sum <$1/a.jpg.xmp 2>/dev/null)" = "$side" ] && echo S)"; }
             from=$(at $d) there=$(at $to)
-            stars=$(for p in $d $to; do [ -e $p/a.jpg ] && grep -c "^0	4	$p/a.jpg\$" $XDG_STATE_HOME/glimt/marks; done | awk '{ s += $1 } END { print s + 0 }')
+            stars=$(for p in $d $to; do [ -e $p/a.jpg ] && grep -c "^0	4	$p/a.jpg\$" $MARKS; done | awk '{ s += $1 } END { print s + 0 }')
             hidden=$(ls -A $to | grep -c '^\.')
             # Together: in each folder the photo with its sidecar or neither; somewhere at all;
             # the stars on a photo there; no hidden part left.
@@ -6361,7 +6397,7 @@ else
         rm -rf $d $to; mkdir -p $d $to
         blue_photo 300x200 $d/a.jpg
         echo "sidecar of a" >$d/a.jpg.xmp
-        printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+        printf '0\t4\t%s/a.jpg\n' $d >$MARKS
         photo=$(md5sum <$d/a.jpg) side=$(md5sum <$d/a.jpg.xmp)
         chmod 555 $d
         control=$(touch $d/x 2>/dev/null || echo refused)
@@ -6377,7 +6413,7 @@ else
         reached=$(grep -c "$to/a.jpg: Permission denied" /tmp/glimt.err)
         at() { echo "$([ "$(md5sum <$1/a.jpg 2>/dev/null)" = "$photo" ] && echo P)$([ "$(md5sum <$1/a.jpg.xmp 2>/dev/null)" = "$side" ] && echo S)"; }
         from=$(at $d) there=$(at $to)
-        stars=$(grep -c "^0	4	$d/a.jpg\$" $XDG_STATE_HOME/glimt/marks)
+        stars=$(grep -c "^0	4	$d/a.jpg\$" $MARKS)
         hidden=$(ls -A $to | grep -c '^\.')
         key ctrl+z; sleep 3
         undone="source '$(at $d)', target '$(at $to)'"
@@ -6414,7 +6450,7 @@ else
             rm -rf $back $to; mkdir -p $back $to
             blue_photo 1600x1200 $back/bad-a.jpg
             echo "sidecar of a" >$back/bad-a.jpg.xmp
-            printf '0\t4\t%s/bad-a.jpg\n' $src >$XDG_STATE_HOME/glimt/marks
+            printf '0\t4\t%s/bad-a.jpg\n' $src >$MARKS
             sums=$(cd $back && md5sum bad-a.jpg bad-a.jpg.xmp)
             config
             start $src/bad-a.jpg
@@ -6438,7 +6474,7 @@ else
             quit
             eio=$(grep -c "^EIO-READ /eio-$op-$v/bad-a.jpg\$" /tmp/lossyfs.log)
             got="$([ "$(cd $back && md5sum bad-a.jpg bad-a.jpg.xmp)" = "$sums" ] && echo kept)"
-            got="$got,$(ls -A $to | tr '\n' ' '),$(grep -c "^0	4	$src/bad-a.jpg\$" $XDG_STATE_HOME/glimt/marks)"
+            got="$got,$(ls -A $to | tr '\n' ' '),$(grep -c "^0	4	$src/bad-a.jpg\$" $MARKS)"
             got="$got,$([ $told = 0 ] && echo told)"
             if [ $v = new ]; then
                 expect "$op: a read of the photo failed (the control)" "$([ $eio -gt 0 ] && echo EIO)" EIO
@@ -7092,7 +7128,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     for i in $(seq -w 1 3000); do
         printf '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:subject><rdf:Bag><rdf:li>Old</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>\n' >$d/$i.jpg.xmp
         printf '0\t2\t%s/%s.jpg\n' $d $i
-    done >$XDG_STATE_HOME/glimt/marks
+    done >$MARKS
     config xmp_stars=true
     start $d
     sleep 2
@@ -7103,7 +7139,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
     wait $GPID 2>/dev/null
     rated_after=$(grep -l Rating $d/*.xmp | wc -l)
     hidden=$(ls -A $d | grep -c '^\.')
-    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+    got=$(python3 - $d $MARKS <<'PY'
 import os, sys, xml.etree.ElementTree as ET
 d, marks = sys.argv[1:]
 whole = 0
@@ -7139,7 +7175,7 @@ PY
     for i in $(seq -w 1 3000); do
         printf '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:subject><rdf:Bag><rdf:li>Old</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>\n' >$d/photos/$i.jpg.xmp
         printf '0\t2\t%s/photos/%s.jpg\n' $d $i
-    done >$XDG_STATE_HOME/glimt/marks
+    done >$MARKS
     coll=$XDG_DATA_HOME/glimt/collections/Big.gqv
     printf '#GQview collection\n"%s"\n' /tmp/elsewhere/kept.jpg >$coll
     printf 'Mine\n' >$XDG_CONFIG_HOME/glimt/keywords
@@ -7180,7 +7216,7 @@ PY
     wait $GPID 2>/dev/null
     tagged=$(grep -l '>Tag<' $d/photos/*.xmp | wc -l)
     hidden=$(ls -A $d/photos $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt | grep -c '^\.glimt')
-    got=$(python3 - $d/photos $XDG_STATE_HOME/glimt/marks $coll <<'PY'
+    got=$(python3 - $d/photos $MARKS $coll <<'PY'
 import os, sys, xml.etree.ElementTree as ET
 d, marks, coll = sys.argv[1:]
 whole = 0
