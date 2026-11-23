@@ -470,12 +470,28 @@ pub(crate) struct Notice {
 }
 
 impl Notice {
-    /// Returns a notice that shows from the start every problem met while starting, `errors`,
-    /// as errors, and the other things the start tells, `notes`, under them, each as a message
-    /// of its own, so that none of them hides another.
-    pub(crate) fn new(errors: Vec<String>, notes: Vec<String>) -> Self {
-        let errors = errors.into_iter().map(|e| NoticeMessage::new(e, true));
-        let notes = notes.into_iter().map(|n| NoticeMessage::new(n, false));
+    /// Returns the notice the window starts with, each of its messages on its own: the
+    /// problems met while starting, `errors`, as errors, and under them that an old marks file
+    /// was left beside the new one, `old_marks_file_left`, and the first of the desktop files
+    /// no longer read, `old_files`, with where to see them all. Before, one message took the
+    /// place of the others. They are told at each start while they are there, because
+    /// remembering that they were told would need a new file or setting, which 1.x freezes.
+    pub(crate) fn told_at_start(
+        errors: [Option<String>; 3],
+        old_marks_file_left: Option<String>,
+        old_files: &[String],
+    ) -> Self {
+        let old_files = old_files.first().map(|first| {
+            let more = match old_files.len() - 1 {
+                0 => String::new(),
+                n => crate::tf!("; and {n} more (glimt --check-config)", n),
+            };
+            format!("{first}{more}")
+        });
+        let errors = errors.into_iter().flatten();
+        let errors = errors.map(|e| NoticeMessage::new(e, true));
+        let notes = old_marks_file_left.into_iter().chain(old_files);
+        let notes = notes.map(|n| NoticeMessage::new(n, false));
         let messages: Vec<NoticeMessage> = errors.chain(notes).collect();
         let mut notice = Notice::default();
         if !messages.is_empty() {
@@ -2426,13 +2442,39 @@ mod tests {
     /// given a number of its own, so a screen reader is not told an old number for a new text.
     #[test]
     fn a_notice_put_back_keeps_only_its_own_number() {
-        let mut notice = super::Notice::new(vec!["a".into()], Vec::new());
+        let mut notice = super::Notice::told_at_start([Some("a".into()), None, None], None, &[]);
         let kept = notice.set_aside();
         notice.put_back(kept.clone());
         assert_eq!(notice.set_aside(), kept);
         let b = vec![super::NoticeMessage::new("b".into(), false)];
         notice.put_back(Some((b.clone(), 99)));
         assert_eq!(notice.set_aside(), Some((b, 2)));
+    }
+
+    /// The notice at the start shows every error met while starting, and every other thing
+    /// the start tells under them, each as a message of its own. Before, a start error hid the
+    /// marks file left beside the new one, and that hid the old folders of tools.
+    #[test]
+    fn a_start_notice_shows_every_message() {
+        let errors = [
+            Some("Settings file: bad line".into()),
+            None,
+            Some("t.desktop".into()),
+        ];
+        let left = Some("The old marks file is left".to_owned());
+        let old = [
+            "plugins/ is no longer read".to_owned(),
+            "decoders/ too".to_owned(),
+        ];
+        let notice = super::Notice::told_at_start(errors, left, &old);
+        let kinds: Vec<bool> = notice.messages().iter().map(|m| m.is_error).collect();
+        assert_eq!(kinds, [true, true, false, false]);
+        let text = notice.text().unwrap_or_default();
+        assert!(text.ends_with("plugins/ is no longer read; and 1 more (glimt --check-config)"));
+        assert_eq!(
+            super::Notice::told_at_start([None, None, None], None, &[]).text(),
+            None
+        );
     }
 
     /// An error and a warning kept until drawn are shown as errors, also under an ordinary

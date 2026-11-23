@@ -512,18 +512,34 @@ fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
     if is_surely_gone(old) {
         return MarksMove::Done;
     }
-    // A new file that could not be looked at counts as there, so the old one is left alone.
-    if !is_surely_gone(new) {
-        return MarksMove::BothKept(crate::tf!(
-            "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one.",
-            old = old.display(),
-            new = new.display()
-        ));
+    if let Some(text) = old_file_left_beside(old, new) {
+        return MarksMove::BothKept(text);
     }
     match move_own_file(old, new) {
         Ok(()) => MarksMove::Done,
         Err(e) => failed(&e),
     }
+}
+
+/// Returns that the marks file of Glimt 0.95 and older is left beside the marks file in its
+/// place now, for `--check-config`, which moves nothing. Returns `None` when they are not both
+/// there.
+pub fn old_marks_file_left() -> Option<String> {
+    old_file_left_beside(&old_marks_file()?, &marks_file()?)
+}
+
+/// Returns the notice that the old marks file `old` is left as it is, because the new one `new`
+/// is there too, or `None` when either is gone. A file that could not be looked at counts as
+/// there, so that the old one is left alone.
+fn old_file_left_beside(old: &Path, new: &Path) -> Option<String> {
+    use crate::files::file_io::is_surely_gone;
+    (!is_surely_gone(old) && !is_surely_gone(new)).then(|| {
+        crate::tf!(
+            "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one.",
+            old = old.display(),
+            new = new.display()
+        )
+    })
 }
 
 /// Moves `old`, a file of Glimt's own that no window writes meanwhile, to `new`, which is not
@@ -1019,8 +1035,12 @@ mod tests {
             std::fs::read_to_string(&new).unwrap(),
             "2\t0\t/photos/b.jpg\n"
         );
+        // --check-config tells the same while both are there, and moves nothing.
+        assert_eq!(super::old_file_left_beside(&old, &new), Some(text));
+        assert!(old.exists() && new.exists());
         // Neither.
         std::fs::remove_file(&old).unwrap();
+        assert_eq!(super::old_file_left_beside(&old, &new), None);
         std::fs::remove_file(&new).unwrap();
         assert_eq!(move_marks_file(&old, &new), MarksMove::Done);
         assert!(!old.exists() && !new.exists());

@@ -289,6 +289,12 @@ fn check_config(file: Option<PathBuf>) -> ! {
     desktop_file_problems.extend(crate::features::tools::old_desktop_files());
     let (out, err, code) = config_report(config_check(&path, given), &desktop_file_problems);
     out.iter().for_each(|line| println!("{line}"));
+    // The marks file of Glimt 0.95 and older left beside the new one, which the window tells
+    // at its start too. It is no problem of the settings file, so it changes no exit code.
+    #[cfg(feature = "marks")]
+    if let Some(left) = crate::metadata::marks::old_marks_file_left() {
+        println!("{left}");
+    }
     err.iter().for_each(|line| eprintln!("{line}"));
     std::process::exit(code)
 }

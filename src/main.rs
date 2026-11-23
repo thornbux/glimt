@@ -281,9 +281,12 @@ impl App {
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx, read.keyword_tree, &awaited),
-            notice: start_notice(
-                (read.colour_error.or_else(|| config_notice(&read.problems)))
-                    .or(read.desktop_file_problem),
+            notice: crate::viewer::view::Notice::told_at_start(
+                [
+                    read.colour_error,
+                    config_notice(&read.problems),
+                    read.desktop_file_problem,
+                ],
                 read.old_marks_file_left,
                 &read.old_desktop_files,
             ),
@@ -536,31 +539,6 @@ fn config_notice(problems: &[String]) -> Option<String> {
         n => tf!("; and {n} more (glimt --check-config)", n),
     };
     Some(tf!("Settings file: {first}{more}", first, more))
-}
-
-/// Returns the notice the window starts with: the problem met while starting, `error`, when
-/// there is one, and otherwise that an old marks file was left beside the new one,
-/// `old_marks_file_left`, or the first of the desktop files no longer read, `old_files`, as an
-/// ordinary notice with where to see them all. It is told at each start while they are there,
-/// because remembering that it was told would need a new file or setting, which 1.x freezes.
-fn start_notice(
-    error: Option<String>,
-    old_marks_file_left: Option<String>,
-    old_files: &[String],
-) -> crate::viewer::view::Notice {
-    let mut notice = crate::viewer::view::Notice::new(error.iter().cloned().collect(), Vec::new());
-    if error.is_none()
-        && let Some(left) = old_marks_file_left
-    {
-        notice.give(left);
-    } else if let (None, Some(first)) = (error, old_files.first()) {
-        let more = match old_files.len() - 1 {
-            0 => String::new(),
-            n => tf!("; and {n} more (glimt --check-config)", n),
-        };
-        notice.give(format!("{first}{more}"));
-    }
-    notice
 }
 
 /// Returns what the window starts from of Glimt's own files, with the settings `config` and
