@@ -595,7 +595,10 @@ size and time) of each file, of which size and time are compared. A job cut shor
 a kill is put right at the next start: the start offers to put a Rename Many right, so that only
 a photo that is still the one planned is renamed, the marks, stars and collection entries of the
 files moved follow them, those of the files deleted are forgotten, and a sidecar put aside goes
-back beside a photo that is still there.
+back beside a photo that is still there. A log written again at a start names the log it was
+written from in its
+.B old\-log
+record, which is a log of this folder, not one of the old logs below.
 Only a name that is surely gone from a folder that is there counts as gone: a file at the name
 keeps its marks, and a name whose folder is not there, as on a stick not plugged in yet, keeps
 them too, and the log stays for a later start.

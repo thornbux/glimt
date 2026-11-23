@@ -31,7 +31,8 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 ];
 
 /// The kinds of record after the header, as `Record::kind` names them. They are pinned in
-/// src/frozen-1.0.txt.
+/// src/frozen-1.0.txt. "old-log" names the job log that this one was written from
+/// (`Record::OldLog`), a log of this format, not one of the old logs of Glimt 0.92 and older.
 #[cfg(test)]
 pub(crate) const RECORD_KINDS: [&str; 14] = [
     "folder", "shown", "step", "done", "tree", "trashed", "marks", "place", "aside", "kept",

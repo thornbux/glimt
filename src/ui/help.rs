@@ -346,7 +346,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          first. Combined, the list is in its own order.\n\n\
          The sort menu at the bottom left sorts by name, number, date, file creation date, \
          EXIF date original, EXIF date digitized, size or extension; the Types menu beside it \
-         chooses what the list shows: images, RAW files and videos.",
+         chooses what the list shows: images, RAW files and videos. The date is when the file \
+         was last changed, its modification time.",
     ),
     (
         "Keywords and comments",
@@ -701,7 +702,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          - Low decodes one image at a time and preloads one on each side\n\
          - Medium (the default) four and two\n\
          - High eight and five.\n\n\
-         Details shows them, and other values are Custom. On slow storage such as SMB or NFS \
+         Details shows them, and other values are Custom. One malloc arena among them is \
+         glibc's limit on its memory pools (M_ARENA_MAX); with another C library or allocator it \
+         does nothing, and the setting one_malloc_arena is ignored. On slow storage such as SMB or NFS \
          shares, Medium or High keep browsing quick, as the next images are read while you look; \
          Low waits for each file.\n\n\
          CPU use below it:\n\n\

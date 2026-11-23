@@ -358,6 +358,8 @@ config! {
     toolbar: bool = true,
     /// One malloc arena for all threads. It uses much less memory, and decoding is up to about
     /// 8 % slower. It is read only at startup, because glibc must be set before threads start.
+    /// It is glibc's M_ARENA_MAX, so with another C library or allocator it is ignored, as a
+    /// setting that goes out of use is, and the help says so.
     one_malloc_arena: bool = true,
     /// How many images are decoded at once, at most the number of cores. It is read at startup.
     decode_threads: usize = 4,
