@@ -26,21 +26,24 @@ and versions follow [Semantic Versioning](https://semver.org/).
   file with different marks (an old backup copied back), the new one is used, the old one is
   left as it is, and Glimt says so at each start and in `glimt --check-config`. A backup script
   of your own needs the new path.
-- Before 1.0 freezes them, names that misled are renamed. Each old name is no longer read, so
-  its setting goes back to its default once, and `glimt --check-config` names its line:
+- Before 1.0 freezes them, names that misled are renamed. Each old name is no longer read.
+  Unless a line below says otherwise, its setting goes back to its default once, and
+  `glimt --check-config` names its line:
   - the settings `exif_rotate`, `print_template` and `thumb_size` are now `auto_rotate`,
     `print_caption_template` and `thumbnail_size`;
   - the photo papers of `print_paper` are stored as `10x15cm` and `13x18cm` (the dialog still
     shows "10 × 15 cm" and "13 × 18 cm");
   - the languages Norwegian bokmål and nynorsk are stored as `nb` and `nn`. A stored `no_nb`
-    or `no_nn` now gives bokmål: nynorsk users choose Norsk nynorsk once more;
+    or `no_nn` now gives bokmål, and `glimt --check-config` does not name it: nynorsk users
+    choose Norsk nynorsk once more;
   - the actions `Icons` and `Pause` are now `IconGrid` and `PauseSlideshow`, in `keys=` and in
     `--remote run`; their menu labels and keys are unchanged;
   - the EXIF fields of the full screen info and the print caption are named as `--remote info`
     names them: `%file_size%`, `%taken%`, `%exposure%`, `%aperture%`, `%iso%`,
     `%focal_length%`, and `%camera%`, `%lens%`, `%exposure_bias%`, `%flash%` and `%gps%`,
     instead of the info panel's labels (`%Taken%`, `%Focal length%` …). The default full screen
-    info follows by itself; a template of your own needs its EXIF fields renamed.
+    info follows by itself. A template of your own is kept, but its old EXIF fields are left
+    empty, and Glimt does not tell this: rename them by hand.
 
 ### Removed
 
