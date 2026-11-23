@@ -4111,4 +4111,4 @@ msgstr "No se pudo mover el archivo de marcas {from} a {to}: {e}. Las marcas se 
 #: src/metadata/marks.rs
 #, fuzzy
 msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
-msgstr "El archivo de marcas de Glimt 0.95 o anterior se deja en {old}, porque {new} también existe. Se usan las marcas de {new}: une los dos a mano o elimina el antiguo."
+msgstr "El archivo de marcas de Glimt 0.95 o anterior se deja en {old}, porque {new} también existe. Se usan las marcas de {new}: una los dos a mano o elimine el antiguo."
