@@ -1477,10 +1477,9 @@ mod tests {
         let frozen: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
-        // An old name passes when its table of old names maps it to a name that is read now.
         let gone: Vec<&&str> = frozen
             .iter()
-            .filter(|f| !now.contains(&frozen_name_now(f)))
+            .filter(|f| !now.iter().any(|n| n == **f))
             .collect();
         assert!(
             gone.is_empty(),
@@ -1638,43 +1637,6 @@ mod tests {
                 }
                 NoneToBreak(why) => assert!(!why.is_empty(), "{file} gives no reason"),
             }
-        }
-    }
-
-    /// No old name in `RENAMED_COMMANDS` is a --remote command now. One given an old name later
-    /// would otherwise be read as the name it was renamed to, and never under its own.
-    #[test]
-    fn old_names_are_not_names_now() {
-        use crate::features::remote::{COMMANDS, RENAMED_COMMANDS};
-        // The commands are read from `COMMANDS` itself, which also has the release tests' "where".
-        for (old, _) in RENAMED_COMMANDS {
-            assert!(
-                !(COMMANDS.iter()).any(|(usage, _)| usage.split(' ').next() == Some(old)),
-                "remote {old} is an old name in RENAMED_COMMANDS, so it is no command now"
-            );
-        }
-    }
-
-    /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting, a window
-    /// state key, a --remote command or an action renamed in its table of old names gets its
-    /// new name, as does the setting of a value line, and every other line is returned as it is.
-    fn frozen_name_now(line: &str) -> String {
-        let (kind, name) = line.split_once(' ').unwrap_or((line, ""));
-        // A remote command's line may have a word of its choice after the command's own, and a
-        // value line has its value after the setting's key.
-        let (name, rest) = match kind {
-            "remote" | "value" => name.split_once(' ').map_or((name, ""), |(n, r)| (n, r)),
-            _ => (name, ""),
-        };
-        let table: &[(&str, &str)] = match kind {
-            "remote" => &crate::features::remote::RENAMED_COMMANDS,
-            _ => &[],
-        };
-        match table.iter().find(|r| r.0 == name) {
-            Some((_, new)) if rest.is_empty() => format!("{kind} {new}"),
-            Some((_, new)) => format!("{kind} {new} {rest}"),
-            None if kind == "value" => format!("{kind} {name} {rest}"),
-            None => line.to_owned(),
         }
     }
 

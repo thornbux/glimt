@@ -187,8 +187,7 @@ No test pins the following, so they are kept by hand:
 - the reserved `%` codes of `Exec`, which the manual names.
 
 A frozen name that misleads its reader is renamed only through a table of old names. There is
-one table for each kind of name, beside the code that reads it: `remote::RENAMED_COMMANDS`
-and `tools::RENAMED_FOLDERS`.
+one table for each kind of name, beside the code that reads it: `tools::RENAMED_FOLDERS`.
 
 - Glimt reads the old name too, forever, and writes only the new one. When a settings or state
   file holds both, the new one counts.

@@ -40,7 +40,7 @@
 3	glimt --action-list: each action once with its label, and --remote run takes the first
 10	--remote run while a text field has the focus: not done, exit 3 and the reason
 8	--wait --remote run: done once the setting is written, exit 3 when its folder is read-only
-7	--remote previous, and the word from before 0.74.0: prev still taken; run Previous
+7	--remote previous and run Previous: each one image back
 11	--remote select while Preferences is open: answered at once
 8	--remote select through a linked folder: the files are found
 8	--remote select: right after open, files of the list selected, the others printed

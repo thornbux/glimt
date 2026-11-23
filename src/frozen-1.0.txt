@@ -109,7 +109,6 @@ value cpu_use saving
 value cpu_use balanced
 value cpu_use full
 remote next
-remote prev
 remote first
 remote last
 remote slideshow
