@@ -1170,11 +1170,16 @@ impl crate::App {
                 "marks" => self.mark_text(self.list.shown()),
                 "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
                 "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
-                label => self
+                "file_size" => (self
                     .info_panel
-                    .exif_row(&path, label)
-                    .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
-                    .unwrap_or_default(),
+                    .exif_row(&path, crate::ui::info_panel::FILE_SIZE))
+                .unwrap_or_default()
+                .to_owned(),
+                field => (crate::metadata::exif::label_of_field(field))
+                    .and_then(|label| Some((label, self.info_panel.exif_row(&path, label)?)))
+                    .map(|(label, value)| crate::metadata::exif::shown_value(label, value))
+                    .unwrap_or_default()
+                    .to_owned(),
             },
         )
     }

@@ -705,7 +705,7 @@ fn caption_of_file(
             .or_else(|| crate::images::decode::dimensions(path))
             .map(|(w, h)| format!("{w} × {h}"))
             .unwrap_or_default(),
-        "File size" => std::fs::metadata(path)
+        "file_size" => std::fs::metadata(path)
             .map(|m| crate::support::format::human_size(m.len()))
             .unwrap_or_default(),
         "keywords" => meta
@@ -716,12 +716,13 @@ fn caption_of_file(
             .get_or_init(|| crate::metadata::xmp::read(path))
             .comment
             .clone(),
-        label => (exif
-            .get_or_init(|| crate::metadata::exif::read_and_all(path).0)
-            .iter())
-        .find(|r| r.0 == label)
-        .map(|r| r.1.clone())
-        .unwrap_or_default(),
+        field => (crate::metadata::exif::label_of_field(field))
+            .and_then(|label| {
+                let rows = exif.get_or_init(|| crate::metadata::exif::read_and_all(path).0);
+                rows.iter().find(|r| r.0 == label)
+            })
+            .map(|r| r.1.clone())
+            .unwrap_or_default(),
     });
     text.replace('\n', " · ")
 }
@@ -1219,7 +1220,7 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
                 .hint_text("%name%")
                 .desired_width(220.0),
         )
-        .on_hover_text(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"));
+        .on_hover_text(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"));
     });
     crate::ui::menus::checkbox(
         ui,
@@ -1425,7 +1426,7 @@ mod tests {
         image::RgbImage::new(30, 20).save(&file).unwrap();
         let name = file.file_name().unwrap().to_string_lossy().into_owned();
         let text = super::caption(
-            "%name% (%position%)|%dimensions%|ISO %ISO%",
+            "%name% (%position%)|%dimensions%|ISO %iso%",
             &file,
             2,
             9,

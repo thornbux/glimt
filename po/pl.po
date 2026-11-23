@@ -2385,8 +2385,8 @@ msgstr "Tekst pod każdym obrazem:"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
-msgstr "Jak informacje na pełnym ekranie: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
+msgstr "Jak informacje na pełnym ekranie: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
 #, fuzzy
@@ -3301,8 +3301,8 @@ msgstr "brak, sRGB"
 
 #: src/ui/preferences.rs
 #, fuzzy
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Pola: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% oraz każda etykieta panelu informacji pod angielską nazwą, np. %Camera% lub %ISO%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty."
+msgstr "Pola: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size% oraz pola EXIF %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% i %gps%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."
 
 #: src/ui/preferences.rs
 #, fuzzy

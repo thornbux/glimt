@@ -2075,7 +2075,7 @@ msgid "Text under each image:"
 msgstr ""
 
 #: src/features/print.rs
-msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
 msgstr ""
 
 #: src/features/print.rs
@@ -2655,7 +2655,7 @@ msgid "none, sRGB"
 msgstr ""
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty."
 msgstr ""
 
 #: src/ui/preferences.rs

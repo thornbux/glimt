@@ -111,8 +111,9 @@ release that drops its format, so that no user's file or mark is lost in the upg
   lines);
 - the `%field%` names of the templates (`field` lines). Each is checked to be filled, for a test
   image, in the templates it belongs to: the full screen info and the print caption (`name`,
-  `path`, `position`, `dimensions`, `marks`, `keywords`, `comment`, and the EXIF labels of the
-  default full screen info), the window title (`name`, `path`, `folder`, `app`) and the page
+  `path`, `position`, `dimensions`, `marks`, `keywords`, `comment`, `file_size`, and the field
+  of each EXIF row of the info panel, `exif::FIELDS`, whose labels are UI text that a field
+  does not follow), the window title (`name`, `path`, `folder`, `app`) and the page
   header and footer (`page`, `pages`). `%%` is a `%` in each of them;
 - the keys of a theme file (`theme_key`, from `Theme::file_from`, each read by
   `Theme::parse`);

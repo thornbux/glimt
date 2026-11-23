@@ -1062,7 +1062,7 @@ fn is_info(command: &str) -> bool {
 /// The answer of `--remote info` for the file at `path`, with its (mark bits, stars) in
 /// `marks`, or `None` when marks are not built in. Its form is frozen, as scripts read it:
 /// one `key<TAB>value` line for each of `INFO_KEYS` and then each EXIF row of
-/// `exif::LABELS`, always all of them in this order, and an empty value where the file has
+/// `exif::FIELDS`, always all of them in this order, and an empty value where the file has
 /// none. Each value is `escaped`, so it stays on its line and a script can undo it. The path
 /// is the file's bytes, also when they are not UTF-8, as `current` gives them. A path that is
 /// not a regular file has every value but its path empty.
@@ -1075,9 +1075,9 @@ fn info_record(path: &Path, marks: Option<(u8, u8)>) -> Vec<u8> {
         None => Default::default(),
     };
     let exif_value = |label: &str| exif_rows.iter().find(|r| r.0 == label).map(|r| r.1.clone());
-    let exif_lines = (crate::metadata::exif::LABELS.iter()).map(|label| {
+    let exif_lines = (crate::metadata::exif::FIELDS.iter()).map(|(field, label)| {
         let value = exif_value(label).unwrap_or_default();
-        (info_exif_key(label), escaped(value.as_bytes(), b""))
+        (info_exif_key(field), escaped(value.as_bytes(), b""))
     });
     let path = escaped(path.as_os_str().as_bytes(), b"");
     let lines = (INFO_KEYS.iter().map(|k| k.to_string()))
@@ -1142,10 +1142,10 @@ fn info_values(
     (values, exif_rows)
 }
 
-/// The key of `--remote info`'s line for the EXIF row `label`: "exif." and the label in lower
-/// case, with "_" for a space, such as "exif.focal_length".
-fn info_exif_key(label: &str) -> String {
-    format!("exif.{}", label.to_lowercase().replace(' ', "_"))
+/// The key of `--remote info`'s line for the EXIF row of the template field `field`
+/// (`exif::FIELDS`), "exif." and the field, such as "exif.focal_length".
+fn info_exif_key(field: &str) -> String {
+    format!("exif.{field}")
 }
 
 /// Returns `value` as `--remote info` writes it, so it stays one value on one line and a
@@ -4625,7 +4625,7 @@ mod tests {
         let record = super::info_record(&file, Some((0, 0)));
         let lines = info_lines(&String::from_utf8(record).unwrap());
         let keys: Vec<String> = (super::INFO_KEYS.iter().map(|k| k.to_string()))
-            .chain(crate::metadata::exif::LABELS.map(super::info_exif_key))
+            .chain(crate::metadata::exif::FIELDS.map(|f| super::info_exif_key(f.0)))
             .collect();
         assert_eq!(lines.iter().map(|l| l.0.clone()).collect::<Vec<_>>(), keys);
         let filled: Vec<(&str, &str)> = (lines.iter())

@@ -2374,8 +2374,8 @@ msgstr "Tekst onder elke afbeelding:"
 
 #: src/features/print.rs
 #, fuzzy
-msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
-msgstr "Zoals de afbeeldingsinfo in volledig scherm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
+msgstr "Zoals de afbeeldingsinfo in volledig scherm: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
 #, fuzzy
@@ -3290,8 +3290,8 @@ msgstr "geen, sRGB"
 
 #: src/ui/preferences.rs
 #, fuzzy
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Velden: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% en elk label van het infopaneel met de Engelse naam, zoals %Camera% of %ISO%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty."
+msgstr "Velden: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size% en de EXIF-velden %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% en %gps%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
 
 #: src/ui/preferences.rs
 #, fuzzy

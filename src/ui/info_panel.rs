@@ -27,6 +27,10 @@ use std::time::{Duration, Instant};
 /// the rows after this, so they are never taken for the shown image's own for long.
 const KEPT_WHILE_READING: Duration = Duration::from_millis(500);
 
+/// The label of the panel's row of the file's size, which the template field %file_size% fills
+/// from too.
+pub(crate) const FILE_SIZE: &str = "File size";
+
 /// A file's EXIF from the reader thread.
 pub(crate) struct ExifRead {
     path: PathBuf,
@@ -938,7 +942,7 @@ pub(crate) fn spawn_exif_reader(
             // A size that could not be looked at is left out, never shown as 0 bytes.
             let size = std::fs::metadata(&path).map(|m| m.len());
             let mut rows: Vec<_> = (size.ok().into_iter())
-                .map(|size| ("File size", human_size(size)))
+                .map(|size| (FILE_SIZE, human_size(size)))
                 .collect();
             let (mut all, mut meta, mut paths, mut alt_text) = Default::default();
             // Not opened unless it is a file: a pipe would block this thread for good. A decoder

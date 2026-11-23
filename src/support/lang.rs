@@ -834,13 +834,8 @@ msgstr[1] "bilder"
             ),
             (
                 "ui/info_panel.rs",
-                &["File size", "Colour profile"],
+                &["Colour profile"],
                 "keys, translated where shown",
-            ),
-            (
-                "features/print.rs",
-                &["File size"],
-                "the caption template's field, as in the panel",
             ),
             (
                 "viewer/pan.rs",

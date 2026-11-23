@@ -222,12 +222,6 @@ field folder
 field app
 field page
 field pages
-field File size
-field Taken
-field Exposure
-field Aperture
-field ISO
-field Focal length
 script About
 script AboveEachOther
 script Animate
@@ -531,3 +525,14 @@ value language nb
 value language nn
 script IconGrid
 script PauseSlideshow
+field file_size
+field camera
+field lens
+field taken
+field exposure
+field aperture
+field iso
+field focal_length
+field exposure_bias
+field flash
+field gps

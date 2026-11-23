@@ -384,8 +384,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          paper every page turns as the first one), portrait or landscape\n\
          - Margin: 0 to 50 mm.\n\n\
          Fill each box cuts each image to its box instead of fitting it in. The text under each \
-         image comes from a template, as the full screen info's: %name% by default, or %Taken%, \
-         %Camera%, %keywords%, %comment% and the other fields. Text at the top and bottom of each \
+         image comes from a template, as the full screen info's: %name% by default, or %taken%, \
+         %camera%, %keywords%, %comment% and the other fields. Text at the top and bottom of each \
          page may hold %page% and %pages%. In each of these templates %% is a %.\n\n\
          It goes to a printer through CUPS (lp), on both sides of the paper if the printer can, or \
          into a PDF file; in the Flatpak, the System print dialog choice hands it to the \
@@ -631,8 +631,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          stays, as the busy pointer, and also while a window or menu is open. Preferences → \
          Image turns this off.\n\n\
          In full screen, I shows or hides the name, place and EXIF over the image. Preferences → \
-         Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %Camera% \
-         and the other info panel labels, | between parts that are left out when empty, \\n for a \
+         Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %camera%, \
+         %taken% and the other fields that Preferences lists, | between parts that are left out when empty, \\n for a \
          new line, %% for a %.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
          %path%, %folder%, %app% and %id% (what glimt --name or --remote reaches it by), such as \

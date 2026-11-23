@@ -58,7 +58,7 @@ const IMAGE: &[&str] = &[
     "Auto rotate images using EXIF (Alt+X)",
     "Brightness",
     "Default",
-    "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty.",
+    "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts a part, left out when its fields are empty.",
     "Enlarge small images to fit the window",
     "Hide the pointer in full screen when the mouse is still",
     "Histogram (K):",
@@ -886,8 +886,9 @@ impl crate::App {
         }
         ui.weak(tr(
             "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, \
-             and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, \
-             left out when its fields are empty.",
+             %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, \
+             %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts \
+             a part, left out when its fields are empty.",
         ));
         if crate::ui::menus::button(ui, tr("Default")).clicked() {
             c.full_screen_info_template = FULL_SCREEN_INFO_TEMPLATE.to_owned();
