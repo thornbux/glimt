@@ -560,7 +560,7 @@ impl crate::App {
             self.thumbnail_size_setting(ui);
         });
         let icons = tr("Show the file list as icons (Ctrl+I)");
-        self.toggle_box(ui, self.config.icon_grid, Action::Icons, icons);
+        self.toggle_box(ui, self.config.icon_grid, Action::IconGrid, icons);
         let mut names = self.config.grid_names;
         if checkbox(ui, &mut names, tr("Show File Names Under Thumbnails")).changed() {
             self.set_grid_names(names);

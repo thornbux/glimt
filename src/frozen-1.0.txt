@@ -254,7 +254,6 @@ script HiddenFiles
 script HideFileList
 script Histogram
 script HistogramLog
-script Icons
 script InvertSelection
 script KeyboardMap
 script Last
@@ -275,7 +274,6 @@ script PaneLeft
 script PaneRight
 script PaneUp
 script PathBar
-script Pause
 script Preferences
 script Previous
 script PreviousPage
@@ -531,3 +529,5 @@ value print_paper 10x15cm
 value print_paper 13x18cm
 value language nb
 value language nn
+script IconGrid
+script PauseSlideshow

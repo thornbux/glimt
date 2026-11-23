@@ -42,7 +42,6 @@ action Histogram
 action HistogramLog
 key Home
 key I
-action Icons
 action InvertSelection
 key J
 key K
@@ -75,7 +74,6 @@ action PaneDown
 action PaneLeft
 action PaneRight
 action PaneUp
-action Pause
 key Plus
 action Preferences
 action Print
@@ -193,3 +191,5 @@ action AutoRotate
 action LeaveFullScreen
 action ParentFolder
 action HomeFolder
+action IconGrid
+action PauseSlideshow
