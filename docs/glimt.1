@@ -262,6 +262,13 @@ such a format is not loaded and such a tool gets no files. Give
 as a word of its own, and the script reads it as
 .BR \(dq$1\(dq :
 .BR "sh -c \(dqconvert \e\(dq$1\e\(dq ppm:-\(dq sh %f" .
+It also names the old folders
+.I plugins
+and
+.I decoders
+that still hold desktop files, which Glimt no longer reads, with the folder to move them to,
+and each added format whose header is still
+.BR "[Glimt Decoder]" .
 These do not change the exit code, which tells only about the settings file.
 .TP
 .BI "\-\-back\-up " FOLDER
@@ -313,9 +320,6 @@ computer, run the command there, for example
 .TP
 .BR next ", " previous ", " first ", " last
 Show the next, previous, first or last image.
-The old word
-.BR prev ,
-from before 0.74.0, is taken too.
 .TP
 .BR slideshow " [on|off]"
 Start or stop the slideshow; without the word, the other of the two.
@@ -575,8 +579,9 @@ What File \(-> Copy for Sharing left out the last time, one word on each line.
 .I $XDG_DATA_HOME/glimt/marks
 Marks and stars, in builds with the marks feature. Glimt 0.95 and older kept them in
 .IR $XDG_STATE_HOME/glimt/marks ;
-the first start of a later Glimt moves that file here. When both are there, the one here is
-used, the old one is left as it is, and the window says so.
+the first start of a later Glimt moves that file here and leaves a link to it in the old place,
+through which a Glimt 0.95 window still open writes the same file. When both are there with
+different marks, the one here is used, the old one is left as it is, and the window says so.
 .TP
 .IB file .xmp
 Keywords, comment, alt text and extended description, and (if chosen) stars of

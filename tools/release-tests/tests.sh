@@ -1890,10 +1890,20 @@ shown=$(remote info $d/a.png 2>/dev/null | awk -F '\t' '$1 == "marks" {print $2}
 quit
 expect "the last release set the mark" "$set_by_old" 1
 expect "the mark in the new place" "$(grep -c "a.png" $XDG_DATA_HOME/glimt/marks 2>/dev/null)" 1
-if [ "$old_marks" != $XDG_DATA_HOME/glimt/marks ]; then
-    expect "no marks file left in the old place" "$(ls $old_marks 2>/dev/null | wc -l | tr -d ' ')" 0
-fi
 expect "the mark shown by the new build" "$shown" 1
+if [ "$old_marks" != $XDG_DATA_HOME/glimt/marks ]; then
+    expect "a link to the new place left at the old one" "$(readlink $old_marks)" $XDG_DATA_HOME/glimt/marks
+    # The last release, as a window of it still open after the move, sets mark 2 through the
+    # link, so its marks land in the one file that the new build reads.
+    export V=old BIN=/opt/glimt-old
+    start $d
+    sleep 2
+    key 2; sleep 2                   # mark 2 on a.png, beside mark 1
+    quit
+    expect "the last release's mark after the move in the new place, the link kept" \
+        "$(awk -F '\t' '$3 ~ /a.png$/ {print $1}' $XDG_DATA_HOME/glimt/marks) $(readlink $old_marks)" \
+        "3 $XDG_DATA_HOME/glimt/marks"
+fi
 
 section "stars to XMP for two files, the first one's sidecar not writable: the second still gets them"
 for v in new old; do
@@ -5955,7 +5965,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
         [ $how = rename ] && { collection=$saved; collection_of $d $saved; }
         config confirm_trash=false
         start /mnt/stick
-        hold_lock $XDG_STATE_HOME/glimt/.marks.lock
+        hold_lock $(dirname $MARKS)/.marks.lock
         rclick Album; sleep 1
         if [ $how = rename ]; then
             menu "Rename Folder…"; key ctrl+a
@@ -5966,6 +5976,8 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
         until_ok "[ ! -e $d ]" 30
         sleep 1
         expect "folder $how: the folder went before the kill" "$([ ! -e $d ] && echo yes)" yes
+        # Its marks wait for the lock, so the job log is still there: the restart must follow.
+        expect "folder $how: its job log still there at the kill" "$(job_logs)" 1
         kill_and_take_out "folder $how" 20
         start /tmp/stick-elsewhere; sleep 3; quit
         if [ $how = rename ]; then
