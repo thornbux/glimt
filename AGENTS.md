@@ -464,8 +464,8 @@ arm becomes a method.
   `self.list` among them: each struct of the crate that a field of `App` holds, so a new part
   is checked without being listed.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
-  `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
-  `latest` or `wait`, which also tell, once, when the thread is gone. A pool's workers judge a
+  `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`
+  or `wait`, which also tell, once, when the thread is gone. A pool's workers judge a
   job by its file, never by its place in the list, which a listing moves while the jobs wait
   (`source_rules::worker_pools_judge_jobs_by_their_files`). An answer that the window
   must still act on (a report, a path looked up, a file saved) goes through a
@@ -477,7 +477,11 @@ arm becomes a method.
   refuses `Mutex::lock`), because a panic that `catch_panic` caught may have poisoned it. Do
   not hold a lock across a `catch_panic`, a channel send or a wait
   (`source_rules::locks_are_never_held_across_a_wait`). Two windows share only the files that
-  `file_io::edit_shared` writes, and the socket.
+  `file_io::edit_shared` writes, and the socket. A thread that nobody waits for, and every
+  worker pool, makes each look at or read of the user's files through the gate,
+  `listing::ReadsFirst` (`before_work_nobody_waits_for`), which on a share waits for the
+  images the window waits for, as a share such as gvfs serves one call at a time
+  (`source_rules::background_reads_on_a_share_go_through_the_gate`).
 - **A new way to show the list** (such as the grid in the image area, G) gets what every view
   of the list needs. The first grid missed these through five audit rounds:
   - its form from `file_list`'s parameters, never from the settings inside the functions that

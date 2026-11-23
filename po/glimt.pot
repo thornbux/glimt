@@ -1262,10 +1262,6 @@ msgstr ""
 msgid "Put the old names back"
 msgstr ""
 
-#: src/main.rs
-msgid "Random order is on: R turns it off to move images"
-msgstr ""
-
 #: src/model/collections.rs
 msgid "The search shows the images in another order: clear it to move them"
 msgstr ""

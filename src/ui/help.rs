@@ -245,9 +245,13 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          - P pauses\n\
          - R switches random order on and off\n\
          - Ctrl+= and Ctrl+- change the delay.\n\n\
-         Browsing during a slideshow gives the new image the full delay. With \"Include the images \
-         in subfolders\" in Preferences it shows those too; the list goes back to the folder when \
-         the slideshow stops.\n\n\
+         Browsing during a slideshow gives the new image the full delay. ← goes back through the \
+         images shown and → forward again, and past the newest one → shows the next image. Home \
+         starts over from the first image, and End shows the last one. The file list stays in \
+         its sort order, also in random order, and a stop keeps the image shown. With \"Include \
+         the images in subfolders\" in Preferences it shows those too, as they are read; the list \
+         goes back to the folder when the slideshow stops, unless the image shown is in a \
+         subfolder.\n\n\
          Each image fades into the next, in every pane of a layout. Preferences sets the fade to \
          Off, Short (the default) or Long, and CPU use Power saving turns it off. Browsing by hand \
          shows the image at once.",
@@ -258,7 +262,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          to the selection with Ctrl or Shift held (in a collection, start it between the images, \
          as dragging an image moves it).\n\n\
          - Ctrl+click toggles a file\n\
-         - Shift+click or Shift with the arrow keys, Page Up/Down, Home and End selects a range\n\
+         - Shift+click or Shift with the arrow keys, Page Up/Down, Home and End selects a range \
+         (outside a slideshow: in a slideshow the arrow keys, Home and End show another image \
+         and clear the selection, also with Shift, so Delete and the like act on the image shown)\n\
          - Ctrl+A selects all (the matches while searching)\n\
          - Ctrl+Shift+A none\n\
          - Ctrl+Shift+I inverts the selection.\n\n\
@@ -894,7 +900,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Browsing in a slideshow",
-        "The new image gets the full delay",
+        "The new image gets the full delay; ← and → go back and forth through the images shown; \
+         ←, →, Home and End clear the selection, also with Shift",
         "",
     ),
     (

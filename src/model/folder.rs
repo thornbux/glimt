@@ -8,8 +8,8 @@ use crate::files::external::{Login, gio_mount};
 use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
-    FoldersRead, ListedName, Types, Unread, is_listed, list_folder, list_tree, merge_shuffled,
-    shuffle, sort_files, walk,
+    FolderReadWhole, FoldersRead, ListedName, NameHashes, ReadWhole, Rows, SortKey, Types, Unread,
+    is_listed, list_folder, walk, walk_tree,
 };
 use crate::support::format::NOT_COUNTED_ON_A_SHARE;
 use crate::support::lang::tr;
@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
@@ -32,6 +33,13 @@ use std::time::{Duration, Instant};
 /// folders. A tree of 10,000 subfolders is looked through in ten seconds, at 1,000 stats a
 /// second, instead of 10,000 stats every second.
 const SUBFOLDERS_A_SECOND: usize = 1_000;
+
+/// How long the folder watcher's looks at a tree's subfolders on a share may take in each
+/// second, besides the open folders. A share such as gvfsd-smb serves its calls one at a time,
+/// so the watcher then holds at most a tenth of the share's time, and the image the window
+/// waits for has the rest. Before, it looked at up to 1,000 subfolders a second there, which
+/// filled the share's queue, and a slideshow's next image stood behind them for many seconds.
+const SHARE_LOOKS_A_SECOND: Duration = Duration::from_millis(100);
 
 /// How many times as long as the last listing took the window rests from it before a change
 /// that the watcher saw lists the folder again. A sync client that writes into a tree of
@@ -98,12 +106,19 @@ pub(crate) struct Folder {
     /// tree may take long.
     subdirs_rx: Receiving<Vec<PathBuf>>,
     /// The images of the tree found so far, as it is read, a folder of it at a time.
-    part_rx: Receiving<Vec<ListedName>>,
-    /// The next listing shows a tree's images as they are found (a folder opened).
+    part_rx: Receiving<TreePart>,
+    /// How long the window took to take the last part of the tree, in microseconds. The
+    /// listing thread waits for four times as long before it sends the next part.
+    part_taken_in: Arc<AtomicU64>,
+    /// The next listing is of a folder just opened or of its tree just asked for, which keeps
+    /// no order of the list before it (`listing::kept_order`).
     lists_tree_in_parts: bool,
-    /// What the list shown was read and sorted as: the folder, the order, ascending, case and
-    /// subfolders.
-    listed_as: Option<(PathBuf, listing::Sort, bool, bool, bool)>,
+    /// The listing that runs is of a tree, which sends its images in parts as they are found,
+    /// each of the images found since the part before that the list lacks. Every listing of a
+    /// tree does (`source_rules::every_listing_of_a_tree_sends_parts`).
+    listing_sends_parts: bool,
+    /// What the list shown was read and sorted as (`ListedAs`).
+    listed_as: Option<ListedAs>,
     /// The image the first part of a tree showed by itself. The whole list then goes to its
     /// first image instead.
     first_part_shown: Option<OsString>,
@@ -118,6 +133,20 @@ pub(crate) struct Folder {
     /// The watcher saw the folder change, and the folder is read again once the window has
     /// rested from the last listing (`relist_after_rest`).
     change_waits: bool,
+    /// The folders that the watcher saw change since the last listing began.
+    changes_seen: Vec<PathBuf>,
+    /// The folder is to be read whole when it is read again, as something other than the
+    /// watcher asked for it (`relist_later`).
+    relist_whole: bool,
+    /// The subfolder of the tree, relative to it, that the next listing reads again in place of
+    /// the whole tree, or empty for the whole tree (`App::relist_changes`).
+    next_listing_from: PathBuf,
+    /// The subfolder of the tree that the listing that runs reads again, or empty when it reads
+    /// the whole tree.
+    listing_from: PathBuf,
+    /// The folders that the watcher watches, as the last listings read them, so that a subfolder
+    /// read again replaces only its own folders in it.
+    watched: FoldersRead,
     /// Until when the window rests from the last listing before a change lists it again.
     rest_until: Instant,
     /// How many whole listings were taken since the start. Work that waits for the folder to be
@@ -126,9 +155,9 @@ pub(crate) struct Folder {
     /// The generation of the folder watcher, which each new watcher counts up. Opening another
     /// folder ends the old thread.
     watcher_generation: Arc<AtomicUsize>,
-    /// The watcher saw the folder change.
-    changed_tx: mpsc::Sender<()>,
-    changed_rx: mpsc::Receiver<()>,
+    /// The watcher saw these folders change.
+    changed_tx: mpsc::Sender<Vec<PathBuf>>,
+    changed_rx: mpsc::Receiver<Vec<PathBuf>>,
     /// File → Open Recent's folders and collections, those opened last, newest first.
     recent: Vec<PathBuf>,
     /// Go → Back / Forward's earlier locations. Each is the file shown, or the folder if it had
@@ -182,13 +211,20 @@ impl Folder {
             listing_version: 0,
             subdirs_rx: Receiving::none(),
             part_rx: Receiving::none(),
+            part_taken_in: Arc::default(),
             lists_tree_in_parts: false,
+            listing_sends_parts: false,
             listed_as: None,
             first_part_shown: None,
             list_is_a_part: false,
             listing_stop: Arc::default(),
             relist_when_done: false,
             change_waits: false,
+            changes_seen: Vec::new(),
+            relist_whole: false,
+            next_listing_from: PathBuf::new(),
+            listing_from: PathBuf::new(),
+            watched: Vec::new(),
             rest_until: Instant::now(),
             whole_listings: 0,
             watcher_generation: Arc::new(AtomicUsize::new(0)),
@@ -340,6 +376,49 @@ impl Folder {
         self.listing_rx.is_some() || self.looking_up.is_some()
     }
 
+    /// Forgets that Glimt showed the first image of a tree's first part by itself
+    /// (`first_part_shown`), because an image was shown since, by the user, the slideshow or a
+    /// new list, or the slideshow stopped. A whole list that comes later then keeps the image
+    /// shown. Before, a stop on that image while the tree was read had the whole list go to its
+    /// first image, minutes later on a share.
+    pub(crate) fn forget_image_shown_by_itself(&mut self) {
+        self.first_part_shown = None;
+    }
+
+    /// Returns whether `name`, a name of the list, is one of the own images of the folder
+    /// shown, or of the folders shown together, and not of a subfolder. A collection's images
+    /// are all its own. The names of several folders are their paths without the leading "/",
+    /// so a name of the folder itself is no name without "/" there.
+    pub(crate) fn holds_as_its_own(&self, name: &OsString) -> bool {
+        if self.collection.is_some() {
+            return true;
+        }
+        let parent = Path::new(name).parent().unwrap_or(Path::new(""));
+        match self.folders.is_empty() {
+            true => parent.as_os_str().is_empty(),
+            false => (self.folders.iter()).any(|d| d.strip_prefix("/").unwrap_or(d) == parent),
+        }
+    }
+
+    /// Whether a tree is being read in parts, whose images come after those listed so far: the
+    /// tree of a folder opened, or of a slideshow with its subfolders.
+    pub(crate) fn reads_tree_in_parts(&self) -> bool {
+        self.listing_rx.is_some() && self.listing_sends_parts
+    }
+
+    /// Waits up to five seconds for the next part of the tree being read, and takes its names.
+    /// The whole list stays in its channel.
+    #[cfg(test)]
+    pub(crate) fn wait_for_part(&mut self) -> Option<Vec<ListedName>> {
+        (0..250).find_map(|_| match self.part_rx.next() {
+            Took::Answer(part) => Some(part.rows.listed_names()),
+            _ => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                None
+            }
+        })
+    }
+
     /// Whether the place to open is still being looked up, so that the window still shows the
     /// list from before it.
     pub(crate) fn is_looking_up(&self) -> bool {
@@ -366,6 +445,7 @@ impl Folder {
     /// runs.
     pub(crate) fn relist_later(&mut self) {
         self.relist_when_done = true;
+        self.relist_whole = true;
     }
 
     /// Notes, when `changed`, that the watcher saw the folder change. A change has the folder
@@ -398,9 +478,39 @@ impl Folder {
         self.whole_listings
     }
 
-    /// Whether the folder watcher saw the folder change since this was last asked.
-    pub(crate) fn changed_on_disk(&self) -> bool {
-        self.changed_rx.try_iter().count() > 0
+    /// Whether the folder watcher saw the folder change since this was last asked. The folders
+    /// it saw change are kept for the next listing (`App::relist_changes`).
+    pub(crate) fn changed_on_disk(&mut self) -> bool {
+        let mut changed = false;
+        for folders in self.changed_rx.try_iter() {
+            self.changes_seen.extend(folders);
+            changed = true;
+        }
+        changed
+    }
+
+    /// Returns the subfolder of the tree, relative to it, that holds every change the watcher
+    /// saw since the last listing began, when reading it again is enough: the whole tree is
+    /// listed (`listed_whole_as` gives how), nothing else asked for it to be read whole, and
+    /// the open folder itself did not change. Returns `None` when the tree is read whole.
+    fn subfolder_changed(&self, listed_whole_as: &ListedAs) -> Option<PathBuf> {
+        let one_tree = self.collection.is_none() && self.folders.is_empty() && self.recursive;
+        let listed = self.listed_as.as_ref() == Some(listed_whole_as);
+        if self.relist_whole || self.changes_seen.is_empty() || !one_tree || !listed {
+            return None;
+        }
+        let below = |p: &PathBuf| {
+            let rel = p.strip_prefix(&self.dir).ok()?;
+            (!rel.as_os_str().is_empty()).then(|| rel.to_path_buf())
+        };
+        let changed: Vec<PathBuf> = self.changes_seen.iter().map(below).collect::<Option<_>>()?;
+        let mut common: Vec<std::path::Component> = changed[0].components().collect();
+        for rel in &changed[1..] {
+            let same = (common.iter().zip(rel.components())).take_while(|(a, b)| *a == b);
+            common.truncate(same.count());
+        }
+        let common: PathBuf = common.into_iter().collect();
+        (!common.as_os_str().is_empty()).then_some(common)
     }
 
     /// Opens `all` as folders shown together, after the frame.
@@ -442,11 +552,6 @@ impl Folder {
     /// it out.
     pub(crate) fn opened_type(&self) -> Types {
         self.opened_type
-    }
-
-    /// Whether the collection's next listing is sorted, and saved in that order.
-    pub(crate) fn sorts_collection(&self) -> bool {
-        self.sort_collection
     }
 
     /// Has the next listing sorted anew, because the sort order changed. A collection is then
@@ -518,12 +623,30 @@ impl Folder {
     }
 }
 
+/// What a list was read and sorted as: the folder, the types shown, the order, ascending, case
+/// and subfolders.
+pub(crate) type ListedAs = (PathBuf, Types, listing::Sort, bool, bool, bool);
+
+/// A part of a tree as a listing thread sends it.
+pub(crate) struct TreePart {
+    /// The images found since the part before that the list lacks, in the listing's order,
+    /// each with what it is sorted by in an order that looks at the files.
+    rows: Rows,
+    /// The folders read whole where the list may hold a name that is gone.
+    read: ReadWhole,
+    /// In the first part of a listing that began while the list was in another order than the
+    /// listing's, the list's rows as the listing began, put in the listing's order with what
+    /// each is sorted by in it (`PartsFrom`'s `to_sort_anew`). The list takes them before the
+    /// part goes in, so every part goes into a list of the listing's own order.
+    list_sorted_anew: Option<Rows>,
+}
+
 /// What a listing thread sends when it has read the folder.
 pub(crate) struct Listed {
     /// The subfolders of the folder listed.
     dirs: Vec<PathBuf>,
     /// The images, or an error with what could not be read when the listing failed.
-    files: Result<Vec<ListedName>, Unread>,
+    files: Result<ListedRows, Unread>,
     /// The parts that could not be read and are left out of `files`: folders of a tree or of
     /// several folders, and entries of a collection.
     left_out: Vec<Unread>,
@@ -531,6 +654,76 @@ pub(crate) struct Listed {
     read: FoldersRead,
     /// How long the reading took in the listing thread.
     read_in: Duration,
+}
+
+/// The images of a listing as its thread sends them.
+pub(crate) enum ListedRows {
+    /// The images in the listing's order, or in a collection's own.
+    Rows(Rows),
+    /// The names of the list as the listing began, in the list's order, with the identities
+    /// the listing gave them, when no name is new and the listing kept that order
+    /// (`listing::kept_order`). No file was looked at, so the window gives each name what it is
+    /// sorted by from its own rows (`Rows::in_step`).
+    InListOrder(Vec<ListedName>),
+    /// A subfolder of the tree was read again, and its parts brought the names new there. These
+    /// are every name the subfolder holds now, with the identities it was found with, which the
+    /// names that stayed take (`App::rows_with_subfolder_read_again`). The rest of the list
+    /// stays as it is.
+    InParts(Vec<ListedName>),
+}
+
+/// What a listing of a tree makes its parts from, as the window gives it to the listing thread
+/// when the listing starts (`App::parts_from`). The thread makes what it sends of the parts
+/// from it in one way (`PartsFrom::parts_sent`), and so do the tests that feed a listing, so
+/// the two cannot differ.
+struct PartsFrom {
+    /// The folder listed, or the one the paths of several folders are relative to.
+    dir: PathBuf,
+    /// The places listed, the folder or the several folders, which tell whether the looks at
+    /// the files wait for the reads on a share.
+    places: Vec<PathBuf>,
+    recursive: bool,
+    /// The listing's order, as (order, ascending, case), which its parts go into the list in.
+    order: (listing::Sort, bool, bool),
+    /// Set when another listing starts, which ends the looks' waits.
+    stop: Arc<AtomicBool>,
+    /// The images that the window waits for, which the looks on a share wait for.
+    awaited: crate::model::listing::ImagesAwaited,
+    /// The hashes of the names that the list held when the listing began, for a listing that
+    /// sends parts, which hold only the images new to the list, and none otherwise. Glimt's own
+    /// changes to the list's names start another listing, so the list holds no other name of
+    /// the tree until the whole list comes.
+    listed_before: NameHashes,
+    /// The list's names when the listing began, for a listing that sends parts while the list
+    /// is in another order than the listing's, and none otherwise. The thread puts them in the
+    /// listing's order, with a look at each file in an order that looks at the files, and
+    /// sends them with the first part, so that every part goes into a list of its own order.
+    to_sort_anew: Vec<ListedName>,
+}
+
+impl PartsFrom {
+    /// Returns what the listing sends of a tree's parts before it has sent any. Its looks at the
+    /// files wait for the reads that go first when one of the places listed is on a share.
+    fn parts_sent(&mut self) -> PartsSent {
+        let (by, ascending, case) = self.order;
+        let on_a_share = (self.places.iter()).any(|d| listing::is_on_a_share(d, self.recursive));
+        PartsSent {
+            reads_first: listing::ReadsFirst::new(
+                self.stop.clone(),
+                self.awaited.clone(),
+                on_a_share,
+            ),
+            last: None,
+            up_to: 0,
+            listed_before: std::mem::take(&mut self.listed_before).sorted(),
+            read_whole: ReadWhole::default(),
+            order: (self.dir.clone(), by, ascending, case),
+            keys: Vec::new(),
+            to_sort_anew: std::mem::take(&mut self.to_sort_anew),
+            list_sorted_anew: None,
+            keys_sorted_anew: Vec::new(),
+        }
+    }
 }
 
 /// What a listing thread reads with, and where it sends the list and then the sizes.
@@ -543,9 +736,18 @@ struct Listing {
     ascending: bool,
     case: bool,
     recursive: bool,
-    shuffled: bool,
+    /// The subfolder of the tree, relative to it, that is read again in place of the whole
+    /// tree, or empty for the whole tree.
+    from: PathBuf,
     /// Set when another listing starts, so this one stops reading a tree.
     stop: Arc<AtomicBool>,
+    /// The images that the window waits for, which the walk of a tree on a share waits for.
+    awaited: crate::model::listing::ImagesAwaited,
+    /// What the parts of a tree are made from.
+    parts: PartsFrom,
+    /// How long the window took to take the last part, in microseconds (`Folder`'s
+    /// `part_taken_in`).
+    part_taken_in: Arc<AtomicU64>,
     tx: mpsc::Sender<Listed>,
     size_tx: mpsc::Sender<u64>,
     /// When the thread started reading. The time it took is measured here, in the thread,
@@ -555,15 +757,55 @@ struct Listing {
 }
 
 impl Listing {
-    /// Lists several folders, each folder (with its subfolders) after the other. A folder that
-    /// cannot be read is left out, and sent with the list, so the others are still listed.
-    fn folders(self, folders: &[PathBuf]) {
+    /// Lists several folders, each folder (with its subfolders) after the other, as one list in
+    /// the sort order, which in the default order by name is the names' byte order across the
+    /// folders. A folder that cannot be read is left out, and sent with the list, so the others
+    /// are still listed.
+    /// With their subfolders, their images come in parts as they are found, as a tree's do, by
+    /// their names in the list: the folder's path without its leading "/" and the name below it.
+    fn folders(mut self, folders: &[PathBuf], part_tx: mpsc::SyncSender<TreePart>) {
         let (mut read, mut left_out) = (Vec::new(), Vec::new());
         let mut files: Vec<ListedName> = Vec::new();
+        let nested = (folders.iter()).any(|d| folders.iter().any(|o| o != d && d.starts_with(o)));
+        let mut sent = self.parts.parts_sent();
+        // The images found so far, by their names in the list, which the parts are made of.
+        let mut so_far: Vec<ListedName> = Vec::new();
+        // A folder inside another one given is read twice, and its second read is no part.
+        let mut folders_read: HashSet<PathBuf> = HashSet::new();
         for d in folders {
+            let at = d.strip_prefix("/").unwrap_or(d).to_path_buf();
+            let mut part = |read: &FolderReadWhole| {
+                let folder = at.join(read.folder);
+                if !folders_read.insert(folder.clone()) {
+                    return;
+                }
+                let first = so_far.len();
+                let images = read.so_far[read.first..].iter();
+                so_far.extend(images.map(|(n, id)| (at.join(n).into_os_string(), *id)));
+                let read = FolderReadWhole {
+                    so_far: &so_far,
+                    first,
+                    folder: &folder,
+                    dirs: read.dirs,
+                    types: read.types,
+                };
+                self.send_part(&read, &mut sent, &part_tx);
+            };
+            // The images of a tree are those of its parts, in the order they were found, as
+            // what the parts looked at is kept by that order.
             let listed = match self.recursive {
-                true => list_tree(d, self.types, &self.stop, |_| {}, |_| {})
-                    .map(|(_, files, tree, unread)| (files, tree, unread)),
+                true => {
+                    let whole = (d.as_path(), Path::new(""));
+                    walk_tree(
+                        whole,
+                        self.types,
+                        &self.stop,
+                        &self.awaited,
+                        |_| {},
+                        &mut part,
+                    )
+                }
+                .map(|(_, _, tree, unread)| (Vec::new(), tree, unread)),
                 false => {
                     let tree = vec![(d.clone(), modified(d))];
                     (list_folder(d, self.types).map(|(_, files)| (files, tree, Vec::new())))
@@ -586,19 +828,30 @@ impl Listing {
                 }
             }
         }
+        let mut known = Vec::new();
+        if self.recursive {
+            files = so_far;
+            known = sent.take_keys();
+        }
         // A folder inside another one given has its images listed once.
-        let mut seen = HashSet::new();
-        files.retain(|f| seen.insert(f.0.clone()));
-        sort_files(&self.dir, &mut files, self.by, self.ascending, self.case);
-        if self.shuffled {
-            shuffle(&mut files);
+        if nested || !self.recursive {
+            let mut seen = HashSet::new();
+            let known_too = known.into_iter().chain(std::iter::repeat_with(|| None));
+            let kept = (files.into_iter().zip(known_too)).filter(|(f, _)| seen.insert(f.0.clone()));
+            (files, known) = kept.unzip();
         }
         forget_passing_identities(&self.dir, &mut files);
+        // The whole list is in the order its parts go in by (`listing::in_order`): byte order of
+        // the names for the default order, by name with Case, and the sort order otherwise. So
+        // the rows never move when the whole list comes after the parts. Before, each folder's
+        // images came in name order one folder after the other, in the order the folders were
+        // given, while the parts went in by byte order across them.
+        let rows = sent.sorted(files, known);
         // The sizes come after, as for a folder, so the list shows first.
-        let paths: Vec<PathBuf> = files.iter().map(|f| self.dir.join(&f.0)).collect();
+        let paths: Vec<PathBuf> = rows.files().iter().map(|f| self.dir.join(f)).collect();
         let listed = Listed {
             dirs: Vec::new(),
-            files: Ok(files),
+            files: Ok(ListedRows::Rows(rows)),
             left_out,
             read,
             read_in: self.started.elapsed(),
@@ -667,22 +920,19 @@ impl Listing {
             // A `.m3u` or downloaded list named music, documents and dot files.
             (meta.is_file() && is_listed(&path, self.types)).then_some(meta.len())
         });
-        if sort {
-            // Sorted by name with Case on, sort_files keeps the order as listed. For a folder
-            // that is name order, but a collection has its own, so it is put in name order here.
-            if self.by == listing::Sort::Name && self.case {
-                files.sort_unstable();
-            }
-            sort_files(&self.dir, &mut files, self.by, self.ascending, self.case);
-        }
-        // A random slideshow with its subfolders is read from the file, in its order.
-        if self.shuffled {
-            shuffle(&mut files);
-        }
         forget_passing_identities(&self.dir, &mut files);
+        // Sorted, each row carries what it is sorted by in an order that looks at the files, as
+        // a folder's rows do, and otherwise the collection keeps its own order.
+        let (by, dir) = (self.by, &self.dir);
+        let rows = match sort {
+            true => Rows::sorted(files, (by, self.ascending, self.case), |_, name| {
+                listing::sort_key(dir, name, by)
+            }),
+            false => Rows::unsorted(files),
+        };
         let listed = Listed {
             dirs: Vec::new(),
-            files: Ok(files),
+            files: Ok(ListedRows::Rows(rows)),
             left_out,
             read: Vec::new(),
             read_in: self.started.elapsed(),
@@ -693,51 +943,102 @@ impl Listing {
         }
     }
 
-    /// Lists a folder, or its tree. `before` is the list in EXIF date order, which is kept if no
-    /// name is new. `parts` sends a tree's images as they are read.
+    /// Notes the folder of the tree just read whole, `read`, and sends the window a part of
+    /// the tree read so far, unless the part before was sent too short a time ago, as `sent`
+    /// holds.
+    fn send_part(
+        &self,
+        read: &FolderReadWhole,
+        sent: &mut PartsSent,
+        part_tx: &mpsc::SyncSender<TreePart>,
+    ) {
+        sent.listed_before.note_folder(read, &mut sent.read_whole);
+        if sent.last.is_some_and(|(t, wait)| t.elapsed() < wait) {
+            return;
+        }
+        let began = Instant::now();
+        let Some(part) = sent.next_part(read.so_far) else {
+            return;
+        };
+        // When the channel is full, the part before is not taken yet, so this one is left out,
+        // and its new images and the folders it read go with the next one. What was looked at
+        // of its images stays, so they are not looked at again.
+        match part_tx.try_send(part) {
+            Ok(()) => {
+                sent.part_sent(read.so_far.len());
+                self.ctx.request_repaint();
+            }
+            Err(mpsc::TrySendError::Full(part) | mpsc::TrySendError::Disconnected(part)) => {
+                sent.read_whole = part.read;
+                sent.list_sorted_anew = part.list_sorted_anew;
+            }
+        }
+        let in_window = self.part_taken_in.load(Ordering::Relaxed);
+        let wait = next_part_after(began.elapsed(), Duration::from_micros(in_window));
+        sent.last = Some((Instant::now(), wait));
+    }
+
+    /// Sends what the walk of the subfolder `from` found, `files`, as the last part, and then
+    /// the listing as done with the folders it `read` and those `left_out`, and with every name
+    /// of the subfolder and the identity it was found with. The list takes the parts in, which
+    /// replace the subfolder's names with what it holds now, and keeps the rest of the tree as
+    /// it is.
+    fn send_subfolder_read_again(
+        &self,
+        mut files: Vec<ListedName>,
+        (read, left_out): (FoldersRead, Vec<Unread>),
+        mut sent: PartsSent,
+        part_tx: &mpsc::SyncSender<TreePart>,
+    ) {
+        // The last part is sent whatever the time since the part before, and the listing waits
+        // until the window has room for it, so that the list takes it before the listing ends.
+        if let Some(part) = sent.next_part(&files) {
+            if part_tx.send(part).is_err() {
+                return;
+            }
+            self.ctx.request_repaint();
+        }
+        forget_passing_identities(&self.dir, &mut files);
+        let listed = Listed {
+            dirs: Vec::new(),
+            files: Ok(ListedRows::InParts(files)),
+            left_out,
+            read,
+            read_in: self.started.elapsed(),
+        };
+        if self.tx.send(listed).is_ok() {
+            self.ctx.request_repaint();
+        }
+    }
+
+    /// Lists a folder, or its tree, whose images it sends as they are read. `before` is the
+    /// list in EXIF date order, which is kept if no name is new.
     fn folder(
-        self,
+        mut self,
         before: Option<Vec<OsString>>,
-        parts: bool,
-        part_tx: mpsc::SyncSender<Vec<ListedName>>,
+        part_tx: mpsc::SyncSender<TreePart>,
         subdirs_tx: mpsc::Sender<Vec<PathBuf>>,
     ) {
         // The folder is read once, also with the folders below it. Its own subfolders show at
         // once, because a large tree takes long to read whole.
-        // Its images come too, a folder of the tree at a time, in name order. (The sort asked
-        // for comes with the whole tree.) The first images are sent at once, and after them at
-        // most four times a second, because each part is a copy of the list.
-        let mut sent: Option<(Instant, std::time::Duration)> = None;
+        // Its images come too, a folder of the tree at a time, each part in the order the list
+        // is in. The first images are sent at once, and after them at most four times a second,
+        // because the window merges each part into the whole list.
+        let mut sent = self.parts.parts_sent();
+        // The images of a tree come in the order the walk found them, which is the order that
+        // what the parts looked at is kept by, for the sort of the whole list.
         let listed = match self.recursive {
-            true => list_tree(
-                &self.dir,
+            true => walk_tree(
+                (&self.dir, &self.from),
                 self.types,
                 &self.stop,
+                &self.awaited,
                 |dirs| {
                     if subdirs_tx.send(dirs.to_vec()).is_ok() {
                         self.ctx.request_repaint();
                     }
                 },
-                |so_far| {
-                    // The next part comes after four times as long as this one took, and at
-                    // least a quarter second, so copying a long list does not slow the reading
-                    // down.
-                    let soon = sent.is_some_and(|(t, wait)| t.elapsed() < wait);
-                    if !parts || self.shuffled || soon {
-                        return;
-                    }
-                    let began = Instant::now();
-                    let mut part = so_far.to_vec();
-                    part.sort_unstable();
-                    forget_passing_identities(&self.dir, &mut part);
-                    // When the channel is full, the part before is not taken yet, so this one is
-                    // left out.
-                    if part_tx.try_send(part).is_ok() {
-                        self.ctx.request_repaint();
-                    }
-                    let wait = (began.elapsed() * 4).max(std::time::Duration::from_millis(250));
-                    sent = Some((Instant::now(), wait));
-                },
+                |read| self.send_part(read, &mut sent, &part_tx),
             ),
             false => {
                 // The time is taken before the folder is read, so a change made while it is
@@ -752,25 +1053,34 @@ impl Listing {
         if self.stop.load(Ordering::Relaxed) {
             return;
         }
-        let (dirs, mut files, read, left_out) = match listed {
+        let (dirs, files, read, left_out) = match listed {
             Ok(listed) => listed,
             Err(unread) => {
                 let read = vec![(self.dir.clone(), modified(&self.dir))];
                 return self.send_unread(unread, read);
             }
         };
-        match before.and_then(|before| listing::kept_order(before, &files)) {
-            Some(kept) => files = kept,
-            None => sort_files(&self.dir, &mut files, self.by, self.ascending, self.case),
+        if !self.from.as_os_str().is_empty() {
+            return self.send_subfolder_read_again(files, (read, left_out), sent, &part_tx);
         }
-        if self.shuffled {
-            shuffle(&mut files);
-        }
-        forget_passing_identities(&self.dir, &mut files);
+        // In an order that looks at the files, each image that a part looked at is not looked
+        // at again, so each is looked at once in the walk.
+        let rows = match before.and_then(|before| listing::kept_order(before, &files)) {
+            Some(mut kept) => {
+                forget_passing_identities(&self.dir, &mut kept);
+                ListedRows::InListOrder(kept)
+            }
+            None => {
+                let mut files = files;
+                forget_passing_identities(&self.dir, &mut files);
+                let known = sent.take_keys();
+                ListedRows::Rows(sent.sorted(files, known))
+            }
+        };
         // The receiver is gone if another folder was opened meanwhile; then we stop.
         let listed = Listed {
             dirs,
-            files: Ok(files),
+            files: Ok(rows),
             left_out,
             read,
             read_in: self.started.elapsed(),
@@ -802,6 +1112,126 @@ impl Listing {
         // Through a link, the size of the file it points to, as the list shows that.
         let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
         send_sizes_unless_on_a_share(&places, false, sizes, self.size_tx, &self.ctx);
+    }
+}
+
+/// What a listing thread sent of a tree's parts.
+struct PartsSent {
+    /// When it sent the last part, and how long it waits after it before the next.
+    last: Option<(Instant, Duration)>,
+    /// How many of the images found so far the parts sent have held.
+    up_to: usize,
+    /// The hashes of the names that the list held when the listing began, sorted, which a part
+    /// of new names only leaves out (`Listing`'s `listed_before`).
+    listed_before: NameHashes,
+    /// The folders read whole since the last part sent where the list may hold a name that
+    /// is gone, which the next part carries.
+    read_whole: ReadWhole,
+    /// The folder listed, and the listing's order, which the parts go into the list in: (order,
+    /// ascending, case).
+    order: (PathBuf, listing::Sort, bool, bool),
+    /// In an order that looks at the files, what each image found so far is sorted by, at its
+    /// place among them, once a part has looked at it. A part that could not be sent keeps
+    /// what it looked at here, and the whole list is sorted by it, so each image is looked at
+    /// once in the walk. The thread keeps no names of the list beside it: a copy of them with
+    /// their keys held 56 to 64 MB at 500,000 names.
+    keys: Vec<Option<SortKey>>,
+    /// The list's names to put in the listing's order with the first part, when the list was
+    /// in another order (`PartsFrom`'s `to_sort_anew`), until the first part puts them in it.
+    to_sort_anew: Vec<ListedName>,
+    /// The list's rows put in the listing's order, until a part that holds them is sent.
+    list_sorted_anew: Option<Rows>,
+    /// What the list's names put in the listing's order are sorted by, by the hashes of the
+    /// names (`listing::name_hash`), sorted, for the sort of the whole list, so that each of
+    /// them is looked at once in the walk. A hash that two names share is left out, and both
+    /// names are looked at again.
+    keys_sorted_anew: Vec<(u64, SortKey)>,
+    /// The reads on a share that each look at a file waits for, the parts' looks, the list's
+    /// rows put in another order and the sort of the whole list alike. Before, a part looked at
+    /// the new images of every folder since the part before, 600 to 900 EXIF reads in a row,
+    /// after one wait before the folder, and the image awaited queued behind them (#256).
+    reads_first: listing::ReadsFirst,
+}
+
+impl PartsSent {
+    /// Returns the next part of the tree read so far, `so_far`: the images found since the
+    /// part before that the list did not hold, in the listing's order, with the folders read
+    /// whole since the part before where a name may be gone, and in an order that looks at the
+    /// files what each image is sorted by. The first part also brings the list's rows put in the
+    /// listing's order, when the list was in another. Each image is looked at once, also when
+    /// a part that held it could not be sent. Returns `None` when it would hold nothing.
+    fn next_part(&mut self, so_far: &[ListedName]) -> Option<TreePart> {
+        // A part holds only the images found since the part before. A copy of the whole tree
+        // so far cost the window a look at every name of it for each part, about half a second
+        // at 500,000 names.
+        let before = &self.listed_before;
+        let new: Vec<usize> = (self.up_to..so_far.len())
+            .filter(|&i| before.is_empty() || !before.holds(&so_far[i].0))
+            .collect();
+        let nothing_anew = self.to_sort_anew.is_empty() && self.list_sorted_anew.is_none();
+        if new.is_empty() && self.read_whole.is_empty() && nothing_anew {
+            self.up_to = so_far.len();
+            return None;
+        }
+        let (dir, by, ascending, case) = self.order.clone();
+        let order = (by, ascending, case);
+        if by.looks_at_files() {
+            self.keys.resize(so_far.len(), None);
+        }
+        // Each look waits for the reads that go first (`ReadsFirst`).
+        let reads_first = &mut self.reads_first;
+        let mut look = |name: &OsString| reads_first.sort_key(&dir, name, by);
+        // The list's own rows are put in the listing's order once, before the walk's parts go
+        // into them.
+        if !self.to_sort_anew.is_empty() {
+            let names = std::mem::take(&mut self.to_sort_anew);
+            let rows = Rows::sorted(names, order, |_, name| look(name));
+            self.keys_sorted_anew = keys_by_name_hash(&rows);
+            self.list_sorted_anew = Some(rows);
+        }
+        let keys = &mut self.keys;
+        let mut part: Vec<ListedName> = new.iter().map(|&i| so_far[i].clone()).collect();
+        forget_passing_identities(&dir, &mut part);
+        let rows = Rows::sorted(part, order, |j, name| {
+            (keys[new[j]].get_or_insert_with(|| look(name))).clone()
+        });
+        Some(TreePart {
+            rows,
+            read: std::mem::take(&mut self.read_whole),
+            list_sorted_anew: self.list_sorted_anew.take(),
+        })
+    }
+
+    /// Notes that the part made of the first `so_far` images found was sent, so the next one
+    /// holds only the images found after them.
+    fn part_sent(&mut self, so_far: usize) {
+        self.up_to = so_far;
+    }
+
+    /// Takes what the parts looked at of each image found so far, by its place among them, for
+    /// the sort of the whole list.
+    fn take_keys(&mut self) -> Vec<Option<SortKey>> {
+        std::mem::take(&mut self.keys)
+    }
+
+    /// Returns `files`, the images of the whole list, as rows in the listing's order. Each image
+    /// is sorted by what `known` holds at its place (what a part looked at), or else by what it
+    /// was sorted by when the list's names were put in the listing's order, and the others are
+    /// looked at now, each look after the wait for the reads that go first (`ReadsFirst`). So
+    /// each image is looked at once in the walk.
+    fn sorted(&mut self, files: Vec<ListedName>, mut known: Vec<Option<SortKey>>) -> Rows {
+        let (dir, by, ascending, case) = self.order.clone();
+        let anew = std::mem::take(&mut self.keys_sorted_anew);
+        let sorted_anew = |name: &OsString| {
+            let hash = listing::name_hash(name.as_encoded_bytes());
+            let at = anew.binary_search_by_key(&hash, |k| k.0).ok()?;
+            Some(anew[at].1.clone())
+        };
+        Rows::sorted(files, (by, ascending, case), |i, name| {
+            (known.get_mut(i).and_then(Option::take))
+                .or_else(|| sorted_anew(name))
+                .unwrap_or_else(|| self.reads_first.sort_key(&dir, name, by))
+        })
     }
 }
 
@@ -1156,11 +1586,10 @@ impl crate::App {
         self.folder.subdirs.clear();
         self.folder.told_left_out.clear();
         self.file_operations.forget_deleting();
-        self.slideshow.unshuffle();
-        // A sort or a whole shuffle asked of the old list's listing is not asked of the new
-        // one. A sort carried over would put another collection in order and rewrite its file.
+        self.slideshow.forget_names();
+        // A sort asked of the old list's listing is not asked of the new one. A sort carried
+        // over would put another collection in order and rewrite its file.
         self.folder.sort_collection = false;
-        self.slideshow.take_whole_shuffle();
         self.thumbs.forget_all();
         self.status_bar.forget_sizes_and_dates_asked();
         self.search.forget_exif_index();
@@ -1321,7 +1750,10 @@ impl crate::App {
         let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.shown_types());
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case_sensitive);
-        let (recursive, shuffled) = (self.folder.recursive, self.slideshow.shuffles_whole());
+        let recursive = self.folder.recursive;
+        // A subfolder read again, which only `relist_changes` asks for.
+        let from = std::mem::take(&mut self.folder.next_listing_from);
+        self.folder.listing_from = from.clone();
         let collection = self
             .folder
             .collection
@@ -1344,14 +1776,18 @@ impl crate::App {
             by,
             listing::Sort::ExifOriginal | listing::Sort::ExifDigitized
         );
-        let same = Some((self.folder.dir.clone(), by, ascending, case, recursive));
-        let before = (exif
-            && !self.folder.lists_tree_in_parts
-            && !self.slideshow.is_shuffled()
-            && collection.is_none())
-        .then_some(())
-        .filter(|_| folders.is_empty() && self.folder.listed_as == same)
-        .map(|_| self.list.files().to_vec());
+        let same = Some((
+            self.folder.dir.clone(),
+            types,
+            by,
+            ascending,
+            case,
+            recursive,
+        ));
+        let before = (exif && !self.folder.lists_tree_in_parts && collection.is_none())
+            .then_some(())
+            .filter(|_| folders.is_empty() && self.folder.listed_as == same)
+            .map(|_| self.list.files().to_vec());
         // The listing before stops, if it is still reading a tree.
         self.folder.listing_stop.store(true, Ordering::Relaxed);
         self.folder.listing_stop = Arc::default();
@@ -1363,12 +1799,20 @@ impl crate::App {
         // pile up.
         let (part_tx, part_rx) = mpsc::sync_channel(1);
         self.folder.part_rx = Receiving::of(part_rx);
-        // Parts are sent only for a folder opened, or when its tree is asked for. A folder read
-        // again (a refresh) keeps its whole list on screen until the new one is read, instead of
-        // shrinking and growing. They are not sent in random order either, because a list in
-        // name order would take the shuffled one's place.
-        let parts =
-            std::mem::take(&mut self.folder.lists_tree_in_parts) && !self.slideshow.is_shuffled();
+        self.folder.part_taken_in = Arc::default();
+        // Every listing of a tree sends parts, of one folder or of several, whatever started
+        // it: a folder opened, the slideshow, which plays the images as they are found, a
+        // refresh, the watcher, a rename, a change of the Types or of the order. Each part holds
+        // only the images new to the list, and the names gone from the folders it read, so a
+        // list read again does not shrink and grow. The parts go into the list in the listing's
+        // order (`take_listing`). After another order is chosen, the first part brings the
+        // list's own rows put in the new order in the listing's thread (`PartsFrom`), so the
+        // list is in the new order from the first part on and grows in it. Before, a listing
+        // after another order was chosen and one of several folders sent no parts, and the list
+        // stood still until the whole tree was read, which on a share is minutes.
+        self.folder.lists_tree_in_parts = false;
+        self.folder.listing_sends_parts = recursive && collection.is_none();
+        let parts = self.parts_from((by, ascending, case), stop.clone());
         self.folder.first_part_shown = None;
         self.folder.list_is_a_part = false;
         let listing = Listing {
@@ -1378,8 +1822,11 @@ impl crate::App {
             ascending,
             case,
             recursive,
-            shuffled,
+            from: from.clone(),
             stop,
+            awaited: self.decoding.images_awaited().clone(),
+            parts,
+            part_taken_in: self.folder.part_taken_in.clone(),
             tx,
             size_tx,
             ctx: ctx2,
@@ -1388,19 +1835,103 @@ impl crate::App {
         // Its busy pointer: `is_listing`, while `listing_rx` waits for this answer.
         std::thread::spawn(move || {
             if !folders.is_empty() {
-                listing.folders(&folders);
+                listing.folders(&folders, part_tx);
             } else if let Some(files) = collection {
                 listing.collection(files, saved, sort);
             } else {
-                listing.folder(before, parts, part_tx, subdirs_tx);
+                listing.folder(before, part_tx, subdirs_tx);
             }
         });
         self.folder.listing_rx = Receiving::of(rx);
         self.folder.listing_version = self.list.version();
-        self.status_bar.sum_folder(size_rx);
+        // A subfolder read again leaves the folder's size as it is.
+        if from.as_os_str().is_empty() {
+            self.status_bar.sum_folder(size_rx);
+        }
         self.folder.relist_when_done = false;
         // This listing reads every change seen before it.
         self.folder.change_waits = false;
+        self.folder.changes_seen.clear();
+        self.folder.relist_whole = false;
+    }
+
+    /// Reads the folder again after the folder watcher saw it change: only the subfolder of the
+    /// tree that holds every change seen (`Folder::subfolder_changed`), when that is enough,
+    /// and the whole folder or tree otherwise. A change in the open folder itself, or one the
+    /// watcher cannot place below it, reads the whole tree. Before, a change in any one
+    /// subfolder read the whole tree again, which on a share takes minutes.
+    pub(crate) fn relist_changes(&mut self, ctx: &egui::Context) {
+        let listed_whole_as = self.tree_listed_as();
+        self.folder.next_listing_from = (self.folder)
+            .subfolder_changed(&listed_whole_as)
+            .unwrap_or_default();
+        self.start_listing(ctx);
+    }
+
+    /// Returns what a whole listing of the open folder's tree is read and sorted as now
+    /// (`ListedAs`), with the types shown and the order chosen.
+    pub(crate) fn tree_listed_as(&self) -> ListedAs {
+        let c = &self.config;
+        let (dir, types) = (self.folder.dir.clone(), self.shown_types());
+        (
+            dir,
+            types,
+            c.sort,
+            c.sort_ascending,
+            c.sort_case_sensitive,
+            true,
+        )
+    }
+
+    /// Returns whether the list is the whole tree of the open folder as `tree_listed_as` gives
+    /// it now, read whole by a listing that is done, and nothing asked for it to be read whole
+    /// again. A slideshow of the subfolders then plays it without reading the tree again. A
+    /// change that the watcher saw is read afterwards as it is otherwise (`relist_changes`).
+    pub(crate) fn lists_the_tree_whole(&self) -> bool {
+        let f = &self.folder;
+        let listed = f.listed_as == Some(self.tree_listed_as());
+        f.recursive && !f.is_listing() && !f.relist_whole && listed
+    }
+
+    /// Returns what the parts of the listing that starts, in `order`, are made from, with its
+    /// stop flag `stop`. A listing that sends parts gets the hashes of the list's names, which
+    /// its parts leave out, and when the list is in another order than `order`, the list's
+    /// names to put in it in the listing's thread: a list made in another way than by a
+    /// listing (the one image opened while its folder is read, or a slideshow of the
+    /// subfolders started before the folder was read), or one listed in another order before
+    /// another was chosen. Before, the parts of such a list went in by the order before, or by
+    /// keys the list lacked or had of another order, and landed in the wrong places.
+    fn parts_from(&self, order: (listing::Sort, bool, bool), stop: Arc<AtomicBool>) -> PartsFrom {
+        let sends_parts = self.folder.listing_sends_parts;
+        // shortcut: the list's names hashed in the UI thread, about 10 ms and 4 MB for 500,000
+        // names, once for each listing of a tree that sends parts; share the names with the
+        // thread (an Arc in List) if folders grow far past that.
+        let listed_before = match sends_parts {
+            true => NameHashes::of(self.list.files()),
+            false => NameHashes::default(),
+        };
+        // shortcut: the list's names copied in the UI thread, about 10 ms for 500,000 names,
+        // once for a listing of a tree after another order was chosen; share them with the
+        // thread (an Arc in List) if folders grow far past that.
+        let in_another_order = self.list.rows().order() != Some(order);
+        let to_sort_anew = match sends_parts && in_another_order {
+            true => self.list.listed_names(),
+            false => Vec::new(),
+        };
+        let places = match self.folder.folders.is_empty() {
+            true => vec![self.folder.dir.clone()],
+            false => self.folder.folders.clone(),
+        };
+        PartsFrom {
+            dir: self.folder.dir.clone(),
+            places,
+            recursive: self.folder.recursive,
+            order,
+            stop,
+            awaited: self.decoding.images_awaited().clone(),
+            listed_before,
+            to_sort_anew,
+        }
     }
 
     /// Polls the folder's modification time once a second in the background (one `stat`, no
@@ -1424,14 +1955,20 @@ impl crate::App {
     /// Watches the folders `read` in a thread of its own in place of the watcher before, from
     /// the times they had when they were read, or from their times now when `times_unknown`.
     /// Every second the open folders (or the collection's file) are looked at, and of a tree's
-    /// subfolders the next `SUBFOLDERS_A_SECOND`. One change sends one message, which reads the
-    /// folder again.
+    /// subfolders the next `SUBFOLDERS_A_SECOND`, or on a share as many as fit in
+    /// `SHARE_LOOKS_A_SECOND`, each through the gate (`listing::ReadsFirst`). The folders that
+    /// changed in a second go in one message. A change in subfolders of a tree reads only the
+    /// subfolder that holds them again (`relist_changes`), and that listing waits for the
+    /// images awaited as every walk does. The folders read are kept (`Folder`'s `watched`).
     fn watch_folders_read(
         &mut self,
         ctx: &egui::Context,
         mut read: FoldersRead,
         times_unknown: bool,
     ) {
+        if !times_unknown {
+            self.folder.watched = read.clone();
+        }
         let generation = self
             .folder
             .watcher_generation
@@ -1445,10 +1982,11 @@ impl crate::App {
         let mut places = self.folder.places();
         places.extend(self.folder.collection.clone());
         let with_subfolders = self.folder.walks_subfolders();
-        let (watcher_generation, tx, ctx) = (
+        let (watcher_generation, tx, ctx, awaited) = (
             self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
             ctx.clone(),
+            self.decoding.images_awaited().clone(),
         );
         // No busy pointer: it follows the folder's changes, and nobody waits for it.
         std::thread::spawn(move || {
@@ -1457,6 +1995,7 @@ impl crate::App {
                     .for_each(|(path, time)| *time = modified(path));
             }
             let on_a_share = is_any_on_a_share(&places, with_subfolders);
+            let mut gate = listing::ReadsFirst::new(Arc::default(), awaited, on_a_share);
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
@@ -1469,15 +2008,17 @@ impl crate::App {
                 if on_a_share && listing::a_program_is_starting() {
                     continue;
                 }
-                let mut changed = false;
-                for i in folders_this_second(open, read.len(), next) {
-                    let now = modified(&read[i].0);
-                    changed |= now != read[i].1;
-                    read[i].1 = now;
-                }
-                next = (next + SUBFOLDERS_A_SECOND) % (read.len() - open).max(1);
-                if changed && watcher_generation.load(Ordering::Relaxed) == generation {
-                    let _ = tx.send(());
+                let is_wanted = || watcher_generation.load(Ordering::Relaxed) == generation;
+                let (changed, looked) = look_this_second(
+                    &mut read,
+                    (open, next),
+                    on_a_share,
+                    (&mut gate, &is_wanted),
+                    modified,
+                );
+                next = (next + looked) % (read.len() - open).max(1);
+                if !changed.is_empty() && watcher_generation.load(Ordering::Relaxed) == generation {
+                    let _ = tx.send(changed);
                     ctx.request_repaint();
                 }
             }
@@ -1501,10 +2042,17 @@ impl crate::App {
         if let Took::Answer(dirs) = self.folder.subdirs_rx.take() {
             self.folder.subdirs = dirs;
         }
-        // Of the tree's images so far, only the last part that came is used, one list a frame
-        // at most.
-        if let Took::Answer(part) = self.folder.part_rx.latest() {
-            self.take_listed_files(ctx, part, false);
+        // Every part that came is taken, each of the images found since the part before.
+        let began = Instant::now();
+        let mut took_parts = false;
+        while let Took::Answer(part) = self.folder.part_rx.next() {
+            let anew = part.list_sorted_anew;
+            self.take_listing(ctx, part.rows, false, (&part.read, anew));
+            took_parts = true;
+        }
+        if took_parts {
+            let took = u64::try_from(began.elapsed().as_micros()).unwrap_or(u64::MAX);
+            self.folder.part_taken_in.store(took, Ordering::Relaxed);
         }
         let listed = match self.folder.listing_rx.wait(wait) {
             Took::Answer(listed) => listed,
@@ -1527,10 +2075,10 @@ impl crate::App {
         self.folder.subdirs_rx.clear();
         self.folder.part_rx.clear();
         let Listed {
-            dirs,
+            mut dirs,
             files,
             left_out,
-            read,
+            mut read,
             read_in,
         } = listed;
         // A folder that could not be read is told, and the list shown stays with its selection.
@@ -1540,17 +2088,27 @@ impl crate::App {
         // their selection, and the rest is listed anew. Holding the whole listing for it froze
         // the list for good while the part stayed unreadable (a folder locked after its files
         // were shown).
-        let files = match files {
-            Ok(files) => self.with_shown_files_of_parts(files, &left_out),
-            Err((path, e)) => {
-                self.notice
-                    .give(tf!("Could not open {name}:\n{e}", name = path.display(), e));
-                if !read.is_empty() {
-                    self.watch_folders_read(ctx, read, false);
-                }
-                return;
+        // A whole list that kept the list's order takes what each name is sorted by from the
+        // list's own rows. A name of it that left the list after the listing began (a delete or
+        // a move) has none there, and then the list stays as it is and the folder is read
+        // again, as a delete reads it again anyway. Before, the list took such a whole list
+        // without its keys.
+        let rows = match files {
+            Ok(ListedRows::Rows(rows)) => Some(self.with_shown_files_of_parts(rows, &left_out)),
+            Ok(ListedRows::InListOrder(kept)) => self.list.rows().in_step(kept),
+            // A subfolder read again ends as a whole one does (`rows_with_subfolder_read_again`).
+            Ok(ListedRows::InParts(names)) => {
+                (dirs, read) = self.folders_with_subfolder_read_again(read);
+                self.rows_with_subfolder_read_again(names)
             }
+            // A subfolder that could not be read again has the whole tree read.
+            Err(_) if !self.folder.listing_from.as_os_str().is_empty() => {
+                self.folder.listing_from = PathBuf::new();
+                return self.folder.relist_later();
+            }
+            Err(unread) => return self.listing_failed(ctx, unread, read),
         };
+        self.folder.listing_from = PathBuf::new();
         self.folder.whole_listings += 1;
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
@@ -1564,41 +2122,85 @@ impl crate::App {
             self.watch_folders_read(ctx, read, false);
         }
         let listed_from = Instant::now();
-        self.take_listed_files(ctx, files, true);
+        match rows {
+            Some(rows) => self.take_listing(ctx, rows, true, (&ReadWhole::default(), None)),
+            None => self.folder.relist_later(),
+        }
         // The time taken counts the list made from it in this thread too.
         let took = read_in + listed_from.elapsed();
         self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
         self.list.set_unchecked_entries(false);
         self.settle_sidecar_writes_waiting_for_the_list(ctx);
+        let types = self.shown_types();
         let c = &self.config;
-        self.folder.listed_as = (self.folder.collection.is_none()
-            && self.folder.folders.is_empty()
-            && !self.slideshow.is_shuffled())
-        .then(|| {
-            (
-                self.folder.dir.clone(),
-                c.sort,
-                c.sort_ascending,
-                c.sort_case_sensitive,
-                self.folder.recursive,
-            )
-        });
+        self.folder.listed_as =
+            (self.folder.collection.is_none() && self.folder.folders.is_empty()).then(|| {
+                (
+                    self.folder.dir.clone(),
+                    types,
+                    c.sort,
+                    c.sort_ascending,
+                    c.sort_case_sensitive,
+                    self.folder.recursive,
+                )
+            });
         self.tell_left_out(left_out);
+    }
+
+    /// Returns the list's rows, whose parts brought the names new in the subfolder read again,
+    /// with the identities that its listing found, `names`, given to the names that stayed. The
+    /// other names keep theirs. This is the whole list of the tree as it is now, each row with
+    /// what it is sorted by (`Rows::in_step`), which gives `None` only for names out of step.
+    /// A subfolder read again then ends as a whole listing does, so that what the last step of
+    /// a whole listing does is done for it too: a name that another file has taken keeps
+    /// nothing of the file it held, the sizes and dates are read again, the preload is refilled
+    /// and the list is noted as listed whole. Before, its end kept the identities of the names
+    /// that stayed, and the decodes of a file saved over under its own name were dropped as
+    /// another file's until F5.
+    fn rows_with_subfolder_read_again(&self, names: Vec<ListedName>) -> Option<Rows> {
+        let found: HashMap<OsString, crate::files::file_io::Identity> = names.into_iter().collect();
+        let mut rows = self.list.rows().listed_names();
+        for (name, identity) in &mut rows {
+            if let Some(&now) = found.get(name) {
+                *identity = now;
+            }
+        }
+        self.list.rows().in_step(rows)
+    }
+
+    /// Returns the open folder's own folders, which a subfolder read again leaves as they are,
+    /// and the folders watched with those of the subfolder `listing_from` replaced by the
+    /// folders that its listing `read`.
+    fn folders_with_subfolder_read_again(&self, read: FoldersRead) -> (Vec<PathBuf>, FoldersRead) {
+        let from = self.folder.dir.join(&self.folder.listing_from);
+        let mut watched = self.folder.watched.clone();
+        watched.retain(|(path, _)| !path.starts_with(&from));
+        watched.extend(read);
+        (self.folder.subdirs.clone(), watched)
+    }
+
+    /// Tells that the folder could not be read, `unread`, and keeps the list shown, with the
+    /// folders `read` watched, so that a change lists it again.
+    fn listing_failed(&mut self, ctx: &egui::Context, unread: Unread, read: FoldersRead) {
+        let (path, e) = unread;
+        self.notice
+            .give(tf!("Could not open {name}:\n{e}", name = path.display(), e));
+        if !read.is_empty() {
+            self.watch_folders_read(ctx, read, false);
+        }
     }
 
     /// Adds to a listing's `files` the files of the list shown that lie in a part `left_out`
     /// of the listing: in a folder left out, or an entry of a collection left out. Each one
     /// goes after the file it followed in the list shown, and keeps its identity, so an action
-    /// on it still checks that it is the file listed. Returns `files` as they are when the
-    /// list shows none of them, or holds only a collection's entries that no listing has
-    /// checked yet.
-    fn with_shown_files_of_parts(
-        &self,
-        files: Vec<ListedName>,
-        left_out: &[Unread],
-    ) -> Vec<ListedName> {
+    /// on it still checks that it is the file listed. In an order that looks at the files, each
+    /// one has the key of the file it follows (`Rows::with_rows_put_in`), so the keys stay in
+    /// their order for the parts of the next listing. Returns `rows` as they are when the list
+    /// shows none of them, or holds only a collection's entries that no listing has checked
+    /// yet.
+    fn with_shown_files_of_parts(&self, rows: Rows, left_out: &[Unread]) -> Rows {
         if left_out.is_empty() || self.list.has_unchecked_entries() {
-            return files;
+            return rows;
         }
         let parts: HashSet<&[u8]> = (left_out.iter())
             .filter_map(|(path, _)| {
@@ -1614,8 +2216,9 @@ impl crate::App {
             (slashes.map(|(end, _)| end).chain([name.len()]))
                 .any(|end| parts.contains(&name[..end]))
         };
-        let place: HashMap<&OsString, usize> =
-            (files.iter().enumerate()).map(|(i, f)| (&f.0, i)).collect();
+        let place: HashMap<&OsString, usize> = (rows.files().iter().enumerate())
+            .map(|(i, f)| (f, i))
+            .collect();
         // The files kept, by the number of the listing's files before them.
         let mut kept: HashMap<usize, Vec<ListedName>> = HashMap::new();
         let mut listed_before = 0;
@@ -1629,17 +2232,7 @@ impl crate::App {
                 None => {}
             }
         }
-        if kept.is_empty() {
-            return files;
-        }
-        let mut merged =
-            Vec::with_capacity(files.len() + kept.values().map(Vec::len).sum::<usize>());
-        merged.extend(kept.remove(&0).unwrap_or_default());
-        for (i, file) in files.into_iter().enumerate() {
-            merged.push(file);
-            merged.extend(kept.remove(&(i + 1)).unwrap_or_default());
-        }
-        merged
+        rows.with_rows_put_in(kept)
     }
 
     /// Tells the parts `left_out` of a listing that could not be read, each the first time it
@@ -1661,36 +2254,64 @@ impl crate::App {
         self.notice.give(text);
     }
 
-    /// Takes the images of the folder read in the background as the list. That is all of them
-    /// when `whole`, and otherwise those of a tree found so far. The shown image and the
-    /// selection stay.
+    /// Takes the images of the folder read in the background as the list, as `take_listing`
+    /// does, from a listing that read no folder whole and looked at no file, as the tests give
+    /// them, in the order of the settings, an order by the names.
+    #[cfg(test)]
     pub(crate) fn take_listed_files(
         &mut self,
         ctx: &egui::Context,
         files: Vec<ListedName>,
         whole: bool,
     ) {
-        // Files still being deleted in the background must not come back with a refresh.
-        let mut files = files;
-        self.file_operations.leave_out_deleting(&mut files);
-        // A refresh during random order keeps the order, so Previous still goes back through
-        // the images that were shown. A list shuffled whole in the thread stays as it is. The
-        // flag is for this listing, and it is taken whether or not the order is still random,
-        // because a flag left behind would shuffle every later listing.
-        let fresh = whole && self.slideshow.take_whole_shuffle();
-        let mut files = if whole && self.slideshow.is_shuffled() && !fresh {
-            merge_shuffled(self.list.files(), files)
-        } else {
-            files
+        let c = &self.config;
+        let order = (c.sort, c.sort_ascending, c.sort_case_sensitive);
+        assert!(!order.0.looks_at_files(), "a test's list in {order:?}");
+        let rows = Rows::sorted(files, order, |_, _| SortKey::Name);
+        self.take_listing(ctx, rows, whole, (&ReadWhole::default(), None));
+    }
+
+    /// Takes the images of the folder read in the background as the list: all of them when
+    /// `whole`, and otherwise a part of a tree, the images new to the list, which go into it in
+    /// its order and leave out the names that the folders it `read` whole no longer hold. In an
+    /// order that looks at the files, each row comes with what it is sorted by, and a part goes
+    /// in by them, among the keys of the list's rows, with no look at a file. The first part of a
+    /// listing that began while the list was in another order brings the list's rows put in
+    /// the listing's order (`list_sorted_anew`), which the list takes first. The shown image and
+    /// the selection stay. The list keeps the order the listing gives it, also while a
+    /// slideshow runs, which keeps its own state by the names (`Slideshow`).
+    fn take_listing(
+        &mut self,
+        ctx: &egui::Context,
+        rows: Rows,
+        whole: bool,
+        (read, list_sorted_anew): (&ReadWhole, Option<Rows>),
+    ) {
+        let shown_before = self.list.shown();
+        // Where the names of the list went, for a part merged into it, which carries what is
+        // held by place through it with no look at a name.
+        let mut moved = None;
+        // A part goes into the list in the list's order, so that the tree's images are shown
+        // while the tree is read, which on a share can take minutes (#256), and the whole list
+        // is taken as it came, in the listing's order.
+        let mut rows = match whole {
+            true => rows,
+            false => match self.merged_with_part(rows, read, list_sorted_anew) {
+                Some((rows, places)) => {
+                    moved = places;
+                    rows
+                }
+                // A part that cannot go into the list in the list's order waits for another
+                // listing, which puts the list in the listing's order first. Before, such a part
+                // was left out in silence, and so was every later part of the walk.
+                None => return self.folder.relist_later(),
+            },
         };
-        // When the list was shuffled whole for a random slideshow, the image shown comes first,
-        // as R puts it, so a slideshow without Repeat shows all images before it ends.
-        if fresh
-            && self.slideshow.is_shuffled()
-            && let Some(at) = (self.list.files().get(self.list.shown()))
-                .and_then(|shown| files.iter().position(|f| f.0 == *shown))
-        {
-            files.swap(0, at);
+        // Files still being deleted in the background must not come back with a refresh.
+        let listed = rows.len();
+        self.file_operations.leave_out_deleting(&mut rows);
+        if rows.len() != listed {
+            moved = None;
         }
         // The sizes and dates of the rows go from one part of the tree to the next, and to the
         // whole list after it, as the files are the same ones, read by the same walk. Before,
@@ -1698,33 +2319,49 @@ impl crate::App {
         // again, which on a slow share kept the list busy until the tree was read.
         let after_a_part = std::mem::replace(&mut self.folder.list_is_a_part, !whole);
         // When nothing changed (most refreshes, after Glimt's own writes beside the files), the
-        // list, the selection and the search stay as they are. A name that another file has
-        // taken since is a change, as what was read of the file it held is that file's.
-        if self.list.is_listed_as(&files) && !self.folder.sort_collection {
-            // A file may have been saved over under its own name (an editor writes and
-            // renames), so its size and date are read again, for the rows on screen only. A
-            // tree's whole list that is its last part keeps them, as the same walk read them.
-            if !after_a_part {
-                self.list.forget_sizes_and_dates();
+        // list, the selection and the search stay as they are, and the list takes the rows'
+        // order. A name that another file has taken since is a change, as what was read of the
+        // file it held is that file's.
+        if !self.folder.sort_collection {
+            match self.list.take_order_of(rows) {
+                Ok(()) => {
+                    // A file may have been saved over under its own name (an editor writes and
+                    // renames), so its size and date are read again, for the rows on screen
+                    // only. A tree's whole list that is its last part keeps them, as the same
+                    // walk read them.
+                    if !after_a_part {
+                        self.list.forget_sizes_and_dates();
+                    }
+                    // A rename keeps the list as it is but forgot the file's decoded image,
+                    // which is asked for again here.
+                    self.refill_preload();
+                    return;
+                }
+                Err(other) => rows = other,
             }
-            // A rename keeps the list as it is but forgot the file's decoded image, which is
-            // asked for again here.
-            self.refill_preload();
-            return;
         }
-        // Glimt went to an image by itself, in the name order of a tree's first images. The
-        // whole list, in the order asked for, starts at its first image instead, unless the
-        // user chose another one meanwhile.
+        // Glimt went to an image by itself, the first of a tree's first images. The whole list
+        // starts at its first image instead, unless the user chose another one meanwhile.
         let mut shown = self.list.files().get(self.list.shown()).cloned();
-        if whole && shown.is_some() && std::mem::take(&mut self.folder.first_part_shown) == shown {
+        let plays = self.slideshow.is_running();
+        if whole
+            && shown.is_some()
+            && std::mem::take(&mut self.folder.first_part_shown) == shown
+            && !plays
+        {
             shown = None;
+        }
+        // An image shown in a slideshow that is gone gives its place to the next one of the
+        // list that stays, and not to the first image.
+        if plays {
+            shown = shown.map(|name| self.next_name_that_stays(name, shown_before, &rows));
         }
         let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
         // picked. The selected files that the search hides stay selected too.
         let picked = (self.list).names_with_identities(&self.list.selected_with_hidden());
         let read = after_a_part.then(|| self.list.take_sizes_and_dates());
-        self.replace_files(ctx, files, shown);
+        self.replace_list(ctx, rows, shown, moved);
         if let Some(read) = read {
             self.list.keep_sizes_and_dates(read);
         }
@@ -1737,18 +2374,85 @@ impl crate::App {
         }
     }
 
-    /// Gives files in the list new names in place, for a file moved or renamed that keeps its
-    /// place. The list's version goes up and the search runs again, so the matches follow the
-    /// new names. The listing that follows finds the same names and would change nothing.
+    /// Returns the list with the part `rows` of a tree merged into it, in the list's order, and
+    /// where the list's rows went when they stayed in their order. The first part of a listing
+    /// that began while the list was in another order than the listing's brings the list's rows
+    /// as the listing began, put in the listing's order (`list_sorted_anew`). Those of them that
+    /// the list still holds then take the list's place, and the part goes into them. Returns
+    /// `None` when the part is in another order than the list, or when the list holds a name
+    /// that the rows put in order lack.
+    fn merged_with_part(
+        &self,
+        rows: Rows,
+        read: &ReadWhole,
+        list_sorted_anew: Option<Rows>,
+    ) -> Option<(Rows, Option<listing::PlacesMoved>)> {
+        let Some(mut anew) = list_sorted_anew else {
+            let (merged, places) = self.list.rows().merged(rows, read).ok()?;
+            return Some((merged, Some(places)));
+        };
+        // The list changed since the listing began (a delete or a move took a name out), so
+        // the rows put in order keep only the names that it still holds.
+        if self.list.version() != self.folder.listing_version {
+            let holds: HashSet<&OsString> = self.list.files().iter().collect();
+            anew.retain(|name| holds.contains(name));
+            if anew.len() != holds.len() {
+                return None;
+            }
+        }
+        Some((anew.merged_into(rows, read).ok()?, None))
+    }
+
+    /// Returns `shown`, the name of the image shown at place `at`, when `rows`, the list merged
+    /// from a listing, still holds it. Returns otherwise the first name after it in the list
+    /// shown that `rows` holds, or the last one before it, or `shown` when `rows` holds none of
+    /// them. The names are looked up in a set only when the shown one is gone.
+    fn next_name_that_stays(&self, shown: OsString, at: usize, rows: &Rows) -> OsString {
+        if rows.files().contains(&shown) {
+            return shown;
+        }
+        let stays: HashSet<&OsString> = rows.files().iter().collect();
+        let old = self.list.files();
+        let following = old.iter().skip(at + 1).find(|f| stays.contains(f));
+        let preceding = || {
+            old[..at.min(old.len())]
+                .iter()
+                .rev()
+                .find(|f| stays.contains(f))
+        };
+        following.or_else(preceding).cloned().unwrap_or(shown)
+    }
+
+    /// Gives files in the list new names, for a file moved or renamed. A file whose new name
+    /// keeps its place in the list's order keeps its place. Otherwise the list is put in its
+    /// order again by the rows' own comparison (`Rows::rename`), with no look at a file, and the
+    /// image shown, the selection and what else is held by place follow the files by name. The
+    /// list's version goes up and the search runs again, so the matches follow the new names.
+    /// The listing that follows finds the same names and would change nothing.
     pub(crate) fn rename_in_list(&mut self, ctx: &egui::Context, names: Vec<(usize, OsString)>) {
         if names.is_empty() {
             return;
         }
-        for (i, name) in names {
-            self.list.rename(i, name);
-        }
+        let renames: Vec<(OsString, OsString)> = (names.iter())
+            .filter_map(|(i, name)| Some((self.list.files().get(*i)?.clone(), name.clone())))
+            .collect();
+        let in_order = self.list.rename(&names);
         self.list.note_names_changed();
+        self.slideshow.follow_renames(&renames);
+        if let Some(rows) = in_order {
+            let shown = self.list.files().get(self.list.shown()).cloned();
+            let selected = self.list.selected_with_hidden();
+            let selected = self.list.names_with_identities(&selected);
+            // The list is still the one listed, in its sort order, so a listing that follows
+            // may keep that order as before.
+            let listed_as = self.folder.listed_as.take();
+            self.replace_list(ctx, rows, shown, None);
+            self.folder.listed_as = listed_as;
+            self.reselect(ctx, &selected);
+            return;
+        }
         self.update_search(ctx);
+        self.follow_list_in_slideshow();
     }
 
     /// Returns the place of `file` in the list when its folder, `dir` by its real path, is the
@@ -1811,58 +2515,78 @@ impl crate::App {
         files: Vec<ListedName>,
         shown: Option<OsString>,
     ) {
-        // The list has a new order (shuffled, or a collection's), so only a listing in sort
-        // order sets this again.
+        self.replace_list(ctx, Rows::unsorted(files), shown, None);
+    }
+
+    /// Replaces the file list with `rows` as `replace_files` does. `moved` says where the names
+    /// of the list went when a part of a tree was merged into it (`Rows::merged`). What is held
+    /// by place then goes to its new place through it, with no look at a name, and no name can
+    /// have been taken by another file, as the part brought only names the list lacked. Without
+    /// it, what is held by place goes by name.
+    fn replace_list(
+        &mut self,
+        ctx: &egui::Context,
+        rows: Rows,
+        shown: Option<OsString>,
+        moved: Option<listing::PlacesMoved>,
+    ) {
+        // The list may have another order (a collection's), so only a listing in sort order sets
+        // this again.
         self.folder.listed_as = None;
+        let (old_shown, later_page) = (self.list.shown(), self.viewing.page() > 0);
+        let shown_stays = shown.is_some() && self.list.files().get(old_shown) == shown.as_ref();
         // The file counts as found when it is shown now and is in the new list too. It does not
         // when another program removed or renamed it, because its turn not saved would
         // otherwise go to the image shown in its place.
-        let found = (shown.as_ref()).and_then(|p| files.iter().position(|f| f.0 == *p));
-        let still = found.is_some_and(|k| {
-            self.list.files().get(self.list.shown()) == shown.as_ref()
-                && !is_another_file(files[k].1, self.list.identity(self.list.shown()))
-        });
-        // The decodes still being made are kept by name, as the decoded images below, so no
-        // file is decoded twice while the parts of a tree come in. The shown file's decodes of a
-        // later page are not kept, because the file is shown again from its first page.
-        let (old_shown, later_page) = (self.list.shown(), self.viewing.page() > 0);
-        let mut decodes: HashMap<OsString, Vec<_>> = HashMap::new();
-        for ((i, full), job) in self.list.take_decodes() {
-            if let Some(name) = self
-                .list
-                .files()
-                .get(i)
-                .filter(|_| !later_page || i != old_shown)
-            {
-                decodes.entry(name.clone()).or_default().push((full, job));
-            }
-        }
+        let new = rows.files();
+        let found = match shown_stays {
+            true => places_in_new_list(self.list.files(), new, &[old_shown], moved.as_ref())[0],
+            false => (shown.as_ref()).and_then(|p| new.iter().position(|f| f == p)),
+        };
+        let still = shown_stays
+            && found
+                .is_some_and(|k| !is_another_file(rows.identity(k), self.list.identity(old_shown)));
+        // The decodes still being made are kept, as the decoded images below, so no file is
+        // decoded twice while the parts of a tree come in. The shown file's decodes of a later
+        // page are not kept, because the file is shown again from its first page.
+        let mut decodes: Vec<_> = (self.list.take_decodes().into_iter())
+            .filter(|((i, _), _)| !later_page || *i != old_shown)
+            .collect();
         if !still {
             self.leave_image(ctx);
         }
-        // The decoded images are kept by name, so the neighbours read ahead stay, after a refresh
-        // as after a delete.
-        let mut loaded_images: HashMap<OsString, LoadedImage> =
-            (self.list.take_loaded_images().into_iter())
-                .filter_map(|(i, s)| Some((self.list.files().get(i)?.clone(), s)))
-                .collect();
-        // The panes are kept by name too, because their places belong to other files in the
-        // new list, but their files do not change.
-        let panes: Vec<OsString> = (self.list.panes().iter())
-            .filter_map(|&i| self.list.files().get(i).cloned())
-            .collect();
-        // So is the image that a slideshow of one pane at a time showed last, because it goes
-        // on from there, while the panes it keeps stay as they are.
-        let last_slide = self.list.files().get(self.list.last_slide()).cloned();
+        // The decoded images are kept too, so the neighbours read ahead stay, after a refresh as
+        // after a delete.
+        let loaded_images: Vec<(usize, LoadedImage)> =
+            self.list.take_loaded_images().into_iter().collect();
+        // The panes are kept too, because their places belong to other files in the new list,
+        // but their files do not change. So is the image that a slideshow of one pane at a time
+        // showed last, because it goes on from there, while the panes it keeps stay as they are.
+        let panes = self.list.panes().to_vec();
         // A name that another file has taken since keeps nothing that was read of the file it
         // held: its thumbnail, size and date, its part of the exif: index and its Pan view date.
-        let taken = self.list.names_another_file_took(&files);
-        for name in &taken {
-            decodes.remove(name);
+        let taken = match moved {
+            Some(_) => Vec::new(),
+            None => self.list.names_another_file_took(&rows),
+        };
+        if !taken.is_empty() {
+            let taken: HashSet<&OsString> = taken.iter().collect();
+            let old = self.list.files();
+            decodes.retain(|((i, _), _)| old.get(*i).is_none_or(|name| !taken.contains(name)));
         }
+        // Where each of them goes in the new list, in this order: the decodes, the decoded
+        // images, the panes and the last slide.
+        let old_places: Vec<usize> = (decodes.iter().map(|((i, _), _)| *i))
+            .chain(loaded_images.iter().map(|(i, _)| *i))
+            .chain(panes.iter().copied())
+            .chain([self.list.last_slide()])
+            .collect();
+        let new_places =
+            places_in_new_list(self.list.files(), rows.files(), &old_places, moved.as_ref());
+        let mut new_places = new_places.into_iter();
         // A new List means every place held in the old one goes with it, whatever field holds
-        // it. Only what is carried over by name above comes back.
-        self.list = List::replacing(&self.list, files);
+        // it. Only what is carried over above comes back.
+        self.list = List::replacing(&self.list, rows);
         if !taken.is_empty() {
             let dir = self.folder.dir().to_path_buf();
             self.forget_names(&taken.iter().map(|name| dir.join(name)).collect::<Vec<_>>());
@@ -1872,35 +2596,23 @@ impl crate::App {
         let shown = found.unwrap_or(0);
         self.list.set_shown(shown);
         self.index_new_names();
-        let panes = (panes.iter())
-            .filter_map(|n| self.list.files().iter().position(|f| f == n))
-            .collect();
+        let asked: Vec<_> = decodes.into_iter().zip(&mut new_places).collect();
+        let kept: Vec<_> = loaded_images.into_iter().zip(&mut new_places).collect();
+        let panes: Vec<usize> = (&mut new_places).take(panes.len()).flatten().collect();
+        let last = new_places.next().flatten();
+        let last = last.or(panes.last().copied()).unwrap_or(shown);
         self.list.set_panes(panes);
-        let last = last_slide.and_then(|n| self.list.files().iter().position(|f| *f == n));
-        let last = last.or(self.list.panes().last().copied()).unwrap_or(shown);
         self.list.set_last_slide(last);
-        // One pass over the list for a handful of textures and decodes.
-        let (mut kept, mut asked) = (Vec::new(), Vec::new());
-        for (i, name) in self.list.files().iter().enumerate() {
-            if loaded_images.is_empty() && decodes.is_empty() {
-                break;
-            }
-            if let Some(loaded) = loaded_images.remove(name) {
-                kept.push((i, loaded));
-            }
-            for (full, job) in decodes.remove(name).unwrap_or_default() {
-                asked.push((i, full, job));
-            }
-        }
-        for (i, loaded) in kept {
-            if self.is_file(i, &loaded.path)
-                && !is_another_file(loaded.identity(), self.list.identity(i))
-            {
+        for ((_, loaded), i) in kept {
+            if let Some(i) = i.filter(|&i| {
+                self.is_file(i, &loaded.path)
+                    && !is_another_file(loaded.identity(), self.list.identity(i))
+            }) {
                 self.list.keep_loaded_image(i, loaded);
             }
         }
-        for (i, full, job) in asked {
-            if self.is_file(i, &job.1) {
+        for (((_, full), job), i) in asked {
+            if let Some(i) = i.filter(|&i| self.is_file(i, &job.1)) {
                 self.list.ask_decode((i, full), job);
             }
         }
@@ -1909,6 +2621,8 @@ impl crate::App {
         // matches, not in the whole folder.
         self.update_search(ctx);
         self.selection_changed(ctx);
+        // The slideshow finds its images again in the new list, before they are read ahead.
+        self.follow_list_in_slideshow();
         if still {
             self.refill_preload();
             self.update_window_title(ctx);
@@ -1943,6 +2657,7 @@ impl crate::App {
         // image and the neighbours are counted among the matches, not in the whole folder.
         self.update_search(ctx);
         self.list_changed(ctx);
+        self.follow_list_in_slideshow();
         if let Some(pan) = &mut self.pan_view {
             pan.follow(removed, version, self.list.version());
         }
@@ -1983,13 +2698,53 @@ impl crate::App {
     }
 
     /// View → Show Hidden Files. The list and the tree are read again, scrolled back to the open
-    /// folder.
+    /// folder. Turned off, the hidden images leave the list at once.
     pub(crate) fn toggle_hidden_files(&mut self, ctx: &egui::Context) {
         self.config.show_hidden = !self.config.show_hidden;
         self.config.save();
         // Read again, and scrolled back to the open folder.
         self.tree.read_again_and_reopen();
+        self.leave_out_names_not_shown(ctx);
         self.start_listing(ctx);
+    }
+
+    /// Takes out of the list at once, by their names, the images that the types shown no
+    /// longer list: those of a type that the Types menu leaves out, and while hidden files are
+    /// not shown, a hidden image, and in a folder's list one in a hidden folder below it. The
+    /// listing that follows brings back those that the walk of a tree reaches through a link,
+    /// as their names are new to it then. Before, they stayed until the whole list came, which
+    /// for a tree on a share was minutes, and a slideshow went on showing the images just
+    /// hidden. It is one pass over the names and no look at a file.
+    pub(crate) fn leave_out_names_not_shown(&mut self, ctx: &egui::Context) {
+        let types = self.shown_types();
+        // The names of several folders and of a collection start at "/", where a hidden folder
+        // above the places shown does not count.
+        let folder = self.folder.collection.is_none() && self.folder.folders.is_empty();
+        let in_hidden_folder = |name: &Path| {
+            let folders = name.parent().into_iter().flat_map(Path::components);
+            folders
+                .into_iter()
+                .any(|step| step.as_os_str().as_encoded_bytes().starts_with(b"."))
+        };
+        // The type by the name's ending alone: a RAW, a video, or else an image, also of an
+        // added format, which is not looked up here, as that reads the formats' files.
+        let listed_type = |name: &Path| {
+            let raw = listing::has_ext(name, crate::images::raw::EXTS);
+            let video = crate::files::external::is_video(name);
+            (raw && types.raw) || (video && types.videos) || (!raw && !video && types.images)
+        };
+        let removed: Vec<usize> = (self.list.files().iter().enumerate())
+            .filter(|(_, name)| {
+                let name = Path::new(name);
+                let hidden = !types.hidden
+                    && (listing::is_hidden(name) || (folder && in_hidden_folder(name)));
+                hidden || !listed_type(name)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if !removed.is_empty() {
+            self.remove_indices(ctx, &removed);
+        }
     }
 
     /// F5. The folder is read and sorted anew (also in an EXIF date order whose names stayed),
@@ -2016,6 +2771,70 @@ impl crate::App {
         }
         self.start_listing(ctx);
     }
+}
+
+/// Returns the place in `new`, the new list, of the name at each of `places` of `old`, the list
+/// before, or `None` for one that `new` lacks. Through `moved`, where the names went when a part
+/// was merged into the list, each takes a few comparisons. Otherwise the names are looked for in
+/// one pass over `new`, which ends when every one is found.
+fn places_in_new_list(
+    old: &[OsString],
+    new: &[OsString],
+    places: &[usize],
+    moved: Option<&listing::PlacesMoved>,
+) -> Vec<Option<usize>> {
+    let same = |i: usize, k: usize| {
+        old.get(i)
+            .is_some_and(|name| new.get(k).is_some_and(|f| f == name))
+    };
+    if let Some(moved) = moved {
+        let place = |&i: &usize| moved.new_place(i).filter(|&k| same(i, k));
+        return places.iter().map(place).collect();
+    }
+    let mut found = vec![None; places.len()];
+    let mut wanted: HashMap<&OsString, Vec<usize>> = HashMap::new();
+    for (j, name) in (places.iter().enumerate()).filter_map(|(j, &i)| Some((j, old.get(i)?))) {
+        wanted.entry(name).or_default().push(j);
+    }
+    for (k, f) in new.iter().enumerate() {
+        if wanted.is_empty() {
+            break;
+        }
+        for j in wanted.remove(f).unwrap_or_default() {
+            found[j] = Some(k);
+        }
+    }
+    found
+}
+
+/// Returns what each of `rows` is sorted by, in an order that looks at the files, by the hash
+/// of its name (`listing::name_hash`), sorted by the hashes, for the whole list's sort to take
+/// it from. A hash that two names share is left out, so that neither takes the other's.
+fn keys_by_name_hash(rows: &Rows) -> Vec<(u64, SortKey)> {
+    let mut keys: Vec<(u64, SortKey)> = (0..rows.len())
+        .filter_map(|i| {
+            let hash = listing::name_hash(rows.files()[i].as_encoded_bytes());
+            Some((hash, rows.key(i)?.clone()))
+        })
+        .collect();
+    keys.sort_unstable_by_key(|k| k.0);
+    let shared: HashSet<u64> = (keys.windows(2))
+        .filter(|w| w[0].0 == w[1].0)
+        .map(|w| w[0].0)
+        .collect();
+    keys.retain(|k| !shared.contains(&k.0));
+    keys
+}
+
+/// Returns how long a listing thread waits after it sent a part of a tree before it sends the
+/// next one: four times as long as the part took `in_thread` to copy and sort or `in_window` to
+/// take, whichever is longer, and at least a quarter second. Copying a long list then does not
+/// slow the reading down, and the window spends at most a fifth of its time on the parts. The
+/// window's merge of a part into a long list can take four times as long as the thread's copy
+/// of the part (0.4 s for 500,000 names). Paced by the thread's time alone, the window then did
+/// little else, and the slideshow's next image waited behind it.
+fn next_part_after(in_thread: Duration, in_window: Duration) -> Duration {
+    (in_thread.max(in_window) * 4).max(Duration::from_millis(250))
 }
 
 /// Looks up on disk what `paths` are, for `open`: a collection, a folder, a file in its folder,
@@ -2166,6 +2985,48 @@ fn folders_this_second(open: usize, all: usize, next: usize) -> impl Iterator<It
     (0..open).chain((0..turn).map(move |k| open + (next + k) % subfolders))
 }
 
+/// Looks at the folders of `read` that the watcher looks at in a second, from the `next`th
+/// subfolder on, after the `open` folders first in it (`folders_this_second`), each with `look`
+/// and through `gate` while `is_wanted` says the watcher still runs, and keeps the times it
+/// found. On a share it looks at the subfolders only
+/// while the looks of this second have taken less than `SHARE_LOOKS_A_SECOND`, the time waited
+/// at the gate not counted. Returns the folders whose times changed, and how many subfolders it
+/// looked at.
+fn look_this_second(
+    read: &mut FoldersRead,
+    (open, next): (usize, usize),
+    on_a_share: bool,
+    (gate, is_wanted): (&mut listing::ReadsFirst, &dyn Fn() -> bool),
+    look: impl Fn(&Path) -> Option<std::time::SystemTime>,
+) -> (Vec<PathBuf>, usize) {
+    let (mut changed, mut looked, mut spent) = (Vec::new(), 0, Duration::ZERO);
+    for i in folders_this_second(open, read.len(), next) {
+        if i >= open {
+            if on_a_share && spent >= SHARE_LOOKS_A_SECOND {
+                break;
+            }
+            looked += 1;
+        }
+        // A watcher that a newer one replaced looks at nothing more.
+        let Some(_turn) = gate.before_work_nobody_waits_for(&read[i].0, is_wanted) else {
+            break;
+        };
+        let began = Instant::now();
+        let now = look(&read[i].0);
+        // Only the subfolders' looks count, as the open folders are looked at every second.
+        // Before, the open folders' looks took the subfolders' time, and on a share the watcher
+        // came round to a subfolder only every few seconds.
+        if i >= open {
+            spent += began.elapsed();
+        }
+        if now != read[i].1 {
+            changed.push(read[i].0.clone());
+        }
+        read[i].1 = now;
+    }
+    (changed, looked)
+}
+
 /// Sends sizes as partial sums of 10,000 files, so the status bar fills in gradually. It stops
 /// when the receiver is gone. The closed channel tells the window that the sum is complete.
 pub(crate) fn send_sizes(
@@ -2204,22 +3065,57 @@ pub(crate) fn send_sizes_unless_on_a_share(
 
 /// Returns the sum of the sizes of `paths`, as `total_size` does, or `NOT_COUNTED_ON_A_SHARE`
 /// without a look at any file when a folder of `places` is on a share, or with
-/// `with_subfolders` has one mounted below it.
+/// `with_subfolders` has one mounted below it. Each look goes through the gate
+/// (`gate_for_sizes`), which waits for the images `awaited`, and is made only while
+/// `is_wanted` says that the sum is still waited for.
 pub(crate) fn total_size_unless_on_a_share(
     places: &[PathBuf],
     with_subfolders: bool,
     paths: &[PathBuf],
+    (awaited, is_wanted): (&listing::ImagesAwaited, &dyn Fn() -> bool),
 ) -> u64 {
-    match is_any_on_a_share(places, with_subfolders) {
-        true => NOT_COUNTED_ON_A_SHARE,
-        false => total_size(paths),
+    if is_any_on_a_share(places, with_subfolders) {
+        return NOT_COUNTED_ON_A_SHARE;
+    }
+    let mut gate = gate_for_sizes(places, awaited);
+    (paths.iter())
+        .filter_map(|path| size_through(&mut gate, path, is_wanted))
+        .sum()
+}
+
+/// Returns the gate for the looks at the sizes of the files of a list shown from `places`
+/// (`Folder::places`), which waits for the images `awaited`. A collection's list is under "/",
+/// so each of its files is asked about on its own, and one on a share waits at the gate.
+/// Elsewhere `places` were asked about, and a list on a share has no size summed. Before, the
+/// files of a collection on a share were looked at without the gate, before the slideshow's
+/// next image.
+pub(crate) fn gate_for_sizes(
+    places: &[PathBuf],
+    awaited: &listing::ImagesAwaited,
+) -> listing::ReadsFirst {
+    match places {
+        [only] if only == Path::new("/") => listing::ReadsFirst::for_files_anywhere(awaited),
+        _ => listing::ReadsFirst::new(Arc::default(), awaited.clone(), false),
     }
 }
 
+/// Returns the size of the file at `path`, looked at through `gate` while `is_wanted` says that
+/// the sum is still waited for. Returns `None` when it cannot be looked at, or is not wanted.
+/// Before, every size was looked at, also those of a sum that a new selection or search had
+/// replaced, and on a share each took the turn ahead of the thumbnails and the images read
+/// ahead.
+pub(crate) fn size_through(
+    gate: &mut listing::ReadsFirst,
+    path: &Path,
+    is_wanted: &dyn Fn() -> bool,
+) -> Option<u64> {
+    let _turn = gate.before_work_nobody_waits_for(path, is_wanted)?;
+    Some(path.metadata().ok()?.len())
+}
+
 /// Returns whether a folder of `places` is on a share, or with `with_subfolders` has one mounted
-/// below it, where the status bar sums no sizes.
-// shortcut: a collection's list is under "/", so the sizes of its files on a share are still
-// summed; look at the folders of its entries if large collections on shares come up.
+/// below it, where the status bar sums no sizes. A collection's list is under "/", so its files
+/// are summed, each through the gate (`gate_for_sizes`).
 fn is_any_on_a_share(places: &[PathBuf], with_subfolders: bool) -> bool {
     (places.iter()).any(|place| listing::is_on_a_share(place, with_subfolders))
 }
@@ -2433,6 +3329,8 @@ mod tests {
                 crate::files::file_io::identity_of(&dir.join("a.png")),
             )]
         };
+        // The first part of a tree, into a list still empty.
+        app.replace_files(&ctx, Vec::new(), None);
         app.take_listed_files(&ctx, part(), false);
         let read =
             std::collections::HashMap::from([(std::ffi::OsString::from("a.png"), Some((5, 6)))]);
@@ -2757,7 +3655,10 @@ mod tests {
             app.folder.hold_listing(rx);
             let listed = super::Listed {
                 dirs: Vec::new(),
-                files: Ok(vec![("a.png".into(), None), ("c.png".into(), None)]),
+                files: Ok(super::ListedRows::Rows(super::Rows::unsorted(vec![
+                    ("a.png".into(), None),
+                    ("c.png".into(), None),
+                ]))),
                 left_out: vec![(dir.join(part), std::io::Error::other("the share failed"))],
                 read: Vec::new(),
                 read_in: std::time::Duration::ZERO,
@@ -2854,7 +3755,10 @@ mod tests {
         app.folder.rest_until = std::time::Instant::now() + std::time::Duration::from_secs(1);
         let before = app.folder.whole_listings();
         for _ in 0..3 {
-            app.folder.changed_tx.send(()).unwrap();
+            app.folder
+                .changed_tx
+                .send(vec![app.folder.dir.clone()])
+                .unwrap();
             app.poll_background(&ctx);
             assert!(!app.folder.is_listing(), "listed during the rest");
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -2865,6 +3769,126 @@ mod tests {
             .folder
             .is_listing()));
         assert_eq!(app.folder.whole_listings(), before + 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A change that the watcher saw in one subfolder of a tree reads that subfolder again, and
+    /// not the whole tree: its rows are what it holds now, also with a folder below it added and
+    /// one removed, and the rows of the other subfolders stay as they were. A change in the open
+    /// folder itself still reads the whole tree. Before, any change read the whole tree again,
+    /// which on a share takes minutes.
+    #[test]
+    fn a_change_in_one_subfolder_reads_only_that_subfolder_again() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-subfolder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for sub in ["s1", "s2/deep"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        for name in ["a.png", "s1/b.png", "s2/c.png", "s2/deep/d.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        let whole_listings = |app: &crate::App| app.folder.whole_listings();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |app| whole_listings(
+            app
+        ) > before));
+        let names = |app: &crate::App| -> Vec<String> {
+            let files = app.list.files().iter();
+            files.map(|f| f.to_string_lossy().into_owned()).collect()
+        };
+        assert_eq!(
+            names(&app),
+            ["a.png", "s1/b.png", "s2/c.png", "s2/deep/d.png"]
+        );
+        // The test sends the change itself, so the real watcher is silenced. Seen by it, the
+        // change of s1 read the whole tree, when the watcher looked between these changes and
+        // the change sent.
+        (app.folder.watcher_generation).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // s1 loses its image unseen: only a walk of the whole tree would take it out.
+        std::fs::remove_file(dir.join("s1/b.png")).unwrap();
+        std::fs::remove_file(dir.join("s2/c.png")).unwrap();
+        std::fs::remove_dir_all(dir.join("s2/deep")).unwrap();
+        std::fs::create_dir_all(dir.join("s2/new")).unwrap();
+        for name in ["s2/e.png", "s2/new/f.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        // The watcher looks every second, so it would have seen s1 change by now.
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let changed = vec![dir.join("s2"), dir.join("s2/deep")];
+        app.folder.changed_tx.send(changed).unwrap();
+        app.folder.rest_until = std::time::Instant::now();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |app| whole_listings(
+            app
+        ) > before));
+        assert_eq!(
+            names(&app),
+            ["a.png", "s1/b.png", "s2/e.png", "s2/new/f.png"]
+        );
+        // The list is still the tree listed whole, so the next change reads only its subfolder.
+        assert!(
+            app.folder.listed_as.is_some(),
+            "the list forgot how it was listed"
+        );
+        // A change of the open folder itself reads the whole tree.
+        app.folder.changed_tx.send(vec![dir.clone()]).unwrap();
+        app.folder.rest_until = std::time::Instant::now();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |app| whole_listings(
+            app
+        ) > before));
+        assert_eq!(names(&app), ["a.png", "s2/e.png", "s2/new/f.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A subfolder read again gives a name that another file has taken the new file's identity,
+    /// as a whole listing does, so the name keeps nothing of the file it held: the image decoded
+    /// of it is dropped and the new file's image comes. Before, the names that stayed kept the
+    /// identities of the files they held, and every decode of the new file was dropped as
+    /// another file's, until F5.
+    #[test]
+    fn a_subfolder_read_again_gives_a_name_its_new_file() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-subfolder-taken-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("s2")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(dir.join("s2/a.png"))
+            .unwrap();
+        image::RgbImage::new(6, 6)
+            .save(dir.join("s2/b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        let whole_listings = |app: &crate::App| app.folder.whole_listings();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |a| whole_listings(a) > before));
+        // The test sends the change itself, so the real watcher is silenced.
+        (app.folder.watcher_generation).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(app.list.files(), ["s2/a.png", "s2/b.png"]);
+        let identity = app.list.identity(0);
+        assert!(identity.is_some(), "the listing gave no identity");
+        app.refill_preload();
+        let size = |a: &crate::App| a.list.loaded_images().get(&0).map(|s| s.original_size);
+        assert!(run_background_until(&mut app, &ctx, |a| size(a) == Some([4, 4])));
+        for (from, to) in [("a.png", "c.png"), ("b.png", "a.png"), ("c.png", "b.png")] {
+            std::fs::rename(dir.join("s2").join(from), dir.join("s2").join(to)).unwrap();
+        }
+        app.folder.changed_tx.send(vec![dir.join("s2")]).unwrap();
+        app.folder.rest_until = std::time::Instant::now();
+        let before = whole_listings(&app);
+        assert!(run_background_until(&mut app, &ctx, |a| whole_listings(a) > before));
+        assert_ne!(
+            app.list.identity(0),
+            identity,
+            "s2/a.png keeps the old file's identity"
+        );
+        assert_ne!(size(&app), Some([4, 4]), "s2/a.png shows the photo it held");
+        assert!(run_background_until(&mut app, &ctx, |a| size(a) == Some([6, 6])));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2940,6 +3964,58 @@ mod tests {
         assert_eq!(seen.len(), all);
         // Without subfolders, only the open folders are looked at.
         assert_eq!(super::folders_this_second(1, 1, 0).collect::<Vec<_>>(), [0]);
+    }
+
+    /// On a share the watcher's looks at the subfolders take at most `SHARE_LOOKS_A_SECOND`
+    /// of each second, however many there are, and the open folders are always looked at.
+    /// Elsewhere it looks at `SUBFOLDERS_A_SECOND` of them. Before, it looked at a thousand
+    /// subfolders a second on a share too, which filled a share that serves one call at a time.
+    #[test]
+    fn the_watcher_takes_a_small_share_of_a_shares_time() {
+        use std::time::Duration;
+        let look_ms = 20;
+        let read = |n: usize| -> crate::model::listing::FoldersRead {
+            (0..n)
+                .map(|k| (format!("/watched-{k}").into(), None))
+                .collect()
+        };
+        let look = |_: &std::path::Path| {
+            std::thread::sleep(Duration::from_millis(look_ms));
+            Some(std::time::SystemTime::UNIX_EPOCH)
+        };
+        let gate =
+            || crate::model::listing::ReadsFirst::new(Default::default(), Default::default(), true);
+        let mut on_share = read(2 + 500);
+        let (changed, looked) =
+            super::look_this_second(&mut on_share, (2, 0), true, (&mut gate(), &|| true), look);
+        let most = (super::SHARE_LOOKS_A_SECOND.as_millis() / look_ms as u128) as usize + 1;
+        assert_eq!(changed.len(), 2 + looked);
+        // The open folders' looks take none of the subfolders' time, also when they are slow.
+        let slow_open = |p: &std::path::Path| {
+            let open = p.ends_with("watched-0") || p.ends_with("watched-1");
+            std::thread::sleep(Duration::from_millis(if open { 150 } else { look_ms }));
+            None
+        };
+        let (_, looked) = super::look_this_second(
+            &mut read(2 + 500),
+            (2, 0),
+            true,
+            (&mut gate(), &|| true),
+            slow_open,
+        );
+        assert!(
+            looked >= 2,
+            "looked at {looked} subfolders after slow open folders"
+        );
+        assert!((1..=most).contains(&looked), "looked at {looked}");
+        assert!(
+            on_share[..2].iter().all(|(_, t)| t.is_some()),
+            "the open folders"
+        );
+        let mut local = read(2 + 1_500);
+        let (_, looked) =
+            super::look_this_second(&mut local, (2, 0), false, (&mut gate(), &|| true), |_| None);
+        assert_eq!(looked, super::SUBFOLDERS_A_SECOND);
     }
 
     /// Another program, or another window's Rename Many, that swaps two names leaves the same
@@ -3049,12 +4125,219 @@ mod tests {
         };
         app.take_listed_files(&ctx, listed(&["b/x.png"]), false);
         app.list.remember_size_and_date("b/x.png".into(), (7, 1));
-        app.take_listed_files(&ctx, listed(&["a/w.png", "b/x.png"]), false);
+        app.take_listed_files(&ctx, listed(&["a/w.png"]), false);
         assert_eq!(known(&app), Some(Some((7, 1))));
         app.take_listed_files(&ctx, listed(&["a/w.png", "b/x.png", "c/y.png"]), true);
         assert_eq!(known(&app), Some(Some((7, 1))));
         app.take_listed_files(&ctx, listed(&["a/w.png", "b/x.png"]), true);
         assert_eq!(known(&app), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The next part of a tree waits for four times as long as the window took to take the
+    /// part before, when that is longer than the thread's own copy of it, and the window notes
+    /// that time. Before, only the thread's time counted, and in random order the window took
+    /// four times as long as that for each part of a tree of 500,000 images (#256).
+    #[test]
+    fn the_parts_of_a_tree_wait_for_the_window() {
+        let ms = std::time::Duration::from_millis;
+        assert_eq!(super::next_part_after(ms(90), ms(400)), ms(1600));
+        assert_eq!(super::next_part_after(ms(90), ms(20)), ms(360));
+        assert_eq!(super::next_part_after(ms(1), ms(1)), ms(250));
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-part-pacing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        (image::RgbImage::new(2, 2))
+            .save(dir.join("sub").join("a.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.list.files(), ["sub/a.png"]);
+        assert!(app.folder.part_taken_in.load(super::Ordering::Relaxed) > 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A random slideshow of a tree gets the tree's images while the tree is read, and the list
+    /// keeps its sort order: a part puts its images into it in that order, and the whole list
+    /// after the parts keeps the image shown. Before, no part of the tree came in random order,
+    /// so a slideshow of a folder with few images of its own and many in its subfolders stood
+    /// still until the whole tree on a share was read (#256), and then the parts were shuffled
+    /// into the list itself.
+    #[test]
+    fn a_random_slideshow_takes_its_tree_in_parts() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-random-parts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for i in 0..6 {
+            (image::RgbImage::new(2, 2))
+                .save(dir.join("sub").join(format!("{i}.png")))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(app.list.files().is_empty());
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = true;
+        app.config.slideshow_repeat = false;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        // The part waits in its channel, beside the whole list, until it is taken here.
+        let part = (0..250).find_map(|_| match app.folder.part_rx.next() {
+            super::Took::Answer(part) => Some(part.rows.listed_names()),
+            _ => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                None
+            }
+        });
+        let part = part.expect("no part of the tree in random order");
+        app.take_listed_files(&ctx, part, false);
+        let all: Vec<std::ffi::OsString> = (0..6).map(|i| format!("sub/{i}.png").into()).collect();
+        assert_eq!(
+            app.list.files(),
+            all,
+            "every image of the part, once, in the sort order"
+        );
+        app.show_file(&ctx, 2);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.list.files(), all);
+        assert_eq!(app.list.shown(), 2, "the image shown");
+        assert!(app.slideshow.is_running());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A part of a tree that comes while a slideshow runs keeps the image that the slideshow
+    /// planned next, decoded already, as its next slide, so that the slide needs no new decode,
+    /// and Left and Right still go through the images shown. The part's images go into the list
+    /// in its order, also before the images planned. Before, a part shuffled the images not
+    /// shown in with the new ones, and took the next image's decode away, so that on a share the
+    /// slide waited for a new one (#256).
+    #[test]
+    fn a_part_keeps_the_next_slide_and_the_images_shown() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-part-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let add = |names: std::ops::Range<usize>, end: &str| {
+            for i in names {
+                (image::RgbImage::new(2, 2))
+                    .save(dir.join(format!("{i:02}{end}.png")))
+                    .unwrap();
+            }
+        };
+        // A part of a tree, as the walk sends it: the images new to the list, in name order.
+        let part = |app: &crate::App| -> Vec<super::ListedName> {
+            let mut names: Vec<super::ListedName> = (std::fs::read_dir(&dir).unwrap())
+                .map(|e| (e.unwrap().file_name(), None))
+                .filter(|(name, _)| !app.list.files().contains(name))
+                .collect();
+            names.sort();
+            names
+        };
+        add(0..20, "");
+        let (mut app, ctx) = app_on(&dir);
+        app.config.slideshow_subfolders = false;
+        app.config.slideshow_random = true;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        let shown = |app: &crate::App| app.list.files()[app.list.shown()].clone();
+        let tick = |app: &mut crate::App| {
+            decode_all(app, &ctx);
+            app.move_along(&ctx, crate::ui::actions::Action::Next);
+        };
+        let mut seen = vec![shown(&app)];
+        for _ in 0..9 {
+            tick(&mut app);
+            seen.push(shown(&app));
+        }
+        for _ in 0..3 {
+            app.move_along(&ctx, crate::ui::actions::Action::Previous);
+        }
+        assert_eq!(shown(&app), seen[6]);
+        add(0..10, "a");
+        app.take_listed_files(&ctx, part(&app), false);
+        for _ in 0..3 {
+            app.move_along(&ctx, crate::ui::actions::Action::Next);
+        }
+        assert_eq!(shown(&app), seen[9], "the images shown");
+        // The next image is decoded, and a part comes right before its slide.
+        let next = app.slideshow.planned_places().next().unwrap();
+        let start = std::time::Instant::now();
+        while !app.list.loaded_images().contains_key(&next)
+            && start.elapsed() < std::time::Duration::from_secs(5)
+        {
+            app.receive_decoded(&ctx);
+        }
+        let name = app.list.files()[next].clone();
+        add(10..20, "a");
+        app.take_listed_files(&ctx, part(&app), false);
+        assert_eq!(app.list.files().len(), 40);
+        let next = app.slideshow.planned_places().next().unwrap();
+        assert_eq!(app.list.files()[next], name, "the next image");
+        assert!(app.list.loaded_images().contains_key(&next), "decoded");
+        assert!(!app.list.decodes_pending().contains_key(&(next, false)));
+        let mut sorted = app.list.files().to_vec();
+        sorted.sort();
+        assert_eq!(app.list.files(), sorted, "the list in its order");
+        app.move_along(&ctx, crate::ui::actions::Action::Next);
+        assert_eq!(shown(&app), name, "the next slide");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The parts of a slideshow's own listing of its tree hold only the images found since the
+    /// part before that the list does not hold, and the window puts each into the list in its
+    /// order, every image once. Before, each part was the whole tree so far, and the window
+    /// looked at every name of it in random order, 0.65 s for each part of 500,000 names (#256).
+    #[test]
+    fn the_parts_of_a_slideshows_tree_hold_only_the_new_images() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-new-names-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for name in ["top.png", "a/1.png", "b/2.png"] {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            (image::RgbImage::new(2, 2)).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert_eq!(app.list.files(), ["top.png"]);
+        // On a share, with an image awaited, the walk waits a second between folders, so each
+        // folder comes in a part of its own.
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        (app.decoding.images_awaited()).set(vec![dir.join("awaited.png")]);
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = false;
+        app.config.slideshow_delay = 3600;
+        app.start_slideshow(&ctx);
+        // The parts are taken as they come, and merged after, so that no image the window
+        // asks for meanwhile changes the images awaited. The top folder's image is in the list
+        // already, so its folder sends no part.
+        let mut parts = Vec::new();
+        while parts.len() < 2
+            && let Some(part) = app.folder.wait_for_part()
+        {
+            parts.push(part);
+        }
+        crate::files::file_ops::test_mount(&dir, None);
+        let names_of =
+            |part: &[super::ListedName]| part.iter().map(|f| f.0.clone()).collect::<Vec<_>>();
+        let parts_names: Vec<Vec<std::ffi::OsString>> = parts.iter().map(|p| names_of(p)).collect();
+        for part in parts {
+            app.take_listed_files(&ctx, part, false);
+        }
+        let names =
+            |names: &[&str]| -> Vec<std::ffi::OsString> { names.iter().map(Into::into).collect() };
+        let all = names(&["a/1.png", "b/2.png", "top.png"]);
+        let one_each: Vec<Vec<std::ffi::OsString>> =
+            all[..2].iter().map(|n| vec![n.clone()]).collect();
+        assert_eq!(parts_names, one_each, "each part the images new to it");
+        assert_eq!(app.list.files(), all, "every image once, in the sort order");
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.list.files(), all);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3246,6 +4529,55 @@ mod tests {
         app.open_folders(&ctx, vec![dir.join("link"), dir.join("a")]);
         app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         assert!(app.folder.folders.is_empty() && app.folder.dir == real.join("a"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Several folders given out of name order, with and without their subfolders, are one
+    /// list in the order their parts go in by: byte order in the default order by name with
+    /// Case, and the sort order otherwise. So the rows never move when the whole list comes after
+    /// the parts. Before, each folder's images came in name order one folder after the other,
+    /// in the order the folders were given, while the parts went in by byte order across them.
+    #[test]
+    fn several_folders_are_one_list_in_the_order_of_their_parts() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-folders-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for name in ["b/1.png", "b/s/2.png", "a/3.png", "a/s/4.png"] {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let real = dir.canonicalize().unwrap();
+        let at = real.strip_prefix("/").unwrap().to_path_buf();
+        for subfolders in [false, true] {
+            let (mut app, ctx) = app_on(&dir);
+            app.config.show_subfolders = subfolders;
+            app.open_folders(&ctx, vec![real.join("b"), real.join("a")]);
+            app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
+            let mut want: Vec<OsString> = match subfolders {
+                true => vec!["a/3.png", "a/s/4.png", "b/1.png", "b/s/2.png"],
+                false => vec!["a/3.png", "b/1.png"],
+            }
+            .into_iter()
+            .map(|n| at.join(n).into_os_string())
+            .collect();
+            assert_eq!(app.list.files(), want, "with subfolders {subfolders}");
+            // Descending, the other way round.
+            app.config.sort_ascending = false;
+            app.folder.sort_again();
+            app.start_listing(&ctx);
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
+            want.reverse();
+            assert_eq!(
+                app.list.files(),
+                want,
+                "descending, with subfolders {subfolders}"
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3790,11 +5122,23 @@ mod tests {
         assert_eq!(rx.iter().collect::<Vec<_>>(), [NOT_COUNTED_ON_A_SHARE]);
         assert_eq!(looked.get(), 0);
         let paths = [dir.join("a.png")];
-        let total = super::total_size_unless_on_a_share(&app.folder.places(), true, &paths);
+        let total = super::total_size_unless_on_a_share(
+            &app.folder.places(),
+            true,
+            &paths,
+            (&Default::default(), &|| true),
+        );
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
         // On a disk of its own they are summed.
         test_mount(&dir, None);
-        assert!(super::total_size_unless_on_a_share(&app.folder.places(), true, &paths) > 0);
+        assert!(
+            super::total_size_unless_on_a_share(
+                &app.folder.places(),
+                true,
+                &paths,
+                (&Default::default(), &|| true)
+            ) > 0
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3824,9 +5168,21 @@ mod tests {
         assert_eq!(app.list.files(), ["a.png", "nas/b.png"]);
         assert_eq!(app.status_bar.folder_total(), Some(NOT_COUNTED_ON_A_SHARE));
         let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
-        let total = super::total_size_unless_on_a_share(&places, true, &paths);
+        let total = super::total_size_unless_on_a_share(
+            &places,
+            true,
+            &paths,
+            (&Default::default(), &|| true),
+        );
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
-        assert!(super::total_size_unless_on_a_share(&places, false, &paths) > 0);
+        assert!(
+            super::total_size_unless_on_a_share(
+                &places,
+                false,
+                &paths,
+                (&Default::default(), &|| true)
+            ) > 0
+        );
         test_mount(&dir.join("nas"), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -3858,10 +5214,1721 @@ mod tests {
         app.folder.show_subfolders(true);
         assert!(!app.folder.walks_subfolders());
         let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
-        let total =
-            super::total_size_unless_on_a_share(&places, app.folder.walks_subfolders(), &paths);
+        let total = super::total_size_unless_on_a_share(
+            &places,
+            app.folder.walks_subfolders(),
+            &paths,
+            (&Default::default(), &|| true),
+        );
         assert!(total > 0 && total != crate::support::format::NOT_COUNTED_ON_A_SHARE);
         test_mount(&dir.join("nas"), None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A tree opened with View → Subfolders gets each part into the list in the order chosen,
+    /// as its whole list comes, also by date and descending, where each image goes in by what
+    /// the listing thread looked at of it, among what the list keeps of its own images, and by
+    /// name without Case and by number. Before, a
+    /// part was merged by its bytes in every order, so in an order by date the tree's images
+    /// were in the wrong places until the whole tree was read.
+    #[test]
+    fn the_parts_of_a_tree_go_into_the_list_in_its_order() {
+        use crate::model::listing::Sort;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-part-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let names = [
+            "c.png", "B.png", "a/1.png", "a/10.png", "a/2.png", "b/x.png", "b/Y.png",
+        ];
+        for (k, name) in names.iter().enumerate() {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            let when =
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(9_000 - k as u64 * 7 % 5);
+            let file = std::fs::File::options().write(true).open(dir.join(name));
+            file.unwrap().set_modified(when).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let orders = [
+            (Sort::Date, true, true),
+            (Sort::Date, false, true),
+            (Sort::Name, true, false),
+            (Sort::Number, false, true),
+        ];
+        for order in orders {
+            let c = &mut app.config;
+            (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
+            // A folder opened, with its tree.
+            app.replace_files(&ctx, Vec::new(), None);
+            app.folder.show_subfolders(true);
+            app.start_listing(&ctx);
+            let mut fed = feed(&mut app);
+            let mut parts = 0;
+            while send_part(&mut app, &ctx, &mut fed) {
+                let files: Vec<&OsString> = app.list.files().iter().collect();
+                assert_in_order(&dir, &files, order, &format!("part {parts}"));
+                parts += 1;
+            }
+            assert!(
+                parts > 2 && app.list.files().len() == names.len(),
+                "{order:?}"
+            );
+            let before = app.list.files().to_vec();
+            send_whole(&mut app, &ctx, &fed);
+            assert_eq!(
+                app.list.files(),
+                before,
+                "the whole list as the parts: {order:?}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// In an order by date, the listing of a tree looks at each image once: a part looks at its
+    /// new images, a part that could not be sent keeps what it looked at for the next one, and
+    /// the whole list is sorted by what the parts looked at, so there only the images that the
+    /// list held before are looked at. The window puts each part into the list by what the list
+    /// keeps of its own images, with no look at a file, here into a list already in that order.
+    /// Before, the listing thread looked at each new image three times, when its part was sorted,
+    /// when it was placed among a copy of the list's names and when the whole list was sorted,
+    /// and once more after a part could not be sent.
+    #[test]
+    fn a_tree_in_date_order_looks_at_each_image_once() {
+        use crate::model::listing::{FILES_LOOKED_AT, Sort};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-looked-once-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // The dates go the other way to the names, so a part put in by its names would be in
+        // the wrong place.
+        let names: Vec<String> = (["x.png", "y.png"].map(String::from).into_iter())
+            .chain((0..12).map(|k| format!("d{}/{k:02}.png", k % 3)))
+            .collect();
+        for (k, name) in names.iter().enumerate() {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(9_000 - k as u64);
+            let file = std::fs::File::options().write(true).open(dir.join(name));
+            file.unwrap().set_modified(when).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let order = (Sort::Date, true, true);
+        let c = &mut app.config;
+        (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
+        // The folder's own images, in that order, and then its tree.
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.list.files(), ["y.png", "x.png"].map(OsString::from));
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        FILES_LOOKED_AT.set(0);
+        let mut parts = 0;
+        while send_part(&mut app, &ctx, &mut fed) {
+            // The test's own looks are not counted.
+            let looks = FILES_LOOKED_AT.get();
+            let files: Vec<&OsString> = app.list.files().iter().collect();
+            assert_in_order(&dir, &files, order, &format!("part {parts}"));
+            FILES_LOOKED_AT.set(looks);
+            parts += 1;
+            if parts == 2 {
+                // A part that could not be sent, as the window had not taken the one before:
+                // its images and the folder it read go with the next one.
+                let Some(Ok((rel, _, files, _))) = fed.walk.next() else {
+                    panic!("no folder left to read");
+                };
+                let images = files.into_iter().map(|(n, id)| (rel.join(n).into(), id));
+                fed.so_far.extend(images);
+                let dropped = fed.sent.next_part(&fed.so_far).expect("a part");
+                fed.sent.read_whole = dropped.read;
+            }
+        }
+        assert_eq!(app.list.files().len(), names.len());
+        assert_eq!(FILES_LOOKED_AT.get(), names.len() - 2, "the parts' looks");
+        let known = fed.sent.take_keys();
+        let whole = fed.sent.sorted(fed.so_far.clone(), known);
+        assert_eq!(
+            FILES_LOOKED_AT.get(),
+            names.len(),
+            "one look for each image"
+        );
+        assert_eq!(
+            app.list.files(),
+            whole.files(),
+            "the parts in the order of the whole list"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Show Hidden Files turned off takes the hidden images out of the list at once, also those
+    /// in a hidden folder of a tree, before the tree is read again, and the Types menu takes out
+    /// the images of a type it no longer lists. Before, they stayed until the whole list came,
+    /// minutes later for a tree on a share, and a slideshow went on showing the images just
+    /// hidden.
+    #[test]
+    fn images_no_longer_shown_leave_the_list_at_once() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-hidden-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for name in ["a.png", ".b.png", ".h/c.png", "s/d.png"] {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        std::fs::write(dir.join("s/e.raf"), "raw").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.show_hidden = true;
+        app.config.list_raw = true;
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let names = |names: &[&str]| -> Vec<OsString> { names.iter().map(Into::into).collect() };
+        let all = names(&[".b.png", ".h/c.png", "a.png", "s/d.png", "s/e.raf"]);
+        assert_eq!(app.list.files(), all);
+        app.toggle_hidden_files(&ctx);
+        assert!(app.folder.is_listing(), "the tree is read again");
+        assert_eq!(
+            app.list.files(),
+            names(&["a.png", "s/d.png", "s/e.raf"]),
+            "at once"
+        );
+        app.config.list_raw = false;
+        app.leave_out_names_not_shown(&ctx);
+        assert_eq!(app.list.files(), names(&["a.png", "s/d.png"]));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// On a share, in an order that looks at the files, a part's looks at its images wait for
+    /// the image that the window waits for, before each look and not only before the folder,
+    /// and a hundred looks wait for it at most `WALK_WAITS_FOR_IMAGES_AT_MOST` in all, so the
+    /// walk never stops for good. On a disk of its own they never wait. Before, a part looked at
+    /// the new images of every folder since the part before in a row, 600 to 900 EXIF reads
+    /// after one wait, and the image awaited queued behind them (#256).
+    #[test]
+    fn a_parts_looks_wait_for_the_image_awaited() {
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-looks-wait-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("s")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.sort = crate::model::listing::Sort::Date;
+        app.folder.show_subfolders(true);
+        // The list in Date order, whose parts go in by the files' dates.
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        // A part of 40 new images, found in a folder after the walk's wait before it.
+        let part_of = |fed: &mut FedListing, from: usize| {
+            fed.so_far = (0..from + 40)
+                .map(|i| (format!("s/{i}.png").into(), None))
+                .collect();
+            fed.sent.up_to = from;
+            let began = Instant::now();
+            assert!(fed.sent.next_part(&fed.so_far).is_some());
+            began.elapsed()
+        };
+        let awaited = app.decoding.images_awaited().clone();
+        awaited.set(vec![dir.join("a.png")]);
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        let took = part_of(&mut fed, 0);
+        assert!(
+            took < Duration::from_millis(200),
+            "a disk of its own: {took:?}"
+        );
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        // The image became awaited after the walk's wait before the folder, and is decoded while
+        // the part looks at its images.
+        awaited.set(vec![dir.join("a.png")]);
+        let decoded = awaited.clone();
+        let later = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            decoded.set(Vec::new());
+        });
+        let took = part_of(&mut fed, 0);
+        later.join().unwrap();
+        assert!(
+            took >= Duration::from_millis(350),
+            "the looks waited: {took:?}"
+        );
+        // An image awaited all along holds a part's 40 looks for a second in all, not for each,
+        // as they are fewer than the hundred looks that share one budget.
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        awaited.set(vec![dir.join("a.png")]);
+        let took = part_of(&mut fed, 0);
+        assert!(
+            took >= Duration::from_millis(900) && took < Duration::from_millis(2500),
+            "a second in all: {took:?}"
+        );
+        crate::files::file_ops::test_mount(&dir, None);
+        awaited.set(Vec::new());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// On a share, in an order that looks at the files, the looks that put the list's rows in
+    /// another order after a sort change, and the looks of the sort of the whole list, wait for
+    /// the image that the window waits for, as a part's looks do: up to a second in every
+    /// hundred looks, so that a long run of them pauses again and again and never stops for
+    /// good. Before, the list put in another order shared one second with the part's own looks,
+    /// and the sort of the whole list never waited, so on a share minutes of EXIF reads went
+    /// before the slideshow's next image.
+    #[test]
+    fn every_look_of_a_walk_waits_for_the_image_awaited() {
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-rekey-waits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("s")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.sort = crate::model::listing::Sort::Date;
+        app.folder.show_subfolders(true);
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        crate::files::file_ops::test_mount(&dir, Some("cifs"));
+        let awaited = app.decoding.images_awaited().clone();
+        let names = |prefix: &str, n: usize| -> Vec<super::ListedName> {
+            (0..n)
+                .map(|i| (format!("{prefix}/{i}.png").into(), None))
+                .collect()
+        };
+        // The list's 250 names put in the listing's order with the first part: three budgets.
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        fed.sent.to_sort_anew = names("s", 250);
+        awaited.set(vec![dir.join("a.png")]);
+        let began = Instant::now();
+        assert!(fed.sent.next_part(&[]).is_some());
+        let took = began.elapsed();
+        assert!(
+            took >= Duration::from_millis(2700) && took < Duration::from_millis(6000),
+            "the list put in another order paused in each hundred looks: {took:?}"
+        );
+        // The sort of a whole list of 150 names: two budgets. The image is awaited anew, as one
+        // awaited for longer than `IMAGE_AWAITED_FOR` no longer holds the walk.
+        app.start_listing(&ctx);
+        let mut fed = feed(&mut app);
+        awaited.set(Vec::new());
+        awaited.set(vec![dir.join("a.png")]);
+        let began = Instant::now();
+        let whole = fed.sent.sorted(names("w", 150), Vec::new());
+        let took = began.elapsed();
+        assert_eq!(whole.len(), 150);
+        assert!(
+            took >= Duration::from_millis(1800) && took < Duration::from_millis(4500),
+            "the whole list's sort paused in each hundred looks: {took:?}"
+        );
+        crate::files::file_ops::test_mount(&dir, None);
+        awaited.set(Vec::new());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A rename moves the renamed row to its place in the list's order, by name in Name order
+    /// and in an EXIF order among images with no EXIF date, so that the parts of a tree read
+    /// after it go in at their places, and the image shown and the selection stay on the renamed
+    /// file. Before, the row kept its place under its new name, and a later part was placed by a
+    /// binary search over rows out of order.
+    #[test]
+    fn a_rename_keeps_the_rows_in_their_order() {
+        use crate::model::listing::Sort;
+        for order in [(Sort::Name, true, true), (Sort::ExifOriginal, true, true)] {
+            let dir = std::env::temp_dir().join(format!(
+                "glimt-test-rename-order-{:?}-{}",
+                order.0,
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            for name in ["a.png", "b.png", "c.png", "d.png", "m/1.png", "m/2.png"] {
+                std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+                image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            }
+            let (mut app, ctx) = app_on(&dir);
+            let c = &mut app.config;
+            (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
+            app.start_listing(&ctx);
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
+            // The tree is read a folder at a time, and the folder m is not read yet.
+            app.folder.show_subfolders(true);
+            app.start_listing(&ctx);
+            let mut fed = feed(&mut app);
+            assert!(send_part(&mut app, &ctx, &mut fed));
+            app.show_file(&ctx, 0);
+            app.set_selection(&ctx, [0, 2].into());
+            std::fs::rename(dir.join("a.png"), dir.join("z.png")).unwrap();
+            app.rename_in_list(&ctx, vec![(0, "z.png".into())]);
+            let at = format!("after the rename, {order:?}");
+            let files: Vec<&OsString> = app.list.files().iter().collect();
+            assert_in_order(&dir, &files, order, &at);
+            assert_eq!(app.list.rows().order(), Some(order), "{at}");
+            let name = |i: usize| app.list.files()[i].to_str().unwrap().to_owned();
+            assert_eq!(name(app.list.shown()), "z.png", "the image shown: {at}");
+            let selected: Vec<String> = app.list.selected().iter().map(|&i| name(i)).collect();
+            assert_eq!(selected, ["c.png", "z.png"], "the selection: {at}");
+            while send_part(&mut app, &ctx, &mut fed) {}
+            let names = ["b.png", "c.png", "d.png", "m/1.png", "m/2.png", "z.png"];
+            assert_eq!(
+                app.list.files(),
+                names.map(OsString::from),
+                "the folder read after the rename: {order:?}"
+            );
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    /// The listing that `start_listing` started, read by the test a folder at a time in place of
+    /// its thread, so that its parts and its whole list come between the other events in an
+    /// order that the test chooses.
+    struct FedListing {
+        listing: std::sync::mpsc::Sender<super::Listed>,
+        parts: std::sync::mpsc::SyncSender<super::TreePart>,
+        /// What its parts sent, with the names that the list held when the listing started,
+        /// as the listing thread holds it.
+        sent: super::PartsSent,
+        /// The images that the walk found so far.
+        so_far: Vec<super::ListedName>,
+        /// The walk of the tree, the listing thread's own (`walk_of`), a folder at each part.
+        walk: Walk,
+        /// The listing's stop flag, which another listing replaces.
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    use std::collections::HashSet;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    /// A walk of a tree, a folder at a time.
+    type Walk =
+        Box<dyn Iterator<Item = Result<crate::model::listing::WalkedFolder, super::Unread>>>;
+
+    /// The walk of the folder shown as the listing thread walks it (`listing::walk`), with its
+    /// links followed inside the tree, each folder read once by its file id and the hidden ones
+    /// left out, except that a folder named `locked` cannot be read, as one without permission
+    /// on a share (the tests run as root, which reads every folder).
+    fn walk_of(app: &crate::App) -> Walk {
+        let list = |path: &std::path::Path, types| match path.file_name() == Some("locked".as_ref())
+        {
+            true => Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            false => super::list_folder(path, types),
+        };
+        Box::new(crate::model::listing::walk_by(
+            app.folder.dir(),
+            app.shown_types(),
+            crate::images::save::file_id,
+            |p| std::fs::canonicalize(p),
+            list,
+        ))
+    }
+
+    /// Returns the images that the tree on disk holds as `walk_of` reads it, by their names in
+    /// the list, and the folders it could not read.
+    fn tree_on_disk(app: &crate::App) -> (Vec<super::ListedName>, Vec<super::Unread>) {
+        let (mut files, mut left_out) = (Vec::new(), Vec::new());
+        for walked in walk_of(app) {
+            match walked {
+                Ok((rel, _, images, _)) => files
+                    .extend((images.into_iter()).map(|(n, id)| (rel.join(n).into_os_string(), id))),
+                Err(unread) => left_out.push(unread),
+            }
+        }
+        (files, left_out)
+    }
+
+    /// Asserts that the list holds every image of the tree on disk and no other name, each
+    /// once.
+    fn assert_list_holds_the_tree(app: &crate::App, at: &str) {
+        let disk: HashSet<OsString> = tree_on_disk(app).0.into_iter().map(|f| f.0).collect();
+        let list: HashSet<&OsString> = app.list.files().iter().collect();
+        assert_eq!(list.len(), app.list.files().len(), "a name twice: {at}");
+        let lacks: Vec<&OsString> = disk.iter().filter(|f| !list.contains(f)).collect();
+        let gone: Vec<&&OsString> = list.iter().filter(|f| !disk.contains(**f)).collect();
+        assert!(
+            lacks.is_empty() && gone.is_empty(),
+            "lacks {lacks:?}, gone {gone:?}: {at}"
+        );
+    }
+
+    /// Takes the listing that runs from its thread, which stops, and feeds it from the test.
+    /// It is a listing of a tree, so it sends parts, in the listing's order. What it sends of
+    /// them is made as the listing's thread makes it (`App::parts_from`, `PartsFrom::parts_sent`),
+    /// from the list as it is when the listing has just started.
+    fn feed(app: &mut crate::App) -> FedListing {
+        assert!(
+            app.folder.listing_sends_parts,
+            "a listing of a tree that sends no parts"
+        );
+        let c = &app.config;
+        let order = (c.sort, c.sort_ascending, c.sort_case_sensitive);
+        // The thread's own stop is set below, and the test's parts wait on.
+        let sent = app
+            .parts_from(order, std::sync::Arc::default())
+            .parts_sent();
+        app.folder
+            .listing_stop
+            .store(true, super::Ordering::Relaxed);
+        let (listing, rx) = std::sync::mpsc::channel();
+        let (parts, part_rx) = std::sync::mpsc::sync_channel(64);
+        app.folder.listing_rx = super::Receiving::of(rx);
+        app.folder.part_rx = super::Receiving::of(part_rx);
+        FedListing {
+            listing,
+            parts,
+            sent,
+            so_far: Vec::new(),
+            walk: walk_of(app),
+            stop: app.folder.listing_stop.clone(),
+        }
+    }
+
+    /// Feeds a listing that started since `fed` was made, after the window's frame has started
+    /// the one that a change asked for (`relist_later`). A listing that no longer runs leaves
+    /// none to feed.
+    fn feed_what_runs(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        fed: &mut Option<FedListing>,
+    ) {
+        if app.folder.wants_relist() && !app.folder.is_listing() {
+            app.start_listing(ctx);
+        }
+        let same = (fed.as_ref())
+            .is_some_and(|f| std::sync::Arc::ptr_eq(&f.stop, &app.folder.listing_stop));
+        if !app.folder.is_listing() {
+            *fed = None;
+        } else if !same {
+            *fed = Some(feed(app));
+        }
+    }
+
+    /// Reads the next folder of the fed listing's walk and sends the images in it that are new
+    /// to the list as a part, with the folders read whole where a name may be gone, as the
+    /// listing thread does, and the window takes it. A folder that cannot be read is left out,
+    /// as `list_tree` leaves it out. Afterwards the list holds every image of that folder, and
+    /// no name of it that it lacks now, nor one below a folder of it that is gone, judged by
+    /// the walk's rules: a hidden folder the walk reached through a link is not gone from its
+    /// parent. Returns false when the walk has read every folder.
+    fn send_part(app: &mut crate::App, ctx: &eframe::egui::Context, fed: &mut FedListing) -> bool {
+        let (rel, dirs, files) = loop {
+            match fed.walk.next() {
+                None => return false,
+                Some(Ok((rel, dirs, files, _))) => break (rel, dirs, files),
+                Some(Err(_)) => continue,
+            }
+        };
+        let types = app.shown_types();
+        let first = fed.so_far.len();
+        let images: Vec<OsString> = (files.into_iter())
+            .map(|(name, _)| rel.join(name).into_os_string())
+            .collect();
+        (fed.so_far).extend(images.iter().map(|name| (name.clone(), None)));
+        let read = crate::model::listing::FolderReadWhole {
+            so_far: &fed.so_far,
+            first,
+            folder: &rel,
+            dirs: &dirs,
+            types,
+        };
+        fed.sent
+            .listed_before
+            .note_folder(&read, &mut fed.sent.read_whole);
+        if let Some(part) = fed.sent.next_part(&fed.so_far) {
+            fed.parts.send(part).unwrap();
+            fed.sent.part_sent(fed.so_far.len());
+        }
+        app.receive_listing(ctx, std::time::Duration::ZERO);
+        // Nothing of the folder read is in the list that the folder no longer holds, by the tree
+        // on disk: a folder below it is there when the walk of the tree reaches it.
+        let subfolders: Vec<PathBuf> = (dirs.iter())
+            .filter_map(|d| d.file_name())
+            .map(|n| rel.join(n))
+            .collect();
+        let walked: HashSet<PathBuf> = (walk_of(app).flatten()).map(|(rel, ..)| rel).collect();
+        for name in app.list.files() {
+            let Ok(below) = std::path::Path::new(name).strip_prefix(&rel) else {
+                continue;
+            };
+            let mut steps = below.components();
+            let Some(step) = steps.next() else {
+                continue;
+            };
+            let step = step.as_os_str();
+            let there = match steps.next() {
+                None => images.contains(name),
+                // A hidden folder that its parent's read leaves out is not judged by it: only its
+                // own read through a link, or the whole list, tells which of its names are gone.
+                Some(_) => {
+                    let folder = app.folder.dir().join(&rel).join(step);
+                    let hidden_there = step.as_encoded_bytes().starts_with(b".")
+                        && crate::files::file_io::is_surely_dir(&folder);
+                    subfolders.contains(&rel.join(step))
+                        || walked.contains(&rel.join(step))
+                        || hidden_there
+                }
+            };
+            assert!(there, "{name:?} is gone from {rel:?}, which was read whole");
+        }
+        // And every image it holds is in the list.
+        let lacks: Vec<&OsString> = (images.iter())
+            .filter(|f| !app.list.files().contains(f))
+            .collect();
+        assert!(
+            lacks.is_empty(),
+            "{lacks:?} of {rel:?}, read whole, not in the list"
+        );
+        true
+    }
+
+    /// Sends the fed listing's whole list, the tree as it is now in the sort order, with the
+    /// folders it could not read, and the window takes it.
+    fn send_whole(app: &mut crate::App, ctx: &eframe::egui::Context, fed: &FedListing) {
+        let dir = app.folder.dir().to_path_buf();
+        let (files, left_out) = tree_on_disk(app);
+        let c = &app.config;
+        let order = (c.sort, c.sort_ascending, c.sort_case_sensitive);
+        let key = |_, name: &OsString| crate::model::listing::sort_key(&dir, name, order.0);
+        let rows = super::Rows::sorted(files, order, key);
+        let listed = super::Listed {
+            dirs: Vec::new(),
+            files: Ok(super::ListedRows::Rows(rows)),
+            left_out,
+            read: Vec::new(),
+            read_in: std::time::Duration::ZERO,
+        };
+        fed.listing.send(listed).unwrap();
+        app.receive_listing(ctx, std::time::Duration::ZERO);
+    }
+
+    /// Takes the decodes in flight, so that the slideshow's next step does not wait for one.
+    fn decode_all(app: &mut crate::App, ctx: &eframe::egui::Context) {
+        let start = std::time::Instant::now();
+        while !app.list.decodes_pending().is_empty()
+            && start.elapsed() < std::time::Duration::from_secs(5)
+        {
+            app.receive_decoded(ctx);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// A slideshow of a tree never changes the order of the file list, whatever comes in
+    /// whatever order: parts of its walk, whole lists, F5, a delete, a move and a rename of a
+    /// file and of a subfolder, another sort order (by name with and without Case, descending,
+    /// by number, and each order that looks at the files) also in the middle of a walk, Show
+    /// Hidden Files on and off, R on and off, Left, Right, Home and End, also with Shift, its own
+    /// steps, an image shown by hand, a search narrowed, widened and cleared, Repeat on and off,
+    /// a stop and a start, one image opened in an order that looks at the files and then its
+    /// tree read (also as `--slideshow photo.jpg` with Include Subfolders), a sidecar's
+    /// relisting in each order that looks at the files, with a file deleted between its start
+    /// and its whole list, which in an EXIF date order keeps the list's order, and one to three
+    /// names listed in such an order before another one is chosen and the parts come in it,
+    /// with a file moved away before the first part. Images picked with Ctrl+click and then an
+    /// arrow key, Home or End, with or without Shift, leave the image on screen as an action's
+    /// only target, a stop on an image of one of several folders given goes back to their own
+    /// images, and a whole list that comes after a stop keeps the image stopped on. The tree has
+    /// a link into a hidden folder (hidden files not shown at first), a folder reached by two
+    /// paths and a folder that cannot be read, its images have dates in another order than their
+    /// names, and the walk is the listing thread's own. After each event no name is twice in the
+    /// list, the list is in the order that its rows hold, every row carries a key of that order
+    /// in an order that looks at the files, and none is gone from the list that the tree on disk
+    /// still holds. After each part the list is in the listing's order, which the first part
+    /// after another order was chosen puts it in, and after each whole list and each stop the
+    /// list is the tree on disk in its sort order. Every listing of the tree sends parts, so the
+    /// list grows while it is read, also a `--slideshow` start with several folders of the tree.
+    /// The slideshow shows no image twice in a round, and neither shows nor plans an image that
+    /// the search hides. Without Repeat it ends at the step after every image the search shows
+    /// was shown, and not before, and with Repeat the next round begins only then. No tick holds
+    /// the slideshow. After R off, and in order after an image shown by hand, the next image is
+    /// the next row after the one shown that the round has not shown, Left goes back through the
+    /// images shown and Right forward again, and a stop keeps the image shown, scrolled to in the
+    /// list. The events come from a seeded xorshift, in both orders, with Repeat on and off at
+    /// the start. Before, the slideshow put its own order into the list and merged every listing
+    /// into it, and four rounds of audits found images lost from the list or shown twice there.
+    #[test]
+    fn a_slideshow_keeps_its_order_through_every_listing() {
+        for seed in [0x9e37_79b9_u64, 0x85eb_ca6b, 0xc2b2_ae35] {
+            for random in [false, true] {
+                for repeat in [false, true] {
+                    play_a_tree_through_events(seed, random, repeat);
+                }
+            }
+        }
+    }
+
+    /// What the test knows of the slideshow of `play_a_tree_through_events`, from what it showed:
+    /// the names it showed in this round, the names it showed, the oldest first, and how many
+    /// steps Left has gone back from the newest one.
+    #[derive(Default)]
+    struct SlidesSeen {
+        round: HashSet<OsString>,
+        history: Vec<OsString>,
+        back: usize,
+    }
+
+    impl SlidesSeen {
+        /// A round begins with `on_screen` shown, and `on_screen` is the newest in the history.
+        fn begin(&mut self, on_screen: OsString) {
+            self.round = [on_screen.clone()].into();
+            self.history.push(on_screen);
+            self.back = 0;
+        }
+
+        /// The image the history shows `back` steps back, past the images the list `files` no
+        /// longer holds, or `None` when the history has none there.
+        fn step(&self, files: &[OsString], older: bool) -> Option<(usize, OsString)> {
+            let mut back = self.back;
+            loop {
+                back = match older {
+                    true => back + 1,
+                    false => back.checked_sub(1)?,
+                };
+                let name = &self.history[self.history.len().checked_sub(1 + back)?];
+                if files.contains(name) {
+                    return Some((back, name.clone()));
+                }
+            }
+        }
+    }
+
+    /// Asserts that `names`, files in `dir`, are in the order `order` (`listing::in_order`).
+    fn assert_in_order(
+        dir: &std::path::Path,
+        names: &[&OsString],
+        order: (crate::model::listing::Sort, bool, bool),
+        at: &str,
+    ) {
+        let key = |name: &OsString| crate::model::listing::sort_key(dir, name, order.0);
+        let keys: Vec<_> = names.iter().map(|name| key(name)).collect();
+        for k in 1..names.len() {
+            let (a, b) = ((&keys[k - 1], names[k - 1]), (&keys[k], names[k]));
+            assert!(
+                crate::model::listing::in_order(a, b, order).is_le(),
+                "{:?} before {:?}, in {order:?}: {at}",
+                names[k - 1],
+                names[k]
+            );
+        }
+    }
+
+    /// Returns the folders of the tree at `dir` with their images, as `listing::walk` reads
+    /// them.
+    fn walk_by_folder(dir: &std::path::Path) -> Vec<crate::model::listing::WalkedFolder> {
+        let types = crate::model::listing::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: true,
+        };
+        let walked = crate::model::listing::walk(dir, types).flatten();
+        walked
+            .map(|(rel, d, images, m)| (dir.join(rel), d, images, m))
+            .collect()
+    }
+
+    /// Returns the name of the next row after the image shown that `round` lacks, among the
+    /// rows that the list shows (the search's matches, or every image), going on from the first
+    /// row after the last. A shown image that the search hides counts as before the first row.
+    /// Returns `None` when the round has shown every row.
+    fn next_unshown(app: &crate::App, round: &HashSet<OsString>) -> Option<OsString> {
+        let files = app.list.files();
+        let rows: Vec<usize> = match app.list.matches() {
+            Some(m) => m.to_vec(),
+            None => (0..files.len()).collect(),
+        };
+        let start = (rows.iter().position(|&i| i == app.list.shown())).map_or(0, |r| r + 1);
+        (0..rows.len())
+            .map(|d| &files[rows[(start + d) % rows.len()]])
+            .find(|f| !round.contains(*f))
+            .cloned()
+    }
+
+    /// A `--slideshow` start with the first two folders of `subfolders` in the tree `dir`, each
+    /// with its subfolders, as the step `at` of `play_a_tree_through_events` makes it: the
+    /// slideshow starts while their trees are read, as their listing sends parts, and once they
+    /// are read the list holds every image of both. Then `dir` is opened again.
+    fn several_folders_with_slideshow(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        dir: &std::path::Path,
+        subfolders: &[String],
+        at: &str,
+    ) {
+        app.stop_slideshow(ctx);
+        // The slideshow takes its first step at once and then none, and with Repeat it does
+        // not end when the search shows few images, so that it runs at the end of the listing.
+        let delay = std::mem::replace(&mut app.config.slideshow_delay, 3600);
+        let repeat = std::mem::replace(&mut app.config.slideshow_repeat, true);
+        let both: Vec<PathBuf> = subfolders[..2].iter().map(|s| dir.join(s)).collect();
+        app.slideshow = crate::viewer::slideshow::Slideshow::new(true);
+        app.open_folders(ctx, both.clone());
+        app.receive_looked_up(ctx, std::time::Duration::from_secs(5));
+        assert!(
+            app.folder.reads_tree_in_parts(),
+            "several folders read whole, without parts, so --slideshow waits: {at}"
+        );
+        assert!(run_background_until(app, ctx, |a| !a.folder.is_listing()));
+        assert!(
+            app.slideshow.is_running(),
+            "--slideshow did not start: {at}"
+        );
+        let types = app.shown_types();
+        let walked = |folder: &PathBuf| {
+            let name = folder.strip_prefix("/").unwrap().to_path_buf();
+            let images = (crate::model::listing::walk(folder, types).flatten())
+                .flat_map(|(rel, _, images, _)| images.into_iter().map(move |f| rel.join(f.0)));
+            images
+                .map(move |f| name.join(f).into_os_string())
+                .collect::<Vec<_>>()
+        };
+        let want: HashSet<OsString> = both.iter().flat_map(walked).collect();
+        let list: HashSet<OsString> = app.list.files().iter().cloned().collect();
+        assert_eq!(list, want, "the images of both folders: {at}");
+        app.stop_slideshow(ctx);
+        app.config.slideshow_delay = delay;
+        app.config.slideshow_repeat = repeat;
+        crate::support::test_support::open_now(app, ctx, dir.to_path_buf());
+    }
+
+    /// Opens the image `name` of the tree shown, in the order `order`, as the step `at` of
+    /// `play_a_tree_through_events` makes it: while a listing runs, so that the image's folder is
+    /// read anew and the list is that image alone, and then the slideshow starts. With
+    /// `slideshow_first`, View → Subfolders is off, and the slideshow of the subfolders starts
+    /// before the folder is read, as `--slideshow photo.jpg` with Include Subfolders starts it.
+    fn open_one_image(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        name: &OsString,
+        order: (crate::model::listing::Sort, bool, bool),
+        slideshow_first: bool,
+        at: &str,
+    ) {
+        app.stop_slideshow(ctx);
+        let c = &mut app.config;
+        (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
+        if !app.folder.is_listing() {
+            app.start_listing(ctx);
+        }
+        app.config.show_subfolders = !slideshow_first;
+        let path = app.folder.dir().join(name);
+        crate::support::test_support::open_now(app, ctx, path);
+        assert_eq!(
+            app.list.files(),
+            std::slice::from_ref(name),
+            "the image alone: {at}"
+        );
+        app.start_slideshow(ctx);
+        app.config.show_subfolders = true;
+        assert!(app.folder.reads_tree_in_parts(), "its tree in parts: {at}");
+    }
+
+    /// A `--slideshow` with the first two folders of `subfolders` in the tree `dir`, each with
+    /// its subfolders, stopped on an image of the first folder itself, as the step `at` of
+    /// `play_a_tree_through_events` makes it: the list goes back to the own images of both
+    /// folders, and the image stays shown. Before, a stop decided by a "/" in the name, which
+    /// every name of several folders holds, and the list kept the subfolders. Then `dir` is
+    /// opened again.
+    fn several_folders_stopped_on_their_own(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        dir: &std::path::Path,
+        subfolders: &[String],
+        at: &str,
+    ) {
+        app.stop_slideshow(ctx);
+        // As in `several_folders_with_slideshow`, the slideshow does not end before the stop.
+        let delay = std::mem::replace(&mut app.config.slideshow_delay, 3600);
+        let repeat = std::mem::replace(&mut app.config.slideshow_repeat, true);
+        let show_subfolders = std::mem::replace(&mut app.config.show_subfolders, false);
+        let both: Vec<PathBuf> = subfolders[..2].iter().map(|s| dir.join(s)).collect();
+        app.slideshow = crate::viewer::slideshow::Slideshow::new(true);
+        app.open_folders(ctx, both.clone());
+        app.receive_looked_up(ctx, std::time::Duration::from_secs(5));
+        assert!(run_background_until(app, ctx, |a| !a.folder.is_listing()));
+        assert!(
+            app.slideshow.is_running(),
+            "--slideshow did not start: {at}"
+        );
+        let own = |folder: &PathBuf| {
+            let name = folder.strip_prefix("/").unwrap().to_path_buf();
+            let images = super::list_folder(folder, app.shown_types()).unwrap().1;
+            (images.into_iter()).map(move |f| name.join(f.0).into_os_string())
+        };
+        let want: HashSet<OsString> = both.iter().flat_map(own).collect();
+        let first = app.list.files().iter().position(|f| want.contains(f));
+        if let Some(i) = first {
+            app.show_file(ctx, i);
+            let stopped_on = app.list.files().get(i).cloned();
+            app.stop_slideshow(ctx);
+            assert!(run_background_until(app, ctx, |a| !a.folder.is_listing()));
+            let list: HashSet<OsString> = app.list.files().iter().cloned().collect();
+            assert_eq!(list, want, "the folders' own images after a stop: {at}");
+            let now = app.list.files().get(app.list.shown()).cloned();
+            assert_eq!(now, stopped_on, "the image stopped on: {at}");
+        }
+        app.stop_slideshow(ctx);
+        app.config.slideshow_delay = delay;
+        app.config.slideshow_repeat = repeat;
+        app.config.show_subfolders = show_subfolders;
+        crate::support::test_support::open_now(app, ctx, dir.to_path_buf());
+    }
+
+    /// One run of `a_slideshow_keeps_its_order_through_every_listing`.
+    fn play_a_tree_through_events(seed: u64, random: bool, repeat: bool) {
+        use crate::ui::actions::Action;
+        let case = format!("seed {seed:x}, random {random}, repeat {repeat}");
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-order-kept-{seed:x}-{random}-{repeat}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut subfolders: Vec<String> = (0..4).map(|k| format!("s{k}")).collect();
+        for name in ["t0.png", "t1.png", "t2.png", "U.png", "a.png"] {
+            std::fs::create_dir_all(&dir).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        for sub in subfolders
+            .iter()
+            .chain(&[".hidden".into(), "locked".into()])
+        {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            for i in 0..5 {
+                image::RgbImage::new(2, 2)
+                    .save(dir.join(sub).join(format!("{i}.png")))
+                    .unwrap();
+            }
+        }
+        // The hidden folder is reached through a link only, and s2 also through s1/twice.
+        std::os::unix::fs::symlink("../.hidden", dir.join("s0/in")).unwrap();
+        std::os::unix::fs::symlink("../s2", dir.join("s1/twice")).unwrap();
+        // Each image has a date of its own, in another order than their names.
+        let mut day = seed;
+        for (folder, _, images, _) in walk_by_folder(&dir) {
+            for (name, _) in images {
+                day = day.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(day >> 34);
+                let file = std::fs::File::options().write(true).open(folder.join(name));
+                file.unwrap().set_modified(when).unwrap();
+            }
+        }
+        let few: Vec<PathBuf> = (1..=3).map(|k| few_names_tree(seed, k, &case)).collect();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.sort = crate::model::listing::Sort::Name;
+        app.config.sort_ascending = true;
+        app.config.sort_case_sensitive = true;
+        // View → Subfolders is on, so that a stop keeps the tree that the test's walk reads.
+        app.config.show_subfolders = true;
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = random;
+        app.config.slideshow_repeat = repeat;
+        // Each step of the slideshow comes when the test asks for it.
+        app.config.slideshow_delay = 0;
+        let mut x = seed;
+        let mut next = |n: usize| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x % n as u64) as usize
+        };
+        let shown_name = |app: &crate::App| app.list.files().get(app.list.shown()).cloned();
+        app.show_file(&ctx, 0);
+        app.start_slideshow(&ctx);
+        let mut fed = None;
+        feed_what_runs(&mut app, &ctx, &mut fed);
+        let mut seen = SlidesSeen::default();
+        seen.begin(shown_name(&app).unwrap());
+        let mut renamed = 0;
+        let in_config = |app: &crate::App| {
+            let c = &app.config;
+            (c.sort, c.sort_ascending, c.sort_case_sensitive)
+        };
+        for step in 0..200 {
+            let mut event = next(33);
+            let at = format!("{case}, step {step}, event {event}");
+            // Images picked with Ctrl+click, and then an arrow key, Home or End in the slideshow,
+            // as events 12, 13, 15 and 16 make them, half of the time with Shift held: as
+            // anywhere, a move without Shift clears the selection, so a Delete, Move, keyword or
+            // mark after it acts on the image on screen. In a slideshow a move with Shift is a
+            // plain move too, as its moves are not along the rows.
+            let rows: Vec<usize> = (0..app.list.files().len())
+                .filter(|&i| app.list.shows_file(i))
+                .collect();
+            let picked_first = event == 29 && rows.len() > 2;
+            let with_shift = picked_first && next(2) == 0;
+            if picked_first {
+                let picked = [rows[next(rows.len())], rows[next(rows.len())]];
+                app.set_selection(&ctx, picked.into_iter().collect());
+                app.panel.set_extends_selection(with_shift);
+                event = [12, 13, 15, 16][next(4)];
+            }
+            let order_before = app.list.files().to_vec();
+            let mut shown_before = shown_name(&app);
+            // The names that the list shows before the event: the search's matches, or all.
+            let rows_before: Vec<OsString> = (order_before.iter().enumerate())
+                .filter(|&(i, _)| app.list.shows_file(i))
+                .map(|(_, name)| name.clone())
+                .collect();
+            // The image shown before the event, under its new name when the event renamed it.
+            let mut same_image = shown_before.clone();
+            // The step of the slideshow that this event made: a new image picked (true), or a
+            // step through the history (false).
+            let mut picked = None;
+            match event {
+                0..=2 => {
+                    if let Some(f) = fed.as_mut()
+                        && !send_part(&mut app, &ctx, f)
+                    {
+                        send_whole(&mut app, &ctx, f);
+                        assert_list_holds_the_tree(&app, &at);
+                    }
+                    // A part goes in only into a list of the listing's order, which the first
+                    // part after another order was chosen puts the list in.
+                    if fed.is_some() {
+                        let order = Some(in_config(&app));
+                        assert_eq!(app.list.rows().order(), order, "after a part: {at}");
+                    }
+                }
+                3 => {
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                        assert_list_holds_the_tree(&app, &at);
+                    }
+                }
+                4 => app.refresh(&ctx),
+                5 => {
+                    let on = !app.config.slideshow_random;
+                    app.set_random_order(&ctx, on);
+                    assert_eq!(app.list.files(), order_before, "R changed the list: {at}");
+                    // After R off, the next image is the next one in the list after the one
+                    // shown that the round has not shown.
+                    if !on && seen.back == 0 && app.list.files().len() > 1 {
+                        seen.round.extend(shown_before.clone());
+                        let expected = next_unshown(&app, &seen.round);
+                        decode_all(&mut app, &ctx);
+                        let before = seen.round.clone();
+                        app.slideshow_tick(&ctx);
+                        picked = Some(true);
+                        if let Some(expected) = expected.filter(|_| app.slideshow.is_running()) {
+                            assert_eq!(shown_name(&app), Some(expected), "after R off: {at}");
+                        }
+                        assert_eq!(seen.round, before);
+                    }
+                }
+                6 | 7 if !app.list.files().is_empty() => {
+                    // A delete, or a move to another subfolder, of an image of the list. Both
+                    // take it out of the list and read the folder again once no listing runs.
+                    // An entry whose file is gone (under a subfolder renamed) is left alone.
+                    let i = next(app.list.files().len());
+                    let from = dir.join(&app.list.files()[i]);
+                    let to = dir
+                        .join(&subfolders[next(subfolders.len())])
+                        .join(format!("moved{step}.png"));
+                    let done = match event {
+                        6 => std::fs::remove_file(&from),
+                        _ => std::fs::rename(&from, &to),
+                    };
+                    if done.is_ok() {
+                        app.remove_indices(&ctx, &[i]);
+                        app.folder.relist_later();
+                    }
+                }
+                8 if !app.list.files().is_empty() => {
+                    // A rename of a file, in its folder or to a name at the top that comes after
+                    // every subfolder, also those not read yet: the row goes to its place in the
+                    // list's order, and the folder is read again.
+                    let i = next(app.list.files().len());
+                    let old = app.list.files()[i].clone();
+                    let new = match next(2) {
+                        0 => PathBuf::from(&old).with_file_name(format!("renamed{step}.png")),
+                        _ => PathBuf::from(format!("zz{step}.png")),
+                    };
+                    if std::fs::rename(dir.join(&old), dir.join(&new)).is_err() {
+                        continue;
+                    }
+                    let new = new.into_os_string();
+                    if same_image.as_ref() == Some(&old) {
+                        same_image = Some(new.clone());
+                    }
+                    if seen.round.remove(&old) {
+                        seen.round.insert(new.clone());
+                    }
+                    for name in seen.history.iter_mut().filter(|n| **n == old) {
+                        *name = new.clone();
+                    }
+                    app.rename_in_list(&ctx, vec![(i, new)]);
+                    app.start_listing(&ctx);
+                }
+                9 | 10 => {
+                    // A rename of a subfolder, or a move of one into another, or a delete of
+                    // one: the folder is read again.
+                    let k = next(subfolders.len());
+                    renamed += 1;
+                    let from = subfolders[k].clone();
+                    let old = dir.join(&from);
+                    // The subfolders listed below it go with it.
+                    let below = |s: &String| *s == from || s.starts_with(&format!("{from}/"));
+                    if event == 10 && subfolders.iter().any(|s| !below(s)) {
+                        std::fs::remove_dir_all(&old).unwrap();
+                        subfolders.retain(|s| !below(s));
+                        app.folder.relist_later();
+                    } else {
+                        let into = subfolders.iter().find(|s| !s.contains('/') && !below(s));
+                        let new = match (step % 2, into) {
+                            (1, Some(into)) => format!("{into}/m{renamed}"),
+                            _ => format!("{from}r{renamed}"),
+                        };
+                        std::fs::rename(&old, dir.join(&new)).unwrap();
+                        for s in subfolders.iter_mut().filter(|s| below(s)) {
+                            *s = format!("{new}{}", &s[from.len()..]);
+                        }
+                        app.follow_moved_paths(vec![(old, dir.join(&new))], false);
+                        app.start_listing(&ctx);
+                    }
+                }
+                11 => {
+                    app.toggle_hidden_files(&ctx);
+                    // Turned off, no image in a hidden folder is left in the list but those the
+                    // walk brings again through a link, at once and not when the whole list
+                    // comes.
+                    if !app.config.show_hidden {
+                        let hidden: Vec<&OsString> = (app.list.files().iter())
+                            .filter(|f| f.as_encoded_bytes().starts_with(b"."))
+                            .collect();
+                        assert!(hidden.is_empty(), "hidden images left: {hidden:?}, {at}");
+                    }
+                }
+                12 | 13 => {
+                    let older = event == 12;
+                    let expected = seen.step(app.list.files(), older);
+                    let key = if older {
+                        Action::Previous
+                    } else {
+                        Action::Next
+                    };
+                    decode_all(&mut app, &ctx);
+                    app.move_along(&ctx, key);
+                    match expected {
+                        Some((back, name)) => {
+                            assert_eq!(shown_name(&app), Some(name), "the history: {at}");
+                            seen.back = back;
+                            picked = Some(false);
+                        }
+                        // Left past the oldest image stays.
+                        None if older => assert_eq!(shown_name(&app), shown_before, "{at}"),
+                        None => picked = Some(true),
+                    }
+                }
+                14 => {
+                    let expected = seen.step(app.list.files(), false);
+                    decode_all(&mut app, &ctx);
+                    app.slideshow_tick(&ctx);
+                    if let Some((back, name)) = expected {
+                        assert_eq!(shown_name(&app), Some(name), "the history: {at}");
+                        seen.back = back;
+                        picked = Some(false);
+                    } else {
+                        picked = Some(true);
+                    }
+                }
+                15 | 16 if !app.list.files().is_empty() => {
+                    let key = if event == 15 {
+                        Action::First
+                    } else {
+                        Action::Last
+                    };
+                    app.move_along(&ctx, key);
+                    let now = shown_name(&app).unwrap();
+                    // The first or the last row that the list shows, of the search's matches.
+                    let files = app.list.files();
+                    let expected = match (app.list.matches(), event) {
+                        (None, 15) => files.first(),
+                        (None, _) => files.last(),
+                        (Some(m), 15) => m.first().map(|&i| &files[i]),
+                        (Some(m), _) => m.last().map(|&i| &files[i]),
+                    };
+                    if let Some(expected) = expected {
+                        assert_eq!(&now, expected, "Home or End: {at}");
+                    }
+                    // Shown as a click shows it, it joins the history when it is another image.
+                    if Some(&now) != same_image.as_ref() {
+                        seen.history.push(now.clone());
+                        seen.back = 0;
+                    }
+                    match event {
+                        15 => seen.round = [now].into(),
+                        _ => _ = seen.round.insert(now),
+                    }
+                }
+                17 => app.config.slideshow_repeat = !app.config.slideshow_repeat,
+                18 => {
+                    // Another order, as the sort menu chooses it: the list is read again in it.
+                    use crate::model::listing::Sort;
+                    let orders = [
+                        (Sort::Name, true, true),
+                        (Sort::Name, true, false),
+                        (Sort::Name, false, true),
+                        (Sort::Date, true, true),
+                        (Sort::Date, false, false),
+                        (Sort::Number, true, false),
+                        (Sort::Created, true, true),
+                        (Sort::Size, false, true),
+                        (Sort::ExifOriginal, true, true),
+                        (Sort::ExifDigitized, false, false),
+                    ];
+                    let (by, ascending, case) = orders[next(orders.len())];
+                    let c = &mut app.config;
+                    (c.sort, c.sort_ascending, c.sort_case_sensitive) = (by, ascending, case);
+                    app.folder.sort_again();
+                    app.start_listing(&ctx);
+                }
+                21 | 22 if !app.list.files().is_empty() => {
+                    // An image shown by hand: a click in the file list, on a pane or
+                    // `--remote show`. It is shown in this round, and in order the next slide is
+                    // the next row after it that the round has not shown.
+                    let i = next(app.list.files().len());
+                    app.show_file(&ctx, i);
+                    let now = shown_name(&app).unwrap();
+                    let another = Some(&now) != same_image.as_ref();
+                    if another {
+                        seen.round.insert(now.clone());
+                        seen.history.push(now.clone());
+                        seen.back = 0;
+                        same_image = Some(now.clone());
+                    }
+                    if another && !app.config.slideshow_random {
+                        let expected = next_unshown(&app, &seen.round);
+                        shown_before = Some(now);
+                        decode_all(&mut app, &ctx);
+                        app.slideshow_tick(&ctx);
+                        picked = Some(true);
+                        if let Some(expected) = expected.filter(|_| app.slideshow.is_running()) {
+                            let what = "after an image shown by hand";
+                            assert_eq!(shown_name(&app), Some(expected), "{what}: {at}");
+                        }
+                    }
+                }
+                25 if subfolders.len() > 1 => {
+                    several_folders_with_slideshow(&mut app, &ctx, &dir, &subfolders, &at);
+                    // The tree again, read whole by the test's walk, and its slideshow anew.
+                    app.start_slideshow(&ctx);
+                    fed = None;
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                    }
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    seen = SlidesSeen::default();
+                    seen.begin(shown_name(&app).unwrap());
+                    same_image = shown_name(&app);
+                }
+                26 | 27 => {
+                    // One image opened in an order that looks at the files, from the file
+                    // manager or as `glimt photo.jpg`, and then its tree read in parts. Or
+                    // `--slideshow photo.jpg` with Include Subfolders: the slideshow of the
+                    // subfolders starts before the folder is read. The list is that image alone,
+                    // with no key, and every part goes in by the keys.
+                    let top = app
+                        .list
+                        .files()
+                        .iter()
+                        .find(|f| !f.as_encoded_bytes().contains(&b'/'));
+                    let Some(name) = top.cloned() else {
+                        continue;
+                    };
+                    use crate::model::listing::Sort;
+                    let orders = [
+                        (Sort::Date, true, true),
+                        (Sort::Date, false, false),
+                        (Sort::Created, true, true),
+                        (Sort::Size, false, true),
+                        (Sort::ExifOriginal, true, true),
+                    ];
+                    let order = orders[next(orders.len())];
+                    open_one_image(&mut app, &ctx, &name, order, event == 27, &at);
+                    fed = None;
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    seen = SlidesSeen::default();
+                    seen.begin(shown_name(&app).unwrap());
+                    same_image = shown_name(&app);
+                }
+                30 if subfolders.len() > 1 => {
+                    // A stop on an image of one of several folders given, itself and not in a
+                    // subfolder: the list goes back to the folders' own images.
+                    several_folders_stopped_on_their_own(&mut app, &ctx, &dir, &subfolders, &at);
+                    app.start_slideshow(&ctx);
+                    fed = None;
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                    }
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    seen = SlidesSeen::default();
+                    seen.begin(shown_name(&app).unwrap());
+                    same_image = shown_name(&app);
+                }
+                31 => {
+                    // The tree opened anew in an order by date, and stopped on the image that its
+                    // first part showed by itself. The whole list that comes after the stop keeps
+                    // the image shown.
+                    app.stop_slideshow(&ctx);
+                    let c = &mut app.config;
+                    (c.sort, c.sort_ascending, c.sort_case_sensitive) =
+                        (crate::model::listing::Sort::Date, next(2) == 0, true);
+                    crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+                    app.start_slideshow(&ctx);
+                    fed = None;
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    let Some(f) = fed.as_mut() else {
+                        continue;
+                    };
+                    send_part(&mut app, &ctx, f);
+                    app.stop_slideshow(&ctx);
+                    let stopped_on = shown_name(&app);
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                    }
+                    // A list still empty after the first part shows no image to keep.
+                    if stopped_on.is_some() {
+                        let now = shown_name(&app);
+                        assert_eq!(now, stopped_on, "a whole list after a stop: {at}");
+                    }
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    app.start_slideshow(&ctx);
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    seen = SlidesSeen::default();
+                    if let Some(name) = shown_name(&app) {
+                        seen.begin(name);
+                    }
+                    same_image = shown_name(&app);
+                }
+                28 => {
+                    // A sidecar written in an order that looks at the files: the folder is read
+                    // again. In an EXIF date order, as no name is new, its whole list keeps the
+                    // list's order and comes without keys, as no file was looked at
+                    // (`listing::kept_order`). Half of the time a file is deleted between the
+                    // start of that listing and its whole list, which still holds it, as the
+                    // listing read it before it went.
+                    use crate::model::listing::Sort;
+                    let orders = [
+                        (Sort::ExifOriginal, true, true),
+                        (Sort::ExifDigitized, false, true),
+                        (Sort::Date, true, true),
+                        (Sort::Created, false, false),
+                        (Sort::Size, true, false),
+                    ];
+                    let order = orders[next(orders.len())];
+                    let c = &mut app.config;
+                    (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
+                    app.folder.sort_again();
+                    app.start_listing(&ctx);
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                    }
+                    app.start_listing(&ctx);
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    let before = app.list.files().to_vec();
+                    let (tree, left_out) = tree_on_disk(&app);
+                    if next(2) == 0 && !before.is_empty() {
+                        let i = next(before.len());
+                        if std::fs::remove_file(dir.join(&before[i])).is_ok() {
+                            app.remove_indices(&ctx, &[i]);
+                            app.folder.relist_later();
+                        }
+                    }
+                    let exif = matches!(order.0, Sort::ExifOriginal | Sort::ExifDigitized);
+                    let kept = (exif)
+                        .then(|| crate::model::listing::kept_order(before, &tree))
+                        .flatten();
+                    let rows = match kept {
+                        Some(kept) => super::ListedRows::InListOrder(kept),
+                        None => {
+                            super::ListedRows::Rows(super::Rows::sorted(tree, order, |_, name| {
+                                crate::model::listing::sort_key(&dir, name, order.0)
+                            }))
+                        }
+                    };
+                    if let Some(f) = fed.as_ref() {
+                        let listed = super::Listed {
+                            dirs: Vec::new(),
+                            files: Ok(rows),
+                            left_out,
+                            read: Vec::new(),
+                            read_in: std::time::Duration::ZERO,
+                        };
+                        f.listing.send(listed).unwrap();
+                        app.receive_listing(&ctx, std::time::Duration::ZERO);
+                    }
+                }
+                32 => {
+                    // One to three names listed in an order that looks at the files, then another
+                    // such order chosen, and the parts of the walk in it.
+                    use crate::model::listing::Sort;
+                    let orders = [
+                        (Sort::Date, true, true),
+                        (Sort::Date, false, false),
+                        (Sort::Created, true, true),
+                        (Sort::Size, true, true),
+                        (Sort::Size, false, true),
+                        (Sort::ExifOriginal, true, true),
+                        (Sort::ExifDigitized, false, true),
+                    ];
+                    let a = next(orders.len());
+                    let b = (a + 1 + next(orders.len() - 1)) % orders.len();
+                    let k = next(few.len());
+                    let few = (few[k].as_path(), k + 1, next(2) == 0);
+                    let orders = (orders[a], orders[b]);
+                    few_names_then_another_order(&mut app, &ctx, few, orders, &dir, &at);
+                    app.start_slideshow(&ctx);
+                    fed = None;
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    if let Some(f) = fed.as_ref() {
+                        send_whole(&mut app, &ctx, f);
+                    }
+                    feed_what_runs(&mut app, &ctx, &mut fed);
+                    seen = SlidesSeen::default();
+                    seen.begin(shown_name(&app).unwrap());
+                    same_image = shown_name(&app);
+                }
+                23 | 24 => {
+                    // A search narrowed, widened or cleared while the slideshow runs.
+                    let queries = ["", "re:^s", "re:^s[01]/", r"re:[0-2]\.png$", "re:^t"];
+                    app.search.set_query(queries[next(queries.len())]);
+                    app.update_search(&ctx);
+                }
+                _ => {
+                    app.stop_slideshow(&ctx);
+                    assert_eq!(
+                        shown_name(&app),
+                        shown_before,
+                        "a stop keeps the image: {at}"
+                    );
+                    assert!(app.panel.scrolls_to_shown(), "scrolled to it: {at}");
+                }
+            }
+            // An image that came into the first pane in another way than by the slideshow (the
+            // next one after the image shown was deleted, or gone from the list) is shown in this
+            // round, as the newest of the history.
+            let now = shown_name(&app);
+            if picked.is_none()
+                && !matches!(event, 15 | 16)
+                && app.slideshow.is_running()
+                && now.is_some()
+                && now != same_image
+            {
+                let now = now.clone().unwrap();
+                seen.round.insert(now.clone());
+                seen.history.push(now);
+                seen.back = 0;
+            }
+            if picked == Some(true) {
+                // A new image: one the round has not shown, or the first of a new round with
+                // Repeat once every image that the search shows was shown. Without Repeat, the
+                // slideshow stops at that step instead. The image on screen counts as shown,
+                // also when it came there because the one before it was deleted.
+                seen.round.extend(shown_before.clone());
+                let all_shown = rows_before.iter().all(|f| seen.round.contains(f));
+                if !app.slideshow.is_running() {
+                    assert!(all_shown, "stopped before every match was shown: {at}");
+                    assert!(!app.config.slideshow_repeat, "stopped with Repeat: {at}");
+                } else if now != shown_before {
+                    let now = now.clone().unwrap();
+                    assert!(
+                        app.list.shows_file(app.list.shown()),
+                        "a slide that the search hides: {now:?}, {at}"
+                    );
+                    if all_shown {
+                        assert!(app.config.slideshow_repeat, "went on without Repeat: {at}");
+                        seen.round = shown_before.iter().cloned().collect();
+                    }
+                    assert!(
+                        !seen.round.contains(&now),
+                        "shown twice in a round: {now:?}, {at}"
+                    );
+                    seen.round.insert(now.clone());
+                    seen.history.push(now);
+                    seen.back = 0;
+                } else {
+                    // It stays only when the search shows no other image than the one on
+                    // screen.
+                    let others = rows_before.iter().any(|f| Some(f) != shown_before.as_ref());
+                    assert!(!others, "a tick held the slideshow: {at}");
+                }
+            }
+            if picked_first {
+                app.panel.set_extends_selection(false);
+                let on_screen = Some(vec![app.list.shown()]);
+                let shift = match with_shift {
+                    true => "Shift and ",
+                    false => "",
+                };
+                assert_eq!(
+                    app.targets(),
+                    on_screen,
+                    "the targets after {shift}a key: {at}"
+                );
+                // Nothing is selected but images that were on screen.
+                let never_shown: Vec<&OsString> = (app.list.selected().iter())
+                    .map(|&i| &app.list.files()[i])
+                    .filter(|name| !seen.history.contains(name))
+                    .collect();
+                assert!(
+                    never_shown.is_empty(),
+                    "selected, never shown: {never_shown:?}, {at}"
+                );
+            }
+            feed_what_runs(&mut app, &ctx, &mut fed);
+            // Nothing that the slideshow plans to show next is an image the search hides, as
+            // the slideshow sees its plan at its next look.
+            if app.slideshow.is_running() {
+                app.follow_list_in_slideshow();
+                let hidden: Vec<usize> = (app.slideshow.planned_places())
+                    .chain(app.slideshow.pool().iter().copied())
+                    .filter(|&i| !app.list.shows_file(i))
+                    .collect();
+                assert!(
+                    hidden.is_empty(),
+                    "planned, the search hides {hidden:?}: {at}"
+                );
+            }
+            let files = app.list.files().to_vec();
+            let unique: HashSet<&OsString> = files.iter().collect();
+            assert_eq!(unique.len(), files.len(), "a name twice in the list: {at}");
+            // No image the list held is gone from it while the tree on disk holds it.
+            let disk: HashSet<OsString> = tree_on_disk(&app).0.into_iter().map(|f| f.0).collect();
+            // The list is in its order, but for the names that are gone, whose files the order
+            // cannot look at.
+            let in_place: Vec<&OsString> = files.iter().filter(|f| disk.contains(*f)).collect();
+            // The list is in the order that its rows hold, and in an order that looks at the
+            // files every row carries a key of that order.
+            if let Some(order) = app.list.rows().order() {
+                assert_in_order(&dir, &in_place, order, &at);
+            }
+            assert_keys_of_the_order(&app, &at);
+            // Show Hidden Files turned off takes out the images of a hidden folder by their
+            // names, also those that the walk reaches through a link, and brings those back.
+            let hidden_off = event == 11 && !app.config.show_hidden;
+            // One image opened is the list alone until its tree is read, and so is a tree
+            // opened anew until its walk is read.
+            let one_opened = matches!(event, 26 | 27 | 31);
+            let lost: Vec<&OsString> = (order_before.iter())
+                .filter(|f| !one_opened && disk.contains(*f) && !unique.contains(f))
+                .filter(|f| !(hidden_off && f.as_encoded_bytes().starts_with(b".")))
+                .collect();
+            assert!(
+                lost.is_empty(),
+                "gone from the list, still on disk: {lost:?}, {at}"
+            );
+            if !app.slideshow.is_running() {
+                // Stopped by the test or at the end of a round without Repeat. The list is the
+                // tree on disk once it is read, and the slideshow starts again where it stopped.
+                let kept = shown_name(&app);
+                if let Some(f) = fed.as_ref() {
+                    send_whole(&mut app, &ctx, f);
+                }
+                feed_what_runs(&mut app, &ctx, &mut fed);
+                assert_list_holds_the_tree(&app, &at);
+                let all: Vec<&OsString> = app.list.files().iter().collect();
+                let order = in_config(&app);
+                assert_eq!(app.list.rows().order(), Some(order), "a whole list: {at}");
+                assert_in_order(&dir, &all, order, &at);
+                if kept.as_ref().is_some_and(|k| disk.contains(k)) {
+                    assert_eq!(shown_name(&app), kept, "the image kept after a stop: {at}");
+                }
+                app.config.slideshow_repeat = repeat;
+                app.start_slideshow(&ctx);
+                feed_what_runs(&mut app, &ctx, &mut fed);
+                seen = SlidesSeen::default();
+                if let Some(name) = shown_name(&app) {
+                    seen.begin(name);
+                }
+            }
+        }
+        app.stop_slideshow(&ctx);
+        std::fs::remove_dir_all(&dir).unwrap();
+        for few in few {
+            std::fs::remove_dir_all(&few).unwrap();
+        }
+    }
+
+    /// Makes a tree of its own for the run `case` of `play_a_tree_through_events`, with `k`
+    /// images at its top and two folders below, and returns it. Its images have sizes and dates
+    /// in other orders than their names.
+    fn few_names_tree(seed: u64, k: usize, case: &str) -> PathBuf {
+        let case = case.replace([' ', ','], "");
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-few-names-{k}-{case}-{pid}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut x = seed ^ k as u64;
+        let mut next = || {
+            x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            x >> 34
+        };
+        let names = (0..k).map(|i| format!("f{i}.png"));
+        let below = (0..4).map(|i| format!("deeper/{i}.png"));
+        let further = (0..3).map(|i| format!("deeper/more/{i}.png"));
+        for name in names.chain(below).chain(further) {
+            let path = dir.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            image::RgbImage::new(1 + (next() % 9) as u32, 2)
+                .save(&path)
+                .unwrap();
+            let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(next());
+            let file = std::fs::File::options().write(true).open(&path);
+            file.unwrap().set_modified(when).unwrap();
+        }
+        dir
+    }
+
+    /// Opens the tree `few`, which has the number of images at its top that it is given with,
+    /// in the first of `orders`, and takes the first part of its walk, that folder alone, as
+    /// the step `at` of `play_a_tree_through_events` makes it. Then the second order is chosen,
+    /// and the parts of the walk in it and its whole list come. When `moved`, an image of the
+    /// list is moved into a subfolder before the first of them, which takes it out of the list.
+    /// After each part the list is in its order. Then `dir` is opened again.
+    fn few_names_then_another_order(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        (few, k, moved): (&std::path::Path, usize, bool),
+        (first, then): (
+            (crate::model::listing::Sort, bool, bool),
+            (crate::model::listing::Sort, bool, bool),
+        ),
+        dir: &std::path::Path,
+        at: &str,
+    ) {
+        app.stop_slideshow(ctx);
+        let c = &mut app.config;
+        (c.sort, c.sort_ascending, c.sort_case_sensitive) = first;
+        crate::support::test_support::open_now(app, ctx, few.to_path_buf());
+        let mut fed = None;
+        feed_what_runs(app, ctx, &mut fed);
+        assert!(send_part(app, ctx, fed.as_mut().unwrap()), "{at}");
+        assert_eq!(app.list.files().len(), k, "the names at the top: {at}");
+        let c = &mut app.config;
+        (c.sort, c.sort_ascending, c.sort_case_sensitive) = then;
+        app.folder.sort_again();
+        app.start_listing(ctx);
+        feed_what_runs(app, ctx, &mut fed);
+        let (from, to) = (few.join("f0.png"), few.join("deeper/f0-moved.png"));
+        if moved {
+            std::fs::rename(&from, &to).unwrap();
+            let i = app.list.files().iter().position(|f| f == "f0.png").unwrap();
+            app.remove_indices(ctx, &[i]);
+            app.folder.relist_later();
+        }
+        // From the first part on, the list is in the order chosen, and every part goes in by it.
+        while let Some(f) = fed.as_mut() {
+            if !send_part(app, ctx, f) {
+                send_whole(app, ctx, f);
+                break;
+            }
+            assert_eq!(app.list.rows().order(), Some(then), "after a part, {at}");
+            let names: Vec<&OsString> = app.list.files().iter().collect();
+            assert_in_order(few, &names, then, &format!("after a part, {at}"));
+            assert_keys_of_the_order(app, at);
+        }
+        let names: Vec<&OsString> = app.list.files().iter().collect();
+        assert_in_order(few, &names, then, &format!("the whole list, {at}"));
+        if moved {
+            std::fs::rename(&to, &from).unwrap();
+        }
+        crate::support::test_support::open_now(app, ctx, dir.to_path_buf());
+    }
+
+    /// Asserts that in an order that looks at the files every row of the list carries a key,
+    /// and one of that order: a time by date, a size by size, and an EXIF date by an EXIF date.
+    /// The types make this so (`Rows`), and this checks that they do.
+    fn assert_keys_of_the_order(app: &crate::App, at: &str) {
+        use crate::model::listing::{Sort, SortKey};
+        let rows = app.list.rows();
+        let Some((by, ..)) = rows.order().filter(|o| o.0.looks_at_files()) else {
+            return;
+        };
+        for i in 0..rows.len() {
+            let of_the_order = matches!(
+                (by, rows.key(i)),
+                (Sort::Date | Sort::Created, Some(SortKey::Time(_)))
+                    | (Sort::Size, Some(SortKey::Size(_)))
+                    | (
+                        Sort::ExifOriginal | Sort::ExifDigitized,
+                        Some(SortKey::Exif(..))
+                    )
+            );
+            let (name, key) = (&rows.files()[i], rows.key(i));
+            assert!(of_the_order, "{name:?} has the key {key:?} in {by:?}: {at}");
+        }
+    }
+
+    /// The sizes of a collection's files on a share are looked at after the images that the
+    /// window waits for, through the gate. A collection's list is under "/", which is on no
+    /// share. Before, its files on a share were looked at at once, before the slideshow's next
+    /// image.
+    #[test]
+    fn a_collections_sizes_on_a_share_wait_for_the_images_awaited() {
+        use crate::files::file_ops::test_mount;
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-collection-sizes-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        test_mount(&dir, Some("cifs"));
+        let awaited = crate::model::listing::ImagesAwaited::default();
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let given_up = awaited.clone();
+        let decoded = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            given_up.set(Vec::new());
+        });
+        let began = Instant::now();
+        let places = [std::path::PathBuf::from("/")];
+        let total = super::total_size_unless_on_a_share(
+            &places,
+            false,
+            &[dir.join("a.png")],
+            (&awaited, &|| true),
+        );
+        assert!(
+            began.elapsed() >= Duration::from_millis(250),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(total > 0 && total != crate::support::format::NOT_COUNTED_ON_A_SHARE);
+        decoded.join().unwrap();
+        // A sum whose receiver is dropped, as a new selection or search drops it, looks at no
+        // more files, also while it waits at the gate. Before, it waited out the image and
+        // looked at every file, each through the turn, for nobody.
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut sum = crate::support::threads::Receiving::of(rx);
+        let (is_wanted, paths) = (sum.is_waited_for(), [dir.join("a.png")]);
+        let given = awaited.clone();
+        let began = Instant::now();
+        let summing = std::thread::spawn(move || {
+            let total =
+                super::total_size_unless_on_a_share(&places, false, &paths, (&given, &is_wanted));
+            tx.send(total).unwrap_or_default();
+            began.elapsed()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        sum.clear();
+        let took = summing.join().unwrap();
+        assert!(took < Duration::from_secs(1), "{took:?}");
+        awaited.set(Vec::new());
+        test_mount(&dir, None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

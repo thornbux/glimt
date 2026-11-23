@@ -181,9 +181,14 @@ pub(crate) struct InfoPanel {
 
 impl InfoPanel {
     /// The EXIF reader started, with the keyword tree as `main` read it (`read_keyword_tree`).
-    pub(crate) fn new(ctx: &egui::Context, keyword_tree: Vec<String>) -> Self {
+    /// On a share it waits for the images `awaited` first.
+    pub(crate) fn new(
+        ctx: &egui::Context,
+        keyword_tree: Vec<String>,
+        awaited: &crate::model::listing::ImagesAwaited,
+    ) -> Self {
         let exif_newest_request = Arc::default();
-        let (exif_requests, exif_answers) = spawn_exif_reader(ctx, &exif_newest_request);
+        let (exif_requests, exif_answers) = spawn_exif_reader(ctx, &exif_newest_request, awaited);
         let mut panel = InfoPanel {
             exif_requests,
             exif_newest_request,
@@ -903,14 +908,16 @@ impl crate::App {
 /// The EXIF reader: a pool of one worker, which skips each request but the newest one
 /// (`newest_request`), so fast browsing never queues up. It sends the panel's rows, every field,
 /// and the keywords and comment. A read stuck on a share that stopped answering is given up, and
-/// another worker reads the files shown after it (`spawn_worker_pool`).
+/// another worker reads the files shown after it (`spawn_worker_pool`). On a share each read
+/// waits first for the other images `awaited` (`ReadsFirst::before_work_nobody_waits_for`).
 pub(crate) fn spawn_exif_reader(
     ctx: &egui::Context,
     newest_request: &Arc<Mutex<PathBuf>>,
+    awaited: &crate::model::listing::ImagesAwaited,
 ) -> (mpsc::Sender<PathBuf>, mpsc::Receiver<ExifRead>) {
     let (exif_requests, paths_rx) = mpsc::channel::<PathBuf>();
     let (exif_tx, exif_answers) = mpsc::channel();
-    let (ctx, newest_request) = (ctx.clone(), newest_request.clone());
+    let (ctx, newest_request, awaited) = (ctx.clone(), newest_request.clone(), awaited.clone());
     spawn_worker_pool(
         1,
         STUCK_AFTER,
@@ -919,9 +926,14 @@ pub(crate) fn spawn_exif_reader(
         // The info of the shown image is never set aside.
         |_| None,
         move |path: PathBuf| {
-            if *lock_even_if_poisoned(&newest_request) != path {
+            // A file the user has moved past is not read, also when it was left while the
+            // read waited at the gate.
+            let is_newest = || *lock_even_if_poisoned(&newest_request) == path;
+            let Some(_turn) = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
+                .before_work_nobody_waits_for(&path, is_newest)
+            else {
                 return;
-            }
+            };
             let identity = crate::files::file_io::identity_of(&path);
             // A size that could not be looked at is left out, never shown as 0 bytes.
             let size = std::fs::metadata(&path).map(|m| m.len());
@@ -1318,6 +1330,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
+        // The image and its EXIF are in first.
+        crate::support::test_support::draw_until_answered(
+            &mut app,
+            &ctx,
+            |app, ui| app.info_panel(ui, true),
+            |app| app.list.decodes_pending().is_empty() && app.info_panel.metadata_edit.is_some(),
+        );
         crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
             app.info_panel(ui, is_shown)
         });

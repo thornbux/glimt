@@ -207,19 +207,28 @@ fn cache_dir() -> Option<std::path::PathBuf> {
 /// thumbnail is removed only when the file's folder is still there, so thumbnails of a disk that is
 /// not plugged in are kept. Returns `None` when another removal runs, which a share that stopped
 /// answering may hold for ever.
-pub fn remove_orphaned_thumbnails() -> Option<(usize, usize)> {
+pub fn remove_orphaned_thumbnails(
+    awaited: &crate::model::listing::ImagesAwaited,
+) -> Option<(usize, usize)> {
     use std::sync::atomic::Ordering;
     if REMOVING_ORPHANS.swap(true, Ordering::AcqRel) {
         return None;
     }
     let _running = RemovingOrphans;
-    Some(cache_dir().map_or((0, 0), |cache| remove_orphaned_thumbnails_in(&cache)))
+    let removed = |cache: std::path::PathBuf| remove_orphaned_thumbnails_in(&cache, awaited);
+    Some(cache_dir().map_or((0, 0), removed))
 }
 
 /// `remove_orphaned_thumbnails` in the thumbnail cache `cache`. Older Glimts' folders of failure
 /// markers are of no use to this one, so each of them goes whole and counts as one removed.
-fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
+/// Each look at a thumbnail's file on a share waits for the images `awaited` first
+/// (`ReadsFirst::before_work_nobody_waits_for`), as the files may be the slideshow's.
+fn remove_orphaned_thumbnails_in(
+    cache: &Path,
+    awaited: &crate::model::listing::ImagesAwaited,
+) -> (usize, usize) {
     let (mut removed, mut seen) = (0, 0);
+    let mut gate = crate::model::listing::ReadsFirst::for_files_anywhere(awaited);
     let own = Path::new(FAILED_DIR).file_name();
     for entry in (std::fs::read_dir(cache.join("fail")).into_iter().flatten()).flatten() {
         let name = entry.file_name();
@@ -244,6 +253,9 @@ fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
             let Some(path) = source.flatten() else {
                 continue;
             };
+            // Always wanted: the user asked for the whole cache to be gone through, and is told
+            // when it ends.
+            let _turn = gate.before_work_nobody_waits_for(&path, || true);
             // Only a file that is surely not there counts as gone. A share that answers with an
             // error for a moment is no reason to delete the thumbnail.
             #[allow(clippy::disallowed_methods)] // Glimt's own: a thumbnail whose image is gone
@@ -370,7 +382,7 @@ mod tests {
     fn a_second_removal_of_orphans_waits_for_the_first() {
         use std::sync::atomic::Ordering;
         super::REMOVING_ORPHANS.store(true, Ordering::Release);
-        let second = super::remove_orphaned_thumbnails();
+        let second = super::remove_orphaned_thumbnails(&Default::default());
         super::REMOVING_ORPHANS.store(false, Ordering::Release);
         assert_eq!(second, None);
         // A removal cut short by a panic lets the next one start. Before, the flag stayed set
@@ -407,7 +419,10 @@ mod tests {
             std::fs::write(fail.join(folder).join("x.png"), "x").unwrap();
         }
         std::fs::create_dir_all(cache.join(super::FAILED_DIR)).unwrap();
-        assert_eq!(super::remove_orphaned_thumbnails_in(&cache), (2, 5));
+        assert_eq!(
+            super::remove_orphaned_thumbnails_in(&cache, &Default::default()),
+            (2, 5)
+        );
         assert!(
             !fail.join("glimt-0.1.0").exists() && fail.join("gnome-thumbnail-factory").exists()
         );

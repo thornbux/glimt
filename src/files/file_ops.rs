@@ -617,11 +617,13 @@ impl FileOperations {
         }
     }
 
-    /// Leaves out of `files` those still being deleted, so a refresh does not bring them back.
-    pub(crate) fn leave_out_deleting(&self, files: &mut Vec<crate::model::listing::ListedName>) {
-        if !self.deleting.is_empty() {
-            files.retain(|f| !self.deleting.contains(&f.0));
+    /// Leaves the files still being deleted out of `rows`, a listing, each with its key, so a
+    /// refresh does not bring them back.
+    pub(crate) fn leave_out_deleting(&self, rows: &mut crate::model::listing::Rows) {
+        if self.deleting.is_empty() {
+            return;
         }
+        rows.retain(|name| !self.deleting.contains(name));
     }
 
     /// Whether the running Rename Many may rename files that a list of `dir` shows: the
@@ -4528,8 +4530,6 @@ mod tests {
         let (mut app, ctx) = app_on(&d);
         crate::support::test_support::open_now(&mut app, &ctx, d.join("show.m3u"));
         assert!(app.folder.is_listing() && app.list.files().len() == 2);
-        // Random order puts the same names in a new list, which let them be deleted.
-        app.shuffle_list(&ctx, true);
         let sub = (app.list.files().iter()).position(|f| std::path::Path::new(f).ends_with("sub"));
         app.delete_targets(&ctx, false, vec![sub.unwrap()], None);
         assert!(app.notice.text().is_some() && app.list.files().len() == 2);

@@ -38,11 +38,10 @@ branch made from it and merged back into it; `main` gets the release branch only
    workflow never sees the tag before `main` holds it. The release workflow builds and
    publishes the packages (below).
 8. **After the tag.** Check that the Release workflow ended green, with every package,
-   `SHA256SUMS` and the attestations, and the Flatpak bundle.
-9. **Flathub and the website.** Glimt is not on Flathub yet, so nothing is sent
-   there. The Flatpak bundle goes only with the GitHub release. Once Glimt is on Flathub, a
-   pull request to its repository follows each tag (below). The website (glimt-web) is updated
-   when the maintainer asks.
+   `SHA256SUMS` and the attestations. Until 1.0 no Flatpak bundle is built (*The Flatpak*).
+9. **Flathub and the website.** Glimt is not on Flathub yet, so nothing is sent there. Once
+   Glimt is on Flathub, a pull request to its repository follows each tag (below). The website
+   (glimt-web) is updated when the maintainer asks.
 
 ## The release tests
 
@@ -186,7 +185,7 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
 Each release also gets `SHA256SUMS` of its files and a build provenance for each file, signed
 by GitHub through `actions/attest-build-provenance`; `gh attestation verify FILE -R
 thornbux/glimt` checks it. A new file to publish goes in both, and the Flatpak's line is added
-by its own job.
+by its own job (not until 1.0, see *The Flatpak*).
 
 ### The AppImage
 
@@ -199,6 +198,10 @@ when the binary is inside `$APPDIR`, because every program started from an AppIm
 its `$APPIMAGE`.
 
 ### The Flatpak
+
+Until 1.0 the release workflow builds no Flatpak bundle: the maintainer left it out, and its
+job carries `if: false`. The manifest and `flatpak/cargo-sources.json` are still kept up to date,
+so the job can be turned on again by removing that line.
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`
 in Flathub's `freedesktop-26.08` image, pinned by its digest (change both with

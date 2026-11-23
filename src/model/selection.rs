@@ -3,6 +3,7 @@
 use crate::model::folder::total_size_unless_on_a_share;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
+use crate::support::threads::Receiving;
 use crate::tf;
 use crate::ui::actions::Action;
 use crate::ui::file_list::SizeDue;
@@ -97,6 +98,10 @@ impl crate::App {
         }
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
         self.decoding.stop_fade();
+        // Glimt no longer shows the first image of a tree by itself, so a whole list that
+        // comes later does not go to its first image instead. A new list that shows its first
+        // part's image notes it again after this.
+        self.folder.forget_image_shown_by_itself();
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.viewing.is_turned();
         self.leave_image(ctx);
@@ -325,7 +330,11 @@ impl crate::App {
             self.folder.places(),
             ctx.clone(),
         );
+        let awaited = self.decoding.images_awaited().clone();
         let (tx, rx) = mpsc::channel();
+        // A new selection drops the receiver, which stops the looks of this sum.
+        let sum = Receiving::of(rx);
+        let is_wanted = sum.is_waited_for();
         // No busy pointer: the selection's size in the status bar, a look-up nobody waits for,
         // shown when it comes.
         std::thread::spawn(move || {
@@ -336,13 +345,14 @@ impl crate::App {
                     &places,
                     with_subfolders,
                     &paths,
+                    (&awaited, &is_wanted),
                 ))
                 .is_ok()
             {
                 ctx.request_repaint();
             }
         });
-        self.status_bar.sum_selection(rx);
+        self.status_bar.sum_selection(sum);
     }
 
     /// The files that an action on the selection acts on: the selected files, otherwise the
@@ -393,26 +403,43 @@ impl crate::App {
     }
 
     /// First, Previous, Next and Last, along the list as shown (the search matches while
-    /// searching); with Shift the selection runs from where it started to the new image, as in a
-    /// file manager, and moving without Shift clears it.
+    /// searching), or through the images a slideshow that runs showed. With Shift the selection
+    /// runs from where it started to the new image, as in a file manager, and moving without
+    /// Shift clears it, also in a slideshow. Before, the slideshow's keys went around this rule,
+    /// and a Delete, Move or keyword after them acted on a selection made before the slideshow
+    /// instead of on the image on screen. In a slideshow, a move with Shift is a plain move,
+    /// which clears the selection too. The slideshow's moves are picks and steps through the
+    /// images it showed, not steps along the rows, so a range from where the selection started
+    /// would select rows that were never on screen, thousands of them in random order.
     pub(crate) fn move_along(&mut self, ctx: &egui::Context, action: Action) {
-        // Along the list as shown: the search matches while searching.
-        let row = self.panel.row_step();
-        let delta = match action {
-            Action::First => -isize::MAX / 2,
-            Action::Previous => -row,
-            Action::Next => row,
-            _ => isize::MAX / 2,
-        };
-        let Some(to) = self.step(delta, false) else {
-            return;
+        let from = self.list.shown();
+        // A slideshow that runs goes through the images it showed, and shows the one it goes to.
+        let in_slideshow = self.move_in_slideshow(ctx, action);
+        // The anchor is where the selection started, or the image shown before the move. Only
+        // a move along the rows has one.
+        let shift = self.panel.extends_selection() && !in_slideshow;
+        let anchor = shift.then(|| self.list.anchor_or_shown());
+        let to = match in_slideshow {
+            true => self.list.shown(),
+            false => {
+                // Along the list as shown: the search matches while searching.
+                let row = self.panel.row_step();
+                let delta = match action {
+                    Action::First => -isize::MAX / 2,
+                    Action::Previous => -row,
+                    Action::Next => row,
+                    _ => isize::MAX / 2,
+                };
+                let Some(to) = self.step(delta, false) else {
+                    return;
+                };
+                to
+            }
         };
         // With Shift held on an arrow, Page Up/Down, Home or End, the selection runs from where
         // it started to the new image, as in a file manager. Moving in any other way clears it.
-        let shift = self.panel.extends_selection();
-        if shift {
-            let anchor = self.list.anchor_or_shown();
-            if !self.move_range_end(anchor, self.list.shown(), to) {
+        if let Some(anchor) = anchor {
+            if !self.move_range_end(anchor, from, to) {
                 self.list.clear_selection();
                 self.select_range(anchor, to);
             }
@@ -424,7 +451,9 @@ impl crate::App {
                 self.selection_changed(ctx);
             }
         }
-        self.show_file(ctx, to);
+        if !in_slideshow {
+            self.show_file(ctx, to);
+        }
         if shift {
             self.list.set_range_end(Some(to));
         }
@@ -445,21 +474,13 @@ pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -
     Some(r as usize)
 }
 
-/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top.
-/// Several panes step by their number, so the round may end past the last row, not on the first.
-/// A shown file that the search hides (`None`) counts as before the first row, as in
-/// `next_row`, so the round from there shows every row before it ends.
-pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
-    row.map_or(-1, |r| r as isize) + delta as isize >= len as isize
-}
-
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
 
-    /// Next on the last image, a click on the shown image's row, a pane step that clamps to it
-    /// and a shuffle keep the shown image as it is. Its turn is not dropped, or written into the
-    /// file, as when another image is shown.
+    /// Next on the last image, a click on the shown image's row and a pane step that clamps to
+    /// it keep the shown image as it is. Its turn is not dropped, or written into the file, as
+    /// when another image is shown.
     #[test]
     fn the_shown_image_stays_as_it_is_when_it_stays() {
         let dir = std::env::temp_dir().join(format!("glimt-test-stays-{}", std::process::id()));
@@ -476,8 +497,6 @@ mod tests {
         app.viewing.set_turn((1, false), dir.join("a.png"));
         app.go_to_pane(&ctx, crate::ui::actions::Action::PaneLeft);
         assert_eq!((app.list.shown(), app.viewing.turn()), (0, (1, false)));
-        app.shuffle_list(&ctx, true);
-        assert_eq!(app.viewing.turn(), (1, false));
         // A decode of the shown image that failed is tried again when it is gone to again.
         app.list.decode_failed(0, "the share is away".into());
         app.show_file(&ctx, 0);

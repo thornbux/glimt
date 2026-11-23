@@ -79,6 +79,9 @@ pub(crate) struct Decoding {
     /// How many images at the start of `kept_images` may be decoded at full resolution. They
     /// are the shown one and the compared one beside it.
     full_resolution_count: Arc<AtomicUsize>,
+    /// The images that the window waits for and that are not decoded yet, which the walk of a
+    /// tree on a share waits for (`App::publish_awaited_images`).
+    images_awaited: crate::model::listing::ImagesAwaited,
     /// Number of images preloaded on each side (Preferences).
     preload: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
@@ -123,16 +126,18 @@ impl Decoding {
         let full_resolution_count = Arc::new(AtomicUsize::new(1));
         let preload = Arc::new(AtomicUsize::new(config.preload));
         let auto_rotate = Arc::new(AtomicBool::new(config.exif_rotate));
+        let images_awaited = crate::model::listing::ImagesAwaited::default();
         let (decode_requests, decoded) = spawn_decoders(
             ctx,
             workers,
-            &kept_images,
+            (&kept_images, &images_awaited),
             &full_resolution_count,
             &auto_rotate,
         );
         Decoding {
             kept_images,
             full_resolution_count,
+            images_awaited,
             preload,
             auto_rotate,
             view_box: [1920, 1080],
@@ -148,6 +153,16 @@ impl Decoding {
             frame_ms: [0; 256],
             profile_changes: Default::default(),
         }
+    }
+
+    /// The number of images preloaded on each side (Preferences).
+    pub(crate) fn preload_count(&self) -> usize {
+        self.preload.load(Ordering::Relaxed)
+    }
+
+    /// The images that the window waits for and that are not decoded yet.
+    pub(crate) fn images_awaited(&self) -> &crate::model::listing::ImagesAwaited {
+        &self.images_awaited
     }
 
     /// The colour profiles chosen and being read in the background.
@@ -539,42 +554,13 @@ impl crate::App {
             return;
         }
         self.fill_panes();
-        // The shown image first, then its neighbours in the order the list shows.
-        let (shown, ahead) = (
-            self.list.shown(),
-            self.decoding.preload.load(Ordering::Relaxed) as isize,
-        );
-        let mut window = vec![shown];
-        // The compared image or the other panes come next, because they zoom with the shown one
-        // and may be loaded at full resolution too.
-        for i in self.images_in_other_panes() {
-            if !window.contains(&i) {
-                window.push(i);
-            }
-        }
-        let full = window.len();
+        // A slideshow reads ahead the images it planned, so its plan is made again first when
+        // what it was made from changed.
+        self.follow_list_in_slideshow();
+        let (window, full) = self.kept_places();
         self.decoding
             .full_resolution_count
             .store(full, Ordering::Relaxed);
-        let n = self.list.panes().len() + 1;
-        let upcoming =
-            (1..=n as isize).filter_map(|d| self.step_from(self.list.last_slide(), d, true));
-        for i in self
-            .list
-            .panes()
-            .iter()
-            .copied()
-            .chain(upcoming.collect::<Vec<_>>())
-        {
-            if !window.contains(&i) {
-                window.push(i);
-            }
-        }
-        for d in (1..=ahead).flat_map(|d| [d, -d]) {
-            if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
-                window.push(i);
-            }
-        }
         self.list.keep_loaded_images(|i, s| {
             window.contains(i) && (!s.is_full_resolution || window[..full].contains(i))
         });
@@ -583,6 +569,79 @@ impl crate::App {
         for i in window {
             self.request_decode(i, false);
         }
+        self.publish_awaited_images();
+    }
+
+    /// Returns the places of the images kept decoded: those that the window shows and shows
+    /// next (`awaited_places`), and the images read ahead on each side, or those a slideshow
+    /// planned. Returns, second, how many of them at the start may be decoded at full
+    /// resolution.
+    pub(crate) fn kept_places(&self) -> (Vec<usize>, usize) {
+        let ahead = self.decoding.preload.load(Ordering::Relaxed) as isize;
+        let (mut window, full) = self.awaited_places();
+        // A slideshow reads ahead the images it shows next and the one that Left shows, as its
+        // next images are not the list's neighbours.
+        let read_ahead: Vec<usize> = match self.slideshow.is_running() {
+            true => (self.slideshow.next_places())
+                .chain(self.slideshow.previous_place())
+                .collect(),
+            false => (1..=ahead)
+                .flat_map(|d| [d, -d])
+                .filter_map(|d| self.step(d, false))
+                .collect(),
+        };
+        for i in read_ahead {
+            if !window.contains(&i) {
+                window.push(i);
+            }
+        }
+        (window, full)
+    }
+
+    /// Returns the places of the images that the window shows and shows next: the shown image
+    /// first, then the compared image or the other panes, which zoom with the shown one and may
+    /// be loaded at full resolution too, then the next images that the slideshow shows. Returns,
+    /// second, how many of them at the start may be decoded at full resolution.
+    fn awaited_places(&self) -> (Vec<usize>, usize) {
+        let mut awaited = vec![self.list.shown()];
+        for i in self.images_in_other_panes() {
+            if !awaited.contains(&i) {
+                awaited.push(i);
+            }
+        }
+        let full = awaited.len();
+        let n = self.list.panes().len() + 1;
+        let upcoming: Vec<usize> = match self.slideshow.is_running() {
+            true => self.slideshow.next_places().take(n).collect(),
+            false => (1..=n as isize)
+                .filter_map(|d| self.step_from(self.list.last_slide(), d, true))
+                .collect(),
+        };
+        for i in self.list.panes().iter().copied().chain(upcoming) {
+            if !awaited.contains(&i) {
+                awaited.push(i);
+            }
+        }
+        (awaited, full)
+    }
+
+    /// Tells the walk of a tree on a share which images the window waits for and are not
+    /// decoded yet (`listing::ImagesAwaited`): those it shows and shows next
+    /// (`awaited_places`), and the next and the previous image that an arrow key shows. It is
+    /// called whenever they or their decodes change: when the images kept are chosen again and
+    /// when decodes come in. So an image read ahead whose decode began before it was awaited
+    /// counts as soon as it is the next one. Before, a decode held the walk only when it was
+    /// awaited at its start, and with Preload 2 the next image's decode mostly began as one
+    /// read ahead.
+    pub(crate) fn publish_awaited_images(&self) {
+        let pending = self.list.decodes_pending();
+        let arrows = [1, -1].into_iter().filter_map(|d| self.step(d, false));
+        let awaited = (self.awaited_places().0.into_iter().chain(arrows))
+            .filter(|&i| pending.contains_key(&(i, false)) || pending.contains_key(&(i, true)))
+            .filter(|&i| i < self.list.files().len())
+            .map(|i| self.path(i))
+            .collect();
+        self.decoding.images_awaited.set(awaited);
     }
 
     /// Makes textures of the decoded images that are still wanted, and keeps why for those that
@@ -686,6 +745,7 @@ impl crate::App {
                 _ => {}
             }
         }
+        self.publish_awaited_images();
     }
 
     /// Decode the images and thumbnails again, to be shown in other colours.
@@ -802,12 +862,11 @@ impl crate::App {
     }
 
     /// The panes after the first show the images that follow the shown one, except while a
-    /// slideshow changes them one at a time.
+    /// slideshow runs, which picks the images of every pane itself.
     pub(crate) fn fill_panes(&mut self) {
         let [c, r] = layout_grid(&self.config.layout);
         let n = c * r;
         let kept = self.slideshow.is_running()
-            && self.changes_one_pane_at_a_time()
             && self.list.panes().len() + 1 == n
             && self
                 .list
@@ -2018,21 +2077,26 @@ pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
 
 /// Starts the decode workers, `workers` threads that take jobs and send back what they decoded,
 /// in a pool that replaces a worker stuck on a share that stopped answering. They skip images
-/// the list has moved past (`kept_images`).
+/// the list has moved past (`kept_images`). On a share an image read ahead waits first for the
+/// images `awaited`, the next one first (`ReadsFirst::before_work_nobody_waits_for`).
 pub(crate) fn spawn_decoders(
     ctx: &egui::Context,
     workers: usize,
-    kept_images: &Arc<Mutex<Vec<PathBuf>>>,
+    (kept_images, awaited): (
+        &Arc<Mutex<Vec<PathBuf>>>,
+        &crate::model::listing::ImagesAwaited,
+    ),
     full_resolution_count: &Arc<AtomicUsize>,
     auto_rotate: &Arc<AtomicBool>,
 ) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
     let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
     let (done_tx, done) = mpsc::channel();
-    let (kept_images, full_resolution_count, auto_rotate, ctx) = (
+    let (kept_images, full_resolution_count, auto_rotate, ctx, awaited) = (
         kept_images.clone(),
         full_resolution_count.clone(),
         auto_rotate.clone(),
         ctx.clone(),
+        awaited.clone(),
     );
     crate::support::threads::spawn_worker_pool(
         workers,
@@ -2051,15 +2115,20 @@ pub(crate) fn spawn_decoders(
                 max_box,
             } = job;
             // This cancels work, skipping images the user has already moved past.
-            let (wanted, is_shown) = {
+            let judge = || {
                 let kept = lock_even_if_poisoned(&kept_images);
                 let n = full_resolution_count.load(Ordering::Relaxed);
                 is_wanted(&kept, n, &path, full_resolution)
             };
+            // An image read ahead lets the images awaited go first. It is judged before the
+            // wait, during it and after it, as the user may move past it meanwhile.
+            let turn = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
+                .before_work_nobody_waits_for(&path, || judge().0);
+            let (wanted, is_shown) = judge();
             // The shown image takes its bytes of the decodes' budget before the thumbnails
             // and the images read ahead.
             crate::images::decode::let_this_thread_go_first(is_shown);
-            if !wanted {
+            if turn.is_none() || !wanted {
                 let _ = done_tx.send(Decoded {
                     rotated: false,
                     path,
@@ -2277,6 +2346,70 @@ mod tests {
         app.decoding.last_drawn = Some((sharp, [4, 4], file));
         let placeholder = app.placeholder().unwrap();
         assert_eq!((placeholder.0.id(), placeholder.2), (thumbnail.id(), true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An image read ahead, whose decode was asked for before the window waited for it, holds
+    /// the walk of a tree on a share as soon as it becomes the next image, until its decode is
+    /// in. An image read ahead beyond the next ones holds nothing. Before, whether a decode held
+    /// the walk was decided when the decode began, so with Preload 2 the next image of a
+    /// slideshow or an arrow key was mostly begun as one read ahead and held nothing (#256).
+    #[test]
+    fn an_image_read_ahead_is_awaited_once_it_is_the_next_one() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-awaited-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert_eq!(app.decoding.preload.load(super::Ordering::Relaxed), 2);
+        app.show_file(&ctx, 2);
+        let awaited = |app: &crate::App| app.decoding.images_awaited.paths();
+        let read_ahead = |app: &crate::App| app.list.decodes_pending().get(&(4, false)).cloned();
+        let asked = read_ahead(&app).expect("e.png is read ahead");
+        assert!(
+            !awaited(&app).contains(&dir.join("e.png")),
+            "read ahead only"
+        );
+        assert!(awaited(&app).contains(&dir.join("d.png")), "the next image");
+        // The decodes are not taken here, so e.png's is still on its way when it is the next
+        // image, and it is not asked for again.
+        app.show_file(&ctx, 3);
+        assert_eq!(read_ahead(&app), Some(asked));
+        assert!(
+            awaited(&app).contains(&dir.join("e.png")),
+            "the next image now"
+        );
+        // A tree on a share is read on only once the images awaited are decoded.
+        let tree = dir.join("tree");
+        std::fs::create_dir_all(tree.join("sub")).unwrap();
+        std::fs::write(tree.join("sub").join("1.jpg"), "x").unwrap();
+        crate::files::file_ops::test_mount(&tree, Some("cifs"));
+        let walk = {
+            let (tree, awaited) = (tree.clone(), app.decoding.images_awaited().clone());
+            std::thread::spawn(move || {
+                let types = crate::model::listing::Types {
+                    images: true,
+                    raw: false,
+                    videos: false,
+                    hidden: false,
+                };
+                let stop = std::sync::atomic::AtomicBool::new(false);
+                crate::model::listing::list_tree(&tree, types, &stop, &awaited, |_| {}, |_| {})
+                    .is_ok()
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let waited = !walk.is_finished();
+        let start = std::time::Instant::now();
+        while !awaited(&app).is_empty() && start.elapsed() < std::time::Duration::from_secs(5) {
+            app.receive_decoded(&ctx);
+        }
+        let walked = walk.join().unwrap();
+        crate::files::file_ops::test_mount(&tree, None);
+        assert!(waited, "the walk waits for the next image");
+        assert!(walked);
+        assert!(app.list.loaded_images().contains_key(&4), "decoded");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2532,5 +2665,68 @@ mod tests {
         assert_eq!(with_projector, [1080, 1920]);
         let neighbour = super::decode_box([800, 600], [800, 600], false, false, true, [1920, 1080]);
         assert_eq!(neighbour, [1920, 1080]);
+    }
+
+    /// On a share, an image read ahead that the user has moved past leaves the decoders at
+    /// once, also when it was still kept as the job began and is passed while it waits for the
+    /// image awaited. Before, it waited at the gate for as long as the image awaited held it,
+    /// up to five seconds, and a few such jobs filled every decoder, so the image the user went
+    /// to waited behind them.
+    #[test]
+    fn an_image_read_ahead_that_was_passed_leaves_the_decoders_at_once() {
+        use crate::files::file_ops::test_mount;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-passed-read-ahead-{}",
+            std::process::id()
+        ));
+        test_mount(&dir, Some("cifs"));
+        let (kept, awaited) = (
+            Arc::new(Mutex::new(Vec::new())),
+            crate::model::listing::ImagesAwaited::default(),
+        );
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let (jobs, done) = super::spawn_decoders(
+            &eframe::egui::Context::default(),
+            1,
+            (&kept, &awaited),
+            &Arc::new(AtomicUsize::new(1)),
+            &Arc::new(AtomicBool::new(true)),
+        );
+        let job = |name: &str| super::DecodeJob {
+            full_resolution: false,
+            path: dir.join(name),
+            page: crate::images::decode::PageNumber(0),
+            request_number: 1,
+            max_box: [100, 100],
+        };
+        // Passed before it began.
+        let began = Instant::now();
+        jobs.send(job("passed.jpg")).unwrap();
+        let answer = done.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(answer.result.is_none());
+        assert!(
+            began.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            began.elapsed()
+        );
+        // Passed while it waited at the gate.
+        *crate::support::threads::lock_even_if_poisoned(&kept) =
+            vec![dir.join("shown.jpg"), dir.join("next.jpg")];
+        jobs.send(job("next.jpg")).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(done.try_recv().is_err(), "it waits for the image awaited");
+        let passed = Instant::now();
+        *crate::support::threads::lock_even_if_poisoned(&kept) = vec![dir.join("shown.jpg")];
+        let answer = done.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(answer.result.is_none());
+        assert!(
+            passed.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            passed.elapsed()
+        );
+        test_mount(&dir, None);
     }
 }

@@ -100,11 +100,20 @@ if [ "$(id -u)" = 0 ]; then
     # sshfs). Its read of a file named bad-* fails past the first 256 KiB while /tmp/lossy-eio
     # is there. A look at a path, an open, a read or a statfs that starts with a line of
     # /tmp/lossy-stall (such as /stall-view) waits while that line is there, as on a share that
-    # stopped answering. It writes each EIO it gives and each call it holds (STALL and the path)
-    # to /tmp/lossyfs.log, so that a check knows that the fault did happen. All three need
-    # --privileged, which run.sh gives the parts with these checks; without it those checks fail.
+    # stopped answering. A folder whose path starts with a line of /tmp/lossy-slow is read in
+    # half a second, and each read of a file there takes 0.3 s, as on a share far away. It
+    # writes each EIO it gives, each call it holds (STALL and the path) and each slow read of a
+    # folder or a file (READDIR or READ, the path and the time) to /tmp/lossyfs.log, so that a
+    # check knows that the fault did happen. A second one over /opt/lossy, at /mnt/share, is
+    # mounted with the subtype sshfs, which Glimt takes for a share (file_io::is_network), and
+    # logs to /tmp/sharefs.log. A third one over /opt/lossy, at /mnt/gvfs, is mounted with the
+    # subtype gvfsd-fuse, as GNOME Files mounts an smb:// share, and serves its calls one at a
+    # time with 40 ms before each, as gvfsd-smb over Wi-Fi does, so every look Glimt makes there
+    # stands in one queue with the reads of the image the window waits for. It logs each call
+    # (CALL, the call, the path and the time) to /tmp/gvfsfs.log. All need --privileged, which
+    # run.sh gives the parts with these checks; without it those checks fail.
     if grep -q '^faults=[y]es' "${SCRIPT:-/t/tests.sh}"; then
-        mkdir -p /mnt/full /mnt/disk /mnt/lossy /opt/lossy && chown tester: /opt/lossy
+        mkdir -p /mnt/full /mnt/disk /mnt/lossy /mnt/share /mnt/gvfs /opt/lossy && chown tester: /opt/lossy
         mount -t tmpfs -o size=16m,uid=$(id -u tester),gid=$(id -g tester) full /mnt/full
         # gio refuses to trash on a tmpfs, so the trash's full disk is a small ext2 at
         # /mnt/disk, as a USB stick is, on a loop device tried again as the card's is.
@@ -132,10 +141,13 @@ STATFS = ("f_bavail", "f_bfree", "f_blocks", "f_bsize", "f_favail", "f_ffree", "
           "f_flag", "f_frsize", "f_namemax")
 
 class Lossy(Operations):
-    def __init__(self, root):
-        self.root, self.ghosts = root, {}
+    def __init__(self, root, delay):
+        self.root, self.ghosts, self.delay = root, {}, delay
 
     def __call__(self, op, *args):
+        if self.delay:
+            time.sleep(self.delay)
+            print("CALL", op, args[0] if args else "", "%.3f" % time.time(), flush=True)
         try:
             return super().__call__(op, *args)
         except OSError as e:
@@ -146,7 +158,8 @@ class Lossy(Operations):
 
     def stall(self, path):
         # Waits while a line of /tmp/lossy-stall starts the path. fusepy serves each call in a
-        # thread of its own, so the other paths still answer. A call held is logged once.
+        # thread of its own, unless the mount serves them one at a time, so the other paths
+        # still answer. A call held is logged once.
         held = False
         while True:
             try:
@@ -205,8 +218,20 @@ class Lossy(Operations):
         self.stall(path)
         return os.open(self.r(path), flags)
 
+    def slowed(self, path):
+        # Whether a line of /tmp/lossy-slow starts the path.
+        try:
+            with open("/tmp/lossy-slow") as f:
+                slowed = [line.strip() for line in f if line.strip()]
+        except OSError:
+            return False
+        return any(path.startswith(line) for line in slowed)
+
     def read(self, path, size, offset, fh):
         self.stall(path)
+        if self.slowed(path):
+            time.sleep(0.3)
+            print("READ", path, "%.3f" % time.time(), flush=True)
         # A read of bad-* past its first 256 KiB fails while /tmp/lossy-eio is there, as on a
         # disk with a bad sector, so that a check can show the image first and then fail a copy.
         if (offset + size > 262144 and os.path.basename(path).startswith("bad-")
@@ -231,6 +256,9 @@ class Lossy(Operations):
         os.close(fh)
 
     def readdir(self, path, fh):
+        if self.slowed(path):
+            time.sleep(0.5)
+            print("READDIR", path, "%.3f" % time.time(), flush=True)
         return [".", ".."] + os.listdir(self.r(path))
 
     def readlink(self, path):
@@ -254,11 +282,19 @@ class Lossy(Operations):
         st = os.statvfs(self.r(path))
         return {k: getattr(st, k) for k in STATFS}
 
-FUSE(Lossy(sys.argv[1]), sys.argv[2], foreground=True, allow_other=True,
-     default_permissions=True)
+# A third argument is the subtype of the mount, as a share's program gives it (fuse.sshfs). A
+# fourth is a delay in seconds before each call, and the calls are then served one at a time.
+kinds = {"subtype": sys.argv[3]} if len(sys.argv) > 3 else {}
+delay = float(sys.argv[4]) if len(sys.argv) > 4 else 0
+FUSE(Lossy(sys.argv[1], delay), sys.argv[2], foreground=True, allow_other=True,
+     default_permissions=True, nothreads=delay > 0, **kinds)
 PY
         python3 /opt/lossyfs.py /opt/lossy /mnt/lossy >/tmp/lossyfs.log 2>&1 &
+        python3 /opt/lossyfs.py /opt/lossy /mnt/share sshfs >/tmp/sharefs.log 2>&1 &
+        python3 /opt/lossyfs.py /opt/lossy /mnt/gvfs gvfsd-fuse 0.04 >/tmp/gvfsfs.log 2>&1 &
         for try in $(seq 50); do grep -q ' /mnt/lossy fuse' /proc/mounts && break; sleep 0.1; done
+        for try in $(seq 50); do grep -q ' /mnt/share fuse.sshfs' /proc/mounts && break; sleep 0.1; done
+        for try in $(seq 50); do grep -q ' /mnt/gvfs fuse.gvfsd-fuse' /proc/mounts && break; sleep 0.1; done
     fi
     # -noreset: an X server starts over when its last client closes, and refuses every client
     # that comes in that moment. Each check starts and quits Glimt, so a window now and then got
@@ -470,6 +506,18 @@ settled() {
 # the time is up, and the check after it then says what is wrong.
 until_ok() { local n=$(( ${2:-10} * 10 )); until eval "$1" >/dev/null 2>&1; do n=$((n - 1)); [ $n -le 0 ] && return 1; sleep 0.1; done; }
 until_current() { until_ok "[ \"\$(remote current 2>/dev/null | tr -d '\\0')\" = \"$1\" ]" ${2:-10}; }
+# until_listed FILE [SECONDS]: waits until no folder is being listed and FILE is in the list, up
+# to SECONDS (60); false when the time is up. `--remote select` waits while a folder is listed
+# and then prints the files that are not in the list, so it prints nothing only then. It also
+# shows FILE.
+until_listed() {
+    local until=$(( $(date +%s) + ${2:-60} ))
+    while [ "$(date +%s)" -lt $until ]; do
+        remote select "$1" >/tmp/not-listed 2>/dev/null && [ ! -s /tmp/not-listed ] && return 0
+        sleep 0.5
+    done
+    return 1
+}
 until_file() { until_ok "[ -e \"$1\" ]" ${2:-10}; }
 until_gone() { until_ok "[ ! -e \"$1\" ]" ${2:-10}; }
 # The colour at X,Y of a screenshot: red, green, blue, yellow, magenta, cyan or other.
@@ -557,7 +605,7 @@ crop_part() {
 # The small tmpfs and ext2 of the checks of a full disk (faults=yes), and the FUSE share of the
 # checks of a share that fails (lossyfs.py above): a section that uses one checks that it is
 # mounted.
-full=/mnt/full disk=/mnt/disk lossy=/mnt/lossy
+full=/mnt/full disk=/mnt/disk lossy=/mnt/lossy share=/mnt/share gvfs=/mnt/gvfs
 # leave_free BYTES [AT]: the tmpfs (or the file system at AT) full but for BYTES. ext2 counts
 # what was written only once it is on the disk, hence the syncs.
 leave_free() {
@@ -848,7 +896,7 @@ for v in new old; do
     key slash; xdotool type omega; sleep 2
     slideshow=$(busy)
     quit
-    # Four panes, one image at a time, no fade: a new round shuffles once, then goes on.
+    # Four panes, one image at a time, no fade: a new round begins once, then goes on.
     config slideshow_random=true slideshow_repeat=true slideshow_delay=1 slideshow_fade=0 layout=2x2 slideshow_one_image_at_a_time=2x2
     start --slideshow $d/show; sleep 4
     shot turns-a-$v
@@ -3021,9 +3069,9 @@ for v in new old; do
     config slideshow_random=true
     start $d/show.gqv
     sleep 2
-    key s; sleep 1          # the slideshow, shuffled
-    key Delete; sleep 1     # the shown one out of the collection while shuffled
-    key s; sleep 1          # stopped: back in the collection's order
+    key s; sleep 1          # the slideshow, in random order
+    key Delete; sleep 1     # the shown one out of the collection while it runs
+    key s; sleep 1          # stopped: the collection in its own order all along
     quit
     order=$(grep -o '[a-h]\.jpg' $d/show.gqv | tr '\n' ' ')
     # Seven left, in the order a to h.
@@ -6452,6 +6500,393 @@ else
                 "$got" "z's EXIF red "
         else note "old: $got"; fi
         rm -rf $d $back
+    done
+fi
+
+section "a slideshow of a tree on a slow share: the subfolders' images while the tree is read"
+# #256. $share is a second lossyfs over /opt/lossy, mounted with the subtype sshfs, so that
+# Glimt takes it for a share (file_io::is_network takes fuse.sshfs for one) and its walk of a
+# tree waits for the images that the window waits for. It reads each folder of /slow-tree-* in
+# half a second and each read of a file there in 0.3 s, as a share far away does, so the tree of
+# a folder with three images of its own and 6 in each of 20 subfolders takes more than ten
+# seconds to read, and so does the next image. A slideshow with its subfolders, a second for
+# each image, without Repeat, shows the subfolders' images while the tree is read, a slide about
+# every second, in random order and in name order. The walk brings images faster than the
+# slideshow shows them, so the round, which never waits for the walk, does not end before the
+# tree is read. 0.95.0 took no part of the tree in either order, so it went round the images of
+# the folder until the whole tree was read, or in name order ended on them.
+faults=yes
+if ! grep -q " $share fuse.sshfs" /proc/mounts; then
+    fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
+else
+    for order in random name; do
+        for v in new old; do
+            as_version $v
+            back=/opt/lossy/slow-tree-$order-$v d=$share/slow-tree-$order-$v
+            rm -rf $back; mkdir -p $back
+            for t in a b c; do convert -size 300x200 xc:red $back/top-$t.png; done
+            for k in $(seq -w 1 20); do
+                mkdir $back/s$k
+                for t in a b c d e f; do convert -size 300x200 xc:lime $back/s$k/$t.png; done
+            done
+            config slideshow_subfolders=true slideshow_random=$([ $order = random ] && echo true ||
+                echo false) slideshow_repeat=false slideshow_delay=1 slideshow_fade=0 \
+                thumbnails=false
+            echo /slow-tree-$order-$v >/tmp/lossy-slow
+            start --slideshow $d
+            # The image shown, every 0.2 s for eight seconds, each change with its time in ms.
+            changes=/tmp/slow-tree-changes-$order-$v shown=
+            : >$changes
+            for i in $(seq 40); do
+                now=$(remote current 2>/dev/null | tr -d '\0')
+                [ -n "$now" ] && [ "$now" != "$shown" ] && echo "$(date +%s%3N) $now" >>$changes
+                shown=$now
+                sleep 0.2
+            done
+            # The end of the sampling counts as a change for the gaps, so that a slideshow that
+            # stands still after its fifth slide fails too, but it is no slide.
+            echo "$(date +%s%3N) end" >>$changes
+            # When the tree's walk read its last folder, s20 (on a share the sizes are not read
+            # after it), when the first image of a subfolder was shown, and whether the image's
+            # reads were slow too, in ms.
+            log=/tmp/sharefs.log
+            until_ok "grep -q '^READDIR /slow-tree-$order-$v/s20 ' $log" 60
+            read_last=$(grep -m1 "^READDIR /slow-tree-$order-$v/s20 " $log |
+                awk '{printf "%d", $3 * 1000}')
+            slow_reads=$(grep -c "^READ /slow-tree-$order-$v/" $log)
+            first_sub=$(grep -m1 "/s[0-9][0-9]/" $changes | cut -d' ' -f1)
+            # The longest time between two slides after the first image of a subfolder, and
+            # from the last one to the end of the sampling.
+            gap=$(awk -v from="${first_sub:-0}" '$1 >= from { if (last) { g = $1 - last
+                if (g > max) max = g } last = $1 } END { print max + 0 }' $changes)
+            slides=$(awk -v from="${first_sub:-0}" '$1 >= from && $2 != "end"' $changes | wc -l)
+            rm -f /tmp/lossy-slow
+            quit
+            got="$([ -n "$first_sub" ] && [ "$first_sub" -lt "${read_last:-0}" ] && echo before)"
+            got="$got $([ "$slides" -ge 5 ] && [ "$gap" -le 2000 ] && echo steady)"
+            got="$got $([ "$slow_reads" -gt 0 ] && echo slow-reads)"
+            if [ $v = new ]; then
+                expect "$order order: a subfolder's image before the tree was read, then a slide about every second" \
+                    "$got" "before steady slow-reads"
+            else note "old, $order order: $got (first subfolder image at ${first_sub:-none}, tree read at $read_last, $slides slides, longest gap $gap ms)"; fi
+            rm -rf $back $changes
+        done
+    done
+fi
+
+section "a slideshow of a tree on a slow share: the end of a round never waits for the walk"
+# The tree has two images of its own, thirty-nine empty subfolders and one that the tester may not
+# read, s10, on $share, slowed as in the section before, so its walk takes twenty seconds and
+# brings no image. A slideshow with its subfolders, a second for each image, in name order with
+# Repeat, goes round the two images while the walk runs: no gap between two slides is longer
+# than two seconds, and the walk is still reading when the sampling ends. The folder that cannot
+# be read changes nothing. 0.95.1's first fixes held the end of every round until the walk had
+# read the tree, so the slideshow stood on the second image for the whole walk.
+faults=yes
+if ! grep -q " $share fuse.sshfs" /proc/mounts; then
+    fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/round-end-$v d=$share/round-end-$v
+        rm -rf $back; mkdir -p $back
+        convert -size 300x200 xc:red $back/a.png
+        convert -size 300x200 xc:blue $back/b.png
+        for k in $(seq -w 1 40); do mkdir $back/s$k; done
+        convert -size 300x200 xc:lime $back/s10/c.png
+        chmod 000 $back/s10
+        config slideshow_subfolders=true slideshow_random=false slideshow_repeat=true \
+            slideshow_delay=1 slideshow_fade=0 thumbnails=false
+        echo /round-end-$v >/tmp/lossy-slow
+        start --slideshow $d
+        # The image shown, every 0.2 s for six seconds by the clock, each change with its time in
+        # ms. A count of samples took longer than the walk on a loaded computer, as each look
+        # is a --remote call.
+        changes=/tmp/round-end-changes-$v shown=
+        : >$changes
+        until_ms=$(($(date +%s%3N) + 6000))
+        while [ "$(date +%s%3N)" -lt $until_ms ]; do
+            now=$(remote current 2>/dev/null | tr -d '\0')
+            [ -n "$now" ] && [ "$now" != "$shown" ] && echo "$(date +%s%3N) $now" >>$changes
+            shown=$now
+            sleep 0.2
+        done
+        echo "$(date +%s%3N) end" >>$changes
+        sampled=$(date +%s%3N)
+        log=/tmp/sharefs.log
+        until_ok "grep -q '^READDIR /round-end-$v/s40 ' $log" 60
+        read_last=$(grep -m1 "^READDIR /round-end-$v/s40 " $log | awk '{printf "%d", $3 * 1000}')
+        rm -f /tmp/lossy-slow
+        quit
+        chmod 755 $back/s10
+        gap=$(awk '{ if (last) { g = $1 - last; if (g > max) max = g } last = $1 }
+            END { print max + 0 }' $changes)
+        slides=$(grep -vc ' end$' $changes)
+        got="$([ "$slides" -ge 4 ] && [ "$gap" -le 2000 ] && echo steady)"
+        got="$got $([ "${read_last:-0}" -gt "$sampled" ] && echo walk-still-reading)"
+        if [ $v = new ]; then
+            expect "the end of a round while the walk runs: a slide about every second" \
+                "$got" "steady walk-still-reading"
+        else note "old: $got ($slides slides, longest gap $gap ms, tree read at $read_last, sampled to $sampled)"; fi
+        rm -rf $back $changes
+    done
+fi
+
+section "a slideshow of a tree on a slow share: R off during the walk goes on in name order at once, F5 keeps the round"
+# The slow tree of the first of these sections, without Repeat. R off (--remote random off)
+# after the third slide of a random slideshow has the next slides picked in name order at once,
+# also while the tree is still read: each slide is the next image in the list after the one
+# before it that was not shown. The first slide after R off may be the first of the list, when
+# the slide shown was the last one listed, so it is left out. The walk brings images faster
+# than the slideshow shows them, so the new ones come after the slide shown, and no check
+# depends on the random order itself. F5 (run Refresh) after the third slide of a slideshow in
+# name order reads the tree again, and the round stays: no image is shown twice, and the slides
+# go on in name order. 0.95.1's first fixes left the rest in random order until the walk had
+# read the tree.
+faults=yes
+if ! grep -q " $share fuse.sshfs" /proc/mounts; then
+    fail "no FUSE share at $share: run.sh's containers need --privileged for /dev/fuse"
+else
+    for event in sorted refresh; do
+        for v in new old; do
+            as_version $v
+            back=/opt/lossy/walk-$event-$v d=$share/walk-$event-$v
+            rm -rf $back; mkdir -p $back
+            for t in a b c; do convert -size 300x200 xc:red $back/top-$t.png; done
+            for k in $(seq -w 1 20); do
+                mkdir $back/s$k
+                for t in a b c d e f; do convert -size 300x200 xc:lime $back/s$k/$t.png; done
+            done
+            config slideshow_subfolders=true slideshow_repeat=false slideshow_delay=1 \
+                slideshow_fade=0 thumbnails=false \
+                slideshow_random=$([ $event = sorted ] && echo true || echo false)
+            echo /walk-$event-$v >/tmp/lossy-slow
+            start --slideshow $d
+            # Each image shown, by its name in the tree, every 0.2 s for fourteen seconds, and
+            # the event after the third one.
+            changes=/tmp/walk-changes-$event-$v shown= n=0
+            : >$changes
+            for i in $(seq 70); do
+                now=$(remote current 2>/dev/null | tr -d '\0')
+                if [ -n "$now" ] && [ "$now" != "$shown" ]; then
+                    echo "${now#$d/}" >>$changes
+                    n=$((n + 1))
+                    if [ $n -eq 3 ] && [ $event = sorted ]; then
+                        remote random off >/dev/null 2>&1; echo EVENT >>$changes
+                    elif [ $n -eq 3 ]; then
+                        remote run Refresh >/dev/null 2>&1; echo EVENT >>$changes
+                    fi
+                fi
+                shown=$now
+                sleep 0.2
+            done
+            rm -f /tmp/lossy-slow
+            quit
+            # The slides after the event, how many came before the one before them in name
+            # order, and how many images were shown twice. After R off, the first slide is left
+            # out, which may be the first of the list.
+            after=$(sed -n '/^EVENT$/,$p' $changes | tail -n +2)
+            [ $event = sorted ] && after=$(printf '%s\n' "$after" | tail -n +2)
+            slides=$(printf '%s\n' "$after" | grep -c .)
+            descents=$(printf '%s\n' "$after" |
+                LC_ALL=C awk 'NR > 1 && $0 < last { d++ } { last = $0 } END { print d + 0 }')
+            twice=$(grep -v '^EVENT$' $changes | sort | uniq -d | wc -l)
+            random=$(grep -c '^slideshow_random=true$' $XDG_CONFIG_HOME/glimt/config)
+            if [ $event = sorted ]; then
+                got="$([ "$slides" -ge 4 ] && echo slides) descents=$descents"
+                got="$got random=$random twice=$twice"
+                want="slides descents=0 random=0 twice=0"
+            else
+                got="$([ "$slides" -ge 5 ] && echo slides) descents=$descents twice=$twice"
+                want="slides descents=0 twice=0"
+            fi
+            note "$v, $event during the walk, the slides: $(tr '\n' ' ' <$changes)"
+            if [ $v = new ]; then
+                expect "$event during the walk in name order" "$got" "$want"
+            else note "old, $event during the walk: $got"; fi
+            rm -rf $back $changes
+        done
+    done
+fi
+
+section "a slideshow of a tree on a share that serves one call at a time: the tree walked once, a slide every few seconds, Page Down at once"
+# The maintainer's report of 0.95.1. $gvfs is a lossyfs over /opt/lossy mounted as GNOME Files
+# mounts an smb:// share (fuse.gvfsd-fuse), which serves one call at a time with 40 ms before
+# each, as gvfsd-smb does over Wi-Fi, and gives no entry's type with its names, as gvfsd-fuse
+# does. A tree of 200 subfolders with two photos of 3000×2000 in each, red, lime, blue and
+# yellow in turn, is opened with Include Subfolders, and once the walk's listing is taken (no
+# folder listed, and the last image in the list), a slideshow of it runs,
+# a second for each image, with the folder watcher on, as by default. One photo there takes
+# some thirty calls, 1.2 seconds of the share alone. The slideshow is sampled for twenty
+# seconds:
+# - the tree was walked once, by its listing: the start of the slideshow did not read it again;
+# - at least eight slides, no gap between two of them longer than five seconds, and the
+#   window's title names the image shown;
+# - with the slideshow stopped, and s100/1-blue.jpg shown, Page Down shows s100/2-yellow.jpg on
+#   the screen within five seconds. A slide cannot stand in for it, and the image before it has
+#   another colour.
+# The limits of time are wide, as a loaded machine stretches every gap: the fix gives about 16
+# slides with gaps of at most 2.4 s, and 0.95.1 about 6 to 10 with gaps of 3.7 to 7 s, but a
+# run of 0.95.1 may pass the gaps. 0.95.1 fails on the walks: the start of the slideshow walked
+# the tree again, beside the slideshow, and that walk also holds back the image selected for
+# Page Down. A build of this one without the gate's waits for work nobody waits for gave the
+# same slides, gaps and Page Down as with them here, so these numbers check the walk, not the
+# gate. The walks, the gaps, the time to Page Down's image and the looks at the subfolders a
+# second (of the watcher and the walk together) are printed for both versions.
+faults=yes
+if ! grep -q " $gvfs fuse.gvfsd-fuse" /proc/mounts; then
+    fail "no FUSE share at $gvfs: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/gvfs-tree-$v d=$gvfs/gvfs-tree-$v log=/tmp/gvfsfs.log
+        rm -rf $back; mkdir -p $back
+        # Four colours in turn, so that no image has the colour of the one before or after it,
+        # also round the end of the list (400 images).
+        colours=(red lime blue yellow)
+        for c in ${colours[@]}; do
+            convert -size 3000x2000 xc:$c -attenuate 0.2 +noise Gaussian -quality 90 /tmp/gvfs-$c.jpg
+        done
+        for k in $(seq -w 1 200); do
+            mkdir $back/s$k
+            for t in 1 2; do
+                c=${colours[$(( ((10#$k - 1) * 2 + t - 1) % 4 ))]}
+                ln /tmp/gvfs-$c.jpg $back/s$k/$t-$c.jpg
+            done
+        done
+        config slideshow_subfolders=true slideshow_delay=1 slideshow_fade=0
+        start $d
+        # The calls from here on, after the first listing of the folder alone.
+        from_line=$(($(wc -l <$log) + 1))
+        remote subfolders on >/dev/null
+        # The walk has read the tree when it has read the last subfolder, and its listing is
+        # taken once no folder is listed and the list holds the last image. A slideshow started
+        # while the walk still runs starts it anew.
+        until_ok "grep -q '^CALL readdir /gvfs-tree-$v/s200 ' $log" 180 &&
+            until_listed $d/s200/2-yellow.jpg 60; walked=$?
+        remote slideshow on >/dev/null; sleep 2
+        # The image shown and the window's title, every 0.2 s for twenty seconds by the clock,
+        # each change of the image with its time in ms. A title is checked only between two
+        # looks that found the same image, so that a slide that comes between them is no fault.
+        changes=/tmp/gvfs-changes-$v shown= wrong_titles=0 stopped=
+        : >$changes
+        sampled_from=$(date +%s%3N)
+        until_ms=$((sampled_from + 20000))
+        while [ "$(date +%s%3N)" -lt $until_ms ]; do
+            now=$(remote current 2>/dev/null | tr -d '\0')
+            title=$(xdotool getwindowname $WIN 2>/dev/null)
+            again=$(remote current 2>/dev/null | tr -d '\0')
+            [ -n "$now" ] && [ "$now" != "$shown" ] && echo "$(date +%s%3N) $now" >>$changes
+            if [ -n "$now" ] && [ "$now" = "$again" ] && [[ "$title" != *"${now##*/}"* ]]; then
+                wrong_titles=$((wrong_titles + 1))
+            fi
+            shown=$now
+            sleep 0.2
+        done
+        echo "$(date +%s%3N) end" >>$changes
+        sampled_to=$(date +%s%3N)
+        # The looks at the subfolders while sampled, a second, of the watcher and the walk.
+        looks=$(awk -v from=$sampled_from -v to=$sampled_to -v tree="/gvfs-tree-$v/s" \
+            '$1 == "CALL" && $2 == "getattr" && index($3, tree) == 1 && $3 !~ /\.jpg$/ &&
+             $4 * 1000 >= from && $4 * 1000 <= to { n++ } END { printf "%d", n * 1000 / (to - from) }' $log)
+        gap=$(awk '{ if (last) { g = $1 - last; if (g > max) max = g } last = $1 }
+            END { print max + 0 }' $changes)
+        slides=$(grep -vc ' end$' $changes)
+        # Each walk of the tree reads its top folder once.
+        walks=$(tail -n +$from_line $log | grep -c "^CALL readdir /gvfs-tree-$v ")
+        # Page Down, with the slideshow stopped, so that no slide can stand in for its image:
+        # s100/1-blue.jpg is shown, and the key must show s100/2-yellow.jpg. The time from the
+        # key to its colour on the screen, sampled in a shot of the middle of the image area,
+        # where blue was before.
+        remote slideshow off >/dev/null
+        remote select $d/s100/1-blue.jpg >/dev/null 2>&1
+        until_screen() {
+            local until_ms=$(( $(date +%s%3N) + $2 ))
+            while [ "$(date +%s%3N)" -lt $until_ms ]; do
+                import -window root -crop 200x200+600+300 /t/out/gvfs-page-$v.png 2>/dev/null
+                convert /t/out/gvfs-page-$v.png -resize 1x1! /t/out/gvfs-page-$v-mean.png
+                [ "$(colour gvfs-page-$v-mean 0 0)" = $1 ] && return 0
+                sleep 0.1
+            done
+            return 1
+        }
+        until_screen blue 15000 && sleep 3 &&
+            [ "$(remote current 2>/dev/null | tr -d '\0')" = $d/s100/1-blue.jpg ] && stopped=stopped
+        xdotool windowraise $WIN 2>/dev/null; xdotool windowfocus $WIN 2>/dev/null
+        pressed=$(date +%s%3N) page_ms=
+        xdotool key Page_Down 2>/dev/null
+        until_screen yellow 15000 && page_ms=$(( $(date +%s%3N) - pressed ))
+        paged=$(remote current 2>/dev/null | tr -d '\0')
+        [ "$paged" = $d/s100/2-yellow.jpg ] || page_ms=
+        quit
+        # The processor at rest on a local tree of the same photos, which the share's rules
+        # must not change.
+        local_tree=/tmp/gvfs-local-$v
+        rm -rf $local_tree; mkdir -p $local_tree; cp -al $back/. $local_tree/
+        config slideshow_subfolders=true
+        start $local_tree/s001/1-red.jpg
+        sleep 3; at_rest=$(busy)
+        quit
+        rm -rf $local_tree
+        note "$v: at rest on a local tree, $at_rest ticks of 1/100 s in 3 s"
+        note "$v: the tree walked $walks times, $slides slides in 20 s, longest gap $gap ms, $wrong_titles wrong titles, Page Down's image after ${page_ms:-more than 15000} ms, $looks looks at the subfolders a second"
+        got="$([ $walked = 0 ] && echo walked) walks=$walks"
+        got="$got $([ "$slides" -ge 8 ] && [ "$gap" -le 5000 ] && echo steady)"
+        got="$got titles=$wrong_titles ${stopped:-running} $([ -n "$page_ms" ] && [ "$page_ms" -le 5000 ] && echo paged)"
+        if [ $v = new ]; then
+            expect "a slideshow on a share that serves one call at a time: one walk, steady slides, the titles, Page Down" \
+                "$got" "walked walks=1 steady titles=0 stopped paged"
+        else note "old: $got"; fi
+        rm -rf $back $changes /tmp/gvfs-*.jpg
+    done
+fi
+
+section "a change in one subfolder of a tree on a share that serves one call at a time: that subfolder read again, not the tree"
+# $gvfs as in the section before, with a tree of 30 subfolders, two small images in each. Once
+# the walk has read it, a slideshow of it runs, and another program changes the subfolder s05
+# behind the share's back, as a NAS's indexer does: a file made and taken away there. The folder
+# watcher sees it, and after the window's rest from the last listing (four times as long as it
+# took) s05 alone is read again: one more READDIR of s05 in the share's log, and none of the
+# tree's top folder, which every walk of the tree reads. 0.95.1 walked the tree again, both
+# at the start of the slideshow and for the change.
+faults=yes
+if ! grep -q " $gvfs fuse.gvfsd-fuse" /proc/mounts; then
+    fail "no FUSE share at $gvfs: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/gvfs-change-$v d=$gvfs/gvfs-change-$v log=/tmp/gvfsfs.log
+        rm -rf $back; mkdir -p $back
+        for k in $(seq -w 1 30); do
+            mkdir $back/s$k
+            for c in red blue; do convert -size 300x200 xc:$c $back/s$k/$c.png; done
+        done
+        config slideshow_subfolders=true slideshow_delay=1 slideshow_fade=0
+        start $d
+        from_line=$(($(wc -l <$log) + 1))
+        remote subfolders on >/dev/null
+        # The walk is done once no folder is listed and the list holds the tree's last image.
+        until_ok "grep -q '^CALL readdir /gvfs-change-$v/s30 ' $log" 120 &&
+            until_listed $d/s30/red.png 60; walked=$?
+        remote slideshow on >/dev/null; sleep 2
+        touch $back/s05/.indexed; rm $back/s05/.indexed
+        # The change is read once the watcher has come round to s05, a look at a subfolder a
+        # second or less while the slideshow runs, and after the rest, about a minute here.
+        until_ok "[ \$(tail -n +$from_line $log | grep -c '^CALL readdir /gvfs-change-$v/s05 ') -ge 2 ]" 300
+        read_again=$?
+        sleep 3
+        walks=$(tail -n +$from_line $log | grep -c "^CALL readdir /gvfs-change-$v ")
+        s05_reads=$(tail -n +$from_line $log | grep -c "^CALL readdir /gvfs-change-$v/s05 ")
+        shown=$(remote current 2>/dev/null | tr -d '\0')
+        quit
+        got="$([ $walked = 0 ] && echo walked) $([ $read_again = 0 ] && echo read-again)"
+        got="$got walks=$walks s05=$s05_reads $([ -n "$shown" ] && echo shown)"
+        note "$v: the tree walked $walks times, s05 read $s05_reads times"
+        if [ $v = new ]; then
+            expect "a change in one subfolder during a slideshow on a share: only it read again" \
+                "$got" "walked read-again walks=1 s05=2 shown"
+        else note "old: $got"; fi
+        rm -rf $back
     done
 fi
 

@@ -5,6 +5,74 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.95.2] - 2026-11-23
+
+### Fixed
+
+- A slideshow on a network share that serves one request at a time, such as an SMB share opened
+  in GNOME Files over Wi-Fi, moves on as soon as the share has brought the next image, also with
+  Include Subfolders in a tree of many folders. Before, an image could stand for many seconds,
+  the title stood still with it, and Page Down changed the title but its image came late
+  (reported for 0.95.1), because Glimt's own looks in the background (the folder watcher, the
+  reading of the tree, the thumbnails, the images read further ahead and the other readers)
+  stood in the share's queue before the next image. They now wait for the image the window
+  waits for, one at a time, and the folder watcher takes at most a tenth of the share's time.
+- A slideshow with Include Subfolders started on a tree that is already read whole plays it
+  without reading the tree again, and a change that the folder watcher sees in one subfolder of
+  a tree reads only that subfolder again, with the folders added or removed below it. Before,
+  both read the whole tree again, which on a network share takes minutes (reported for 0.95.1).
+
+## [0.95.1] - 2026-11-22
+
+### Changed
+
+- No Flatpak bundle is built with the releases until 1.0. The other packages are as before.
+- Several folders shown together are one list in the sort order. In Name order the list is now
+  in name order, whatever order the folders were given in. Before, each folder's images came
+  in the order the folders were given.
+
+### Fixed
+
+- A slideshow with Include Subfolders shows the subfolders' images while the tree is still
+  read, in random order and in name order, also when it was started with `--slideshow`, of one
+  folder or of several, while the folder opened was still being read, or after another sort
+  order was chosen. Before, it played only the images of the folder
+  opened until the whole tree was read, which on a network share can take minutes, and it
+  stood still in a folder with no images of its own. The next images are read ahead and stay the next ones
+  when more of the tree comes, so a new part of the tree no longer takes away a decode the next
+  slide waits for. A round never waits for the tree: it shows each image listed once, and those
+  read later join it. With Repeat the next round begins at once, and without it the slideshow
+  stops once every image listed so far has been shown, also when more of the tree is still
+  being read (#256).
+- The file list stays in its sort order during a slideshow, also in random order, and only
+  grows as a tree is read. The slideshow picks its images itself, among those the search shows:
+  in name order the next one in the list that the round has not shown, also after an image
+  shown by hand, in random order any of them. R changes only how the
+  next image is picked, at once, and the round goes on. ← goes back through the images shown and
+  → forward again, Home starts over from the first image, and a stop keeps the image shown,
+  selected and scrolled to in the list. Before, the slideshow put its own order into the list.
+- While a tree is read, its images go into the list in the sort order chosen, also by date,
+  size, EXIF date, number or extension, descending and without Case, and each image is looked
+  at once. After another order is chosen, the list is put in the new order in the background,
+  and the tree's images go in by it from then on. Before, they went in by name until the whole tree was read.
+- In a slideshow, ←, →, Home and End clear the selection, also with Shift, so Delete, Move or a
+  keyword after them acts on the image shown. Before, they acted on a selection made before the
+  slideshow.
+- Show Hidden Files turned off, or a type left out in the Types menu, takes those images out of
+  the list at once. Before, a tree read on a share kept them, and the slideshow showed them,
+  until the tree was read again.
+- On a network share, the reading of a tree pauses between folders, for up to a second each,
+  and in an order by date, size or EXIF date also between its looks at the images, for up to a
+  second in every hundred looks, also while the list is put in another sort order and when the
+  whole list is sorted, while an image that the window waits for is read: the shown
+  one, the next one for the slideshow or an arrow key, or another pane. Before, the image was
+  read behind the tree. With
+  many images in a tree, each part of it costs the window no more in random order than in name
+  order (#256).
+- The file list, the folder tree and Pan view no longer keep the processor busy for about a
+  second after they scroll to one of their last rows, as a slideshow often does. Before, they
+  scrolled past their end and sprang back, drawing every frame they could meanwhile.
+
 ## [0.95.0] - 2026-11-20
 
 ### Changed
@@ -4546,7 +4614,9 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.95.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.95.2...HEAD
+[0.95.2]: https://github.com/thornbux/glimt/compare/v0.95.1...v0.95.2
+[0.95.1]: https://github.com/thornbux/glimt/compare/v0.95.0...v0.95.1
 [0.95.0]: https://github.com/thornbux/glimt/compare/v0.94.0...v0.95.0
 [0.94.0]: https://github.com/thornbux/glimt/compare/v0.93.0...v0.94.0
 [0.93.0]: https://github.com/thornbux/glimt/compare/v0.92.0...v0.93.0

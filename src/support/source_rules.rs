@@ -44,7 +44,7 @@ const RETIRED_NAMES: &[&str] = &[
     "files_gen",     // version, list_version
     // The slideshow, Save As and pan view (viewer/).
     "at_start",      // start_after_listing
-    "whole_shuffle", // shuffle_next_listing_whole
+    "whole_shuffle", // keeps_its_order
     "days_stop",     // stop_reading_days
     "add_gone",      // add_removed
     "as_read",       // read_days
@@ -753,6 +753,109 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "write_sidecars(",
     "write_in_sidecar_thread(",
     "spawn_worker_pool(",
+];
+
+/// The calls that look at or read the user's files, which a thread in the background makes on a
+/// share only through the gate (`background_reads_on_a_share_go_through_the_gate`): a look at a
+/// file or folder, a folder read, a file opened, and a decode. Glimt's own functions that make
+/// one, such as `list_folder` or `read_limited`, are found through the functions they reach.
+const BACKGROUND_READS: &[&str] = &[
+    "fs::metadata(",
+    ".metadata()",
+    "symlink_metadata(",
+    "canonicalize(",
+    "read_dir(",
+    "read_to_string(",
+    "fs::read(",
+    "File::open(",
+    "OpenOptions",
+    "from_decoder(",
+    "scaled(",
+    "from_memory(",
+];
+
+/// What passes a thread's looks and reads on a share through the gate (`listing::ReadsFirst`),
+/// which waits there for the images that the window waits for.
+const THE_GATE: &[&str] = &[
+    "ReadsFirst",
+    "before_a_look(",
+    "before_work_nobody_waits_for(",
+    "wait_for_reads_that_go_first(",
+];
+
+/// The threads in the background that read without the gate
+/// (`background_reads_on_a_share_go_through_the_gate`), as (file, function), each with the
+/// reason it needs none: it reads Glimt's own files or the system's, not the user's on a share;
+/// or someone waits for its answer, as for work with a busy pointer (a dialog the user opened, a
+/// question, a --remote client, an operation); or it starts a program, which
+/// `listing::program_started` lets go first; or it looks at no file on a share.
+const NEEDS_NO_GATE: &[(&str, &str, &str)] = &[
+    (
+        "features/remote.rs",
+        "remote_info",
+        "--remote info, whose client waits for it",
+    ),
+    (
+        "features/tools.rs",
+        "new",
+        "the tools' desktop files, Glimt's own",
+    ),
+    (
+        "files/file_io.rs",
+        "taken_in_background",
+        "the fingerprints that a question's act waits for",
+    ),
+    (
+        "files/file_ops.rs",
+        "with_real_folder",
+        "the look-up that an operation waits for",
+    ),
+    (
+        "files/file_ops.rs",
+        "rename_files_of",
+        "the look-up that a rename waits for",
+    ),
+    (
+        "images/colour.rs",
+        "read_desktop_screen",
+        "the screen's profile, the system's",
+    ),
+    (
+        "main.rs",
+        "on_exit",
+        "the socket removed at the close, Glimt's own",
+    ),
+    (
+        "metadata/lightroom.rs",
+        "look_at_typed_folders",
+        "the Lightroom dialog's look-ups",
+    ),
+    (
+        "model/collections.rs",
+        "listed",
+        "the collections' folder, Glimt's own",
+    ),
+    (
+        "ui/dialogs.rs",
+        "ask_rename_many",
+        "Rename Many's preview, which its dialog waits for",
+    ),
+    ("ui/help.rs", "logo", "the logo, Glimt's own"),
+    (
+        "ui/menus.rs",
+        "tools_menu",
+        "it starts a tool or the file manager",
+    ),
+    (
+        "ui/menus.rs",
+        "open_with_menu",
+        "it opens the files in the application that the user chose and waits to see",
+    ),
+    (
+        "ui/theme.rs",
+        "read_theme_files_again",
+        "the theme files, Glimt's own",
+    ),
 ];
 
 /// What starts work that writes, which closing waits for: a job, work in the background, a
@@ -2446,6 +2549,154 @@ fn whether_a_window_listens_is_asked_in_one_place() {
         wrong.is_empty(),
         "the remote control setting read where remote::listening() is meant:\n{}",
         wrong.join("\n")
+    );
+}
+
+/// The slideshow never changes the order of the file list: no function of viewer/slideshow.rs
+/// reaches, however deep, a function that puts the list in an order (`REORDERS`). The list is
+/// always in the order its listing gives it, and the slideshow keeps its own state by the
+/// images' names: the round, the history and the images it picks next. Before, the slideshow
+/// put a random order, or the order it played, into the list itself, and merged every listing
+/// into that order, through parts, whole lists, R, Home, End, the end of a round and the sort.
+/// Four rounds of audits found images lost or shown twice in that merge.
+#[test]
+fn the_slideshow_never_reorders_the_list() {
+    const REORDERS: &[(&str, &str)] = &[
+        ("model/folder.rs", "replace_files"),
+        ("model/folder.rs", "take_listing"),
+        ("model/folder.rs", "take_listed_files"),
+        ("model/list.rs", "replacing"),
+        ("model/list.rs", "set_files"),
+        ("model/list.rs", "rename"),
+        ("model/list.rs", "take_order_of"),
+        ("model/listing.rs", "sort_by_names"),
+        ("model/listing.rs", "sorted"),
+        ("model/listing.rs", "merged"),
+        ("model/listing.rs", "in_step"),
+    ];
+    let sources = rust_sources();
+    let graph = CallGraph::new(&sources);
+    let calls: Vec<Vec<Call>> = graph.functions.iter().map(|f| graph.calls_of(f)).collect();
+    let reorders =
+        |f: &Function| (REORDERS.iter()).any(|(file, name)| f.file == *file && f.name == *name);
+    let mut wrong = Vec::new();
+    for (start, f) in graph.functions.iter().enumerate() {
+        if f.file != "viewer/slideshow.rs" {
+            continue;
+        }
+        // The functions it reaches, each with the way there.
+        let mut way: std::collections::HashMap<usize, String> = [(start, f.name.clone())].into();
+        let mut next = vec![start];
+        while let Some(g) = next.pop() {
+            for call in &calls[g] {
+                let Some(callee) = call.callee else {
+                    continue;
+                };
+                if way.contains_key(&callee) {
+                    continue;
+                }
+                let through = format!("{} → {}", way[&g], graph.functions[callee].name);
+                if reorders(&graph.functions[callee]) {
+                    wrong.push(through.clone());
+                }
+                way.insert(callee, through);
+                next.push(callee);
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the slideshow reaches a function that orders the list:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// A round of the slideshow begins in one place, `Slideshow::begin_round`, which every way a
+/// round begins calls: the start, the end of a round with Repeat, and Home while it runs. Its
+/// round, the names shown in it, is cleared nowhere else.
+#[test]
+fn a_round_begins_in_one_place() {
+    let wrong = outside_their_homes(&[("round.clear(", &[("viewer/slideshow.rs", "begin_round")])]);
+    assert!(
+        wrong.is_empty(),
+        "a round begun outside Slideshow::begin_round:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The slideshow's plan (the images planned, the pool and whether a pick found none) is made
+/// in one place, `Slideshow::make_plan`, which makes it again whenever what it was made from
+/// differs: the list's version, the search's, the image shown, the order and the round. Its
+/// fields are emptied and what it was made from is written nowhere else, so no change can reach
+/// the slideshow only through a caller that makes the plan again. Before, the plan was made
+/// again at a few callers, and an image clicked during a slideshow or a search changed during
+/// one left the old plan in place, so the slideshow went back to where it was or showed images
+/// that the search hid.
+#[test]
+fn the_slideshows_plan_is_made_in_one_place() {
+    let home: &[(&str, &str)] = &[("viewer/slideshow.rs", "make_plan")];
+    let wrong = outside_their_homes(&[
+        ("made_from =", home),
+        ("planned.clear(", home),
+        ("pool.clear(", home),
+        ("found_none = false", home),
+        ("forget_order(", &[]),
+    ]);
+    assert!(
+        wrong.is_empty(),
+        "the slideshow's plan made outside Slideshow::make_plan:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// A scroll area is given its offset in one place, `file_list::scrolled_within`, which keeps
+/// the offset within the content. egui takes an offset past the end for an overscroll that a
+/// finger dragged, and springs it back over about a second, asking for every frame at once.
+/// Before, the file list, the folder tree and Pan view each set the offset by themselves, and
+/// a slideshow that showed one of the file list's last rows drew as fast as the window could
+/// until the list stood still.
+#[test]
+fn scroll_offsets_stay_within_the_content() {
+    let wrong =
+        outside_their_homes(&[("scroll_offset(", &[("ui/file_list.rs", "scrolled_within")])]);
+    assert!(
+        wrong.is_empty(),
+        "a scroll area given its offset outside file_list::scrolled_within:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Every listing of a tree sends its images in parts as they are found: each function of
+/// `Listing` that reads a tree (`listing::list_tree` or `walk_tree`) sends parts
+/// (`Listing::send_part`), so
+/// the list grows while the tree is read, whatever kind of listing it is. Before, the listing of
+/// several folders read their trees whole, and a slideshow started on them with `--slideshow`
+/// waited for every folder of them, minutes on a share, before its first slide.
+#[test]
+fn every_listing_of_a_tree_sends_parts() {
+    let sources = rust_sources();
+    let graph = CallGraph::new(&sources);
+    let calls_a = |calls: &[Call], name: &str| {
+        (calls.iter()).any(|call| call.callee.is_some_and(|c| graph.functions[c].name == name))
+    };
+    let (mut trees, mut wrong) = (0, Vec::new());
+    for f in &graph.functions {
+        if f.file != "model/folder.rs" || f.owner.as_deref() != Some("Listing") {
+            continue;
+        }
+        let calls = graph.calls_of(f);
+        if calls_a(&calls, "list_tree") || calls_a(&calls, "walk_tree") {
+            trees += 1;
+            if !calls_a(&calls, "send_part") {
+                wrong.push(f.name.clone());
+            }
+        }
+    }
+    assert!(trees >= 2, "the listings of a tree are not found");
+    assert!(
+        wrong.is_empty(),
+        "a listing of a tree that sends no parts: {}",
+        wrong.join(", ")
     );
 }
 
@@ -6921,22 +7172,7 @@ fn threads_without_pointer(text: &str) -> Vec<usize> {
         if names_a_pointer(&call_text(&code[..end], i, at).0, &holders) {
             continue;
         }
-        // Up to the statement's first line, then up the comments and attributes above it.
-        let mut first = i;
-        while first > 0
-            && !code[first - 1].trim().is_empty()
-            && !code[first - 1].ends_with([';', '{', '}', ','])
-        {
-            first -= 1;
-        }
-        while first > 0
-            && (code[first - 1].trim().is_empty() && !comments[first - 1].trim().is_empty()
-                || code[first - 1].trim_start().starts_with("#["))
-        {
-            first -= 1;
-        }
-        let says_why = (first..=i).any(|j| comments[j].contains("busy pointer:"));
-        if !says_why {
+        if !comment_above(&code, &comments, i).contains("busy pointer:") {
             found.push(i + 1);
         }
     }
@@ -7037,6 +7273,285 @@ fn finds_every_thread_without_the_busy_pointer() {
         fn g() {\n    let child = command.spawn()?;\n    \
         std::thread::scope(|scope| {\n        scope.spawn(f);\n    });\n}\n";
     assert_eq!(threads_without_pointer(text), [2, 7, 10, 15, 28]);
+}
+
+/// Every thread in the background that nobody waits for (its comment says "No busy pointer:")
+/// and every worker pool makes its looks at and reads of the user's files on a share only
+/// through the gate (`listing::ReadsFirst`), so that a share that serves one call at a time
+/// serves the image that the window waits for first. Such a thread that reaches one of
+/// `BACKGROUND_READS`, itself or through the crate's functions however deep, passes one of
+/// `THE_GATE` too, itself or through a function it calls. Before, only the walk of a tree
+/// waited, and the folder watcher, the thumbnails, the images read ahead and the other readers
+/// held a slideshow's next image on gvfs for many seconds. The threads that need no gate are
+/// listed with the reason.
+#[test]
+fn background_reads_on_a_share_go_through_the_gate() {
+    let found = ungated_background_readers(&rust_sources());
+    let is_excepted = |(file, function): &(String, String)| {
+        (NEEDS_NO_GATE.iter()).any(|e| (e.0, e.1) == (file, function))
+    };
+    let wrong: Vec<String> = (found.iter())
+        .filter(|f| !is_excepted(f))
+        .map(|(file, function)| format!("{file}: {function}"))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a thread in the background reads the user's files without the gate (listing::ReadsFirst, \
+         AGENTS.md):\n{}",
+        wrong.join("\n")
+    );
+    let unused: Vec<_> = (NEEDS_NO_GATE.iter())
+        .filter(|e| {
+            !found
+                .iter()
+                .any(|f| (f.0.as_str(), f.1.as_str()) == (e.0, e.1))
+        })
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "named here but no longer there: {unused:?}"
+    );
+}
+
+/// The check above finds a thread nobody waits for that reads through a function, and a worker
+/// pool whose work reads, and passes one that goes through the gate, itself or in a function it
+/// calls, a thread with a busy pointer, and one that reads nothing.
+#[test]
+fn finds_a_background_reader_without_the_gate() {
+    let text = "fn look(p: &Path) {\n    std::fs::metadata(p);\n}\n\
+        fn gated(p: &Path) {\n    gate.before_a_look(p);\n    look(p);\n}\n\
+        fn a() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || look(p));\n}\n\
+        fn b() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || gated(p));\n}\n\
+        fn c() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        gate.before_work_nobody_waits_for(p);\n        look(p);\n    });\n}\n\
+        fn d() {\n    // Its busy pointer: the listing.\n    std::thread::spawn(move || look(p));\n}\n\
+        fn e() {\n    // No busy pointer: a reaper.\n    std::thread::spawn(move || drop(p));\n}\n\
+        fn f() {\n    spawn_worker_pool(\n        1,\n        move |p| {\n            \
+        let m = p.metadata();\n        },\n    );\n}\n";
+    let sources = [("x.rs".to_owned(), text.to_owned())];
+    let found: Vec<String> = (ungated_background_readers(&sources).into_iter())
+        .map(|(_, function)| function)
+        .collect();
+    assert_eq!(found, ["a", "f"]);
+}
+
+/// Work that goes through the gate for work nobody waits for
+/// (`ReadsFirst::before_work_nobody_waits_for`) is judged wanted by a real check, such as
+/// whether the receiver of its answer is still there (`Receiving::is_waited_for`), so that work
+/// nobody waits for any more leaves the turn to the rest. A call outside the tests that passes
+/// a constant `|| true` says why its work is always wanted, in a comment just above it that
+/// starts with "Always wanted:". Before, the sums of a selection or search replaced since passed
+/// `|| true`, and each looked at every file on a share through the turn, for nobody.
+#[test]
+fn work_through_the_gate_is_judged_wanted() {
+    let sources = rust_sources();
+    let callees: Vec<String> = (sources.iter())
+        .flat_map(|(_, text)| functions_taking_is_wanted(text))
+        .collect();
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        wrong.extend(
+            (work_not_judged_wanted(text, &callees).iter()).map(|line| format!("{file}:{line}")),
+        );
+    }
+    assert!(
+        wrong.is_empty(),
+        "work through the gate passes a constant `|| true` as whether it is wanted (pass a real \
+         check, or say why in a comment above it: \"Always wanted:\"):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the names of the functions of `text` whose parameters include one named
+/// `is_wanted`: the gate itself and the helpers that pass the check on to it, such as
+/// `size_through`. A `|| true` given to a helper reaches the gate as surely as one given to it.
+fn functions_taking_is_wanted(text: &str) -> Vec<String> {
+    let code = code_lines(text);
+    let mut names = Vec::new();
+    for (i, line) in code.iter().enumerate() {
+        let Some(at) = line.find("fn ") else { continue };
+        if at > 0 && line[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+            continue;
+        }
+        let rest = &line[at + 3..];
+        let name: String = (rest.chars())
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if name.is_empty() {
+            continue;
+        }
+        let signature = (code[i..].iter())
+            .take_while(|l| !l.contains('{') && !l.ends_with(';'))
+            .chain(
+                code[i..]
+                    .iter()
+                    .find(|l| l.contains('{') || l.ends_with(';')),
+            )
+            .take(12)
+            .map(|l| l.split('{').next().unwrap_or(""))
+            .collect::<String>();
+        if signature.contains("is_wanted") {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// Returns the lines of `text` outside the tests where a call of one of `callees` (the
+/// functions that take an `is_wanted`, among them `before_work_nobody_waits_for`) passes a
+/// constant `true` as whether its work is wanted, without a comment just above it that says
+/// "Always wanted:".
+fn work_not_judged_wanted(text: &str, callees: &[String]) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let end = tests_start(&code);
+    let mut found = Vec::new();
+    for (i, line) in code[..end].iter().enumerate() {
+        let calls: Vec<usize> = (callees.iter())
+            .flat_map(|name| {
+                let call = format!("{name}(");
+                (line.match_indices(&call).map(|(at, _)| at)).collect::<Vec<_>>()
+            })
+            .collect();
+        for at in calls {
+            let before = &line[..at];
+            if before.ends_with("fn ")
+                || before.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+            {
+                continue;
+            }
+            let text: String = (call_text(&code[..end], i, at).0)
+                .split_whitespace()
+                .collect();
+            let is_constant = ["||true", "||{true}"].iter().any(|c| text.contains(c));
+            if is_constant && !comment_above(&code, &comments, i).contains("Always wanted:") {
+                found.push(i + 1);
+            }
+        }
+    }
+    found
+}
+
+/// The check above finds `|| true` given on the call's line, on a line of its own and in
+/// braces, also to a helper that passes it on to the gate, and passes a real check, the
+/// function's own definition, a call of a longer name that ends the same, and a call whose
+/// comment says why it is always wanted.
+#[test]
+fn finds_work_through_the_gate_not_judged_wanted() {
+    let text = "fn before_work_nobody_waits_for(p: &Path, is_wanted: impl Fn() -> bool) {}\n\
+        fn a() {\n    let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n\
+        fn b() {\n    let _turn = gate.before_work_nobody_waits_for(\n        p,\n        \
+        move || { true },\n    );\n}\n\
+        fn c() {\n    let _turn = gate.before_work_nobody_waits_for(p, &is_wanted);\n}\n\
+        fn d() {\n    // Always wanted: the user waits for all of it.\n    \
+        let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n\
+        fn size_through(\n    gate: &mut ReadsFirst,\n    is_wanted: &dyn Fn() -> bool,\n) {}\n\
+        fn e() {\n    size_through(&mut gate, &|| true);\n}\n\
+        fn f() {\n    other_size_through(&mut gate, &|| true);\n}\n";
+    let callees = functions_taking_is_wanted(text);
+    assert_eq!(callees, ["before_work_nobody_waits_for", "size_through"]);
+    assert_eq!(work_not_judged_wanted(text, &callees), [3, 6, 23]);
+}
+
+/// Returns, as (file, function), the functions of `sources` outside the tests that start a
+/// thread whose comment above says "No busy pointer:", or a worker pool, whose work reaches one
+/// of `BACKGROUND_READS` and none of `THE_GATE`
+/// (`background_reads_on_a_share_go_through_the_gate`).
+fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, String)> {
+    let graph = CallGraph::new(sources);
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| graph.calls_of(f))
+        .collect();
+    let own_lines = |f: &Function| graph.lines[&f.file][f.lines.clone()].join("\n");
+    let reads: Vec<bool> = (graph.functions.iter().zip(&calls))
+        .map(|(f, calls)| {
+            let text = own_lines(f);
+            let handed = HANDED_TO_A_THREAD.iter().any(|h| text.contains(h));
+            calls
+                .iter()
+                .any(|c| c.callee.is_none() && BACKGROUND_READS.contains(&c.text.as_str()))
+                || (!handed && BACKGROUND_READS.iter().any(|r| text.contains(r)))
+        })
+        .collect();
+    let gates: Vec<bool> = (graph.functions.iter())
+        .map(|f| THE_GATE.iter().any(|g| own_lines(f).contains(g)))
+        .collect();
+    let (reads, gates) = (reaching(&calls, reads), reaching(&calls, gates));
+    let mut found = Vec::new();
+    for (file, text) in sources {
+        let (code, comments) = (code_lines(text), comment_lines(text));
+        let end = tests_start(&code);
+        let mut scopes = Vec::new();
+        for (i, line) in code[..end].iter().enumerate() {
+            scopes.extend(scope_names(line));
+            let at = match thread_start(line, &scopes) {
+                Some(at) if comment_above(&code, &comments, i).contains("No busy pointer:") => at,
+                _ => match line.find("spawn_worker_pool(") {
+                    Some(at) if !line.contains("fn spawn_worker_pool") => at,
+                    _ => continue,
+                },
+            };
+            let Some(f) =
+                (graph.functions.iter()).position(|f| f.file == *file && f.lines.contains(&i))
+            else {
+                continue;
+            };
+            let function = &graph.functions[f];
+            let (work, last) = call_text(&code[..end], i, at);
+            let whole = own_lines(function);
+            let opens = (function.lines.clone()).find(|&k| code[k].ends_with('{'));
+            let signature = code[*function.lines.start()..=opens.unwrap_or(i)].join(" ");
+            let callees: Vec<usize> = (i..=last)
+                .flat_map(|k| graph.callees(function, &whole, &signature, &code[k]))
+                .map(|(callee, _)| callee)
+                .collect();
+            let reads_here = BACKGROUND_READS.iter().any(|r| work.contains(r))
+                || callees.iter().any(|&g| reads[g]);
+            let gated =
+                THE_GATE.iter().any(|g| work.contains(g)) || callees.iter().any(|&g| gates[g]);
+            if reads_here && !gated {
+                found.push((file.clone(), function.name.clone()));
+            }
+        }
+    }
+    found.dedup();
+    found
+}
+
+/// Returns, for each function of `calls` (the calls of each function, by its index), whether it
+/// is one that `own` marks or calls one that reaches such a function, however deep.
+fn reaching(calls: &[Vec<Call>], mut own: Vec<bool>) -> Vec<bool> {
+    loop {
+        let mut changed = false;
+        for (i, calls) in calls.iter().enumerate() {
+            if !own[i] && calls.iter().any(|c| c.callee.is_some_and(|g| own[g])) {
+                own[i] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            return own;
+        }
+    }
+}
+
+/// Returns the comments just above the statement whose line `i` of `code` is, up to the
+/// statement's first line and then up the comments and attributes above it, with those of the
+/// statement's own lines.
+fn comment_above(code: &[String], comments: &[String], i: usize) -> String {
+    let mut first = i;
+    while first > 0
+        && !code[first - 1].trim().is_empty()
+        && !code[first - 1].ends_with([';', '{', '}', ','])
+    {
+        first -= 1;
+    }
+    while first > 0
+        && (code[first - 1].trim().is_empty() && !comments[first - 1].trim().is_empty()
+            || code[first - 1].trim_start().starts_with("#["))
+    {
+        first -= 1;
+    }
+    comments[first..=i].join(" ")
 }
 
 /// Returns the names, in `sources` outside the tests, of the fields, arguments and functions

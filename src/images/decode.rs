@@ -3019,9 +3019,15 @@ mod tests {
             videos: true,
             hidden: false,
         };
-        let (own, files, _, _) =
-            crate::model::listing::list_tree(&dir, types, &Default::default(), |_| {}, |_| {})
-                .unwrap();
+        let (own, files, _, _) = crate::model::listing::list_tree(
+            &dir,
+            types,
+            &Default::default(),
+            &Default::default(),
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
         let files: Vec<std::ffi::OsString> = files.into_iter().map(|f| f.0).collect();
         assert_eq!(
             (own, files),

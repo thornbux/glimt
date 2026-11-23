@@ -5,7 +5,7 @@ use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
 use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
-use crate::model::listing::{SORTS, Types, list_folder};
+use crate::model::listing::{ImagesAwaited, ReadsFirst, SORTS, Types, list_folder};
 use crate::support::format::{
     NOT_COUNTED_ON_A_SHARE, count, human_size, local_time, middle_cut, size_text, thousands,
 };
@@ -111,17 +111,18 @@ pub(crate) struct Thumbs {
 
 impl Thumbs {
     /// Thumbnails with workers of their own, so scrolling the list never delays the shown
-    /// image. `rotate` is the decoders' Auto Rotate.
+    /// image. `rotate` is the decoders' Auto Rotate, and on a share each thumbnail waits for
+    /// the images `awaited` first.
     pub(crate) fn new(
         ctx: &egui::Context,
         workers: usize,
-        rotate: &Arc<AtomicBool>,
+        (rotate, awaited): (&Arc<AtomicBool>, &ImagesAwaited),
         save: bool,
     ) -> Self {
         let on_screen: OnScreenFiles = Arc::default();
         let saves_to_cache = Arc::new(AtomicBool::new(save));
         let (requests, answers) =
-            spawn_thumbnailers(ctx, workers, rotate, &on_screen, &saves_to_cache);
+            spawn_thumbnailers(ctx, workers, (rotate, awaited), &on_screen, &saves_to_cache);
         Thumbs {
             textures: HashMap::new(),
             pending: HashMap::new(),
@@ -141,6 +142,12 @@ impl Thumbs {
         identity: Identity,
     ) -> Option<&egui::TextureHandle> {
         self.made_of(name, identity)?.as_ref()
+    }
+
+    /// Returns whether a thumbnail is being made.
+    #[cfg(test)]
+    pub(crate) fn is_making_any(&self) -> bool {
+        !self.pending.is_empty()
     }
 
     /// Keeps `texture` as the thumbnail of `name`, made of the file with `identity`, as a
@@ -310,6 +317,12 @@ impl Panel {
     /// was asked.
     fn scrolls_to_shown_image(&self) -> bool {
         self.scroll_now || self.scroll_to_shown
+    }
+
+    /// Whether the lists drawn next scroll to the shown image.
+    #[cfg(test)]
+    pub(crate) fn scrolls_to_shown(&self) -> bool {
+        self.scrolls_to_shown_image()
     }
 
     pub(crate) fn row_step(&self) -> isize {
@@ -501,14 +514,20 @@ impl StatusBar {
     }
 
     /// Asks the background for the size and date of the file `name` of the list, at `path`.
-    pub(crate) fn ask_size_and_date(&mut self, ctx: &egui::Context, name: OsString, path: PathBuf) {
+    /// On a share each look waits for the images `awaited` first.
+    pub(crate) fn ask_size_and_date(
+        &mut self,
+        (ctx, awaited): (&egui::Context, &ImagesAwaited),
+        name: OsString,
+        path: PathBuf,
+    ) {
         let asked = self.sizes_and_dates_asked.get_or_insert_with(|| {
             let (asked, questions) = mpsc::channel::<(OsString, PathBuf)>();
             let (found, answers) = mpsc::channel();
-            let ctx = ctx.clone();
+            let (ctx, gate) = (ctx.clone(), ReadsFirst::for_files_anywhere(awaited));
             // No busy pointer: the list's sizes and dates, a look-up nobody waits for, shown when
             // it comes.
-            std::thread::spawn(move || answer_sizes_and_dates(&questions, &found, &ctx));
+            std::thread::spawn(move || answer_sizes_and_dates(&questions, &found, &ctx, gate));
             self.sizes_and_dates_found = Receiving::of(answers);
             asked
         });
@@ -619,8 +638,8 @@ impl StatusBar {
     }
 
     /// The selection's size, summed in the background.
-    pub(crate) fn sum_selection(&mut self, sum: mpsc::Receiver<u64>) {
-        self.selection_sum = Receiving::of(sum);
+    pub(crate) fn sum_selection(&mut self, sum: Receiving<u64>) {
+        self.selection_sum = sum;
     }
 
     /// Keeps what the image area showed: the pane the status bar tells about, the panes as
@@ -1042,8 +1061,8 @@ impl crate::App {
         if self.list.sizes_and_dates().len() >= 20_000 {
             self.list.forget_sizes_and_dates();
         }
-        let ctx = self.ctx.clone();
-        (self.status_bar).ask_size_and_date(&ctx, name.clone(), self.path(i));
+        let (ctx, awaited) = (self.ctx.clone(), self.decoding.images_awaited().clone());
+        (self.status_bar).ask_size_and_date((&ctx, &awaited), name.clone(), self.path(i));
         self.list.note_size_and_date_asked(name);
         None
     }
@@ -1109,9 +1128,9 @@ impl crate::App {
         // Shown once the folders above it are read.
         if follow && let Some(i) = rows.iter().position(|r| r.1 == self.folder.dir()) {
             // A row and the space below it, as show_rows lays them out.
-            let step = row_h + ui.spacing().item_spacing.y;
-            let top = i as f32 * step - ui.available_height() / 2.0;
-            area = area.vertical_scroll_offset(top.max(0.0));
+            let (step, view) = (row_h + ui.spacing().item_spacing.y, ui.available_height());
+            let height = rows.len() as f32 * step - ui.spacing().item_spacing.y;
+            area = scrolled_within(ui, area, i as f32 * step - view / 2.0, height);
             self.tree.opened_up_to = self.folder.dir().to_path_buf();
         }
         let mut toggled = None;
@@ -1152,9 +1171,13 @@ impl crate::App {
         for dir in unread {
             self.tree.children.insert(dir.clone(), None);
             let (tx, ctx) = (self.tree.subfolders_sender.clone(), ui.ctx().clone());
+            let mut gate = ReadsFirst::for_files_anywhere(self.decoding.images_awaited());
             // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
             // when it comes.
             std::thread::spawn(move || {
+                // Always wanted: the tree marks the folder as asked about and asks no more, so it
+                // shows the folder's subfolders only from this answer.
+                let _turn = gate.before_work_nobody_waits_for(&dir, || true);
                 // Not told: the tree shows no subfolders of a folder it could not read, and opening
                 // that folder tells why.
                 let subdirs = list_folder(&dir, folders).map(|l| l.0).unwrap_or_default();
@@ -1332,6 +1355,7 @@ impl crate::App {
         });
         if changed {
             self.config.save();
+            self.leave_out_names_not_shown(ctx);
             self.start_listing(ctx);
         }
     }
@@ -1357,8 +1381,6 @@ impl crate::App {
         });
         if changed {
             self.config.save();
-            // A chosen order replaces a shuffled one (kept after a random slideshow).
-            self.slideshow.unshuffle();
             self.folder.sort_again();
             self.start_listing(ctx);
         }
@@ -1561,7 +1583,8 @@ impl crate::App {
             let off = egui::scroll_area::State::load(ctx, ui.make_persistent_id("files"))
                 .map_or(0.0, |s| s.clamped_offset().y);
             if top < off || top + pitch > off + view {
-                area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
+                let height = count.div_ceil(cols) as f32 * pitch - ui.spacing().item_spacing.y;
+                area = scrolled_within(ui, area, top - view / 2.0, height);
             }
         }
         let scrolled = area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
@@ -2151,6 +2174,7 @@ fn answer_sizes_and_dates(
     questions: &mpsc::Receiver<(OsString, PathBuf)>,
     found: &mpsc::Sender<SizeAndDate>,
     ctx: &egui::Context,
+    mut gate: ReadsFirst,
 ) {
     use std::os::unix::fs::MetadataExt;
     let mut waiting = Vec::new();
@@ -2174,6 +2198,9 @@ fn answer_sizes_and_dates(
         // A look that failed (a share that dropped for a moment, a file just deleted) is no size
         // and no date. It is answered as unknown, so the row stays blank and is asked again
         // when it is drawn again, never shown as 0 bytes of 1970.
+        // Always wanted: a question that waits is one of the newest, as the older ones were
+        // answered as dropped above, and the row drawn waits for it.
+        let _turn = gate.before_work_nobody_waits_for(&path, || true);
         let d = std::fs::metadata(&path).map(|m| (m.len(), m.mtime())).ok();
         let is_known = d.is_some();
         if found.send((name, path, d)).is_err() {
@@ -2183,6 +2210,27 @@ fn answer_sizes_and_dates(
             ctx.request_repaint();
         }
     }
+}
+
+/// Returns `area`, to be shown in `ui`, set to scroll to `offset`, kept between the top and the
+/// end of its content of `height` in the height that `ui` has left. This is the one place a
+/// scroll area is given its offset (`source_rules::scroll_offsets_stay_within_the_content`).
+///
+/// egui takes an offset past the end for an overscroll that a finger dragged. It springs that
+/// back over about a second, and asks for each frame at once, so a list scrolled to one of its
+/// last rows was drawn as fast as the window could. egui judges the overscroll by the end of
+/// the content in the frame before, which can be a point off when the panel's height changed.
+/// So `ui` also draws its scroll areas without that spring in this frame, and egui then puts
+/// the offset within this frame's content at once.
+pub(crate) fn scrolled_within(
+    ui: &mut egui::Ui,
+    area: egui::ScrollArea,
+    offset: f32,
+    height: f32,
+) -> egui::ScrollArea {
+    ui.spacing_mut().scroll.kinetic.rubber_band = false;
+    let end = height - ui.available_height();
+    area.vertical_scroll_offset(offset.min(end).max(0.0))
 }
 
 /// The places along a row or column of items `size` long, one every `step`, that the span
@@ -2279,6 +2327,19 @@ mod tests {
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let ctx_for_panel = ctx.clone();
+        // The image, its thumbnail, the sizes and dates asked for and the folder's size are in
+        // first.
+        crate::support::test_support::draw_until_answered(
+            &mut app,
+            &ctx,
+            |app, ui| app.side_panel(&ctx_for_panel, ui, true),
+            |app| {
+                app.list.decodes_pending().is_empty()
+                    && !app.thumbs.is_making_any()
+                    && app.list.sizes_and_dates().values().all(Option::is_some)
+                    && app.status_bar.folder_total().is_some()
+            },
+        );
         crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
             app.side_panel(&ctx_for_panel, ui, is_shown)
         });
@@ -2551,7 +2612,8 @@ mod tests {
     #[test]
     fn a_thumbnail_forgotten_while_made_is_stale() {
         let ctx = eframe::egui::Context::default();
-        let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
+        let mut thumbs =
+            super::Thumbs::new(&ctx, 0, (&Default::default(), &Default::default()), false);
         let name = std::ffi::OsStr::new("a.jpg");
         thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), None);
         let old = thumbs.last_request_number;
@@ -2579,7 +2641,8 @@ mod tests {
     #[test]
     fn a_thumbnail_of_a_file_whose_name_another_took_is_made_again() {
         let ctx = eframe::egui::Context::default();
-        let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
+        let mut thumbs =
+            super::Thumbs::new(&ctx, 0, (&Default::default(), &Default::default()), false);
         let name = std::ffi::OsStr::new("a.jpg");
         let (first, second) = (std::num::NonZeroU64::new(1), std::num::NonZeroU64::new(2));
         thumbs.ask(name, "a.jpg".into(), std::path::Path::new("/"), first);
@@ -2633,7 +2696,8 @@ mod tests {
             asked.send((name, std::env::temp_dir())).unwrap();
         }
         drop(asked);
-        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default());
+        let gate = crate::model::listing::ReadsFirst::for_files_anywhere(&Default::default());
+        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default(), gate);
         drop(found);
         let answers: Vec<_> = answers.into_iter().collect();
         assert_eq!(answers.len(), count);
@@ -2655,10 +2719,117 @@ mod tests {
         let gone = std::env::temp_dir().join(format!("glimt-test-no-size-{}", std::process::id()));
         asked.send(("gone".into(), gone)).unwrap();
         drop(asked);
-        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default());
+        let gate = crate::model::listing::ReadsFirst::for_files_anywhere(&Default::default());
+        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default(), gate);
         drop(found);
         let answers: Vec<_> = answers.into_iter().collect();
         assert_eq!(answers.len(), 1);
         assert_eq!(answers[0].2, None);
+    }
+
+    /// A random slideshow asks between two slides only for the frames of its timer and of the
+    /// decodes that come in, in every layout: one pane, two and four panes together or one at
+    /// a time, and Compare. Only a few of its frames ask for the next one at once. The frames
+    /// run on a clock of the test's own, which goes on by the time each frame asks to wait, so
+    /// the test needs no real seconds. A slow decode, as when the other tests run beside it,
+    /// adds frames that wait, but none asked for at once. Before, the file list
+    /// scrolled to an image in its last rows past the end of its content, and egui sprang it
+    /// back over about a second of frames, each one asked for at once. Without a vertical sync
+    /// the window then drew as fast as it could, 576 ticks in 3 s in the release tests.
+    #[test]
+    fn a_slideshow_asks_only_for_the_frames_it_needs() {
+        use eframe::egui;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-slideshow-frames-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut names: Vec<String> = (1..7).map(|i| format!("alpha{i}.png")).collect();
+        names.push("omega.png".into());
+        for name in &names {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let last = names.len() - 1;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let frame_time = Duration::from_secs_f64(1.0 / 60.0);
+        for (layout, one_pane_at_a_time, comparing) in [
+            ("1", false, false),
+            ("1", false, true),
+            ("2x1", false, false),
+            ("2x1", true, false),
+            ("2x2", false, false),
+            ("2x2", true, false),
+        ] {
+            let case =
+                format!("{layout}, one pane at a time {one_pane_at_a_time}, Compare {comparing}");
+            let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+            app.config.layout = layout.into();
+            app.config.slideshow_one_image_at_a_time = match one_pane_at_a_time {
+                true => layout.into(),
+                false => String::new(),
+            };
+            app.config.slideshow_random = true;
+            app.config.slideshow_repeat = true;
+            app.config.slideshow_delay = 1;
+            app.config.slideshow_fade = 0;
+            app.is_comparing = comparing;
+            // A thread that asks for a frame, as a decode or a thumbnail does when it is done,
+            // wakes the window.
+            let woken = Arc::new(AtomicBool::new(false));
+            let wakes = Arc::clone(&woken);
+            ctx.set_request_repaint_callback(move |_| wakes.store(true, Ordering::Relaxed));
+            app.start_slideshow(&ctx);
+            let on_screen = |app: &crate::App| {
+                let mut all = vec![app.list.shown()];
+                all.extend(app.images_in_other_panes());
+                all
+            };
+            let (mut clock, mut before) = (0.0, on_screen(&app));
+            let (mut slides, mut at_once, mut most, mut last_shown) = (0, 0, 0, 0);
+            while last_shown < 2 && slides < 300 {
+                let input = egui::RawInput {
+                    time: Some(clock),
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                let out = ctx.run_ui(input, |ui| app.frame_ui(ui));
+                woken.store(false, Ordering::Relaxed);
+                let delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+                assert!(delay < Duration::MAX, "no next frame asked for: {case}");
+                at_once += usize::from(delay.is_zero());
+                // A frame asked for later comes then, unless a thread wakes the window first.
+                let mut passed = delay.max(frame_time);
+                let waited = Instant::now();
+                while passed > frame_time && waited.elapsed() < Duration::from_millis(10) {
+                    if woken.load(Ordering::Relaxed) {
+                        passed = frame_time;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                clock += passed.as_secs_f64();
+                app.slideshow.let_time_pass(passed);
+                let now = on_screen(&app);
+                if now != before {
+                    slides += 1;
+                    // The first two slides are left out, while the thumbnails come in.
+                    if slides > 2 {
+                        most = most.max(at_once);
+                        if now[0] == last && before[0] != last {
+                            last_shown += 1;
+                        }
+                    }
+                    (before, at_once) = (now, 0);
+                }
+            }
+            assert_eq!(last_shown, 2, "the last image was not shown: {case}");
+            assert!(
+                most <= 12,
+                "{most} frames asked for at once in a slide: {case}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
