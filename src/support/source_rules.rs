@@ -18,7 +18,7 @@ const ALL_SETTINGS: &str = "*";
 /// comment, which always names code. These names are retired in every file: names of more than one
 /// word, abbreviations and private images. An everyday word is in `RETIRED_IN_FILE` instead. A name
 /// that is now another thing's right name (`status`, `shown`, `turn`) is not here, nor are the old
-/// names of settings and actions, which the `RENAMED_*` tables still read from users' files.
+/// names of settings and actions, which are words of users' files rather than of the code.
 const RETIRED_NAMES: &[&str] = &[
     // The window's parts (main.rs).
     "prefs",         // preferences
