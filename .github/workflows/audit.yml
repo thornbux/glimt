@@ -17,6 +17,12 @@ on:
 permissions:
   contents: read
 
+# Every step's script runs in bash with pipefail (GitHub's `bash` shell), so that a command
+# that fails inside a pipe or a $( ) fails its step, instead of leaving an empty value.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   audit:
     runs-on: ubuntu-latest

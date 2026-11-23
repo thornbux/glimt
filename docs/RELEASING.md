@@ -13,7 +13,8 @@ branch made from it and merged back into it; `main` gets the release branch only
 1. **The version.** The version in `Cargo.toml` and in the header of `docs/glimt.1`, a section
    in `CHANGELOG.md` with its link (`source_rules::every_release_in_the_changelog_has_its_link`),
    and a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`. New command-line
-   options go in the man page too. The release workflow checks each. After the bump, run
+   options go in the man page too. The release workflow checks each, and CI validates the
+   metainfo and the desktop file (`appstreamcli`, `desktop-file-validate`). After the bump, run
    `cargo update -p glimt --offline`, `python3 tools/sbom.py` and `python3 tools/flatpak-sources.py`
    (through `tools/check.sh "…"` on a computer without cargo), so `Cargo.lock`, `sbom.cdx.json`
    and `flatpak/cargo-sources.json` follow the version; CI refuses a commit where they do not.
@@ -207,8 +208,11 @@ The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornb
 in Flathub's `freedesktop-26.08` image, pinned by its digest (change both with
 `runtime-version`), and adds it to the release in a job of its own. It builds without the
 network, as Flathub does: the crates are sources in `flatpak/cargo-sources.json`, so a
-`Cargo.lock` changed without it fails there. To build it locally: its runtime, SDK and Rust
-extension take about 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
+`Cargo.lock` changed without it fails there. Its Rust is pinned in the manifest by version and
+checksum (static.rust-lang.org's archives), and the release workflow tests, lints and builds
+the packages with that same version. A new Rust is a change of both archives' lines there. To
+build it locally: its runtime, SDK and Rust take about 4 GB, so they can live on `/tmp` through
+`FLATPAK_USER_DIR`:
 
 ```sh
 export FLATPAK_USER_DIR=/tmp/fp/flatpak

@@ -27,6 +27,12 @@ env:
   BRANCH: weekly-update
   GH_TOKEN: ${{ github.token }}
 
+# Every step's script runs in bash with pipefail (GitHub's `bash` shell), so that a command
+# that fails inside a pipe or a $( ) fails its step, instead of leaving an empty value.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -50,8 +56,11 @@ jobs:
           pinned=$(grep -o 'flatpak-github-actions:freedesktop-[0-9.]*@sha256:[0-9a-f]*' \
             .github/workflows/release.yml)
           image=ghcr.io/flathub-infra/${pinned%@*}
-          newest=$(docker buildx imagetools inspect "$image" | awk '/^Digest:/ {print $2; exit}')
-          if [ -n "$newest" ] && [ "$newest" != "${pinned#*@}" ]; then
+          # awk reads to the end: a pipe it closed early would fail the step under pipefail.
+          newest=$(docker buildx imagetools inspect "$image" |
+            awk '!found && /^Digest:/ {print $2; found = 1}')
+          [ -n "$newest" ] || { echo "::error::no digest found for $image"; exit 1; }
+          if [ "$newest" != "${pinned#*@}" ]; then
             printf '%s\n' "The Flatpak image \`$image\` has a newer digest. In \`release.yml\`:" \
               "" "\`\`\`" "$image@$newest" "\`\`\`" >flatpak.txt
           fi
@@ -79,7 +88,7 @@ jobs:
           git switch -C "$BRANCH"
           git commit -q -a --allow-empty -m "cargo update: the newest compatible version of every crate"
           git push -f origin "$BRANCH"
-          if gh pr view "$BRANCH" --json state -q .state 2>/dev/null | grep -q OPEN; then
+          if [ "$(gh pr view "$BRANCH" --json state -q .state 2>/dev/null)" = OPEN ]; then
             gh pr edit "$BRANCH" --body-file body.md
           else
             gh pr create --head "$BRANCH" --base main \

@@ -307,7 +307,12 @@ PY
   fi
     echo "-- cargo audit"
     tools=/usr/local/cargo/registry/tools
-    [ -x $tools/bin/cargo-audit ] || cargo install -q --locked --root $tools cargo-audit
+    # Every run: cargo install builds it again only when crates.io has a newer version, so the
+    # copy kept in the glimt-cargo volume does not grow older than the advisory database.
+    if ! cargo install -q --locked --root $tools cargo-audit; then
+        echo "FAIL cargo audit: the newest cargo-audit could not be installed"
+        status=1
+    fi
     if (set -o pipefail; cd /t/new && $tools/bin/cargo-audit audit 2>&1 | tail -12); then
         echo "PASS cargo audit: no known vulnerabilities"
     else
