@@ -16,7 +16,7 @@ use crate::ui::actions::Action;
 use crate::ui::dialogs::{Pick, entered};
 use crate::ui::menus::{checkbox, radio_choice, scroll_menu, selectable, submenu};
 use crate::ui::workers::spawn_thumbnailers;
-use crate::viewer::view::{broken_mark, pane_map};
+use crate::viewer::view::{Failure, broken_mark, pane_map};
 use crate::{files::config, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
@@ -1284,12 +1284,12 @@ impl crate::App {
         if config::locked() {
             return self
                 .notice
-                .give_error(tr("The settings are locked (--lock-settings)").into());
+                .give_error(tr("The settings are locked (--lock-settings)"));
         }
         let Some(path) = sort_folders_path() else {
-            return self.notice.give_error(
-                tr("Could not save the sort manager's folders: no home folder").into(),
-            );
+            return self.notice.give_error(tr(
+                "Could not save the sort manager's folders: no home folder",
+            ));
         };
         let shown = self.folder.sort_folders().to_vec();
         let (tx, written) = mpsc::channel();
@@ -1403,7 +1403,8 @@ impl crate::App {
             if let Some(uri) = crate::files::external::network_location(text) {
                 self.mount(ui.ctx(), uri.to_owned());
             } else {
-                let gone = |p: &Path| tf!("No such folder: {folder}", folder = p.display());
+                let gone =
+                    |p: &Path| Failure::from(tf!("No such folder: {folder}", folder = p.display()));
                 self.visit_if_there(ui.ctx(), path, gone);
             }
         }

@@ -16,7 +16,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::menus::{scroll_menu, with_icon};
-use crate::viewer::view::Viewing;
+use crate::viewer::view::{Failure, Viewing};
 use crate::{files::config, files::external, model::collections, model::listing, tf, ui::theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -1269,7 +1269,7 @@ enum IfGone {
     OpenItsFolder,
     /// The notice made from the path says so. The path is not opened, and it leaves Open
     /// Recent.
-    Tell(fn(&Path) -> String),
+    Tell(fn(&Path) -> Failure),
     /// The current folder opens instead, as for the last folder shown, which may be gone since.
     OpenCurrentFolder,
 }
@@ -1381,8 +1381,8 @@ impl crate::App {
             entries: Err(e),
         } = &found
         {
-            let cause = e.to_string();
-            return (self.notice).give_error_because(file.display().to_string(), cause);
+            let failure = Failure::because(file.display().to_string(), e.to_string());
+            return self.notice.give_error(failure);
         }
         self.step_history(opening.history);
         match found {
@@ -1561,7 +1561,7 @@ impl crate::App {
                 // When the path is gone since (deleted, or a stick taken out), a notice says so,
                 // and it leaves the list.
                 if let Some(path) = chosen {
-                    let gone = |p: &Path| tf!("{name} is gone", name = p.display());
+                    let gone = |p: &Path| Failure::from(tf!("{name} is gone", name = p.display()));
                     self.visit_if_there(&ctx, path, gone);
                 }
             },
@@ -1692,7 +1692,7 @@ impl crate::App {
         &mut self,
         ctx: &egui::Context,
         path: PathBuf,
-        gone: fn(&Path) -> String,
+        gone: fn(&Path) -> Failure,
     ) {
         self.notice.clear();
         let opening = Opening {
@@ -2183,7 +2183,8 @@ impl crate::App {
     fn listing_failed(&mut self, ctx: &egui::Context, unread: Unread, read: FoldersRead) {
         let (path, e) = unread;
         let heading = tf!("Could not open {name}", name = path.display());
-        self.notice.give_error_because(heading, e.to_string());
+        self.notice
+            .give_error(Failure::because(heading, e.to_string()));
         if !read.is_empty() {
             self.watch_folders_read(ctx, read, false);
         }
@@ -2251,7 +2252,7 @@ impl crate::App {
             cause += &tf!(", and {n} more", n);
         }
         let heading = tf!("Could not open {name}", name = path.display());
-        self.notice.give_error_because(heading, cause);
+        self.notice.give_error(Failure::because(heading, cause));
     }
 
     /// Takes the images of the folder read in the background as the list, as `take_listing`
@@ -4918,7 +4919,7 @@ mod tests {
         app.open(&ctx, share.clone());
         app.folder.looking_up_since.as_mut().unwrap().0 = long_ago.unwrap();
         app.receive_looked_up(&ctx, std::time::Duration::ZERO);
-        app.notice.keep_until_drawn("a warning".to_owned());
+        app.notice.keep_until_drawn("a warning".into());
         app.open(&ctx, dir.clone());
         assert_eq!(app.notice.text(), Some("a warning"));
         std::fs::remove_dir_all(dir).unwrap();
@@ -4975,7 +4976,9 @@ mod tests {
         })
         .unwrap();
         app.folder.recent = vec![gone.clone()];
-        app.visit_if_there(&ctx, gone.clone(), |p| format!("{} is gone", p.display()));
+        app.visit_if_there(&ctx, gone.clone(), |p| {
+            format!("{} is gone", p.display()).into()
+        });
         assert!(app.notice.text().is_none());
         assert!(run_background_until(&mut app, &ctx, |a| a
             .notice

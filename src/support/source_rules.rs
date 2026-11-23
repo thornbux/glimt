@@ -2715,9 +2715,11 @@ fn notices_are_given_through_their_setter() {
 /// (`give_error`, `send_error`, `Told::Error` or `Told::FailedWrite`), never as an ordinary
 /// notice (`give`, `send` or `Told::Notice`), which is drawn blue, is not kept until drawn and
 /// counts as no failed write. Print's "Not saved over an image" and "No image could be read"
-/// and the log of a Move that could not be saved were sent as ordinary notices. The check
-/// finds such a text by its words, in the call, in a `let` a few lines above it, or in a
-/// function that returns it.
+/// and the log of a Move that could not be saved were sent as ordinary notices. A function
+/// that words a failure for a notice returns a `Failure` (view.rs), which only the setters of
+/// errors take, so the compiler holds those. This check finds what the type cannot hold, a
+/// failure that is still a plain text, by its words: in the call, in a `let` a few lines
+/// above it, or in a function that returns it as a `String`.
 #[test]
 fn errors_are_not_given_as_ordinary_notices() {
     let sources: Vec<(String, String)> = (rust_sources().into_iter())
@@ -2732,6 +2734,28 @@ fn errors_are_not_given_as_ordinary_notices() {
         "give a text of something that went wrong with give_error, send_error, Told::Error or \
          Told::FailedWrite:\n{}",
         wrong.join("\n")
+    );
+}
+
+/// A `Failure` becomes a text again only for the answer to a `--remote … --wait` that a write
+/// failed (`Failure::answer_text`). Turned into a text anywhere else, it could be given as an
+/// ordinary notice, which the type is there to stop.
+#[test]
+fn failures_stay_failures() {
+    let homes: &[(&str, &[(&str, &str)])] = &[(
+        ".answer_text(",
+        &[("features/remote.rs", "answer_awaited_outcomes")],
+    )];
+    let wrong = outside_their_homes(homes);
+    assert!(
+        wrong.is_empty(),
+        "keep a Failure a Failure, and give it with an error's setter:\n{}",
+        wrong.join("\n")
+    );
+    let view = include_str!("../viewer/view.rs");
+    assert!(
+        !view.contains("for Failure {\n    fn fmt") && !view.contains("From<Failure>"),
+        "a Failure that turns into a text could be given as an ordinary notice"
     );
 }
 

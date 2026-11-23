@@ -707,7 +707,7 @@ where
 /// Sets up the colour settings in effect at start. Returns the screen profile's or input profile's
 /// error, if either could not be read. The wait for the desktop's profile starts later, where
 /// colord is asked (`start_screen_wait`).
-pub(crate) fn set_up_colour(config: &Config) -> Option<String> {
+pub(crate) fn set_up_colour(config: &Config) -> Option<crate::viewer::view::Failure> {
     COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
     VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);
     let error = (set_screen(&config.screen_profile))
@@ -715,7 +715,7 @@ pub(crate) fn set_up_colour(config: &Config) -> Option<String> {
         .err();
     set_colour(|c| c.use_image_profile = config.use_image_profile);
     set_intent(&config.rendering_intent);
-    error
+    error.map(Into::into)
 }
 
 /// Makes the images for the screen wait a moment for the desktop's screen profile, when colour

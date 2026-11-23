@@ -9,13 +9,14 @@
 //! ends.
 
 use crate::support::threads::lock_even_if_poisoned;
+use crate::viewer::view::Failure;
 use std::path::{Path, PathBuf};
 
 /// The last save that failed, of a file of the user's or of Glimt's own, for the window to tell
 /// as a failed write. Any thread sets it, through `save_failed`. Tests keep their own instead
 /// (`ToldInTest`), because the tests share this one.
 #[cfg(not(test))]
-static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static SAVE_ERROR: std::sync::Mutex<Option<Failure>> = std::sync::Mutex::new(None);
 
 /// The folder in /proc where each descriptor that Glimt holds open is a link to its file
 /// (`path_through`).
@@ -179,7 +180,7 @@ pub(crate) struct OtherNames {
 /// folder, and a lock planted beside one collection does not keep the warning for another
 /// folder, or for another kind of lock, from being told.
 struct LocksTold {
-    warnings: Vec<String>,
+    warnings: Vec<Failure>,
     folders: std::collections::BTreeSet<PathBuf>,
 }
 
@@ -192,9 +193,9 @@ impl LocksTold {
     }
 
     /// Keeps `warning` to show and prints it, unless the lock's `folder` was told already.
-    fn tell(&mut self, folder: PathBuf, warning: String) {
+    fn tell(&mut self, folder: PathBuf, warning: Failure) {
         if self.folders.insert(folder) {
-            eprintln!("{warning}");
+            warning.print();
             self.warnings.push(warning);
         }
     }
@@ -212,7 +213,7 @@ impl Default for LocksTold {
 #[cfg(test)]
 #[derive(Default)]
 struct ToldInTest {
-    saves_failed: Vec<String>,
+    saves_failed: Vec<Failure>,
     taken_by_window: usize,
     locks: LocksTold,
 }
@@ -1704,7 +1705,7 @@ pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
 /// Takes the last error that `save_failed` told. Returns `None` when no save failed since the
 /// last call.
-pub fn take_save_error() -> Option<String> {
+pub fn take_save_error() -> Option<Failure> {
     #[cfg(not(test))]
     {
         lock_even_if_poisoned(&SAVE_ERROR).take()
@@ -1725,7 +1726,7 @@ pub fn take_save_error() -> Option<String> {
 
 /// Takes the warnings that edits went on without their lock, each to be shown as a message of
 /// its own. They are not failed writes, as each edit was made.
-pub fn take_lock_warnings() -> Vec<String> {
+pub fn take_lock_warnings() -> Vec<Failure> {
     #[cfg(not(test))]
     let warnings = std::mem::take(&mut lock_even_if_poisoned(&LOCKS_TOLD).warnings);
     #[cfg(test)]
@@ -1890,11 +1891,11 @@ pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
 /// Tells once for the folder of locks `folder` that an edit goes on without its lock, the lock
 /// `name`, which could not be had for the reason `e`.
 pub fn tell_unlocked(folder: PathBuf, name: &str, e: impl std::fmt::Display) {
-    let warning = crate::tf!(
+    let warning = Failure::from(crate::tf!(
         "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost.",
         name,
         e
-    );
+    ));
     #[cfg(not(test))]
     lock_even_if_poisoned(&LOCKS_TOLD).tell(folder, warning);
     #[cfg(test)]
@@ -2903,8 +2904,9 @@ pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
 }
 
 /// A file that could not be saved, told on the terminal and, once, in the window.
-pub fn save_failed(error: String) {
-    eprintln!("{error}");
+pub fn save_failed(error: impl Into<Failure>) {
+    let error = error.into();
+    error.print();
     // In tests the error stays on this thread. The window's own slot is shared by every test,
     // and another test's window took the error as its notice in place of its own.
     #[cfg(test)]
@@ -2929,11 +2931,19 @@ fn told_here() -> &'static std::sync::Mutex<ToldInTest> {
 pub(crate) fn take_saves_failed() -> Vec<String> {
     let mut told = lock_even_if_poisoned(told_here());
     told.taken_by_window = 0;
-    std::mem::take(&mut told.saves_failed)
+    let failed = std::mem::take(&mut told.saves_failed);
+    failed.iter().map(Failure::text).collect()
 }
 
 #[cfg(test)]
 mod tests {
+    /// Takes the warnings of edits without their lock, one to a line.
+    fn lock_warnings() -> String {
+        let warnings = super::take_lock_warnings();
+        let texts: Vec<String> = warnings.iter().map(super::Failure::text).collect();
+        texts.join("\n")
+    }
+
     /// The volume of a folder on FAT is the one name in /dev/disk/by-uuid whose block device has
     /// the folder's device number. A device that no name or two names have gives no volume, as
     /// it cannot say which card is mounted.
@@ -3008,7 +3018,7 @@ mod tests {
     /// test waited for (`every_undo_leaves_a_file_put_in_its_place`).
     #[test]
     fn a_save_error_in_a_test_stays_with_its_test() {
-        std::thread::spawn(|| super::save_failed("another test's error".into()))
+        std::thread::spawn(|| super::save_failed("another test's error"))
             .join()
             .unwrap();
         assert_eq!(super::take_save_error(), None);
@@ -4333,7 +4343,7 @@ mod tests {
             !failed.iter().any(|e| e.starts_with("Could not lock")),
             "an edit that was made is told as a failed write: {failed:?}"
         );
-        let warning = super::take_lock_warnings().join("\n");
+        let warning = lock_warnings();
         assert!(warning.starts_with("Could not lock"), "{warning:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -4353,16 +4363,12 @@ mod tests {
         std::fs::create_dir_all(own.join(".marks.lock")).unwrap();
         super::take_lock_warnings();
         assert!(super::file_lock(&downloads.join("trip.gqv")).is_none());
-        let first = super::take_lock_warnings().join("\n");
+        let first = lock_warnings();
         assert!(first.contains("trip.gqv"), "{first:?}");
         assert!(super::file_lock(&downloads.join("other.gqv")).is_none());
-        assert_eq!(
-            super::take_lock_warnings(),
-            Vec::<String>::new(),
-            "told twice for one folder"
-        );
+        assert_eq!(lock_warnings(), "", "told twice for one folder");
         assert!(super::file_lock(&own.join("marks")).is_none());
-        let other = super::take_lock_warnings().join("\n");
+        let other = lock_warnings();
         assert!(other.contains(".marks.lock"), "{other:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -174,16 +174,19 @@ impl crate::App {
             ctx.request_repaint();
         }
         while let Ok(told) = self.notices.try_recv() {
-            // `NoticeSender::tell` sends each of `Told::Several` on its own, but a test may send
-            // one whole.
-            let mut each = vec![told];
+            // The texts and errors of a `Told::Several` are shown together, as one notice.
+            // Given one after the other, each took the place of the one before.
+            let (mut texts, mut errors, mut each) = (Vec::new(), Vec::new(), vec![told]);
             while let Some(told) = each.pop() {
                 match told {
-                    Told::Notice(text) => self.notice.give(text),
-                    Told::Error(text) => self.notice.give_error(text),
-                    Told::FailedWrite(text) => self.window.keep_failed_write(text),
+                    Told::Notice(text) => texts.push(text),
+                    Told::Error(failure) => errors.push(failure),
+                    Told::FailedWrite(failure) => self.window.keep_failed_write(failure),
                     Told::Several(all) => each.extend(all.into_iter().rev()),
                 }
+            }
+            if !texts.is_empty() || !errors.is_empty() {
+                self.notice.give_all(texts, errors);
             }
             ctx.request_repaint();
         }
@@ -493,7 +496,7 @@ mod tests {
         let dir = contract_folder("failure-not-hidden");
         let (mut app, ctx) = app_on(&dir);
         let failed = "Could not save the keywords: test";
-        app.tell_failed_write(failed.into());
+        app.tell_failed_write(failed);
         app.notice_sender.send("3 files moved".into()).unwrap();
         app.poll_background(&ctx);
         assert_eq!(app.notice.text(), Some(failed));
@@ -506,8 +509,8 @@ mod tests {
     fn failed_writes_of_one_frame_are_messages_of_their_own() {
         let dir = contract_folder("failures-apart");
         let (mut app, ctx) = app_on(&dir);
-        app.tell_failed_write("Could not save the keywords: test".into());
-        app.tell_failed_write("Could not save the marks: test".into());
+        app.tell_failed_write("Could not save the keywords: test");
+        app.tell_failed_write("Could not save the marks: test");
         app.poll_background(&ctx);
         assert_eq!(app.notice.messages().len(), 2);
         std::fs::remove_dir_all(dir).unwrap();
@@ -538,7 +541,7 @@ mod tests {
             "hidden by the notice: {shown:?}"
         );
         assert_eq!(app.window.failed_writes_told(), 0, "told as a failed write");
-        app.tell_failed_write("Could not save the keywords: test".into());
+        app.tell_failed_write("Could not save the keywords: test");
         app.poll_background(&ctx);
         app.notice.give("A key's notice".into());
         let shown = app.notice.text().unwrap_or_default().to_owned();

@@ -2687,19 +2687,18 @@ mod tests {
             super::locks_in(Some(dir.clone())),
             Some(dir.join(super::LOCK_FOLDER))
         );
-        assert_eq!(
-            crate::files::file_io::take_lock_warnings(),
-            Vec::<String>::new()
-        );
+        assert!(crate::files::file_io::take_lock_warnings().is_empty());
         assert_eq!(super::locks_in(None), None);
-        let told = crate::files::file_io::take_lock_warnings().join("\n");
+        let told = crate::files::file_io::take_lock_warnings();
+        let told: Vec<String> = told
+            .iter()
+            .map(crate::viewer::view::Failure::text)
+            .collect();
+        let told = told.join("\n");
         assert!(told.contains("$XDG_RUNTIME_DIR"), "{told}");
         assert!(told.contains(super::NO_RUNTIME_FOLDER), "{told}");
         super::locks_in(None);
-        assert_eq!(
-            crate::files::file_io::take_lock_warnings(),
-            Vec::<String>::new()
-        );
+        assert!(crate::files::file_io::take_lock_warnings().is_empty());
         // The reason is translated as the rest of the warning is. Before, it stayed English.
         let msgid = format!("msgid \"{}\"", super::NO_RUNTIME_FOLDER);
         for (code, _, _, po) in crate::support::lang::LANGUAGES {

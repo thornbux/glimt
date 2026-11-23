@@ -8,6 +8,7 @@ use crate::files::file_io::{edit_shared, save_failed, write_later};
 use crate::model::listing::Sort;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::Keys;
+use crate::viewer::view::Failure;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
@@ -820,7 +821,7 @@ pub fn fits_on_a_line(text: &(impl AsRef<std::ffi::OsStr> + ?Sized)) -> bool {
 /// Takes out of `paths` those that do not fit on a line of Glimt's own files, so that a mark or
 /// a collection entry is refused at once rather than left out of the file at its next save.
 /// Returns the notice that says how many were left out, or `None` when every one fits.
-pub fn keep_those_that_fit_on_a_line(paths: &mut Vec<PathBuf>) -> Option<String> {
+pub fn keep_those_that_fit_on_a_line(paths: &mut Vec<PathBuf>) -> Option<Failure> {
     let before = paths.len();
     paths.retain(fits_on_a_line);
     left_out_for_line_breaks(before - paths.len())
@@ -828,13 +829,13 @@ pub fn keep_those_that_fit_on_a_line(paths: &mut Vec<PathBuf>) -> Option<String>
 
 /// Returns the notice that `left_out` files were left out of Glimt's own files because their
 /// names have a line break, or `None` when none was.
-pub fn left_out_for_line_breaks(left_out: usize) -> Option<String> {
+pub fn left_out_for_line_breaks(left_out: usize) -> Option<Failure> {
     let files = crate::support::format::count(left_out, "file");
     (left_out > 0).then(|| {
-        crate::tf!(
+        Failure::from(crate::tf!(
             "{files} left out: a name with a line break cannot be kept",
             files
-        )
+        ))
     })
 }
 

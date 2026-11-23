@@ -2,6 +2,7 @@
 //! (`in_parts`), a background thread's answer (`Receiving`), and work counted while it runs
 //! (`Working`) and until the window has handled its answer (`AnswerSender`).
 
+use crate::viewer::view::Failure;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, mpsc};
@@ -423,13 +424,24 @@ pub(crate) enum Told {
     Notice(String),
     /// A text for the notice over the image that tells of something that went wrong, other
     /// than a failed write, such as a program that could not be started.
-    Error(String),
+    Error(Failure),
     /// A write that failed. The window shows it, and a close that waited for the writing stays
     /// open, so the user sees it.
-    FailedWrite(String),
+    FailedWrite(Failure),
     /// Several of these, each told as itself, such as a job's own text and the failed write of
     /// its log.
     Several(Vec<Told>),
+}
+
+impl Told {
+    /// Prints each failed write of this on stderr.
+    fn print_failed_writes(&self) {
+        match self {
+            Told::FailedWrite(failure) => failure.print(),
+            Told::Several(all) => all.iter().for_each(Told::print_failed_writes),
+            Told::Notice(_) | Told::Error(_) => {}
+        }
+    }
 }
 
 /// The way a background thread tells the user something: the text becomes the notice over the
@@ -457,31 +469,34 @@ impl NoticeSender {
         sent
     }
 
-    /// Sends `text` as `send` does, as an error, which the window shows as one.
-    pub(crate) fn send_error(&self, text: String) -> Result<(), mpsc::SendError<Told>> {
-        let sent = self.tx.send(Told::Error(text));
+    /// Sends `failure` as `send` does, as an error, which the window shows as one.
+    pub(crate) fn send_error(
+        &self,
+        failure: impl Into<Failure>,
+    ) -> Result<(), mpsc::SendError<Told>> {
+        let sent = self.tx.send(Told::Error(failure.into()));
         self.ctx.request_repaint();
         sent
     }
 
-    /// Sends `told` to the window as its kind says: each of `Told::Several` on its own.
+    /// Sends `told` to the window, whole, which shows the texts and errors of a
+    /// `Told::Several` together. Its failed writes are printed here, as `send_failed_write`
+    /// does, so that they are told also when the window is gone.
     pub(crate) fn tell(&self, told: Told) {
+        told.print_failed_writes();
         // A window that is gone has nothing to show it in.
-        match told {
-            Told::Notice(text) => drop(self.send(text)),
-            Told::Error(text) => drop(self.send_error(text)),
-            Told::FailedWrite(text) => self.send_failed_write(text),
-            Told::Several(all) => all.into_iter().for_each(|told| self.tell(told)),
-        }
+        let _ = self.tx.send(told);
+        self.ctx.request_repaint();
     }
 
     /// Prints a failed write on stderr, and sends it to the window, which shows it and stays
     /// open when a close waited for the writing. It is printed here, so that it is told also
     /// when the window is gone.
-    pub(crate) fn send_failed_write(&self, text: String) {
-        eprintln!("{text}");
+    pub(crate) fn send_failed_write(&self, failure: impl Into<Failure>) {
+        let failure = failure.into();
+        failure.print();
         // A window that is gone has nothing to show it in.
-        let _ = self.tx.send(Told::FailedWrite(text));
+        let _ = self.tx.send(Told::FailedWrite(failure));
         self.ctx.request_repaint();
     }
 }
@@ -756,12 +771,9 @@ pub(crate) fn told_work(
     let ctx = ctx.clone();
     move || {
         let broke = || {
-            Some(Told::FailedWrite(
-                crate::support::lang::tr(
-                    "A change could not be saved, because Glimt met an error while writing it",
-                )
-                .to_owned(),
-            ))
+            Some(Told::FailedWrite(Failure::from(crate::support::lang::tr(
+                "A change could not be saved, because Glimt met an error while writing it",
+            ))))
         };
         if let Some(told) = catch_panic(work).unwrap_or_else(broke) {
             notices.tell(told);

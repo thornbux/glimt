@@ -5,6 +5,7 @@ use crate::files::external::{is_heif, is_video};
 use crate::files::file_io::Identity;
 use crate::images::save::FileId;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::viewer::view::Failure;
 use crate::{images::raw, metadata::exif};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
@@ -1308,15 +1309,15 @@ pub fn is_hidden(path: &Path) -> bool {
 /// it can. It is refused when it is empty, `.`, `..` or has a `/`, and when it starts with a dot
 /// unless `hidden_shown`, because the list hides such a name and the file would vanish from it.
 /// A theme, which is not in the list, is named with `hidden_shown`.
-pub fn refused_name(name: &str, hidden_shown: bool) -> Option<String> {
+pub fn refused_name(name: &str, hidden_shown: bool) -> Option<Failure> {
     if name.is_empty() || name.contains('/') || name == "." || name == ".." {
-        return Some(crate::tf!("Not a valid name: \"{text}\"", text = name));
+        return Some(crate::tf!("Not a valid name: \"{text}\"", text = name).into());
     }
     (name.starts_with('.') && !hidden_shown).then(|| {
-        crate::tf!(
+        Failure::from(crate::tf!(
             "{text} starts with a dot and would be hidden: choose another name",
             text = name
-        )
+        ))
     })
 }
 

@@ -474,7 +474,7 @@ impl crate::App {
             let text = outcome.text(&folder, stopped);
             Some(match outcome.errors.is_empty() {
                 true => Told::Notice(text),
-                false => Told::FailedWrite(text),
+                false => Told::FailedWrite(text.into()),
             })
         });
     }
