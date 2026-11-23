@@ -1201,7 +1201,7 @@ impl crate::App {
         if let Some(why) = self.why_refused(action) {
             if why == NO_IMAGE && action == Action::NewCollection {
                 self.notice
-                    .give(tr("No images for a collection here").into());
+                    .give_error(tr("No images for a collection here").into());
             } else if why == HIDDEN_BY_SEARCH {
                 // `targets` tells the user so.
                 let _ = self.targets();
@@ -1228,7 +1228,7 @@ impl crate::App {
             Action::RemoveFromCollection => {}
             Action::RenameCollection | Action::TrashCollection if self.collection_is_list() => {
                 self.notice
-                    .give(tr("A plain list is not renamed or trashed by Glimt").into());
+                    .give_error(tr("A plain list is not renamed or trashed by Glimt").into());
             }
             Action::RenameCollection => {
                 if let Some(file) = self.folder.collection().map(|f| f.to_path_buf()) {
@@ -1302,7 +1302,7 @@ impl crate::App {
             Action::CopyFilesToClipboard => self.copy_files(),
             Action::Preferences if config::locked() => {
                 self.notice
-                    .give(tr("The settings are locked (--lock-settings)").into());
+                    .give_error(tr("The settings are locked (--lock-settings)").into());
             }
             Action::Preferences => self.preferences.show(),
             Action::Help => self.help = Some(help::Page::Manual),
@@ -1390,8 +1390,9 @@ impl crate::App {
             Action::NewFolder
                 if self.folder.collection().is_some() || !self.folder.folders().is_empty() =>
             {
-                self.notice
-                    .give(tr("New Folder makes a folder in the folder shown: open one").into());
+                self.notice.give_error(
+                    tr("New Folder makes a folder in the folder shown: open one").into(),
+                );
             }
             Action::NewFolder => {
                 let dir = self.folder.dir().to_path_buf();
@@ -1559,7 +1560,9 @@ impl crate::App {
             #[allow(clippy::disallowed_methods)] // the new window, reaped in a thread of its own
             // No busy pointer: it only reaps the new window when that window closes.
             Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
-            Err(e) => self.notice.give(tf!("Could not open a new window: {e}", e)),
+            Err(e) => self
+                .notice
+                .give_error(tf!("Could not open a new window: {e}", e)),
         }
     }
 
@@ -1575,7 +1578,7 @@ impl crate::App {
             // would stay for good.
             match catch_panic_as_error(|| save::shown_image(&path, &how)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
-                Err(e) => drop(tx.send(tf!("Could not copy the image: {e}", e))),
+                Err(e) => drop(tx.send_error(tf!("Could not copy the image: {e}", e))),
             }
             drop(pointer);
             ctx.request_repaint();
@@ -1592,7 +1595,7 @@ impl crate::App {
         let result = (self.file_operations.clipboard()).and_then(|c| c.set().file_list(&paths));
         if let Err(e) = result {
             self.notice
-                .give(tf!("Could not copy to the clipboard: {e}", e));
+                .give_error(tf!("Could not copy to the clipboard: {e}", e));
         }
     }
 

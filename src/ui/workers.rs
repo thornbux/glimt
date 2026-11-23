@@ -173,6 +173,7 @@ impl crate::App {
         while let Ok(told) = self.notices.try_recv() {
             match told {
                 Told::Notice(text) => self.notice.give(text),
+                Told::Error(text) => self.notice.give_error(text),
                 Told::FailedWrite(text) => self.window.keep_failed_write(text),
             }
             ctx.request_repaint();
@@ -222,7 +223,7 @@ impl crate::App {
             Took::Nothing => {}
             Took::Gone => self.tell_background_stopped(tr("Reading the Lightroom catalog")),
             Took::Answer((Ok(import), _pointer)) => self.lightroom = Some(import),
-            Took::Answer((Err(e), _pointer)) => self.notice.give(e),
+            Took::Answer((Err(e), _pointer)) => self.notice.give_error(e),
         }
     }
 
@@ -252,7 +253,8 @@ impl crate::App {
     /// A background thread ended without its answer (it panicked on something): told, so the
     /// user knows why `what` did not come, instead of a pointer or a dialog waiting for ever.
     pub(crate) fn tell_background_stopped(&mut self, what: &str) {
-        self.notice.give(tf!("{what} stopped unexpectedly", what));
+        self.notice
+            .give_error(tf!("{what} stopped unexpectedly", what));
     }
 
     /// Busy pointer while the folder is read (also sorted anew), a share mounted, work done in

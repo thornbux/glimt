@@ -234,7 +234,7 @@ impl crate::App {
             match set {
                 ProfileSet::Screen { answer: Err(e), .. }
                 | ProfileSet::Input { answer: Err(e), .. } => {
-                    self.notice.give(e);
+                    self.notice.give_error(e);
                 }
                 ProfileSet::Screen {
                     path, chosen: true, ..
@@ -651,7 +651,7 @@ impl crate::App {
                 held_back.hold_only(&files);
                 let name = &tool.name;
                 if files.is_empty() {
-                    let _ = tx.send(tf!("{name} takes none of these files", name));
+                    let _ = tx.send_error(tf!("{name} takes none of these files", name));
                     return;
                 }
                 if !left.is_empty() {
@@ -670,7 +670,7 @@ impl crate::App {
                     ..Default::default()
                 });
                 if let Err(e) = result {
-                    let _ = tx.send(format!("{}: {e}", tool.name));
+                    let _ = tx.send_error(format!("{}: {e}", tool.name));
                 }
                 ctx.request_repaint();
             });
@@ -722,7 +722,7 @@ impl crate::App {
                             match crate::files::portal::open_with(&path) {
                                 Ok(true) => {}
                                 Ok(false) => break,
-                                Err(e) => drop(tx.send(e)),
+                                Err(e) => drop(tx.send_error(e)),
                             }
                         }
                     });
@@ -750,7 +750,7 @@ impl crate::App {
                     let mut gio = external::host_command("gio");
                     gio.arg("launch").arg(&desktop).args(&files);
                     if let Err(told) = external::run_telling("gio", gio) {
-                        let _ = tx.send(told);
+                        let _ = tx.send_error(told);
                     }
                 });
             }
@@ -782,7 +782,7 @@ impl crate::App {
         std::thread::spawn(move || {
             for path in files {
                 if let Err(told) = open_one_in(&words, &path) {
-                    let _ = tx.send(told);
+                    let _ = tx.send_error(told);
                     // In a Flatpak the default application is chosen through the desktop's
                     // portal, and its Cancel is a failure of gio, which ends them all.
                     if words.is_empty() && external::in_flatpak() {

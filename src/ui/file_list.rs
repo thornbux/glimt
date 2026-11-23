@@ -1284,12 +1284,12 @@ impl crate::App {
         if config::locked() {
             return self
                 .notice
-                .give(tr("The settings are locked (--lock-settings)").into());
+                .give_error(tr("The settings are locked (--lock-settings)").into());
         }
         let Some(path) = sort_folders_path() else {
-            return self
-                .notice
-                .give(tr("Could not save the sort manager's folders: no home folder").into());
+            return self.notice.give_error(
+                tr("Could not save the sort manager's folders: no home folder").into(),
+            );
         };
         let shown = self.folder.sort_folders().to_vec();
         let (tx, written) = mpsc::channel();
@@ -2144,7 +2144,7 @@ fn selected_text_colour(visuals: &egui::Visuals, marked: bool) -> egui::Color32 
 }
 
 /// Returns the WCAG contrast ratio of two colours, from 1 to 21.
-fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
+pub(crate) fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
     let luminance = |c: egui::Color32| {
         let linear = |v: u8| {
             let v = v as f32 / 255.0;

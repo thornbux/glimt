@@ -33,6 +33,12 @@ env:
   TAG_GIVEN: ${{ !inputs.dry_run && (inputs.tag || github.ref_name) || '' }}
   DRY_RUN: ${{ inputs.dry_run && 'true' || '' }}
 
+# Every step's script runs in bash with pipefail (GitHub's `bash` shell), so that a command
+# that fails inside a pipe or a $( ) fails its step, instead of leaving an empty value.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -65,9 +71,20 @@ jobs:
             { echo "::error::$TAG is not on main"; exit 1; }
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: The Rust the Flatpak is pinned to
+        # One Rust for the tests, the packages and the Flatpak: the version of the archives in
+        # its manifest, so that the Flatpak is built with the Rust that was tested.
+        run: |
+          versions=$(grep -o 'static.rust-lang.org/dist/rust-[0-9.]*-' \
+            flatpak/io.github.thornbux.Glimt.yml | sort -u)
+          [ -n "$versions" ] && [ "$versions" = "${versions%%$'\n'*}" ] ||
+            { echo "::error::the Flatpak's manifest names more than one Rust: $versions"; exit 1; }
+          rust=${versions#*dist/rust-}
+          echo "RUST=${rust%-}" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST }}
+          components: clippy
       - name: Zig 0.14.1, for cargo-zigbuild
         run: |
           curl -sSfL -o zig.tar.xz https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
@@ -87,8 +104,12 @@ jobs:
         run: cargo install --locked cargo-generate-rpm@0.21.1
       - name: Known vulnerabilities in the crates (RustSec)
         run: cargo audit
-      # The tagged code itself, with the toolchain of this day: a tag pushed by hand, or a
+      # The tagged code itself, with the Rust it is built with: a tag pushed by hand, or a
       # crate changed since the last CI run, is not published untested.
+      - name: Clippy
+        run: |
+          cargo clippy --locked --release --all-targets --features full -- -D warnings
+          cargo clippy --locked --release --all-targets -- -D warnings
       - name: Tests
         # The packages are built with every feature, and a build from source has none, so the
         # tests run in both builds.
@@ -103,6 +124,7 @@ jobs:
       - name: Check the glibc it needs
         run: |
           need=$(objdump -T "target/$TARGET/release/glimt" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          [ -n "$need" ] || { echo "::error::no glibc version found in the binary"; exit 1; }
           echo "Needs $need"
           test "$(printf '%s\n' "GLIBC_$GLIBC" "$need" | sort -V | tail -1)" = "GLIBC_$GLIBC"
       - name: tar.gz

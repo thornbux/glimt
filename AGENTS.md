@@ -514,7 +514,11 @@ arm becomes a method.
 - **A notice** (the message over the image) is given with `self.notice.give(text)` and taken
   away with `self.notice.clear()`, never assigned. That way each notice gets a new number, by
   which a screen reader knows that the same text was given again
-  (`source_rules::notices_are_given_through_their_setter`).
+  (`source_rules::notices_are_given_through_their_setter`). Something that went wrong or was
+  refused is given with `self.notice.give_error(text)`, or from a thread with
+  `NoticeSender::send_error`, and is drawn with a red stripe and a warning sign. An error's
+  heading ends at its first line break, or else at its first ": ", and the cause after it is
+  drawn smaller under it.
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests clean up the files they create, under temporary names of their own
   (`source_rules::tests_use_temporary_names_of_their_own`).

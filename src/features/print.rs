@@ -562,7 +562,7 @@ impl crate::App {
                 (Ok(msg), 0, _) => Told::Notice(msg),
                 (Ok(msg), f, _) => Told::Notice(tf!("{msg}; {f} could not be read", msg, f)),
                 (Err(e), _, PrintTo::File(..)) => Told::FailedWrite(tf!("Printing failed: {e}", e)),
-                (Err(e), _, PrintTo::Printer(_)) => Told::Notice(tf!("Printing failed: {e}", e)),
+                (Err(e), _, PrintTo::Printer(_)) => Told::Error(tf!("Printing failed: {e}", e)),
             })
         });
     }

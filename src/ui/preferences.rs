@@ -1260,7 +1260,8 @@ mod tests {
                 // Part of a longer name (`str(`), not a call after `return`.
                 let named = code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
                 let before = code[..at].trim_end();
-                if named || before.ends_with("send(") || before.ends_with("notice.give(") {
+                let notice_calls = ["send(", "send_error(", "notice.give(", "notice.give_error("];
+                if named || notice_calls.iter().any(|call| before.ends_with(call)) {
                     continue;
                 }
                 let after = at + call.len();

@@ -13,8 +13,6 @@ id: io.github.thornbux.Glimt
 runtime: org.freedesktop.Platform
 runtime-version: "26.08"
 sdk: org.freedesktop.Sdk
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable
 command: glimt
 rename-desktop-file: glimt.desktop
 rename-icon: glimt
@@ -31,10 +29,13 @@ modules:
   - name: glimt
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/rust-stable/bin
+      append-path: /run/build/glimt/rust/bin
       env:
         CARGO_HOME: /run/build/glimt/cargo
     build-commands:
+      # The Rust of the sources below, the one the release workflow tests and builds with. It is
+      # used only for the build and is not installed into the app.
+      - rust-dist/install.sh --prefix=/run/build/glimt/rust --disable-ldconfig --components=rustc,cargo,rust-std-$(uname -m)-unknown-linux-gnu
       - cargo build --release --offline --locked --features full
       - install -Dm755 target/release/glimt /app/bin/glimt
       - install -Dm644 assets/glimt.desktop /app/share/applications/glimt.desktop
@@ -55,3 +56,16 @@ modules:
           - build-flatpak
           - .flatpak-builder
       - cargo-sources.json
+      # Rust pinned by its version and checksums, not Flathub's rust-stable extension, which
+      # moves on with each Rust release. The release workflow reads the version from here. A new
+      # Rust: both lines, with the checksum from the .sha256 file beside each archive.
+      - type: archive
+        only-arches: [x86_64]
+        dest: rust-dist
+        url: https://static.rust-lang.org/dist/rust-1.100.0-x86_64-unknown-linux-gnu.tar.xz
+        sha256: 98ee6bec240e1cfe944f17e7092412dc5ef6e008484bb668c6936d35a7d15acd
+      - type: archive
+        only-arches: [aarch64]
+        dest: rust-dist
+        url: https://static.rust-lang.org/dist/rust-1.100.0-aarch64-unknown-linux-gnu.tar.xz
+        sha256: a21f6a21818df07c1e2e7addb570af5444b3fa9dd61e3a207f4fb1c5a5e665c9

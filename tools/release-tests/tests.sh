@@ -307,7 +307,12 @@ PY
   fi
     echo "-- cargo audit"
     tools=/usr/local/cargo/registry/tools
-    [ -x $tools/bin/cargo-audit ] || cargo install -q --locked --root $tools cargo-audit
+    # Every run: cargo install builds it again only when crates.io has a newer version, so the
+    # copy kept in the glimt-cargo volume does not grow older than the advisory database.
+    if ! cargo install -q --locked --root $tools cargo-audit; then
+        echo "FAIL cargo audit: the newest cargo-audit could not be installed"
+        status=1
+    fi
     if (set -o pipefail; cd /t/new && $tools/bin/cargo-audit audit 2>&1 | tail -12); then
         echo "PASS cargo audit: no known vulnerabilities"
     else
@@ -545,10 +550,15 @@ matching() {
     convert /t/out/$1.png -crop $2 +repage -fx "$3" -format '%[fx:int(mean*w*h)]' info: |
         tail -1
 }
-# The pixels of a notice in the screenshot NAME: Glimt writes every notice in egui's light red
-# (255,128,128) at the foot of the image area. The pictures of a check that looks for a notice
-# have no such colour.
-notice_pixels() { matching $1 1040x300+240+500 'r>0.85 && g>0.38 && g<0.62 && b>0.38 && b<0.62'; }
+# The colours of a notice, as -fx expressions. An error has a stripe and a warning sign in egui's
+# light red (255,128,128), in which releases before 0.96 wrote every notice. An ordinary notice
+# has a blue stripe (120,170,255), and the text on the card is near white.
+NOTICE_RED='r>0.85 && g>0.38 && g<0.62 && b>0.38 && b<0.62'
+NOTICE_BLUE='b>0.9 && r>0.38 && r<0.56 && g>0.58 && g<0.76'
+NOTICE_WHITE='r>0.9 && g>0.9 && b>0.9'
+# The pixels of a notice in the screenshot NAME, of either kind, at the foot of the image area.
+# The pictures of a check that looks for a notice have neither colour.
+notice_pixels() { matching $1 1040x300+240+500 "($NOTICE_RED) || ($NOTICE_BLUE)"; }
 # until_notice NAME [SECONDS]: shots NAME until one shows a notice, up to SECONDS (10); false
 # when none came.
 until_notice() {
@@ -607,7 +617,7 @@ leave_free() {
     truncate -s -$1 $at/.fill
     sync -f $at/.fill
 }
-# Pictures without the light red of a notice, which a gradient of blues with noise lacks.
+# Pictures without the colours of a notice, which a gradient of blues with noise lacks.
 blue_photo() { convert -size $1 gradient:navy-blue -attenuate 0.5 +noise Gaussian -quality 95 $2; }
 
 cd /tmp
@@ -2979,6 +2989,41 @@ for v in new old; do
         if [ "${changed%.*}" -gt 500 ] 2>/dev/null; then pass "the notice shows ($changed pixels)"
         else fail "the notice shows: $changed pixels changed"; fi
     else note "old: $changed pixels changed"; fi
+done
+
+section "a notice's card: a red stripe for an error, a blue one for an ordinary notice"
+# The text was light red on a see-through band, hard to read over a light image. Now a dark card
+# holds near-white text, with a stripe that tells an error from an ordinary notice.
+for v in new old; do
+    as_version $v
+    d=/tmp/notice-card-$v
+    mkdir -p $d
+    for c in a b; do convert -size 300x200 xc:gray50 $d/$c.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n' $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    key ctrl+f                             # New Folder in a collection: refused, an error
+    until_notice notice-card-error-$v
+    key ctrl+z; sleep 1                    # Nothing to undo: an ordinary notice
+    shot notice-card-info-$v
+    quit
+    look() {
+        echo "$(matching $1 1040x300+240+500 "$NOTICE_RED")" \
+            "$(matching $1 1040x300+240+500 "$NOTICE_BLUE")" \
+            "$(matching $1 1040x300+240+500 "$NOTICE_WHITE")"
+    }
+    read red blue white < <(look notice-card-error-$v)
+    error="red $red, blue $blue, white $white"
+    read red2 blue2 white2 < <(look notice-card-info-$v)
+    info="red $red2, blue $blue2, white $white2"
+    if [ $v = new ]; then
+        if [ "$red" -gt 20 ] && [ "$blue" = 0 ] && [ "$white" -gt 20 ]; then
+            pass "an error has a red stripe and near-white text ($error)"
+        else fail "an error has a red stripe and near-white text: $error"; fi
+        if [ "$blue2" -gt 20 ] && [ "$red2" = 0 ] && [ "$white2" -gt 20 ]; then
+            pass "an ordinary notice has a blue stripe and near-white text ($info)"
+        else fail "an ordinary notice has a blue stripe and near-white text: $info"; fi
+    else note "old: error $error; ordinary $info"; fi
 done
 
 section "a rectangle dragged while the folder changes: the selection keeps its files"
