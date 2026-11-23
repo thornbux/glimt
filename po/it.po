@@ -4087,3 +4087,13 @@ msgstr "{photo} è di nuovo presente, quindi mantiene contrassegni e stelle, e i
 #, fuzzy
 msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
 msgstr "{folder} contiene registri lasciati da Glimt 0.92 o precedente quando è stato fermato durante una Rinomina multipla, uno spostamento o un'eliminazione. Questo Glimt non li legge più: avvia Glimt 0.94 una volta per sistemarli. Fino ad allora vengono conservati."
+
+#: src/features/tools.rs
+#, fuzzy
+msgid "{folder} holds tools or added formats that Glimt no longer reads: move their desktop files to {new_folder}"
+msgstr "{folder} contiene strumenti o formati aggiunti che Glimt non legge più: sposta i loro file desktop in {new_folder}"
+
+#: src/features/tools.rs
+#, fuzzy
+msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
+msgstr "{file} non viene caricato: l'intestazione [Glimt Decoder] non viene più letta. Scrivi invece [Glimt Format]"

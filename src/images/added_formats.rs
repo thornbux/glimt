@@ -174,10 +174,8 @@ pub(crate) fn ran_out_of_memory(err: &str) -> bool {
 /// The added format of a desktop file. Returns `None` without a name, extensions, or %f in its
 /// command (also inside a word without quotes, as ImageMagick's %f[0] for a file's first frame).
 fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
-    // The header that formats had before 0.76.0 is no longer read. Any other header is not
-    // checked, as before.
-    let header = (text.lines()).find(|l| !(l.trim().is_empty() || l.starts_with('#')));
-    if header.map(str::trim) == Some("[Glimt Decoder]") {
+    // Any other header is not checked, as before.
+    if has_old_header(text) {
         return None;
     }
     let value = crate::features::tools::desktop_entry_values(text);
@@ -197,6 +195,14 @@ fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
         exec,
         dir: dir.to_owned(),
     })
+}
+
+/// Whether the desktop file `text` starts, after comments and blank lines, with the group
+/// header that added formats had before 0.76.0, which is no longer read. Glimt tells such a
+/// file at start and in `glimt --check-config` (`tools::old_desktop_files`).
+pub fn has_old_header(text: &str) -> bool {
+    let header = (text.lines()).find(|l| !(l.trim().is_empty() || l.starts_with('#')));
+    header.map(str::trim) == Some("[Glimt Decoder]")
 }
 
 /// The added format of `path`, by its extension, unless Glimt reads that format itself.

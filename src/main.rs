@@ -169,6 +169,9 @@ struct ReadAtStart {
     /// The first added format or tool whose desktop file gives its program no file
     /// (`tools::desktop_file_problems`), as the window tells it.
     desktop_file_problem: Option<String>,
+    /// The old folders of tools and added formats, and the desktop files with an old header,
+    /// that Glimt no longer reads (`tools::old_desktop_files`), as the window tells them.
+    old_desktop_files: Vec<String>,
     #[cfg(feature = "marks")]
     marks: crate::metadata::marks::Marks,
     /// The window state file's text, read once for both Remember Window and Remember Last
@@ -275,9 +278,10 @@ impl App {
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx, read.keyword_tree, &awaited),
-            notice: crate::viewer::view::Notice::new(
+            notice: start_notice(
                 (read.colour_error.or_else(|| config_notice(&read.problems)))
                     .or(read.desktop_file_problem),
+                &read.old_desktop_files,
             ),
             notice_sender,
             notices,
@@ -515,14 +519,12 @@ fn new_window_program(
 }
 
 /// What is wrong in the settings file, as the window tells it. It gives the first problem and
-/// where to see them all. Two problems are left out, because a Glimt of another version beside
-/// this one (a Flatpak and a .deb) writes them at each save, so the notice would otherwise come
-/// at every start. A setting this Glimt does not know was written by a newer Glimt. An old key
-/// beside its new key was written by an older Glimt, which writes every key it knows.
-/// `glimt --check-config` still tells both.
+/// where to see them all. A setting this Glimt does not know is left out, because a newer Glimt
+/// beside this one (a Flatpak and a .deb) writes it at each save, so the notice would otherwise
+/// come at every start. `glimt --check-config` still tells it.
 fn config_notice(problems: &[String]) -> Option<String> {
     let problems: Vec<&String> = (problems.iter())
-        .filter(|p| !p.contains(": there is no setting ") && !p.contains(" is the old name of "))
+        .filter(|p| !p.contains(": there is no setting "))
         .collect();
     let first = problems.first()?;
     let more = match problems.len() - 1 {
@@ -530,6 +532,22 @@ fn config_notice(problems: &[String]) -> Option<String> {
         n => tf!("; and {n} more (glimt --check-config)", n),
     };
     Some(tf!("Settings file: {first}{more}", first, more))
+}
+
+/// Returns the notice the window starts with: the problem met while starting, `error`, when
+/// there is one, and otherwise the first of the desktop files no longer read, `old_files`, as an
+/// ordinary notice with where to see them all. It is told at each start while they are there,
+/// because remembering that it was told would need a new file or setting, which 1.x freezes.
+fn start_notice(error: Option<String>, old_files: &[String]) -> crate::viewer::view::Notice {
+    let mut notice = crate::viewer::view::Notice::new(error.clone());
+    if let (None, Some(first)) = (error, old_files.first()) {
+        let more = match old_files.len() - 1 {
+            0 => String::new(),
+            n => tf!("; and {n} more (glimt --check-config)", n),
+        };
+        notice.give(format!("{first}{more}"));
+    }
+    notice
 }
 
 /// Returns what the window starts from of Glimt's own files, with the settings `config` and
@@ -540,7 +558,8 @@ fn config_notice(problems: &[String]) -> Option<String> {
 fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
     let colour_error = crate::images::colour::set_up_colour(&config);
     let desktop_file_problems = crate::features::tools::desktop_file_problems();
-    for problem in &desktop_file_problems {
+    let old_desktop_files = crate::features::tools::old_desktop_files();
+    for problem in desktop_file_problems.iter().chain(&old_desktop_files) {
         eprintln!("glimt: {problem}");
     }
     // Parsed by `WindowState::parse`, which config's survives_broken_files feeds broken input.
@@ -555,6 +574,7 @@ fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
         problems,
         colour_error,
         desktop_file_problem: desktop_file_problems.into_iter().next(),
+        old_desktop_files,
         #[cfg(feature = "marks")]
         marks: crate::metadata::marks::read_marks(),
         window_state,

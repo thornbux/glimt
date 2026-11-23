@@ -422,6 +422,46 @@ pub fn desktop_file_problems() -> Vec<String> {
     formats.chain(tools).collect()
 }
 
+/// Returns a line for each desktop file that Glimt no longer reads, as `old_desktop_files_in`
+/// finds them in the user's Glimt folder and in the tools and added formats found. Glimt tells
+/// them at start, as an ordinary notice, and `glimt --check-config` too. Nothing is moved or
+/// removed, as they are the user's.
+pub fn old_desktop_files() -> Vec<String> {
+    let home = crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
+    let mut found = desktop_files("formats");
+    found.extend(desktop_files("tools"));
+    old_desktop_files_in(home.as_deref(), &found)
+}
+
+/// Returns a line for each folder of the old names, plugins and decoders, in `glimt_home` that
+/// holds desktop files, which line names the folder to move them to, and a line for each
+/// desktop file of `found` with the header that added formats had before 0.76.0.
+fn old_desktop_files_in(glimt_home: Option<&Path>, found: &[(PathBuf, String)]) -> Vec<String> {
+    let old_folders = [("plugins", "tools"), ("decoders", "formats")];
+    let folders = old_folders.into_iter().filter_map(|(old, new)| {
+        let (folder, new_folder) = (glimt_home?.join(old), glimt_home?.join(new));
+        let mut entries = std::fs::read_dir(&folder).into_iter().flatten().flatten();
+        let holds_desktop_files =
+            entries.any(|e| e.path().extension().is_some_and(|x| x == "desktop"));
+        holds_desktop_files.then(|| {
+            crate::tf!(
+                "{folder} holds tools or added formats that Glimt no longer reads: move their desktop files to {new_folder}",
+                folder = folder.display(),
+                new_folder = new_folder.display()
+            )
+        })
+    });
+    let headers = (found.iter())
+        .filter(|(_, text)| crate::images::added_formats::has_old_header(text))
+        .map(|(path, _)| {
+            crate::tf!(
+                "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead",
+                file = path.display()
+            )
+        });
+    folders.chain(headers).collect()
+}
+
 /// Returns `word` of a desktop file's `Exec` with each of `file_codes` in it filled in with
 /// `file`, also inside a word without quotes (`CommandWord::fills`), and `%%` as a `%`, read
 /// from left to right (`format::pieces`). Another code stays as it is. Tools and added formats
@@ -557,6 +597,36 @@ mod tests {
             data_dirs_of(Some("/opt/x".into())),
             [PathBuf::from("/opt/x")]
         );
+    }
+
+    /// A folder of an old name that holds desktop files is told, with the folder to move them
+    /// to, and so is a desktop file with the old header of added formats. An old folder without
+    /// desktop files, and a file with another header, are not. Nothing is moved.
+    #[test]
+    fn old_folders_and_headers_are_told() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-old-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("plugins")).unwrap();
+        std::fs::create_dir_all(dir.join("decoders")).unwrap();
+        std::fs::write(dir.join("plugins/notes.txt"), "not a desktop file").unwrap();
+        std::fs::write(dir.join("decoders/jp2.desktop"), "[Glimt Format]\n").unwrap();
+        let found = [
+            (
+                dir.join("formats/old.desktop"),
+                "# Mine\n[Glimt Decoder]\nName=Old\n".to_owned(),
+            ),
+            (
+                dir.join("formats/new.desktop"),
+                "[Glimt Format]\nName=New\n".to_owned(),
+            ),
+        ];
+        let lines = old_desktop_files_in(Some(&dir), &found);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].starts_with(&dir.join("decoders").display().to_string()));
+        assert!(lines[0].contains(&dir.join("formats").display().to_string()));
+        assert!(lines[1].starts_with(&found[0].0.display().to_string()));
+        assert!(dir.join("decoders/jp2.desktop").exists());
+        assert!(old_desktop_files_in(None, &found[1..]).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A desktop file of the user's hides the system's of the same name. The folders' old

@@ -4087,3 +4087,13 @@ msgstr "{photo} is er weer, dus het houdt zijn markeringen en sterren, en het op
 #, fuzzy
 msgid "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept."
 msgstr "{folder} bevat logboeken die Glimt 0.92 of ouder achterliet toen het werd gestopt tijdens Meerdere hernoemen, een verplaatsing of een verwijdering. Deze Glimt leest ze niet meer: start Glimt 0.94 één keer om ze recht te zetten. Tot dan worden ze bewaard."
+
+#: src/features/tools.rs
+#, fuzzy
+msgid "{folder} holds tools or added formats that Glimt no longer reads: move their desktop files to {new_folder}"
+msgstr "{folder} bevat hulpmiddelen of toegevoegde formaten die Glimt niet meer leest: verplaats hun desktopbestanden naar {new_folder}"
+
+#: src/features/tools.rs
+#, fuzzy
+msgid "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead"
+msgstr "{file} wordt niet geladen: de kop [Glimt Decoder] wordt niet meer gelezen. Schrijf in plaats daarvan [Glimt Format]"
