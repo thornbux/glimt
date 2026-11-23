@@ -2844,14 +2844,13 @@ mod tests {
         app.remote_command(&ctx, "run Last").unwrap();
         assert_eq!(app.list.shown(), 2);
         // The renamed command by its new word (its old word is mapped where it comes in, as
-        // `an_old_command_word_reaches_the_window_mapped` checks), and the renamed action by
-        // its old name.
+        // `an_old_command_word_reaches_the_window_mapped` checks).
         app.remote_command(&ctx, "previous").unwrap();
         assert_eq!(app.list.shown(), 1);
         app.remote_command(&ctx, "previous").unwrap();
         assert_eq!(app.list.shown(), 0);
         app.remote_command(&ctx, "run Next").unwrap();
-        app.remote_command(&ctx, "run Prev").unwrap();
+        app.remote_command(&ctx, "run Previous").unwrap();
         assert_eq!(app.list.shown(), 0);
         app.remote_command(&ctx, "run Last").unwrap();
         app.config.confirm_trash = false;

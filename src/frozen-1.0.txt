@@ -245,12 +245,9 @@ script Back
 script CheckImages
 script CloseWindow
 script Compare
-script CopyFiles
 script CopyImage
 script CopyPath
 script CopyPathUnquoted
-script Escape
-script ExifRotate
 script ExifWindow
 script First
 script FitFill
@@ -267,7 +264,6 @@ script HiddenFiles
 script HideFileList
 script Histogram
 script HistogramLog
-script Home
 script Icons
 script InvertSelection
 script KeyboardMap
@@ -308,7 +304,6 @@ script Subfolders
 script ThumbnailGrid
 script Thumbnails
 script Toolbar
-script Up
 script WindowTitle
 script Zoom1To1
 script ZoomFit

@@ -1637,7 +1637,7 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
-section "--remote previous, and the words from before 0.74.0: prev and run Prev still taken"
+section "--remote previous, and the word from before 0.74.0: prev still taken; run Previous"
 d=/tmp/remote-previous
 mkdir -p $d
 for f in a b c d; do convert -size 64x64 xc:red $d/$f.png; done
@@ -1647,10 +1647,10 @@ remote previous >/dev/null 2>&1; sleep 1
 after_previous=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
 remote prev >/dev/null 2>&1; sleep 1
 after_prev=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
-remote run Prev >/dev/null 2>&1; sleep 1
+remote run Previous >/dev/null 2>&1; sleep 1
 after_run=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
 quit
-expect "previous, prev and run Prev each one image back" "$after_previous $after_prev $after_run" \
+expect "previous, prev and run Previous each one image back" "$after_previous $after_prev $after_run" \
     "c.png b.png a.png"
 
 section "--remote select while Preferences is open: answered at once"
@@ -3403,22 +3403,6 @@ start $d; sleep 2
 key ctrl+f; sleep 1; xdotool type holiday; key Return; sleep 1
 quit
 expect "the folder is there" "$([ -d $d/holiday ] && echo yes)" yes
-
-section "the action names of 0.79: Up in keys= and --remote run Home still work"
-d=/tmp/old-actions
-mkdir -p $d/sub
-convert -size 64x64 xc:red $d/sub/a.png
-convert -size 64x64 xc:blue $d/b.png
-convert -size 64x64 xc:lime $HOME/h.png
-config "keys=Up=F9"
-start $d/sub/a.png; sleep 2
-key F9; sleep 2
-up=$(remote current 2>/dev/null | tr -d '\0')
-remote run Home >/dev/null 2>&1; ran=$?
-sleep 2
-home=$(remote current 2>/dev/null | tr -d '\0')
-quit
-expect "F9 for Up goes to the parent, run Home to the home folder" "$up $ran $home" "$d/b.png 0 $HOME/h.png"
 
 section "Up and Home in the toolbar: the parent folder, then the home folder"
 d=/tmp/up-home

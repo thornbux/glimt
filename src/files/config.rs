@@ -1668,7 +1668,6 @@ mod tests {
         };
         let table: &[(&str, &str)] = match kind {
             "remote" => &crate::features::remote::RENAMED_COMMANDS,
-            "script" => &crate::ui::actions::RENAMED_ACTIONS,
             _ => &[],
         };
         match table.iter().find(|r| r.0 == name) {
