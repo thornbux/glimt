@@ -5965,7 +5965,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
         [ $how = rename ] && { collection=$saved; collection_of $d $saved; }
         config confirm_trash=false
         start /mnt/stick
-        hold_lock $XDG_STATE_HOME/glimt/.marks.lock
+        hold_lock $(dirname $MARKS)/.marks.lock
         rclick Album; sleep 1
         if [ $how = rename ]; then
             menu "Rename Folder…"; key ctrl+a
@@ -5976,6 +5976,8 @@ os.kill(pid, signal.SIGKILL)" $d $GPID &
         until_ok "[ ! -e $d ]" 30
         sleep 1
         expect "folder $how: the folder went before the kill" "$([ ! -e $d ] && echo yes)" yes
+        # Its marks wait for the lock, so the job log is still there: the restart must follow.
+        expect "folder $how: its job log still there at the kill" "$(job_logs)" 1
         kill_and_take_out "folder $how" 20
         start /tmp/stick-elsewhere; sleep 3; quit
         if [ $how = rename ]; then
