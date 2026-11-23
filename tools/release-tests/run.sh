@@ -104,7 +104,24 @@ except OSError:
     seconds = {}
 def title(x):
     return x.split("\n", 1)[0][len(mark):].rstrip('"')
-starts = [1 + x.count("start ") * (2 if "for v in new old" in x else 1) for x in checks]
+# A part may start at any section, so a function that one section defines and another calls
+# is command not found there, unless it is defined in the head. The shell's own text is
+# searched: comments, heredocs, python3 -c scripts and $(( )) are left out.
+def code(x):
+    x = re.sub(r"<<-?'?(\w+)'?[^\n]*\n.*?\n\s*\1\n", "\n", x, flags=re.S)
+    x = re.sub(r'python3 -c "[^"]*"', "", x)
+    x = re.sub(r"\$\(\(.*?\)\)", "", x)
+    return re.sub(r"(?m)^\s*#.*$", "", x)
+define = re.compile(r"(?m)^\s*(\w+)\s*\(\)\s*\{")
+own = [set(define.findall(code(x))) for x in checks]
+in_sections = set().union(*own) - set(define.findall(head))
+calls = [f"{title(x)}: {f}" for x, mine in zip(checks, own) for f in sorted(in_sections - mine)
+         if re.search(r"(?m)(^|[;&|({!]|\$\(|\bthen|\bdo|\belse)\s*" + f + r"(?=[\s;]|$)(?!\s*=)"
+                      r"|\$\(\s*" + f + r"\s*\)", code(x))]
+if calls:
+    sys.exit("FAIL a section calls a function that another section defines; define it in the"
+             " head of tests.sh:\n" + "\n".join(calls))
+starts = [1 + x.count("start ")* (2 if "for v in new old" in x else 1) for x in checks]
 known = [(seconds[title(x)], n) for x, n in zip(checks, starts) if title(x) in seconds]
 per_start = sum(s for s, _ in known) / sum(n for _, n in known) if known else 1
 weight = [seconds.get(title(x), n * per_start) for x, n in zip(checks, starts)]

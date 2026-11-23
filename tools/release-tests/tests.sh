@@ -353,12 +353,14 @@ took() {
     SECTION_START=$SECONDS
 }
 
-# The environment of one version, new or old: a fresh HOME and XDG folders, and a stand-in for
-# zenity. Sets V, BIN and H.
+# as_version VERSION [STATE DATA]: the environment of one version, new or old: a fresh HOME and
+# XDG folders, and a stand-in for zenity. Sets V, BIN, H and MARKS. STATE and DATA put
+# $XDG_STATE_HOME and $XDG_DATA_HOME elsewhere, such as on a disk that a section fills; they are
+# set only here, so that $MARKS is always the file that Glimt writes.
 as_version() {
     export V=$1 BIN=/opt/glimt-$1 H=/tmp/home-$1
     export HOME=$H XDG_CACHE_HOME=$H/.cache XDG_CONFIG_HOME=$H/.config XDG_RUNTIME_DIR=$H/run \
-        XDG_STATE_HOME=$H/.local/state XDG_DATA_HOME=$H/.local/share
+        XDG_STATE_HOME=${2:-$H/.local/state} XDG_DATA_HOME=${3:-$H/.local/share}
     mkdir -p $XDG_CACHE_HOME $XDG_CONFIG_HOME/glimt $XDG_RUNTIME_DIR /tmp/stub
     chmod 700 $XDG_RUNTIME_DIR
     # The marks file: in $XDG_DATA_HOME/glimt since 0.96.0, and in $XDG_STATE_HOME/glimt in the
@@ -398,6 +400,19 @@ print_pictures() {
     mkdir -p $src
     convert -size 3000x2000 xc: +noise Random -quality 92 /tmp/noise.jpg
     for i in $(seq -w 1 80); do ln /tmp/noise.jpg $src/p$i.jpg; done
+}
+# plan_in_jobs PLAN DONE FROM TO…: the plan of a Rename Many that a crash cut short, as a job log
+# of 0.93 or later (docs/design/log-format.md): its header, a step for each pair of names, with
+# no fingerprint, so the repair goes by the names, and a done record for each of the first DONE.
+plan_in_jobs() {
+    local plan=$1 done=$2 n=0
+    shift 2
+    mkdir -p "${plan%/*}"
+    {
+        printf '%s\0' glimt-job 1 rename "$(date +%s%N)" release-tests; printf '\0'
+        while [ $# -gt 1 ]; do printf '%s\0' step $n "$1" "$2" -; printf '\0'; n=$((n + 1)); shift 2; done
+        for n in $(seq 0 $((done - 1))); do printf '%s\0' done $n; printf '\0'; done
+    } >"$plan"
 }
 # The file or folder the stand-in file dialog answers with.
 answer() { printf '#!/bin/sh\necho "%s"\n' "$1" >/tmp/stub/zenity; chmod +x /tmp/stub/zenity; }
@@ -4756,20 +4771,6 @@ shot exif-search-1
 quit
 expect "nothing before, b.jpg after" "$before $(colour exif-search-1 57 337)" "other blue"
 
-# plan_in_jobs PLAN DONE FROM TO…: the plan of a Rename Many that a crash cut short, as a job log
-# of 0.93 or later (docs/design/log-format.md): its header, a step for each pair of names, with
-# no fingerprint, so the repair goes by the names, and a done record for each of the first DONE.
-plan_in_jobs() {
-    local plan=$1 done=$2 n=0
-    shift 2
-    mkdir -p "${plan%/*}"
-    {
-        printf '%s\0' glimt-job 1 rename "$(date +%s%N)" release-tests; printf '\0'
-        while [ $# -gt 1 ]; do printf '%s\0' step $n "$1" "$2" -; printf '\0'; n=$((n + 1)); shift 2; done
-        for n in $(seq 0 $((done - 1))); do printf '%s\0' done $n; printf '\0'; done
-    } >"$plan"
-}
-
 section "Rename Many cut short by a crash: the old names put back at the next start"
 d=/tmp/cutshort
 rm -rf $XDG_STATE_HOME/glimt/jobs; mkdir -p $d
@@ -6222,10 +6223,10 @@ if ! grep -q " $full tmpfs " /proc/mounts; then
     fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
 else
     for v in new old; do
-        as_version $v
         rm -f $full/.fill
-        export XDG_STATE_HOME=$full/state-$v XDG_DATA_HOME=$full/data-$v
-        rm -rf $XDG_STATE_HOME $XDG_DATA_HOME; mkdir -p $XDG_STATE_HOME/glimt
+        rm -rf $full/state-$v $full/data-$v
+        as_version $v $full/state-$v $full/data-$v
+        mkdir -p $XDG_STATE_HOME/glimt
         d=/tmp/own-full-$v
         rm -rf $d; mkdir -p $d
         blue_photo 300x200 $d/a.jpg
