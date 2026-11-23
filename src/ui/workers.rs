@@ -63,9 +63,12 @@ impl crate::App {
         }
         // The failed writes go last, so that no other notice of this frame hides them, and
         // they stay under the later notices until they have been on the screen long enough.
-        if let Some(failed) = self.window.take_failed_writes_to_show() {
+        let failed = self.window.take_failed_writes_to_show();
+        if !failed.is_empty() {
             self.notice.clear();
-            self.notice.keep_until_drawn(failed);
+            for f in failed {
+                self.notice.keep_until_drawn(f);
+            }
         }
     }
 
@@ -166,15 +169,21 @@ impl crate::App {
         // a `--wait` answers done, and a close that waited for the edit goes on. It stays under
         // every notice until a frame has drawn it, so that the notice of the same work ("Saved")
         // or a failed write of the same frame does not hide it.
-        if let Some(warning) = crate::files::file_io::take_lock_warning() {
+        for warning in crate::files::file_io::take_lock_warnings() {
             self.notice.keep_until_drawn(warning);
             ctx.request_repaint();
         }
         while let Ok(told) = self.notices.try_recv() {
-            match told {
-                Told::Notice(text) => self.notice.give(text),
-                Told::Error(text) => self.notice.give_error(text),
-                Told::FailedWrite(text) => self.window.keep_failed_write(text),
+            // `NoticeSender::tell` sends each of `Told::Several` on its own, but a test may send
+            // one whole.
+            let mut each = vec![told];
+            while let Some(told) = each.pop() {
+                match told {
+                    Told::Notice(text) => self.notice.give(text),
+                    Told::Error(text) => self.notice.give_error(text),
+                    Told::FailedWrite(text) => self.window.keep_failed_write(text),
+                    Told::Several(all) => each.extend(all.into_iter().rev()),
+                }
             }
             ctx.request_repaint();
         }
@@ -488,6 +497,19 @@ mod tests {
         app.notice_sender.send("3 files moved".into()).unwrap();
         app.poll_background(&ctx);
         assert_eq!(app.notice.text(), Some(failed));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Two failed writes of one frame are two messages, each with its own heading. Before, they
+    /// were joined into one text, and the second was drawn as the first one's detail.
+    #[test]
+    fn failed_writes_of_one_frame_are_messages_of_their_own() {
+        let dir = contract_folder("failures-apart");
+        let (mut app, ctx) = app_on(&dir);
+        app.tell_failed_write("Could not save the keywords: test".into());
+        app.tell_failed_write("Could not save the marks: test".into());
+        app.poll_background(&ctx);
+        assert_eq!(app.notice.messages().len(), 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

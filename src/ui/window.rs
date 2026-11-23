@@ -197,11 +197,10 @@ impl Window {
         &self.last_failed_write
     }
 
-    /// Takes the failed writes kept since the last call, one line for each. Returns `None` when
-    /// no write failed.
-    pub(crate) fn take_failed_writes_to_show(&mut self) -> Option<String> {
-        let texts = std::mem::take(&mut self.failed_writes_to_show);
-        (!texts.is_empty()).then(|| texts.join("\n"))
+    /// Takes the failed writes kept since the last call, each to be shown as a message of its
+    /// own.
+    pub(crate) fn take_failed_writes_to_show(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.failed_writes_to_show)
     }
 
     /// Forgets the turn a close tried to save, because a save worked. A turn made after it,
@@ -1326,8 +1325,8 @@ mod tests {
         for _ in 0..3 {
             assert!(!close_pass(&mut app, &ctx, false));
         }
-        let shown = app.window.take_failed_writes_to_show().unwrap_or_default();
-        assert_eq!(shown, "Could not crop the image: test");
+        let shown = app.window.take_failed_writes_to_show();
+        assert_eq!(shown, ["Could not crop the image: test"]);
         assert_eq!(app.window.close_requests, 0);
         std::fs::remove_dir_all(dir).unwrap();
     }

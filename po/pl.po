@@ -3534,6 +3534,11 @@ msgstr "Nie udało się zmienić nazwy kolekcji: {e}"
 msgid "Could not open {name}:\n{e}"
 msgstr "Nie udało się otworzyć {name}:\n{e}"
 
+#: src/model/folder.rs
+#, fuzzy
+msgid "Could not open {name}"
+msgstr "Nie udało się otworzyć {name}"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"

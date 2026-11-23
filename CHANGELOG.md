@@ -8,9 +8,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - The notices at the foot of the image are easier to see and read: near-white text on a dark
-  card, at most 70 % of the image's width and wrapped over several lines, with the cause of a
-  problem on its own lines under a short heading. An error or a refusal has a red stripe and a
-  warning sign, and an ordinary notice, such as Saved, a blue stripe. Before, every notice was
+  card, at most 70 % of the image's width and wrapped over several lines. Each failed write,
+  and each thing Glimt tells at its start, is a message of its own, so that none hides
+  another. An error or a refusal has a red stripe and a warning sign, and an ordinary notice,
+  such as Saved, a blue stripe; a job log that could not be saved now counts as a failed
+  write, which `--remote … --wait` reports. Before, every notice was
   one long line of light red text on a see-through band across the whole image.
 - Marks and stars are kept in `~/.local/share/glimt/marks` (`$XDG_DATA_HOME`), beside the
   collections, where backups look for the data you made, instead of `~/.local/state/glimt`. The
@@ -18,8 +20,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   fails, Glimt says so and keeps the marks where they were. It leaves a link in the old place,
   so a Glimt 0.95 window still open goes on with the same file. When both places hold a marks
   file with different marks (an old backup copied back), the new one is used, the old one is
-  left as it is, and Glimt says so at each start. A backup script of your own needs the new
-  path.
+  left as it is, and Glimt says so at each start and in `glimt --check-config`. A backup script
+  of your own needs the new path.
 - Before 1.0 freezes them, names that misled are renamed. Each old name is no longer read, so
   its setting goes back to its default once, and `glimt --check-config` names its line:
   - the settings `exif_rotate`, `print_template` and `thumb_size` are now `auto_rotate`,

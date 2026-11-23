@@ -3523,6 +3523,11 @@ msgstr "Kokoelmaa ei voitu nimetä uudelleen: {e}"
 msgid "Could not open {name}:\n{e}"
 msgstr "Tiedostoa {name} ei voitu avata:\n{e}"
 
+#: src/model/folder.rs
+#, fuzzy
+msgid "Could not open {name}"
+msgstr "Tiedostoa {name} ei voitu avata"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"

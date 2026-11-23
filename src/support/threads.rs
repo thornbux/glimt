@@ -427,6 +427,9 @@ pub(crate) enum Told {
     /// A write that failed. The window shows it, and a close that waited for the writing stays
     /// open, so the user sees it.
     FailedWrite(String),
+    /// Several of these, each told as itself, such as a job's own text and the failed write of
+    /// its log.
+    Several(Vec<Told>),
 }
 
 /// The way a background thread tells the user something: the text becomes the notice over the
@@ -459,6 +462,17 @@ impl NoticeSender {
         let sent = self.tx.send(Told::Error(text));
         self.ctx.request_repaint();
         sent
+    }
+
+    /// Sends `told` to the window as its kind says: each of `Told::Several` on its own.
+    pub(crate) fn tell(&self, told: Told) {
+        // A window that is gone has nothing to show it in.
+        match told {
+            Told::Notice(text) => drop(self.send(text)),
+            Told::Error(text) => drop(self.send_error(text)),
+            Told::FailedWrite(text) => self.send_failed_write(text),
+            Told::Several(all) => all.into_iter().for_each(|told| self.tell(told)),
+        }
     }
 
     /// Prints a failed write on stderr, and sends it to the window, which shows it and stays
@@ -749,11 +763,8 @@ pub(crate) fn told_work(
                 .to_owned(),
             ))
         };
-        match catch_panic(work).unwrap_or_else(broke) {
-            Some(Told::Notice(text)) => drop(notices.send(text)),
-            Some(Told::Error(text)) => drop(notices.send_error(text)),
-            Some(Told::FailedWrite(text)) => notices.send_failed_write(text),
-            None => {}
+        if let Some(told) = catch_panic(work).unwrap_or_else(broke) {
+            notices.tell(told);
         }
         drop(held);
         ctx.request_repaint();

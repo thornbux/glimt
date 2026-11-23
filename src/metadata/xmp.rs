@@ -2681,19 +2681,25 @@ mod tests {
     /// the user is told so once. Before, nothing was told.
     #[test]
     fn no_runtime_folder_is_told() {
-        let _ = crate::files::file_io::take_lock_warning();
+        let _ = crate::files::file_io::take_lock_warnings();
         let dir = std::path::PathBuf::from("/run/user/1000/glimt");
         assert_eq!(
             super::locks_in(Some(dir.clone())),
             Some(dir.join(super::LOCK_FOLDER))
         );
-        assert_eq!(crate::files::file_io::take_lock_warning(), None);
+        assert_eq!(
+            crate::files::file_io::take_lock_warnings(),
+            Vec::<String>::new()
+        );
         assert_eq!(super::locks_in(None), None);
-        let told = crate::files::file_io::take_lock_warning().unwrap_or_default();
+        let told = crate::files::file_io::take_lock_warnings().join("\n");
         assert!(told.contains("$XDG_RUNTIME_DIR"), "{told}");
         assert!(told.contains(super::NO_RUNTIME_FOLDER), "{told}");
         super::locks_in(None);
-        assert_eq!(crate::files::file_io::take_lock_warning(), None);
+        assert_eq!(
+            crate::files::file_io::take_lock_warnings(),
+            Vec::<String>::new()
+        );
         // The reason is translated as the rest of the warning is. Before, it stayed English.
         let msgid = format!("msgid \"{}\"", super::NO_RUNTIME_FOLDER);
         for (code, _, _, po) in crate::support::lang::LANGUAGES {

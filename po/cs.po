@@ -3545,6 +3545,11 @@ msgstr "Kolekci nelze přejmenovat: {e}"
 msgid "Could not open {name}:\n{e}"
 msgstr "{name} nelze otevřít:\n{e}"
 
+#: src/model/folder.rs
+#, fuzzy
+msgid "Could not open {name}"
+msgstr "{name} nelze otevřít"
+
 #: src/images/save.rs
 #, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"

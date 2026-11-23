@@ -420,26 +420,34 @@ impl Viewing {
     }
 }
 
-/// One message of a notice, and whether it tells of something that went wrong: a failed
-/// write, a refusal or another error. A notice with an error is drawn with a red stripe and a
-/// warning sign, and an ordinary one with a blue stripe.
+/// One message of a notice: its heading, the detail drawn smaller under it, and whether it
+/// tells of something that went wrong (a failed write, a refusal or another error). A notice
+/// with an error is drawn with a red stripe and a warning sign, and an ordinary one with a blue
+/// stripe. The caller gives the heading and the detail apart, because a heading cut out of one
+/// text, at its first ": ", was cut inside a file name such as "Trip: Paris.jpg".
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NoticeMessage {
-    text: String,
+    heading: String,
+    detail: String,
     is_error: bool,
 }
 
 impl NoticeMessage {
-    /// Returns the message's heading, its first line, and the rest as its detail, which is
-    /// drawn smaller under the heading. An error's heading ends also at its first ": ", where
-    /// the cause follows ("Could not save a.jpg: Permission denied").
-    fn heading_and_detail(&self) -> (&str, &str) {
-        let text = self.text.as_str();
-        let line_end = text.find('\n').unwrap_or(text.len());
-        let colon = text[..line_end].find(": ").filter(|_| self.is_error);
-        match colon {
-            Some(at) => (text[..at].trim_end(), text[at + 2..].trim_start()),
-            None => (&text[..line_end], text[line_end..].trim_start()),
+    /// Returns a message of `heading` alone, an error when `is_error`.
+    fn new(heading: String, is_error: bool) -> Self {
+        NoticeMessage {
+            heading,
+            detail: String::new(),
+            is_error,
+        }
+    }
+
+    /// Returns the message's text as a screen reader reads it: the heading, and the detail on
+    /// a line of its own.
+    fn text(&self) -> String {
+        match self.detail.is_empty() {
+            true => self.heading.clone(),
+            false => format!("{}\n{}", self.heading, self.detail),
         }
     }
 }
@@ -462,12 +470,32 @@ pub(crate) struct Notice {
 }
 
 impl Notice {
-    /// Returns a notice that shows `text` from the start, when there is one. Such a text tells
-    /// of a problem met while starting, so it is shown as an error.
-    pub(crate) fn new(text: Option<String>) -> Self {
+    /// Returns the notice the window starts with, each of its messages on its own: the
+    /// problems met while starting, `errors`, as errors, and under them that an old marks file
+    /// was left beside the new one, `old_marks_file_left`, and the first of the desktop files
+    /// no longer read, `old_files`, with where to see them all. Before, one message took the
+    /// place of the others. They are told at each start while they are there, because
+    /// remembering that they were told would need a new file or setting, which 1.x freezes.
+    pub(crate) fn told_at_start(
+        errors: [Option<String>; 3],
+        old_marks_file_left: Option<String>,
+        old_files: &[String],
+    ) -> Self {
+        let old_files = old_files.first().map(|first| {
+            let more = match old_files.len() - 1 {
+                0 => String::new(),
+                n => crate::tf!("; and {n} more (glimt --check-config)", n),
+            };
+            format!("{first}{more}")
+        });
+        let errors = errors.into_iter().flatten();
+        let errors = errors.map(|e| NoticeMessage::new(e, true));
+        let notes = old_marks_file_left.into_iter().chain(old_files);
+        let notes = notes.map(|n| NoticeMessage::new(n, false));
+        let messages: Vec<NoticeMessage> = errors.chain(notes).collect();
         let mut notice = Notice::default();
-        if let Some(text) = text {
-            notice.give_error(text);
+        if !messages.is_empty() {
+            notice.show(messages);
         }
         notice
     }
@@ -475,31 +503,30 @@ impl Notice {
     /// Shows `text`, as a new notice, also when the same text is shown already. The warnings
     /// that no frame has drawn yet are shown under it.
     pub(crate) fn give(&mut self, text: String) {
-        self.show(NoticeMessage {
-            text,
-            is_error: false,
-        });
+        self.show(vec![NoticeMessage::new(text, false)]);
     }
 
     /// Shows `text` as `give` does, as an error: something that went wrong or was refused.
     pub(crate) fn give_error(&mut self, text: String) {
-        self.show(NoticeMessage {
-            text,
-            is_error: true,
-        });
+        self.show(vec![NoticeMessage::new(text, true)]);
     }
 
-    /// Shows `first`, with the warnings that no frame has drawn yet under it, as a new notice.
-    fn show(&mut self, first: NoticeMessage) {
-        let kept = self
-            .kept_until_drawn
-            .iter()
-            .map(|(warning, _)| NoticeMessage {
-                text: warning.clone(),
-                is_error: true,
-            });
-        let messages = std::iter::once(first).chain(kept);
-        let messages = messages.filter(|m| !m.text.is_empty()).collect();
+    /// Shows the error `heading` as `give_error` does, with its `cause` drawn smaller under it.
+    pub(crate) fn give_error_because(&mut self, heading: String, cause: String) {
+        let message = NoticeMessage {
+            detail: cause,
+            ..NoticeMessage::new(heading, true)
+        };
+        self.show(vec![message]);
+    }
+
+    /// Shows `firsts`, with the warnings that no frame has drawn yet under them, as a new
+    /// notice.
+    fn show(&mut self, firsts: Vec<NoticeMessage>) {
+        let kept = (self.kept_until_drawn.iter())
+            .map(|(warning, _)| NoticeMessage::new(warning.clone(), true));
+        let messages = firsts.into_iter().chain(kept);
+        let messages = messages.filter(|m| !m.heading.is_empty()).collect();
         self.given += 1;
         self.set_shown(Some((messages, self.given)));
     }
@@ -507,7 +534,7 @@ impl Notice {
     /// Shows `shown`, or no notice for `None`, and joins its texts for `text`.
     fn set_shown(&mut self, shown: Option<(Vec<NoticeMessage>, u64)>) {
         let messages = shown.iter().flat_map(|(messages, _)| messages);
-        let texts: Vec<&str> = messages.map(|m| m.text.as_str()).collect();
+        let texts: Vec<String> = messages.map(NoticeMessage::text).collect();
         self.text = texts.join("\n");
         self.shown = shown;
     }
@@ -519,11 +546,8 @@ impl Notice {
     /// error.
     pub(crate) fn keep_until_drawn(&mut self, warning: String) {
         let mut messages = self.set_aside().map(|(m, _)| m).unwrap_or_default();
-        messages.push(NoticeMessage {
-            text: warning.clone(),
-            is_error: true,
-        });
-        messages.retain(|m| !m.text.is_empty());
+        messages.push(NoticeMessage::new(warning.clone(), true));
+        messages.retain(|m| !m.heading.is_empty());
         self.given += 1;
         self.set_shown(Some((messages, self.given)));
         self.kept_until_drawn.push((warning, None));
@@ -551,7 +575,7 @@ impl Notice {
     }
 
     /// Returns the messages shown, none when no notice is shown.
-    fn messages(&self) -> &[NoticeMessage] {
+    pub(crate) fn messages(&self) -> &[NoticeMessage] {
         self.shown.as_ref().map_or(&[], |(messages, _)| messages)
     }
 
@@ -2400,11 +2424,11 @@ fn notice_layout(messages: &[NoticeMessage], width: f32) -> egui::text::LayoutJo
     let heading = egui::TextFormat::simple(egui::FontId::proportional(17.0), NOTICE_HEADING);
     let detail = egui::TextFormat::simple(egui::FontId::proportional(14.0), NOTICE_DETAIL);
     for (i, message) in messages.iter().enumerate() {
-        let (first, rest) = message.heading_and_detail();
         let line_break = if i > 0 { "\n" } else { "" };
+        let first = &message.heading;
         job.append(&format!("{line_break}{first}"), 0.0, heading.clone());
-        if !rest.is_empty() {
-            job.append(&format!("\n{rest}"), 0.0, detail.clone());
+        if !message.detail.is_empty() {
+            job.append(&format!("\n{}", message.detail), 0.0, detail.clone());
         }
     }
     job
@@ -2418,55 +2442,82 @@ mod tests {
     /// given a number of its own, so a screen reader is not told an old number for a new text.
     #[test]
     fn a_notice_put_back_keeps_only_its_own_number() {
-        let mut notice = super::Notice::new(Some("a".into()));
+        let mut notice = super::Notice::told_at_start([Some("a".into()), None, None], None, &[]);
         let kept = notice.set_aside();
         notice.put_back(kept.clone());
         assert_eq!(notice.set_aside(), kept);
-        let b = vec![super::NoticeMessage {
-            text: "b".into(),
-            is_error: false,
-        }];
+        let b = vec![super::NoticeMessage::new("b".into(), false)];
         notice.put_back(Some((b.clone(), 99)));
         assert_eq!(notice.set_aside(), Some((b, 2)));
     }
 
+    /// The notice at the start shows every error met while starting, and every other thing
+    /// the start tells under them, each as a message of its own. Before, a start error hid the
+    /// marks file left beside the new one, and that hid the old folders of tools.
+    #[test]
+    fn a_start_notice_shows_every_message() {
+        let errors = [
+            Some("Settings file: bad line".into()),
+            None,
+            Some("t.desktop".into()),
+        ];
+        let left = Some("The old marks file is left".to_owned());
+        let old = [
+            "plugins/ is no longer read".to_owned(),
+            "decoders/ too".to_owned(),
+        ];
+        let notice = super::Notice::told_at_start(errors, left, &old);
+        let kinds: Vec<bool> = notice.messages().iter().map(|m| m.is_error).collect();
+        assert_eq!(kinds, [true, true, false, false]);
+        let text = notice.text().unwrap_or_default();
+        assert!(text.ends_with("plugins/ is no longer read; and 1 more (glimt --check-config)"));
+        assert_eq!(
+            super::Notice::told_at_start([None, None, None], None, &[]).text(),
+            None
+        );
+    }
+
     /// An error and a warning kept until drawn are shown as errors, also under an ordinary
-    /// notice given after them, and an ordinary notice alone is not. An error's heading ends
-    /// at its first ": ", so the cause of a failed mount goes on a line of its own.
+    /// notice given after them, and an ordinary notice alone is not. A heading is what the
+    /// caller gives, also when a file name in it holds ": ", and each failed write kept until
+    /// drawn is a message of its own. Before, a heading ended at the first ": ", and the second
+    /// of two failed writes of a frame was drawn as the first one's detail.
     #[test]
     fn errors_are_told_from_ordinary_notices() {
         let is_error = |notice: &super::Notice| notice.messages().iter().any(|m| m.is_error);
+        let headings = |notice: &super::Notice| {
+            (notice.messages().iter())
+                .map(|m| (m.heading.clone(), m.detail.clone()))
+                .collect::<Vec<_>>()
+        };
         let mut notice = super::Notice::default();
         notice.give("Saved a.jpg: done".into());
         assert!(!is_error(&notice));
-        let heading = notice.messages()[0].heading_and_detail();
-        assert_eq!(heading, ("Saved a.jpg: done", ""));
-        notice.give_error(
-            "Could not mount smb://nas.local/backup: Failed to mount Windows share: Invalid \
-             argument (the name nas.local is not found)"
-                .into(),
-        );
+        assert_eq!(headings(&notice), [("Saved a.jpg: done".into(), "".into())]);
+        let refused = "\"Trip: Paris.jpg\": a vfat file system allows none of : ? *";
+        notice.give_error(refused.into());
         assert!(is_error(&notice));
-        let (heading, detail) = notice.messages()[0].heading_and_detail();
-        assert_eq!(heading, "Could not mount smb://nas.local/backup");
-        assert!(detail.starts_with("Failed to mount Windows share: Invalid"));
+        assert_eq!(headings(&notice), [(refused.into(), "".into())]);
+        notice.give_error_because("Could not open Trip: Paris".into(), "No such file".into());
+        let open = ("Could not open Trip: Paris".into(), "No such file".into());
+        assert_eq!(headings(&notice), [open]);
+        assert_eq!(
+            notice.text(),
+            Some("Could not open Trip: Paris\nNo such file")
+        );
         notice.clear();
         notice.keep_until_drawn("Could not save b.jpg: Permission denied".into());
+        notice.keep_until_drawn("Could not save marks: Read-only file system".into());
         notice.give("Copied 3 files".into());
         assert!(is_error(&notice));
         let text = notice.text().unwrap_or_default();
         assert_eq!(
             text,
-            "Copied 3 files\nCould not save b.jpg: Permission denied"
+            "Copied 3 files\nCould not save b.jpg: Permission denied\nCould not save marks: \
+             Read-only file system"
         );
-        let message = super::NoticeMessage {
-            text: "Could not open a.jpg:\nNo such file".into(),
-            is_error: true,
-        };
-        assert_eq!(
-            message.heading_and_detail(),
-            ("Could not open a.jpg:", "No such file")
-        );
+        assert_eq!(notice.messages().len(), 3);
+        assert!(notice.messages()[1..].iter().all(|m| m.is_error));
     }
 
     /// A notice's card is at most 70 % of a wide image area and 900 points wide, fits a narrow
