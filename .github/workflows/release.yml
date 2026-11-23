@@ -33,6 +33,12 @@ env:
   TAG_GIVEN: ${{ !inputs.dry_run && (inputs.tag || github.ref_name) || '' }}
   DRY_RUN: ${{ inputs.dry_run && 'true' || '' }}
 
+# Every step's script runs in bash with pipefail (GitHub's `bash` shell), so that a command
+# that fails inside a pipe or a $( ) fails its step, instead of leaving an empty value.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -103,6 +109,7 @@ jobs:
       - name: Check the glibc it needs
         run: |
           need=$(objdump -T "target/$TARGET/release/glimt" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          [ -n "$need" ] || { echo "::error::no glibc version found in the binary"; exit 1; }
           echo "Needs $need"
           test "$(printf '%s\n' "GLIBC_$GLIBC" "$need" | sort -V | tail -1)" = "GLIBC_$GLIBC"
       - name: tar.gz
