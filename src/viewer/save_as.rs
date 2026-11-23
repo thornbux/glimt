@@ -91,7 +91,7 @@ impl crate::App {
         #[cfg(feature = "video")]
         if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
             self.notice
-                .give(tr("A video is not saved as an image").into());
+                .give_error(tr("A video is not saved as an image").into());
             return;
         }
         let Some(loaded) = self.list.loaded_images().get(&shown) else {

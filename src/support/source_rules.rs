@@ -876,6 +876,7 @@ const WRITING_WORK: &[&str] = &[
 const NOT_WHILE_LOCKED: &[&str] = &[
     "catch_panic(",
     ".send(",
+    ".send_error(",
     ".join()",
     "JoinHandle::join(",
     ".recv()",
@@ -2709,7 +2710,8 @@ fn notices_are_given_through_their_setter() {
     let wrong = outside_their_homes(&[(".notice =", &[]), ("&mut self.notice", &[])]);
     assert!(
         wrong.is_empty(),
-        "give a notice with notice.give(…) or take it away with notice.clear():\n{}",
+        "give a notice with notice.give(…) or notice.give_error(…), or take it away with \
+         notice.clear():\n{}",
         wrong.join("\n")
     );
 }
@@ -7666,7 +7668,8 @@ fn answers_without_pointer(text: &str, keeping: &HashSet<String>) -> Vec<(String
         has_pointer |= ["Working::new(&self.busy)", "Working::new(&app.busy)"]
             .iter()
             .any(|p| line.contains(p));
-        for (at, _) in line.match_indices(".send(") {
+        let send_calls = [".send(", ".send_error("];
+        for (at, _) in send_calls.iter().flat_map(|call| line.match_indices(call)) {
             let before = line[..at].trim_end_matches("()");
             let sender = before
                 .rsplit(|c: char| !c.is_alphanumeric() && c != '_')

@@ -400,7 +400,8 @@ impl crate::App {
         // One at a time: only one answer is waited for, and a second dialog's would replace the
         // first's, whose copy or move would then never happen.
         if self.dialogs.file_dialog.is_some() {
-            self.notice.give(tr("A file dialog is open already").into());
+            self.notice
+                .give_error(tr("A file dialog is open already").into());
             return;
         }
         let (tx, rx) = answer_channel(&self.busy);
@@ -447,7 +448,8 @@ impl crate::App {
             let output = run_chooser(title, &start, (save, folder, several));
             let picked = match output {
                 Err(e) => {
-                    let _ = notices.send(tf!("No file dialog (install zenity or kdialog): {e}", e));
+                    let _ = notices
+                        .send_error(tf!("No file dialog (install zenity or kdialog): {e}", e));
                     None
                 }
                 // Cancel exits with status 1 in both.
@@ -522,7 +524,11 @@ impl crate::App {
         };
         let file = match file {
             Ok(file) => file,
-            Err(e) => return self.notice.give(tf!("Could not save the theme: {e}", e)),
+            Err(e) => {
+                return self
+                    .notice
+                    .give_error(tf!("Could not save the theme: {e}", e));
+            }
         };
         let (bytes, text) = (theme::Theme::file_from(ctx), text.to_owned());
         let (tx, rx) = answer_channel(&self.busy);
@@ -592,7 +598,7 @@ impl crate::App {
                 (Pick::Folders, Some(paths)) => {
                     match picked_folders(&paths.into_os_string().into_encoded_bytes()) {
                         Some(all) => self.open_folders(ctx, all),
-                        None => self.notice.give(tr(
+                        None => self.notice.give_error(tr(
                             "The file dialog did not answer with full paths, so nothing was opened",
                         )
                         .into()),
@@ -643,7 +649,7 @@ impl crate::App {
             self.notice.clear();
             match done {
                 (Ok(path), _) => self.visit(ctx, path),
-                (Err(Some(e)), _) => self.notice.give(e),
+                (Err(Some(e)), _) => self.notice.give_error(e),
                 // Ask for the login; the user name defaults to this one, as gio's does.
                 (Err(None), login) => {
                     let user = std::env::var("USER").unwrap_or_default();
@@ -781,7 +787,7 @@ impl crate::App {
                 "Could not name this window: a name holds letters, digits, - and _, \
                  not only digits, and at most 64 bytes",
             );
-            return self.notice.give(why.to_owned());
+            return self.notice.give_error(why.to_owned());
         }
         let asked_by = crate::features::remote::NameAskedBy::Dialog;
         self.set_window_name(ctx, name, asked_by);
@@ -811,7 +817,7 @@ impl crate::App {
         }
         let hidden_shown = matches!(prompt, Prompt::SaveTheme) || self.shown_types().hidden;
         if let Some(why) = crate::model::listing::refused_name(text, hidden_shown) {
-            return self.notice.give(why);
+            return self.notice.give_error(why);
         }
         if let Prompt::SaveTheme = prompt {
             return self.save_theme(ctx, text);

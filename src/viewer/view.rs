@@ -33,6 +33,25 @@ pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
 /// drawn it, so that it can be read, and read out, before another notice takes its place.
 const READ_TIME: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// The card a notice is drawn on: opaque and dark, so that its text reads over any image and
+/// in every theme.
+const NOTICE_CARD: egui::Color32 = egui::Color32::from_rgb(30, 30, 34);
+/// The colour of a notice's headings, near white on the card.
+const NOTICE_HEADING: egui::Color32 = egui::Color32::from_gray(242);
+/// The colour of the detail under a heading, a little lighter in weight than the heading.
+const NOTICE_DETAIL: egui::Color32 = egui::Color32::from_gray(200);
+/// The stripe and the warning sign of an error notice. It is egui's light red, the colour that
+/// notices were written in before, which the release tests look for.
+const NOTICE_ERROR: egui::Color32 = egui::Color32::from_rgb(255, 128, 128);
+/// The stripe of an ordinary notice.
+const NOTICE_INFO: egui::Color32 = egui::Color32::from_rgb(120, 170, 255);
+/// How wide the stripe at a notice card's left edge is, in points.
+const NOTICE_STRIPE: f32 = 5.0;
+/// The margin inside a notice card, around its text, in points.
+const NOTICE_PADDING: f32 = 16.0;
+/// How wide the warning sign of an error notice is, with the gap after it, in points.
+const NOTICE_SIGN: f32 = 30.0;
+
 /// A texture shown and its image's size, which a fade goes from.
 pub(crate) type ShownTexture = (egui::TextureHandle, [usize; 2]);
 
@@ -401,13 +420,39 @@ impl Viewing {
     }
 }
 
+/// One message of a notice, and whether it tells of something that went wrong: a failed
+/// write, a refusal or another error. A notice with an error is drawn with a red stripe and a
+/// warning sign, and an ordinary one with a blue stripe.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NoticeMessage {
+    text: String,
+    is_error: bool,
+}
+
+impl NoticeMessage {
+    /// Returns the message's heading, its first line, and the rest as its detail, which is
+    /// drawn smaller under the heading. An error's heading ends also at its first ": ", where
+    /// the cause follows ("Could not save a.jpg: Permission denied").
+    fn heading_and_detail(&self) -> (&str, &str) {
+        let text = self.text.as_str();
+        let line_end = text.find('\n').unwrap_or(text.len());
+        let colon = text[..line_end].find(": ").filter(|_| self.is_error);
+        match colon {
+            Some(at) => (text[..at].trim_end(), text[at + 2..].trim_start()),
+            None => (&text[..line_end], text[line_end..].trim_start()),
+        }
+    }
+}
+
 /// The message shown over the image until the next image, with the number it was given. A
 /// screen reader reads a notice out again when it is given again with the same text, and the
 /// number tells it that the notice is new.
 #[derive(Default)]
 pub(crate) struct Notice {
-    /// The text shown, and its number.
-    shown: Option<(String, u64)>,
+    /// The messages shown, and their number.
+    shown: Option<(Vec<NoticeMessage>, u64)>,
+    /// The texts of the messages shown, one to a line, which `set_shown` keeps.
+    text: String,
     /// How many notices were given, so the next one gets a number of its own.
     given: u64,
     /// The warnings that must reach the user, each with when a frame first drew it. Every
@@ -417,11 +462,12 @@ pub(crate) struct Notice {
 }
 
 impl Notice {
-    /// Returns a notice that shows `text` from the start, when there is one.
+    /// Returns a notice that shows `text` from the start, when there is one. Such a text tells
+    /// of a problem met while starting, so it is shown as an error.
     pub(crate) fn new(text: Option<String>) -> Self {
         let mut notice = Notice::default();
         if let Some(text) = text {
-            notice.give(text);
+            notice.give_error(text);
         }
         notice
     }
@@ -429,32 +475,57 @@ impl Notice {
     /// Shows `text`, as a new notice, also when the same text is shown already. The warnings
     /// that no frame has drawn yet are shown under it.
     pub(crate) fn give(&mut self, text: String) {
+        self.show(NoticeMessage {
+            text,
+            is_error: false,
+        });
+    }
+
+    /// Shows `text` as `give` does, as an error: something that went wrong or was refused.
+    pub(crate) fn give_error(&mut self, text: String) {
+        self.show(NoticeMessage {
+            text,
+            is_error: true,
+        });
+    }
+
+    /// Shows `first`, with the warnings that no frame has drawn yet under it, as a new notice.
+    fn show(&mut self, first: NoticeMessage) {
         let kept = self
             .kept_until_drawn
             .iter()
-            .map(|(warning, _)| warning.clone());
-        let lines = std::iter::once(text).chain(kept);
-        let text = lines
-            .filter(|l| !l.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
+            .map(|(warning, _)| NoticeMessage {
+                text: warning.clone(),
+                is_error: true,
+            });
+        let messages = std::iter::once(first).chain(kept);
+        let messages = messages.filter(|m| !m.text.is_empty()).collect();
         self.given += 1;
-        self.shown = Some((text, self.given));
+        self.set_shown(Some((messages, self.given)));
+    }
+
+    /// Shows `shown`, or no notice for `None`, and joins its texts for `text`.
+    fn set_shown(&mut self, shown: Option<(Vec<NoticeMessage>, u64)>) {
+        let messages = shown.iter().flat_map(|(messages, _)| messages);
+        let texts: Vec<&str> = messages.map(|m| m.text.as_str()).collect();
+        self.text = texts.join("\n");
+        self.shown = shown;
     }
 
     /// Shows `warning` under the notice shown, and under every notice given after it until it
     /// has been drawn for `READ_TIME` (`frame_drawn`). A warning given as a plain notice was
     /// hidden by the next notice of the same frame, and so never shown nor read out. One kept
-    /// for a single frame was hidden by a notice a few milliseconds later.
+    /// for a single frame was hidden by a notice a few milliseconds later. It is shown as an
+    /// error.
     pub(crate) fn keep_until_drawn(&mut self, warning: String) {
-        let shown = self.shown.take().map(|(text, _)| text).unwrap_or_default();
-        let lines = [shown, warning.clone()];
-        let text = lines
-            .into_iter()
-            .filter(|l| !l.is_empty())
-            .collect::<Vec<_>>();
+        let mut messages = self.set_aside().map(|(m, _)| m).unwrap_or_default();
+        messages.push(NoticeMessage {
+            text: warning.clone(),
+            is_error: true,
+        });
+        messages.retain(|m| !m.text.is_empty());
         self.given += 1;
-        self.shown = Some((text.join("\n"), self.given));
+        self.set_shown(Some((messages, self.given)));
         self.kept_until_drawn.push((warning, None));
     }
 
@@ -468,15 +539,20 @@ impl Notice {
 
     /// Takes the notice away. The warnings that no frame has drawn yet stay shown.
     pub(crate) fn clear(&mut self) {
-        self.shown = None;
+        self.set_shown(None);
         if !self.kept_until_drawn.is_empty() {
             self.give(String::new());
         }
     }
 
-    /// Returns the text shown, or `None` when no notice is shown.
+    /// Returns the text shown, its messages one to a line, or `None` when no notice is shown.
     pub(crate) fn text(&self) -> Option<&str> {
-        self.shown.as_ref().map(|(text, _)| text.as_str())
+        self.shown.as_ref().map(|_| self.text.as_str())
+    }
+
+    /// Returns the messages shown, none when no notice is shown.
+    fn messages(&self) -> &[NoticeMessage] {
+        self.shown.as_ref().map_or(&[], |(messages, _)| messages)
     }
 
     /// Returns the number of the notice shown, or `None` when no notice is shown.
@@ -486,18 +562,23 @@ impl Notice {
     }
 
     /// Takes the notice away and returns it, with its number, for `put_back`.
-    pub(crate) fn set_aside(&mut self) -> Option<(String, u64)> {
-        self.shown.take()
+    pub(crate) fn set_aside(&mut self) -> Option<(Vec<NoticeMessage>, u64)> {
+        let shown = self.shown.take();
+        self.text.clear();
+        shown
     }
 
     /// Shows again the notice that `set_aside` returned, as the same notice, so a screen
     /// reader that read it does not read it again. `None` takes the notice away. A pair with
-    /// a number that this notice never gave was not set aside, so it is given as a new notice.
-    pub(crate) fn put_back(&mut self, kept: Option<(String, u64)>) {
+    /// a number that this notice never gave was not set aside, so it is shown as a new notice.
+    pub(crate) fn put_back(&mut self, kept: Option<(Vec<NoticeMessage>, u64)>) {
         match kept {
-            Some((text, number)) if number == 0 || number > self.given => self.give(text),
+            Some((messages, number)) if number == 0 || number > self.given => {
+                self.given += 1;
+                self.set_shown(Some((messages, self.given)));
+            }
             None => self.clear(),
-            kept => self.shown = kept,
+            kept => self.set_shown(kept),
         }
     }
 }
@@ -1675,23 +1756,44 @@ impl crate::App {
         }
     }
 
-    /// Paints the notice at the foot of `area`, wrapped to it, on a dark band so it reads over
-    /// any image. This is the one place a notice is shown, so a screen reader hears every
-    /// notice from here.
+    /// Paints the notice at the foot of `area` on a dark card, wrapped to at most 70 % of the
+    /// area's width. A stripe at the card's left edge tells an error (red, with a warning
+    /// sign) from an ordinary notice (blue). This is the one place a notice is shown, so a
+    /// screen reader hears every notice from here.
     pub(crate) fn paint_notice(&self, ui: &egui::Ui, area: egui::Rect) {
         #[cfg(feature = "accessibility")]
         crate::ui::accessibility::speak_notice(ui, area, &self.notice);
-        if let Some(notice) = self.notice.text() {
-            let (font, red) = (egui::FontId::proportional(16.0), egui::Color32::LIGHT_RED);
-            let width = (area.width() - 48.0).max(80.0);
-            let galley = ui.painter().layout(notice.to_owned(), font, red, width);
-            let at =
-                area.center_bottom() - egui::vec2(galley.size().x / 2.0, 16.0 + galley.size().y);
-            let band = egui::Rect::from_min_size(at, galley.size()).expand(8.0);
-            ui.painter()
-                .rect_filled(band, 6.0, egui::Color32::from_black_alpha(200));
-            ui.painter().galley(at, galley, red);
+        let messages = self.notice.messages();
+        if messages.is_empty() {
+            return;
         }
+        let is_error = messages.iter().any(|m| m.is_error);
+        let width = notice_text_width(area.width(), is_error);
+        let galley = ui.painter().layout_job(notice_layout(messages, width));
+        let sign = if is_error { NOTICE_SIGN } else { 0.0 };
+        let chrome = egui::vec2(
+            NOTICE_STRIPE + 2.0 * NOTICE_PADDING + sign,
+            2.0 * NOTICE_PADDING,
+        );
+        let size = galley.size() + chrome;
+        let at = area.center_bottom() - egui::vec2(size.x / 2.0, 16.0 + size.y);
+        let card = egui::Rect::from_min_size(at, size);
+        let painter = ui.painter();
+        painter.rect_filled(card, 8.0, NOTICE_CARD);
+        let stripe = egui::Rect::from_min_size(at, egui::vec2(NOTICE_STRIPE, size.y));
+        let left_corners = egui::CornerRadius {
+            nw: 8,
+            sw: 8,
+            ..Default::default()
+        };
+        let colour = if is_error { NOTICE_ERROR } else { NOTICE_INFO };
+        painter.rect_filled(stripe, left_corners, colour);
+        let text_at = at + egui::vec2(NOTICE_STRIPE + NOTICE_PADDING, NOTICE_PADDING);
+        if is_error {
+            let font = egui::FontId::proportional(20.0);
+            painter.text(text_at, egui::Align2::LEFT_TOP, "\u{26a0}", font, colour);
+        }
+        painter.galley(text_at + egui::vec2(sign, 0.0), galley, NOTICE_HEADING);
     }
 
     /// Paints the window's ID large in the middle of `area` while `--remote identify` asks for
@@ -1875,7 +1977,7 @@ impl crate::App {
             .is_saving(&self.path(self.list.shown()))
         {
             self.notice
-                .give(tr("Still saving the last rotation of this file").into());
+                .give_error(tr("Still saving the last rotation of this file").into());
             return;
         }
         let (q, m) = self.viewing.turn;
@@ -2274,6 +2376,35 @@ fn pane_rects(
     (panes, area, right)
 }
 
+/// Returns how wide a notice's text may be in an image area `area_width` points wide. The card
+/// is at most 70 % of the area and 900 points wide, but on a narrow area it takes nearly all of
+/// it, so that a few words still fit on a line. `is_error` makes room for the warning sign.
+fn notice_text_width(area_width: f32, is_error: bool) -> f32 {
+    let card = (area_width * 0.7)
+        .min(900.0)
+        .max((area_width - 16.0).min(320.0));
+    let sign = if is_error { NOTICE_SIGN } else { 0.0 };
+    (card - NOTICE_STRIPE - 2.0 * NOTICE_PADDING - sign).max(40.0)
+}
+
+/// Returns the text of a notice's `messages`, wrapped at `width`: each message's heading in
+/// near white, with its detail under it smaller and lighter.
+fn notice_layout(messages: &[NoticeMessage], width: f32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = width;
+    let heading = egui::TextFormat::simple(egui::FontId::proportional(17.0), NOTICE_HEADING);
+    let detail = egui::TextFormat::simple(egui::FontId::proportional(14.0), NOTICE_DETAIL);
+    for (i, message) in messages.iter().enumerate() {
+        let (first, rest) = message.heading_and_detail();
+        let line_break = if i > 0 { "\n" } else { "" };
+        job.append(&format!("{line_break}{first}"), 0.0, heading.clone());
+        if !rest.is_empty() {
+            job.append(&format!("\n{rest}"), 0.0, detail.clone());
+        }
+    }
+    job
+}
+
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
@@ -2286,8 +2417,92 @@ mod tests {
         let kept = notice.set_aside();
         notice.put_back(kept.clone());
         assert_eq!(notice.set_aside(), kept);
-        notice.put_back(Some(("b".into(), 99)));
-        assert_eq!(notice.set_aside(), Some(("b".into(), 2)));
+        let b = vec![super::NoticeMessage {
+            text: "b".into(),
+            is_error: false,
+        }];
+        notice.put_back(Some((b.clone(), 99)));
+        assert_eq!(notice.set_aside(), Some((b, 2)));
+    }
+
+    /// An error and a warning kept until drawn are shown as errors, also under an ordinary
+    /// notice given after them, and an ordinary notice alone is not. An error's heading ends
+    /// at its first ": ", so the cause of a failed mount goes on a line of its own.
+    #[test]
+    fn errors_are_told_from_ordinary_notices() {
+        let is_error = |notice: &super::Notice| notice.messages().iter().any(|m| m.is_error);
+        let mut notice = super::Notice::default();
+        notice.give("Saved a.jpg: done".into());
+        assert!(!is_error(&notice));
+        let heading = notice.messages()[0].heading_and_detail();
+        assert_eq!(heading, ("Saved a.jpg: done", ""));
+        notice.give_error(
+            "Could not mount smb://nas.local/backup: Failed to mount Windows share: Invalid \
+             argument (the name nas.local is not found)"
+                .into(),
+        );
+        assert!(is_error(&notice));
+        let (heading, detail) = notice.messages()[0].heading_and_detail();
+        assert_eq!(heading, "Could not mount smb://nas.local/backup");
+        assert!(detail.starts_with("Failed to mount Windows share: Invalid"));
+        notice.clear();
+        notice.keep_until_drawn("Could not save b.jpg: Permission denied".into());
+        notice.give("Copied 3 files".into());
+        assert!(is_error(&notice));
+        let text = notice.text().unwrap_or_default();
+        assert_eq!(
+            text,
+            "Copied 3 files\nCould not save b.jpg: Permission denied"
+        );
+        let message = super::NoticeMessage {
+            text: "Could not open a.jpg:\nNo such file".into(),
+            is_error: true,
+        };
+        assert_eq!(
+            message.heading_and_detail(),
+            ("Could not open a.jpg:", "No such file")
+        );
+    }
+
+    /// A notice's card is at most 70 % of a wide image area and 900 points wide, fits a narrow
+    /// one with a margin, and always leaves room for a few words.
+    #[test]
+    fn a_notice_card_fits_its_area() {
+        for area in [120.0, 240.0, 400.0, 800.0, 1280.0, 1920.0, 3840.0] {
+            for is_error in [false, true] {
+                let text = super::notice_text_width(area, is_error);
+                let sign = if is_error { super::NOTICE_SIGN } else { 0.0 };
+                let card = text + super::NOTICE_STRIPE + 2.0 * super::NOTICE_PADDING + sign;
+                assert!(text >= 40.0, "{area}: {text}");
+                assert!(card <= 900.0, "{area}: {card}");
+                if area >= 460.0 {
+                    assert!(card <= area * 0.7 + 0.5, "{area}: {card}");
+                }
+                if area >= 160.0 {
+                    assert!(card <= area - 16.0, "{area}: {card}");
+                }
+            }
+        }
+    }
+
+    /// The text and the warning sign on a notice's card meet WCAG AA (4.5), and the stripes
+    /// stand out from the card (3). The card has its own colours in every theme, so this holds
+    /// in each of them.
+    #[test]
+    fn a_notice_card_reads_well() {
+        let contrast = crate::ui::file_list::contrast;
+        for colour in [
+            super::NOTICE_HEADING,
+            super::NOTICE_DETAIL,
+            super::NOTICE_ERROR,
+        ] {
+            let ratio = contrast(colour, super::NOTICE_CARD);
+            assert!(ratio >= 4.5, "{colour:?}: {ratio}");
+        }
+        for stripe in [super::NOTICE_ERROR, super::NOTICE_INFO] {
+            let ratio = contrast(stripe, super::NOTICE_CARD);
+            assert!(ratio >= 3.0, "{stripe:?}: {ratio}");
+        }
     }
 
     /// Going to another image leaves nothing of the one before. Its turn, page, frame and crop

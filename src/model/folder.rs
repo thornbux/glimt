@@ -1368,7 +1368,7 @@ impl crate::App {
                 // The path is gone since it was named (deleted, or a stick taken out), so it
                 // leaves Open Recent too.
                 IfGone::Tell(gone) => {
-                    self.notice.give(gone(path));
+                    self.notice.give_error(gone(path));
                     return self.forget_recent(path);
                 }
                 IfGone::OpenCurrentFolder => return self.open(ctx, ".".into()),
@@ -1383,7 +1383,7 @@ impl crate::App {
         {
             return self
                 .notice
-                .give(format!("{display}: {e}", display = file.display()));
+                .give_error(format!("{display}: {e}", display = file.display()));
         }
         self.step_history(opening.history);
         match found {
@@ -2184,7 +2184,7 @@ impl crate::App {
     fn listing_failed(&mut self, ctx: &egui::Context, unread: Unread, read: FoldersRead) {
         let (path, e) = unread;
         self.notice
-            .give(tf!("Could not open {name}:\n{e}", name = path.display(), e));
+            .give_error(tf!("Could not open {name}:\n{e}", name = path.display(), e));
         if !read.is_empty() {
             self.watch_folders_read(ctx, read, false);
         }
@@ -2251,7 +2251,7 @@ impl crate::App {
             let n = new.len() - 1;
             text += &tf!(", and {n} more", n);
         }
-        self.notice.give(text);
+        self.notice.give_error(text);
     }
 
     /// Takes the images of the folder read in the background as the list, as `take_listing`

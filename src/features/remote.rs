@@ -881,7 +881,7 @@ impl crate::App {
                 | (NameAskedBy::Dialog, Ok(())) => {}
                 // The name typed is told in the user's language. The other reasons come from
                 // the system, rarely, and are the English ones that `--remote name` prints too.
-                (NameAskedBy::Dialog, Err(None)) => self.notice.give(
+                (NameAskedBy::Dialog, Err(None)) => self.notice.give_error(
                     tr(
                         "Could not name this window: a name holds letters, digits, - and _, \
                         not only digits, and at most 64 bytes",
@@ -890,7 +890,7 @@ impl crate::App {
                 ),
                 (NameAskedBy::Dialog, Err(Some(why))) => self
                     .notice
-                    .give(tf!("Could not name this window: {why}", why)),
+                    .give_error(tf!("Could not name this window: {why}", why)),
             }
         }
     }
