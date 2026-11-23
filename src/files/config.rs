@@ -153,7 +153,7 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("slideshow_fade", &["off", "short", "long"]),
     ("fit_mode", &["whole", "width", "height", "fill"]),
     ("histogram", &["off", "rgb", "brightness"]),
-    ("thumb_size", &["small", "medium", "large"]),
+    ("thumbnail_size", &["small", "medium", "large"]),
     ("toolbar_icons", &["small", "medium", "large"]),
     (
         "view_filter",
@@ -401,7 +401,7 @@ config! {
     histogram_log: bool = false,
     /// The thumbnail size: small (96×72), medium (128×96) or large (192×144, from the
     /// freedesktop "large" cache), as an index.
-    thumb_size: u8 = 0,
+    thumbnail_size: u8 = 0,
     /// The file name under each thumbnail of a grid: the icon grid, the grid in the image area
     /// and pan view. Without it the cells are shorter, so more rows fit.
     grid_names: bool = true,
@@ -428,7 +428,7 @@ config! {
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif
     /// information").
-    exif_rotate: bool = true,
+    auto_rotate: bool = true,
     /// List images (Types menu in the status bar).
     list_images: bool = true,
     /// List camera RAW files.
@@ -450,7 +450,7 @@ config! {
     print_caption: bool = true,
     /// The text under each printed image, as the full screen info's template (%name%, EXIF
     /// fields, %keywords% …).
-    print_template: String = String::from("%name%"),
+    print_caption_template: String = String::from("%name%"),
     /// The images on each page. It is 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
     print_per_page: usize = 1,
     /// Around the printed page, in millimetres (0 to 50).
@@ -487,7 +487,7 @@ impl Config {
         c.added_format_memory_mb = c.added_format_memory_mb.clamp(512, 65536);
         c.ui_scale = c.ui_scale.clamp(50, 300);
         c.histogram = c.histogram.min(2);
-        c.thumb_size = c.thumb_size.min(2);
+        c.thumbnail_size = c.thumbnail_size.min(2);
         c.webp_quality = c.webp_quality.min(100);
         c.jpeg_quality = c.jpeg_quality.clamp(1, 100);
         c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
@@ -1304,7 +1304,7 @@ mod tests {
         );
         assert_eq!(Config::parse("background=#12").background.0, [0, 0, 0]);
         assert!(!Config::parse("save_thumbnails=false").save_thumbnails);
-        assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
+        assert!(Config::default().auto_rotate && !Config::parse("auto_rotate=false").auto_rotate);
         assert!(Config::default().list_videos && !Config::parse("list_videos=false").list_videos);
         assert_eq!(
             Config::parse("video_player= mpv --fs ").video_player,

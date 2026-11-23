@@ -1833,7 +1833,7 @@ impl crate::App {
         let decoded = (self.list.loaded_images().values())
             .find(|loaded| loaded.path == path)
             .and_then(|loaded| loaded.read);
-        let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
+        let (rotate, quality) = (self.config.auto_rotate, self.config.webp_quality);
         let saved = self.file_operations.saved_tx.clone();
         self.file_operations.saving.insert(path.clone());
         self.run_in_background(ctx, Vec::new(), move || {
@@ -8164,7 +8164,7 @@ mod tests {
         let a = dir.join("a.jpg");
         image::RgbImage::new(4, 4).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.config.exif_rotate = false;
+        app.config.auto_rotate = false;
         app.viewing.set_turn((1, false), a.clone());
         std::fs::remove_file(&a).unwrap();
         app.notice.clear();

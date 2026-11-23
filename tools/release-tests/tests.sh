@@ -638,7 +638,7 @@ for rotate in true false; do
     convert a.png -quality 90 c.webp
     exiftool -q -q -overwrite_original -Orientation#=6 -Make=Canon a.png b.webp c.webp
     cd /tmp
-    config save_orientation=true exif_rotate=$rotate
+    config save_orientation=true auto_rotate=$rotate
     start $d
     for f in a b c; do key bracketright; key space; done
     sleep 6
@@ -1376,7 +1376,8 @@ for v in new old; do
     # The grid in the image area, right of the side panel: red only where a thumbnail is.
     red_in() { matching $1 1000x640+260+110 '(r>0.5&&g<0.3&&b<0.3)'; }
     small=$(red_in grid-size-small-$v); large=$(red_in grid-size-large-$v)
-    saved=$(grep -c '^thumb_size=large$' $XDG_CONFIG_HOME/glimt/config)
+    # The last release before 0.96.0 named the setting thumb_size.
+    saved=$(grep -c -E '^thumb(nail)?_size=large$' $XDG_CONFIG_HOME/glimt/config)
     if [ $v = new ]; then
         if [ "$small" -gt 0 ] && [ "$large" -gt $((small * 2)) ]; then
             pass "the thumbnails larger: $small, then $large red pixels"
@@ -1784,14 +1785,16 @@ d=/tmp/thumbs
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
 convert -size 300x200 xc:lime $d/b.jpg
+# The new build, as the last release before 0.96.0 named the setting exif_rotate.
+as_version new
 rm -rf $XDG_CACHE_HOME/thumbnails
-config exif_rotate=false
+config auto_rotate=false
 start $d
 sleep 3
 quit
 expect "none saved to the shared cache" "$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)" "0"
 # With it on they are saved: the check above cannot pass by no thumbnails being made.
-config exif_rotate=true
+config auto_rotate=true
 start $d
 sleep 3
 quit
@@ -4870,7 +4873,7 @@ mkdir -p $d
 for c in red lime blue yellow cyan; do convert -size 600x400 xc:$c $d/$c.jpg; done
 as_version new
 pdf=/tmp/print-sheet.pdf
-config print_per_page=4 print_orientation=landscape "print_template=%name% (%position%)" \
+config print_per_page=4 print_orientation=landscape "print_caption_template=%name% (%position%)" \
     "print_footer=Page %page% of %pages%" print_header=Summer
 start $d
 answer $pdf; key ctrl+a; key ctrl+p; sleep 2; key Return

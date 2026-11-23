@@ -147,7 +147,7 @@ impl crate::App {
         let (turns, mirrored) = self.viewing.turn();
         CopyAs {
             page: self.viewing.page(),
-            rotate: self.config.exif_rotate,
+            rotate: self.config.auto_rotate,
             turns,
             mirrored,
             crop: None,

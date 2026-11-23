@@ -668,7 +668,7 @@ impl crate::App {
 
     /// The thumbnail box in the file list, by the size chosen in Preferences.
     pub(crate) fn thumb(&self) -> egui::Vec2 {
-        THUMB_SIZES[self.config.thumb_size.min(2) as usize]
+        THUMB_SIZES[self.config.thumbnail_size.min(2) as usize]
     }
 
     /// Takes thumbnails from the freedesktop "large" cache when the box is wider than a
@@ -701,8 +701,8 @@ impl crate::App {
         self.thumb() + extra
     }
 
-    pub(crate) fn set_thumb_size(&mut self, size: u8) {
-        self.config.thumb_size = size;
+    pub(crate) fn set_thumbnail_size(&mut self, size: u8) {
+        self.config.thumbnail_size = size;
         self.config.save();
         self.thumbs_changed();
         self.panel.scroll_to_shown = true;

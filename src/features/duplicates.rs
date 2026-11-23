@@ -378,7 +378,7 @@ impl crate::App {
         let (sender, rx) = answer_channel(&self.busy);
         let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
         let (by, progress) = (find_duplicates.by, Arc::new(Progress::default()));
-        let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
+        let (rotate, save) = (self.config.auto_rotate, self.config.save_thumbnails);
         find_duplicates.searched = paths.len();
         find_duplicates.found_by = by;
         find_duplicates.progress = progress.clone();

@@ -335,7 +335,9 @@ impl crate::App {
             Took::Answer(made) => dialog.captions = Some(made),
             // The names stand in for captions that could not be made. Before, a thread gone was
             // asked again at every frame.
-            Took::Gone => dialog.captions = Some((self.config.print_template.clone(), Vec::new())),
+            Took::Gone => {
+                dialog.captions = Some((self.config.print_caption_template.clone(), Vec::new()))
+            }
             Took::Nothing => {}
         }
     }
@@ -348,9 +350,9 @@ impl crate::App {
         let job = PrintJob {
             paths: dialog.paths,
             layout: layout_from_settings(c),
-            caption: c.print_caption.then(|| c.print_template.clone()),
+            caption: c.print_caption.then(|| c.print_caption_template.clone()),
             two_sided: c.print_two_sided,
-            rotate: c.exif_rotate,
+            rotate: c.auto_rotate,
             copies: dialog.copies,
         };
         match c.print_printer.clone() {
@@ -373,7 +375,7 @@ impl crate::App {
         // The dialog closed drops the receiver, which stops the previews.
         let preview_rx = Receiving::of(shown_rx);
         let is_wanted = preview_rx.is_waited_for();
-        let (rotate, ctx2) = (self.config.exif_rotate, ctx.clone());
+        let (rotate, ctx2) = (self.config.auto_rotate, ctx.clone());
         let mut gate = ReadsFirst::for_files_anywhere(self.decoding.images_awaited());
         let ctx = ctx.clone();
         // No busy pointer: the list of printers, a look-up nobody waits for, shown when it comes.
@@ -421,7 +423,7 @@ impl crate::App {
     /// the background when the template changed, because each reads EXIF and sidecars from
     /// its file.
     fn ask_captions(&self, ctx: &egui::Context, dialog: &mut PrintDialog) {
-        let template = &self.config.print_template;
+        let template = &self.config.print_caption_template;
         let current = dialog.captions.as_ref().is_some_and(|c| &c.0 == template);
         // %dimensions% comes from the decoded sizes, so the captions are made once the previews
         // have them.
@@ -1061,7 +1063,7 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Co
     let captions = dialog
         .captions
         .as_ref()
-        .filter(|c2| c2.0 == c.print_template);
+        .filter(|c2| c2.0 == c.print_caption_template);
     for (k, cell) in page.cells.iter().enumerate() {
         let [cx, cy, cw, ch] = cell.clip;
         let clip = egui::Rect::from_two_pos(at(cx, cy), at(cx + cw, cy + ch));
@@ -1196,7 +1198,7 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
         crate::ui::menus::checkbox(ui, &mut c.print_caption, tr("Text under each image:"));
         ui.add_enabled(
             c.print_caption,
-            egui::TextEdit::singleline(&mut c.print_template)
+            egui::TextEdit::singleline(&mut c.print_caption_template)
                 .hint_text("%name%")
                 .desired_width(220.0),
         )

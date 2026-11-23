@@ -63,7 +63,6 @@ setting view_filter
 setting search_bar
 setting histogram
 setting histogram_log
-setting thumb_size
 setting grid_names
 setting background
 setting checkerboard
@@ -72,7 +71,6 @@ setting hide_pointer
 setting theme
 setting fuzzy_search
 setting auto_refresh
-setting exif_rotate
 setting list_images
 setting list_raw
 setting show_hidden
@@ -81,7 +79,6 @@ setting print_printer
 setting print_paper
 setting print_orientation
 setting print_caption
-setting print_template
 setting print_per_page
 setting print_margin
 setting print_scale
@@ -96,9 +93,6 @@ value fit_mode fill
 value histogram off
 value histogram rgb
 value histogram brightness
-value thumb_size small
-value thumb_size medium
-value thumb_size large
 value toolbar_icons small
 value toolbar_icons medium
 value toolbar_icons large
@@ -531,3 +525,9 @@ job_record record old-log
 job_record record found
 job_record record written
 job_record record volume
+setting thumbnail_size
+setting auto_rotate
+setting print_caption_template
+value thumbnail_size small
+value thumbnail_size medium
+value thumbnail_size large

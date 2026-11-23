@@ -2902,7 +2902,7 @@ fn settings_change_through_their_setters() {
         }
     }
     for name in [
-        "thumb_size",
+        "thumbnail_size",
         "grid_names",
         "thumbnails",
         "icon_grid",
@@ -3021,7 +3021,7 @@ fn every_setting_has_a_control_in_preferences() {
         ("print_paper", "the print dialog"),
         ("print_orientation", "the print dialog"),
         ("print_caption", "the print dialog"),
-        ("print_template", "the print dialog"),
+        ("print_caption_template", "the print dialog"),
         ("print_per_page", "the print dialog"),
         ("print_margin", "the print dialog"),
         ("print_scale", "the print dialog"),

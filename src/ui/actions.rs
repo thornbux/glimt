@@ -1432,7 +1432,7 @@ impl crate::App {
                 self.config.projector_pointer = !self.config.projector_pointer;
                 self.config.save();
             }
-            Action::AutoRotate => self.set_exif_rotate(!self.config.exif_rotate),
+            Action::AutoRotate => self.set_auto_rotate(!self.config.auto_rotate),
             Action::NextFilter => {
                 self.set_view_filter((self.config.view_filter + 1) % FILTERS.len())
             }

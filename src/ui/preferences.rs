@@ -444,9 +444,9 @@ impl crate::App {
     /// the pointer in full screen.
     pub(crate) fn image_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        let mut rotate = self.config.exif_rotate;
+        let mut rotate = self.config.auto_rotate;
         if checkbox(ui, &mut rotate, tr("Auto rotate images using EXIF (Alt+X)")).changed() {
-            self.set_exif_rotate(rotate);
+            self.set_auto_rotate(rotate);
         }
         changed |= checkbox(ui,
                 &mut self.config.save_orientation,
@@ -557,7 +557,7 @@ impl crate::App {
         }
         ui.horizontal(|ui| {
             ui.label(tr("Thumbnail size:"));
-            self.thumb_size_setting(ui);
+            self.thumbnail_size_setting(ui);
         });
         let icons = tr("Show the file list as icons (Ctrl+I)");
         self.toggle_box(ui, self.config.icon_grid, Action::Icons, icons);
@@ -847,11 +847,11 @@ impl crate::App {
     /// Draws the thumbnail sizes as radio buttons, and sets the size clicked. Preferences and
     /// View → Thumbnail Size both show these, so the two always offer the same sizes. Its name
     /// ends in _setting, so the search of Preferences finds the sizes.
-    pub(crate) fn thumb_size_setting(&mut self, ui: &mut egui::Ui) {
-        let mut size = self.config.thumb_size;
+    pub(crate) fn thumbnail_size_setting(&mut self, ui: &mut egui::Ui) {
+        let mut size = self.config.thumbnail_size;
         for (n, name) in [(0, tr("Small")), (1, tr("Medium")), (2, tr("Large"))] {
             if radio_choice(ui, &mut size, n, name).changed() {
-                self.set_thumb_size(size);
+                self.set_thumbnail_size(size);
             }
         }
     }

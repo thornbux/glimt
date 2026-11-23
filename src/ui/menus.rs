@@ -163,8 +163,8 @@ impl crate::App {
     }
 
     /// Decode everything again with or without EXIF rotation.
-    pub(crate) fn set_exif_rotate(&mut self, on: bool) {
-        self.config.exif_rotate = on;
+    pub(crate) fn set_auto_rotate(&mut self, on: bool) {
+        self.config.auto_rotate = on;
         self.config.save();
         self.decoding.set_auto_rotate(on);
         // The thumbnails too, which are turned by it as well.
@@ -475,7 +475,7 @@ impl crate::App {
         let grid = self.panel.is_area_grid_shown();
         menu_toggle(ui, chosen, grid, Action::ThumbnailGrid);
         let size = with_icon(ui, theme::icon::SIZE, tr("Thumbnail Size"));
-        submenu(ui, size, |ui| self.thumb_size_setting(ui));
+        submenu(ui, size, |ui| self.thumbnail_size_setting(ui));
         let c = &self.config;
         menu_toggle(ui, chosen, c.grid_names, Action::GridNames);
         menu_toggle(ui, chosen, c.info_panel, Action::InfoPanel);
