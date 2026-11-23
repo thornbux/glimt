@@ -329,6 +329,7 @@ impl crate::App {
             self.folder.places(),
             ctx.clone(),
         );
+        let awaited = self.decoding.images_awaited().clone();
         let (tx, rx) = mpsc::channel();
         // No busy pointer: the selection's size in the status bar, a look-up nobody waits for,
         // shown when it comes.
@@ -340,6 +341,7 @@ impl crate::App {
                     &places,
                     with_subfolders,
                     &paths,
+                    &awaited,
                 ))
                 .is_ok()
             {

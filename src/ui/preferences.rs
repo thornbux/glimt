@@ -802,10 +802,11 @@ impl crate::App {
             .clicked()
         {
             let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
+            let awaited = self.decoding.images_awaited().clone();
             // No busy pointer: a look at a thumbnail's file on a share that stopped answering
             // waits for ever, and the user can go on meanwhile. Its notice tells when it ends.
             std::thread::spawn(move || {
-                let _ = tx.send(remove_orphaned_thumbnails_told());
+                let _ = tx.send(remove_orphaned_thumbnails_told(&awaited));
                 ctx.request_repaint();
             });
         }
@@ -1214,9 +1215,10 @@ fn sections_shown(query: &str, theme_names: &[String]) -> [bool; 10] {
 }
 
 /// Removes the thumbnails of deleted files, and returns the notice that tells how many. A
-/// second click while one removal runs is told too, as nothing else would show it.
-fn remove_orphaned_thumbnails_told() -> String {
-    match thumbs::remove_orphaned_thumbnails() {
+/// second click while one removal runs is told too, as nothing else would show it. The looks
+/// on a share wait for the images `awaited` first.
+fn remove_orphaned_thumbnails_told(awaited: &crate::model::listing::ImagesAwaited) -> String {
+    match thumbs::remove_orphaned_thumbnails(awaited) {
         Some((removed, seen)) => tf!(
             "Removed {removed} of {seen} thumbnails",
             removed = thousands(removed),

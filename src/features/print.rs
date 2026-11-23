@@ -5,6 +5,7 @@
 
 use crate::files::config::Config;
 use crate::images::decode::catch_panic_as_error;
+use crate::model::listing::ReadsFirst;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took};
@@ -370,6 +371,7 @@ impl crate::App {
         let first: Vec<PathBuf> = paths.iter().take(MAX_PREVIEWS).cloned().collect();
         let (shown_tx, shown_rx) = mpsc::channel();
         let (rotate, ctx2) = (self.config.exif_rotate, ctx.clone());
+        let mut gate = ReadsFirst::for_files_anywhere(self.decoding.images_awaited());
         let ctx = ctx.clone();
         // No busy pointer: the list of printers, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
@@ -379,6 +381,9 @@ impl crate::App {
         // No busy pointer: the preview's images, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             for (k, path) in first.iter().enumerate() {
+                // On a share the images that the window waits for are read first. Each preview
+                // is wanted while the dialog is open, which the send below finds out.
+                let _turn = gate.before_work_nobody_waits_for(path, || true);
                 // The preview is in the colours of the print, so a photo with its own profile
                 // looks as on paper.
                 let small = catch_panic_as_error(|| {
@@ -422,14 +427,19 @@ impl crate::App {
         }
         let (tx, rx) = mpsc::channel();
         let (template, ctx, sizes) = (template.clone(), ctx.clone(), dialog.sizes.clone());
+        let mut gate = ReadsFirst::for_files_anywhere(self.decoding.images_awaited());
         let (first, n): (Vec<PathBuf>, usize) = (
             dialog.paths.iter().take(MAX_PREVIEWS).cloned().collect(),
             dialog.paths.len(),
         );
         // No busy pointer: the preview's captions, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
+            // On a share the images that the window waits for are read first.
             let texts = (first.iter().enumerate())
-                .map(|(k, p)| caption(&template, p, k, n, sizes[k]))
+                .map(|(k, p)| {
+                    let _turn = gate.before_work_nobody_waits_for(p, || true);
+                    caption(&template, p, k, n, sizes[k])
+                })
                 .collect();
             let _ = tx.send((template, texts));
             ctx.request_repaint();
