@@ -7344,9 +7344,15 @@ fn finds_a_background_reader_without_the_gate() {
 /// `|| true`, and each looked at every file on a share through the turn, for nobody.
 #[test]
 fn work_through_the_gate_is_judged_wanted() {
+    let sources = rust_sources();
+    let callees: Vec<String> = (sources.iter())
+        .flat_map(|(_, text)| functions_taking_is_wanted(text))
+        .collect();
     let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        wrong.extend((work_not_judged_wanted(&text).iter()).map(|line| format!("{file}:{line}")));
+    for (file, text) in &sources {
+        wrong.extend(
+            (work_not_judged_wanted(text, &callees).iter()).map(|line| format!("{file}:{line}")),
+        );
     }
     assert!(
         wrong.is_empty(),
@@ -7356,17 +7362,61 @@ fn work_through_the_gate_is_judged_wanted() {
     );
 }
 
-/// Returns the lines of `text` outside the tests where a call of
-/// `before_work_nobody_waits_for` passes a constant `true` as whether its work is wanted,
-/// without a comment just above it that says "Always wanted:".
-fn work_not_judged_wanted(text: &str) -> Vec<usize> {
+/// Returns the names of the functions of `text` whose parameters include one named
+/// `is_wanted`: the gate itself and the helpers that pass the check on to it, such as
+/// `size_through`. A `|| true` given to a helper reaches the gate as surely as one given to it.
+fn functions_taking_is_wanted(text: &str) -> Vec<String> {
+    let code = code_lines(text);
+    let mut names = Vec::new();
+    for (i, line) in code.iter().enumerate() {
+        let Some(at) = line.find("fn ") else { continue };
+        if at > 0 && line[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+            continue;
+        }
+        let rest = &line[at + 3..];
+        let name: String = (rest.chars())
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if name.is_empty() {
+            continue;
+        }
+        let signature = (code[i..].iter())
+            .take_while(|l| !l.contains('{') && !l.ends_with(';'))
+            .chain(
+                code[i..]
+                    .iter()
+                    .find(|l| l.contains('{') || l.ends_with(';')),
+            )
+            .take(12)
+            .map(|l| l.split('{').next().unwrap_or(""))
+            .collect::<String>();
+        if signature.contains("is_wanted") {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// Returns the lines of `text` outside the tests where a call of one of `callees` (the
+/// functions that take an `is_wanted`, among them `before_work_nobody_waits_for`) passes a
+/// constant `true` as whether its work is wanted, without a comment just above it that says
+/// "Always wanted:".
+fn work_not_judged_wanted(text: &str, callees: &[String]) -> Vec<usize> {
     let (code, comments) = (code_lines(text), comment_lines(text));
     let end = tests_start(&code);
-    let call = "before_work_nobody_waits_for(";
     let mut found = Vec::new();
     for (i, line) in code[..end].iter().enumerate() {
-        for (at, _) in line.match_indices(call) {
-            if line[..at].ends_with("fn ") {
+        let calls: Vec<usize> = (callees.iter())
+            .flat_map(|name| {
+                let call = format!("{name}(");
+                (line.match_indices(&call).map(|(at, _)| at)).collect::<Vec<_>>()
+            })
+            .collect();
+        for at in calls {
+            let before = &line[..at];
+            if before.ends_with("fn ")
+                || before.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+            {
                 continue;
             }
             let text: String = (call_text(&code[..end], i, at).0)
@@ -7382,8 +7432,9 @@ fn work_not_judged_wanted(text: &str) -> Vec<usize> {
 }
 
 /// The check above finds `|| true` given on the call's line, on a line of its own and in
-/// braces, and passes a real check, the function's own definition and a call whose comment
-/// says why it is always wanted.
+/// braces, also to a helper that passes it on to the gate, and passes a real check, the
+/// function's own definition, a call of a longer name that ends the same, and a call whose
+/// comment says why it is always wanted.
 #[test]
 fn finds_work_through_the_gate_not_judged_wanted() {
     let text = "fn before_work_nobody_waits_for(p: &Path, is_wanted: impl Fn() -> bool) {}\n\
@@ -7392,8 +7443,13 @@ fn finds_work_through_the_gate_not_judged_wanted() {
         move || { true },\n    );\n}\n\
         fn c() {\n    let _turn = gate.before_work_nobody_waits_for(p, &is_wanted);\n}\n\
         fn d() {\n    // Always wanted: the user waits for all of it.\n    \
-        let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n";
-    assert_eq!(work_not_judged_wanted(text), [3, 6]);
+        let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n\
+        fn size_through(\n    gate: &mut ReadsFirst,\n    is_wanted: &dyn Fn() -> bool,\n) {}\n\
+        fn e() {\n    size_through(&mut gate, &|| true);\n}\n\
+        fn f() {\n    other_size_through(&mut gate, &|| true);\n}\n";
+    let callees = functions_taking_is_wanted(text);
+    assert_eq!(callees, ["before_work_nobody_waits_for", "size_through"]);
+    assert_eq!(work_not_judged_wanted(text, &callees), [3, 6, 23]);
 }
 
 /// Returns, as (file, function), the functions of `sources` outside the tests that start a
