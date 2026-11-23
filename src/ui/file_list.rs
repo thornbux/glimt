@@ -144,6 +144,12 @@ impl Thumbs {
         self.made_of(name, identity)?.as_ref()
     }
 
+    /// Returns whether a thumbnail is being made.
+    #[cfg(test)]
+    pub(crate) fn is_making_any(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     /// Keeps `texture` as the thumbnail of `name`, made of the file with `identity`, as a
     /// worker's answer would.
     #[cfg(test)]
@@ -1169,7 +1175,8 @@ impl crate::App {
             // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
             // when it comes.
             std::thread::spawn(move || {
-                let _turn = gate.before_work_nobody_waits_for(&dir);
+                // The tree wants every folder it asked about.
+                let _turn = gate.before_work_nobody_waits_for(&dir, || true);
                 // Not told: the tree shows no subfolders of a folder it could not read, and opening
                 // that folder tells why.
                 let subdirs = list_folder(&dir, folders).map(|l| l.0).unwrap_or_default();
@@ -2190,7 +2197,9 @@ fn answer_sizes_and_dates(
         // A look that failed (a share that dropped for a moment, a file just deleted) is no size
         // and no date. It is answered as unknown, so the row stays blank and is asked again
         // when it is drawn again, never shown as 0 bytes of 1970.
-        let _turn = gate.before_work_nobody_waits_for(&path);
+        // A question that waits is wanted, as the newest are kept and the older ones dropped
+        // above.
+        let _turn = gate.before_work_nobody_waits_for(&path, || true);
         let d = std::fs::metadata(&path).map(|m| (m.len(), m.mtime())).ok();
         let is_known = d.is_some();
         if found.send((name, path, d)).is_err() {
@@ -2317,6 +2326,19 @@ mod tests {
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let ctx_for_panel = ctx.clone();
+        // The image, its thumbnail, the sizes and dates asked for and the folder's size are in
+        // first.
+        crate::support::test_support::draw_until_answered(
+            &mut app,
+            &ctx,
+            |app, ui| app.side_panel(&ctx_for_panel, ui, true),
+            |app| {
+                app.list.decodes_pending().is_empty()
+                    && !app.thumbs.is_making_any()
+                    && app.list.sizes_and_dates().values().all(Option::is_some)
+                    && app.status_bar.folder_total().is_some()
+            },
+        );
         crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
             app.side_panel(&ctx_for_panel, ui, is_shown)
         });

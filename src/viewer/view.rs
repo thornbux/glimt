@@ -2114,20 +2114,21 @@ pub(crate) fn spawn_decoders(
                 request_number,
                 max_box,
             } = job;
-            // An image read ahead lets the images awaited go first. It is judged after the
-            // wait, as the user may have moved past it meanwhile.
-            let _turn = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
-                .before_work_nobody_waits_for(&path);
             // This cancels work, skipping images the user has already moved past.
-            let (wanted, is_shown) = {
+            let judge = || {
                 let kept = lock_even_if_poisoned(&kept_images);
                 let n = full_resolution_count.load(Ordering::Relaxed);
                 is_wanted(&kept, n, &path, full_resolution)
             };
+            // An image read ahead lets the images awaited go first. It is judged before the
+            // wait, during it and after it, as the user may move past it meanwhile.
+            let turn = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
+                .before_work_nobody_waits_for(&path, || judge().0);
+            let (wanted, is_shown) = judge();
             // The shown image takes its bytes of the decodes' budget before the thumbnails
             // and the images read ahead.
             crate::images::decode::let_this_thread_go_first(is_shown);
-            if !wanted {
+            if turn.is_none() || !wanted {
                 let _ = done_tx.send(Decoded {
                     rotated: false,
                     path,
@@ -2664,5 +2665,68 @@ mod tests {
         assert_eq!(with_projector, [1080, 1920]);
         let neighbour = super::decode_box([800, 600], [800, 600], false, false, true, [1920, 1080]);
         assert_eq!(neighbour, [1920, 1080]);
+    }
+
+    /// On a share, an image read ahead that the user has moved past leaves the decoders at
+    /// once, also when it was still kept as the job began and is passed while it waits for the
+    /// image awaited. Before, it waited at the gate for as long as the image awaited held it,
+    /// up to five seconds, and a few such jobs filled every decoder, so the image the user went
+    /// to waited behind them.
+    #[test]
+    fn an_image_read_ahead_that_was_passed_leaves_the_decoders_at_once() {
+        use crate::files::file_ops::test_mount;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-passed-read-ahead-{}",
+            std::process::id()
+        ));
+        test_mount(&dir, Some("cifs"));
+        let (kept, awaited) = (
+            Arc::new(Mutex::new(Vec::new())),
+            crate::model::listing::ImagesAwaited::default(),
+        );
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let (jobs, done) = super::spawn_decoders(
+            &eframe::egui::Context::default(),
+            1,
+            (&kept, &awaited),
+            &Arc::new(AtomicUsize::new(1)),
+            &Arc::new(AtomicBool::new(true)),
+        );
+        let job = |name: &str| super::DecodeJob {
+            full_resolution: false,
+            path: dir.join(name),
+            page: crate::images::decode::PageNumber(0),
+            request_number: 1,
+            max_box: [100, 100],
+        };
+        // Passed before it began.
+        let began = Instant::now();
+        jobs.send(job("passed.jpg")).unwrap();
+        let answer = done.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(answer.result.is_none());
+        assert!(
+            began.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            began.elapsed()
+        );
+        // Passed while it waited at the gate.
+        *crate::support::threads::lock_even_if_poisoned(&kept) =
+            vec![dir.join("shown.jpg"), dir.join("next.jpg")];
+        jobs.send(job("next.jpg")).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(done.try_recv().is_err(), "it waits for the image awaited");
+        let passed = Instant::now();
+        *crate::support::threads::lock_even_if_poisoned(&kept) = vec![dir.join("shown.jpg")];
+        let answer = done.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(answer.result.is_none());
+        assert!(
+            passed.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            passed.elapsed()
+        );
+        test_mount(&dir, None);
     }
 }

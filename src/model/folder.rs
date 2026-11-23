@@ -3000,7 +3000,8 @@ fn look_this_second(
             }
             looked += 1;
         }
-        let _turn = gate.before_work_nobody_waits_for(&read[i].0);
+        // Every folder watched is wanted while the watcher runs.
+        let _turn = gate.before_work_nobody_waits_for(&read[i].0, || true);
         let began = Instant::now();
         let now = look(&read[i].0);
         // Only the subfolders' looks count, as the open folders are looked at every second.
@@ -3055,22 +3056,50 @@ pub(crate) fn send_sizes_unless_on_a_share(
 
 /// Returns the sum of the sizes of `paths`, as `total_size` does, or `NOT_COUNTED_ON_A_SHARE`
 /// without a look at any file when a folder of `places` is on a share, or with
-/// `with_subfolders` has one mounted below it.
+/// `with_subfolders` has one mounted below it. Each look goes through the gate
+/// (`gate_for_sizes`), which waits for the images `awaited`.
 pub(crate) fn total_size_unless_on_a_share(
     places: &[PathBuf],
     with_subfolders: bool,
     paths: &[PathBuf],
+    awaited: &listing::ImagesAwaited,
 ) -> u64 {
-    match is_any_on_a_share(places, with_subfolders) {
-        true => NOT_COUNTED_ON_A_SHARE,
-        false => total_size(paths),
+    if is_any_on_a_share(places, with_subfolders) {
+        return NOT_COUNTED_ON_A_SHARE;
+    }
+    let mut gate = gate_for_sizes(places, awaited);
+    (paths.iter())
+        .filter_map(|path| size_through(&mut gate, path))
+        .sum()
+}
+
+/// Returns the gate for the looks at the sizes of the files of a list shown from `places`
+/// (`Folder::places`), which waits for the images `awaited`. A collection's list is under "/",
+/// so each of its files is asked about on its own, and one on a share waits at the gate.
+/// Elsewhere `places` were asked about, and a list on a share has no size summed. Before, the
+/// files of a collection on a share were looked at without the gate, before the slideshow's
+/// next image.
+pub(crate) fn gate_for_sizes(
+    places: &[PathBuf],
+    awaited: &listing::ImagesAwaited,
+) -> listing::ReadsFirst {
+    match places {
+        [only] if only == Path::new("/") => listing::ReadsFirst::for_files_anywhere(awaited),
+        _ => listing::ReadsFirst::new(Arc::default(), awaited.clone(), false),
     }
 }
 
+/// Returns the size of the file at `path`, looked at through `gate`. Returns `None` when it
+/// cannot be looked at.
+pub(crate) fn size_through(gate: &mut listing::ReadsFirst, path: &Path) -> Option<u64> {
+    // Every size asked for is wanted until it is summed.
+    let _turn = gate.before_work_nobody_waits_for(path, || true)?;
+    Some(path.metadata().ok()?.len())
+}
+
 /// Returns whether a folder of `places` is on a share, or with `with_subfolders` has one mounted
-/// below it, where the status bar sums no sizes.
-// shortcut: a collection's list is under "/", so the sizes of its files on a share are still
-// summed; look at the folders of its entries if large collections on shares come up.
+/// below it, where the status bar sums no sizes. A collection's list is under "/", so its files
+/// are summed, each through the gate (`gate_for_sizes`).
 fn is_any_on_a_share(places: &[PathBuf], with_subfolders: bool) -> bool {
     (places.iter()).any(|place| listing::is_on_a_share(place, with_subfolders))
 }
@@ -5071,11 +5100,23 @@ mod tests {
         assert_eq!(rx.iter().collect::<Vec<_>>(), [NOT_COUNTED_ON_A_SHARE]);
         assert_eq!(looked.get(), 0);
         let paths = [dir.join("a.png")];
-        let total = super::total_size_unless_on_a_share(&app.folder.places(), true, &paths);
+        let total = super::total_size_unless_on_a_share(
+            &app.folder.places(),
+            true,
+            &paths,
+            &Default::default(),
+        );
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
         // On a disk of its own they are summed.
         test_mount(&dir, None);
-        assert!(super::total_size_unless_on_a_share(&app.folder.places(), true, &paths) > 0);
+        assert!(
+            super::total_size_unless_on_a_share(
+                &app.folder.places(),
+                true,
+                &paths,
+                &Default::default()
+            ) > 0
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5105,9 +5146,11 @@ mod tests {
         assert_eq!(app.list.files(), ["a.png", "nas/b.png"]);
         assert_eq!(app.status_bar.folder_total(), Some(NOT_COUNTED_ON_A_SHARE));
         let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
-        let total = super::total_size_unless_on_a_share(&places, true, &paths);
+        let total = super::total_size_unless_on_a_share(&places, true, &paths, &Default::default());
         assert_eq!(total, NOT_COUNTED_ON_A_SHARE);
-        assert!(super::total_size_unless_on_a_share(&places, false, &paths) > 0);
+        assert!(
+            super::total_size_unless_on_a_share(&places, false, &paths, &Default::default()) > 0
+        );
         test_mount(&dir.join("nas"), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -5139,8 +5182,12 @@ mod tests {
         app.folder.show_subfolders(true);
         assert!(!app.folder.walks_subfolders());
         let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
-        let total =
-            super::total_size_unless_on_a_share(&places, app.folder.walks_subfolders(), &paths);
+        let total = super::total_size_unless_on_a_share(
+            &places,
+            app.folder.walks_subfolders(),
+            &paths,
+            &Default::default(),
+        );
         assert!(total > 0 && total != crate::support::format::NOT_COUNTED_ON_A_SHARE);
         test_mount(&dir.join("nas"), None);
         std::fs::remove_dir_all(dir).unwrap();
@@ -6790,5 +6837,42 @@ mod tests {
             let (name, key) = (&rows.files()[i], rows.key(i));
             assert!(of_the_order, "{name:?} has the key {key:?} in {by:?}: {at}");
         }
+    }
+
+    /// The sizes of a collection's files on a share are looked at after the images that the
+    /// window waits for, through the gate. A collection's list is under "/", which is on no
+    /// share. Before, its files on a share were looked at at once, before the slideshow's next
+    /// image.
+    #[test]
+    fn a_collections_sizes_on_a_share_wait_for_the_images_awaited() {
+        use crate::files::file_ops::test_mount;
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-collection-sizes-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        test_mount(&dir, Some("cifs"));
+        let awaited = crate::model::listing::ImagesAwaited::default();
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let given_up = awaited.clone();
+        let decoded = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            given_up.set(Vec::new());
+        });
+        let began = Instant::now();
+        let places = [std::path::PathBuf::from("/")];
+        let total =
+            super::total_size_unless_on_a_share(&places, false, &[dir.join("a.png")], &awaited);
+        assert!(
+            began.elapsed() >= Duration::from_millis(250),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(total > 0 && total != crate::support::format::NOT_COUNTED_ON_A_SHARE);
+        decoded.join().unwrap();
+        test_mount(&dir, None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

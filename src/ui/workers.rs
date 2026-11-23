@@ -315,11 +315,14 @@ pub(crate) fn spawn_thumbnailers(
         // A job goes by its file, as the decoders' do, because a listing (a tree's next part)
         // moves the files while the jobs wait.
         move |(path, _, n): (PathBuf, PathBuf, u64)| {
-            let wanted =
-                (lock_even_if_poisoned(&on_screen).iter()).any(|v| v.binary_search(&path).is_ok());
-            let result = wanted.then(|| {
-                let _turn = listing::ReadsFirst::for_files_anywhere(&awaited)
-                    .before_work_nobody_waits_for(&path);
+            // A thumbnail scrolled away is not made, also when it scrolled away while the
+            // thumbnail waited at the gate.
+            let is_wanted = || {
+                (lock_even_if_poisoned(&on_screen).iter()).any(|v| v.binary_search(&path).is_ok())
+            };
+            let turn = listing::ReadsFirst::for_files_anywhere(&awaited)
+                .before_work_nobody_waits_for(&path, is_wanted);
+            let result = turn.map(|_turn| {
                 let (rotate, save) = (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
                 let large = LARGE_THUMBS.load(Ordering::Relaxed);
                 thumbs::thumbnail(&path, rotate, save, large)

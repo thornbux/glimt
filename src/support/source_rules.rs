@@ -791,16 +791,6 @@ const THE_GATE: &[&str] = &[
 /// `listing::program_started` lets go first; or it looks at no file on a share.
 const NEEDS_NO_GATE: &[(&str, &str, &str)] = &[
     (
-        "features/print.rs",
-        "open_print",
-        "the Print dialog's previews, which it waits for",
-    ),
-    (
-        "features/print.rs",
-        "ask_captions",
-        "the Print dialog's captions, which it waits for",
-    ),
-    (
         "features/remote.rs",
         "remote_info",
         "--remote info, whose client waits for it",
@@ -846,16 +836,6 @@ const NEEDS_NO_GATE: &[(&str, &str, &str)] = &[
         "the collections' folder, Glimt's own",
     ),
     (
-        "model/search.rs",
-        "sum_match_size",
-        "it looks at no file on a share",
-    ),
-    (
-        "model/selection.rs",
-        "sum_selection_size",
-        "it looks at no file on a share",
-    ),
-    (
         "ui/dialogs.rs",
         "ask_rename_many",
         "Rename Many's preview, which its dialog waits for",
@@ -869,12 +849,7 @@ const NEEDS_NO_GATE: &[(&str, &str, &str)] = &[
     (
         "ui/menus.rs",
         "open_with_menu",
-        "the applications' desktop files, the system's",
-    ),
-    (
-        "ui/preferences.rs",
-        "cache_settings",
-        "the thumbnail cache, Glimt's own",
+        "it opens the files in the application that the user chose and waits to see",
     ),
     (
         "ui/theme.rs",
