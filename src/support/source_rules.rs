@@ -2711,6 +2711,153 @@ fn notices_are_given_through_their_setter() {
     );
 }
 
+/// A text that tells of something that went wrong or was refused is given as an error
+/// (`give_error`, `send_error`, `Told::Error` or `Told::FailedWrite`), never as an ordinary
+/// notice (`give`, `send` or `Told::Notice`), which is drawn blue, is not kept until drawn and
+/// counts as no failed write. Print's "Not saved over an image" and "No image could be read"
+/// and the log of a Move that could not be saved were sent as ordinary notices. The check
+/// finds such a text by its words, in the call, in a `let` a few lines above it, or in a
+/// function that returns it.
+#[test]
+fn errors_are_not_given_as_ordinary_notices() {
+    let sources: Vec<(String, String)> = (rust_sources().into_iter())
+        .filter(|(file, _)| file != "support/source_rules.rs")
+        .collect();
+    let wording = functions_wording_errors(&sources);
+    let wrong: Vec<String> = (sources.iter())
+        .flat_map(|(file, text)| errors_as_ordinary_notices(file, text, &wording))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "give a text of something that went wrong with give_error, send_error, Told::Error or \
+         Told::FailedWrite:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds an error's text in the call, in a `let` above it and in a function
+/// that returns it, and passes over an error given as one.
+#[test]
+fn finds_an_error_given_as_an_ordinary_notice() {
+    let text = "fn a() {\n    let text = tr(\"Not saved over it\");\n    \
+        return Some(Told::Notice(text.into()));\n}\nfn b() {\n    \
+        notice.give(tf!(\"Could not open {name}\", name));\n    \
+        notice.give_error(tr(\"Could not open it\"));\n    tx.send(gone(p));\n}\n\
+        fn gone(p: &Path) -> String {\n    tf!(\"{p} failed\", p)\n}\n";
+    let sources = [("x.rs".to_owned(), text.to_owned())];
+    let wording = functions_wording_errors(&sources);
+    assert_eq!(wording, ["gone"]);
+    let found = errors_as_ordinary_notices("x.rs", text, &wording);
+    assert_eq!(found, ["x.rs:3", "x.rs:6", "x.rs:8"]);
+}
+
+/// Returns where `text`, the source of `file`, gives an ordinary notice a text of something
+/// that went wrong (`error_texts`): in the call, through a name that a `let` gave it a few
+/// lines above, or through a function of `wording`, which return such a text.
+fn errors_as_ordinary_notices(file: &str, text: &str, wording: &[String]) -> Vec<String> {
+    let text = text
+        .split("#[cfg(test)]\nmod tests")
+        .next()
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for call in [".give(", ".send(", "Told::Notice("] {
+        for (at, _) in text.match_indices(call) {
+            let from = at + call.len();
+            let argument = text[from..call_end(text, from)].trim_start();
+            let name: String = (argument.chars())
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            let recent: Vec<&str> = text[..at].lines().rev().take(12).collect();
+            let named = recent.iter().any(|line| {
+                let statement = line.trim_start();
+                statement.starts_with(&format!("let {name} = ")) && !error_texts(line).is_empty()
+            });
+            let is_function = argument[name.len()..].starts_with('(') && wording.contains(&name);
+            if !error_texts(argument).is_empty() || (!name.is_empty() && named) || is_function {
+                out.push(format!("{file}:{}", text[..at].lines().count()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Returns the names of the functions in `sources` that return a `String` with a text of
+/// something that went wrong (`error_texts`).
+fn functions_wording_errors(sources: &[(String, String)]) -> Vec<String> {
+    let mut names = Vec::new();
+    for (_, text) in sources {
+        for (at, _) in text.match_indices("fn ") {
+            let rest = &text[at + 3..];
+            let Some(open) = rest.find('{') else {
+                continue;
+            };
+            let from = at + 3 + open + 1;
+            let body = &text[from..call_end(text, from)];
+            if rest[..open].trim_end().ends_with("-> String") && !error_texts(body).is_empty() {
+                let name = rest.split(['(', '<']).next().unwrap_or_default();
+                names.push(name.trim().to_owned());
+            }
+        }
+    }
+    names
+}
+
+/// Returns the texts of the `tr("…")` and `tf!("…")` in `code` that tell of something that went
+/// wrong or was refused, by their `ERROR_WORDS`.
+fn error_texts(code: &str) -> Vec<&str> {
+    // The words by which a text tells of something that went wrong or was refused.
+    const ERROR_WORDS: [&str; 6] = [
+        "could not",
+        "cannot",
+        "failed",
+        "not saved",
+        "nothing printed",
+        "refused",
+    ];
+    let mut out = Vec::new();
+    for call in ["tr(", "tf!("] {
+        for (at, _) in code.match_indices(call) {
+            let named = code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
+            let Some(rest) = code[at + call.len()..].trim_start().strip_prefix('"') else {
+                continue;
+            };
+            let mut escaped = false;
+            let end = (rest.char_indices())
+                .find(|&(_, c)| {
+                    let ends = c == '"' && !escaped;
+                    escaped = c == '\\' && !escaped;
+                    ends
+                })
+                .map_or(rest.len(), |(i, _)| i);
+            let words = rest[..end].to_lowercase();
+            if !named && ERROR_WORDS.iter().any(|w| words.contains(w)) {
+                out.push(&rest[..end]);
+            }
+        }
+    }
+    out
+}
+
+/// Returns where the call or block whose inside starts at `from` in `text` ends, at its closing
+/// bracket, passing over string literals. Returns the text's end when it does not close.
+fn call_end(text: &str, from: usize) -> usize {
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for (i, c) in text[from..].char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' if in_string => escaped = true,
+            '"' => in_string = !in_string,
+            _ if in_string => {}
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth == 0 => return from + i,
+            ')' | ']' | '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    text.len()
+}
+
 /// A Close is sent only by `ask_to_close`, and the answers that tell of a failed write (the
 /// save error, the notices channel and the turns saved) are taken only in `take_saves`, which
 /// `guard_close` calls before it lets a close through. A close that

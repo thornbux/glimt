@@ -986,13 +986,10 @@ impl crate::App {
             // The log's warning goes with the delete's own text, so that neither hides the other.
             let log_failure = start_failure.or_else(|| delete_log.as_mut()?.take_failure());
             let warning = delete_log_dir.zip(log_failure).map(log_not_saved);
-            let mut told = with_warning(told, warning);
+            let mut told = with_failed_write(told, warning);
             let forgotten = catch_panic(|| forget_in_collection(collection.as_deref(), &gone));
             let removed = (forgotten.unwrap_or_else(|| Err(broke_here()))).unwrap_or_else(|e| {
-                told = Some(Told::FailedWrite(match told.take() {
-                    Some(Told::FailedWrite(text)) => format!("{text}\n{e}"),
-                    _ => e,
-                }));
+                told = with_failed_write(told.take(), Some(e));
                 Vec::new()
             });
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
@@ -1513,11 +1510,7 @@ impl crate::App {
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
             };
             let failed = !errors.is_empty() || job.is_stopped();
-            // The log's warning goes with the Move's own text, so that neither hides the other.
-            let with_warning = |text: Option<String>| {
-                let texts: Vec<String> = [text, log_warning].into_iter().flatten().collect();
-                (!texts.is_empty()).then(|| texts.join("\n"))
-            };
+            // The log's failure goes with the Move's own text, so that neither hides the other.
             let told = match errors.first() {
                 Some(first) => {
                     let verb = tr(if is_copy { "Copy" } else { "Move" });
@@ -1527,16 +1520,18 @@ impl crate::App {
                         count = count(errors.len(), "error"),
                         first
                     );
-                    with_warning(Some(failed)).map(Told::FailedWrite)
+                    with_failed_write(Some(Told::FailedWrite(failed)), log_warning)
                 }
-                None => with_warning(job.report(|| {
-                    let (files, folder) = (count(paths.len(), "file"), dest.display());
-                    match is_copy {
-                        true => tf!("{files} copied to {folder}", files, folder),
-                        false => tf!("{files} moved to {folder}", files, folder),
-                    }
-                }))
-                .map(Told::Notice),
+                None => {
+                    let moved = job.report(|| {
+                        let (files, folder) = (count(paths.len(), "file"), dest.display());
+                        match is_copy {
+                            true => tf!("{files} copied to {folder}", files, folder),
+                            false => tf!("{files} moved to {folder}", files, folder),
+                        }
+                    });
+                    with_failed_write(moved.map(Told::Notice), log_warning)
+                }
             };
             // A move takes the files out of `deleting`. The folder is read again for files that
             // joined it, or that failed to go, were refused or were not reached after Stop. A
@@ -1974,7 +1969,7 @@ impl crate::App {
             // window's thread never reads, so the look is made here.
             let new_name = std::slice::from_ref(&new);
             if let Some(refused) = refused_on_fat(new_name, file_system_type_or_test) {
-                return Some(Told::Notice(not_renamed(refused)));
+                return Some(Told::Error(not_renamed(refused)));
             }
             // Another folder put at its path while the dialog was open keeps its name.
             let (_, picked) = picked.wait_for_fingerprints();
@@ -3026,17 +3021,16 @@ fn delete_in_chunks(
     (gone, sides, changed)
 }
 
-/// Returns what a job tells, `told`, with the `warning` added on a line of its own. The warning
-/// alone is a notice.
-fn with_warning(told: Option<Told>, warning: Option<String>) -> Option<Told> {
-    let Some(warning) = warning else {
+/// Returns what a job tells, `told`, with the write that failed beside it, `failed`, which is
+/// told as a failed write of its own. So the job's text keeps its kind, a `--wait` answers
+/// that a write failed, and a close that waited for the job stays open.
+fn with_failed_write(told: Option<Told>, failed: Option<String>) -> Option<Told> {
+    let Some(failed) = failed.map(Told::FailedWrite) else {
         return told;
     };
     Some(match told {
-        Some(Told::FailedWrite(text)) => Told::FailedWrite(format!("{text}\n{warning}")),
-        Some(Told::Notice(text)) => Told::Notice(format!("{text}\n{warning}")),
-        Some(Told::Error(text)) => Told::Error(format!("{text}\n{warning}")),
-        None => Told::Notice(warning),
+        Some(told) => Told::Several(vec![told, failed]),
+        None => failed,
     })
 }
 
@@ -3904,19 +3898,17 @@ fn end_the_log_of_a_failed_folder_rename(
     }
 }
 
-/// Words the warning that the log of a Move or a delete in `dir` could not be made or written,
-/// `failure`, and prints it. The job goes on without the log, as in Glimt 0.80.0: a Move or a
-/// delete is how a full disk is cleared, and a kill halfway then only leaves the marks of the
-/// files that went behind. It is no failed write, because the job itself works, so a close does
-/// not wait.
+/// Words the failure that the log of a job in `dir` could not be made or written, `failure`. A
+/// Move or a delete goes on without the log, as in Glimt 0.80.0: a Move or a delete is how a
+/// full disk is cleared, and a kill halfway then only leaves the marks of the files that went
+/// behind. The failure is told as a failed write of Glimt's own file (`with_failed_write`), so a
+/// `--wait` answers that a write failed.
 fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> String {
-    let warning = tf!(
+    tf!(
         "Could not save {name}: {e}",
         name = dir.display(),
         e = failure
-    );
-    eprintln!("{warning}");
-    warning
+    )
 }
 
 /// Copies or moves `paths` into the folder `dest` for `transfer`, each with its sidecars, until
@@ -7638,6 +7630,25 @@ mod tests {
         assert!(log.take_failure().is_some());
         assert!(log.take_failure().is_none(), "told once");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move whose log cannot be made tells that as a failed write of its own, so a `--wait`
+    /// answers that a write failed and a close that waited stays open. Before, the log's
+    /// failure was joined to the Move's ordinary notice, and no write counted as failed.
+    #[test]
+    fn a_log_not_saved_is_told_as_a_failed_write() {
+        let d = contract_folder("move-log-not-saved");
+        // A file where the folder of the logs goes, so that no log can be made in it.
+        std::fs::write(d.join("jobs"), b"").unwrap();
+        super::keep_job_logs_in_a_test(&d);
+        let (mut app, ctx) = app_on(&d);
+        let picked = crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]);
+        app.transfer(picked, d.join("sub"), false);
+        let told = |app: &crate::App| !app.working() && app.window.failed_writes_told() > 0;
+        assert!(run_background_until(&mut app, &ctx, told));
+        assert!(d.join("sub/a.png").exists(), "moved without its log");
+        assert_eq!(app.window.failed_writes_told(), 1);
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     /// A Move holds its files back from the request, while its folder's real path is looked

@@ -174,10 +174,16 @@ impl crate::App {
             ctx.request_repaint();
         }
         while let Ok(told) = self.notices.try_recv() {
-            match told {
-                Told::Notice(text) => self.notice.give(text),
-                Told::Error(text) => self.notice.give_error(text),
-                Told::FailedWrite(text) => self.window.keep_failed_write(text),
+            // `NoticeSender::tell` sends each of `Told::Several` on its own, but a test may send
+            // one whole.
+            let mut each = vec![told];
+            while let Some(told) = each.pop() {
+                match told {
+                    Told::Notice(text) => self.notice.give(text),
+                    Told::Error(text) => self.notice.give_error(text),
+                    Told::FailedWrite(text) => self.window.keep_failed_write(text),
+                    Told::Several(all) => each.extend(all.into_iter().rev()),
+                }
             }
             ctx.request_repaint();
         }

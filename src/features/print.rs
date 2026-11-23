@@ -465,7 +465,7 @@ impl crate::App {
             // a share that stopped answering would hold the window.
             if to.is_an_image() {
                 let text = tr("Not saved over an image: choose a name ending in .pdf");
-                return Some(Told::Notice(text.into()));
+                return Some(Told::Error(text.into()));
             }
             let max = print::max_pixels(&job.layout);
             let failed = std::cell::Cell::new(0);
@@ -492,7 +492,7 @@ impl crate::App {
             let mut pages = pages.peekable();
             if pages.peek().is_none() {
                 let text = tr("No image could be read: nothing printed");
-                return Some(Told::Notice(text.into()));
+                return Some(Told::Error(text.into()));
             }
             // The PDF is written as it is made, so only one page is in memory, not the whole
             // PDF.
@@ -561,7 +561,7 @@ impl crate::App {
             // file behind.
             Some(match (done, failed.get(), &to) {
                 (Ok(msg), 0, _) => Told::Notice(msg),
-                (Ok(msg), f, _) => Told::Notice(tf!("{msg}; {f} could not be read", msg, f)),
+                (Ok(msg), f, _) => Told::Error(tf!("{msg}; {f} could not be read", msg, f)),
                 (Err(e), _, PrintTo::File(..)) => Told::FailedWrite(tf!("Printing failed: {e}", e)),
                 (Err(e), _, PrintTo::Printer(_)) => Told::Error(tf!("Printing failed: {e}", e)),
             })
