@@ -102,6 +102,19 @@ static BACKGROUND_TURN: TurnHolder = TurnHolder::new();
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
     std::sync::Mutex::new(None);
 
+/// How long a thread keeps what it found of the folders that it asked whether they are on a
+/// share (`SHARES_ASKED`). A share mounted or unmounted since is taken for what it was for at
+/// most this long, which only lets a look there go without the wait at the gate, or wait there.
+const SHARES_ASKED_FOR: std::time::Duration = std::time::Duration::from_secs(1);
+
+thread_local! {
+    /// The folders that this thread asked whether they are on a share in the last
+    /// `SHARES_ASKED_FOR`, with the answers, and when the first was asked
+    /// (`ReadsFirst::is_on_a_share`).
+    static SHARES_ASKED: std::cell::RefCell<(Option<std::time::Instant>, HashMap<PathBuf, bool>)> =
+        std::cell::RefCell::new((None, HashMap::new()));
+}
+
 #[cfg(test)]
 thread_local! {
     // How many programs this thread noted as started (`program_started`), so that a test can see
@@ -1018,8 +1031,6 @@ pub(crate) struct ReadsFirst {
     /// Whether the places read are on a share (`is_on_a_share`), or `None` when each path is
     /// asked about on its own (`for_files_anywhere`).
     on_a_share: Option<bool>,
-    /// The folder last asked about, and whether it is on a share.
-    folder_asked: Option<(PathBuf, bool)>,
     /// How many looks were made, which renews the wait's budget every `LOOKS_PER_PAUSE`.
     looks: u64,
     /// How long the looks since the budget was last renewed have waited.
@@ -1038,7 +1049,6 @@ impl ReadsFirst {
             stop,
             awaited,
             on_a_share: Some(on_a_share),
-            folder_asked: None,
             looks: 0,
             waited: std::time::Duration::ZERO,
         }
@@ -1121,20 +1131,27 @@ impl ReadsFirst {
     }
 
     /// Returns whether `path` is on a share: as the gate was made, or for a reader of files
-    /// anywhere as the mount table says, asked once for each folder in a row.
+    /// anywhere as the mount table says, asked once for each folder in each
+    /// `SHARES_ASKED_FOR` in this thread (`SHARES_ASKED`). Before, each job of a pool of
+    /// workers read the mount table again, also on a disk of its own, before it was done.
     fn is_on_a_share(&mut self, path: &Path) -> bool {
         if let Some(on_a_share) = self.on_a_share {
             return on_a_share;
         }
         let folder = path.parent().unwrap_or(path);
-        match &self.folder_asked {
-            Some((asked, on_a_share)) if asked == folder => *on_a_share,
-            _ => {
-                let on_a_share = is_on_a_share(path, false);
-                self.folder_asked = Some((folder.to_path_buf(), on_a_share));
-                on_a_share
+        SHARES_ASKED.with_borrow_mut(|(since, asked)| {
+            let now = std::time::Instant::now();
+            if since.is_none_or(|at| now.saturating_duration_since(at) >= SHARES_ASKED_FOR) {
+                asked.clear();
+                *since = Some(now);
             }
-        }
+            if let Some(&on_a_share) = asked.get(folder) {
+                return on_a_share;
+            }
+            let on_a_share = is_on_a_share(path, false);
+            asked.insert(folder.to_path_buf(), on_a_share);
+            on_a_share
+        })
     }
 }
 

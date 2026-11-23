@@ -1330,6 +1330,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
+        // The image and its EXIF are in first.
+        crate::support::test_support::draw_until_answered(
+            &mut app,
+            &ctx,
+            |app, ui| app.info_panel(ui, true),
+            |app| app.list.decodes_pending().is_empty() && app.info_panel.metadata_edit.is_some(),
+        );
         crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
             app.info_panel(ui, is_shown)
         });

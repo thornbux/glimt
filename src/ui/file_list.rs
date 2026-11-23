@@ -144,6 +144,12 @@ impl Thumbs {
         self.made_of(name, identity)?.as_ref()
     }
 
+    /// Returns whether a thumbnail is being made.
+    #[cfg(test)]
+    pub(crate) fn is_making_any(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     /// Keeps `texture` as the thumbnail of `name`, made of the file with `identity`, as a
     /// worker's answer would.
     #[cfg(test)]
@@ -2320,6 +2326,19 @@ mod tests {
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let ctx_for_panel = ctx.clone();
+        // The image, its thumbnail, the sizes and dates asked for and the folder's size are in
+        // first.
+        crate::support::test_support::draw_until_answered(
+            &mut app,
+            &ctx,
+            |app, ui| app.side_panel(&ctx_for_panel, ui, true),
+            |app| {
+                app.list.decodes_pending().is_empty()
+                    && !app.thumbs.is_making_any()
+                    && app.list.sizes_and_dates().values().all(Option::is_some)
+                    && app.status_bar.folder_total().is_some()
+            },
+        );
         crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
             app.side_panel(&ctx_for_panel, ui, is_shown)
         });

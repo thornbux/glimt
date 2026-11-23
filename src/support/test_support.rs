@@ -3,7 +3,8 @@
 //! makes the folder the file operations' contract works on. `broken` gives damaged forms of a good
 //! input for the parsers' `survives_broken_*` tests. `png_with_raw_profile` writes a PNG with its
 //! EXIF only in a text chunk. `set_attribute` and `attribute` set and read a file's extended
-//! attribute. `assert_panel_slides` checks that a panel slides out and then rests.
+//! attribute. `assert_panel_slides` checks that a panel slides out and then rests, after
+//! `draw_until_answered` has waited for the background work that the panel asked for.
 
 /// The EXIF block of a photo of a Canon taken on 2020:01:02 at 03:04:05, stored turned a
 /// quarter (orientation 6), big-endian.
@@ -267,6 +268,31 @@ pub(crate) fn attribute(path: &std::path::Path, name: &str) -> Option<Vec<u8>> {
     };
     value.truncate(usize::try_from(size).ok()?);
     Some(value)
+}
+
+/// Draws the panel `draw` shown, and runs the window's background until `answered` holds, so
+/// that no answer to the work the panel asked for (a thumbnail, a size, the EXIF read, the
+/// image's decode) asks for a frame while `assert_panel_slides` counts them. Before, an answer
+/// that came late, as under a loaded test run, made the last frame counted ask for another.
+pub(crate) fn draw_until_answered(
+    app: &mut crate::App,
+    ctx: &eframe::egui::Context,
+    mut draw: impl FnMut(&mut crate::App, &mut eframe::egui::Ui),
+    answered: impl Fn(&crate::App) -> bool,
+) {
+    let is_answered = (0..250).any(|_| {
+        let _ = ctx.run_ui(eframe::egui::RawInput::default(), |ui| draw(app, ui));
+        app.poll_background(ctx);
+        let now = answered(app);
+        if !now {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        now
+    });
+    assert!(
+        is_answered,
+        "the panel's work was not answered in five seconds"
+    );
 }
 
 /// Checks that the panel `draw` draws slides out over a few frames once it is no longer
