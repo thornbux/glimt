@@ -353,12 +353,14 @@ took() {
     SECTION_START=$SECONDS
 }
 
-# The environment of one version, new or old: a fresh HOME and XDG folders, and a stand-in for
-# zenity. Sets V, BIN and H.
+# as_version VERSION [STATE DATA]: the environment of one version, new or old: a fresh HOME and
+# XDG folders, and a stand-in for zenity. Sets V, BIN, H and MARKS. STATE and DATA put
+# $XDG_STATE_HOME and $XDG_DATA_HOME elsewhere, such as on a disk that a section fills; they are
+# set only here, so that $MARKS is always the file that Glimt writes.
 as_version() {
     export V=$1 BIN=/opt/glimt-$1 H=/tmp/home-$1
     export HOME=$H XDG_CACHE_HOME=$H/.cache XDG_CONFIG_HOME=$H/.config XDG_RUNTIME_DIR=$H/run \
-        XDG_STATE_HOME=$H/.local/state XDG_DATA_HOME=$H/.local/share
+        XDG_STATE_HOME=${2:-$H/.local/state} XDG_DATA_HOME=${3:-$H/.local/share}
     mkdir -p $XDG_CACHE_HOME $XDG_CONFIG_HOME/glimt $XDG_RUNTIME_DIR /tmp/stub
     chmod 700 $XDG_RUNTIME_DIR
     # The marks file: in $XDG_DATA_HOME/glimt since 0.96.0, and in $XDG_STATE_HOME/glimt in the
@@ -6221,10 +6223,10 @@ if ! grep -q " $full tmpfs " /proc/mounts; then
     fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
 else
     for v in new old; do
-        as_version $v
         rm -f $full/.fill
-        export XDG_STATE_HOME=$full/state-$v XDG_DATA_HOME=$full/data-$v
-        rm -rf $XDG_STATE_HOME $XDG_DATA_HOME; mkdir -p $XDG_STATE_HOME/glimt
+        rm -rf $full/state-$v $full/data-$v
+        as_version $v $full/state-$v $full/data-$v
+        mkdir -p $XDG_STATE_HOME/glimt
         d=/tmp/own-full-$v
         rm -rf $d; mkdir -p $d
         blue_photo 300x200 $d/a.jpg
