@@ -399,6 +399,19 @@ print_pictures() {
     convert -size 3000x2000 xc: +noise Random -quality 92 /tmp/noise.jpg
     for i in $(seq -w 1 80); do ln /tmp/noise.jpg $src/p$i.jpg; done
 }
+# plan_in_jobs PLAN DONE FROM TO…: the plan of a Rename Many that a crash cut short, as a job log
+# of 0.93 or later (docs/design/log-format.md): its header, a step for each pair of names, with
+# no fingerprint, so the repair goes by the names, and a done record for each of the first DONE.
+plan_in_jobs() {
+    local plan=$1 done=$2 n=0
+    shift 2
+    mkdir -p "${plan%/*}"
+    {
+        printf '%s\0' glimt-job 1 rename "$(date +%s%N)" release-tests; printf '\0'
+        while [ $# -gt 1 ]; do printf '%s\0' step $n "$1" "$2" -; printf '\0'; n=$((n + 1)); shift 2; done
+        for n in $(seq 0 $((done - 1))); do printf '%s\0' done $n; printf '\0'; done
+    } >"$plan"
+}
 # The file or folder the stand-in file dialog answers with.
 answer() { printf '#!/bin/sh\necho "%s"\n' "$1" >/tmp/stub/zenity; chmod +x /tmp/stub/zenity; }
 # Runs glimt --remote ARGS and ends it after 30 seconds. When no window answers, because X
@@ -4755,20 +4768,6 @@ search exif:zebra
 shot exif-search-1
 quit
 expect "nothing before, b.jpg after" "$before $(colour exif-search-1 57 337)" "other blue"
-
-# plan_in_jobs PLAN DONE FROM TO…: the plan of a Rename Many that a crash cut short, as a job log
-# of 0.93 or later (docs/design/log-format.md): its header, a step for each pair of names, with
-# no fingerprint, so the repair goes by the names, and a done record for each of the first DONE.
-plan_in_jobs() {
-    local plan=$1 done=$2 n=0
-    shift 2
-    mkdir -p "${plan%/*}"
-    {
-        printf '%s\0' glimt-job 1 rename "$(date +%s%N)" release-tests; printf '\0'
-        while [ $# -gt 1 ]; do printf '%s\0' step $n "$1" "$2" -; printf '\0'; n=$((n + 1)); shift 2; done
-        for n in $(seq 0 $((done - 1))); do printf '%s\0' done $n; printf '\0'; done
-    } >"$plan"
-}
 
 section "Rename Many cut short by a crash: the old names put back at the next start"
 d=/tmp/cutshort
