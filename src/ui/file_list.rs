@@ -1169,7 +1169,8 @@ impl crate::App {
             // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
             // when it comes.
             std::thread::spawn(move || {
-                let _turn = gate.before_work_nobody_waits_for(&dir);
+                // The tree wants every folder it asked about.
+                let _turn = gate.before_work_nobody_waits_for(&dir, || true);
                 // Not told: the tree shows no subfolders of a folder it could not read, and opening
                 // that folder tells why.
                 let subdirs = list_folder(&dir, folders).map(|l| l.0).unwrap_or_default();
@@ -2190,7 +2191,9 @@ fn answer_sizes_and_dates(
         // A look that failed (a share that dropped for a moment, a file just deleted) is no size
         // and no date. It is answered as unknown, so the row stays blank and is asked again
         // when it is drawn again, never shown as 0 bytes of 1970.
-        let _turn = gate.before_work_nobody_waits_for(&path);
+        // A question that waits is wanted, as the newest are kept and the older ones dropped
+        // above.
+        let _turn = gate.before_work_nobody_waits_for(&path, || true);
         let d = std::fs::metadata(&path).map(|m| (m.len(), m.mtime())).ok();
         let is_known = d.is_some();
         if found.send((name, path, d)).is_err() {

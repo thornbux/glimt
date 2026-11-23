@@ -926,11 +926,14 @@ pub(crate) fn spawn_exif_reader(
         // The info of the shown image is never set aside.
         |_| None,
         move |path: PathBuf| {
-            let _turn = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
-                .before_work_nobody_waits_for(&path);
-            if *lock_even_if_poisoned(&newest_request) != path {
+            // A file the user has moved past is not read, also when it was left while the
+            // read waited at the gate.
+            let is_newest = || *lock_even_if_poisoned(&newest_request) == path;
+            let Some(_turn) = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
+                .before_work_nobody_waits_for(&path, is_newest)
+            else {
                 return;
-            }
+            };
             let identity = crate::files::file_io::identity_of(&path);
             // A size that could not be looked at is left out, never shown as 0 bytes.
             let size = std::fs::metadata(&path).map(|m| m.len());

@@ -93,11 +93,10 @@ const LOOKS_PER_PAUSE: u64 = 100;
 static FOLDERS_WITH_LINKS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
     std::sync::Mutex::new(std::collections::BTreeSet::new());
 
-/// Whether a look or read on a share that nobody waits for holds the one turn there is
+/// The one turn there is for a look or read on a share that nobody waits for
 /// (`BackgroundTurn`). Such work goes one at a time, so that a share that serves its calls one at
 /// a time always has the image the window waits for next in its queue.
-static BACKGROUND_TURN_TAKEN: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static BACKGROUND_TURN: TurnHolder = TurnHolder::new();
 
 /// When a program was last started on the user's files: Play Video, Open With or a tool.
 static PROGRAM_STARTED_AT: std::sync::Mutex<Option<std::time::Instant>> =
@@ -1080,35 +1079,42 @@ impl ReadsFirst {
 
     /// Waits, before a look at or read of `path` that nobody waits for, when `path` is on a
     /// share and is not itself an image that the window waits for, for the reads that go
-    /// first, and then for the turn of such work (`BackgroundTurn`), for at most
-    /// `IMAGE_AWAITED_FOR` in all. Returns the turn, which the work holds until it is done.
-    /// Before, the images read ahead began together as soon as no image was awaited, and the
-    /// next one then waited behind the others.
-    pub(crate) fn before_work_nobody_waits_for(&mut self, path: &Path) -> BackgroundTurn {
-        use std::sync::atomic::Ordering;
-        let no_turn = BackgroundTurn { holds: false };
-        if !self.is_on_a_share(path) || self.awaited.awaits(path) {
-            return no_turn;
+    /// first, for at most `IMAGE_AWAITED_FOR`, and then for the turn of such work
+    /// (`BackgroundTurn`). Returns the turn, which the work holds until it is done. Returns
+    /// `None` when `is_wanted` says that the work is no longer wanted. That is asked before the
+    /// wait, during it and after it, so that work the user has moved past leaves at once.
+    /// Before, an image read ahead that the user had moved past waited out the gate before it
+    /// was judged, and the decoders it filled held the image the user went to for seconds.
+    pub(crate) fn before_work_nobody_waits_for(
+        &mut self,
+        path: &Path,
+        is_wanted: impl Fn() -> bool,
+    ) -> Option<BackgroundTurn> {
+        if !is_wanted() {
+            return None;
+        }
+        if !self.is_on_a_share(path) {
+            return Some(BackgroundTurn { held: None });
         }
         let began = std::time::Instant::now();
-        wait_for_reads_that_go_first(&self.stop, &self.awaited, Some(path), IMAGE_AWAITED_FOR);
         loop {
-            let taken = BACKGROUND_TURN_TAKEN.compare_exchange(
-                false,
-                true,
-                Ordering::AcqRel,
-                Ordering::Relaxed,
-            );
-            if taken.is_ok() {
-                return BackgroundTurn { holds: true };
+            if !is_wanted() {
+                return None;
             }
-            // A turn held by a read on a share that stopped answering holds the others for at
-            // most this long, and the image awaited never waits for it.
-            if began.elapsed() >= IMAGE_AWAITED_FOR
-                || self.awaited.awaits(path)
-                || self.stop.load(Ordering::Relaxed)
-            {
-                return no_turn;
+            if self.awaited.awaits(path) || self.stop.load(std::sync::atomic::Ordering::Relaxed) {
+                return Some(BackgroundTurn { held: None });
+            }
+            // The images awaited are asked about before each try for the turn, so that an image
+            // the window began to wait for meanwhile goes first too. The wait for them is timed
+            // from this work's start, so that the work never stops for good. The wait for the
+            // turn is not, so that the work still goes one at a time after it. Before, both were
+            // timed together, and after that time every work waiting went on at once.
+            let now = std::time::Instant::now();
+            let goes_first = a_program_is_starting()
+                || (now.duration_since(began) < IMAGE_AWAITED_FOR
+                    && self.awaited.holds_the_walk_at(now, Some(path)));
+            if !goes_first && let Some(turn) = BACKGROUND_TURN.take(now) {
+                return Some(turn);
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
@@ -1132,19 +1138,60 @@ impl ReadsFirst {
     }
 }
 
+/// The turns given so far, and the number of the one held with the time it was taken.
+struct Turns {
+    given: u64,
+    held: Option<(u64, std::time::Instant)>,
+}
+
+/// Who holds the one turn of the work on a share that nobody waits for (`BACKGROUND_TURN`).
+struct TurnHolder(std::sync::Mutex<Turns>);
+
+impl TurnHolder {
+    const fn new() -> Self {
+        TurnHolder(std::sync::Mutex::new(Turns {
+            given: 0,
+            held: None,
+        }))
+    }
+
+    /// Takes the turn at `now`, when nobody holds it or its holder took it `IMAGE_AWAITED_FOR`
+    /// or longer before. Returns `None` while another holds it. So a holder stuck on a share
+    /// that stopped answering is passed, and the work after it still goes one at a time.
+    /// Before, the turn of a stuck holder was never given back, and from then on all work on a
+    /// share waited that long and went on together without the turn.
+    fn take(&'static self, now: std::time::Instant) -> Option<BackgroundTurn> {
+        let mut turns = lock_even_if_poisoned(&self.0);
+        let is_held = (turns.held)
+            .is_some_and(|(_, since)| now.saturating_duration_since(since) < IMAGE_AWAITED_FOR);
+        if is_held {
+            return None;
+        }
+        turns.given += 1;
+        turns.held = Some((turns.given, now));
+        Some(BackgroundTurn {
+            held: Some((self, turns.given)),
+        })
+    }
+}
+
 /// The turn of a look or read on a share that nobody waits for
 /// (`ReadsFirst::before_work_nobody_waits_for`), held until the work is done. One that does not
 /// hold it, elsewhere than on a share or for an image awaited, gives nothing back.
 #[must_use = "the work holds the turn until it is done"]
 pub(crate) struct BackgroundTurn {
-    /// Whether it holds the turn, which it gives back when it is dropped.
-    holds: bool,
+    /// The holder of the turn and the number of this turn, when it holds one. Its drop gives
+    /// the turn back only while no other work has passed it (`TurnHolder::take`).
+    held: Option<(&'static TurnHolder, u64)>,
 }
 
 impl Drop for BackgroundTurn {
     fn drop(&mut self) {
-        if self.holds {
-            BACKGROUND_TURN_TAKEN.store(false, std::sync::atomic::Ordering::Release);
+        if let Some((holder, number)) = self.held {
+            let mut turns = lock_even_if_poisoned(&holder.0);
+            if turns.held.is_some_and(|(held, _)| held == number) {
+                turns.held = None;
+            }
         }
     }
 }
@@ -2916,5 +2963,117 @@ mod tests {
             }
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Work on a share that nobody waits for goes one at a time, each holding the turn until
+    /// it drops it. The image the window waits for goes at once, and so does all work on a
+    /// disk of its own. Work that is no longer wanted leaves, also while it waits. A turn
+    /// waited for is not taken while an image is awaited, also one awaited after the wait
+    /// began. Before, the work that waited took the turn as soon as it was free, and after
+    /// `IMAGE_AWAITED_FOR` every work waiting went on at once without it.
+    #[test]
+    fn work_nobody_waits_for_goes_one_at_a_time_after_the_images_awaited() {
+        use super::{BACKGROUND_TURN, IMAGE_AWAITED_FOR, ImagesAwaited, ReadsFirst};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, mpsc};
+        use std::time::{Duration, Instant};
+        let awaited = ImagesAwaited::default();
+        let share = || ReadsFirst::new(Default::default(), awaited.clone(), true);
+        let (a, b) = (
+            std::path::Path::new("/share/a.jpg"),
+            std::path::Path::new("/share/b.jpg"),
+        );
+        // Another test's work may hold the turn for a moment.
+        let take = || loop {
+            if let Some(turn) = BACKGROUND_TURN.take(Instant::now()) {
+                break turn;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let held = take();
+        // The image awaited, work elsewhere than on a share and work not wanted go at once.
+        awaited.set(vec![a.into()]);
+        let now = Instant::now();
+        let goes = share().before_work_nobody_waits_for(a, || true).unwrap();
+        assert!(goes.held.is_none());
+        let mut local = ReadsFirst::new(Default::default(), awaited.clone(), false);
+        assert!((local.before_work_nobody_waits_for(b, || true).unwrap().held).is_none());
+        assert!(share().before_work_nobody_waits_for(b, || false).is_none());
+        assert!(now.elapsed() < Duration::from_millis(500));
+        // Work that waits for the image awaited leaves once it is no longer wanted.
+        let wanted = Arc::new(AtomicBool::new(true));
+        let (tx, rx) = mpsc::channel();
+        let (gate, still) = (share(), wanted.clone());
+        let waiter = std::thread::spawn(move || {
+            let mut gate = gate;
+            tx.send(
+                gate.before_work_nobody_waits_for(b, || still.load(Ordering::Relaxed))
+                    .is_none(),
+            )
+            .unwrap();
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(rx.try_recv().is_err(), "it waits for the image awaited");
+        wanted.store(false, Ordering::Relaxed);
+        assert!(rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        waiter.join().unwrap();
+        // One at a time: work waits while the turn is held, and while an image is awaited
+        // that the window began to wait for after the work began to wait.
+        awaited.set(Vec::new());
+        let (tx, rx) = mpsc::channel();
+        let gate = share();
+        let waiter = std::thread::spawn(move || {
+            let mut gate = gate;
+            let turn = gate.before_work_nobody_waits_for(b, || true).unwrap();
+            tx.send(turn.held.is_some()).unwrap();
+            // Held until the test has seen that another work cannot take it.
+            std::thread::sleep(Duration::from_millis(300));
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(rx.try_recv().is_err(), "the turn is held");
+        awaited.set(vec![a.into()]);
+        drop(held);
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(rx.try_recv().is_err(), "an image is awaited");
+        awaited.set(Vec::new());
+        assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        assert!(
+            BACKGROUND_TURN.take(Instant::now()).is_none(),
+            "one at a time"
+        );
+        waiter.join().unwrap();
+        // The turn was given back when it was dropped.
+        drop(take());
+        // Work that waited `IMAGE_AWAITED_FOR` for an image no longer waits for it, but still
+        // waits for the turn.
+        awaited.set(vec![a.into()]);
+        let (tx, rx) = mpsc::channel();
+        let gate = share();
+        let waiter = std::thread::spawn(move || {
+            let mut gate = gate;
+            let turn = gate.before_work_nobody_waits_for(b, || true).unwrap();
+            tx.send(turn.held.is_some()).unwrap();
+        });
+        std::thread::sleep(IMAGE_AWAITED_FOR - Duration::from_secs(1));
+        let held = take();
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(rx.try_recv().is_err(), "the turn is held");
+        drop(held);
+        assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        waiter.join().unwrap();
+        awaited.set(Vec::new());
+        // A holder stuck on a share is passed after `IMAGE_AWAITED_FOR`, and only by one.
+        static TURN: super::TurnHolder = super::TurnHolder::new();
+        let now = Instant::now();
+        let stuck = TURN.take(now).unwrap();
+        assert!(TURN.take(now + Duration::from_secs(1)).is_none());
+        let passing = TURN.take(now + IMAGE_AWAITED_FOR).unwrap();
+        drop(stuck);
+        assert!(
+            TURN.take(now + IMAGE_AWAITED_FOR).is_none(),
+            "the stuck one gave back no turn"
+        );
+        drop(passing);
+        assert!(TURN.take(now + IMAGE_AWAITED_FOR).is_some());
     }
 }

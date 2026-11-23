@@ -2987,7 +2987,8 @@ fn look_this_second(
             }
             looked += 1;
         }
-        let _turn = gate.before_work_nobody_waits_for(&read[i].0);
+        // Every folder watched is wanted while the watcher runs.
+        let _turn = gate.before_work_nobody_waits_for(&read[i].0, || true);
         let began = Instant::now();
         let now = look(&read[i].0);
         // Only the subfolders' looks count, as the open folders are looked at every second.
