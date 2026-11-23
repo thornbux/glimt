@@ -41,7 +41,7 @@ impl crate::App {
         let shown = self.list.shown();
         #[cfg(feature = "video")]
         if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
-            self.notice.give_error(tr("A video is not cropped").into());
+            self.notice.give_error(tr("A video is not cropped"));
             return;
         }
         if self.list.loaded_images().contains_key(&shown) {
@@ -183,10 +183,9 @@ impl crate::App {
                     });
                     crate::images::save::told_saved(&new, sidecar_failed)
                 }
-                Err(e) => crate::support::threads::Told::FailedWrite(tf!(
-                    "Could not crop the image: {e}",
-                    e
-                )),
+                Err(e) => crate::support::threads::Told::FailedWrite(
+                    tf!("Could not crop the image: {e}", e).into(),
+                ),
             })
         });
     }

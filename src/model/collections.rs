@@ -8,6 +8,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, lock_even_if_poisoned};
 use crate::ui::actions::Action;
 use crate::ui::menus::{icon_button, menu_item, scroll_menu, submenu, with_icon};
+use crate::viewer::view::Failure;
 use crate::{tf, ui::theme};
 use eframe::egui;
 use std::collections::HashSet;
@@ -198,7 +199,7 @@ impl crate::App {
     ) {
         if self.folder.collection().is_none() {
             self.notice
-                .give_error(tr("Only the images of a collection can be moved").into());
+                .give_error(tr("Only the images of a collection can be moved"));
             return;
         }
         // An empty collection: nothing to move, and no shown image to keep.
@@ -210,9 +211,9 @@ impl crate::App {
         // or a line drawn between two rows would land somewhere else in the collection than it
         // shows. This is the one place that keys and drags both reach.
         if !self.search_rows_are_in_list_order() {
-            self.notice.give_error(
-                tr("The search shows the images in another order: clear it to move them").into(),
-            );
+            self.notice.give_error(tr(
+                "The search shows the images in another order: clear it to move them",
+            ));
             return;
         }
         // An image that the search hides has no row to move. A move of one, such as the shown
@@ -221,8 +222,9 @@ impl crate::App {
         if let Some(rows) = self.list.matches()
             && picked.iter().any(|i| rows.binary_search(i).is_err())
         {
-            self.notice
-                .give_error(tr("The search hides files this would act on: clear it first").into());
+            self.notice.give_error(tr(
+                "The search hides files this would act on: clear it first",
+            ));
             return;
         }
         let shown = self.list.files().get(self.list.shown()).cloned();
@@ -280,11 +282,9 @@ impl crate::App {
                     "Collection {name} moved to the trash",
                     name
                 )),
-                Err(err) => crate::support::threads::Told::FailedWrite(tf!(
-                    "Could not trash {name}: {err}",
-                    name,
-                    err
-                )),
+                Err(err) => crate::support::threads::Told::FailedWrite(
+                    tf!("Could not trash {name}: {err}", name, err).into(),
+                ),
             })
         }) || !shown
         {
@@ -317,7 +317,9 @@ impl crate::App {
                 CollectionAddedTo::Saved(file) => (file, false),
                 CollectionAddedTo::New(name) => match new_file(&name) {
                     Ok(file) => (file, true),
-                    Err(why) => return Some(crate::support::threads::Told::FailedWrite(why)),
+                    Err(why) => {
+                        return Some(crate::support::threads::Told::FailedWrite(why.into()));
+                    }
                 },
             };
             let name = file.file_stem().unwrap_or_default().to_string_lossy();
@@ -335,13 +337,16 @@ impl crate::App {
                 ),
                 Err(e) => (tf!("Could not save the collection: {e}", e), true),
             };
-            let told = match left_out {
-                Some(left_out) => format!("{told}\n{left_out}"),
-                None => told,
+            use crate::support::threads::Told;
+            let told = match failed {
+                true => Told::FailedWrite(told.into()),
+                false => Told::Notice(told),
             };
-            Some(match failed {
-                true => crate::support::threads::Told::FailedWrite(told),
-                false => crate::support::threads::Told::Notice(told),
+            // The names refused are an error of their own beside what was added. Before, they
+            // were joined to it in one ordinary notice.
+            Some(match left_out {
+                Some(left_out) => Told::Several(vec![told, Told::Error(left_out)]),
+                None => told,
             })
         });
     }
@@ -698,17 +703,19 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
 pub(crate) fn edit_open_collection(
     file: &Path,
     change: impl FnOnce(&mut Vec<PathBuf>),
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     if is_list(file) {
         return edit_window_list(file, change)
-            .map_err(|e| tf!("Could not save the collection: {e}", e));
+            .map_err(|e| tf!("Could not save the collection: {e}", e).into());
     }
-    edit(file, false, change).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => tf!(
-            "The collection {file} is gone (renamed or removed in another window): not saved",
-            file = file.display()
-        ),
-        _ => tf!("Could not save the collection: {e}", e),
+    edit(file, false, change).map_err(|e| {
+        Failure::from(match e.kind() {
+            std::io::ErrorKind::NotFound => tf!(
+                "The collection {file} is gone (renamed or removed in another window): not saved",
+                file = file.display()
+            ),
+            _ => tf!("Could not save the collection: {e}", e),
+        })
     })
 }
 
@@ -1154,6 +1161,11 @@ mod tests {
         assert!(
             notice.contains("1 added") && notice.contains("line break"),
             "{notice}"
+        );
+        let errors = app.notice.error_texts();
+        assert!(
+            errors.len() == 1 && errors[0].contains("line break"),
+            "{errors:?}"
         );
         assert_eq!(super::load(&file).unwrap(), [dir.join("c.png")]);
         // The file's own writer leaves such a name out too.

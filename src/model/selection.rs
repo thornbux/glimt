@@ -279,8 +279,9 @@ impl crate::App {
         places: std::collections::BTreeSet<usize>,
     ) -> bool {
         if !places.iter().all(|&i| self.list.shows_file(i)) {
-            self.notice
-                .give_error(tr("The search hides files this would act on: clear it first").into());
+            self.notice.give_error(tr(
+                "The search hides files this would act on: clear it first",
+            ));
             return false;
         }
         self.set_selection(ctx, places);
@@ -363,8 +364,9 @@ impl crate::App {
     pub(crate) fn targets(&mut self) -> Option<Vec<usize>> {
         let targets = self.targets_without_notice();
         if targets.is_none() {
-            self.notice
-                .give_error(tr("The search hides files this would act on: clear it first").into());
+            self.notice.give_error(tr(
+                "The search hides files this would act on: clear it first",
+            ));
         }
         targets
     }

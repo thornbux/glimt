@@ -420,6 +420,75 @@ impl Viewing {
     }
 }
 
+/// The text of something that went wrong or was refused: a failed write, a refusal or another
+/// error. It is a type of its own, so that only the setters of errors take it (`give_error`,
+/// `keep_until_drawn`, `NoticeSender::send_error`, `Told::Error` and `Told::FailedWrite`,
+/// `save_failed` and `tell_failed_write`), and a function that words a failure returns one, so
+/// that its caller cannot give it as an ordinary notice. Before, each caller chose the kind by
+/// hand, and several failures were shown as ordinary notices. A text becomes a failure with
+/// `Failure::from`, and nothing outside this module turns a failure back into a text.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Failure {
+    heading: String,
+    cause: String,
+}
+
+impl Failure {
+    /// Returns the failure `heading`, with its `cause` drawn smaller under it.
+    pub(crate) fn because(heading: String, cause: String) -> Self {
+        Failure { heading, cause }
+    }
+
+    /// Prints the failure on stderr, so that it is told also where no window shows it.
+    pub(crate) fn print(&self) {
+        eprintln!("{}", self.message().text());
+    }
+
+    /// Returns the failure as a message of a notice.
+    fn message(&self) -> NoticeMessage {
+        NoticeMessage {
+            heading: self.heading.clone(),
+            detail: self.cause.clone(),
+            is_error: true,
+        }
+    }
+
+    /// Returns the failure with its heading put into other words by `reword`, such as a
+    /// failure that says why a folder could not be moved to the trash.
+    pub(crate) fn reworded(self, reword: impl FnOnce(String) -> String) -> Self {
+        Failure {
+            heading: reword(self.heading),
+            ..self
+        }
+    }
+
+    /// Returns the failure's text, its cause on a line of its own, for the answer to a
+    /// `--remote … --wait` that a write failed. This is the one place a failure becomes a text
+    /// again (`source_rules::failures_stay_failures`), so that none is given as an ordinary
+    /// notice.
+    pub(crate) fn answer_text(&self) -> String {
+        self.message().text()
+    }
+
+    /// Returns the failure's text, its cause on a line of its own, for a test to compare.
+    #[cfg(test)]
+    pub(crate) fn text(&self) -> String {
+        self.message().text()
+    }
+}
+
+impl From<String> for Failure {
+    fn from(heading: String) -> Self {
+        Failure::because(heading, String::new())
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(heading: &str) -> Self {
+        Failure::from(heading.to_owned())
+    }
+}
+
 /// One message of a notice: its heading, the detail drawn smaller under it, and whether it
 /// tells of something that went wrong (a failed write, a refusal or another error). A notice
 /// with an error is drawn with a red stripe and a warning sign, and an ordinary one with a blue
@@ -466,7 +535,7 @@ pub(crate) struct Notice {
     /// The warnings that must reach the user, each with when a frame first drew it. Every
     /// notice given meanwhile shows them under its own text, until they have been on the
     /// screen for `READ_TIME`, so a notice that comes soon after cannot hide them.
-    kept_until_drawn: Vec<(String, Option<Instant>)>,
+    kept_until_drawn: Vec<(Failure, Option<Instant>)>,
 }
 
 impl Notice {
@@ -477,7 +546,7 @@ impl Notice {
     /// place of the others. They are told at each start while they are there, because
     /// remembering that they were told would need a new file or setting, which 1.x freezes.
     pub(crate) fn told_at_start(
-        errors: [Option<String>; 3],
+        errors: [Option<Failure>; 3],
         old_marks_file_left: Option<String>,
         old_files: &[String],
     ) -> Self {
@@ -489,7 +558,7 @@ impl Notice {
             format!("{first}{more}")
         });
         let errors = errors.into_iter().flatten();
-        let errors = errors.map(|e| NoticeMessage::new(e, true));
+        let errors = errors.map(|e| e.message());
         let notes = old_marks_file_left.into_iter().chain(old_files);
         let notes = notes.map(|n| NoticeMessage::new(n, false));
         let messages: Vec<NoticeMessage> = errors.chain(notes).collect();
@@ -506,25 +575,23 @@ impl Notice {
         self.show(vec![NoticeMessage::new(text, false)]);
     }
 
-    /// Shows `text` as `give` does, as an error: something that went wrong or was refused.
-    pub(crate) fn give_error(&mut self, text: String) {
-        self.show(vec![NoticeMessage::new(text, true)]);
+    /// Shows `texts` and under them `failures`, each a message of its own, as one notice, such
+    /// as the files added to a collection and the names refused. Given one after the other,
+    /// each would take the place of the one before.
+    pub(crate) fn give_all(&mut self, texts: Vec<String>, failures: Vec<Failure>) {
+        let texts = texts.into_iter().map(|t| NoticeMessage::new(t, false));
+        self.show(texts.chain(failures.iter().map(Failure::message)).collect());
     }
 
-    /// Shows the error `heading` as `give_error` does, with its `cause` drawn smaller under it.
-    pub(crate) fn give_error_because(&mut self, heading: String, cause: String) {
-        let message = NoticeMessage {
-            detail: cause,
-            ..NoticeMessage::new(heading, true)
-        };
-        self.show(vec![message]);
+    /// Shows `failure` as `give` does, as an error: something that went wrong or was refused.
+    pub(crate) fn give_error(&mut self, failure: impl Into<Failure>) {
+        self.show(vec![failure.into().message()]);
     }
 
     /// Shows `firsts`, with the warnings that no frame has drawn yet under them, as a new
     /// notice.
     fn show(&mut self, firsts: Vec<NoticeMessage>) {
-        let kept = (self.kept_until_drawn.iter())
-            .map(|(warning, _)| NoticeMessage::new(warning.clone(), true));
+        let kept = (self.kept_until_drawn.iter()).map(|(warning, _)| warning.message());
         let messages = firsts.into_iter().chain(kept);
         let messages = messages.filter(|m| !m.heading.is_empty()).collect();
         self.given += 1;
@@ -544,9 +611,9 @@ impl Notice {
     /// hidden by the next notice of the same frame, and so never shown nor read out. One kept
     /// for a single frame was hidden by a notice a few milliseconds later. It is shown as an
     /// error.
-    pub(crate) fn keep_until_drawn(&mut self, warning: String) {
+    pub(crate) fn keep_until_drawn(&mut self, warning: Failure) {
         let mut messages = self.set_aside().map(|(m, _)| m).unwrap_or_default();
-        messages.push(NoticeMessage::new(warning.clone(), true));
+        messages.push(warning.message());
         messages.retain(|m| !m.heading.is_empty());
         self.given += 1;
         self.set_shown(Some((messages, self.given)));
@@ -572,6 +639,13 @@ impl Notice {
     /// Returns the text shown, its messages one to a line, or `None` when no notice is shown.
     pub(crate) fn text(&self) -> Option<&str> {
         self.shown.as_ref().map(|_| self.text.as_str())
+    }
+
+    /// Returns the texts of the errors shown, for a test to tell them from ordinary messages.
+    #[cfg(test)]
+    pub(crate) fn error_texts(&self) -> Vec<String> {
+        let errors = self.messages().iter().filter(|m| m.is_error);
+        errors.map(NoticeMessage::text).collect()
     }
 
     /// Returns the messages shown, none when no notice is shown.
@@ -2006,7 +2080,7 @@ impl crate::App {
             .is_saving(&self.path(self.list.shown()))
         {
             self.notice
-                .give_error(tr("Still saving the last rotation of this file").into());
+                .give_error(tr("Still saving the last rotation of this file"));
             return;
         }
         let (q, m) = self.viewing.turn;
@@ -2495,10 +2569,13 @@ mod tests {
         assert!(!is_error(&notice));
         assert_eq!(headings(&notice), [("Saved a.jpg: done".into(), "".into())]);
         let refused = "\"Trip: Paris.jpg\": a vfat file system allows none of : ? *";
-        notice.give_error(refused.into());
+        notice.give_error(refused);
         assert!(is_error(&notice));
         assert_eq!(headings(&notice), [(refused.into(), "".into())]);
-        notice.give_error_because("Could not open Trip: Paris".into(), "No such file".into());
+        notice.give_error(super::Failure::because(
+            "Could not open Trip: Paris".into(),
+            "No such file".into(),
+        ));
         let open = ("Could not open Trip: Paris".into(), "No such file".into());
         assert_eq!(headings(&notice), [open]);
         assert_eq!(

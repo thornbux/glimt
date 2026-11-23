@@ -91,7 +91,7 @@ impl crate::App {
         #[cfg(feature = "video")]
         if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
             self.notice
-                .give_error(tr("A video is not saved as an image").into());
+                .give_error(tr("A video is not saved as an image"));
             return;
         }
         let Some(loaded) = self.list.loaded_images().get(&shown) else {
@@ -262,10 +262,9 @@ impl crate::App {
                     });
                     save::told_saved(&new, sidecar_failed)
                 }
-                Err(e) => crate::support::threads::Told::FailedWrite(tf!(
-                    "Could not save the image: {e}",
-                    e
-                )),
+                Err(e) => crate::support::threads::Told::FailedWrite(
+                    tf!("Could not save the image: {e}", e).into(),
+                ),
             })
         });
     }

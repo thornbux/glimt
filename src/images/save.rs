@@ -1034,11 +1034,9 @@ pub(crate) fn told_saved(
     let file = new.display();
     match sidecar_failed {
         None => crate::support::threads::Told::Notice(crate::tf!("Saved {file}", file)),
-        Some(e) => crate::support::threads::Told::FailedWrite(crate::tf!(
-            "Saved {file}, but not its sidecar: {e}",
-            file,
-            e
-        )),
+        Some(e) => crate::support::threads::Told::FailedWrite(
+            crate::tf!("Saved {file}, but not its sidecar: {e}", file, e).into(),
+        ),
     }
 }
 

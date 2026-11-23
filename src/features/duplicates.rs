@@ -425,7 +425,7 @@ impl crate::App {
             self.request_delete_as_seen(ctx, true, Some(&as_seen));
         } else {
             self.notice
-                .give_error(tr("The checked files are no longer all in the list").into());
+                .give_error(tr("The checked files are no longer all in the list"));
         }
     }
 }

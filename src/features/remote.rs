@@ -609,7 +609,8 @@ impl crate::App {
         let folder_unread = self.folder.is_opening() || self.folder.is_listing();
         self.take_saves(ctx);
         let failed_writes = self.window.failed_writes_told();
-        let last_failure = self.window.last_failed_write().to_owned();
+        let last_failure =
+            (self.window.last_failed_write()).map_or_else(String::new, |f| f.answer_text());
         let now = std::time::Instant::now();
         self.remote.awaiting_outcome.retain_mut(|awaited| {
             if !awaited.was_done {
@@ -3169,7 +3170,7 @@ mod tests {
         app.receive_remote(&ctx);
         assert_eq!(app.list.shown(), 2);
         assert!(answer.try_recv().is_err());
-        app.tell_failed_write("Could not save the settings".into());
+        app.tell_failed_write("Could not save the settings");
         drop(work);
         let got = outcome(&mut app, &answer).unwrap();
         let why = super::not_done_reason(&got);
@@ -3197,7 +3198,7 @@ mod tests {
         assert_eq!(answer.try_recv().unwrap(), super::OUTCOME_DONE.as_bytes());
         let answer = send(&mut app, "wait run Quit");
         app.receive_remote(&ctx);
-        app.tell_failed_write("Could not save the state".into());
+        app.tell_failed_write("Could not save the state");
         let why = super::not_done_reason(&outcome(&mut app, &answer).unwrap());
         assert_eq!(why.as_deref(), Some("Could not save the state"));
         std::fs::remove_dir_all(dir).unwrap();

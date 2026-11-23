@@ -165,10 +165,10 @@ struct ReadAtStart {
     problems: Vec<String>,
     /// Why the screen profile or the profile for images without one could not be read, when one
     /// could not (`set_up_colour`, which also sets them up).
-    colour_error: Option<String>,
+    colour_error: Option<crate::viewer::view::Failure>,
     /// The first added format or tool whose desktop file gives its program no file
     /// (`tools::desktop_file_problems`), as the window tells it.
-    desktop_file_problem: Option<String>,
+    desktop_file_problem: Option<crate::viewer::view::Failure>,
     /// The old folders of tools and added formats, and the desktop files with an old header,
     /// that Glimt no longer reads (`tools::old_desktop_files`), as the window tells them.
     old_desktop_files: Vec<String>,
@@ -529,7 +529,7 @@ fn new_window_program(
 /// where to see them all. A setting this Glimt does not know is left out, because a newer Glimt
 /// beside this one (a Flatpak and a .deb) writes it at each save, so the notice would otherwise
 /// come at every start. `glimt --check-config` still tells it.
-fn config_notice(problems: &[String]) -> Option<String> {
+fn config_notice(problems: &[String]) -> Option<crate::viewer::view::Failure> {
     let problems: Vec<&String> = (problems.iter())
         .filter(|p| !p.contains(": there is no setting "))
         .collect();
@@ -538,7 +538,7 @@ fn config_notice(problems: &[String]) -> Option<String> {
         0 => String::new(),
         n => tf!("; and {n} more (glimt --check-config)", n),
     };
-    Some(tf!("Settings file: {first}{more}", first, more))
+    Some(tf!("Settings file: {first}{more}", first, more).into())
 }
 
 /// Returns what the window starts from of Glimt's own files, with the settings `config` and
@@ -572,7 +572,7 @@ fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
         config,
         problems,
         colour_error,
-        desktop_file_problem: desktop_file_problems.into_iter().next(),
+        desktop_file_problem: (desktop_file_problems.into_iter().next()).map(Into::into),
         old_desktop_files,
         old_marks_file_left,
         #[cfg(feature = "marks")]
@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(super::config_notice(std::slice::from_ref(&unknown)), None);
         assert_eq!(
             super::config_notice(&[unknown, wrong.clone()]),
-            Some(format!("Settings file: {wrong}"))
+            Some(format!("Settings file: {wrong}").into())
         );
         // The problems as parse_checked words them for a file that a 0.73 Glimt saved last.
         let (_, problems) =

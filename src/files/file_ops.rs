@@ -24,6 +24,7 @@ use crate::support::threads::{
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
 use crate::ui::dialogs::{Asked, Prompt};
+use crate::viewer::view::Failure;
 use crate::{
     files::journal, images::decode, metadata::exif, metadata::xmp, model::collections, tf,
 };
@@ -780,9 +781,9 @@ impl crate::App {
             false => Vec::new(),
         };
         if found.is_empty() {
-            self.notice.give_error(
-                tr("The files asked about are no longer in the list: nothing was done").into(),
-            );
+            self.notice.give_error(tr(
+                "The files asked about are no longer in the list: nothing was done",
+            ));
             return None;
         }
         Some((found, picked))
@@ -805,21 +806,20 @@ impl crate::App {
         let renaming = self.file_operations.renaming.is_some();
         let refused = if saving {
             self.notice
-                .give_error(tr("Still saving a rotation: try again in a moment").into());
+                .give_error(tr("Still saving a rotation: try again in a moment"));
             true
         } else if writing {
             self.notice
-                .give_error(tr("Still writing keywords: try again in a moment").into());
+                .give_error(tr("Still writing keywords: try again in a moment"));
             true
         } else if renaming {
-            self.notice
-                .give_error(tr("Rename Many is still renaming").into());
+            self.notice.give_error(tr("Rename Many is still renaming"));
             true
         } else if !self.is_list_checked() {
             true
         } else if self.is_changed_by_running_work(paths) {
             self.notice
-                .give_error(tr("Still working on these files: try again in a moment").into());
+                .give_error(tr("Still working on these files: try again in a moment"));
             true
         } else {
             false
@@ -839,7 +839,7 @@ impl crate::App {
         }
         if self.folder.is_listing() {
             self.notice
-                .give_error(tr("Still working on these files: try again in a moment").into());
+                .give_error(tr("Still working on these files: try again in a moment"));
         } else {
             // No listing runs that would check the list in a moment, so waiting would not help.
             self.tell_background_stopped(tr("Reading the folder"));
@@ -968,11 +968,14 @@ impl crate::App {
             let how = (trash, delete_log.as_mut());
             let (gone, sides, changed) = delete_in_chunks(&paths, &picked, how, &job, &mut errors);
             let told = match errors.first() {
-                Some(first) => Some(Told::FailedWrite(tf!(
-                    "Delete failed ({count}): {first}",
-                    count = count(errors.len(), "error"),
-                    first
-                ))),
+                Some(first) => Some(Told::FailedWrite(
+                    tf!(
+                        "Delete failed ({count}): {first}",
+                        count = count(errors.len(), "error"),
+                        first
+                    )
+                    .into(),
+                )),
                 None => job
                     .report(|| match trash {
                         true => tf!(
@@ -988,10 +991,11 @@ impl crate::App {
             let warning = delete_log_dir.zip(log_failure).map(log_not_saved);
             let mut told = with_failed_write(told, warning);
             let forgotten = catch_panic(|| forget_in_collection(collection.as_deref(), &gone));
-            let removed = (forgotten.unwrap_or_else(|| Err(broke_here()))).unwrap_or_else(|e| {
-                told = with_failed_write(told.take(), Some(e));
-                Vec::new()
-            });
+            let removed =
+                (forgotten.unwrap_or_else(|| Err(broke_here().into()))).unwrap_or_else(|e| {
+                    told = with_failed_write(told.take(), Some(e));
+                    Vec::new()
+                });
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
                 (sides.into_iter()).partition(|s| is_surely_gone(s));
             let undo = (trash && !gone.is_empty()).then(|| {
@@ -1520,7 +1524,7 @@ impl crate::App {
                         count = count(errors.len(), "error"),
                         first
                     );
-                    with_failed_write(Some(Told::FailedWrite(failed)), log_warning)
+                    with_failed_write(Some(Told::FailedWrite(failed.into())), log_warning)
                 }
                 None => {
                     let moved = job.report(|| {
@@ -1593,9 +1597,9 @@ impl crate::App {
             .collect();
         let unique: HashSet<&PathBuf> = to.iter().collect();
         if unique.len() < to.len() {
-            self.notice.give_error(
-                tr("The pattern gives several files the same name; add # for a number").into(),
-            );
+            self.notice.give_error(tr(
+                "The pattern gives several files the same name; add # for a number",
+            ));
             return;
         }
         self.rename_in_background(ctx, listed, to, picked);
@@ -1761,14 +1765,9 @@ impl crate::App {
         // anything that follows the files now. When a failed rename left names it does not
         // know, a write could land on another photo, so the writes are dropped.
         let dropped = self.send_waiting_sidecar_writes(ctx, names_known.then_some(&pairs[..]));
-        let told = told
-            .into_iter()
-            .chain(dropped)
-            .collect::<Vec<_>>()
-            .join("\n");
-        // Each text told here is a failure, which a close must not hide.
-        if !told.is_empty() {
-            self.tell_failed_write(told);
+        // Each failure told here is a failed write of its own, which a close must not hide.
+        for failure in (told.map(Failure::from).into_iter()).chain(dropped) {
+            self.tell_failed_write(failure);
         }
         self.follow_moved_paths(pairs, false);
         if self.folder.collection().is_some() {
@@ -1979,7 +1978,7 @@ impl crate::App {
                     read_folder_again: true,
                     ..Default::default()
                 });
-                return Some(Told::FailedWrite(format!("{}: {e}", old.display())));
+                return Some(Told::FailedWrite(format!("{}: {e}", old.display()).into()));
             }
             // A log of the folder, so that a kill before the window has followed it leaves
             // the next start to make the marks follow. The folder keeps its name without it.
@@ -1990,14 +1989,14 @@ impl crate::App {
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
                 end_the_log_of_a_failed_folder_rename(&e, log.take());
-                return Some(Told::FailedWrite(format!("{}: {e}", new.display())));
+                return Some(Told::FailedWrite(format!("{}: {e}", new.display()).into()));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
             // sync is told, but the window still follows the folder, which has its new name.
             let synced = crate::files::file_io::sync_folder_of(&new);
             let error = synced
                 .err()
-                .map(|e| Told::FailedWrite(format!("{}: {e}", new.display())));
+                .map(|e| Told::FailedWrite(format!("{}: {e}", new.display()).into()));
             let _ = report_tx.send(OperationReport {
                 folder_renamed: Some((old, new)),
                 job_log: log,
@@ -2061,11 +2060,13 @@ impl crate::App {
                 Ok(()) => match folder_log(&dir, None, collection.as_deref()) {
                     Ok(log) => (
                         log,
-                        crate::files::trash::trash(std::slice::from_ref(&dir)).err(),
+                        crate::files::trash::trash(std::slice::from_ref(&dir))
+                            .err()
+                            .map(Failure::from),
                     ),
                     Err(warning) => (None, Some(warning)),
                 },
-                Err(e) => (None, Some(format!("{}: {e}", dir.display()))),
+                Err(e) => (None, Some(format!("{}: {e}", dir.display()).into())),
             };
             // A failure that leaves the folder's name not surely there may have moved it all
             // the same, so the log stays for the next start, which looks again.
@@ -2107,7 +2108,7 @@ impl crate::App {
             });
             drop(undo_on_the_way);
             error
-                .map(|e| tf!("Could not move the folder to the trash: {e}", e))
+                .map(|e| e.reworded(|e| tf!("Could not move the folder to the trash: {e}", e)))
                 .or(forgotten)
                 .map(Told::FailedWrite)
         });
@@ -2125,7 +2126,7 @@ impl crate::App {
         self.receive_renames(ctx);
         if Arc::strong_count(&self.file_operations.undo_on_the_way) > 1 {
             self.notice
-                .give_error(tr("Still working on these files: try again in a moment").into());
+                .give_error(tr("Still working on these files: try again in a moment"));
             return;
         }
         // This asks before the undo is taken, so one that is refused stays to be done again.
@@ -2178,9 +2179,11 @@ impl crate::App {
                     Ok(log) => (log, None),
                     Err(e) => (None, Some(e)),
                 };
-                let (back, left, mut errors) = move_back(pairs, move_log.as_mut());
+                let (back, left, errors) = move_back(pairs, move_log.as_mut());
+                // The log's failure is told as a failed write of its own, beside the Undo's
+                // text. Before, it was one of the errors, and only the first error was told.
                 let log_failure = start_failure.or_else(|| move_log.as_mut()?.take_failure());
-                errors.extend(log_dir.zip(log_failure).map(log_not_saved));
+                let log_warning = log_dir.zip(log_failure).map(log_not_saved);
                 let files = count(back.len(), "file");
                 // Those that did not go back stay to be undone again, as the trash's do.
                 let _ = report_tx.send(OperationReport {
@@ -2191,14 +2194,18 @@ impl crate::App {
                     move_log,
                     ..Default::default()
                 });
-                Some(match errors.first() {
-                    Some(first) => Told::FailedWrite(tf!(
-                        "Undo failed ({count}): {first}",
-                        count = count(errors.len(), "error"),
-                        first
-                    )),
+                let told = match errors.first() {
+                    Some(first) => Told::FailedWrite(
+                        tf!(
+                            "Undo failed ({count}): {first}",
+                            count = count(errors.len(), "error"),
+                            first
+                        )
+                        .into(),
+                    ),
                     None => Told::Notice(tf!("{files} moved back", files)),
-                })
+                };
+                with_failed_write(Some(told), log_warning)
             })),
             Undo::Trash(trash_move) => self.undo_trash(ctx, trash_move, undone),
         }
@@ -2264,26 +2271,23 @@ impl crate::App {
                     log.note(step);
                 }
             };
-            let (back, mut error) = restore_noting(&trash_move, trash_dirs, &mut note);
+            let (back, error) = restore_noting(&trash_move, trash_dirs, &mut note);
+            // The log's and the collection's failures are each told as a failed write of its
+            // own. Before, each was dropped when a file could not come back either.
             log_failure = log_failure.or_else(|| undo_log.as_mut()?.take_failure());
-            if let Some(warning) = log_dir.zip(log_failure).map(log_not_saved) {
-                error.get_or_insert(warning);
-            }
+            let log_warning = log_dir.zip(log_failure).map(log_not_saved);
             // What went with the files comes back with them: their places in the
             // collection, their marks and their stars.
             let set: HashSet<&Path> = back.iter().map(PathBuf::as_path).collect();
             let returned = |p: &Path| p.ancestors().any(|a| set.contains(a));
-            if let Some((file, removed)) = &trash_move.collection {
-                let removed: Vec<_> = (removed.iter())
-                    .filter(|(_, p)| returned(p))
-                    .cloned()
-                    .collect();
-                if let Err(e) =
-                    collections::edit_open_collection(file, |all| put_back(all, &removed))
-                {
-                    error.get_or_insert(e);
-                }
-            }
+            let collection_failure =
+                (trash_move.collection.as_ref()).and_then(|(file, removed)| {
+                    let removed: Vec<_> = (removed.iter())
+                        .filter(|(_, p)| returned(p))
+                        .cloned()
+                        .collect();
+                    collections::edit_open_collection(file, |all| put_back(all, &removed)).err()
+                });
             // Those not put back (a name taken, a rename that failed) stay to be undone
             // again, with their marks and places, which would be lost with this Undo.
             let (marks, kept) = all_marks.into_iter().partition(|(p, _)| returned(p));
@@ -2321,11 +2325,13 @@ impl crate::App {
                 count = count(back.len(), "file")
             );
             // The files that came back are told too when others did not.
-            Some(match error {
+            let told = match error.map(|e| tf!("Undo failed: {e}", e)) {
                 None => Told::Notice(done),
-                Some(e) if back.is_empty() => Told::FailedWrite(tf!("Undo failed: {e}", e)),
-                Some(e) => Told::FailedWrite(format!("{done}; {}", tf!("Undo failed: {e}", e))),
-            })
+                Some(failed) if back.is_empty() => Told::FailedWrite(failed.into()),
+                Some(failed) => Told::FailedWrite(format!("{done}; {failed}").into()),
+            };
+            let told = with_failed_write(Some(told), log_warning);
+            with_failed_write(told, collection_failure)
         });
     }
 
@@ -2474,7 +2480,7 @@ impl crate::App {
             }
             let told = report(failed, &job).or(first_failure);
             told.map(|text| match failed > 0 {
-                true => Told::FailedWrite(text),
+                true => Told::FailedWrite(text.into()),
                 false => Told::Notice(text),
             })
         });
@@ -2505,15 +2511,15 @@ impl crate::App {
         &mut self,
         ctx: &egui::Context,
         renamed: Option<&[(PathBuf, PathBuf)]>,
-    ) -> Option<String> {
+    ) -> Option<Failure> {
         let waiting = std::mem::take(&mut self.file_operations.sidecar_writes_waiting);
         let Some(renamed) = renamed else {
             let files: usize = waiting.iter().map(|w| w.files.len()).sum();
             return (files > 0).then(|| {
-                tf!(
+                Failure::from(tf!(
                     "Rename Many stopped, so the metadata edited for {count} was not saved",
                     count = count(files, "file")
-                )
+                ))
             });
         };
         let moved = moves_by_source(renamed);
@@ -2665,14 +2671,18 @@ impl crate::App {
                     Err(e) => Some(format!("{}: {e}", to.display())),
                 };
                 if let Some(e) = e {
-                    return Some(Told::FailedWrite(tf!("Could not save the image: {e}", e)));
+                    return Some(Told::FailedWrite(
+                        tf!("Could not save the image: {e}", e).into(),
+                    ));
                 }
             }
             // The chooser waited, and another file may have taken the name meanwhile. Its
             // frames are not saved as the ones shown.
             if let Err(e) = how.is_still_the_file_shown(&path) {
                 let e = format!("{}: {e}", path.display());
-                return Some(Told::FailedWrite(tf!("Could not save the frames: {e}", e)));
+                return Some(Told::FailedWrite(
+                    tf!("Could not save the frames: {e}", e).into(),
+                ));
             }
             // The name's own bytes, also when they are not UTF-8.
             let named = |more: &str| crate::images::save::stem_with_suffix(&path, more);
@@ -2744,7 +2754,7 @@ impl crate::App {
                     folder = folder.display()
                 )),
                 (Err(e), _) if stopped.load(Ordering::Relaxed) => Told::Notice(e),
-                (Err(e), _) => Told::FailedWrite(tf!("Could not save the frames: {e}", e)),
+                (Err(e), _) => Told::FailedWrite(tf!("Could not save the frames: {e}", e).into()),
             })
         });
     }
@@ -2760,7 +2770,7 @@ impl crate::App {
         self.run_in_background(ctx, Vec::new(), move || {
             let told = match crate::files::backup::back_up_to(&dir) {
                 Ok(done) => Told::Notice(done),
-                Err(e) => Told::FailedWrite(e),
+                Err(e) => Told::FailedWrite(e.into()),
             };
             drop(job);
             Some(told)
@@ -2903,7 +2913,7 @@ fn broke_here() -> String {
 pub(crate) fn forget_in_collection(
     collection: Option<&Path>,
     gone: &[PathBuf],
-) -> Result<Vec<(usize, PathBuf)>, String> {
+) -> Result<Vec<(usize, PathBuf)>, Failure> {
     let Some(file) = collection.filter(|_| !gone.is_empty()) else {
         return Ok(Vec::new());
     };
@@ -3024,7 +3034,7 @@ fn delete_in_chunks(
 /// Returns what a job tells, `told`, with the write that failed beside it, `failed`, which is
 /// told as a failed write of its own. So the job's text keeps its kind, a `--wait` answers
 /// that a write failed, and a close that waited for the job stays open.
-fn with_failed_write(told: Option<Told>, failed: Option<String>) -> Option<Told> {
+fn with_failed_write(told: Option<Told>, failed: Option<Failure>) -> Option<Told> {
     let Some(failed) = failed.map(Told::FailedWrite) else {
         return told;
     };
@@ -3525,12 +3535,12 @@ fn refused_on_fat(
 
 /// Returns the notice for a rename that `refused_on_fat` refused, naming the file and its file
 /// system.
-fn not_renamed((name, kind): (String, String)) -> String {
-    tf!(
+fn not_renamed((name, kind): (String, String)) -> Failure {
+    Failure::from(tf!(
         "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed.",
         name,
         kind
-    )
+    ))
 }
 
 /// Returns a notice when a file of `paths` has a name that the FAT or exFAT file system of
@@ -3542,11 +3552,11 @@ fn refused_transfer(
     dest: &Path,
     is_copy: bool,
     file_system_type: impl Fn(&Path) -> Option<String>,
-) -> Option<String> {
+) -> Option<Failure> {
     let odd = (paths.iter().filter_map(|p| p.file_name()))
         .find(|n| n.to_string_lossy().contains(NOT_ON_FAT))?;
     let (name, kind) = refused_on_fat(&[dest.join(odd)], file_system_type)?;
-    Some(match is_copy {
+    Some(Failure::from(match is_copy {
         true => tf!(
             "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied.",
             name,
@@ -3557,7 +3567,7 @@ fn refused_transfer(
             name,
             kind
         ),
-    })
+    }))
 }
 
 /// The name in the way of a file going to `to`, if any. It is `to` itself, or a sidecar at the
@@ -3875,7 +3885,7 @@ fn folder_log(
     folder: &Path,
     to: Option<&Path>,
     collection: Option<&Path>,
-) -> Result<Option<crate::files::job_log::JobLog>, String> {
+) -> Result<Option<crate::files::job_log::JobLog>, Failure> {
     let Some(dir) = job_log_dir(folder) else {
         return Ok(None);
     };
@@ -3903,12 +3913,12 @@ fn end_the_log_of_a_failed_folder_rename(
 /// full disk is cleared, and a kill halfway then only leaves the marks of the files that went
 /// behind. The failure is told as a failed write of Glimt's own file (`with_failed_write`), so a
 /// `--wait` answers that a write failed.
-fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> String {
-    tf!(
+fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> Failure {
+    Failure::from(tf!(
         "Could not save {name}: {e}",
         name = dir.display(),
         e = failure
-    )
+    ))
 }
 
 /// Copies or moves `paths` into the folder `dest` for `transfer`, each with its sidecars, until
@@ -4575,7 +4585,7 @@ mod tests {
         let on = |kind: &'static str| move |_: &Path| Some(kind.to_owned());
         let told = super::refused_on_fat(&to(&["a.jpg", "12:30.jpg"]), on("vfat")).unwrap();
         assert_eq!(told, ("12:30.jpg".into(), "vfat".into()));
-        let told = super::not_renamed(told);
+        let told = super::not_renamed(told).text();
         assert!(
             told.contains("\"12:30.jpg\"") && told.contains("vfat"),
             "{told}"
@@ -4618,6 +4628,7 @@ mod tests {
         assert!(took < std::time::Duration::from_millis(50), "{took:?}");
         let on_vfat = |_: &Path| Some("vfat".to_owned());
         let told = super::refused_transfer(&paths, Path::new("/card"), true, on_vfat).unwrap();
+        let told = told.text();
         assert!(told.contains(&format!("{long}0:")), "{told}");
     }
 
@@ -7649,6 +7660,70 @@ mod tests {
         assert!(d.join("sub/a.png").exists(), "moved without its log");
         assert_eq!(app.window.failed_writes_told(), 1);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// An Undo of a move whose log cannot be made, and whose file cannot go back as its name
+    /// is taken, tells both as failed writes of their own. Before, the log's failure was the
+    /// second of the errors, and only the first was told.
+    #[test]
+    fn an_undo_of_a_move_tells_its_log_beside_another_error() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-move-log-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        super::keep_job_logs_in_a_test(&dir);
+        let (mut app, ctx) = app_on(&dir);
+        let a = dir.join("a.png");
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        app.transfer(picked, dir.join("sub"), false);
+        let moved = |app: &crate::App| app.file_operations.undo.is_some() && !app.working();
+        assert!(run_background_until(&mut app, &ctx, moved));
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        // A file where the folder of the logs goes, so that no log can be made in it.
+        std::fs::remove_dir_all(dir.join("jobs")).unwrap();
+        std::fs::write(dir.join("jobs"), b"").unwrap();
+        std::fs::write(&a, b"another").unwrap();
+        let before = app.window.failed_writes_told();
+        app.undo(&ctx);
+        let done = |app: &crate::App| !app.working() && app.file_operations.undo.is_some();
+        assert!(run_background_until(&mut app, &ctx, done));
+        assert_eq!(app.window.failed_writes_told(), before + 2);
+        let text = app.notice.text().unwrap_or_default().to_owned();
+        assert!(text.contains("jobs"), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Undo from the trash whose log cannot be made, and whose file cannot come back, tells
+    /// both as failed writes of their own. Before, the log's failure was dropped when a file
+    /// could not come back.
+    #[test]
+    fn an_undo_from_the_trash_tells_its_log_beside_another_error() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-undo-trash-log-told-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file where the folder of the logs goes, so that no log can be made in it.
+        std::fs::write(dir.join("jobs"), b"").unwrap();
+        super::keep_job_logs_in_a_test(&dir);
+        let (mut app, ctx) = app_on(&dir);
+        app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            out_without_answer: Default::default(),
+            files: vec![dir.join("a.png")],
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since: std::time::SystemTime::now(),
+            marks: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            collection: None,
+        }));
+        app.undo(&ctx);
+        let done = |app: &crate::App| !app.working() && app.file_operations.undo.is_some();
+        assert!(run_background_until(&mut app, &ctx, done));
+        assert_eq!(app.window.failed_writes_told(), 2);
+        let text = app.notice.text().unwrap_or_default().to_owned();
+        assert!(text.contains("jobs"), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A Move holds its files back from the request, while its folder's real path is looked

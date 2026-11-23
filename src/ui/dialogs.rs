@@ -400,8 +400,7 @@ impl crate::App {
         // One at a time: only one answer is waited for, and a second dialog's would replace the
         // first's, whose copy or move would then never happen.
         if self.dialogs.file_dialog.is_some() {
-            self.notice
-                .give_error(tr("A file dialog is open already").into());
+            self.notice.give_error(tr("A file dialog is open already"));
             return;
         }
         let (tx, rx) = answer_channel(&self.busy);
@@ -600,8 +599,7 @@ impl crate::App {
                         Some(all) => self.open_folders(ctx, all),
                         None => self.notice.give_error(tr(
                             "The file dialog did not answer with full paths, so nothing was opened",
-                        )
-                        .into()),
+                        )),
                     }
                 }
                 (Pick::CopyTo(picked), Some(dest)) => self.transfer(picked, dest, true),
@@ -867,7 +865,7 @@ impl crate::App {
                 self.run_in_background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
                         let told = format!("{display}: {e}", display = target.display());
-                        return Some(Told::FailedWrite(told));
+                        return Some(Told::FailedWrite(told.into()));
                     }
                     let _ = report_tx.send(OperationReport {
                         folder_made: Some(target),
@@ -1350,7 +1348,7 @@ fn put_cut_short_right(
     if left > 0 {
         let files = count(left, "file");
         message += &tf!("; {files} could not be, asked about again", files);
-        return Some(Told::FailedWrite(message));
+        return Some(Told::FailedWrite(message.into()));
     }
     Some(Told::Notice(message))
 }
@@ -1378,11 +1376,14 @@ fn leave_names_as_they_are(
     });
     // A plan that could not be opened or is open in another window stays, and is told.
     if let Some(e) = failed {
-        return Some(Told::FailedWrite(tf!(
-            "Could not leave the names as they are: {e}. Rename Many asks about them again at \
+        return Some(Told::FailedWrite(
+            tf!(
+                "Could not leave the names as they are: {e}. Rename Many asks about them again at \
              the next start.",
-            e
-        )));
+                e
+            )
+            .into(),
+        ));
     }
     // Another window had every plan, so nothing was left as it is here.
     if left.is_empty() {
@@ -1414,7 +1415,7 @@ fn save_names_left(
                 }
                 Told::Notice(tf!("Saved {file}", file = name))
             }
-            Err(e) => Told::FailedWrite(tf!("Could not save {name}: {e}", name, e)),
+            Err(e) => Told::FailedWrite(tf!("Could not save {name}: {e}", name, e).into()),
         },
     )
 }
@@ -2280,9 +2281,10 @@ mod tests {
         other.lock().unwrap();
         let told = super::leave_names_as_they_are(&held, &app.file_operations.report_sender());
         drop(other);
-        let Some(super::Told::FailedWrite(text)) = told else {
+        let Some(super::Told::FailedWrite(failure)) = told else {
             panic!("{told:?}")
         };
+        let text = failure.text();
         assert!(text.contains("another window has them open"), "{text}");
         assert_eq!(journal::cut_short_plans(&plans).len(), 1);
         std::fs::remove_dir_all(dir).unwrap();

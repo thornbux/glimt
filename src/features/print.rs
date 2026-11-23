@@ -561,9 +561,13 @@ impl crate::App {
             // file behind.
             Some(match (done, failed.get(), &to) {
                 (Ok(msg), 0, _) => Told::Notice(msg),
-                (Ok(msg), f, _) => Told::Error(tf!("{msg}; {f} could not be read", msg, f)),
-                (Err(e), _, PrintTo::File(..)) => Told::FailedWrite(tf!("Printing failed: {e}", e)),
-                (Err(e), _, PrintTo::Printer(_)) => Told::Error(tf!("Printing failed: {e}", e)),
+                (Ok(msg), f, _) => Told::Error(tf!("{msg}; {f} could not be read", msg, f).into()),
+                (Err(e), _, PrintTo::File(..)) => {
+                    Told::FailedWrite(tf!("Printing failed: {e}", e).into())
+                }
+                (Err(e), _, PrintTo::Printer(_)) => {
+                    Told::Error(tf!("Printing failed: {e}", e).into())
+                }
             })
         });
     }

@@ -1201,7 +1201,7 @@ impl crate::App {
         if let Some(why) = self.why_refused(action) {
             if why == NO_IMAGE && action == Action::NewCollection {
                 self.notice
-                    .give_error(tr("No images for a collection here").into());
+                    .give_error(tr("No images for a collection here"));
             } else if why == HIDDEN_BY_SEARCH {
                 // `targets` tells the user so.
                 let _ = self.targets();
@@ -1228,7 +1228,7 @@ impl crate::App {
             Action::RemoveFromCollection => {}
             Action::RenameCollection | Action::TrashCollection if self.collection_is_list() => {
                 self.notice
-                    .give_error(tr("A plain list is not renamed or trashed by Glimt").into());
+                    .give_error(tr("A plain list is not renamed or trashed by Glimt"));
             }
             Action::RenameCollection => {
                 if let Some(file) = self.folder.collection().map(|f| f.to_path_buf()) {
@@ -1302,7 +1302,7 @@ impl crate::App {
             Action::CopyFilesToClipboard => self.copy_files(),
             Action::Preferences if config::locked() => {
                 self.notice
-                    .give_error(tr("The settings are locked (--lock-settings)").into());
+                    .give_error(tr("The settings are locked (--lock-settings)"));
             }
             Action::Preferences => self.preferences.show(),
             Action::Help => self.help = Some(help::Page::Manual),
@@ -1390,9 +1390,9 @@ impl crate::App {
             Action::NewFolder
                 if self.folder.collection().is_some() || !self.folder.folders().is_empty() =>
             {
-                self.notice.give_error(
-                    tr("New Folder makes a folder in the folder shown: open one").into(),
-                );
+                self.notice.give_error(tr(
+                    "New Folder makes a folder in the folder shown: open one",
+                ));
             }
             Action::NewFolder => {
                 let dir = self.folder.dir().to_path_buf();
@@ -1507,7 +1507,7 @@ impl crate::App {
         files.retain(|f| crate::files::config::fits_on_a_line(f.path()));
         if let Some(left_out) = crate::files::config::left_out_for_line_breaks(before - files.len())
         {
-            self.notice.give(left_out);
+            self.notice.give_error(left_out);
         }
         if files.is_empty() {
             return;
@@ -2750,7 +2750,11 @@ mod tests {
         app.apply_mark(&ctx, Action::Rate3);
         assert_eq!(app.marks.get(&dir.join("a\nb.png")), (0, 0));
         assert_eq!(app.marks.get(&dir.join("c.png")), (0, 3));
-        assert!(app.notice.text().is_some_and(|n| n.contains("line break")));
+        let errors = app.notice.error_texts();
+        assert!(
+            errors.iter().any(|e| e.contains("line break")),
+            "{errors:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

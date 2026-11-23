@@ -4,6 +4,7 @@ use crate::files::config::WindowState;
 use crate::support::format::fill_template;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
+use crate::viewer::view::Failure;
 use crate::{features::remote, files::external, tf};
 use eframe::egui;
 use std::path::Path;
@@ -78,10 +79,10 @@ pub(crate) struct Window {
     /// it takes the answers, to know whether a failure came in with them.
     failed_writes_told: u64,
     /// The failed write told last, which `--wait` gives as the reason a command was not done.
-    last_failed_write: String,
+    last_failed_write: Option<Failure>,
     /// The failed writes told since the last frame. `poll_background` shows them as the frame's
     /// last notice, so that no other notice of the frame hides them.
-    failed_writes_to_show: Vec<String>,
+    failed_writes_to_show: Vec<Failure>,
 }
 
 impl Window {
@@ -107,7 +108,7 @@ impl Window {
             termination_signals_seen: 0,
             is_closing_for_signal: false,
             failed_writes_told: 0,
-            last_failed_write: String::new(),
+            last_failed_write: None,
             failed_writes_to_show: Vec::new(),
         }
     }
@@ -180,10 +181,10 @@ impl Window {
     /// Keeps a failed write for the frame's last notice, and forgets a close that waited for the
     /// writing. The window then stays open with the failure on screen, and the user's next close
     /// is a first close again.
-    pub(crate) fn keep_failed_write(&mut self, text: String) {
+    pub(crate) fn keep_failed_write(&mut self, failure: Failure) {
         self.failed_writes_told += 1;
-        self.last_failed_write.clone_from(&text);
-        self.failed_writes_to_show.push(text);
+        self.last_failed_write = Some(failure.clone());
+        self.failed_writes_to_show.push(failure);
         self.close_requests = 0;
     }
 
@@ -192,14 +193,14 @@ impl Window {
         self.failed_writes_told
     }
 
-    /// Returns the failed write told last, empty when none was.
-    pub(crate) fn last_failed_write(&self) -> &str {
-        &self.last_failed_write
+    /// Returns the failed write told last, or `None` when none was.
+    pub(crate) fn last_failed_write(&self) -> Option<&Failure> {
+        self.last_failed_write.as_ref()
     }
 
     /// Takes the failed writes kept since the last call, each to be shown as a message of its
     /// own.
-    pub(crate) fn take_failed_writes_to_show(&mut self) -> Vec<String> {
+    pub(crate) fn take_failed_writes_to_show(&mut self) -> Vec<Failure> {
         std::mem::take(&mut self.failed_writes_to_show)
     }
 
@@ -294,9 +295,10 @@ impl crate::App {
     /// Tells a failed write of the user's files or of Glimt's own, on stderr and in the window,
     /// and keeps the window open when a close waited for the writing. The window shows it as
     /// the last notice of the frame, so that no notice given later in the frame hides it.
-    pub(crate) fn tell_failed_write(&mut self, text: String) {
-        eprintln!("{text}");
-        self.window.keep_failed_write(text);
+    pub(crate) fn tell_failed_write(&mut self, failure: impl Into<Failure>) {
+        let failure = failure.into();
+        failure.print();
+        self.window.keep_failed_write(failure);
     }
 
     /// Answers the close that `guard_close` saw. A kiosk cancels it. Otherwise it waits while
@@ -1302,7 +1304,7 @@ mod tests {
         assert!(app.run_in_background(ctx, Vec::new(), move || {
             let _ = wait.recv();
             let failure = "Could not crop the image: test".to_owned();
-            Some(crate::support::threads::Told::FailedWrite(failure))
+            Some(crate::support::threads::Told::FailedWrite(failure.into()))
         }));
         go
     }
@@ -1326,7 +1328,12 @@ mod tests {
             assert!(!close_pass(&mut app, &ctx, false));
         }
         let shown = app.window.take_failed_writes_to_show();
-        assert_eq!(shown, ["Could not crop the image: test"]);
+        assert_eq!(
+            shown,
+            [crate::viewer::view::Failure::from(
+                "Could not crop the image: test"
+            )]
+        );
         assert_eq!(app.window.close_requests, 0);
         std::fs::remove_dir_all(dir).unwrap();
     }

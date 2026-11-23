@@ -569,7 +569,7 @@ impl crate::App {
                 msg += tr("; the sidecars are still being written");
             }
             Some(match any_failed {
-                true => crate::support::threads::Told::FailedWrite(msg),
+                true => crate::support::threads::Told::FailedWrite(msg.into()),
                 false => crate::support::threads::Told::Notice(msg),
             })
         });
