@@ -24,8 +24,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the new names, which every version since 0.80.0 reads.
 - Tools are no longer read from the old folder `~/.local/share/glimt/plugins`, nor added formats
   from `~/.local/share/glimt/decoders` or with the old header `[Glimt Decoder]`. Glimt leaves
-  those folders as they are: move their desktop files into `tools` and `formats`, and give an
-  added format the header `[Glimt Format]`.
+  those folders as they are, and while they hold desktop files it says so at each start and in
+  `glimt --check-config`: move their desktop files into `tools` and `formats`, and give an added
+  format the header `[Glimt Format]`.
 
 ## [0.95.2] - 2026-11-23
 
