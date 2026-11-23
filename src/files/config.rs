@@ -493,7 +493,6 @@ impl Config {
         c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
-        old_values_mapped(&mut c);
         unknown_choices_reset(&mut c);
         c
     }
@@ -560,7 +559,6 @@ impl Config {
                     }
                 }
                 Some(true) => {
-                    old_values_mapped(&mut alone);
                     let wanted = value_in(&alone.to_text(), now);
                     let wrong = match choices().iter().any(|c| c.0 == now) {
                         true => "is not a value it takes",
@@ -852,14 +850,6 @@ pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
     })
 }
 
-/// Maps the old values in `c` to what they are now: the old name of a built-in theme
-/// (`RENAMED_THEMES`). `parse`,
-/// `parse_checked` and `merged` all map them here, so a file with an old value is read without
-/// a problem, and a save writes the new value.
-fn old_values_mapped(c: &mut Config) {
-    c.theme = crate::ui::theme::theme_name_now(&c.theme).to_owned();
-}
-
 /// Returns the settings that take one of a few values named outside `NAMED`, each with the
 /// values of the table it is read by. They are written by name, so their order does not count.
 /// `Config::parse` puts a value they do not take back to its default, and the frozen names are
@@ -978,20 +968,7 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
             .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
             .collect()
     };
-    let (saved, mut theirs) = (pairs(saved), pairs(on_disk));
-    // The old values on disk are mapped as `Config::parse` maps them, so a save writes the new
-    // ones and the old ones are read only once. This is the old name of a theme.
-    let mut disk = Config::default();
-    for (key, value) in &theirs {
-        disk.set(key, value);
-    }
-    let before = disk.to_text();
-    old_values_mapped(&mut disk);
-    for (was, now) in before.lines().zip(disk.to_text().lines()) {
-        if let Some((key, value)) = now.split_once('=').filter(|_| was != now) {
-            theirs.insert(key.to_owned(), value.to_owned());
-        }
-    }
+    let (saved, theirs) = (pairs(saved), pairs(on_disk));
     let line = |l: &str| -> String {
         let value = l
             .split_once('=')
@@ -1404,9 +1381,6 @@ mod tests {
         ] {
             assert!(text.contains(line), "{text}");
         }
-        // A built-in theme is read by its old name too, and written by its new one.
-        let theme = Config::parse("theme=Contrast").to_text();
-        assert!(theme.contains("\ntheme=High Contrast Light\n"), "{theme}");
         let (_, problems) = Config::parse_checked("slideshow_fade=9\nfit_mode=wide");
         assert!(problems[0].contains("long is used") && problems[1].contains("not a value"));
         for (k, (name, _, _)) in super::FADES.iter().enumerate() {
@@ -1528,26 +1502,6 @@ mod tests {
                 .filter_map(|l| l.strip_prefix(prefix.as_str()))
                 .collect();
             assert_eq!(pinned, values, "{key} gains values only at its end");
-        }
-    }
-
-    /// A built-in theme's old name is no problem for --check-config or the window, and a save
-    /// writes the new name in its place. Before, `parse_checked` told `theme=Contrast` as out of
-    /// range at every start, and a save kept the old name, as it was the same value there.
-    #[test]
-    fn an_old_theme_name_is_read_without_a_problem_and_saved_new() {
-        use super::Config;
-        for (old, new) in crate::ui::theme::RENAMED_THEMES {
-            let text = format!("theme={old}\n");
-            let (config, problems) = Config::parse_checked(&text);
-            assert_eq!(
-                (config.theme.as_str(), problems),
-                (new, Vec::<String>::new())
-            );
-            let saved = config.to_text();
-            let written = super::merged(&saved, &saved, &text);
-            assert!(written.contains(&format!("theme={new}\n")), "{written}");
-            assert!(!written.contains(&format!("theme={old}\n")), "{written}");
         }
     }
 
@@ -1687,19 +1641,11 @@ mod tests {
         }
     }
 
-    /// No old name in a table of old names is a setting, a window state key or a --remote
-    /// command now. One given an old name later would otherwise be read as the name it was
-    /// renamed to, and never under its own.
+    /// No old name in `RENAMED_COMMANDS` is a --remote command now. One given an old name later
+    /// would otherwise be read as the name it was renamed to, and never under its own.
     #[test]
     fn old_names_are_not_names_now() {
         use crate::features::remote::{COMMANDS, RENAMED_COMMANDS};
-        let now = names_now();
-        for (old, _) in crate::ui::theme::RENAMED_THEMES {
-            assert!(
-                !now.contains(&format!("value theme {old}")),
-                "{old} is an old name in RENAMED_THEMES, so it is no theme now"
-            );
-        }
         // The commands are read from `COMMANDS` itself, which also has the release tests' "where".
         for (old, _) in RENAMED_COMMANDS {
             assert!(
@@ -1724,11 +1670,6 @@ mod tests {
             "remote" => &crate::features::remote::RENAMED_COMMANDS,
             "script" => &crate::ui::actions::RENAMED_ACTIONS,
             _ => &[],
-        };
-        // A built-in theme renamed in RENAMED_THEMES is the value of the theme setting now.
-        let rest = match (kind, name) {
-            ("value", "theme") => crate::ui::theme::theme_name_now(rest),
-            _ => rest,
         };
         match table.iter().find(|r| r.0 == name) {
             Some((_, new)) if rest.is_empty() => format!("{kind} {new}"),

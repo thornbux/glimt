@@ -169,7 +169,6 @@ value theme Light
 value theme Dark
 value theme Nord
 value theme High Contrast
-value theme Contrast
 value language cs
 value language da
 value language de

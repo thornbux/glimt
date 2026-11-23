@@ -75,10 +75,6 @@ pub(crate) const BUILT_IN: [(&str, &str); 6] = [
     ),
 ];
 
-/// The built-in themes renamed in 0.76.0, as (old name, new name). The theme setting is read by
-/// the old name too, forever, and only the new one is written.
-pub(crate) const RENAMED_THEMES: [(&str, &str); 1] = [("Contrast", "High Contrast Light")];
-
 /// The theme for those who ask the desktop for high contrast.
 pub const HIGH_CONTRAST: &str = "High Contrast";
 
@@ -360,32 +356,10 @@ pub fn own_themes_dir() -> Option<std::path::PathBuf> {
     crate::files::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
 }
 
-/// Returns the name a built-in theme has now: the new name of one renamed in `RENAMED_THEMES`,
-/// and `name` itself for every other. A theme file of the user's own by an old name keeps its
-/// name, because `load` took the user's file before the rename too, and it stays the user's.
-pub fn theme_name_now(name: &str) -> &str {
-    let has_own_file = |name: &str| {
-        own_themes_dir().is_some_and(|d| {
-            crate::files::file_io::is_surely_file(&d.join(format!("{name}.theme")))
-        })
-    };
-    name_now_unless_own(name, has_own_file)
-}
-
-/// Returns `theme_name_now`'s answer, with `has_own_file` saying whether the user has a theme
-/// file of that name.
-fn name_now_unless_own(name: &str, has_own_file: impl Fn(&str) -> bool) -> &str {
-    match RENAMED_THEMES.iter().find(|r| r.0 == name) {
-        Some(renamed) if !has_own_file(name) => renamed.1,
-        _ => name,
-    }
-}
-
-/// Whether `name` is one of the themes built in, or the old name of one in `RENAMED_THEMES`.
-/// Save as Theme refuses both, because a new theme saved by an old name would not be told
-/// apart from a settings file of an older Glimt that meant the built-in one.
+/// Whether `name` is one of the themes built in. Save as Theme refuses it, because a file of
+/// that name would hide the built-in theme for good.
 pub fn is_built_in(name: &str) -> bool {
-    BUILT_IN.iter().any(|b| b.0 == name) || RENAMED_THEMES.iter().any(|r| r.0 == name)
+    BUILT_IN.iter().any(|b| b.0 == name)
 }
 
 /// Returns a theme's name as menus show it. A built-in theme's name is in the language in use.
@@ -594,17 +568,10 @@ fn parse_accent(text: &str) -> Option<egui::Color32> {
 
 #[cfg(test)]
 mod tests {
-    /// A theme's old name is the built-in theme's new name, unless the user has a theme file of
-    /// that name, which stays the user's. Save as Theme takes no old name. Before, a theme of
-    /// the user's own named Contrast was replaced by High Contrast Light at every start.
+    /// Save as Theme takes no built-in theme's name, and any other.
     #[test]
-    fn a_theme_of_the_users_own_keeps_an_old_name() {
-        for (old, new) in super::RENAMED_THEMES {
-            assert_eq!(super::name_now_unless_own(old, |_| false), new);
-            assert_eq!(super::name_now_unless_own(old, |n| n == old), old);
-            assert!(super::is_built_in(old));
-        }
-        assert_eq!(super::name_now_unless_own("Mine", |_| false), "Mine");
+    fn a_built_in_name_is_told_from_an_own_one() {
+        assert!(super::is_built_in("High Contrast Light"));
         assert!(!super::is_built_in("Mine"));
     }
 

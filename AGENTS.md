@@ -188,20 +188,14 @@ No test pins the following, so they are kept by hand:
 
 A frozen name that misleads its reader is renamed only through a table of old names. There is
 one table for each kind of name, beside the code that reads it: `actions::RENAMED_ACTIONS`
-(for `keys=` and `--remote run`), `remote::RENAMED_COMMANDS`, `theme::RENAMED_THEMES` and
-`tools::RENAMED_FOLDERS`.
+(for `keys=` and `--remote run`), `remote::RENAMED_COMMANDS` and `tools::RENAMED_FOLDERS`.
 
 - Glimt reads the old name too, forever, and writes only the new one. When a settings or state
   file holds both, the new one counts.
 - The old line stays in the frozen file and the new name is added at its end. The tests accept
   an old name only when its table maps it to a name that is read now.
-- `theme::RENAMED_THEMES` is for the built-in themes, as the theme setting stores them. A theme
-  file of the user's own keeps its old name, and Save as Theme refuses an old name.
 - `tools::RENAMED_FOLDERS` is for the folders of tools and added formats. Glimt creates them
   only under the new name.
-- Every old value of a renamed theme is mapped in one function,
-  `config::old_values_mapped`, which `Config::parse`, `parse_checked` and the save's `merged`
-  all call.
 
 ## Language
 
