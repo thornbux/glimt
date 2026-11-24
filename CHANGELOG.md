@@ -29,6 +29,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
   20 ms later (#293).
 - With the Fastest preset, the image the window waits for on a share no longer waits up to
   five seconds behind the images read ahead: one decoder is always left for it (#295).
+- With Include Subfolders, a change in one subfolder that holds a link to another part of the
+  tree, or to its top, no longer reads that part again, and the folders that Auto Refresh
+  watches no longer grow at each change. What the watcher saw change between two readings of a
+  tree no longer grows either (#290, #291).
+- A collection sorted by date or EXIF on a share no longer holds up the slideshow's next image
+  while it is read again: its looks at the photos wait for the image, as a folder's do (#286).
+- The thumbnails of a folder whose share stopped answering are no longer queued again each
+  time the folder is opened while the share is down (#262).
+- Copy for Sharing with neutral names into a folder that can be written to but not read, such
+  as a drop box, no longer looks at every earlier copy's name, which took minutes on a share
+  (#220).
 
 ## [0.97.0] - 2026-11-24
 
