@@ -110,8 +110,13 @@ fn plural_form(code: &str, n: usize) -> usize {
 
 /// Use the language of `setting` (a code of `LANGUAGES`, "en"), or with "" the system's.
 pub fn set_language(setting: &str) {
-    *crate::support::threads::write_even_if_poisoned(&CURRENT_TRANSLATION) =
-        chosen_translation(setting);
+    let chosen = chosen_translation(setting);
+    let mut current = crate::support::threads::write_even_if_poisoned(&CURRENT_TRANSLATION);
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(
+        current.map(std::ptr::from_ref) != chosen.map(std::ptr::from_ref),
+    );
+    *current = chosen;
 }
 
 /// Makes `tr` on this thread use the language of `setting`, as `set_language` does for the
@@ -699,19 +704,24 @@ msgstr[1] "bilder"
     #[test]
     fn only_norwegian_bokmal_is_read_by_a_native_reader() {
         for (code, _, _, po) in super::LANGUAGES {
-            let lines: Vec<&str> = po.lines().collect();
-            let entries = (1..lines.len()).filter(|&i| lines[i].starts_with("msgid "));
-            let entries = entries.filter(|&i| lines[i] != "msgid \"\"");
-            let fuzzy = |i: usize| lines[i - 1] == "#, fuzzy";
-            let wrong: Vec<&str> = match *code == "nb" {
-                true => entries.filter(|&i| fuzzy(i)).map(|i| lines[i]).collect(),
-                false => entries.filter(|&i| !fuzzy(i)).map(|i| lines[i]).collect(),
-            };
+            let wrong = wrongly_marked(po, *code == "nb");
             assert!(
                 wrong.is_empty(),
                 "{code}: wrongly marked or unmarked: {wrong:?}"
             );
         }
+    }
+
+    /// The guard above sees every entry but the header, also one whose msgid is wrapped over
+    /// lines (`msgid ""` and then its text), and a fuzzy mark among other flags or above another
+    /// comment. Before, it took every `msgid ""` for the header and passed a wrapped text.
+    #[test]
+    fn the_fuzzy_guard_sees_every_entry_but_the_header() {
+        let po = "msgid \"\"\nmsgstr \"\"\n\"Language: de\\n\"\n\n\
+                  #: src/a.rs\nmsgid \"\"\n\"Long \"\n\"text\"\nmsgstr \"Langer Text\"\n\n\
+                  #, fuzzy, c-format\n#: src/b.rs\nmsgid \"Two\"\nmsgstr \"Zwei\"\n";
+        assert_eq!(wrongly_marked(po, false), ["msgid \"\""]);
+        assert_eq!(wrongly_marked(po, true), ["msgid \"Two\""]);
     }
 
     /// Every translation has every text and noun of the Norwegian one, which each new text
@@ -1094,5 +1104,28 @@ msgstr[1] "bilder"
         for bytes in crate::support::test_support::broken(seed.as_bytes()) {
             super::parse(&String::from_utf8_lossy(&bytes));
         }
+    }
+
+    /// Returns the first line of each entry of `po` that is marked fuzzy when `read_by_native`,
+    /// or not marked when not. The header, the entry whose msgid is empty also after its
+    /// continued lines, is no text and is left out. The mark is found among all the comment
+    /// lines above the msgid, also with other flags beside it.
+    fn wrongly_marked(po: &str, read_by_native: bool) -> Vec<&str> {
+        let lines: Vec<&str> = po.lines().collect();
+        let is_header = |i: usize| {
+            lines[i] == "msgid \"\"" && !lines.get(i + 1).is_some_and(|l| l.starts_with('"'))
+        };
+        let is_fuzzy = |i: usize| {
+            let comments = lines[..i].iter().rev().take_while(|l| l.starts_with('#'));
+            let flags = comments.filter_map(|l| l.strip_prefix("#,"));
+            flags
+                .flat_map(|f| f.split(','))
+                .any(|f| f.trim() == "fuzzy")
+        };
+        (0..lines.len())
+            .filter(|&i| lines[i].starts_with("msgid ") && !is_header(i))
+            .filter(|&i| is_fuzzy(i) == read_by_native)
+            .map(|i| lines[i])
+            .collect()
     }
 }

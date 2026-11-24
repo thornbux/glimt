@@ -98,10 +98,6 @@ pub const INPUT_PROFILES: [(&str, &str, BuiltIn); 3] = [
 /// at once are set one after the other.
 static PROFILE_CHANGES: Mutex<()> = Mutex::new(());
 
-/// Held by the tests that change the colour settings or depend on them, as tests run at once.
-#[cfg(test)]
-pub static COLOUR_TEST: Mutex<()> = Mutex::new(());
-
 /// An Adobe RGB profile, for images whose EXIF says Adobe RGB without carrying one.
 pub static ADOBE_RGB: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
     moxcms::ColorProfile::new_adobe_rgb()
@@ -426,7 +422,26 @@ pub fn is_like_srgb(profile: &moxcms::ColorProfile) -> bool {
 /// Change the colour settings with `change`, and make the transforms again.
 pub fn set_colour(change: impl FnOnce(&mut Colour)) {
     let mut c = crate::support::threads::write_even_if_poisoned(&COLOUR);
+    #[cfg(not(test))]
     change(&mut c);
+    // In tests the change is made on a copy first, so that one that the shared settings may
+    // not take changes nothing (`shared_setting_set`). Two profiles of the same kind are not
+    // told apart.
+    #[cfg(test)]
+    {
+        let set = |c: &Colour| {
+            (
+                c.screen_path.clone(),
+                c.input.is_some(),
+                c.use_image_profile,
+                c.intent,
+            )
+        };
+        let mut changed = c.clone();
+        change(&mut changed);
+        crate::support::test_support::shared_setting_set(set(&changed) != set(&c));
+        *c = changed;
+    }
     c.transforms = Arc::default();
 }
 
@@ -704,12 +719,28 @@ where
     pixels.into()
 }
 
+/// Turns colour management on or off for the decode and thumbnail threads.
+pub fn use_color_management(on: bool) {
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(
+        COLOR_MANAGEMENT.load(Ordering::Relaxed) != on,
+    );
+    COLOR_MANAGEMENT.store(on, Ordering::Relaxed);
+}
+
+/// Makes `filter`, an index into `FILTERS`, View → Filter for the decode and thumbnail threads.
+pub fn use_view_filter(filter: usize) {
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(VIEW_FILTER.load(Ordering::Relaxed) != filter);
+    VIEW_FILTER.store(filter, Ordering::Relaxed);
+}
+
 /// Sets up the colour settings in effect at start. Returns the screen profile's or input profile's
 /// error, if either could not be read. The wait for the desktop's profile starts later, where
 /// colord is asked (`start_screen_wait`).
 pub(crate) fn set_up_colour(config: &Config) -> Option<crate::viewer::view::Failure> {
-    COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
-    VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);
+    use_color_management(config.color_management);
+    use_view_filter(config.view_filter);
     let error = (set_screen(&config.screen_profile))
         .and_then(|_| set_input(&config.input_profile))
         .err();
@@ -738,7 +769,7 @@ mod tests {
     /// profile is set.
     #[test]
     fn a_profile_is_set_in_the_background() {
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         let junk =
             std::env::temp_dir().join(format!("glimt-test-icc-chosen-{}", std::process::id()));
         std::fs::write(&junk, b"no profile").unwrap();
@@ -848,7 +879,7 @@ mod tests {
     /// that is no profile leaves the one there; an sRGB screen profile counts as none.
     #[test]
     fn shows_through_a_screen_profile() {
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         let dir = std::env::temp_dir().join(format!("glimt-screen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let write = |name: &str, bytes: Vec<u8>| {
@@ -941,7 +972,7 @@ mod tests {
     #[test]
     fn rendering_intent_picks_its_table() {
         use moxcms::{LutDataType, LutStore, LutType, LutWarehouse, Matrix3d};
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         // RGB to XYZ through a 2×2×2 grid, red and blue swapped in the colorimetric one.
         let table = |swap: bool| {
             let mut clut = Vec::new();
@@ -994,7 +1025,7 @@ mod tests {
     #[test]
     fn a_profile_that_does_not_fit_the_pixels_is_none() {
         use moxcms::{DataColorSpace, Layout, LutDataType, LutStore, LutType, LutWarehouse};
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         // CMYK to XYZ through a 2×2×2×2 grid: a real CMYK profile, which moxcms makes a
         // transform from.
         let mut profile = moxcms::ColorProfile::default();
@@ -1045,7 +1076,7 @@ mod tests {
     #[test]
     fn hands_out_the_files_colours_whatever_the_view() {
         use std::sync::atomic::Ordering;
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         let grey = || {
             image::DynamicImage::from(image::RgbaImage::from_pixel(
                 1,
@@ -1103,7 +1134,7 @@ mod tests {
             );
             PARSED.store(true, Ordering::Relaxed);
         }
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         // A profile no other test has, so that it is not in the cache already.
         let mut p3 = moxcms::ColorProfile::new_display_p3().encode().unwrap();
         p3[31] = 177;
@@ -1126,7 +1157,7 @@ mod tests {
             );
             READ.store(true, Ordering::Relaxed);
         }
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         super::READING.set(Some(check));
         super::colour_source(std::path::Path::new("/nonexistent/glimt.jpg"));
         super::READING.set(None);
@@ -1147,7 +1178,7 @@ mod tests {
             );
             READ.store(true, Ordering::Relaxed);
         }
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         *lock_even_if_poisoned(&super::SCREEN_WAIT.0) =
             Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
         super::READING.set(Some(check));
@@ -1161,7 +1192,7 @@ mod tests {
     /// settings are set up before the window opens, which it outlasted.
     #[test]
     fn the_screen_wait_starts_where_colord_is_asked() {
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         *lock_even_if_poisoned(&super::SCREEN_WAIT.0) = None;
         let config = crate::files::config::Config {
             color_management: true,
@@ -1179,7 +1210,7 @@ mod tests {
     #[test]
     fn waits_for_the_screen_profile_until_the_deadline() {
         // The test above sets the deadline too.
-        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let _held = crate::support::test_support::change_shared_settings();
         let start = std::time::Instant::now();
         *lock_even_if_poisoned(&super::SCREEN_WAIT.0) =
             Some(start + std::time::Duration::from_millis(40));

@@ -4,9 +4,7 @@
 use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_own_folder, open_url};
 use crate::files::file_ops::OperationReport;
-use crate::images::colour::{
-    COLOR_MANAGEMENT, FILTERS, ProfileAsked, ProfileSet, VIEW_FILTER, set_colour, set_intent,
-};
+use crate::images::colour::{FILTERS, ProfileAsked, ProfileSet, set_colour, set_intent};
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
@@ -17,7 +15,6 @@ use crate::{features::tools, files::config, files::external, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -175,7 +172,7 @@ impl crate::App {
     pub(crate) fn set_view_filter(&mut self, f: usize) {
         self.config.view_filter = f;
         self.config.save();
-        VIEW_FILTER.store(f, Ordering::Relaxed);
+        crate::images::colour::use_view_filter(f);
         self.redecode();
     }
 
@@ -183,7 +180,7 @@ impl crate::App {
     pub(crate) fn set_color_management(&mut self, on: bool) {
         self.config.color_management = on;
         self.config.save();
-        COLOR_MANAGEMENT.store(on, Ordering::Relaxed);
+        crate::images::colour::use_color_management(on);
         self.redecode();
     }
 

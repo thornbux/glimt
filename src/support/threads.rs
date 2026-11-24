@@ -673,6 +673,10 @@ fn is_place_of<J>(pool: &WorkerPool<J>, place: usize, start: &JobStart) -> bool 
 
 pub(crate) fn set_cpu_use(level: usize) {
     let _lock = lock_even_if_poisoned(&CPU_CHANGED.0);
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(
+        CPU_USE_LEVEL.load(Ordering::Relaxed) != level,
+    );
     CPU_USE_LEVEL.store(level, Ordering::Relaxed);
     CPU_CHANGED.1.notify_all();
 }
