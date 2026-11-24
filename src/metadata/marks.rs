@@ -478,16 +478,15 @@ pub fn move_old_marks_file() -> Option<String> {
 }
 
 /// Moves the marks file `old` to `new` when only `old` is there, and leaves a link to `new` at
-/// `old` (`link_old_name`). It holds the lock of each meanwhile, which every window of every
-/// version takes to write the file (`lock_beside`), so that no window writes either file during
-/// the move. On one disk the move is a rename, and to another a copy that is on disk before the
-/// old file is removed (`put_file`), so the marks are never lost. When both are there, the new
-/// one is used and the old one is left as it is, unless both hold the same marks. A move that
-/// failed is told, and the old file is used where it is.
+/// `old` (`link_old_name`). It holds the lock that every window takes to write `old`
+/// (`marks_lock`), so that no window writes it during the move. It never writes over `new`, so
+/// it needs no lock of that. On one disk the move is a rename, and to another a copy that is on
+/// disk before the old file is removed (`put_file`), so the marks are never lost. When both are
+/// there, the new one is used and the old one is left as it is, unless both hold the same
+/// marks. A move that failed is told, and the old file is used where it is.
 fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
-    use crate::files::file_io::{is_surely_gone, lock_beside, lock_or_tell};
-    // One file under both names has nothing to move, and its one lock, taken twice by this
-    // thread, would wait for itself at every start.
+    use crate::files::file_io::{is_surely_gone, lock_or_tell};
+    // One file under both names has nothing to move.
     if is_surely_gone(old) || is_one_file(old, new) {
         return MarksMove::Done;
     }
@@ -507,12 +506,10 @@ fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
     if let Err(e) = std::fs::create_dir_all(new.parent().unwrap_or(Path::new("."))) {
         return failed(&e);
     }
-    // The old place's lock first, which older versions take, and then the new place's. Every
-    // window that moves, and every window of this version that writes through the link at the
-    // old place (`old_lock_while_linked`), takes them in this order.
-    let _old_lock = lock_beside(old).and_then(|lock| lock_or_tell(&lock));
-    let _new_lock = lock_beside(new).and_then(|lock| lock_or_tell(&lock));
-    // Another window may have moved it while this one waited for the locks.
+    // One lock only: two, of names that cannot be told to be one file, are one lock when they
+    // are, and the second would wait for the first for good.
+    let _lock = marks_lock(old).and_then(|lock| lock_or_tell(&lock));
+    // Another window may have moved it while this one waited for the lock.
     if is_surely_gone(old) || is_one_file(old, new) {
         return MarksMove::Done;
     }
@@ -539,11 +536,11 @@ fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
 
 /// Leaves a link to `new`, where the marks file is now, at `old`, its name in Glimt 0.95 and
 /// older, which the move has just emptied. A window of those versions that is still open writes
-/// through it, as their `replace_file` writes the file a link points to, under the lock beside
-/// `old`, which this version then takes too (`old_lock_while_linked`). Without the link, such a
+/// through it, as their `replace_file` writes the file a link points to. Without the link, such a
 /// window would make a new file at `old` for a mark set, and its moves and deletes, which make
-/// no file, would be lost. A link that cannot be made is told. Returns `Done`, as the marks are
-/// at `new` either way.
+/// no file, would be lost. Glimt itself writes through the link under the lock of `new`
+/// (`marks_lock`). A link that cannot be made is told. Returns `Done`, as the marks are at `new`
+/// either way.
 fn link_old_name(old: &Path, new: &Path) -> MarksMove {
     #[allow(clippy::disallowed_methods)] // Glimt's own: the marks file's old name, under its lock
     let linked = std::os::unix::fs::symlink(new, old);
@@ -571,17 +568,12 @@ fn is_link_to(old: &Path, new: &Path) -> bool {
     std::fs::read_link(old).is_ok_and(|target| target == new)
 }
 
-/// Takes the lock beside `old`, the marks file's name in Glimt 0.95 and older, while that name
-/// is the link to `file` that the move left (`link_old_name`). A window of those versions writes
-/// the file through the link under that lock, so the windows of both versions keep out of each
-/// other's writes. It is taken before the lock beside `file`, in the order of `move_marks_file`.
-/// Returns `None`, and takes nothing, when `old` is no such link.
-fn old_lock_while_linked(old: &Path, file: &Path) -> Option<std::fs::File> {
-    use crate::files::file_io::{lock_beside, lock_or_tell};
-    match is_link_to(old, file) {
-        true => lock_or_tell(&lock_beside(old)?),
-        false => None,
-    }
+/// Returns the lock file of the marks file `file`, beside the file that its name leads to now,
+/// through every link and linked folder (`real_dir`). So every window locks the one file: by
+/// its new name, through the link the move left at the old one, or at the old name where a
+/// move failed. Returns `None` when `file` has no name.
+fn marks_lock(file: &Path) -> Option<PathBuf> {
+    crate::files::file_io::lock_beside(&crate::model::listing::real_dir(file))
 }
 
 /// Returns that the marks file of Glimt 0.95 and older is left beside the marks file in its
@@ -894,9 +886,23 @@ fn write(file: &Path, changes: Vec<Edit>) {
         text.extend(unread_lines(bytes));
         (text, (ours, refused))
     };
-    // A window of Glimt 0.95 or older writes this file through the link at its old name.
-    let _old_lock = old_marks_file().and_then(|old| old_lock_while_linked(&old, file));
-    let result = crate::files::file_io::edit_shared(file, edit);
+    // Under the lock of the file that the name leads to (`marks_lock`). When it leads to another
+    // file once the lock is had, as another window moved it meanwhile, the edit is made again
+    // under the lock of that file.
+    let real_file = || crate::model::listing::real_dir(file);
+    let result = loop {
+        let real = real_file();
+        let edited = crate::files::file_io::edit_shared(&real, |bytes| match real_file() == real {
+            true => {
+                let (text, kept) = edit(bytes);
+                (text, Some(kept))
+            }
+            false => (bytes.to_vec(), None),
+        });
+        if let Some(kept) = edited.transpose() {
+            break kept;
+        }
+    };
     // The first file refused is told once the lock is let go.
     let result = result.map(|(ours, refused)| {
         if let Some(refused) = refused {
@@ -1132,13 +1138,11 @@ mod tests {
     }
 
     /// After the move, a window of Glimt 0.95 that is still open writes the one marks file
-    /// through the link at the old name, under the old name's lock, which this version takes
-    /// too. A later start takes the link as moved, also while no file is at the new name, and
-    /// the same marks under both names become the link.
+    /// through the link at the old name. A later start takes the link as moved, also while no
+    /// file is at the new name, and the same marks under both names become the link.
     #[test]
     fn a_window_of_0_95_writes_the_moved_marks_file_through_the_link() {
-        use super::{Edit, MarksMove, move_marks_file, old_lock_while_linked};
-        use crate::files::file_io::{lock_beside, open_if_unlocked};
+        use super::{Edit, MarksMove, move_marks_file};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-marks-link-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1154,25 +1158,12 @@ mod tests {
             "2\t0\t/photos/b.jpg\n"
         );
         assert_eq!(std::fs::read_link(&old).unwrap(), new);
-        // The lock of the old name is a file of its own, which 0.95 opens without a link, and
-        // this version holds it while it writes through the link.
-        let old_lock = lock_beside(&old).unwrap();
-        assert!(!std::fs::symlink_metadata(&old_lock).unwrap().is_symlink());
-        let held = old_lock_while_linked(&old, &new);
-        assert!(held.is_some());
-        assert!(open_if_unlocked(&old_lock, false).is_err());
-        drop(held);
-        assert!(open_if_unlocked(&old_lock, false).is_ok());
         // A later start, also with no file at the new name.
         assert_eq!(move_marks_file(&old, &new), MarksMove::Done);
         std::fs::remove_file(&new).unwrap();
         assert_eq!(move_marks_file(&old, &new), MarksMove::Done);
         assert_eq!(std::fs::read_link(&old).unwrap(), new);
         assert!(crate::files::file_io::is_surely_gone(&new));
-        // No lock is taken through a name that is no such link.
-        std::fs::remove_file(&old).unwrap();
-        std::fs::write(&old, "2\t0\t/photos/b.jpg\n").unwrap();
-        assert!(old_lock_while_linked(&old, &new).is_none());
         // The same marks under both names, as a backup copied back leaves them.
         std::fs::write(&new, "2\t0\t/photos/b.jpg\n").unwrap();
         assert_eq!(move_marks_file(&old, &new), MarksMove::Done);
@@ -1198,6 +1189,79 @@ mod tests {
             assert_eq!(move_marks_file(&old, &file), MarksMove::Done);
             assert_eq!(std::fs::read_to_string(&file).unwrap(), line);
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// When $XDG_STATE_HOME is a link to $XDG_DATA_HOME and the marks file cannot be looked at
+    /// (here a link to itself), the move cannot tell the two names are one file. It takes the
+    /// one lock all the same and does not wait for itself, and it changes nothing.
+    #[test]
+    fn a_marks_file_that_cannot_be_looked_at_does_not_hang_the_move() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-eloop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("data/glimt");
+        std::fs::create_dir_all(&data).unwrap();
+        std::os::unix::fs::symlink(&data, dir.join("state")).unwrap();
+        let file = data.join("marks");
+        std::os::unix::fs::symlink("marks", &file).unwrap();
+        let (old, new) = (dir.join("state/marks"), file.clone());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || sender.send(super::move_marks_file(&old, &new)).unwrap());
+        let moved = receiver.recv_timeout(std::time::Duration::from_secs(10));
+        assert!(moved.is_ok(), "the move waits for its own lock");
+        assert_eq!(
+            std::fs::read_link(&file).unwrap(),
+            std::path::Path::new("marks")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Every window locks the one marks file by the file its name leads to. A window whose move
+    /// failed writes it by its old name, and when another window has moved it meanwhile, it
+    /// writes through the link under the lock that the windows writing the new name take.
+    #[test]
+    fn every_window_locks_the_one_marks_file() {
+        use crate::files::file_io::{lock_beside, open_and_lock};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (old, new) = (dir.join("state/marks"), dir.join("data/glimt/marks"));
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        std::fs::write(&old, "2\t0\t/photos/b.jpg\n").unwrap();
+        let old_lock = open_and_lock(&lock_beside(&old).unwrap()).unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let written = old.clone();
+        std::thread::spawn(move || {
+            super::write(
+                &written,
+                vec![super::Edit::Forget(vec!["/photos/b.jpg".into()], None)],
+            );
+            sender.send(()).unwrap();
+        });
+        let wait = std::time::Duration::from_millis(300);
+        assert!(
+            receiver.recv_timeout(wait).is_err(),
+            "written under no lock"
+        );
+        // Another window moves the file while the write waits, and writes the new name.
+        std::fs::rename(&old, &new).unwrap();
+        std::os::unix::fs::symlink(&new, &old).unwrap();
+        let new_lock = open_and_lock(&lock_beside(&new).unwrap()).unwrap();
+        drop(old_lock);
+        assert!(
+            receiver.recv_timeout(wait).is_err(),
+            "written under the old name's lock"
+        );
+        drop(new_lock);
+        assert!(
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .is_ok()
+        );
+        assert_eq!(std::fs::read_to_string(&new).unwrap(), "");
+        assert_eq!(std::fs::read_link(&old).unwrap(), new);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
