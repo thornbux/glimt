@@ -195,8 +195,20 @@ A log no window holds locked was cut short. For each step, the start looks at th
   volume at the path now, as another card in the same reader, or no volume found now, means
   the start cannot tell: the step is left for a later start, and the log stays
   (#278). A file at a Move's old name on another card does
-  not count as the one that stayed. Without a `volume` record (a share, FUSE without a block
-  device, tmpfs, the Flatpak's sandbox, or a log of Glimt 0.94 or older) the device alone is compared, as before (#266). The
+  not count as the one that stayed. `/dev/disk/by-uuid` is read once for each log, and the
+  volume it names for a device is looked up again by its own name before a folder counts as
+  on it, so that a card swapped during the start is not taken for the one noted (#284). An
+  entry there that cannot be read leaves the whole folder unread (#283).
+- **A `folder` record without a `volume` record** (a share, FUSE without a block device, tmpfs,
+  the Flatpak's sandbox, or a log of Glimt 0.94 or older) is told by its device and inode. On
+  a block device (a disk, card or stick, whose number the next card in the same reader or
+  stick at the same port gets), the device alone tells nothing: only the folder's own inode,
+  where one was noted, counts, and a folder above it that is still there, or a FAT card's
+  folder, cannot tell (#179, #266, #270). A share's or tmpfs's device number is its own, and
+  is compared as before. One function, `journal::is_on_the_volume_noted`, answers whether a
+  folder is on the disk noted (surely, surely not, or cannot tell), and
+  `journal::is_the_folder_noted`, on top of it, whether it is the folder noted
+  (`source_rules::one_rule_tells_the_folder_a_log_noted`). The
   volume is a record of its own, not a fourth field of `folder`, because Glimt 0.93.0 and 0.94.0
   pass over a kind they do not know but drop a `folder` record with four fields.
   `statfs`'s `f_fsid` is no help here: vfat and exfat fill it from the device number.
