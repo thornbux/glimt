@@ -1003,7 +1003,7 @@ fn is_set_aside(
             Err(may_be_set_aside(e, side, aside))
         }
         // The rename surely did nothing, and nothing is at the sidecar's name.
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) if crate::files::file_io::found_nothing_at(&e, side) => Ok(false),
         Err(e) => Err(std::io::Error::new(
             e.kind(),
             format!("{}: {e}", side.display()),

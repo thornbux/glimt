@@ -1071,6 +1071,13 @@ pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
     may_have_been_done_on(e, || file_system_type(from))
 }
 
+/// Returns whether the failed rename, link or unlink from `from` that gave the error `e` surely
+/// did nothing, because nothing was at `from`: the error says that no file was there, and
+/// `may_have_been_done` does not take it for a share that did the step and lost its answer.
+pub(crate) fn found_nothing_at(e: &std::io::Error, from: &Path) -> bool {
+    e.kind() == std::io::ErrorKind::NotFound && !may_have_been_done(e, from)
+}
+
 /// Returns `may_have_been_done` for the error `e` of a step on a mount whose type `kind` gives.
 /// `kind` is asked only for ENOENT, as it reads the mount table.
 fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<String>) -> bool {
