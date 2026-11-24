@@ -16,10 +16,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   new name meanwhile is no longer taken for it; on FAT, exFAT, SMB and FUSE file systems it
   still can be. A sidecar that a share lost in a failed move or Undo from the trash is told,
   no longer reported as beside its photo, and in a move whose photo could not go back it is
-  told as at either name or at neither, no longer as at its old name. Undo from the trash remembers a photo whose way back
-  into the trash lost its answer, so a later Undo finds it, and a sidecar that is a link is no
-  longer told as left at its old name when it may have moved. A move to another disk keeps a
-  new version saved at the old name right as the copy began.
+  told as at either name or at neither, no longer as at its old name. Undo from the trash
+  remembers a photo whose way back into the trash lost its answer, so a later Undo finds it,
+  and a sidecar that is a link is no longer told as left at its old name when it may have
+  moved. A move to another disk keeps a new version saved at the old name right as the copy
+  began.
 - A job log kept for a later start and written anew no longer forgets the older log it was
   itself written from. When the start had failed to remove that older log, the next start read
   it as a log of its own and gave its marks, stars and collection places again, over changes
