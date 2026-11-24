@@ -859,19 +859,36 @@ fn known_folder_id(side: &Path) -> Option<FileId> {
     })
 }
 
-/// `lock_sidecar` for many files at once, as Rename Many and a delete move a photo and then its
-/// sidecar. Each lock is taken once, because taking one twice would wait for itself. They are
-/// taken in the order of their numbers, which every Glimt and every thread takes them in, so
-/// two of these never wait for each other.
+/// `lock_sidecar` for many files at once, as a delete moves a photo and then its sidecar. Each
+/// lock is taken once, because taking one twice would wait for itself. They are taken in the
+/// order of their numbers, which every Glimt and every thread takes them in, so two of these
+/// never wait for each other.
 pub(crate) fn lock_sidecars<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<SidecarLock> {
     lock_sidecars_in(lock_dir().as_deref(), paths)
+}
+
+/// `lock_sidecars` for a few files of an operation over many, which looks at each folder once
+/// (`FolderIds`). Rename Many locks the old and the new name of one photo at a time with it.
+pub(crate) fn lock_sidecars_among<'a>(
+    paths: impl IntoIterator<Item = &'a PathBuf>,
+    folders: &mut FolderIds,
+) -> Vec<SidecarLock> {
+    let hashes = (paths.into_iter())
+        .map(|p| sidecar_hash_among(&sidecar(p), folders))
+        .collect();
+    lock_hashes(lock_dir().as_deref(), hashes)
 }
 
 fn lock_sidecars_in<'a>(
     dir: Option<&Path>,
     paths: impl IntoIterator<Item = &'a PathBuf>,
 ) -> Vec<SidecarLock> {
-    let mut hashes = sidecar_hashes(paths);
+    lock_hashes(dir, sidecar_hashes(paths))
+}
+
+/// Takes the locks of the sidecars whose hashes are `hashes` (`sidecar_hash`), each once and in
+/// the order of their numbers, as `lock_sidecars` says.
+fn lock_hashes(dir: Option<&Path>, mut hashes: Vec<u64>) -> Vec<SidecarLock> {
     hashes.sort_by_key(|&h| sidecar_lock_key(h));
     hashes.dedup_by_key(|h| sidecar_lock_key(*h));
     (hashes.iter())

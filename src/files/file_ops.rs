@@ -3623,10 +3623,10 @@ fn rename_undoable(
     job: &Job,
 ) -> RenameOutcome {
     let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
-    // The sidecars are locked before the files are checked. Another window's Rename Many holds
-    // them while it swaps names, so a check before the lock passed and then renamed the other
-    // photo once the swap was done.
-    let locks = xmp::lock_sidecars(&from);
+    // This first look leaves out the files changed already. Each file is looked at again under
+    // its sidecar's lock, right before it is renamed (`rename_files`), because another window's
+    // Rename Many may swap its name meanwhile.
+    let still_picked = |path: &Path| picked.still_the_one_picked(path);
     let left_alone: Vec<usize> = (0..from.len())
         .filter(|&k| picked.still_the_one_picked(&from[k]).is_err())
         .collect();
@@ -3637,7 +3637,7 @@ fn rename_undoable(
     let (kept_from, kept_to) = pairs.iter().cloned().unzip();
     let (result, names_known, stopped) = match pairs.is_empty() {
         true => (Ok(()), true, false),
-        false => match rename_files(kept_from, kept_to, job, locks) {
+        false => match rename_files(kept_from, kept_to, job, &still_picked) {
             Ok(()) => (Ok(()), true, false),
             Err(e) => (Err(e.text), e.names_put_back, e.stopped),
         },
@@ -3664,70 +3664,44 @@ fn rename_undoable(
 /// Renames `from` to `to` with their sidecars, all or none. It is refused when a new name is
 /// another file's. When names swap, it goes through temporary names. The plan is on disk while
 /// it runs, and a failure is undone. It never replaces a file, also not one that another
-/// program makes meanwhile. `locks` are the locks of the sidecars of `from`
-/// (`xmp::lock_sidecars`), which the caller took before it checked the files.
+/// program makes meanwhile. Each photo is checked with `still_picked` right before it is
+/// renamed, under its sidecar's lock (`rename_files_planned_in`).
 pub(crate) fn rename_files(
     from: Vec<PathBuf>,
     to: Vec<PathBuf>,
     job: &Job,
-    locks: Vec<xmp::SidecarLock>,
+    still_picked: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), RenameFailed> {
-    rename_files_planned_in(crate::files::job_log::jobs_dir(), from, to, job, locks)
+    rename_files_planned_in(
+        crate::files::job_log::jobs_dir(),
+        from,
+        to,
+        job,
+        still_picked,
+    )
 }
 
 /// Renames `from` to `to` as `rename_files` does, with the plan in the folder `plans`. Nothing
-/// is renamed when the plan cannot be written there. The sidecars are held as a sidecar write
-/// holds them (`_locks`), from before the look at which files have one. Otherwise a keyword
-/// written meanwhile would land on an old name.
+/// is renamed when the plan cannot be written there.
+///
+/// Each photo's steps and those of its sidecars come one after the other, and they are done
+/// under the sidecar locks of the photo's old and new name, as a sidecar write holds them. So
+/// another window never reads or writes a sidecar between its photo's rename and its own. Only
+/// one photo's locks are held at a time, so a share that stops answering holds up only the
+/// sidecar writes of those locks. Before, the locks of every photo were held for the whole job
+/// (#153). Under its locks, before its first step, the photo is checked to be still the one
+/// picked (`still_picked`) and to have no sidecar written since the plan was made, which would
+/// stay behind under the old name. Either stops the renames, and the steps done go back.
 fn rename_files_planned_in(
     plans: Option<PathBuf>,
-    from: Vec<PathBuf>,
-    to: Vec<PathBuf>,
+    photos_from: Vec<PathBuf>,
+    photos_to: Vec<PathBuf>,
     job: &Job,
-    _locks: Vec<xmp::SidecarLock>,
+    still_picked: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), RenameFailed> {
     // Sidecars go with their files, through the same steps.
-    let (mut from, mut to) = (from, to);
-    let mut sidecar_names = xmp::AdobeNames::default();
-    let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
-        .flat_map(|(f, t)| xmp::sidecars_moving_with(f, t, &HashSet::new(), &mut sidecar_names))
-        .collect();
-    // Adobe's sidecar keeps its name when only the extension's case changes (IMG_1.cr2). It
-    // stays where it is, and its name is still one of the rename's own.
-    let (staying, sides): (Vec<_>, Vec<_>) = sides.into_iter().partition(|(f, t)| f == t);
-    for (f, t) in sides {
-        from.push(f);
-        to.push(t);
-    }
-    let staying: Vec<PathBuf> = staying.into_iter().map(|(side, _)| side).collect();
-    let sources: HashSet<&PathBuf> = from.iter().chain(&staying).collect();
-    let mut names = xmp::AdobeNames::arriving(to.iter().cloned());
-    let mut in_the_way = to
-        .iter()
-        .filter_map(|t| name_in_the_way(t, &sources, &mut names))
-        .peekable();
-    let case_only = in_the_way.peek().is_some();
-    if case_only {
-        ours_but_case(&from, in_the_way, names_in)?;
-    }
-    let swap = case_only || to.iter().any(|t| sources.contains(t));
-    // The temporary name is next to the file, because in a collection the files are in
-    // different folders.
-    let tmp = |f: &Path, k: usize| {
-        // It has this Glimt's name, because Flatpak windows can share a process ID.
-        f.with_file_name(format!(
-            "{}{}-{k}",
-            journal::HIDDEN_NAME,
-            crate::files::file_io::instance_tag()
-        ))
-    };
-    let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
-    if swap {
-        moves.extend(from.iter().enumerate().map(|(k, f)| (f.clone(), tmp(f, k))));
-        moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(t, k), t.clone())));
-    } else {
-        moves.extend(from.iter().cloned().zip(to.iter().cloned()));
-    }
+    let (from, to, photo, staying) = with_their_sidecars(&photos_from, &photos_to);
+    let (moves, swap) = steps_of_the_renames(&from, &to, &staying)?;
     // The plan is on disk while the renames run, so a crash halfway is put right at the next
     // start. Without it, nothing is renamed (`start_journal`).
     let plan = match plans {
@@ -3740,12 +3714,36 @@ fn rename_files_planned_in(
             e
         )
     })?;
+    // The photo whose name or sidecar step `k` renames. A swap's two halves each go through
+    // every entry.
+    let photo_of_step = |k: usize| photo[k % from.len()];
+    let had_sidecar: HashSet<usize> = (from.iter().zip(&photo))
+        .filter(|&(f, &p)| *f == xmp::sidecar(&photos_from[p]))
+        .map(|(_, &p)| p)
+        .collect();
+    let mut folders = xmp::FolderIds::new();
+    let mut lock_photo =
+        |p: usize| xmp::lock_sidecars_among([&photos_from[p], &photos_to[p]], &mut folders);
+    let mut locks = Vec::new();
     for (k, (a, b)) in moves.iter().enumerate() {
         // On Stop, the names done so far go back, by the same steps a failure takes.
         let stopped = job.is_stopped();
-        let step = match stopped {
-            true => Err(std::io::Error::other(tr("stopped"))),
-            false => journal::rename_step(a, b).map_err(std::io::Error::from),
+        let p = photo_of_step(k);
+        let mut checked = Ok(());
+        if k == 0 || photo_of_step(k - 1) != p {
+            // The locks of the photo before go first, as both may hold one lock.
+            locks.clear();
+            locks = lock_photo(p);
+            // The second half of a swap takes a photo from its hidden name, which is ours.
+            if !swap || k < from.len() {
+                checked = still_as_planned(&photos_from[p], had_sidecar.contains(&p), still_picked);
+            }
+        }
+        let refused = checked.is_err();
+        let step = match (stopped, checked) {
+            (true, _) => Err(std::io::Error::other(tr("stopped"))),
+            (false, Err(e)) => Err(e),
+            (false, Ok(())) => journal::rename_step(a, b).map_err(std::io::Error::from),
         };
         // A step is counted in the plan once done. When the middle of a swap cannot be
         // counted, because its names did not reach the disk, it is undone with the rest.
@@ -3761,13 +3759,16 @@ fn rename_files_planned_in(
             // Nothing is undone then, because an undo counts on knowing which steps were done.
             // The plan stays as it is, and the next start finds the step by the names, once the
             // share's cache has expired. Any other failure did nothing, and is undone at once.
-            let may_be_done =
-                !stopped && done == k && crate::files::file_io::may_have_been_done(&e, a);
+            let may_be_done = !stopped
+                && !refused
+                && done == k
+                && crate::files::file_io::may_have_been_done(&e, a);
             // Otherwise the renames are undone so that no file is left under a hidden
             // temporary name, by the same steps the next start would take.
+            locks.clear();
             let stuck = match may_be_done {
                 true => 1,
-                false => journal::undo(&moves, done).1,
+                false => undo_photo_by_photo(&moves[..done], &photo_of_step, &mut lock_photo),
             };
             let (f, t) = (name(&from[j]), name(&to[j]));
             // When not all were put back (a share that stopped answering, say), the plan stays,
@@ -3788,14 +3789,117 @@ fn rename_files_planned_in(
         } else {
             Some(k)
         };
-        if landed.is_some_and(|n| n < job.total) {
+        if landed.is_some_and(|e| e == 0 || photo[e - 1] != photo[e]) {
             job.count_done(1);
         }
     }
+    drop(locks);
     // The plan goes once the renames' folders are on disk (`remove_plan`), before the marks and
     // collections follow the new names.
     drop(plan);
     Ok(())
+}
+
+/// Returns the steps that rename `from` to `to`, and whether they swap names, which they then
+/// do through temporary names, first all to those names and then from them. `staying` are the
+/// sidecars that keep their names, which are still the renames' own. Returns the failure when a
+/// new name is another file's.
+fn steps_of_the_renames(
+    from: &[PathBuf],
+    to: &[PathBuf],
+    staying: &[PathBuf],
+) -> Result<(Vec<(PathBuf, PathBuf)>, bool), RenameFailed> {
+    let sources: HashSet<&PathBuf> = from.iter().chain(staying).collect();
+    let mut names = xmp::AdobeNames::arriving(to.iter().cloned());
+    let mut in_the_way = to
+        .iter()
+        .filter_map(|t| name_in_the_way(t, &sources, &mut names))
+        .peekable();
+    let case_only = in_the_way.peek().is_some();
+    if case_only {
+        ours_but_case(from, in_the_way, names_in)?;
+    }
+    let swap = case_only || to.iter().any(|t| sources.contains(t));
+    // The temporary name is next to the file, because in a collection the files are in
+    // different folders.
+    let tmp = |f: &Path, k: usize| {
+        // It has this Glimt's name, because Flatpak windows can share a process ID.
+        f.with_file_name(format!(
+            "{}{}-{k}",
+            journal::HIDDEN_NAME,
+            crate::files::file_io::instance_tag()
+        ))
+    };
+    let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
+    if swap {
+        moves.extend(from.iter().enumerate().map(|(k, f)| (f.clone(), tmp(f, k))));
+        moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(t, k), t.clone())));
+    } else {
+        moves.extend(from.iter().cloned().zip(to.iter().cloned()));
+    }
+    Ok((moves, swap))
+}
+
+/// Returns the renames of the photos `from` to `to` with those of their sidecars
+/// (`xmp::sidecars_moving_with`), each photo's sidecars right after it, as (from, to, and the
+/// number of the photo of each). Returns too the Adobe sidecars that keep their names, as only
+/// the case of the photo's extension changes (IMG_1.cr2). Their names are still the rename's
+/// own.
+fn with_their_sidecars(
+    from: &[PathBuf],
+    to: &[PathBuf],
+) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<usize>, Vec<PathBuf>) {
+    let mut names = xmp::AdobeNames::default();
+    let (mut froms, mut tos, mut photo, mut staying) = (vec![], vec![], vec![], vec![]);
+    for (p, (f, t)) in from.iter().zip(to).enumerate() {
+        let sides = xmp::sidecars_moving_with(f, t, &HashSet::new(), &mut names);
+        let (stay, go): (Vec<_>, Vec<_>) = sides.into_iter().partition(|(f, t)| f == t);
+        staying.extend(stay.into_iter().map(|(side, _)| side));
+        for (f, t) in [(f.clone(), t.clone())].into_iter().chain(go) {
+            froms.push(f);
+            tos.push(t);
+            photo.push(p);
+        }
+    }
+    (froms, tos, photo, staying)
+}
+
+/// Checks the photo at `photo`, under its sidecar's lock right before Rename Many renames it,
+/// to be still the one picked (`still_picked`). When it had no sidecar of Glimt's as the renames
+/// were planned (`had_sidecar`), it checks too that none was written since, as such a sidecar
+/// would stay behind under the old name. Returns the error that stops the renames.
+fn still_as_planned(
+    photo: &Path,
+    had_sidecar: bool,
+    still_picked: &dyn Fn(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    still_picked(photo)?;
+    match had_sidecar || xmp::sidecar_of(photo).is_none() {
+        true => Ok(()),
+        false => Err(crate::files::file_io::changed_meanwhile()),
+    }
+}
+
+/// Undoes the steps `done` of Rename Many, last first, as `journal::undo` does, with each
+/// photo's steps under the sidecar locks that `lock_photo` takes for it, as they were done.
+/// `photo_of_step` gives the photo of each step. Returns how many steps could not be undone.
+fn undo_photo_by_photo(
+    done: &[(PathBuf, PathBuf)],
+    photo_of_step: &dyn Fn(usize) -> usize,
+    lock_photo: &mut dyn FnMut(usize) -> Vec<xmp::SidecarLock>,
+) -> usize {
+    let (mut end, mut left) = (done.len(), 0);
+    while end > 0 {
+        let p = photo_of_step(end - 1);
+        let mut start = end - 1;
+        while start > 0 && photo_of_step(start - 1) == p {
+            start -= 1;
+        }
+        let _locks = lock_photo(p);
+        left += journal::undo(&done[start..end], end - start).1;
+        end = start;
+    }
+    left
 }
 
 /// Keeps the `plan` of a Rename Many whose names were not all put back after the rename of `f`
@@ -4524,14 +4628,98 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// `rename_files` with the sidecars' locks taken first, as `rename_undoable` takes them.
+    /// `rename_files` of files that are all still the ones picked.
     fn rename_files(
         from: Vec<PathBuf>,
         to: Vec<PathBuf>,
         job: &super::Job,
     ) -> Result<(), super::RenameFailed> {
-        let locks = crate::metadata::xmp::lock_sidecars(&from);
-        super::rename_files(from, to, job, locks)
+        super::rename_files(from, to, job, &|_| Ok(()))
+    }
+
+    /// Makes `a.jpg` and `b.jpg` in the test's own folder `dir`, with the sidecar `a.jpg.xmp`
+    /// when `with_sidecar`, and starts their rename to `c.jpg` and `d.jpg` in another thread
+    /// while the test holds the sidecar lock of `b.jpg`. Returns the lock and the thread, which
+    /// gives the rename's failure, once `c.jpg` is there. Before #153, the rename held the locks
+    /// of every photo for the whole job, and `c.jpg` never came.
+    fn rename_while_b_is_locked(
+        dir: &std::path::Path,
+        with_sidecar: bool,
+    ) -> (
+        crate::metadata::xmp::SidecarLock,
+        std::thread::JoinHandle<Result<(), String>>,
+    ) {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        for n in ["a.jpg", "b.jpg"] {
+            std::fs::write(p(n), n).unwrap();
+        }
+        if with_sidecar {
+            std::fs::write(p("a.jpg.xmp"), "a's").unwrap();
+        }
+        let held = crate::metadata::xmp::lock_sidecar(&p("b.jpg"));
+        let (from, to) = (vec![p("a.jpg"), p("b.jpg")], vec![p("c.jpg"), p("d.jpg")]);
+        let renaming = std::thread::spawn(move || {
+            let job = super::Job::new("Renaming", 2, false, Vec::new());
+            rename_files(from, to, &job).map_err(|e| e.text)
+        });
+        let start = std::time::Instant::now();
+        while !p("c.jpg").exists() {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "the rename of a.jpg waited for the lock of b.jpg"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        (held, renaming)
+    }
+
+    /// Rename Many holds the sidecar locks of one photo at a time, those of its old and its new
+    /// name, while it renames the photo and its sidecars. A sidecar on a share that stops
+    /// answering then holds up only the sidecar writes of its own locks. Before, it held the
+    /// locks of every photo for the whole job, nearly all 64 in a Rename Many of 100 photos, and
+    /// every sidecar write in every window waited for good (#153).
+    #[test]
+    fn rename_many_holds_the_locks_of_one_photo_at_a_time() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-rename-locks-{}", std::process::id()));
+        let (held, renaming) = rename_while_b_is_locked(&dir, true);
+        let p = |n: &str| dir.join(n);
+        assert_eq!(std::fs::read_to_string(p("c.jpg.xmp")).unwrap(), "a's");
+        // The first photo's locks are free while the rename waits for the second's.
+        drop(crate::metadata::xmp::lock_sidecar(&p("a.jpg")));
+        drop(crate::metadata::xmp::lock_sidecar(&p("c.jpg")));
+        drop(held);
+        renaming.join().unwrap().unwrap();
+        assert_eq!(std::fs::read_to_string(p("d.jpg")).unwrap(), "b.jpg");
+        assert!(!p("b.jpg").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar written for a photo of Rename Many after the renames were planned, while the
+    /// rename waits for that photo's lock, stops the renames, and the names done go back.
+    /// Renamed without it, the photo would leave its new sidecar behind under its old name, for
+    /// the next file of that name. The locks of every photo, held for the whole job before
+    /// #153, kept such a write out.
+    #[test]
+    fn a_sidecar_written_during_rename_many_stops_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-rename-new-sidecar-{}",
+            std::process::id()
+        ));
+        let (held, renaming) = rename_while_b_is_locked(&dir, false);
+        let p = |n: &str| dir.join(n);
+        // Another window's keyword, written under the lock the test holds.
+        std::fs::write(p("b.jpg.xmp"), "b's").unwrap();
+        drop(held);
+        let refused = renaming.join().unwrap().unwrap_err();
+        assert!(refused.contains("nothing renamed"), "{refused}");
+        for (n, text) in [("a.jpg", "a.jpg"), ("b.jpg", "b.jpg"), ("b.jpg.xmp", "b's")] {
+            assert_eq!(std::fs::read_to_string(p(n)).unwrap(), text);
+        }
+        assert!(!p("c.jpg").exists() && !p("d.jpg").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A copy looks up its folder's real path in the background and starts its job when the
@@ -5835,7 +6023,7 @@ mod tests {
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],
             &job,
-            crate::metadata::xmp::lock_sidecars(&[p("a.jpg"), p("b.jpg")]),
+            &|_| Ok(()),
         );
         let refused = refused.err().unwrap();
         assert!(refused.names_put_back);
