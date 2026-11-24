@@ -629,6 +629,8 @@ struct DeleteRecords {
     found: HashSet<PathBuf>,
     /// The folders of the files, each with its device and inode as the log saw it.
     folders: HashMap<PathBuf, FolderNoted>,
+    /// The logs that the log's `old-log` records name, which it was written anew from.
+    old_logs: Vec<PathBuf>,
 }
 
 /// Makes a new job log in `dir` of a Move, or of the Undo of one, as `job` says ("move" or
@@ -953,8 +955,9 @@ fn written_anew_without(path: &Path, applied: &[PathBuf]) -> std::io::Result<()>
 }
 
 /// Returns `records` without the steps on the files `applied`, or in folders among them, and
-/// without the records of those steps. The other steps are numbered anew in their order, and
-/// an `old-log` record is left out, as the log it names was removed when this one was read.
+/// without the records of those steps. The other steps are numbered anew in their order. An
+/// `old-log` record is kept, as the start may have failed to remove the log it names, which
+/// would then be read again as a log of its own and give its marks and places a second time.
 fn records_without_steps(records: Vec<Record>, applied: &[PathBuf]) -> Vec<Record> {
     let applied: HashSet<&Path> = applied.iter().map(PathBuf::as_path).collect();
     let mut new_numbers = HashMap::new();
@@ -966,7 +969,6 @@ fn records_without_steps(records: Vec<Record>, applied: &[PathBuf]) -> Vec<Recor
         }
     }
     (records.into_iter())
-        .filter(|record| !matches!(record, Record::OldLog(_)))
         .filter_map(|mut record| {
             if let Some(number) = record.step_number_mut() {
                 *number = *new_numbers.get(number)?;
@@ -1232,6 +1234,7 @@ fn delete_records(job: &'static str, records: &[Record]) -> DeleteRecords {
             Record::Found(number) => {
                 read.found.insert(read.names[*number].clone());
             }
+            Record::OldLog(path) => read.old_logs.push(path.clone()),
             _ => {}
         }
     }
@@ -1348,8 +1351,9 @@ fn put_right_a_delete(
 
 /// Returns the records of the log written anew for the steps of `r` that are `untold`, numbered
 /// anew: each step with its fingerprint, its sidecars put aside, and whether it is `kept`,
-/// `done` or `found`. They come after the collection shown and before the `old-log` record that
-/// names the log at `old`, which a kill may leave beside the new one.
+/// `done` or `found`. They come after the collection shown and before the `old-log` records:
+/// those of `r`, and the one that names the log at `old`, which a kill may leave beside the new
+/// one.
 fn steps_left(
     r: &DeleteRecords,
     untold: &HashSet<PathBuf>,
@@ -1399,8 +1403,11 @@ fn steps_left(
         ];
         records.extend(marks.into_iter().filter(|(is, _)| *is).map(|(_, r)| r));
     }
-    // The `old-log` record comes last, so that a new log cut off by a kill while it is written
-    // never names the old log, which then stays and is read again.
+    // The logs that the old log names stay named, as the start may have failed to remove one,
+    // which would then be read again as a log of its own.
+    records.extend(r.old_logs.iter().cloned().map(Record::OldLog));
+    // The `old-log` record of the old log comes last, so that a new log cut off by a kill while
+    // it is written never names the old log, which then stays and is read again.
     records.push(Record::OldLog(old.to_path_buf()));
     records
 }
@@ -4743,7 +4750,10 @@ mod tests {
     }
 
     /// A log of any kind of job that stays for the next start while the window runs is written
-    /// anew without the steps that the window applied, so that a new kind gets the rule too.
+    /// anew without the steps that the window applied, so that a new kind gets the rule too. It
+    /// still names the log that it was itself written anew from, whose removal at the start may
+    /// have failed. Before, that `old-log` record was left out, and the next start read the
+    /// older log as one of its own and gave its marks and places again (#279).
     #[test]
     fn a_kept_log_of_every_kind_leaves_out_the_steps_the_window_applied() {
         let dir = std::env::temp_dir().join(format!(
@@ -4771,6 +4781,7 @@ mod tests {
                     bits: 0,
                     stars: 5,
                 },
+                super::Record::OldLog(dir.join("older")),
             ];
             let mut log = super::JobLog::start(&jobs, job, &records).unwrap();
             log.note_steps_applied(std::slice::from_ref(&a));
@@ -4790,8 +4801,46 @@ mod tests {
                 stars: 5,
             };
             assert_eq!(left[..2], [step(0, &b), marks], "{job}");
+            let older = super::Record::OldLog(dir.join("older"));
+            assert!(
+                left.contains(&older),
+                "{job}: the older log no longer named"
+            );
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A delete's log that a start writes anew for the names it could not tell about still names
+    /// the logs that it was itself written anew from, before the one it takes the place of, as
+    /// the start may have failed to remove them (#279).
+    #[test]
+    fn a_delete_log_written_anew_keeps_naming_its_older_logs() {
+        let p = std::path::PathBuf::from;
+        let read = super::delete_records(
+            "trash",
+            &[
+                super::Record::Step {
+                    number: 0,
+                    from: p("/x/a.jpg"),
+                    to: None,
+                    fingerprint: None,
+                },
+                super::Record::OldLog(p("/jobs/older")),
+            ],
+        );
+        let untold = [p("/x/a.jpg")].into_iter().collect();
+        let none = Default::default();
+        let records = super::steps_left(&read, &untold, &none, &none, &p("/jobs/old"));
+        let named: Vec<&super::Record> = (records.iter())
+            .filter(|r| matches!(r, super::Record::OldLog(_)))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                &super::Record::OldLog(p("/jobs/older")),
+                &super::Record::OldLog(p("/jobs/old"))
+            ]
+        );
     }
 
     /// An Undo from the trash whose rename a share did and lost the answer of, with the look at
