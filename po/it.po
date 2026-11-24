@@ -4126,3 +4126,8 @@ msgstr "{folder} contiene registri di lavori durante i quali Glimt si è fermato
 #, fuzzy
 msgid "Type a path"
 msgstr "Digita un percorso"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Cartelle prima di {folder}"

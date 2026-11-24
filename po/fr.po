@@ -4126,3 +4126,8 @@ msgstr "{folder} contient des journaux de tâches pendant lesquelles Glimt s'est
 #, fuzzy
 msgid "Type a path"
 msgstr "Saisir un chemin"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Dossiers avant {folder}"

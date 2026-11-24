@@ -4126,3 +4126,8 @@ msgstr "{folder} bevat logboeken van taken waarin Glimt stopte en die deze start
 #, fuzzy
 msgid "Type a path"
 msgstr "Typ een pad"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Mappen vóór {folder}"

@@ -3325,3 +3325,7 @@ msgstr ""
 #: src/ui/file_list.rs
 msgid "Type a path"
 msgstr ""
+
+#: src/ui/file_list.rs
+msgid "Folders before {folder}"
+msgstr ""

@@ -2309,13 +2309,17 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
         ui.allocate_ui_with_layout(size, layout, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             if first > 0 {
-                submenu(ui, "…", |ui| {
+                let more = submenu(ui, "…", |ui| {
                     for folder in &folders[..first] {
                         if button(ui, &name(folder)).clicked() {
                             chosen = Some(folder.to_path_buf());
                         }
                     }
                 });
+                // "…" alone says nothing to a screen reader, nor that the row is a path.
+                let said = tf!("Folders before {folder}", folder = name(folders[first]));
+                more.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &said));
+                more.on_hover_text(said);
             }
             for (i, folder) in folders.iter().enumerate().skip(first) {
                 // The root, "/", has no "/" after it.
@@ -2491,6 +2495,27 @@ mod tests {
         }
         assert!(used <= 160.0, "the path took {used} of 160");
         assert!(click_room >= wanted, "{click_room} to click, want {wanted}");
+    }
+
+    /// The "…" before a path cut short says which folders it holds, to a screen reader too.
+    #[test]
+    fn the_first_folders_of_a_path_say_what_they_are() {
+        let ctx = eframe::egui::Context::default();
+        ctx.enable_accesskit();
+        let path = std::path::Path::new("/home/someone/pictures/summer");
+        let field = eframe::egui::Id::unique("a field of the test");
+        let mut nodes = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(Default::default(), |ui| {
+                ui.allocate_ui(eframe::egui::vec2(150.0, 30.0), |ui| {
+                    super::path_buttons(ui, path, field);
+                });
+            });
+            let update = out.platform_output.accesskit_update.map(|u| u.nodes);
+            nodes.extend(update.into_iter().flatten().map(|(_, n)| n));
+        }
+        let labels: Vec<_> = nodes.iter().filter_map(|n| n.label()).collect();
+        assert!(labels.contains(&"Folders before summer"), "{labels:?}");
     }
 
     /// A scrolled view fades only the edges with more beyond them: none at its ends.

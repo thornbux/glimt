@@ -4126,3 +4126,8 @@ msgstr "{folder} enthält Protokolle von Aufträgen, während derer Glimt beende
 #, fuzzy
 msgid "Type a path"
 msgstr "Pfad eingeben"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Ordner vor {folder}"
