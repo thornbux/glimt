@@ -3287,6 +3287,27 @@ mod tests {
     /// behind the sum of its 2,000 sizes.
     #[test]
     fn a_loop_of_turns_lets_the_work_waiting_go_first() {
+        use std::time::Duration;
+        // A program that another test notes as started holds every turn for up to
+        // `PROGRAM_STARTS_FOR`, as it should, so a run during which one was noted is run again.
+        let noted = || *crate::support::threads::lock_even_if_poisoned(&super::PROGRAM_STARTED_AT);
+        for _ in 0..5 {
+            while super::a_program_is_starting() {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let before = noted();
+            let longest = longest_wait_behind_a_loop_of_turns();
+            if noted() == before {
+                assert!(longest < Duration::from_millis(250), "{longest:?}");
+                return;
+            }
+        }
+        panic!("other tests noted a program started during every run");
+    }
+
+    /// Returns the longest of five waits for the turn of a share, one after the other, while a
+    /// thread takes and gives back the turn in a loop.
+    fn longest_wait_behind_a_loop_of_turns() -> std::time::Duration {
         use super::{ReadsFirst, TurnHolder};
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Arc, mpsc};
@@ -3327,8 +3348,7 @@ mod tests {
         looping.store(false, Ordering::Relaxed);
         looper.join().unwrap();
         waiter.join().unwrap();
-        let longest = longest.expect("the work waiting got the turn while the loop ran");
-        assert!(longest < Duration::from_millis(250), "{longest:?}");
+        longest.expect("the work waiting got the turn while the loop ran")
     }
 
     /// The work waiting for the turn takes it as soon as its holder gives it back. Before, it
