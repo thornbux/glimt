@@ -1902,10 +1902,10 @@ impl crate::App {
                 .filter(|(_, to, _)| !written.contains(to))
                 .filter_map(|(_, to, _)| to.file_name())
                 .collect();
-            // shortcut: the real paths are looked up in the window's thread, but only of the
-            // files just written and the moved files that share a name with one, which the write
-            // reached a moment ago; look them up with the write if a share is seen to hold the
-            // window here.
+            // shortcut: the real paths and new fingerprints are looked up in the window's
+            // thread, but only of the files just written and the moved files that share a name
+            // with one, which the write reached a moment ago; look them up with the write if a
+            // share is seen to hold the window here.
             let (names, real): (HashSet<&std::ffi::OsStr>, HashSet<PathBuf>) = (paths.iter())
                 .filter_map(|p| Some((p.file_name().filter(|n| moved.contains(n))?, p)))
                 .filter_map(|(name, p)| Some((name, real_path(p)?)))
