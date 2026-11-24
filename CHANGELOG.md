@@ -13,6 +13,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   made since or to another file that took the name (#279).
 - A hidden folder that Glimt left in its folder of job logs, when it was killed while it began
   a job's log, is removed at a later start (#273).
+- A start after a kill no longer forgets the marks and stars of photos when another card is in
+  the reader at the same path. That was possible when the card's volume could not be noted, as
+  in the Flatpak, or when the card was swapped during the start. On a card or stick whose
+  volume is not known, the job's log now waits until the start can tell the card.
 
 ## [0.96.0] - 2026-11-24
 

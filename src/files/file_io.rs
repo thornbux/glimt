@@ -42,6 +42,9 @@ const TIME_NOT_KNOWN: (i64, i64) = (0, 0);
 /// The start of every name that `tmp_path` gives.
 pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
 
+/// The folder where udev names each volume on a block device by its serial number or UUID.
+const VOLUMES_FOLDER: &str = "/dev/disk/by-uuid";
+
 /// In a test, a file picked whose fingerprint never comes, as on a share that stopped
 /// answering, until the test takes it away.
 #[cfg(test)]
@@ -2440,16 +2443,36 @@ pub(crate) fn volume_of_device(device: u64) -> Option<std::ffi::OsString> {
 
 /// Reads /dev/disk/by-uuid once, for every block device that a name there has. Returns, for
 /// each device, its volume, or `None` where two names have it. Returns `None` when the folder
-/// cannot be read.
+/// or any entry in it cannot be read.
 pub(crate) fn volumes_by_device()
 -> Option<std::collections::HashMap<u64, Option<std::ffi::OsString>>> {
+    volumes_in(Path::new(VOLUMES_FOLDER))
+}
+
+/// Reads the volumes named in `folder` (`volumes_by_device`). Returns `None` when the folder or
+/// any entry in it cannot be read. An entry passed over would hide a second name of a device,
+/// and its one name left would be taken for the card's (#283).
+fn volumes_in(folder: &Path) -> Option<std::collections::HashMap<u64, Option<std::ffi::OsString>>> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
-    let volumes = (std::fs::read_dir("/dev/disk/by-uuid").ok()?.flatten()).filter_map(|entry| {
+    let mut volumes = Vec::new();
+    for entry in std::fs::read_dir(folder).ok()? {
+        let entry = entry.ok()?;
         // The entry is a link to the volume's block device, whose number it follows to.
         let meta = std::fs::metadata(entry.path()).ok()?;
-        (meta.file_type().is_block_device()).then(|| (entry.file_name(), meta.rdev()))
-    });
-    Some(the_one_volume_of_each(volumes))
+        if meta.file_type().is_block_device() {
+            volumes.push((entry.file_name(), meta.rdev()));
+        }
+    }
+    Some(the_one_volume_of_each(volumes.into_iter()))
+}
+
+/// Returns the number of the block device that the volume udev names `volume` in
+/// /dev/disk/by-uuid is on now, looked up afresh, and `None` when the name is not there or the
+/// look fails. It waits for the disk.
+pub(crate) fn device_of_volume_now(volume: &std::ffi::OsStr) -> Option<u64> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let meta = std::fs::metadata(Path::new(VOLUMES_FOLDER).join(volume)).ok()?;
+    meta.file_type().is_block_device().then(|| meta.rdev())
 }
 
 /// Returns, for each device number among `volumes`, each a name with the number of its block
@@ -2971,6 +2994,25 @@ mod tests {
         assert_eq!(of(twice, 2065), None);
         // No block device has the highest number, here or where /dev/disk is not there.
         assert_eq!(super::volume_of_device(u64::MAX), None);
+        assert_eq!(
+            super::device_of_volume_now("glimt-no-such-volume".as_ref()),
+            None
+        );
+    }
+
+    /// An entry of the volumes' folder that cannot be read makes the whole folder unread, as
+    /// it may be a second name of a device whose other name would else be taken for its one
+    /// volume. Before, such an entry was passed over (#283).
+    #[test]
+    fn an_unreadable_volume_entry_leaves_the_volumes_unread() {
+        let temporary = format!("glimt-test-volumes-{}", std::process::id());
+        let dir = std::env::temp_dir().join(temporary);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        assert_eq!(super::volumes_in(&dir).map(|found| found.len()), Some(0));
+        std::os::unix::fs::symlink(dir.join("gone"), dir.join("1234-ABCD")).unwrap();
+        assert_eq!(super::volumes_in(&dir), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A check that knows neither the listed inode nor a fingerprint looks at nothing, as it
