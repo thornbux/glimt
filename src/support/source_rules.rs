@@ -4117,31 +4117,47 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
 /// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
 /// sure answer makes.
-/// Which folder a job log noted (by its volume, its device and inode, or its device alone) is
-/// decided in one function, `journal::is_the_folder_noted`. No other function of the logs' files
-/// reads what a log noted of a folder, or looks up a volume to compare, as the start once decided
-/// it in four places, four ways, and a FAT card back under another device number never finished
-/// its log.
+/// Which disk and which folder a job log noted (by its volume, its device and inode, or its
+/// device alone where that is not a block device) is decided in two functions:
+/// `journal::is_on_the_volume_noted` for the disk, the only one that reads the volume noted or
+/// asks whether a device is a block device, and `journal::is_the_folder_noted` for the folder,
+/// on top of it. No other function of the logs' files reads what a log noted of a folder, or
+/// looks up a volume to compare, as the start once decided it in four places, four ways, and a
+/// FAT card back under another device number never finished its log. Later, a block device's
+/// number alone, which another card in the same reader gets, still passed for the card noted
+/// (#179, #266, #270), and a volume read once for the log for the card there now (#284).
 #[test]
 fn one_rule_tells_the_folder_a_log_noted() {
-    let rule: &[(&str, &str)] = &[("files/journal.rs", "is_the_folder_noted")];
+    let rule: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_on_the_volume_noted"),
+        ("files/journal.rs", "is_the_folder_noted"),
+    ];
+    let volume: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_on_the_volume_noted"),
+        ("files/journal.rs", "folders_noted"),
+        ("files/journal.rs", "steps_left"),
+    ];
     let built: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_on_the_volume_noted"),
         ("files/journal.rs", "is_the_folder_noted"),
         ("files/journal.rs", "folders_noted"),
         ("files/journal.rs", "steps_left"),
     ];
     let looked_up: &[(&str, &str)] = &[
-        ("files/journal.rs", "is_the_folder_noted"),
+        ("files/journal.rs", "is_on_the_volume_noted"),
         ("files/journal.rs", "folder_record"),
     ];
     let homes: Vec<(&str, &[(&str, &str)])> = vec![
         (".noted_device", built),
         (".noted_inode", built),
-        (".noted_volume", built),
+        (".noted_volume", volume),
         ("noted.0", rule),
         ("noted.1", rule),
         ("noted.2", rule),
         ("volume_of(", looked_up),
+        ("volume_of_folder(", looked_up),
+        ("is_still_on_device(", looked_up),
+        ("is_on_a_block_device(", looked_up),
     ];
     let files = ["files/journal.rs", "files/job_log.rs", "files/file_ops.rs"];
     let wrong: Vec<String> = (rust_sources().iter())
@@ -4150,7 +4166,8 @@ fn one_rule_tells_the_folder_a_log_noted() {
         .collect();
     assert!(
         wrong.is_empty(),
-        "a log's folder compared outside journal::is_the_folder_noted:\n{}",
+        "a log's folder compared outside journal::is_on_the_volume_noted and \
+         is_the_folder_noted:\n{}",
         wrong.join("\n")
     );
 }
@@ -5712,6 +5729,120 @@ fn no_name_is_removed_on_a_cached_look() {
          than same_file_by_opening:\n{}",
         wrong.join("\n")
     );
+}
+
+/// Whether a step on a name was done after it failed (a rename, a link or an unlink whose answer
+/// a share lost) is judged in one place: by its error in `file_io::may_have_been_done`, and by
+/// the names in `done_after_all`. So the error numbers that `may_have_been_done_on` judges by
+/// (EIO, ETIMEDOUT, ENOENT and the rest, read from the function itself) are named nowhere
+/// outside file_io and the tests, and no other code judges a step's error its own way. file_io
+/// names some of them for calls that are no step, such as a folder's sync. Before, Save As judged a
+/// set-aside's ENOENT by its own looks at the two names, and a sidecar that a share's cache hid
+/// counted as none.
+#[test]
+fn steps_are_judged_done_in_one_place() {
+    const JUDGE: &str = "may_have_been_done_on";
+    let numbers = error_numbers_named_in(&code_lines(&source("files/file_io.rs")), JUDGE);
+    assert!(numbers.len() > 15, "{numbers:?}");
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources()
+        .into_iter()
+        .filter(|(f, _)| f != "files/file_io.rs")
+    {
+        let code = code_lines(&text);
+        let in_test_code = test_code_lines(&code);
+        for (i, line) in code[..tests_start(&code)].iter().enumerate() {
+            for number in numbers.iter().filter(|_| !in_test_code[i]) {
+                if names_word(line, number) {
+                    wrong.push(format!("{file}:{} ({number})", i + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "an error of a step judged outside file_io::may_have_been_done:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the error numbers (EIO, ENOENT, …) that the function `name` of `code`, a file's
+/// `code_lines`, names.
+fn error_numbers_named_in(code: &[String], name: &str) -> Vec<String> {
+    let start = (code.iter()).position(|l| function_name(l) == Some(name));
+    let Some((start, end)) = start.and_then(|s| Some((s, block_end(code, s)?))) else {
+        return Vec::new();
+    };
+    let mut numbers: Vec<String> = (code[start..=end].iter())
+        .flat_map(|l| l.split(|c: char| !is_word_char(c)))
+        .filter(|w| w.len() > 2 && w.starts_with('E'))
+        .filter(|w| w.chars().all(|c| c.is_ascii_uppercase()))
+        .map(str::to_owned)
+        .collect();
+    numbers.sort();
+    numbers.dedup();
+    numbers
+}
+
+/// Returns, for each line of `code`, a file's `code_lines`, whether it is in an item or a
+/// statement under `#[cfg(test)]`, which only the tests build.
+fn test_code_lines(code: &[String]) -> Vec<bool> {
+    let mut in_test_code = vec![false; code.len()];
+    let mut i = 0;
+    while i < code.len() {
+        if code[i].trim() != "#[cfg(test)]" {
+            i += 1;
+            continue;
+        }
+        // Brackets count too, so that a signature over several lines does not end at its first
+        // parameter.
+        let (mut depth, mut j) = (0usize, i);
+        while j + 1 < code.len() {
+            j += 1;
+            let line = code[j].trim();
+            let opened = line.matches(['{', '(', '[']).count();
+            depth = (depth + opened).saturating_sub(line.matches(['}', ')', ']']).count());
+            in_test_code[j] = true;
+            if depth == 0 && line.ends_with([';', '}', ',']) {
+                break;
+            }
+        }
+        i = j + 1;
+    }
+    in_test_code
+}
+
+/// Returns whether `line` holds `word` as a whole word, not as a part of a longer name, as EIO
+/// is a part of EREMOTEIO.
+fn names_word(line: &str, word: &str) -> bool {
+    (line.match_indices(word)).any(|(at, _)| {
+        let before = line[..at].chars().next_back();
+        let after = line[at + word.len()..].chars().next();
+        !before.is_some_and(is_word_char) && !after.is_some_and(is_word_char)
+    })
+}
+
+/// The rule finds an error number that `may_have_been_done_on` names, also in a guard and in a
+/// longer path, but not as a part of a longer number, in a comment, or under `#[cfg(test)]`,
+/// also where that is a function whose signature spans several lines.
+#[test]
+fn an_error_number_is_found_where_a_step_is_judged() {
+    let code = code_lines(
+        "fn may_have_been_done_on() {\n    use libc::{EIO, ENOENT, EREMOTEIO};\n}\n\
+         fn judge(e: E) {\n    // EIO\n    #[cfg(test)]\n    let x = Some(libc::EIO);\n    \
+         match e.raw_os_error() {\n        Some(libc::ENOENT) => {}\n        \
+         Some(libc::EREMOTEIOX) => {}\n    }\n}\n\
+         #[cfg(test)]\nfn hook(\n    e: E,\n) -> E {\n    Some(libc::EIO)\n}\n\
+         fn after() {\n    Some(libc::EIO)\n}\n",
+    );
+    let numbers = error_numbers_named_in(&code, "may_have_been_done_on");
+    assert_eq!(numbers, ["EIO", "ENOENT", "EREMOTEIO"]);
+    let in_test_code = test_code_lines(&code);
+    let found: Vec<usize> = (0..code.len())
+        .filter(|&i| !in_test_code[i] && i > 2)
+        .filter(|&i| numbers.iter().any(|n| names_word(&code[i], n)))
+        .collect();
+    assert_eq!(found, [8, 19]);
 }
 
 /// A path through an opened folder (`file_io::path_through`, `/proc/self/fd/N/…`) is used only
@@ -8080,6 +8211,40 @@ fn reaching(calls: &[Vec<Call>], mut own: Vec<bool>) -> Vec<bool> {
             return own;
         }
     }
+}
+
+/// Returns the crate's functions that reach the method or associated function `owner::name`,
+/// however deep, also through the work that they hand to another thread, as a job's log is
+/// mostly started in the job's own thread. Each is named as `Owner::name`, or as `name` when it
+/// is a free function, and the function itself is among them.
+pub(crate) fn functions_reaching(owner: &str, name: &str) -> HashSet<String> {
+    let graph = CallGraph::new(&rust_sources());
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| {
+            let lines = &graph.lines[&f.file];
+            let text = lines[f.lines.clone()].join("\n");
+            let opens = (f.lines.clone()).find(|&i| lines[i].ends_with('{'));
+            let signature = lines[*f.lines.start()..=opens.unwrap_or(*f.lines.start())].join(" ");
+            (f.lines.clone())
+                .flat_map(|i| graph.callees(f, &text, &signature, &lines[i]))
+                .map(|(callee, text)| Call {
+                    callee: Some(callee),
+                    text,
+                    line: 0,
+                })
+                .collect()
+        })
+        .collect();
+    let own = (graph.functions.iter())
+        .map(|f| f.owner.as_deref() == Some(owner) && f.name == name)
+        .collect();
+    (reaching(&calls, own).into_iter().zip(&graph.functions))
+        .filter(|(reaches, _)| *reaches)
+        .map(|(_, f)| match &f.owner {
+            Some(owner) => format!("{owner}::{}", f.name),
+            None => f.name.clone(),
+        })
+        .collect()
 }
 
 /// Returns the comments just above the statement whose line `i` of `code` is, up to the

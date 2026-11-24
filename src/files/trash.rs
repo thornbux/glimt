@@ -435,6 +435,32 @@ fn sidecar_back_after_all(side: &TrashEntry, e: &std::io::Error) -> Option<bool>
     is_surely_gone(&side.from).then_some(false)
 }
 
+/// Notes in `out_without_answer` the file of `step` whose rename out of the trash, or back into
+/// it, failed in a way that may have been done, by the fingerprint it had in the trash, which
+/// `coming` holds from the file's `Restoring::Coming`. Undo again then counts the file as out
+/// when its own name holds that file and the trash's name is gone. Before, only a rename out was
+/// noted, and a file whose rename back in lost its answer failed every later Undo (#281).
+pub(crate) fn note_out_without_answer(
+    step: &Restoring,
+    coming: &mut Option<(PathBuf, Option<FileFingerprint>)>,
+    out_without_answer: &mut HashMap<PathBuf, FileFingerprint>,
+) {
+    match step {
+        Restoring::Coming(from, fingerprint) => *coming = Some((from.to_path_buf(), *fingerprint)),
+        Restoring::Failed(step_from, step_to, e)
+            if crate::files::file_io::may_have_been_done(e, step_from) =>
+        {
+            // The file's own name is the new name of a rename out, and the old name of a
+            // rename back in.
+            let is_the_file = |at: &PathBuf| at == step_to || at == step_from;
+            if let Some((at, Some(fingerprint))) = coming.take().filter(|(at, _)| is_the_file(at)) {
+                out_without_answer.insert(at, fingerprint);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Of each name in a trash folder, the one put there first, by `rank`.
 fn first_of_each<K: Ord>(
     all: impl Iterator<Item = TrashEntry>,
@@ -1821,7 +1847,9 @@ mod tests {
         RENAME_WAYS_MISSING.set(1);
         UNLINK_FAILS.set(Some((x.join("a.jpg"), libc::EIO)));
         let mut failed = Vec::new();
+        let (mut coming, mut out_without_answer) = (None, Default::default());
         let mut on_back = |step: super::Restoring| {
+            super::note_out_without_answer(&step, &mut coming, &mut out_without_answer);
             if let super::Restoring::Failed(from, _, _) = step {
                 failed.push(from.to_path_buf());
             }
@@ -1833,6 +1861,21 @@ mod tests {
         assert!(error.is_some());
         assert_eq!(failed, [x.join("a.jpg")]);
         assert!(trash.join("info/a.jpg.trashinfo").exists());
+        // The file is remembered as out without an answer, so that a later Undo, once the
+        // share shows it out alone, counts it as back (#281). Before, it was not, and every
+        // later Undo failed, as its own name was taken by the file.
+        assert_eq!(
+            out_without_answer.keys().collect::<Vec<_>>(),
+            [&x.join("a.jpg")]
+        );
+        std::fs::remove_file(trash.join("files/a.jpg")).unwrap();
+        std::fs::remove_file(trash.join("info/a.jpg.xmp.trashinfo")).unwrap();
+        let again = super::TrashMove {
+            out_without_answer,
+            ..trash_move
+        };
+        let (back, error) = super::restore_noting(&again, dirs, &mut |_| {});
+        assert_eq!(back, [x.join("a.jpg")], "{error:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

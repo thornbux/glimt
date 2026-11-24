@@ -1902,10 +1902,10 @@ impl crate::App {
                 .filter(|(_, to, _)| !written.contains(to))
                 .filter_map(|(_, to, _)| to.file_name())
                 .collect();
-            // shortcut: the real paths are looked up in the window's thread, but only of the
-            // files just written and the moved files that share a name with one, which the write
-            // reached a moment ago; look them up with the write if a share is seen to hold the
-            // window here.
+            // shortcut: the real paths and new fingerprints are looked up in the window's
+            // thread, but only of the files just written and the moved files that share a name
+            // with one, which the write reached a moment ago; look them up with the write if a
+            // share is seen to hold the window here.
             let (names, real): (HashSet<&std::ffi::OsStr>, HashSet<PathBuf>) = (paths.iter())
                 .filter_map(|p| Some((p.file_name().filter(|n| moved.contains(n))?, p)))
                 .filter_map(|(name, p)| Some((name, real_path(p)?)))
@@ -2251,22 +2251,11 @@ impl crate::App {
             let mut out_without_answer = trash_move.out_without_answer.clone();
             let mut coming = None;
             let mut note = |step: crate::files::trash::Restoring| {
-                use crate::files::trash::Restoring;
-                match &step {
-                    Restoring::Coming(from, fingerprint) => {
-                        coming = Some((from.to_path_buf(), *fingerprint))
-                    }
-                    Restoring::Failed(file, from, e)
-                        if crate::files::file_io::may_have_been_done(e, file) =>
-                    {
-                        if let Some((_, Some(fingerprint))) =
-                            coming.take().filter(|(at, _)| at == *from)
-                        {
-                            out_without_answer.insert(from.to_path_buf(), fingerprint);
-                        }
-                    }
-                    _ => {}
-                }
+                crate::files::trash::note_out_without_answer(
+                    &step,
+                    &mut coming,
+                    &mut out_without_answer,
+                );
                 if let Some(log) = undo_log.as_mut() {
                     log.note(step);
                 }
@@ -7149,7 +7138,7 @@ mod tests {
     /// the job, and the sidecar stayed hidden for good.
     #[test]
     fn a_delete_for_good_whose_set_aside_lost_its_answer_names_the_hidden_sidecar() {
-        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL};
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT};
         let dir = contract_folder("delete-aside-lost");
         let logs = dir.join("logs");
         let a = dir.join("a.png");
@@ -7159,7 +7148,7 @@ mod tests {
         let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         ANSWER_LOST_AT.set(Some(side.clone()));
-        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![side.clone()])));
         let mut errors = Vec::new();
         let how = (false, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
@@ -7190,7 +7179,9 @@ mod tests {
     /// named only the sidecar, and the sidecar stayed hidden for good.
     #[test]
     fn a_delete_for_good_whose_sidecar_cannot_come_back_names_the_hidden_sidecar() {
-        use crate::files::file_io::{FOLDER_SYNC_FAILS_IN, LOOKS_FAIL, RENAME_WAYS_MISSING};
+        use crate::files::file_io::{
+            FOLDER_SYNC_FAILS_IN, LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT, RENAME_WAYS_MISSING,
+        };
         let dir = contract_folder("delete-aside-not-back");
         let logs = dir.join("logs");
         let a = dir.join("a.png");
@@ -7201,7 +7192,7 @@ mod tests {
         log.note(std::slice::from_ref(&a));
         FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
         RENAME_WAYS_MISSING.set(2);
-        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![side.clone()])));
         let mut errors = Vec::new();
         let how = (false, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
@@ -8130,6 +8121,7 @@ mod tests {
         );
         let gone: Vec<&&str> = known.iter().filter(|k| !found.contains(**k)).collect();
         assert!(gone.is_empty(), "named here but no longer there: {gone:?}");
+        every_operation_in_the_contract_keeps_a_job_log(IN_CONTRACT);
         // Work counts itself as writing however file_io's counter is named. Before, only the
         // whole path was seen, so `Working::new(&WRITING)` after a `use` passed unseen.
         for spelling in [
@@ -8161,6 +8153,51 @@ mod tests {
         ] {
             assert!(!starts_an_operation(other), "taken: {other}");
         }
+    }
+
+    /// Checks that each function of `in_contract` (as `every_file_operation_is_in_the_contract`
+    /// lists them) starts a job log (`JobLog::start`), in its own thread or in the work it hands
+    /// on, or says here why its operation needs none. A job that changes the user's files
+    /// without a log leaves marks, stars and collection entries at the old names when Glimt is
+    /// killed halfway, which a later file of that name takes. Before 0.93, the Undo of a Move,
+    /// Undo from the trash, Rename Folder and Move Folder to Trash kept no log (#235, #248), and
+    /// nothing stopped a new operation from keeping none either.
+    fn every_operation_in_the_contract_keeps_a_job_log(in_contract: &[(&str, &str)]) {
+        const KEEPS_NO_JOB_LOG: &[(&str, &str)] = &[
+            (
+                "wait_for_look_up_before_the_job",
+                "it holds the files until the job starts, and the job's own function keeps the log",
+            ),
+            (
+                "copy_for_sharing_into_real_folder",
+                "it makes new files only, and a copy cut short has no marks to lose",
+            ),
+            (
+                "write_sidecars",
+                "each sidecar is written whole or not at all, at the name it had",
+            ),
+            (
+                "save_orientation",
+                "the image is written whole or not at all, at the name it had",
+            ),
+        ];
+        let reaching = crate::support::source_rules::functions_reaching("JobLog", "start");
+        let keeps_none: Vec<&str> = KEEPS_NO_JOB_LOG.iter().map(|(f, _)| *f).collect();
+        let without: Vec<&str> = (in_contract.iter().map(|(f, _)| *f))
+            .filter(|f| !keeps_none.contains(f) && !reaching.contains(&format!("App::{f}")))
+            .collect();
+        assert!(
+            without.is_empty(),
+            "file operations that start no job log: {without:?}"
+        );
+        // A function that keeps a log after all, or that left the contract, leaves this list.
+        let stale: Vec<&str> = (keeps_none.iter().copied())
+            .filter(|f| {
+                reaching.contains(&format!("App::{f}"))
+                    || !in_contract.iter().any(|(name, _)| name == f)
+            })
+            .collect();
+        assert!(stale.is_empty(), "named as keeping no log: {stale:?}");
     }
 
     /// Returns whether `line` starts a job or background work: a call of one of the functions

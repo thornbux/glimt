@@ -455,9 +455,12 @@ arm becomes a method.
   while other work changes its files), and its function is listed under that entry's name in
   `IN_CONTRACT`. `every_file_operation_is_in_the_contract` fails until the function is there,
   or in `OUTSIDE` with the reason it is not, and also when a name in `IN_CONTRACT` has no entry
-  in `contract_ops()`. An operation that leaves an Undo takes `undo_on_the_way` when it starts
-  and holds it in its thread until its report is sent, so that Ctrl+Z waits for it
-  (`source_rules::operations_that_leave_an_undo_make_undo_wait`).
+  in `contract_ops()`. Its function starts a job log (`JobLog::start`, through one of the
+  `start_…` functions of `journal`), so that a kill halfway leaves no marks, stars or collection
+  entries at the old names, or `KEEPS_NO_JOB_LOG` says why it needs none
+  (`every_operation_in_the_contract_keeps_a_job_log`). An operation that leaves an Undo takes
+  `undo_on_the_way` when it starts and holds it in its thread until its report is sent, so that
+  Ctrl+Z waits for it (`source_rules::operations_that_leave_an_undo_make_undo_wait`).
 - **State for a feature:** a field in the struct of the part it belongs to (`self.slideshow`,
   `self.folder`, `self.file_operations`, …), or a struct of its own in the feature's module,
   held by one field in `App`. Never loose fields in `App` (`source_rules::app_stays_small`).
@@ -604,7 +607,11 @@ arm becomes a method.
     name linked by `rename_never_over` is taken back only when `unlink_was_refused` says the
     unlink surely removed nothing (an unknown error keeps both names), and a second name goes
     only after `save::same_file_by_opening`
-    (`source_rules::no_name_is_removed_on_a_cached_look`);
+    (`source_rules::no_name_is_removed_on_a_cached_look`). Whether a failed step was done is
+    judged only by its error in `may_have_been_done` and by the names in `done_after_all`,
+    whose rename `rename_never_over` looks at its file right before it and is not tried when
+    that look fails; no other code judges a step's error number
+    (`source_rules::steps_are_judged_done_in_one_place`);
   - delete, trash, move, rename or replace a user's file only after a look that it is still
     the file picked or read. Files picked before a wait (a question, a prompt, the file
     chooser) are carried as `file_io::PickedFiles`, whose fingerprints are taken in the

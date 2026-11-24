@@ -5,6 +5,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A rename on a share that dropped its answer is judged the same way everywhere. On rclone,
+  s3fs and MTP, which give a renamed file a new time, such a rename now counts as done when the
+  file is at its new name; before, it was always told as failed. A rename is no longer tried
+  when the look at its file just before it fails, so it cannot be done without Glimt knowing.
+  A copy of the photo, or another folder, that another program put at the new name meanwhile
+  is no longer taken for it. Undo from the trash remembers a photo whose way back into the
+  trash lost its answer, so a later Undo finds it, and a sidecar that is a link is no longer
+  told as left at its old name when it may have moved. A move to another disk keeps a new
+  version saved at the old name right as the copy began.
+- A job log kept for a later start and written anew no longer forgets the older log it was
+  itself written from. When the start had failed to remove that older log, the next start read
+  it as a log of its own and gave its marks, stars and collection places again, over changes
+  made since or to another file that took the name (#279).
+- A hidden folder that Glimt left in its folder of job logs, when it was killed while it began
+  a job's log, is removed at a later start (#273).
+- A start after a kill no longer forgets the marks and stars of photos when another card is in
+  the reader at the same path. That was possible when the card's volume could not be noted, as
+  in the Flatpak, or when the card was swapped during the start. On a card or stick whose
+  volume is not known, the job's log now waits until the start can tell the card.
+
 ## [0.96.0] - 2026-11-24
 
 ### Changed

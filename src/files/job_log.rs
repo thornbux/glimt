@@ -5,7 +5,7 @@
 //! format's version, so that a later Glimt can add kinds of record, and an older one leaves a
 //! log of a higher version alone.
 
-use crate::files::file_io::FileFingerprint;
+use crate::files::file_io::{FileFingerprint, TMP_PREFIX};
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
@@ -596,15 +596,37 @@ pub(crate) fn read_job_log_without_lock(path: &Path) -> std::io::Result<LogRead>
 /// for (`journal::read_at_start`), is left on disk for a Glimt that can finish it, and the user
 /// is told once that it is there. Only an empty file is removed, once
 /// it is older than `EMPTY_LOG_AGE`: a kill between the making of a log and its header leaves
-/// it, and a log made a moment ago is not locked yet.
+/// it, and a log made a moment ago is not locked yet. So is a hidden folder that a kill left
+/// inside `JobLog::start`, once it is as old.
 pub(crate) fn logs_left_by_a_kill(dir: &Path) -> Vec<FoundLog> {
     let (mut found, mut left_alone) = (Vec::new(), 0);
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        // A pipe or a link planted in the state folder is no log.
-        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        // The hidden folder of a log that `JobLog::start` was making when a kill came. Its log
+        // names no step yet, so the folder goes once it is old enough that no start is still
+        // making it. A link is not followed.
+        if kind.is_dir()
+            && entry
+                .file_name()
+                .as_bytes()
+                .starts_with(TMP_PREFIX.as_bytes())
+        {
+            let age = (entry.metadata().ok())
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|made| made.elapsed().ok());
+            let is_old = age.filter(|age| *age > EMPTY_LOG_AGE).ok_or(CannotTell);
+            if let Some(sure) = Sure::of(&is_old) {
+                remove_job_log(&path, sure);
+            }
             continue;
         }
-        let path = entry.path();
+        // A pipe or a link planted in the state folder is no log.
+        if !kind.is_file() {
+            continue;
+        }
         let Ok((file, read)) = read_job_log(&path) else {
             continue;
         };
@@ -1044,8 +1066,9 @@ mod tests {
 
     /// A start finds the logs no window holds, and never removes a log of a higher version or
     /// of a kind of job it does not know: it leaves them, and tells once that they are there. An
-    /// empty file older than a minute, whose header a kill cut off, is removed. A log a running
-    /// window holds is passed over.
+    /// empty file older than a minute, whose header a kill cut off, is removed, and so is a
+    /// hidden folder older than a minute that a kill left inside `JobLog::start` (#273). A log a
+    /// running window holds is passed over, and so is a hidden folder made a moment ago.
     #[test]
     fn a_start_leaves_the_logs_it_cannot_read_and_tells_once() {
         let dir = std::env::temp_dir().join(format!("glimt-test-job-left-{}", std::process::id()));
@@ -1060,12 +1083,21 @@ mod tests {
         let made = std::fs::File::create(&empty).unwrap();
         made.set_modified(hour_ago).unwrap();
         drop(made);
+        let (killed, making) = (dir.join(".glimt-tmp-killed"), dir.join(".glimt-tmp-making"));
+        for hidden in [&killed, &making] {
+            std::fs::create_dir(hidden).unwrap();
+            std::fs::write(hidden.join("log"), log_bytes("1", &[])).unwrap();
+        }
+        (std::fs::File::open(&killed).unwrap())
+            .set_modified(hour_ago)
+            .unwrap();
         let _ = crate::files::file_io::take_saves_failed();
         let found = super::logs_left_by_a_kill(&dir);
         assert_eq!(found.iter().map(|f| f.job).collect::<Vec<_>>(), ["trash"]);
         let told = crate::files::file_io::take_saves_failed();
         assert_eq!(told.len(), 1, "{told:?}");
         assert!(newer.exists() && unknown.exists() && !empty.exists());
+        assert!(!killed.exists() && making.join("log").exists());
         drop((found, held));
         std::fs::remove_dir_all(dir).unwrap();
     }

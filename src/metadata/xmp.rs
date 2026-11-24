@@ -1350,24 +1350,24 @@ pub fn follow(
         // and the caller tells it (`LeftBehind` without a copy). The photo's move goes on.
         // One that cannot be looked at may be a link, so it is not copied, and its failure is
         // told as the sidecar's.
-        if crate::files::file_io::is_link(side)? {
-            return match is_copy {
-                true => Ok(None),
-                false => match crate::files::file_io::rename_never_over(side, to) {
-                    Ok(()) => Ok(Some((false, None))),
-                    Err(error) => Ok(Some((false, Some(error)))),
-                },
-            };
+        let is_link = crate::files::file_io::is_link(side)?;
+        if is_link && is_copy {
+            return Ok(None);
         }
         // The sidecar goes as the file went. It is on disk before the original goes, and never
         // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
         // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
         // keywords go with the photo. It is left at its old name too, which the caller tells. A
-        // move whose answer was lost may have been done, so it is not tried again as a copy,
-        // which would only find the sidecar at both names or at neither, and hide the lost
-        // answer. Its caller settles where the sidecar is.
-        match crate::files::file_io::put_file(side, to, is_copy) {
+        // move whose answer was lost may have been done, a link's too, so it is neither tried
+        // again as a copy nor counted as left behind, which would only find the sidecar at both
+        // names or at neither, and hide the lost answer. Its caller settles where it is (#282).
+        let moved = match is_link {
+            true => crate::files::file_io::rename_never_over(side, to),
+            false => crate::files::file_io::put_file(side, to, is_copy),
+        };
+        match moved {
             Err(e) if !is_copy && crate::files::file_io::may_have_been_done(&e, side) => Err(e),
+            Err(error) if is_link => Ok(Some((false, Some(error)))),
             Err(error) if !is_copy => {
                 crate::files::file_io::put_file(side, to, true).map(|()| Some((true, Some(error))))
             }
@@ -4488,6 +4488,41 @@ mod tests {
         let moved = crate::files::file_io::is_link(&sidecar(&dir.join("d.png")));
         assert!(moved.unwrap(), "moved as itself");
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A sidecar that is a link, whose move may have been done (a share that linked it at its
+    /// new name and lost the answer of the unlink), is not counted as left at its old name, and
+    /// its caller settles where it is, as for any other sidecar. Before, it counted as left
+    /// behind, also when it was only at its new name (#282).
+    #[test]
+    fn a_linked_sidecar_whose_move_may_have_been_done_is_not_left_behind() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-linked-lost-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let (a, moved) = (dir.join("a.png"), dir.join("to/a.png"));
+        std::fs::write(dir.join("key"), "key").unwrap();
+        std::fs::write(&moved, "a").unwrap();
+        std::os::unix::fs::symlink(dir.join("key"), sidecar(&a)).unwrap();
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((sidecar(&a), libc::EIO)));
+        let followed = follow(
+            &a,
+            &moved,
+            false,
+            &Default::default(),
+            &mut Default::default(),
+        );
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        let Err(not_followed) = followed else {
+            panic!("counted as left behind");
+        };
+        assert_eq!(not_followed.failed.len(), 1);
+        assert_eq!(not_followed.failed[0].0, sidecar(&a));
+        assert!(not_followed.left_behind.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
