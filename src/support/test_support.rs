@@ -16,25 +16,60 @@ pub(crate) const CANON_EXIF: &[u8] = b"MM\0*\0\0\0\x08\0\x03\
     \x90\x03\0\x02\0\0\0\x14\0\0\0\x4a\
     \0\0\0\x002020:01:02 03:04:05\0";
 
+/// The settings that every window of the process shares, as one window is one process: the
+/// colour settings, View → Filter, the large thumbnails, the language, the own keys, the limits
+/// of animations and added formats, the processor use and the locked settings. They are statics
+/// that the decode and thumbnail threads read. In tests many `App`s share them, so a test that
+/// changes one holds this lock to change them (`change_shared_settings`), and every test with an
+/// `App` holds it to read them for the rest of its test (`app_on`). A test then never sees
+/// another test's settings, and `shared_setting_set` fails a change made without the lock.
+static SHARED_SETTINGS: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// Whether a test holds the shared settings to change them.
+static SHARED_SETTINGS_CHANGING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+// What this thread's test holds of the shared settings: their lock to read them, kept until the
+// test's thread ends, and whether it holds them to change them.
+thread_local! {
+    static READS_SHARED_SETTINGS: std::cell::RefCell<Option<std::sync::RwLockReadGuard<'static, ()>>> =
+        const { std::cell::RefCell::new(None) };
+    static CHANGES_SHARED_SETTINGS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The shared settings held by a test to change them. When it is dropped, they are put back as
+/// `app_on` sets them, and the tests with an `App` go on.
+pub(crate) struct SharedSettingsChanged {
+    _held: std::sync::RwLockWriteGuard<'static, ()>,
+}
+
+impl Drop for SharedSettingsChanged {
+    fn drop(&mut self) {
+        let config = test_config();
+        // Not told: the test's own settings have no screen or input profile to read.
+        let _ = crate::images::colour::set_up_colour(&config);
+        crate::support::lang::set_language(&config.language);
+        crate::ui::actions::use_user_keys(&config.keys);
+        crate::images::decode::set_animation_limit(config.animation_mb);
+        crate::images::added_formats::set_memory_limit(config.added_format_memory_mb);
+        crate::support::threads::set_cpu_use(config.cpu_use);
+        crate::ui::file_list::LARGE_THUMBS.store(false, std::sync::atomic::Ordering::Relaxed);
+        SHARED_SETTINGS_CHANGING.store(false, std::sync::atomic::Ordering::Relaxed);
+        CHANGES_SHARED_SETTINGS.set(false);
+    }
+}
+
 /// An `App` for a test, on folder `dir`, listed: its own settings, no remote control,
 /// nothing kept in the user's files (no recent list, thumbnails or last folder; marks are
-/// not written in tests). The window's logic without a window.
+/// not written in tests). The window's logic without a window. The settings that the whole
+/// process shares are held to read them for the rest of the test (`SHARED_SETTINGS`).
 pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Context) {
     let ctx = eframe::egui::Context::default();
-    let config = crate::files::config::Config {
-        remote_control: false,
-        keep_recent: false,
-        save_thumbnails: false,
-        desktop_profile: false,
-        remember_dir: false,
-        // English, not the system's language: other tests read the texts and numbers it sets.
-        language: "en".into(),
-        ..Default::default()
-    };
+    let config = test_config();
     let start = crate::cli::Start::default();
-    // A new window sets the colour settings, which also empties the transforms a colour
-    // test running beside it was looking at.
-    let held = crate::support::threads::lock_even_if_poisoned(&crate::images::colour::COLOUR_TEST);
+    // A new window sets the shared settings as they are, and empties the colour transforms that
+    // a test which changes them may be looking at. So no such test runs while it is made.
+    read_shared_settings();
     let read = crate::ReadAtStart {
         colour_error: crate::images::colour::set_up_colour(&config),
         config,
@@ -50,7 +85,6 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
         keyword_tree: Vec::new(),
     };
     let mut app = crate::App::with_config(&ctx, read, Some(dir.into()), start);
-    drop(held);
     app.receive_listing(&ctx, std::time::Duration::from_secs(5));
     (app, ctx)
 }
@@ -409,6 +443,64 @@ pub(crate) fn exif_with_every_row() -> Vec<u8> {
     d
 }
 
+/// The settings of a test's `App`: its own, with no remote control and nothing kept in the
+/// user's files.
+fn test_config() -> crate::files::config::Config {
+    crate::files::config::Config {
+        remote_control: false,
+        keep_recent: false,
+        save_thumbnails: false,
+        desktop_profile: false,
+        remember_dir: false,
+        // English, not the system's language: other tests read the texts and numbers it sets.
+        language: "en".into(),
+        ..Default::default()
+    }
+}
+
+/// Holds the settings that the whole process shares (`SHARED_SETTINGS`) for this test to change
+/// them, and waits until no other test with an `App` runs. This thread's own hold to read them
+/// is let go of first, as one lock cannot be held both ways. They are put back when the guard is
+/// dropped. A test that changes one of them without this fails at the change.
+pub(crate) fn change_shared_settings() -> SharedSettingsChanged {
+    assert!(
+        !CHANGES_SHARED_SETTINGS.get(),
+        "the shared settings are held twice by one test"
+    );
+    READS_SHARED_SETTINGS.with_borrow_mut(|read| *read = None);
+    let held = crate::support::threads::write_even_if_poisoned(&SHARED_SETTINGS);
+    SHARED_SETTINGS_CHANGING.store(true, std::sync::atomic::Ordering::Relaxed);
+    CHANGES_SHARED_SETTINGS.set(true);
+    SharedSettingsChanged { _held: held }
+}
+
+/// Holds the shared settings to read them for the rest of this thread's test, unless it holds
+/// them already.
+fn read_shared_settings() {
+    // The statics start as Glimt starts, which is not as the tests set them (their language),
+    // so they are put as the tests set them once, before any test reads them.
+    static PUT_AS_THE_TESTS_SET_THEM: std::sync::Once = std::sync::Once::new();
+    if !CHANGES_SHARED_SETTINGS.get() {
+        PUT_AS_THE_TESTS_SET_THEM.call_once(|| drop(change_shared_settings()));
+        READS_SHARED_SETTINGS.with_borrow_mut(|read| {
+            read.get_or_insert_with(|| {
+                crate::support::threads::read_even_if_poisoned(&SHARED_SETTINGS)
+            });
+        });
+    }
+}
+
+/// Fails the test when a setting that the whole process shares was `changed` while no test held
+/// the shared settings to change them (`change_shared_settings`). Each setter of one calls it,
+/// so a test cannot change what the other tests' windows read.
+pub(crate) fn shared_setting_set(changed: bool) {
+    assert!(
+        !changed || SHARED_SETTINGS_CHANGING.load(std::sync::atomic::Ordering::Relaxed),
+        "a test changed a setting that every window of the process shares: hold \
+         test_support::change_shared_settings() while it is changed"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     /// A test's window speaks English whatever the system's language. With LANG=de_DE it took
@@ -421,6 +513,27 @@ mod tests {
         assert_eq!(crate::support::lang::tr("Open Folder"), "Open Folder");
         assert_eq!(app.config.language, "en");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A setting that every window of the process shares is changed by a test only while it
+    /// holds the shared settings (`change_shared_settings`), and is put back after. Before, a
+    /// test changed one unseen, and the windows of the tests beside it read its value.
+    #[test]
+    fn a_shared_setting_is_changed_only_while_held() {
+        use std::sync::atomic::Ordering;
+        let limit = || crate::images::decode::MAX_ANIMATION_BYTES.load(Ordering::Relaxed);
+        // Held to read them, so no other test changes them meanwhile.
+        super::read_shared_settings();
+        let before = limit();
+        let unheld = std::panic::catch_unwind(|| crate::images::decode::set_animation_limit(7));
+        assert!(unheld.is_err(), "changed without the shared settings held");
+        assert_eq!(limit(), before);
+        {
+            let _held = super::change_shared_settings();
+            crate::images::decode::set_animation_limit(7);
+            assert_eq!(limit(), 7 << 20);
+        }
+        assert_eq!(limit(), before, "put back");
     }
 
     /// What background work told just before it ended is taken before `run_background_until`

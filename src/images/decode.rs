@@ -1214,6 +1214,10 @@ pub fn scaled(
 /// Makes `mb` megabytes the most an animation's decoded frames may take, from the setting
 /// `animation_mb`, at start and when it changes in Preferences.
 pub fn set_animation_limit(mb: usize) {
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(
+        MAX_ANIMATION_BYTES.load(Ordering::Relaxed) != mb << 20,
+    );
     MAX_ANIMATION_BYTES.store(mb << 20, Ordering::Relaxed);
 }
 
@@ -2312,9 +2316,7 @@ mod tests {
     fn shows_turned_photos_shrunk_first() {
         // The test reads pixel values, so no other test may change the colour settings
         // meanwhile.
-        let _held = crate::images::colour::COLOUR_TEST
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _held = crate::support::test_support::change_shared_settings();
         use image::ImageEncoder;
         let dir = std::env::temp_dir().join(format!("glimt-test-turned-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2599,9 +2601,7 @@ mod tests {
     #[test]
     fn a_png_is_adobe_rgb_by_the_exif_in_its_text() {
         use crate::support::test_support::png_with_raw_profile;
-        let _held = crate::images::colour::COLOUR_TEST
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _held = crate::support::test_support::change_shared_settings();
         let dir = std::env::temp_dir().join(format!("glimt-test-pngadobe-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.png");
@@ -2729,9 +2729,7 @@ mod tests {
     fn shows_float_tiff() {
         // The test reads pixel values, so no other test may change the colour settings
         // meanwhile.
-        let _held = crate::images::colour::COLOUR_TEST
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _held = crate::support::test_support::change_shared_settings();
         use tiff::encoder::{TiffEncoder, colortype};
         let dir = std::env::temp_dir().join(format!("glimt-test-float-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2760,9 +2758,7 @@ mod tests {
     fn tone_maps_radiance_hdr() {
         // The test reads pixel values, so no other test may change the colour settings
         // meanwhile.
-        let _held = crate::images::colour::COLOUR_TEST
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _held = crate::support::test_support::change_shared_settings();
         let dir = std::env::temp_dir().join(format!("glimt-test-hdr-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let img = image::Rgb32FImage::from_fn(100, 10, |x, _| {

@@ -973,6 +973,8 @@ fn value_in(text: &str, key: &str) -> String {
 }
 
 pub fn lock() {
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(!locked());
     SETTINGS_LOCKED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 

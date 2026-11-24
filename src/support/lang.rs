@@ -110,8 +110,13 @@ fn plural_form(code: &str, n: usize) -> usize {
 
 /// Use the language of `setting` (a code of `LANGUAGES`, "en"), or with "" the system's.
 pub fn set_language(setting: &str) {
-    *crate::support::threads::write_even_if_poisoned(&CURRENT_TRANSLATION) =
-        chosen_translation(setting);
+    let chosen = chosen_translation(setting);
+    let mut current = crate::support::threads::write_even_if_poisoned(&CURRENT_TRANSLATION);
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(
+        current.map(std::ptr::from_ref) != chosen.map(std::ptr::from_ref),
+    );
+    *current = chosen;
 }
 
 /// Makes `tr` on this thread use the language of `setting`, as `set_language` does for the

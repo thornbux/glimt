@@ -1272,7 +1272,23 @@ pub fn instance_id() -> &'static str {
 
 /// Listen as `name` instead of the process ID.
 pub fn set_name(name: String) {
-    *lock_even_if_poisoned(&GIVEN_NAME) = Some(name);
+    keep_given_name(Some(name));
+}
+
+/// Keeps `name` as the name this Glimt was given (`--name`, or `--remote name`), or none.
+fn keep_given_name(name: Option<String>) {
+    let mut given = lock_even_if_poisoned(&GIVEN_NAME);
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(*given != name);
+    *given = name;
+}
+
+/// Keeps `id` as the ID this Glimt listens as, or none while it does not listen.
+fn keep_listening_as(id: Option<String>) {
+    let mut listening = lock_even_if_poisoned(&LISTENING_AS);
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(*listening != id);
+    *listening = id;
 }
 
 /// The `--name` given, if any.
@@ -1776,7 +1792,7 @@ pub fn listen(tx: mpsc::Sender<Sent>, ctx: eframe::egui::Context) -> Result<(), 
         }
         Err(Some(e)) => return Err(format!("No remote control as {id}: {e}")),
     };
-    *lock_even_if_poisoned(&LISTENING_AS) = Some(id);
+    keep_listening_as(Some(id));
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
     // The accept thread below keeps the listener, so its number stays valid for
     // `has_waiting_client`.
@@ -1852,8 +1868,8 @@ fn listens(listens_without_name: bool, has_name: bool) -> bool {
 fn stop_listening() {
     close();
     LISTENING.store(false, std::sync::atomic::Ordering::Relaxed);
-    *lock_even_if_poisoned(&LISTENING_AS) = None;
-    *lock_even_if_poisoned(&GIVEN_NAME) = None;
+    keep_listening_as(None);
+    keep_given_name(None);
 }
 
 /// Takes the clients of `listener`, each served by `serve` in a thread of its own, and at most
@@ -2264,7 +2280,7 @@ pub fn rename(name: Option<&str>) -> Result<(), String> {
         return Err(NOT_A_NAME.into());
     }
     if !listening() {
-        *lock_even_if_poisoned(&GIVEN_NAME) = name.map(str::to_owned);
+        keep_given_name(name.map(str::to_owned));
         return Ok(());
     }
     let dir = runtime_dir().ok_or("there is no runtime folder")?;
@@ -2273,8 +2289,8 @@ pub fn rename(name: Option<&str>) -> Result<(), String> {
         None => vec![instance_id().to_owned()],
     };
     let id = move_socket(&dir, &own_socket_id(), &ids)?;
-    *lock_even_if_poisoned(&GIVEN_NAME) = name.map(str::to_owned);
-    *lock_even_if_poisoned(&LISTENING_AS) = Some(id);
+    keep_given_name(name.map(str::to_owned));
+    keep_listening_as(Some(id));
     Ok(())
 }
 

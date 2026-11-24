@@ -2016,6 +2016,131 @@ fn the_runtime_folder_is_found_in_one_place() {
     );
 }
 
+/// Each setting that every window of the process shares (a static that the settings set and
+/// other threads read, as one window is one process) is written only in a function that calls
+/// `test_support::shared_setting_set`, so that a test which changes one without holding the
+/// shared settings fails at the change. A function that `App::with_config` calls and that writes
+/// a static calls it too, so a new such setting is found as well. Before, many tests' windows in
+/// one process overwrote each other's settings, and the decode and thumbnail threads of one test
+/// read another's (#130).
+#[test]
+fn shared_settings_are_changed_only_while_held() {
+    const SHARED: &[&str] = &[
+        "COLOR_MANAGEMENT",
+        "VIEW_FILTER",
+        "COLOUR",
+        "LARGE_THUMBS",
+        "MAX_ANIMATION_BYTES",
+        "MEMORY_LIMIT_MB",
+        "CPU_USE_LEVEL",
+        "USER_KEYS",
+        "CURRENT_TRANSLATION",
+        "SETTINGS_LOCKED",
+        "GIVEN_NAME",
+        "LISTENING_AS",
+    ];
+    let sources = rust_sources();
+    let main = code_lines(&source("main.rs"));
+    let start = (main
+        .iter()
+        .position(|l| function_name(l) == Some("with_config")))
+    .unwrap();
+    let body = main[start..=block_end(&main, start).unwrap()].join("\n");
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        if ["support/test_support.rs", "support/source_rules.rs"].contains(&file.as_str()) {
+            continue;
+        }
+        let lines = code_lines(text);
+        for (first, name) in
+            (0..tests_start(&lines)).filter_map(|i| Some((i, function_name(&lines[i])?)))
+        {
+            let Some(last) = block_end(&lines, first) else {
+                continue;
+            };
+            let function = &lines[first..=last];
+            let writes = |is_shared: &dyn Fn(&str) -> bool| {
+                function
+                    .iter()
+                    .any(|l| static_written(l).is_some_and(is_shared))
+            };
+            // A call of a free function, by its name alone or by its module's path, and not a
+            // method or a type's function of the same name (`Vec::new`).
+            let called_at_start = body.match_indices(&format!("{name}(")).any(|(at, _)| {
+                let before = &body[..at];
+                match before.strip_suffix("::") {
+                    Some(path) => (path.rsplit(|c: char| !is_word_char(c)).next())
+                        .is_some_and(|module| module.starts_with(|c: char| c.is_lowercase())),
+                    None => !before.ends_with(|c: char| c == '.' || is_word_char(c)),
+                }
+            });
+            let checks = function.iter().any(|l| l.contains("shared_setting_set("));
+            if !checks
+                && (writes(&|s| SHARED.contains(&s)) || (called_at_start && writes(&|_| true)))
+            {
+                wrong.push(format!("{file}:{} ({name})", first + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a setting that every window shares written without test_support::shared_setting_set:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The checks above find a shared setting written in each way: stored, swapped, through its
+/// lock, and a static written by a function that `App::with_config` calls.
+#[test]
+fn finds_a_shared_setting_written() {
+    for line in [
+        "    VIEW_FILTER.store(f, Ordering::Relaxed);",
+        "    if LARGE_THUMBS.swap(large, Ordering::Relaxed) != large {",
+        "    *write_even_if_poisoned(&CURRENT_TRANSLATION) = chosen;",
+        "    let mut given = lock_even_if_poisoned(&GIVEN_NAME);",
+        "    *crate::support::threads::lock_even_if_poisoned(&LISTENING_AS) = None;",
+    ] {
+        assert!(static_written(line).is_some(), "{line}");
+    }
+    for line in [
+        "    let shown = VIEW_FILTER.load(Ordering::Relaxed);",
+        "    lock_even_if_poisoned(&GIVEN_NAME).clone()",
+        "    let c = read_even_if_poisoned(&COLOUR);",
+    ] {
+        assert_eq!(static_written(line), None, "{line}");
+    }
+}
+
+/// Returns the static that the code line `line` writes: stores into, swaps or changes through
+/// its lock, or takes the lock of to change. Returns `None` for a line that writes no static.
+fn static_written(line: &str) -> Option<&str> {
+    let is_static = |name: &&str| {
+        name.len() > 1
+            && name
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    };
+    for change in [".store(", ".swap(", ".fetch_"] {
+        for (at, _) in line.match_indices(change) {
+            let before = &line[..at];
+            let name = &before[before
+                .rfind(|c: char| !is_word_char(c))
+                .map_or(0, |i| i + 1)..];
+            if is_static(&name) {
+                return Some(name);
+            }
+        }
+    }
+    let locked = |lock: &str| {
+        let at = line.find(lock)? + lock.len();
+        let name = line[at..].split(')').next()?;
+        is_static(&name).then_some(name)
+    };
+    let to_change = line.trim_start().starts_with('*') || line.contains("let mut ");
+    (locked("write_even_if_poisoned(&"))
+        .or_else(|| locked("lock_even_if_poisoned(&").filter(|_| to_change))
+}
+
 /// A test sits in the tests of the module whose code it tests. Once main.rs's tests module held
 /// what such tests start from (`app_on`, `run_background_until`), and that drew every test that
 /// needed a whole `App` into main.rs. Those helpers are in test_support.rs now, and only the tests
@@ -2704,19 +2829,10 @@ fn copies_of_settings_have_one_writer() {
             "MAX_ANIMATION_BYTES.",
             &[("images/decode.rs", "set_animation_limit")],
         ),
-        (
-            "VIEW_FILTER.",
-            &[
-                ("images/colour.rs", "set_up_colour"),
-                ("ui/menus.rs", "set_view_filter"),
-            ],
-        ),
+        ("VIEW_FILTER.", &[("images/colour.rs", "use_view_filter")]),
         (
             "COLOR_MANAGEMENT.",
-            &[
-                ("images/colour.rs", "set_up_colour"),
-                ("ui/menus.rs", "set_color_management"),
-            ],
+            &[("images/colour.rs", "use_color_management")],
         ),
     ];
     let writes: Vec<(String, &[(&str, &str)])> = (ATOMICS.iter())
@@ -2756,7 +2872,7 @@ fn whether_a_window_listens_is_asked_in_one_place() {
             ("main.rs", "with_config"),
             ("files/config.rs", ""),
             ("ui/preferences.rs", "window_settings"),
-            ("support/test_support.rs", "app_on"),
+            ("support/test_support.rs", "test_config"),
         ],
     )];
     let wrong = outside_their_homes(HOMES);
