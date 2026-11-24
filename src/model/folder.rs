@@ -912,7 +912,8 @@ impl Listing {
         // Each look at an entry waits on a share for the image that the window waits for, as
         // a folder's looks do (`ReadsFirst`). Before, a sorted collection on a share read the
         // EXIF of every entry in a row, and the next image of a slideshow waited behind them.
-        let mut gate = listing::ReadsFirst::for_files_anywhere(&self.awaited);
+        let mut gate =
+            listing::ReadsFirst::for_files_anywhere(&self.awaited).ended_by(self.stop.clone());
         let sizes = keep_files_with_size(&mut files, |(f, identity)| {
             let path = self.dir.join(f);
             gate.before_a_look(&path);
@@ -932,7 +933,7 @@ impl Listing {
         let (by, dir) = (self.by, &self.dir);
         let rows = match sort {
             true => Rows::sorted(files, (by, self.ascending, self.case), |_, name| {
-                gate.sort_key(dir, name, by)
+                gate.sort_key(&dir.join(name), by)
             }),
             false => Rows::unsorted(files),
         };
@@ -1186,7 +1187,7 @@ impl PartsSent {
         }
         // Each look waits for the reads that go first (`ReadsFirst`).
         let reads_first = &mut self.reads_first;
-        let mut look = |name: &OsString| reads_first.sort_key(&dir, name, by);
+        let mut look = |name: &OsString| reads_first.sort_key(&dir.join(name), by);
         // The list's own rows are put in the listing's order once, before the walk's parts go
         // into them.
         if !self.to_sort_anew.is_empty() {
@@ -1236,7 +1237,7 @@ impl PartsSent {
         Rows::sorted(files, (by, ascending, case), |i, name| {
             (known.get_mut(i).and_then(Option::take))
                 .or_else(|| sorted_anew(name))
-                .unwrap_or_else(|| self.reads_first.sort_key(&dir, name, by))
+                .unwrap_or_else(|| self.reads_first.sort_key(&dir.join(name), by))
         })
     }
 }
@@ -5959,7 +5960,7 @@ mod tests {
     ) -> crate::model::listing::SortKey {
         let mut gate =
             crate::model::listing::ReadsFirst::new(Default::default(), Default::default(), false);
-        gate.sort_key(dir, name, by)
+        gate.sort_key(&dir.join(name), by)
     }
 
     /// Asserts that `names`, files in `dir`, are in the order `order` (`listing::in_order`).
@@ -7005,6 +7006,56 @@ mod tests {
         assert!(took < Duration::from_secs(1), "{took:?}");
         awaited.set(Vec::new());
         test_mount(&dir, None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The sort keys of a sorted collection on a share are looked at after the images that the
+    /// window waits for, as its sizes are, and another listing ends the wait. A hundred files
+    /// use up one budget of looks with their sizes (`LOOKS_PER_PAUSE`), so the keys wait with a
+    /// budget of their own. Before, the gate was asked about the collection's folder, "/", which
+    /// is on no share, so the keys did not wait, and the listing's stop did not end the wait.
+    #[test]
+    fn a_sorted_collections_keys_on_a_share_wait_for_the_images_awaited() {
+        use crate::files::file_ops::test_mount;
+        use crate::support::threads::Took;
+        use std::sync::atomic::Ordering;
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-collection-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut gqv = String::from("#GQview collection\n");
+        for k in 0..100 {
+            let path = dir.join(format!("{k:03}.png"));
+            image::RgbImage::new(2, 2).save(&path).unwrap();
+            gqv.push_str(&format!("\"{}\"\n", path.display()));
+        }
+        let file = dir.join("c.gqv");
+        std::fs::write(&file, gqv).unwrap();
+        let (mut app, ctx) = app_on(&file);
+        app.config.sort = crate::model::listing::Sort::Date;
+        app.folder.sort_collection = true;
+        test_mount(&dir, Some("cifs"));
+        let awaited = app.decoding.images_awaited().clone();
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let began = Instant::now();
+        app.start_listing(&ctx);
+        let listed = app.folder.listing_rx.wait(Duration::from_secs(10));
+        let took = began.elapsed();
+        assert!(matches!(listed, Took::Answer(_)));
+        // One second of waits for the sizes and one for the keys.
+        assert!(took >= Duration::from_millis(1700), "{took:?}");
+        // Another listing ends the wait.
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let began = Instant::now();
+        app.start_listing(&ctx);
+        app.folder.listing_stop.store(true, Ordering::Relaxed);
+        let listed = app.folder.listing_rx.wait(Duration::from_secs(10));
+        let took = began.elapsed();
+        assert!(matches!(listed, Took::Answer(_)));
+        assert!(took < Duration::from_millis(700), "{took:?}");
+        awaited.set(Vec::new());
+        test_mount(&dir, None);
+        crate::files::file_io::wait_for_queued_writes();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
