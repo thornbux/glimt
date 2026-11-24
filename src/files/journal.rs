@@ -1762,7 +1762,10 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// lasting inode, when it is the one noted, tells the disk. Without it, the device number tells
 /// it only off a block device: a share's or tmpfs's number is its own, while a block device's
 /// is given to the next card in the same reader or stick at the same port, so that it alone
-/// cannot tell (#179, #266, #270).
+/// cannot tell (#179, #266, #270). Where no volume can be read on this system, as in the
+/// Flatpak's sandbox, which has no /dev/disk/by-uuid, and no lasting inode tells the folder (FAT,
+/// exFAT, or a folder above the one noted), the device tells it, as in Glimt 0.96. Else a job
+/// killed on such a card would never finish, and its files' marks would never follow them.
 fn is_on_the_volume_noted(
     folder: &Path,
     noted: &FolderNoted,
@@ -1782,8 +1785,12 @@ fn is_on_the_volume_noted(
         };
     }
     let is_the_inode_noted = noted.noted_inode != 0 && inode == Some(noted.noted_inode);
+    let has_no_inode_to_tell = noted.noted_inode == 0 || inode.is_none();
+    let has_no_volumes = || noted.volumes_now.get_or_init(VolumesNow::read).is_none();
     match device == noted.noted_device
-        && (is_the_inode_noted || !is_on_a_block_device(folder, device))
+        && (is_the_inode_noted
+            || !is_on_a_block_device(folder, device)
+            || (has_no_inode_to_tell && has_no_volumes()))
     {
         true => Ok(true),
         false => Err(CannotTell),
@@ -5619,6 +5626,52 @@ mod tests {
         let found = super::delete_jobs_cut_short(&logs);
         assert_eq!(found[0].1, [a, c]);
         assert_eq!(let_go(found), 1);
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A Move, a delete and a Move Folder to Trash killed on a FAT card, where no volume can be
+    /// read, as in the Flatpak's sandbox, finish at the next start while the card is on the
+    /// device noted: the Move follows its photo, the delete forgets the marks of its files, also
+    /// of one in a folder gone since, and the folder counts as trashed. Before, the card's
+    /// folders, which keep no lasting inode, could never be told on a block device, and each log
+    /// stayed for ever, with the marks at the card's old names.
+    #[test]
+    fn a_job_killed_on_a_fat_card_finishes_where_no_volume_can_be_read() {
+        use super::JobDoneBeforeAKill::FolderTrashed;
+        let (dir, card, logs) = fat_card("start-fat-card-no-volumes");
+        let (sub, album, to) = (card.join("sub"), card.join("album"), dir.join("to"));
+        for folder in [&sub, &album, &to] {
+            std::fs::create_dir(folder).unwrap();
+        }
+        let (from, moved) = (card.join("a.jpg"), to.join("a.jpg"));
+        std::fs::write(&from, "the card's").unwrap();
+        let mut log = super::start_move_log(&logs, "move").unwrap();
+        log.note(&from, &moved);
+        std::fs::rename(&from, &moved).unwrap();
+        drop(log);
+        let (b, c) = (card.join("b.png"), sub.join("c.png"));
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(&[b.clone(), c.clone()]);
+        drop(log);
+        drop(super::start_folder_log(&logs, &album, None, None).unwrap());
+        std::fs::remove_dir(&sub).unwrap();
+        std::fs::remove_dir(&album).unwrap();
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(|on| on.push(card.clone()));
+        super::VOLUMES_UNREADABLE.set(true);
+        let (moves, deletes, mut others) = super::jobs_cut_short(&logs);
+        super::VOLUMES_UNREADABLE.set(false);
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
+        assert_eq!(moves.len(), 1);
+        assert_eq!(moves[0].1, [(from, moved)]);
+        drop(moves);
+        assert_eq!(deletes[0].1, [b, c]);
+        assert_eq!(let_go(deletes), 1);
+        assert_eq!(others.len(), 1);
+        let (log, done) = others.remove(0);
+        assert!(matches!(&done, FolderTrashed(folder) if *folder == album));
+        super::remove_once_written(log);
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
         remove_fat_card(&dir, &card);
     }
 
