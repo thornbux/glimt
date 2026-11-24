@@ -5504,13 +5504,18 @@ section "Glimt killed (kill -9) during the Undo of a Move: every photo under a n
 for v in new old; do
     as_version $v
     mkdir -p $XDG_STATE_HOME/glimt
-    # 200 photos of 10 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
+    # 200 photos of 4 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
     # the disk under /tmp and then back by the Undo, each copied and then unlinked; the Undo is
-    # killed after the tenth is back.
+    # killed after the tenth is back. The photos start as hard links to one file, but come back
+    # as 200 copies, which must all fit in /dev/shm. With 10 MB photos the 108th copy filled the
+    # 1 GiB that run.sh gives it, the Undo ended there with its log removed, and whether the kill
+    # came before that end was a race.
     d=/dev/shm/undo-killed-$v to=/tmp/undo-killed-to-$v
     rm -rf $d $to $XDG_STATE_HOME/glimt/jobs; mkdir -p $d $to
-    head -c 10000000 /dev/urandom >$d/001.jpg
+    head -c 4000000 /dev/urandom >$d/001.jpg
     for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
+    room=$(( $(df -B1 --output=avail /dev/shm | tail -1) > 200 * $(stat -c %s $d/001.jpg) + 2000000 ))
+    [ $v = new ] && expect "killed during the Undo of a Move: every photo fits back in /dev/shm" "$room" 1
     for i in $(seq -w 1 200); do echo "sidecar $i" >$d/$i.jpg.xmp; done
     for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
     config
