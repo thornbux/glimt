@@ -2736,8 +2736,11 @@ mod tests {
     /// decodes that come in, in every layout: one pane, two and four panes together or one at
     /// a time, and Compare. Only a few of its frames ask for the next one at once. The frames
     /// run on a clock of the test's own, which goes on by the time each frame asks to wait, so
-    /// the test needs no real seconds. A slow decode, as when the other tests run beside it,
-    /// adds frames that wait, but none asked for at once. Before, the file list
+    /// the test needs no real seconds. A thread that wakes the window, as a decode or a
+    /// thumbnail does when it is done, makes egui ask for that frame and the next one at once,
+    /// and the frame that takes its answer may ask for one more. Those frames are left out of
+    /// the count, because when the other tests run beside it the threads' answers come in one
+    /// at a time over many frames, and they once added up to 13. Before, the file list
     /// scrolled to an image in its last rows past the end of its content, and egui sprang it
     /// back over about a second of frames, each one asked for at once. Without a vertical sync
     /// the window then drew as fast as it could, 576 ticks in 3 s in the release tests.
@@ -2745,7 +2748,7 @@ mod tests {
     fn a_slideshow_asks_only_for_the_frames_it_needs() {
         use eframe::egui;
         use std::sync::Arc;
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::{Duration, Instant};
         let dir = std::env::temp_dir().join(format!(
             "glimt-test-slideshow-frames-{}",
@@ -2782,10 +2785,15 @@ mod tests {
             app.config.slideshow_fade = 0;
             app.is_comparing = comparing;
             // A thread that asks for a frame, as a decode or a thumbnail does when it is done,
-            // wakes the window.
-            let woken = Arc::new(AtomicBool::new(false));
-            let wakes = Arc::clone(&woken);
-            ctx.set_request_repaint_callback(move |_| wakes.store(true, Ordering::Relaxed));
+            // wakes the window. The frame's own requests come from this thread and are no wake.
+            let wakes = Arc::new(AtomicUsize::new(0));
+            let counted = Arc::clone(&wakes);
+            let this_thread = std::thread::current().id();
+            ctx.set_request_repaint_callback(move |_| {
+                if std::thread::current().id() != this_thread {
+                    counted.fetch_add(1, Ordering::Relaxed);
+                }
+            });
             app.start_slideshow(&ctx);
             let on_screen = |app: &crate::App| {
                 let mut all = vec![app.list.shown()];
@@ -2794,6 +2802,7 @@ mod tests {
             };
             let (mut clock, mut before) = (0.0, on_screen(&app));
             let (mut slides, mut at_once, mut most, mut last_shown) = (0, 0, 0, 0);
+            let (mut frame, mut last_woken_frame, mut wakes_seen) = (0, None, 0);
             while last_shown < 2 && slides < 300 {
                 let input = egui::RawInput {
                     time: Some(clock),
@@ -2801,15 +2810,20 @@ mod tests {
                     ..Default::default()
                 };
                 let out = ctx.run_ui(input, |ui| app.frame_ui(ui));
-                woken.store(false, Ordering::Relaxed);
+                // A thread woke the window while the test waited for this frame, or during it.
+                if wakes.load(Ordering::Relaxed) != wakes_seen {
+                    (last_woken_frame, wakes_seen) = (Some(frame), wakes.load(Ordering::Relaxed));
+                }
                 let delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
                 assert!(delay < Duration::MAX, "no next frame asked for: {case}");
-                at_once += usize::from(delay.is_zero());
+                let follows_a_wake = last_woken_frame.is_some_and(|woken| frame <= woken + 2);
+                at_once += usize::from(delay.is_zero() && !follows_a_wake);
+                frame += 1;
                 // A frame asked for later comes then, unless a thread wakes the window first.
                 let mut passed = delay.max(frame_time);
                 let waited = Instant::now();
                 while passed > frame_time && waited.elapsed() < Duration::from_millis(10) {
-                    if woken.load(Ordering::Relaxed) {
+                    if wakes.load(Ordering::Relaxed) != wakes_seen {
                         passed = frame_time;
                     }
                     std::thread::sleep(Duration::from_millis(1));
