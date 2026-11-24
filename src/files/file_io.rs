@@ -58,7 +58,8 @@ static OWN_FILES_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite
 static USER_FOLDERS_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
     std::sync::OnceLock::new();
 
-/// The names whose look fails in tests, as on a share that dropped for a moment (`look`). It is
+/// The names whose look fails in tests, as on a share that dropped for a moment (`look`). A
+/// folder named here cannot be read by Copy for Sharing either (`highest_neutral_number`). It is
 /// shared by every thread, as the work that looks runs in threads of its own, and each test puts
 /// only names in its own folder here.
 #[cfg(test)]

@@ -267,7 +267,7 @@ impl SharingOutcome {
             let target = folder.join(match naming {
                 Naming::Neutral => {
                     let last = (self.last_neutral_number)
-                        .get_or_insert_with(|| highest_neutral_number(folder));
+                        .get_or_insert_with(|| highest_neutral_number(folder, path));
                     *last += 1;
                     neutral_name(path, *last)
                 }
@@ -524,12 +524,23 @@ fn neutral_name(path: &Path, n: usize) -> std::ffi::OsString {
 /// Returns the highest n of the names "image-n…" in `folder`, its copies' and their sidecars',
 /// from one reading of the folder, so that a job's neutral names start past them. A look at each
 /// taken name took minutes in a folder of 200,000 earlier copies on a share, and Stop waited for
-/// it. Returns 0 when there is none, or when the folder cannot be read; the names are then
-/// looked at one by one from image-1. A number past `u32::MAX` is left out, so that no planted
-/// name can make the count overflow.
-fn highest_neutral_number(folder: &Path) -> usize {
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return 0;
+/// it. Returns 0 when there is none. A folder that cannot be read is searched by looks at the
+/// names of copies of `path` instead (`highest_neutral_number_by_looks`). A number past
+/// `u32::MAX` is left out, so that no planted name can make the count overflow.
+fn highest_neutral_number(folder: &Path, path: &Path) -> usize {
+    let read = std::fs::read_dir(folder);
+    // In tests, a folder whose looks fail cannot be read either, as the tests run as root,
+    // who can read a drop box.
+    #[cfg(test)]
+    let read =
+        match (crate::support::threads::lock_even_if_poisoned(&crate::files::file_io::LOOKS_FAIL))
+            .contains(&folder.to_path_buf())
+        {
+            true => Err(std::io::Error::from_raw_os_error(libc::EACCES)),
+            false => read,
+        };
+    let Ok(entries) = read else {
+        return highest_neutral_number_by_looks(folder, path);
     };
     let number = |name: &[u8]| {
         let digits = name.strip_prefix(b"image-")?;
@@ -541,6 +552,32 @@ fn highest_neutral_number(folder: &Path) -> usize {
         .filter_map(|entry| number(entry.file_name().as_encoded_bytes()))
         .max()
         .unwrap_or(0)
+}
+
+/// Returns a number n whose neutral name for a copy of `path` (`neutral_name`) is taken in
+/// `folder` while the next one is free, or 0 when image-1 is free. It looks at the names in
+/// steps that double and then halve, about two looks for each doubling, so 36 looks find it
+/// past 200,000 copies. A folder that can be looked at but not read (a drop box, mode 0733)
+/// gives no names to `highest_neutral_number`, and a look at each taken name from image-1 took
+/// minutes there.
+/// shortcut: a gap among the names (a copy deleted) can end the search below the highest, and
+/// the taken names after the gap are then looked at one by one; search past gaps if that is met.
+fn highest_neutral_number_by_looks(folder: &Path, path: &Path) -> usize {
+    let is_taken =
+        |n: usize| crate::files::file_io::is_surely_there(&folder.join(neutral_name(path, n)));
+    let most = 1_usize << 31;
+    let (mut low, mut high) = (0, 1);
+    while high < most && is_taken(high) {
+        (low, high) = (high, high * 2);
+    }
+    while high - low > 1 {
+        let middle = low + (high - low) / 2;
+        match is_taken(middle) {
+            true => low = middle,
+            false => high = middle,
+        }
+    }
+    low
 }
 
 /// Returns how many of `paths` have the name of one before them, as images picked from several
@@ -761,6 +798,44 @@ mod tests {
             let made = out.join(format!("image-{job}.png"));
             assert_eq!(image::image_dimensions(made).unwrap(), (4, 4));
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Neutral names are numbered past a thousand copies made by earlier jobs also in a folder
+    /// that can be looked at but not read (a drop box, mode 0733), with a few dozen looks.
+    /// Before, the reading of the folder failed, and each job looked at every taken name from
+    /// image-1, which took minutes on a share (#220).
+    #[test]
+    fn neutral_names_go_past_names_taken_in_a_folder_that_cannot_be_read() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-sharing-drop-{}", std::process::id()));
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        for n in 1..=1000 {
+            std::fs::write(out.join(format!("image-{n}.png")), b"").unwrap();
+        }
+        lock_even_if_poisoned(&LOOKS_FAIL).push(out.clone());
+        for job in [1001, 1002] {
+            let mut outcome = super::SharingOutcome::default();
+            crate::files::file_io::LOOKS_MADE.set(0);
+            outcome.copy_into(
+                (&a, &|_| Ok(())),
+                &out,
+                &Default::default(),
+                super::Naming::Neutral,
+            );
+            let looks = crate::files::file_io::LOOKS_MADE.get();
+            assert!(looks < 40, "{looks} looks");
+            assert_eq!((outcome.copied, outcome.names_taken), (1, 0));
+            assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
+            let made = out.join(format!("image-{job}.png"));
+            assert_eq!(image::image_dimensions(made).unwrap(), (4, 4));
+        }
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| p != &out);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
