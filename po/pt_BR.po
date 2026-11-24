@@ -4132,3 +4132,8 @@ msgstr "O arquivo de marcas do Glimt 0.95 ou anterior fica em {old}, porque {new
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} contém registros de tarefas durante as quais o Glimt parou e que esta inicialização ainda não pôde concluir. Eles são mantidos, com as marcas e estrelas de seus arquivos, para uma inicialização posterior."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Digitar um caminho"

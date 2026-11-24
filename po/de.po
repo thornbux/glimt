@@ -4121,3 +4121,8 @@ msgstr "Die Markierungsdatei von Glimt 0.95 oder älter bleibt in {old}, da auch
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} enthält Protokolle von Aufträgen, während derer Glimt beendet wurde und die dieser Start noch nicht abschließen konnte. Sie bleiben mit den Markierungen und Sternen ihrer Dateien für einen späteren Start erhalten."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Pfad eingeben"

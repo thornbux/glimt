@@ -4132,3 +4132,8 @@ msgstr "Merkefila frå Glimt 0.95 eller eldre er late vere i {old}, fordi {new} 
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} har loggar frå jobbar som Glimt stoppa under, og som denne starten ikkje kunne fullføra enno. Dei blir tekne vare på, med merka og stjernene til filene deira, til ein seinare start."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Skriv inn ein sti"

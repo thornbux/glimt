@@ -4824,6 +4824,50 @@ for v in new old; do
     else note "old, at x=465: $(colour columns-old 465 400)"; fi
 done
 
+section "the folder path: a click on a folder in it opens that folder"
+d=/tmp/path-buttons
+mkdir -p $d/summer
+convert -size 300x200 xc:red $d/a.jpg
+convert -size 300x200 xc:blue $d/summer/b.jpg
+for v in new old; do
+    as_version $v
+    config
+    start $d/summer/b.jpg
+    # 0.97.0 drew the path as one text field, with no button for each folder.
+    click_text 1 path-buttons
+    until_current $d/a.jpg
+    got=$(remote current | tr -d '\0')
+    if [ $v = new ]; then expect "the folder clicked in the path opened" "$got" "$d/a.jpg"
+    else note "old: $got"; fi
+    quit
+done
+
+section "the folder path: a click after the folders types a path, Enter opens it, Esc goes back"
+d=/tmp/path-typed
+mkdir -p $d/summer
+convert -size 300x200 xc:red $d/a.jpg
+convert -size 300x200 xc:blue $d/summer/b.jpg
+for v in new old; do
+    as_version $v
+    config
+    start $d/summer/b.jpg
+    # Without the empty part to click (0.97.0), nothing is typed, as the keys would be shortcuts.
+    if [ -n "$(where "Type a path")" ]; then
+        click_text 1 "Type a path"; sleep 0.5
+        key Escape
+        back=$(until_ok '[ -n "$(where "Type a path")" ]' && echo back)
+        click_text 1 "Type a path"; sleep 0.5
+        key ctrl+a; xdotool type "$d"; key Return
+        until_current $d/a.jpg
+    else back=""; fi
+    got=$(remote current | tr -d '\0')
+    if [ $v = new ]; then
+        expect "Esc turned the field back into the folders" "$back" back
+        expect "the path typed opened" "$got" "$d/a.jpg"
+    else note "old: '$back' $got"; fi
+    quit
+done
+
 section "thumbnails without columns: the list is never dragged narrower than a thumbnail"
 d=/tmp/narrow
 mkdir -p $d
