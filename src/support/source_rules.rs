@@ -1981,6 +1981,41 @@ fn without_format_arguments(literal: &str) -> String {
     name + rest
 }
 
+/// $XDG_RUNTIME_DIR is read in one place, `remote::runtime_dir`, which gives the tests a runtime
+/// folder of their own, and `listen` reads it only to say why there is none. Before, the tests
+/// made their sockets in the user's own runtime folder, beside those of a Glimt that ran there.
+/// The name is found as a literal anywhere in the code, so also through a constant.
+#[test]
+fn the_runtime_folder_is_found_in_one_place() {
+    const HOMES: &[&str] = &["runtime_dir", "listen"];
+    // Made of two, so that this rule's own literal is not found.
+    let name = ["XDG_RUNTIME", "_DIR"].concat();
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        let starts = line_starts(&text);
+        let end = tests_start(&lines);
+        for (at, literal) in literals(&text) {
+            let line = starts.partition_point(|&start| start <= at) - 1;
+            if literal != name || line >= end {
+                continue;
+            }
+            let function = (lines[..=line].iter().rev()).find_map(|l| function_name(l));
+            let at_home =
+                file == "features/remote.rs" && function.is_some_and(|f| HOMES.contains(&f));
+            if !at_home {
+                wrong.push(format!("{file}:{}", line + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "$XDG_RUNTIME_DIR read outside remote::runtime_dir, where the tests do not have a \
+         runtime folder of their own:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A test sits in the tests of the module whose code it tests. Once main.rs's tests module held
 /// what such tests start from (`app_on`, `run_background_until`), and that drew every test that
 /// needed a whole `App` into main.rs. Those helpers are in test_support.rs now, and only the tests
