@@ -4115,5 +4115,5 @@ msgstr "Glimt 0.95:n tai vanhemman merkintätiedosto jätetään kohteeseen {old
 
 #: src/files/journal.rs
 #, fuzzy
-msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
-msgstr "{folder} sisältää lokeja töistä, joiden aikana Glimt pysähtyi ja joita tämä käynnistys ei voinut viedä loppuun, koska se ei voinut tarkastella niiden tiedostoja tai erottaa niiden korttia tai levyä toisesta. Ne säilytetään tiedostojen merkkeineen ja tähtineen myöhempää käynnistystä varten."
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} sisältää lokeja töistä, joiden aikana Glimt pysähtyi ja joita tämä käynnistys ei vielä voinut viedä loppuun. Ne säilytetään tiedostojen merkkeineen ja tähtineen myöhempää käynnistystä varten."

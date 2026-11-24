@@ -4115,5 +4115,5 @@ msgstr "Het markeringenbestand van Glimt 0.95 of ouder blijft in {old}, omdat {n
 
 #: src/files/journal.rs
 #, fuzzy
-msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
-msgstr "{folder} bevat logboeken van taken waarin Glimt stopte en die deze start niet kon afmaken, omdat hij hun bestanden niet kon bekijken of hun kaart of schijf niet van een andere kon onderscheiden. Ze blijven bewaard, met de markeringen en sterren van hun bestanden, voor een latere start."
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} bevat logboeken van taken waarin Glimt stopte en die deze start nog niet kon afmaken. Ze blijven bewaard, met de markeringen en sterren van hun bestanden, voor een latere start."

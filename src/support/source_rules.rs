@@ -4114,9 +4114,6 @@ fn a_home_ends_at_the_next_top_level_item() {
     assert_eq!(wrong, ["a.rs:4 (risky()", "a.rs:5 (risky()"]);
 }
 
-/// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
-/// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
-/// sure answer makes.
 /// Which disk and which folder a job log noted (by its volume, its device and inode, or its
 /// device alone where that is not a block device) is decided in two functions:
 /// `journal::is_on_the_volume_noted` for the disk, the only one that reads the volume noted or
@@ -4144,12 +4141,14 @@ fn one_rule_tells_the_folder_a_log_noted() {
 
 /// The rule of `one_rule_tells_the_folder_a_log_noted` finds a volume or a block device looked
 /// up by each name that file_io and libc give the look. Before, a look through
-/// `file_io::device_of_volume_now`, `volumes_by_device` or `libc::major` passed unseen.
+/// `file_io::device_of_volume_now`, `volumes_by_device`, `volume_of_device` or `libc::major`
+/// passed unseen.
 #[test]
 fn the_folder_rule_finds_every_look_at_a_volume() {
     let planted = "fn judge(folder: &Path, device: u64) -> bool {\n    \
         let all = crate::files::file_io::volumes_by_device();\n    \
         let now = file_io::device_of_volume_now(volume);\n    \
+        let this = file_io::volume_of_device(device);\n    \
         libc::major(device) != 0\n}\n";
     let wrong = outside_homes_in("files/file_ops.rs", planted, &homes_of_the_folder_rule());
     let lines: Vec<&str> = (wrong.iter())
@@ -4160,7 +4159,8 @@ fn the_folder_rule_finds_every_look_at_a_volume() {
         [
             "files/file_ops.rs:2",
             "files/file_ops.rs:3",
-            "files/file_ops.rs:4"
+            "files/file_ops.rs:4",
+            "files/file_ops.rs:5"
         ]
     );
 }
@@ -4198,8 +4198,9 @@ fn homes_of_the_folder_rule() -> Vec<(&'static str, &'static [(&'static str, &'s
         ("volume_of_folder(", looked_up),
         ("is_still_on_device(", looked_up),
         ("is_on_a_block_device(", looked_up),
-        // The looks that these three make, each in its one place.
+        // The looks that these four make, each in its one place.
         ("volumes_by_device(", &[("files/journal.rs", "read")]),
+        ("volume_of_device(", &[("files/journal.rs", "volume_of")]),
         (
             "device_of_volume_now(",
             &[("files/journal.rs", "is_still_on_device")],
@@ -4208,6 +4209,9 @@ fn homes_of_the_folder_rule() -> Vec<(&'static str, &'static [(&'static str, &'s
     ]
 }
 
+/// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
+/// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
+/// sure answer makes.
 /// Three audit rounds in a row found a start that removed a log after a look or a write that
 /// could not tell, each through a removal of its own, and each was mended where it was found.
 #[test]

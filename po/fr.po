@@ -4115,5 +4115,5 @@ msgstr "Le fichier des marques de Glimt 0.95 ou plus ancien est laissé dans {ol
 
 #: src/files/journal.rs
 #, fuzzy
-msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
-msgstr "{folder} contient des journaux de tâches pendant lesquelles Glimt s'est arrêté, que ce démarrage n'a pas pu terminer, car il n'a pas pu examiner leurs fichiers ni distinguer leur carte ou leur disque d'un autre. Ils sont gardés, avec les marques et étoiles de leurs fichiers, pour un démarrage ultérieur."
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} contient des journaux de tâches pendant lesquelles Glimt s'est arrêté, que ce démarrage n'a pas encore pu terminer. Ils sont gardés, avec les marques et étoiles de leurs fichiers, pour un démarrage ultérieur."
