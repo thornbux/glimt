@@ -45,6 +45,9 @@ pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
 /// The folder where udev names each volume on a block device by its serial number or UUID.
 const VOLUMES_FOLDER: &str = "/dev/disk/by-uuid";
 
+/// The file that names this boot of the computer, which no other boot has.
+const BOOT_ID_FILE: &str = "/proc/sys/kernel/random/boot_id";
+
 /// In a test, a file picked whose fingerprint never comes, as on a share that stopped
 /// answering, until the test takes it away.
 #[cfg(test)]
@@ -2788,6 +2791,30 @@ pub(crate) fn device_of_volume_now(volume: &std::ffi::OsStr) -> Option<u64> {
     meta.file_type().is_block_device().then(|| meta.rdev())
 }
 
+/// Returns the medium in the block device numbered `device` now, as "boot:sequence": the id of
+/// this boot and the disk sequence number that the kernel (Linux 5.15 and later) gave the disk
+/// when it came, or the card when it was put into its reader. The kernel never gives a number
+/// twice in one boot, so it tells two cards in one reader apart where /dev/disk/by-uuid cannot
+/// be read, as in a Flatpak's sandbox, which sees /sys and /proc but not /dev/disk. Returns
+/// `None` for a device that is no block device, before Linux 5.15, and when a look fails.
+pub(crate) fn medium_of_device(device: u64) -> Option<String> {
+    use crate::images::decode::read_text;
+    // The boot's id does not change while Glimt runs, so it is read once.
+    static BOOT_ID: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let boot = BOOT_ID.get_or_init(|| Some(read_text(BOOT_ID_FILE).ok()?.trim().to_owned()));
+    let disk = format!(
+        "/sys/dev/block/{}:{}",
+        libc::major(device),
+        libc::minor(device)
+    );
+    // A partition has no number of its own. Its disk's is in the folder above the partition's.
+    let sequence = (read_text(format!("{disk}/diskseq")))
+        .or_else(|_| read_text(format!("{disk}/../diskseq")))
+        .ok()?;
+    let sequence: u64 = sequence.trim().parse().ok()?;
+    Some(format!("{}:{sequence}", boot.as_deref()?))
+}
+
 /// Returns, for each device number among `volumes`, each a name with the number of its block
 /// device, the one name that has it. A device that more than one name has gets `None`, as two
 /// names for one device cannot say which card it is.
@@ -3325,6 +3352,28 @@ mod tests {
             super::device_of_volume_now("glimt-no-such-volume".as_ref()),
             None
         );
+    }
+
+    /// The medium of a block device is this boot's id and the disk sequence number of the
+    /// device, or of its disk for a partition, as the Flatpak's sandbox sees them too. A device
+    /// that is no block device has none.
+    #[test]
+    fn a_medium_is_the_boot_and_the_disk_sequence_number() {
+        use crate::images::decode::read_text;
+        assert_eq!(super::medium_of_device(0), None);
+        let Ok(boot) = read_text(super::BOOT_ID_FILE) else {
+            return;
+        };
+        for entry in std::fs::read_dir("/sys/dev/block").into_iter().flatten() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().into_string().unwrap();
+            let (major, minor) = name.split_once(':').unwrap();
+            let device = libc::makedev(major.parse().unwrap(), minor.parse().unwrap());
+            let own = read_text(entry.path().join("diskseq"));
+            let sequence = own.or_else(|_| read_text(entry.path().join("../diskseq")));
+            let expected = sequence.map(|s| format!("{}:{}", boot.trim(), s.trim()));
+            assert_eq!(super::medium_of_device(device), expected.ok(), "{name}");
+        }
     }
 
     /// An entry of the volumes' folder that cannot be read makes the whole folder unread, as

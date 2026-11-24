@@ -63,6 +63,10 @@ thread_local! {
     // real /dev/disk/by-uuid.
     pub(crate) static TEST_VOLUMES: std::cell::RefCell<Vec<(PathBuf, std::ffi::OsString)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // The medium that a test gives a folder and the folders below it on this thread, as if a
+    // card that the kernel gave that number were in the reader there (`medium_of`).
+    pub(crate) static TEST_MEDIA: std::cell::RefCell<Vec<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
     // How many times `volume_of` was asked on this thread, so that a test can see that a start
     // looks up a folder's volume once and not once for each file.
     pub(crate) static VOLUME_LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -77,15 +81,17 @@ thread_local! {
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// What the `folder` and `volume` records of a log noted of a folder: its device, its inode (0
-/// where its file system keeps none), and the volume it is on where its device has a name in
-/// /dev/disk/by-uuid. Only `is_on_the_volume_noted` and `is_the_folder_noted` compare them with a
-/// folder now (`source_rules::one_rule_tells_the_folder_a_log_noted`).
+/// What the `folder`, `volume` and `medium` records of a log noted of a folder: its device, its
+/// inode (0 where its file system keeps none), the volume it is on where its device has a name in
+/// /dev/disk/by-uuid, and the medium in its block device. Only `is_on_the_volume_noted` and
+/// `is_the_folder_noted` compare them with a folder now
+/// (`source_rules::one_rule_tells_the_folder_a_log_noted`).
 #[derive(Debug, Clone)]
 struct FolderNoted {
     noted_device: u64,
     noted_inode: u64,
     noted_volume: Option<std::ffi::OsString>,
+    noted_medium: Option<String>,
     /// The volumes found now, shared by every folder of the log. /dev/disk/by-uuid is read once
     /// for the start that reads the log, not once for each folder or file, and its answer is
     /// kept whatever it is: a volume, no volume for a device, or a read that failed (`None`).
@@ -1428,6 +1434,10 @@ fn steps_left(
                 path: path.clone(),
                 volume,
             }));
+            records.extend(noted.noted_medium.clone().map(|medium| Record::Medium {
+                path: path.clone(),
+                medium,
+            }));
         }
     }
     for (number, (name, known)) in left.enumerate() {
@@ -1695,7 +1705,9 @@ fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime
 /// system on a block device that has a name in /dev/disk/by-uuid (FAT, ext4, NTFS, ...), so that
 /// a start can tell the card or stick from another one at the same path, and find it again under
 /// another device number. A share, FUSE without a block device and tmpfs have no such name, get
-/// no `volume` record, and are told by their device, as before.
+/// no `volume` record, and are told by their device, as before. A `medium` record follows on a
+/// block device whose medium is known (`medium_of`), which tells the card from another one in the
+/// same reader also where no volume can be read, as in a Flatpak's sandbox.
 fn folder_record(folder: &Path) -> Vec<Record> {
     let kind = crate::files::file_ops::file_system_type_or_test(folder);
     let is_lasting = (kind.as_deref()).is_some_and(crate::files::file_io::has_lasting_inodes);
@@ -1713,7 +1725,29 @@ fn folder_record(folder: &Path) -> Vec<Record> {
         let path = folder.to_path_buf();
         records.push(Record::Volume { path, volume });
     }
+    if let Some(medium) = medium_of(folder, device) {
+        let path = folder.to_path_buf();
+        records.push(Record::Medium { path, medium });
+    }
     records
+}
+
+/// Returns the medium in the block device `device` of `folder` now
+/// (`file_io::medium_of_device`), and `None` where it is not known. A test gives it with
+/// `TEST_MEDIA` instead.
+fn medium_of(folder: &Path, device: u64) -> Option<String> {
+    #[cfg(test)]
+    {
+        let _ = device;
+        TEST_MEDIA.with_borrow(|media| {
+            (media.iter().find(|(at, _)| folder.starts_with(at))).map(|(_, m)| m.clone())
+        })
+    }
+    #[cfg(not(test))]
+    {
+        let _ = folder;
+        crate::files::file_io::medium_of_device(device)
+    }
 }
 
 /// Returns the volume that `folder`, on the device `device`, is on
@@ -1736,7 +1770,7 @@ fn volume_of(folder: &Path, device: u64) -> Option<std::ffi::OsString> {
 }
 
 /// Returns the folders that the `folder` records among `records` noted, each with the volume
-/// that a `volume` record of the same folder noted.
+/// and the medium that the `volume` and `medium` records of the same folder noted.
 fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
     let volumes_now = std::sync::Arc::new(std::sync::OnceLock::new());
     let mut folders: HashMap<PathBuf, FolderNoted> = (records.iter())
@@ -1751,6 +1785,7 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
                     noted_device: *device,
                     noted_inode: *inode,
                     noted_volume: None,
+                    noted_medium: None,
                     volumes_now: volumes_now.clone(),
                 },
             )),
@@ -1758,10 +1793,18 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
         })
         .collect();
     for record in records {
-        if let Record::Volume { path, volume } = record
-            && let Some(noted) = folders.get_mut(path)
-        {
-            noted.noted_volume = Some(volume.clone());
+        match record {
+            Record::Volume { path, volume } => {
+                if let Some(noted) = folders.get_mut(path) {
+                    noted.noted_volume = Some(volume.clone());
+                }
+            }
+            Record::Medium { path, medium } => {
+                if let Some(noted) = folders.get_mut(path) {
+                    noted.noted_medium = Some(medium.clone());
+                }
+            }
+            _ => {}
         }
     }
     folders
@@ -1777,17 +1820,20 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// number and another card in the same reader gets the same one. It is surely the same only
 /// when its block device is looked up afresh and is the folder's now. The volumes were read once
 /// for the log, so a card swapped since under the same device number would else pass for the
-/// one noted (#284). A volume not found now cannot tell.
+/// one noted (#284). A volume not found now, or volumes that cannot be read now, leave it to the
+/// medium noted.
 ///
 /// Without a volume, another device cannot tell, as then the folder noted is not here (an empty
 /// mount point) or came back under another device number. On the noted device, the folder's own
 /// lasting inode, when it is the one noted, tells the disk. Without it, the device number tells
 /// it only off a block device: a share's or tmpfs's number is its own, while a block device's
 /// is given to the next card in the same reader or stick at the same port, so that it alone
-/// cannot tell (#179, #266, #270). Where no volume can be read on this system, as in the
-/// Flatpak's sandbox, which has no /dev/disk/by-uuid, and no lasting inode tells the folder (FAT,
-/// exFAT, or a folder above the one noted), the device tells it, as in Glimt 0.96. Else a job
-/// killed on such a card would never finish, and its files' marks would never follow them.
+/// cannot tell (#179, #266, #270). There the medium noted tells it, looked up afresh, which the
+/// kernel gives no other card in the same boot. It tells the card where no volume can be read,
+/// as in the Flatpak's sandbox, which has no /dev/disk/by-uuid (#305), or where an entry there
+/// could not be read (#306). Before, the device alone told it there, as in Glimt 0.96. Where no
+/// medium tells either (after a new boot, or before Linux 5.15), the log stays for a later start,
+/// with the marks of its files.
 fn is_on_the_volume_noted(
     folder: &Path,
     noted: &FolderNoted,
@@ -1796,24 +1842,29 @@ fn is_on_the_volume_noted(
 ) -> AtStart<bool> {
     if let Some(volume) = &noted.noted_volume {
         let volumes = noted.volumes_now.get_or_init(VolumesNow::read).as_ref();
-        let found = (volumes.and_then(|volumes| volumes.volume_of_folder(folder, device)))
-            .ok_or(CannotTell)?;
-        if found != *volume {
-            return Ok(false);
+        if let Some(found) = volumes.and_then(|volumes| volumes.volume_of_folder(folder, device)) {
+            if found != *volume {
+                return Ok(false);
+            }
+            if VolumesNow::is_still_on_device(volume, folder, device) {
+                return Ok(true);
+            }
         }
-        return match VolumesNow::is_still_on_device(volume, folder, device) {
-            true => Ok(true),
-            false => Err(CannotTell),
-        };
     }
     let is_the_inode_noted = noted.noted_inode != 0 && inode == Some(noted.noted_inode);
-    let has_no_inode_to_tell = noted.noted_inode == 0 || inode.is_none();
-    let has_no_volumes = || noted.volumes_now.get_or_init(VolumesNow::read).is_none();
-    match device == noted.noted_device
-        && (is_the_inode_noted
-            || !is_on_a_block_device(folder, device)
-            || (has_no_inode_to_tell && has_no_volumes()))
-    {
+    let is_the_medium_noted = || {
+        let noted_medium = noted.noted_medium.as_deref();
+        noted_medium.is_some_and(|noted| medium_of(folder, device).is_some_and(|now| now == noted))
+    };
+    // A disk whose volume was noted was told by its volume alone before, and is told now by its
+    // medium alone, as its folders' inodes may be another stick's at the same port.
+    let is_told = match noted.noted_volume {
+        Some(_) => is_the_medium_noted(),
+        None => {
+            is_the_inode_noted || !is_on_a_block_device(folder, device) || is_the_medium_noted()
+        }
+    };
+    match device == noted.noted_device && is_told {
         true => Ok(true),
         false => Err(CannotTell),
     }
@@ -5358,9 +5409,18 @@ mod tests {
         })
     }
 
+    /// Gives the card at `card` the medium `medium` in this test, or none.
+    fn card_medium(card: &std::path::Path, medium: Option<&str>) {
+        super::TEST_MEDIA.with_borrow_mut(|media| {
+            media.clear();
+            media.extend(medium.map(|m| (card.to_path_buf(), m.into())));
+        })
+    }
+
     /// Takes the test's card and its folder away.
     fn remove_fat_card(dir: &std::path::Path, card: &std::path::Path) {
         card_volume(card, None);
+        card_medium(card, None);
         crate::files::file_ops::test_mount(card, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -5672,16 +5732,17 @@ mod tests {
     }
 
     /// A Move, a delete and a Move Folder to Trash killed on a FAT card, where no volume can be
-    /// read, as in the Flatpak's sandbox, finish at the next start while the card is on the
-    /// device noted: the Move follows its photo that went and leaves the one still on the card,
-    /// the delete forgets the marks of its files, also of one in a folder gone since, and the
-    /// folder counts as trashed. Before, the card's folders, which keep no lasting inode, could
-    /// never be told on a block device, and each log stayed for ever, with the marks at the
+    /// read, as in the Flatpak's sandbox, finish at the next start while the card noted, told by
+    /// its medium, is there: the Move follows its photo that went and leaves the one still on the
+    /// card, the delete forgets the marks of its files, also of one in a folder gone since, and
+    /// the folder counts as trashed. Before, the card's folders, which keep no lasting inode,
+    /// could never be told on a block device, and each log stayed for ever, with the marks at the
     /// card's old names.
     #[test]
     fn a_job_killed_on_a_fat_card_finishes_where_no_volume_can_be_read() {
         use super::JobDoneBeforeAKill::FolderTrashed;
         let (dir, card, logs) = fat_card("start-fat-card-no-volumes");
+        card_medium(&card, Some("b007:7"));
         let (sub, album, to) = (card.join("sub"), card.join("album"), dir.join("to"));
         for folder in [&sub, &album, &to] {
             std::fs::create_dir(folder).unwrap();
@@ -5720,6 +5781,48 @@ mod tests {
         super::remove_once_written(log);
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A killed delete on a FAT card is told from another card in the same reader, at the same
+    /// path and device number, by the card's medium where the volumes cannot be read at the
+    /// start: in the Flatpak's sandbox, where no volume was noted either (#305), and where an
+    /// entry of /dev/disk/by-uuid could not be read, at the job or only at the start (#306). The
+    /// start forgets the marks of the file that went only while the card noted is there, and
+    /// keeps the log while another card is, or one whose medium is not known. Before, the device
+    /// alone told it there, and the marks of another card's file at the same path were
+    /// forgotten, or a log with a volume noted stayed although its card was there.
+    #[test]
+    fn a_killed_delete_on_a_fat_card_is_told_by_its_medium_where_no_volume_can_be_read() {
+        let (dir, card, logs) = fat_card("start-fat-card-medium");
+        let (a, b) = (card.join("a.png"), card.join("b.png"));
+        std::fs::write(&b, "b").unwrap();
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(|on| on.push(card.clone()));
+        for volume_at_the_job in [None, Some("1111-AAAA")] {
+            card_volume(&card, volume_at_the_job);
+            card_medium(&card, Some("b007:1"));
+            let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+            log.note(&[a.clone(), b.clone()]);
+            drop(log);
+            super::VOLUMES_UNREADABLE.set(true);
+            for medium in [Some("b007:2"), None] {
+                card_medium(&card, medium);
+                let found = super::delete_jobs_cut_short(&logs);
+                assert!(found[0].1.is_empty(), "{volume_at_the_job:?} {medium:?}");
+                assert_eq!(let_go(found), 1);
+            }
+            card_medium(&card, Some("b007:1"));
+            let found = super::delete_jobs_cut_short(&logs);
+            super::VOLUMES_UNREADABLE.set(false);
+            assert_eq!(
+                found[0].1,
+                std::slice::from_ref(&a),
+                "{volume_at_the_job:?}"
+            );
+            assert_eq!(let_go(found), 1);
+            assert!(super::delete_jobs_cut_short(&logs).is_empty());
+        }
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
         remove_fat_card(&dir, &card);
     }
 
