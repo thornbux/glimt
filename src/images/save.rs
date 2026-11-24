@@ -980,28 +980,30 @@ fn write_copys_sidecar(
 /// Returns whether Save As set `side`, the sidecar of the file it replaces, aside at the hidden
 /// name `aside`, from `set_aside`, the result of that rename. A sidecar not there is no sidecar
 /// set aside, and so is one that `needs_no_sidecar_there` says no sidecar can be at. Returns the
-/// error to tell otherwise. NotFound counts as no sidecar only when nothing is surely at
-/// `aside`, as a share that resent the rename answers ENOENT for a rename that it did. When the
-/// look at either name fails, the user is told both names. Before, every NotFound counted as no
-/// sidecar, and one set aside all the same stayed hidden when the image's rename failed.
+/// error to tell otherwise. Whether the rename may have been done is judged by
+/// `may_have_been_done` alone, after `rename_never_over` judged it by the names
+/// (`done_after_all`): then the user is told both names. NotFound counts as no sidecar only when
+/// the rename surely did nothing, as a share that resent the rename answers ENOENT for a rename
+/// that it did. Before, a NotFound was judged here by looks at the two names, and a hidden name
+/// that a share's cache showed empty counted as no sidecar, which was then removed with the
+/// hidden name after the save.
 fn is_set_aside(
     set_aside: std::io::Result<()>,
     side: &Path,
     aside: &Path,
     needs_no_sidecar_there: impl Fn(&std::io::Error) -> bool,
 ) -> std::io::Result<bool> {
-    use crate::files::file_io::{is_surely_gone, is_surely_there, may_have_been_done};
-    let is_not_found = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
     match set_aside {
         Ok(()) => Ok(true),
-        Err(e) if is_not_found(&e) && is_surely_gone(aside) => Ok(false),
-        Err(e) if is_not_found(&e) && is_surely_gone(side) && is_surely_there(aside) => Ok(true),
         Err(e) if needs_no_sidecar_there(&e) => Ok(false),
-        // A share may have set the sidecar aside and lost its answer. Nothing is put back on a
-        // guess, so the user is told both of its names.
-        Err(e) if is_not_found(&e) || may_have_been_done(&e, side) => {
+        // A share may have set the sidecar aside and lost its answer, which
+        // `rename_never_over` could not tell from the names. Nothing is put back on a guess, so
+        // the user is told both of its names.
+        Err(e) if crate::files::file_io::may_have_been_done(&e, side) => {
             Err(may_be_set_aside(e, side, aside))
         }
+        // The rename surely did nothing, and nothing is at the sidecar's name.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(std::io::Error::new(
             e.kind(),
             format!("{}: {e}", side.display()),
@@ -3295,7 +3297,9 @@ mod tests {
     /// gave.
     #[test]
     fn a_save_as_whose_sidecar_set_aside_lost_its_answer_names_where_it_is() {
-        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL, fingerprint};
+        use crate::files::file_io::{
+            ANSWER_LOST_AT, LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT, fingerprint,
+        };
         use crate::support::threads::lock_even_if_poisoned;
         let dir =
             std::env::temp_dir().join(format!("glimt-save-aside-lost-{}", std::process::id()));
@@ -3307,7 +3311,7 @@ mod tests {
         let side = crate::metadata::xmp::sidecar(&b);
         std::fs::write(&side, "b's").unwrap();
         ANSWER_LOST_AT.set(Some(side.clone()));
-        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![side.clone()])));
         let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
         ANSWER_LOST_AT.set(None);
@@ -3482,7 +3486,7 @@ mod tests {
     /// read again and the copy did not get the original's marks.
     #[test]
     fn a_copy_saved_without_its_sidecar_is_told_as_saved() {
-        use crate::files::file_io::{LOOKS_FAIL, fingerprint};
+        use crate::files::file_io::{LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT, fingerprint};
         use crate::support::threads::lock_even_if_poisoned;
         let dir = std::env::temp_dir().join(format!("glimt-copy-no-side-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -3491,7 +3495,8 @@ mod tests {
         image::RgbImage::new(4, 4).save(&b).unwrap();
         let side = crate::metadata::xmp::sidecar(&b);
         std::fs::write(crate::metadata::xmp::sidecar(&a), "a's").unwrap();
-        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        // The looks fail once the copy has taken its name, so its sidecar cannot be made.
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((b.clone(), vec![side.clone()])));
         let saved = super::save_as(&a, &copy_as(None, false), &b, fingerprint(&b));
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
         let (to, sidecar_failed) = saved.unwrap();
@@ -4317,26 +4322,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A set-aside of the replaced file's sidecar that answers NotFound counts as no sidecar
-    /// only when nothing is surely at the hidden name. When the look at it fails, both names
-    /// are told, and when the sidecar is there, it counts as set aside. Before, every NotFound
-    /// counted as no sidecar, also a share's ENOENT for a rename it resent and did.
+    /// A set-aside of the replaced file's sidecar that answers ENOENT on a share, which a share
+    /// that resent a rename it did answers, names both names, also while nothing shows at the
+    /// hidden name, as a share's cache may show it empty. A sidecar that is not there counts as
+    /// none. Before, the hidden name's look decided, and a sidecar hidden behind a cached look
+    /// counted as none and was removed with the hidden name after the save.
     #[test]
-    fn a_set_aside_that_answered_not_found_is_looked_at() {
-        use crate::files::file_io::LOOKS_FAIL;
+    fn a_set_aside_that_answered_not_found_on_a_share_names_both_names() {
+        use crate::files::file_io::ON_A_SHARE_IN_A_TEST;
         let dir = std::env::temp_dir().join(format!("glimt-aside-enoent-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (side, aside) = (dir.join("b.png.xmp"), dir.join(".aside"));
         let enoent = || Err(std::io::Error::from_raw_os_error(libc::ENOENT));
         let none = |_: &std::io::Error| false;
-        assert!(!super::is_set_aside(enoent(), &side, &aside, none).unwrap());
-        std::fs::write(&aside, "b's").unwrap();
-        assert!(super::is_set_aside(enoent(), &side, &aside, none).unwrap());
-        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).push(aside.clone());
+        let not_there = crate::files::file_io::rename_never_over(&side, &aside);
+        ON_A_SHARE_IN_A_TEST.set(Some(dir.clone()));
         let told = super::is_set_aside(enoent(), &side, &aside, none);
-        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != aside);
+        let no_sidecar = super::is_set_aside(not_there, &side, &aside, none);
+        ON_A_SHARE_IN_A_TEST.set(None);
         let told = told.unwrap_err().to_string();
         assert!(told.contains(&aside.display().to_string()), "{told}");
+        assert!(!no_sidecar.unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

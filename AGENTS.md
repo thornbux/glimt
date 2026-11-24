@@ -607,7 +607,11 @@ arm becomes a method.
     name linked by `rename_never_over` is taken back only when `unlink_was_refused` says the
     unlink surely removed nothing (an unknown error keeps both names), and a second name goes
     only after `save::same_file_by_opening`
-    (`source_rules::no_name_is_removed_on_a_cached_look`);
+    (`source_rules::no_name_is_removed_on_a_cached_look`). Whether a failed step was done is
+    judged only by its error in `may_have_been_done` and by the names in `done_after_all`,
+    whose rename `rename_never_over` looks at its file right before it and is not tried when
+    that look fails; no other code judges a step's error number
+    (`source_rules::steps_are_judged_done_in_one_place`);
   - delete, trash, move, rename or replace a user's file only after a look that it is still
     the file picked or read. Files picked before a wait (a question, a prompt, the file
     chooser) are carried as `file_io::PickedFiles`, whose fingerprints are taken in the
