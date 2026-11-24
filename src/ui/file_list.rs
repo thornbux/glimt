@@ -1396,12 +1396,18 @@ impl crate::App {
     /// once have no one path, so they are shown in the text field.
     pub(crate) fn path_field(&mut self, ui: &mut egui::Ui) {
         let field = egui::Id::unique("path field");
+        let is_typed_in = ui.memory(|m| m.has_focus(field));
+        // The field is filled here, as the buttons take its place while it has no focus, so it
+        // opens with the folder that is open now.
+        if !is_typed_in {
+            self.folder.show_path();
+        }
         let shown = match self.folder.folders().is_empty() {
             true => Some(self.folder.collection().unwrap_or(self.folder.dir())),
             false => None,
         };
         let chosen = match shown {
-            Some(path) if !ui.memory(|m| m.has_focus(field)) => path_buttons(ui, path, field),
+            Some(path) if !is_typed_in => path_buttons(ui, path, field),
             _ => {
                 self.path_text_field(ui, field);
                 None
@@ -1437,9 +1443,6 @@ impl crate::App {
                     |p: &Path| Failure::from(tf!("No such folder: {folder}", folder = p.display()));
                 self.visit_if_there(ui.ctx(), path, gone);
             }
-        }
-        if !response.has_focus() {
-            self.folder.show_path();
         }
     }
 
@@ -2428,6 +2431,36 @@ mod tests {
         assert_eq!(first_folder_that_fits(&widths, 1.0, 5.0), 3);
         assert_eq!(first_folder_that_fits(&[50.0], 1.0, 5.0), 0);
         assert_eq!(first_folder_that_fits(&[], -10.0, 5.0), 0);
+    }
+
+    /// The path's text field opens with the folder that is open, also when the buttons were
+    /// shown in its place until then. Before, it opened empty, or with the folder that was open
+    /// the last time it was drawn.
+    #[test]
+    fn the_path_field_opens_with_the_open_folder() {
+        let name = format!("glimt-test-path-field-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(dir.join("summer")).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir.join("summer"));
+        let field = eframe::egui::Id::unique("path field");
+        let shown = |app: &mut crate::App| {
+            let _ = ctx.run_ui(Default::default(), |ui| app.path_field(ui));
+            app.folder.dir().display().to_string()
+        };
+        // The buttons are drawn, then the field is clicked into.
+        let open = shown(&mut app);
+        ctx.memory_mut(|m| m.request_focus(field));
+        shown(&mut app);
+        assert_eq!(app.folder.path_text(), open);
+        // Esc, the parent folder opened by its button, then the field again.
+        ctx.memory_mut(|m| m.surrender_focus(field));
+        app.visit(&ctx, dir.clone());
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        let open = shown(&mut app);
+        ctx.memory_mut(|m| m.request_focus(field));
+        shown(&mut app);
+        assert_eq!(app.folder.path_text(), open);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A scrolled view fades only the edges with more beyond them: none at its ends.

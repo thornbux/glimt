@@ -4856,15 +4856,24 @@ for v in new old; do
         click_text 1 "Type a path"; sleep 0.5
         key Escape
         back=$(until_ok '[ -n "$(where "Type a path")" ]' && echo back)
-        click_text 1 "Type a path"; sleep 0.5
-        key ctrl+a; xdotool type "$d"; key Return
+        # The field opens with the folder open now, not the one open when it was last left:
+        # Enter, with nothing typed, opens path-typed again, not summer.
+        click_text 1 path-typed
         until_current $d/a.jpg
-    else back=""; fi
+        click_text 1 "Type a path"; sleep 0.5
+        key Return; sleep 1
+        until_current $d/a.jpg
+        kept=$(remote current | tr -d '\0')
+        click_text 1 "Type a path"; sleep 0.5
+        key ctrl+a; xdotool type "$d/summer"; key Return
+        until_current $d/summer/b.jpg
+    else back=""; kept=""; fi
     got=$(remote current | tr -d '\0')
     if [ $v = new ]; then
         expect "Esc turned the field back into the folders" "$back" back
-        expect "the path typed opened" "$got" "$d/a.jpg"
-    else note "old: '$back' $got"; fi
+        expect "the field held the folder open" "$kept" "$d/a.jpg"
+        expect "the path typed opened" "$got" "$d/summer/b.jpg"
+    else note "old: '$back' '$kept' $got"; fi
     quit
 done
 
