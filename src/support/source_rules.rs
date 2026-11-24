@@ -3733,31 +3733,47 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
 /// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
 /// sure answer makes.
-/// Which folder a job log noted (by its volume, its device and inode, or its device alone) is
-/// decided in one function, `journal::is_the_folder_noted`. No other function of the logs' files
-/// reads what a log noted of a folder, or looks up a volume to compare, as the start once decided
-/// it in four places, four ways, and a FAT card back under another device number never finished
-/// its log.
+/// Which disk and which folder a job log noted (by its volume, its device and inode, or its
+/// device alone where that is not a block device) is decided in two functions:
+/// `journal::is_on_the_volume_noted` for the disk, the only one that reads the volume noted or
+/// asks whether a device is a block device, and `journal::is_the_folder_noted` for the folder,
+/// on top of it. No other function of the logs' files reads what a log noted of a folder, or
+/// looks up a volume to compare, as the start once decided it in four places, four ways, and a
+/// FAT card back under another device number never finished its log. Later, a block device's
+/// number alone, which another card in the same reader gets, still passed for the card noted
+/// (#179, #266, #270), and a volume read once for the log for the card there now (#284).
 #[test]
 fn one_rule_tells_the_folder_a_log_noted() {
-    let rule: &[(&str, &str)] = &[("files/journal.rs", "is_the_folder_noted")];
+    let rule: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_on_the_volume_noted"),
+        ("files/journal.rs", "is_the_folder_noted"),
+    ];
+    let volume: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_on_the_volume_noted"),
+        ("files/journal.rs", "folders_noted"),
+        ("files/journal.rs", "steps_left"),
+    ];
     let built: &[(&str, &str)] = &[
+        ("files/journal.rs", "is_on_the_volume_noted"),
         ("files/journal.rs", "is_the_folder_noted"),
         ("files/journal.rs", "folders_noted"),
         ("files/journal.rs", "steps_left"),
     ];
     let looked_up: &[(&str, &str)] = &[
-        ("files/journal.rs", "is_the_folder_noted"),
+        ("files/journal.rs", "is_on_the_volume_noted"),
         ("files/journal.rs", "folder_record"),
     ];
     let homes: Vec<(&str, &[(&str, &str)])> = vec![
         (".noted_device", built),
         (".noted_inode", built),
-        (".noted_volume", built),
+        (".noted_volume", volume),
         ("noted.0", rule),
         ("noted.1", rule),
         ("noted.2", rule),
         ("volume_of(", looked_up),
+        ("volume_of_folder(", looked_up),
+        ("is_still_on_device(", looked_up),
+        ("is_on_a_block_device(", looked_up),
     ];
     let files = ["files/journal.rs", "files/job_log.rs", "files/file_ops.rs"];
     let wrong: Vec<String> = (rust_sources().iter())
@@ -3766,7 +3782,8 @@ fn one_rule_tells_the_folder_a_log_noted() {
         .collect();
     assert!(
         wrong.is_empty(),
-        "a log's folder compared outside journal::is_the_folder_noted:\n{}",
+        "a log's folder compared outside journal::is_on_the_volume_noted and \
+         is_the_folder_noted:\n{}",
         wrong.join("\n")
     );
 }
@@ -7810,6 +7827,40 @@ fn reaching(calls: &[Vec<Call>], mut own: Vec<bool>) -> Vec<bool> {
             return own;
         }
     }
+}
+
+/// Returns the crate's functions that reach the method or associated function `owner::name`,
+/// however deep, also through the work that they hand to another thread, as a job's log is
+/// mostly started in the job's own thread. Each is named as `Owner::name`, or as `name` when it
+/// is a free function, and the function itself is among them.
+pub(crate) fn functions_reaching(owner: &str, name: &str) -> HashSet<String> {
+    let graph = CallGraph::new(&rust_sources());
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| {
+            let lines = &graph.lines[&f.file];
+            let text = lines[f.lines.clone()].join("\n");
+            let opens = (f.lines.clone()).find(|&i| lines[i].ends_with('{'));
+            let signature = lines[*f.lines.start()..=opens.unwrap_or(*f.lines.start())].join(" ");
+            (f.lines.clone())
+                .flat_map(|i| graph.callees(f, &text, &signature, &lines[i]))
+                .map(|(callee, text)| Call {
+                    callee: Some(callee),
+                    text,
+                    line: 0,
+                })
+                .collect()
+        })
+        .collect();
+    let own = (graph.functions.iter())
+        .map(|f| f.owner.as_deref() == Some(owner) && f.name == name)
+        .collect();
+    (reaching(&calls, own).into_iter().zip(&graph.functions))
+        .filter(|(reaches, _)| *reaches)
+        .map(|(_, f)| match &f.owner {
+            Some(owner) => format!("{owner}::{}", f.name),
+            None => f.name.clone(),
+        })
+        .collect()
 }
 
 /// Returns the comments just above the statement whose line `i` of `code` is, up to the

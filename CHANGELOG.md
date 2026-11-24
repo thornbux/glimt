@@ -16,6 +16,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   trash lost its answer, so a later Undo finds it, and a sidecar that is a link is no longer
   told as left at its old name when it may have moved. A move to another disk keeps a new
   version saved at the old name right as the copy began.
+- A job log kept for a later start and written anew no longer forgets the older log it was
+  itself written from. When the start had failed to remove that older log, the next start read
+  it as a log of its own and gave its marks, stars and collection places again, over changes
+  made since or to another file that took the name (#279).
+- A hidden folder that Glimt left in its folder of job logs, when it was killed while it began
+  a job's log, is removed at a later start (#273).
+- A start after a kill no longer forgets the marks and stars of photos when another card is in
+  the reader at the same path. That was possible when the card's volume could not be noted, as
+  in the Flatpak, or when the card was swapped during the start. On a card or stick whose
+  volume is not known, the job's log now waits until the start can tell the card.
 
 ## [0.96.0] - 2026-11-24
 
