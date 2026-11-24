@@ -939,7 +939,8 @@ fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
 /// a file back from the trash. A rename that failed but was done all the same counts as done
 /// (`done_after_all`), when `to` holds what `from` held. A rename is not tried when the look at
-/// `from` before it fails, as nothing could tell afterwards whether it was done. Its error then
+/// `from` before it fails, as nothing could tell afterwards whether it was done. The look's
+/// error is returned then, and when `may_have_been_done` would take it for a lost answer, it
 /// keeps its kind but not its number, which tells `may_have_been_done` that nothing was done.
 /// `CrossesDevices` is the caller's to copy instead. The rename
 /// is not synced to disk here. One rename alone is one step, so a power cut leaves the file
@@ -957,7 +958,13 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     // A rename after a failed look could be done without Glimt knowing it (#275).
     let before = match looked(from, false) {
         Ok(meta) => BeforeRename::of(from, &meta),
-        Err(e) => return Err(std::io::Error::new(e.kind(), e.to_string())),
+        // A look whose answer may have been lost loses its number, so that the caller takes
+        // the rename for not done. Any other error is the look's own, with its number, which a
+        // caller may judge by (a name too long for a sidecar).
+        Err(e) if may_have_been_done(&e, from) => {
+            return Err(std::io::Error::new(e.kind(), e.to_string()));
+        }
+        Err(e) => return Err(e),
     };
     let one_step = match missing {
         0 => rename_noreplace(from, to),
