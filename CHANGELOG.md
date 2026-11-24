@@ -49,6 +49,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Copy for Sharing with neutral names into a folder that can be written to but not read, such
   as a drop box, no longer looks at every earlier copy's name, which took minutes on a share
   (#220).
+- Rename Many and its Undo hold the sidecar locks of one photo at a time, so a rename that
+  hangs on a share holds up few sidecar writes in other windows. Before, they held those of
+  every photo for the whole job, nearly all 64 for 100 photos (#153).
+- An edit of keywords, stars or a comment made while Rename Many runs is saved when the rename
+  ends, also when a collection opened meanwhile is still being read. Before, it waited for
+  that collection, and was lost when its listing failed (#263).
 
 ## [0.97.0] - 2026-11-24
 
