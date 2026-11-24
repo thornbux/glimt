@@ -4121,3 +4121,8 @@ msgstr "Het markeringenbestand van Glimt 0.95 of ouder blijft in {old}, omdat {n
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} bevat logboeken van taken waarin Glimt stopte en die deze start nog niet kon afmaken. Ze blijven bewaard, met de markeringen en sterren van hun bestanden, voor een latere start."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Typ een pad"

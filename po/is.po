@@ -4121,3 +4121,8 @@ msgstr "Merkjaskrá Glimt 0.95 eða eldri er skilin eftir í {old}, því {new} 
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} geymir skrár verka sem Glimt stöðvaðist í og þessi ræsing gat ekki lokið enn. Þær eru geymdar, með merkjum og stjörnum skránna, til síðari ræsingar."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Slá inn slóð"

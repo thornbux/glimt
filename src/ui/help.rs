@@ -121,6 +121,10 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
         "Start Glimt with a folder or an image (glimt ~/Pictures), drop one on the window, use \
          File → Open Folder…, type a path in the folder field above the folder list and press \
          Enter, or click a folder in the list. ⬆ .. goes to the parent folder.\n\n\
+         The folder field shows the path as a button for each folder: a click opens that folder. \
+         When the path is too long, the first folders are behind … at its start. A click on the \
+         empty part after the folders, or Tab to it, turns it into a text field to type a path \
+         in; Esc turns it back.\n\n\
          Network shares work too: type smb://server/share (or sftp://…, ftp://… or WebDAV's \
          dav://… and davs://…) and Glimt mounts it with gio, asking for user, domain and password \
          if the share needs them (a password saved in the keyring from Files is used without \
@@ -995,6 +999,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Set as Wallpaper",
         "File → Set as Wallpaper, through the desktop portal",
         "A plugin (Edit → Plugins)",
+    ),
+    (
+        "Folder path",
+        "A button for each folder, which opens it; a click after them types a path",
+        "A text field to type a path in",
     ),
     (
         "Open Recent",
