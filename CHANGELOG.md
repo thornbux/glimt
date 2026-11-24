@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A start after a kill no longer forgets the marks and stars of photos when another card is in
+  the reader at the same path. That was possible when the card's volume could not be noted, as
+  in the Flatpak, or when the card was swapped during the start. On a card or stick whose
+  volume is not known, the job's log now waits until the start can tell the card.
+
 ## [0.96.0] - 2026-11-24
 
 ### Changed
