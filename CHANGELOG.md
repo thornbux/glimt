@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-11-24
+
 ### Fixed
 
 - A rename on a share that dropped its answer is judged the same way everywhere. On rclone,
@@ -4708,7 +4710,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.96.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.97.0...HEAD
+[0.97.0]: https://github.com/thornbux/glimt/compare/v0.96.0...v0.97.0
 [0.96.0]: https://github.com/thornbux/glimt/compare/v0.95.2...v0.96.0
 [0.95.2]: https://github.com/thornbux/glimt/compare/v0.95.1...v0.95.2
 [0.95.1]: https://github.com/thornbux/glimt/compare/v0.95.0...v0.95.1
