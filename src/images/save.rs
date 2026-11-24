@@ -1003,7 +1003,7 @@ fn is_set_aside(
             Err(may_be_set_aside(e, side, aside))
         }
         // The rename surely did nothing, and nothing is at the sidecar's name.
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) if crate::files::file_io::found_nothing_at(&e, side) => Ok(false),
         Err(e) => Err(std::io::Error::new(
             e.kind(),
             format!("{}: {e}", side.display()),
@@ -3546,6 +3546,26 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Save As without metadata replaces a file whose sidecar's name would be too long, as such
+    /// a file has no sidecar to set aside. Before, the look before setting the sidecar aside
+    /// lost its error number, ENAMETOOLONG was no longer known, and the save was refused.
+    #[test]
+    fn save_as_replaces_a_file_whose_sidecar_name_is_too_long() {
+        use crate::files::file_io::fingerprint;
+        let dir = std::env::temp_dir().join(format!("glimt-save-as-long-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let photo = dir.join("a.png");
+        image::RgbImage::new(8, 8).save(&photo).unwrap();
+        // The replaced file's name is 253 bytes, and its sidecar's 257.
+        let long = dir.join(format!("{}.png", "b".repeat(249)));
+        image::RgbImage::new(4, 4).save(&long).unwrap();
+        let saved = super::save_as(&photo, &copy_as(None, true), &long, fingerprint(&long));
+        assert_eq!(saved, Ok((long.clone(), None)));
+        assert_eq!(image::image_dimensions(&long).unwrap(), (8, 8));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The copy of the whole image in `format` (`None` for the original's), with its metadata
     /// unless `strip`.
     fn copy_as(format: Option<super::Format>, strip: bool) -> super::CopyAs {
@@ -4335,8 +4355,8 @@ mod tests {
         let (side, aside) = (dir.join("b.png.xmp"), dir.join(".aside"));
         let enoent = || Err(std::io::Error::from_raw_os_error(libc::ENOENT));
         let none = |_: &std::io::Error| false;
-        let not_there = crate::files::file_io::rename_never_over(&side, &aside);
         ON_A_SHARE_IN_A_TEST.set(Some(dir.clone()));
+        let not_there = crate::files::file_io::rename_never_over(&side, &aside);
         let told = super::is_set_aside(enoent(), &side, &aside, none);
         let no_sidecar = super::is_set_aside(not_there, &side, &aside, none);
         ON_A_SHARE_IN_A_TEST.set(None);

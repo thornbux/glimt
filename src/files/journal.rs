@@ -2315,14 +2315,15 @@ pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
 /// Finishes a step from `a` to `b` that failed in a way that may have been done (a share that
 /// lost its answer), so that the file is at `b` alone. It may be at both names, one file under
 /// two, and then the name `a` goes (`rename_step`), or still only at `a`, and then it is moved.
-/// Returns `Ok` when nothing is left at `a`, and `CannotTell` otherwise, as a failed look tells
-/// nothing.
+/// Returns `Ok` when nothing is left at `a` and the file is at `b`, and `CannotTell` otherwise,
+/// as a failed look tells nothing, and a file at neither name was lost on the way.
 pub fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
-    // A step that failed again, also one that may have been done, is judged by a sure look at
-    // `a`, so its error is not needed.
+    // A step that failed again, also one that may have been done, is judged by sure looks at
+    // both names, so its error is not needed. Both are looked at, as `done_after_all` does,
+    // because a share may lose the file in a failed rename.
     match rename_step(a, b) {
         Ok(()) => Ok(()),
-        Err(_) if is_surely_gone(a) => Ok(()),
+        Err(_) if is_surely_gone(a) && is_surely_there(b) => Ok(()),
         Err(_) => Err(CannotTell),
     }
 }
@@ -2820,6 +2821,24 @@ fn is_linked(file: &File) -> std::io::Result<bool> {
 mod tests {
     /// Two names asked for at one moment of the clock, or after the clock went back, differ.
     /// Before, a name was the clock's time alone, and two logs of one moment had one name.
+    /// A step that failed counts as finished only when its file is at its new name and gone
+    /// from its old one. Before, a gone old name was enough, and a sidecar that a share lost in
+    /// a failed move counted as beside its file, so the loss was not told.
+    #[test]
+    fn a_step_is_finished_only_when_its_new_name_holds_the_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-finish-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.jpg.xmp"), dir.join("b.jpg.xmp"));
+        assert!(super::finish_step(&a, &b).is_err());
+        std::fs::write(&b, "b").unwrap();
+        assert!(super::finish_step(&a, &b).is_ok());
+        std::fs::write(&a, "a").unwrap();
+        assert!(super::finish_step(&a, &b).is_err());
+        assert!(a.exists() && b.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn two_new_names_at_one_moment_differ() {
         let mut last = 0;

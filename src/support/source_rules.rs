@@ -5772,20 +5772,24 @@ fn no_name_is_removed_on_a_cached_look() {
 /// the names in `done_after_all`. So the error numbers that `may_have_been_done_on` judges by
 /// (EIO, ETIMEDOUT, ENOENT and the rest, read from the function itself) are named nowhere
 /// outside file_io and the tests, and no other code judges a step's error its own way. file_io
-/// names some of them for calls that are no step, such as a folder's sync. Before, Save As judged a
-/// set-aside's ENOENT by its own looks at the two names, and a sidecar that a share's cache hid
-/// counted as none.
+/// names some of them for calls that are no step, such as a folder's sync. Outside file_io the
+/// result of a step on a user's file is also judged neither by the kinds of those errors
+/// (`ErrorKind::NotFound` and the rest), nor by a bare number, nor as done by a look at its old
+/// name alone (`step_results_judged`). A kind is common for a read, so the kinds are looked for
+/// only where a step's result goes. Before, Save As judged a set-aside's NotFound by its own
+/// looks at the two names, and a sidecar that a share's cache hid counted as none, and
+/// `journal::finish_step` took a step for done when its old name was gone.
 #[test]
 fn steps_are_judged_done_in_one_place() {
     const JUDGE: &str = "may_have_been_done_on";
     let numbers = error_numbers_named_in(&code_lines(&source("files/file_io.rs")), JUDGE);
     assert!(numbers.len() > 15, "{numbers:?}");
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources()
-        .into_iter()
+    let outside: Vec<(String, Vec<String>)> = (rust_sources().into_iter())
         .filter(|(f, _)| f != "files/file_io.rs")
-    {
-        let code = code_lines(&text);
+        .map(|(f, text)| (f, code_lines(&text)))
+        .collect();
+    let mut wrong = step_results_judged(&outside);
+    for (file, code) in outside {
         let in_test_code = test_code_lines(&code);
         for (i, line) in code[..tests_start(&code)].iter().enumerate() {
             for number in numbers.iter().filter(|_| !in_test_code[i]) {
@@ -5800,6 +5804,145 @@ fn steps_are_judged_done_in_one_place() {
         "an error of a step judged outside file_io::may_have_been_done:\n{}",
         wrong.join("\n")
     );
+}
+
+/// Returns the lines of `sources` (each a file's name and its `code_lines`), outside the tests,
+/// where the result of a step on a user's file (a rename or move that a share may have done
+/// and lost its answer to) is judged other than in file_io: by an error kind that a lost answer
+/// has (NotFound for ENOENT, TimedOut for ETIMEDOUT and the rest of `may_have_been_done_on`'s
+/// numbers), by a bare error number, or as done by a look at the old name alone
+/// (`is_surely_gone` without `is_surely_there`). A step's result is followed into the `match` or
+/// `if let` on the call itself or on the name a `let` binds it to, and into the body of each
+/// function it is handed to. A function that only reads, or judges a look's error, is left out,
+/// as a file that is not there is no lost answer there.
+fn step_results_judged(sources: &[(String, Vec<String>)]) -> Vec<String> {
+    const STEPS: [&str; 5] = [
+        "rename_never_over",
+        "put_file",
+        "put_file_until_stopped",
+        "rename_step",
+        "finish_step",
+    ];
+    const KINDS: [&str; 13] = [
+        "NotFound",
+        "TimedOut",
+        "NotConnected",
+        "StaleNetworkFileHandle",
+        "ConnectionReset",
+        "ConnectionAborted",
+        "ConnectionRefused",
+        "HostUnreachable",
+        "NetworkDown",
+        "NetworkUnreachable",
+        "Interrupted",
+        "WouldBlock",
+        "OutOfMemory",
+    ];
+    let calls_step = |line: &str| {
+        (STEPS.iter()).any(|s| {
+            (line.match_indices(&format!("{s}(")))
+                .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_word_char))
+        })
+    };
+    let mut given: HashSet<String> = HashSet::new();
+    let mut regions: Vec<(usize, usize, usize)> = Vec::new();
+    for (n, (_, code)) in sources.iter().enumerate() {
+        let in_test_code = test_code_lines(code);
+        let mut results: Vec<String> = Vec::new();
+        for i in (0..tests_start(code)).filter(|&i| !in_test_code[i]) {
+            let line = code[i].trim();
+            if function_name(line).is_some() {
+                results.clear();
+            }
+            if calls_step(line)
+                && let Some(name) = name_bound_by(line)
+            {
+                results.push(name.to_owned());
+            }
+            if !calls_step(line) && !results.iter().any(|r| names_word(line, r)) {
+                continue;
+            }
+            given.extend(functions_given(line, &results, &calls_step));
+            if line.contains("match ") || line.contains("if let ") {
+                let one_line = line.ends_with('}') || line.ends_with(';');
+                let last = (!one_line).then(|| block_end(code, i)).flatten();
+                regions.push((n, i, last.unwrap_or(i)));
+            }
+        }
+    }
+    for (n, (_, code)) in sources.iter().enumerate() {
+        let in_test_code = test_code_lines(code);
+        for i in (0..tests_start(code)).filter(|&i| !in_test_code[i]) {
+            if function_name(&code[i]).is_some_and(|f| given.contains(f)) {
+                regions.push((n, i, block_end(code, i).unwrap_or(i)));
+            }
+        }
+    }
+    let judges = |line: &str| {
+        let kind =
+            (KINDS.iter()).any(|k| names_word(line, k) && !line.contains(&format!("{k}.into()")));
+        let number = line.contains("raw_os_error")
+            && (line.split(|c: char| !is_word_char(c)))
+                .any(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_digit()));
+        let old_name_alone = line.contains("is_surely_gone(")
+            && !line.contains("is_surely_there(")
+            && line.contains("=>");
+        kind || number || old_name_alone
+    };
+    let mut wrong: Vec<String> = Vec::new();
+    for (n, first, last) in regions {
+        let (file, code) = &sources[n];
+        let in_test_code = test_code_lines(code);
+        for i in (first..=last).filter(|&i| !in_test_code[i] && judges(&code[i])) {
+            wrong.push(format!("{file}:{}", i + 1));
+        }
+    }
+    wrong.sort();
+    wrong.dedup();
+    wrong
+}
+
+/// Returns the name that the `let` on `line` binds, such as `set_aside` in
+/// `let set_aside = rename_never_over(…);`, or `None` when `line` binds no single name.
+fn name_bound_by(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("let ")?;
+    let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+    let end = rest.find(|c: char| !is_word_char(c))?;
+    let after = rest[end..].trim_start();
+    (end > 0 && (after.starts_with('=') || after.starts_with(':'))).then(|| &rest[..end])
+}
+
+/// Returns the functions called on `line` whose arguments hold one of `results`, or a call that
+/// `calls_step` finds, as a step's result is handed to them.
+fn functions_given(
+    line: &str,
+    results: &[String],
+    calls_step: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    let mut given = Vec::new();
+    for (at, _) in line.match_indices('(') {
+        let name_start = line[..at]
+            .rfind(|c: char| !is_word_char(c))
+            .map_or(0, |s| s + 1);
+        let name = &line[name_start..at];
+        let mut depth = 0usize;
+        let end = (line[at..].char_indices())
+            .find(|&(_, c)| {
+                depth = match c {
+                    '(' => depth + 1,
+                    ')' => depth - 1,
+                    _ => depth,
+                };
+                depth == 0
+            })
+            .map_or(line.len(), |(e, _)| at + e);
+        let arguments = &line[at + 1..end];
+        let holds_result = results.iter().any(|r| names_word(arguments, r));
+        if !name.is_empty() && (holds_result || calls_step(arguments)) {
+            given.push(name.to_owned());
+        }
+    }
+    given
 }
 
 /// Returns the error numbers (EIO, ENOENT, …) that the function `name` of `code`, a file's
@@ -5879,6 +6022,54 @@ fn an_error_number_is_found_where_a_step_is_judged() {
         .filter(|&i| numbers.iter().any(|n| names_word(&code[i], n)))
         .collect();
     assert_eq!(found, [8, 19]);
+}
+
+/// The rule finds a step's result judged by an error kind, by a bare number, or by a look at the
+/// old name alone, in the forms that v0.96.0's `save::is_set_aside` and v0.97.0's
+/// `journal::finish_step` had: in a function the result is handed to, and in a `match` on the
+/// step itself. It leaves alone a kind judged of a read, an error made with a kind, and a look
+/// at both names.
+#[test]
+fn finds_a_step_judged_by_its_kind_or_its_old_name() {
+    let text = "fn save(side: &Path, aside: &Path) -> std::io::Result<()> {
+    let set_aside = crate::files::file_io::rename_never_over(side, aside);
+    let is_set_aside = is_set_aside(set_aside, side, aside)?;
+    Ok(())
+}
+fn is_set_aside(set_aside: std::io::Result<()>, side: &Path, aside: &Path) -> Result<bool> {
+    let is_not_found = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
+    match set_aside {
+        Ok(()) => Ok(true),
+        Err(e) if is_not_found(&e) && is_surely_gone(aside) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
+    match rename_step(a, b) {
+        Ok(()) => Ok(()),
+        Err(_) if is_surely_gone(a) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(5) => Err(CannotTell),
+        Err(_) if is_surely_gone(a) && is_surely_there(b) => Ok(()),
+        Err(_) => Err(CannotTell),
+    }
+}
+fn read(path: &Path) -> Option<Vec<u8>> {
+    match std::fs::read(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        _ => None,
+    }
+}
+fn refuse(a: &Path, b: &Path) -> std::io::Result<()> {
+    let moved = put_file(a, b, false);
+    if let Err(e) = moved { return Err(std::io::ErrorKind::NotFound.into()); }
+    moved
+}
+";
+    let sources = [("a.rs".to_owned(), code_lines(text))];
+    assert_eq!(
+        step_results_judged(&sources),
+        ["a.rs:10", "a.rs:17", "a.rs:18", "a.rs:7"]
+    );
 }
 
 /// A path through an opened folder (`file_io::path_through`, `/proc/self/fd/N/…`) is used only

@@ -610,7 +610,9 @@ arm becomes a method.
     (`source_rules::no_name_is_removed_on_a_cached_look`). Whether a failed step was done is
     judged only by its error in `may_have_been_done` and by the names in `done_after_all`,
     whose rename `rename_never_over` looks at its file right before it and is not tried when
-    that look fails; no other code judges a step's error number
+    that look fails; no other code judges a step's error number, nor, where a step's result
+    goes, its error's kind, a bare number or a look at the old name alone (`found_nothing_at`
+    says when a NotFound surely did nothing)
     (`source_rules::steps_are_judged_done_in_one_place`);
   - delete, trash, move, rename or replace a user's file only after a look that it is still
     the file picked or read. Files picked before a wait (a question, a prompt, the file

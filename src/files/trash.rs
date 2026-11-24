@@ -420,19 +420,19 @@ fn put_back(
 
 /// Settles where the sidecar `side` is after its rename out of the trash failed with `e`.
 /// Returns `Some(true)` when it is out at its own name alone, `Some(false)` when it is surely
-/// still in the trash, and `None` when it may be at either name. A rename that may have been
-/// done may have left it at both names, one file under two, which `journal::finish_step` puts
-/// right. Only names that are surely gone tell the rest: a failed look tells nothing, also not
-/// that the sidecar is out.
+/// still in the trash, and `None` when it may be at either name or is at neither, lost on the
+/// way. A rename that may have been done may have left it at both names, one file under two,
+/// which `journal::finish_step` puts right. Only sure looks at both names tell the rest: a
+/// failed look tells nothing, also not that the sidecar is out.
 fn sidecar_back_after_all(side: &TrashEntry, e: &std::io::Error) -> Option<bool> {
-    use crate::files::file_io::{is_surely_gone, may_have_been_done};
+    use crate::files::file_io::{is_surely_gone, is_surely_there, may_have_been_done};
     if !may_have_been_done(e, &side.file) {
         return Some(false);
     }
     if crate::files::journal::finish_step(&side.file, &side.from).is_ok() {
         return Some(true);
     }
-    is_surely_gone(&side.from).then_some(false)
+    (is_surely_gone(&side.from) && is_surely_there(&side.file)).then_some(false)
 }
 
 /// Notes in `out_without_answer` the file of `step` whose rename out of the trash, or back into
@@ -902,6 +902,23 @@ fn read_trash_info(text: &str, top: &Path) -> Option<(PathBuf, String)> {
 
 #[cfg(test)]
 mod tests {
+    /// A sidecar whose rename out of the trash may have been done, and which is at neither of
+    /// its names, counts as neither out nor in the trash, so its loss is told. Before, the gone
+    /// name in the trash counted it as out at its own name.
+    #[test]
+    fn a_sidecar_at_neither_name_is_not_taken_for_one_put_back() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-trash-lost-{}", std::process::id()));
+        let side = super::TrashEntry {
+            from: dir.join("a.jpg.xmp"),
+            date: String::new(),
+            file: dir.join("files").join("a.jpg.xmp"),
+            info: dir.join("info").join("a.jpg.xmp.trashinfo"),
+        };
+        let lost = std::io::Error::from_raw_os_error(libc::EIO);
+        assert_eq!(super::sidecar_back_after_all(&side, &lost), None);
+    }
+
     /// A `.trashinfo` file damaged in any way is read without a panic, and a whole one gives
     /// its path, percent-decoded, and its date.
     #[test]
