@@ -5330,6 +5330,120 @@ fn no_name_is_removed_on_a_cached_look() {
     );
 }
 
+/// Whether a step on a name was done after it failed (a rename, a link or an unlink whose answer
+/// a share lost) is judged in one place: by its error in `file_io::may_have_been_done`, and by
+/// the names in `done_after_all`. So the error numbers that `may_have_been_done_on` judges by
+/// (EIO, ETIMEDOUT, ENOENT and the rest, read from the function itself) are named nowhere
+/// outside file_io and the tests, and no other code judges a step's error its own way. file_io
+/// names some of them for calls that are no step, such as a folder's sync. Before, Save As judged a
+/// set-aside's ENOENT by its own looks at the two names, and a sidecar that a share's cache hid
+/// counted as none.
+#[test]
+fn steps_are_judged_done_in_one_place() {
+    const JUDGE: &str = "may_have_been_done_on";
+    let numbers = error_numbers_named_in(&code_lines(&source("files/file_io.rs")), JUDGE);
+    assert!(numbers.len() > 15, "{numbers:?}");
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources()
+        .into_iter()
+        .filter(|(f, _)| f != "files/file_io.rs")
+    {
+        let code = code_lines(&text);
+        let in_test_code = test_code_lines(&code);
+        for (i, line) in code[..tests_start(&code)].iter().enumerate() {
+            for number in numbers.iter().filter(|_| !in_test_code[i]) {
+                if names_word(line, number) {
+                    wrong.push(format!("{file}:{} ({number})", i + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "an error of a step judged outside file_io::may_have_been_done:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the error numbers (EIO, ENOENT, …) that the function `name` of `code`, a file's
+/// `code_lines`, names.
+fn error_numbers_named_in(code: &[String], name: &str) -> Vec<String> {
+    let start = (code.iter()).position(|l| function_name(l) == Some(name));
+    let Some((start, end)) = start.and_then(|s| Some((s, block_end(code, s)?))) else {
+        return Vec::new();
+    };
+    let mut numbers: Vec<String> = (code[start..=end].iter())
+        .flat_map(|l| l.split(|c: char| !is_word_char(c)))
+        .filter(|w| w.len() > 2 && w.starts_with('E'))
+        .filter(|w| w.chars().all(|c| c.is_ascii_uppercase()))
+        .map(str::to_owned)
+        .collect();
+    numbers.sort();
+    numbers.dedup();
+    numbers
+}
+
+/// Returns, for each line of `code`, a file's `code_lines`, whether it is in an item or a
+/// statement under `#[cfg(test)]`, which only the tests build.
+fn test_code_lines(code: &[String]) -> Vec<bool> {
+    let mut in_test_code = vec![false; code.len()];
+    let mut i = 0;
+    while i < code.len() {
+        if code[i].trim() != "#[cfg(test)]" {
+            i += 1;
+            continue;
+        }
+        // Brackets count too, so that a signature over several lines does not end at its first
+        // parameter.
+        let (mut depth, mut j) = (0usize, i);
+        while j + 1 < code.len() {
+            j += 1;
+            let line = code[j].trim();
+            let opened = line.matches(['{', '(', '[']).count();
+            depth = (depth + opened).saturating_sub(line.matches(['}', ')', ']']).count());
+            in_test_code[j] = true;
+            if depth == 0 && line.ends_with([';', '}', ',']) {
+                break;
+            }
+        }
+        i = j + 1;
+    }
+    in_test_code
+}
+
+/// Returns whether `line` holds `word` as a whole word, not as a part of a longer name, as EIO
+/// is a part of EREMOTEIO.
+fn names_word(line: &str, word: &str) -> bool {
+    (line.match_indices(word)).any(|(at, _)| {
+        let before = line[..at].chars().next_back();
+        let after = line[at + word.len()..].chars().next();
+        !before.is_some_and(is_word_char) && !after.is_some_and(is_word_char)
+    })
+}
+
+/// The rule finds an error number that `may_have_been_done_on` names, also in a guard and in a
+/// longer path, but not as a part of a longer number, in a comment, or under `#[cfg(test)]`,
+/// also where that is a function whose signature spans several lines.
+#[test]
+fn an_error_number_is_found_where_a_step_is_judged() {
+    let code = code_lines(
+        "fn may_have_been_done_on() {\n    use libc::{EIO, ENOENT, EREMOTEIO};\n}\n\
+         fn judge(e: E) {\n    // EIO\n    #[cfg(test)]\n    let x = Some(libc::EIO);\n    \
+         match e.raw_os_error() {\n        Some(libc::ENOENT) => {}\n        \
+         Some(libc::EREMOTEIOX) => {}\n    }\n}\n\
+         #[cfg(test)]\nfn hook(\n    e: E,\n) -> E {\n    Some(libc::EIO)\n}\n\
+         fn after() {\n    Some(libc::EIO)\n}\n",
+    );
+    let numbers = error_numbers_named_in(&code, "may_have_been_done_on");
+    assert_eq!(numbers, ["EIO", "ENOENT", "EREMOTEIO"]);
+    let in_test_code = test_code_lines(&code);
+    let found: Vec<usize> = (0..code.len())
+        .filter(|&i| !in_test_code[i] && i > 2)
+        .filter(|&i| numbers.iter().any(|n| names_word(&code[i], n)))
+        .collect();
+    assert_eq!(found, [8, 19]);
+}
+
 /// A path through an opened folder (`file_io::path_through`, `/proc/self/fd/N/…`) is used only
 /// in the modules that show every path through `file_io::shown_path`, which names it by the
 /// folder's own path. The trash at the top of a disk is reached through such a path, and the

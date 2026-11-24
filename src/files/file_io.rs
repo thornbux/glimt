@@ -109,9 +109,18 @@ thread_local! {
     // thread has deleted a file, as on a share that drops right after it answered the delete.
     pub(crate) static LOOKS_FAIL_ONCE_DELETED: std::cell::RefCell<Vec<PathBuf>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // The names whose looks fail (`LOOKS_FAIL`) from the moment a step on this thread from the
+    // first name was done (`answer_lost_in_a_test`, and a rename by `rename_never_over` in any
+    // of its ways), as on a share that drops right after the step.
+    pub(crate) static LOOKS_FAIL_ONCE_DONE_AT: std::cell::RefCell<Option<(PathBuf, Vec<PathBuf>)>> =
+        const { std::cell::RefCell::new(None) };
     // Makes a move by `put_file_until_stopped` on this thread a copy and an unlink, as a move
     // to another disk is, so that a test needs no second disk.
     pub(crate) static MOVES_CROSS_DEVICES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Runs once right after `put_file_until_stopped` on this thread opened the file it copies,
+    // so that a test can do there what a sync client could do in that moment.
+    pub(crate) static AFTER_OPEN_TO_COPY: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
     // How many names `look` looked at on this thread, so that a test can see that a check that
     // can tell nothing does not wait for the disk.
     pub(crate) static LOOKS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -148,6 +157,10 @@ thread_local! {
     // Makes `may_have_been_done` on this thread take the names in this folder for names on an
     // NFS mount, so that a test needs no share.
     pub(crate) static ON_A_SHARE_IN_A_TEST: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+    // Makes `done_after_all` on this thread take every name for a name on a file system of
+    // this type, such as fuse.rclone, so that a test needs no such mount.
+    pub(crate) static FILE_SYSTEM_IN_A_TEST: std::cell::RefCell<Option<String>> =
         const { std::cell::RefCell::new(None) };
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
@@ -759,6 +772,61 @@ pub(crate) enum RenameFailed {
     MayHaveBeenDone,
 }
 
+/// What the name that a rename takes a file or folder from held right before the rename, by
+/// which `done_after_all` tells after a lost answer whether the rename was done.
+#[derive(Clone, Copy)]
+pub(crate) struct BeforeRename {
+    fingerprint: FileFingerprint,
+    is_folder: bool,
+    /// When the rename began.
+    began: std::time::SystemTime,
+}
+
+impl BeforeRename {
+    /// Returns what `meta`, the metadata of the name `from` looked at right before the rename,
+    /// says of what it holds.
+    fn of(from: &Path, meta: &std::fs::Metadata) -> Self {
+        BeforeRename {
+            fingerprint: fingerprint_from(from, meta),
+            is_folder: meta.is_dir(),
+            began: std::time::SystemTime::now(),
+        }
+    }
+
+    /// Returns whether `to` holds what `from` held before the rename. Where the file system keeps
+    /// a file's inode (`has_lasting_inodes`), that is a folder or file of the same device and
+    /// inode, and a file of the same size and time too. Elsewhere, a folder at `to` counts as the
+    /// folder, as a folder's time and size change with each file that comes or goes, and NFS
+    /// caches them. A file there must have the same size and device, and the time it had or a
+    /// time from the moment of the rename on: rclone, s3fs and MTP give a renamed file a new
+    /// time, so the time it had never matched there (#276). A look that fails says no.
+    fn is_at(&self, from: &Path, to: &Path) -> bool {
+        let Ok(meta) = looked(to, false) else {
+            return false;
+        };
+        let now = fingerprint_from(to, &meta);
+        if meta.is_dir() != self.is_folder {
+            return false;
+        }
+        let before = self.fingerprint;
+        if keeps_inodes_at(from) {
+            return before.0.is_some()
+                && before.0 == now.0
+                && (self.is_folder || same_fingerprint(before, now));
+        }
+        // The time a file system gives may be up to 2 seconds behind the clock, as FAT keeps it.
+        let is_from_the_rename_on = || {
+            let slack = std::time::Duration::from_secs(2);
+            meta.modified().is_ok_and(|time| time + slack >= self.began)
+        };
+        let device = |(id, _, _): FileFingerprint| id.map(|(device, _)| device);
+        self.is_folder
+            || (device(before) == device(now)
+                && before.1 == now.1
+                && (before.2 == now.2 || is_from_the_rename_on()))
+    }
+}
+
 /// Returns whether nothing is at `path`: the system said that the name is not there (NotFound).
 /// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
 /// permission, says nothing, so the name counts as there. A step that removes, renames over or
@@ -866,10 +934,11 @@ fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
 /// old name unlinked; where links cannot be made either, a rename after looking first. The one
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
-/// a file back from the trash. A rename that failed but was done all the same (`done_after_all`)
-/// counts as done: a file only when the new name holds it with the fingerprint it had before,
-/// a folder when the new name holds a folder. `CrossesDevices` is the caller's to copy instead.
-/// The rename
+/// a file back from the trash. A rename that failed but was done all the same counts as done
+/// (`done_after_all`), when `to` holds what `from` held. A rename is not tried when the look at
+/// `from` before it fails, as nothing could tell afterwards whether it was done. Its error then
+/// keeps its kind but not its number, which tells `may_have_been_done` that nothing was done.
+/// `CrossesDevices` is the caller's to copy instead. The rename
 /// is not synced to disk here. One rename alone is one step, so a power cut leaves the file
 /// under its old name or its new one. A caller whose next step counts on the new name being on
 /// disk (an unlink of the source, a plan removed) syncs the folder with `sync_folder_of` first.
@@ -880,10 +949,13 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     let missing = RENAME_WAYS_MISSING.get();
     #[cfg(not(test))]
     let missing = 0;
-    // A file is told after a lost answer by its fingerprint, taken right before the rename, so
-    // that a file another program put at `to` meanwhile is not taken for it (#176). A folder is
-    // not, as its time and size change with every file that comes or goes.
-    let before = (!is_surely_dir(from)).then(|| fingerprint(from));
+    // What `from` holds is looked at once, right before the rename, so that after a lost answer
+    // it can be told from a file or folder that another program put at `to` meanwhile (#176).
+    // A rename after a failed look could be done without Glimt knowing it (#275).
+    let before = match looked(from, false) {
+        Ok(meta) => BeforeRename::of(from, &meta),
+        Err(e) => return Err(std::io::Error::new(e.kind(), e.to_string())),
+    };
     let one_step = match missing {
         0 => rename_noreplace(from, to),
         _ => Err(Unsupported.into()),
@@ -907,6 +979,10 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         },
         done => done,
     };
+    #[cfg(test)]
+    if renamed.is_ok() {
+        looks_fail_once_done_in_a_test(from);
+    }
     done_after_all(renamed, from, Some((to, before)))
 }
 
@@ -1026,26 +1102,21 @@ fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<Strin
 
 /// Returns `result`, of a step that moved the file at `from` to `to`, or removed it when `to` is
 /// `None`, as done when the step failed in a way that may have been done (`may_have_been_done`)
-/// and the names show that it was: `from` is surely gone, and `to` holds what went. `to` comes
-/// with the fingerprint of the file at `from` before the step, or `None` when `from` was surely
-/// a folder. A file at `to` must have that fingerprint, and a folder must be surely there. A
-/// share that did the step and lost its answer otherwise had the file counted as where it was,
-/// so its sidecars and marks stayed at the old name for the next file of that name. A file at
-/// `to` with another fingerprint may be one another program put there while it moved the photo
-/// away, and a fingerprint that could not be taken tells nothing, so the error stays. A look
-/// that fails leaves the error as it is too, and a Move then keeps its log for the next start.
+/// and the names show that it was: `from` is surely gone, and `to` holds what went
+/// (`BeforeRename::is_at`). A share that did the step and lost its answer otherwise had the file
+/// counted as where it was, so its sidecars and marks stayed at the old name for the next file
+/// of that name. Anything else at `to`, such as a file that another program put there while it
+/// moved the photo away, leaves the error as it is, and so does a look that fails, so that a
+/// Move then keeps its log for the next start. This is the one place where a step whose answer
+/// was lost is judged done.
 pub(crate) fn done_after_all(
     result: std::io::Result<()>,
     from: &Path,
-    to: Option<(&Path, Option<Option<FileFingerprint>>)>,
+    to: Option<(&Path, BeforeRename)>,
 ) -> std::io::Result<()> {
     match result {
         Err(e) if may_have_been_done(&e, from) && is_surely_gone(from) => match to {
-            Some((to, None)) if !is_surely_there(to) => Err(e),
-            Some((to, Some(before))) => match before.zip(fingerprint(to)) {
-                Some((before, now)) if same_fingerprint(before, now) => Ok(()),
-                _ => Err(e),
-            },
+            Some((to, before)) if !before.is_at(from, to) => Err(e),
             _ => Ok(()),
         },
         result => result,
@@ -1053,18 +1124,36 @@ pub(crate) fn done_after_all(
 }
 
 /// Returns `result` as a lost answer, EIO, when the step on `path` was done and `path` is the
-/// name in `ANSWER_LOST_AT`, as a share does that did the step and lost its answer.
+/// name in `ANSWER_LOST_AT`, as a share does that did the step and lost its answer. A step done
+/// makes the looks fail that `LOOKS_FAIL_ONCE_DONE_AT` names for `path`.
 #[cfg(test)]
 pub(crate) fn answer_lost_in_a_test(
     path: &Path,
     result: std::io::Result<()>,
 ) -> std::io::Result<()> {
+    if result.is_ok() {
+        looks_fail_once_done_in_a_test(path);
+    }
     match result {
         Ok(()) if ANSWER_LOST_AT.with_borrow(|at| at.as_deref() == Some(path)) => {
             Err(std::io::Error::from_raw_os_error(libc::EIO))
         }
         result => result,
     }
+}
+
+/// Makes the looks at the names that `LOOKS_FAIL_ONCE_DONE_AT` names for `path` fail from now
+/// on, as a step on `path` was done.
+#[cfg(test)]
+fn looks_fail_once_done_in_a_test(path: &Path) {
+    let names = LOOKS_FAIL_ONCE_DONE_AT.with_borrow_mut(|at| match at.take() {
+        Some((done_at, names)) if done_at == path => names,
+        other => {
+            *at = other;
+            Vec::new()
+        }
+    });
+    lock_even_if_poisoned(&LOOKS_FAIL).extend(names);
 }
 
 /// Makes the looks at the names in `LOOKS_FAIL_ONCE_DELETED` fail from now on, when `removed`,
@@ -1534,10 +1623,15 @@ pub(crate) fn put_file_until_stopped(
         let copied = crate::images::decode::open_regular(from)
             .and_then(|mut f| {
                 // The mode and time are those of the file opened, not of whatever has the name
-                // after the copy. The name is looked at just after the open, so that a move
-                // can tell before it unlinks the name that it still holds the file copied.
+                // after the copy. So is the fingerprint by which a move tells before it unlinks
+                // the name that it still holds the file copied, as a new version saved at the
+                // name right after the open would else pass that look (#175).
+                #[cfg(test)]
+                if let Some(hook) = AFTER_OPEN_TO_COPY.take() {
+                    hook();
+                }
                 let meta = f.metadata()?;
-                let at_open = fingerprint_or_error(from)?;
+                let at_open = fingerprint_from(from, &meta);
                 copy_until_stopped(&mut f, &mut out, is_stopped)?;
                 Ok((meta, at_open))
             })
@@ -1586,10 +1680,17 @@ pub(crate) fn put_file_until_stopped(
 /// file that was copied to `to`, whose fingerprint was `at_open` when it was opened. A copy
 /// takes minutes for a video, and a sync client or an editor may save a new version at the name
 /// meanwhile. Unlinking the name then would lose that version, so both names are kept, and the
-/// error says so. A look that fails keeps both names too.
+/// error says so. A look that fails keeps both names too. The name is looked at through a link,
+/// as the file was opened through it.
+// shortcut: a version saved at `from` between this look and the unlink is still lost, as no
+// call unlinks a name only while it holds a given file; rename `from` to a hidden name first
+// and look there, if a sync client is ever seen to save in that moment.
 fn still_the_file_copied(from: &Path, to: &Path, at_open: FileFingerprint) -> std::io::Result<()> {
-    let Err(e) = is_still_the_file(from, KnownAs::fingerprint(at_open)) else {
-        return Ok(());
+    let e = match fingerprint_looked(from, true) {
+        Ok(now) if same_fingerprint(at_open, now) => return Ok(()),
+        Ok(_) => changed_meanwhile(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => gone_meanwhile(),
+        Err(e) => e,
     };
     let (from, to) = (shown_path(from), shown_path(to));
     Err(std::io::Error::other(crate::tf!(
@@ -2428,6 +2529,16 @@ pub(crate) fn has_lasting_inodes(kind: &str) -> bool {
     )
 }
 
+/// Returns whether the file system that `path` is on keeps a file's inode (`has_lasting_inodes`).
+/// In a test, the file system in `FILE_SYSTEM_IN_A_TEST` counts instead of the real one.
+fn keeps_inodes_at(path: &Path) -> bool {
+    #[cfg(test)]
+    if let Some(kind) = FILE_SYSTEM_IN_A_TEST.with_borrow(Clone::clone) {
+        return has_lasting_inodes(&kind);
+    }
+    file_system_type(path).is_some_and(|kind| has_lasting_inodes(&kind))
+}
+
 /// Returns the name that udev gives in /dev/disk/by-uuid to the volume whose block device has
 /// the number `device`, the device a folder on it is on. For FAT and exFAT that name is the
 /// volume's serial number, which the camera or computer gave the card when it formatted it, so
@@ -2501,7 +2612,21 @@ pub(crate) fn fingerprint_of_file_read(path: &Path) -> Option<FileFingerprint> {
 /// Returns the fingerprint of the name `path`, of the file a link points to when `follow`, or
 /// the error of the look.
 fn fingerprint_looked(path: &Path, follow: bool) -> std::io::Result<FileFingerprint> {
+    looked(path, follow).map(|m| fingerprint_from(path, &m))
+}
+
+/// Returns the fingerprint of the file at `path` from its metadata `m`, which the caller looked
+/// up itself, such as that of a file it opened.
+fn fingerprint_from(path: &Path, m: &std::fs::Metadata) -> FileFingerprint {
     use std::os::unix::fs::MetadataExt;
+    let key = crate::images::save::file_id_from_metadata(path, m).ok();
+    (key, m.len(), (m.mtime(), m.mtime_nsec()))
+}
+
+/// Looks at the name `path`, through a link when `follow`, as `look` does. In tests, a name in
+/// `LOOK_FAILS` fails with EIO once it has been looked at that many times, and the name in
+/// `LOOK_NOT_FOUND_AT` answers ENOENT.
+fn looked(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
     #[cfg(test)]
     if LOOK_FAILS.with_borrow_mut(|fails| match fails {
         Some((name, looks_left)) if name == path => {
@@ -2517,9 +2642,7 @@ fn fingerprint_looked(path: &Path, follow: bool) -> std::io::Result<FileFingerpr
     if LOOK_NOT_FOUND_AT.with_borrow(|at| at.as_deref() == Some(path)) {
         return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
     }
-    let m = look(path, follow)?;
-    let key = crate::images::save::file_id_from_metadata(path, &m).ok();
-    Ok((key, m.len(), (m.mtime(), m.mtime_nsec())))
+    look(path, follow)
 }
 
 /// Returns the paths of `files`, picked in the list, and the identities the list knew them by
@@ -3410,10 +3533,12 @@ mod tests {
     /// fingerprint the file had before it. A photo that another program moved away at that
     /// moment, while another file came to the new name, is not counted as moved, so its sidecar
     /// and marks stay where they are and the error is told. Before, any file at the new name
-    /// counted the rename as done (#176). A folder still counts by its name alone.
+    /// counted the rename as done (#176). Where the file system keeps a file's inode, a copy of
+    /// the photo with its size and time, and another folder at a folder's new name, are not it
+    /// either. Before, the copy counted, and any folder at the new name did.
     #[test]
     fn a_rename_whose_answer_was_lost_is_done_only_with_its_file_at_the_new_name() {
-        use super::{ANSWER_LOST_AT, done_after_all, fingerprint};
+        use super::{ANSWER_LOST_AT, BeforeRename, FILE_SYSTEM_IN_A_TEST, done_after_all};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-lost-other-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -3435,12 +3560,99 @@ mod tests {
         // The photo moved away by another program, and another file at the new name.
         std::fs::remove_file(&b).unwrap();
         std::fs::write(&a, "a").unwrap();
-        let before = fingerprint(&a);
+        let before = BeforeRename::of(&a, &std::fs::symlink_metadata(&a).unwrap());
         std::fs::remove_file(&a).unwrap();
         std::fs::write(&b, "another").unwrap();
-        assert!(done_after_all(lost(), &a, Some((&b, Some(before)))).is_err());
-        // No fingerprint from before tells nothing either.
-        assert!(done_after_all(lost(), &a, Some((&b, Some(None)))).is_err());
+        assert!(done_after_all(lost(), &a, Some((&b, before))).is_err());
+        // A copy with the photo's size and time, such as `cp -p` makes, is another file where
+        // the file system keeps a file's inode.
+        std::fs::write(&b, "a").unwrap();
+        let same_time = |path: &std::path::Path, as_in: &std::path::Path| {
+            let time = std::fs::symlink_metadata(as_in)
+                .unwrap()
+                .modified()
+                .unwrap();
+            let file = std::fs::File::options().write(true).open(path).unwrap();
+            file.set_modified(time).unwrap();
+        };
+        std::fs::write(&a, "a").unwrap();
+        same_time(&b, &a);
+        let before = BeforeRename::of(&a, &std::fs::symlink_metadata(&a).unwrap());
+        std::fs::remove_file(&a).unwrap();
+        FILE_SYSTEM_IN_A_TEST.set(Some("ext4".into()));
+        let copy_counted = done_after_all(lost(), &a, Some((&b, before)));
+        FILE_SYSTEM_IN_A_TEST.set(None);
+        assert!(copy_counted.is_err());
+        // Another folder at a folder's new name is not the folder either.
+        let before = BeforeRename::of(&moved, &std::fs::symlink_metadata(&moved).unwrap());
+        // Moved away first, so that the new folder cannot be given its inode.
+        std::fs::rename(&moved, dir.join("away")).unwrap();
+        std::fs::create_dir(&moved).unwrap();
+        FILE_SYSTEM_IN_A_TEST.set(Some("ext4".into()));
+        let other_folder_counted = done_after_all(lost(), &sub, Some((&moved, before)));
+        FILE_SYSTEM_IN_A_TEST.set(None);
+        assert!(other_folder_counted.is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A rename whose look at its file first fails is not tried, and its error says that it
+    /// was not done, so no caller takes it for a rename that a share may have done. Before, the
+    /// rename was tried, and when it was done with its answer lost, it counted as failed, as
+    /// nothing from before could tell it (#275).
+    #[test]
+    fn a_rename_after_a_failed_look_is_not_tried() {
+        use super::LOOK_FAILS;
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-look-before-rename-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        std::fs::write(&a, "a").unwrap();
+        LOOK_FAILS.set(Some((a.clone(), 0)));
+        let renamed = super::rename_never_over(&a, &b);
+        LOOK_FAILS.set(None);
+        let e = renamed.unwrap_err();
+        assert!(!super::may_have_been_done(&e, &a), "{e}");
+        assert!(a.exists() && !b.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A rename whose answer was lost on a file system that gives a renamed file a new time
+    /// (rclone, s3fs, MTP) counts as done when its file is at the new name with its size and a
+    /// time from the rename on. Where the file system keeps a file's inode, a new time is not
+    /// enough, and a file with an old time of another moment is not the file either. Before, the
+    /// rename never counted as done there, as the time it had never matched (#276).
+    #[test]
+    fn a_rename_that_gave_its_file_a_new_time_counts_as_done() {
+        use super::{BeforeRename, FILE_SYSTEM_IN_A_TEST, done_after_all};
+        let dir = std::env::temp_dir().join(format!("glimt-test-new-time-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        let lost = || Err(std::io::Error::from_raw_os_error(libc::EIO));
+        let set_time = |path: &std::path::Path, time: std::time::SystemTime| {
+            let file = std::fs::File::options().write(true).open(path).unwrap();
+            file.set_modified(time).unwrap();
+        };
+        let an_hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::write(&a, "a").unwrap();
+        set_time(&a, an_hour_ago);
+        let before = BeforeRename::of(&a, &std::fs::symlink_metadata(&a).unwrap());
+        std::fs::rename(&a, &b).unwrap();
+        set_time(&b, std::time::SystemTime::now());
+        let judged = |kind: &str| {
+            FILE_SYSTEM_IN_A_TEST.set(Some(kind.into()));
+            let judged = done_after_all(lost(), &a, Some((&b, before)));
+            FILE_SYSTEM_IN_A_TEST.set(None);
+            judged.is_ok()
+        };
+        assert!(judged("fuse.rclone"));
+        assert!(!judged("ext4"));
+        // A file of the same size with a time from before the rename is another file.
+        set_time(&b, an_hour_ago + std::time::Duration::from_secs(60));
+        assert!(!judged("fuse.rclone"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3849,6 +4061,22 @@ mod tests {
         super::MOVES_CROSS_DEVICES.set(false);
         moved.unwrap();
         assert!(super::is_surely_gone(&a));
+        // A new version put at the name right after the open, before anything is copied, is
+        // kept too. Before, the name was looked at after the open, and that version passed
+        // the look and was unlinked (#175).
+        std::fs::remove_file(dir.join("to/a.mp4")).unwrap();
+        std::fs::write(&a, vec![1u8; 64 << 10]).unwrap();
+        let newer_at_a = (newer.clone(), a.clone());
+        super::AFTER_OPEN_TO_COPY.set(Some(Box::new(move || {
+            std::fs::write(&newer_at_a.0, "the new version").unwrap();
+            std::fs::rename(&newer_at_a.0, &newer_at_a.1).unwrap();
+        })));
+        super::MOVES_CROSS_DEVICES.set(true);
+        let moved = super::put_file(&a, &dir.join("to/a.mp4"), false);
+        super::MOVES_CROSS_DEVICES.set(false);
+        let e = moved.unwrap_err().to_string();
+        assert!(e.contains("under both names"), "{e}");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "the new version");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

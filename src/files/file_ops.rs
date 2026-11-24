@@ -2251,22 +2251,11 @@ impl crate::App {
             let mut out_without_answer = trash_move.out_without_answer.clone();
             let mut coming = None;
             let mut note = |step: crate::files::trash::Restoring| {
-                use crate::files::trash::Restoring;
-                match &step {
-                    Restoring::Coming(from, fingerprint) => {
-                        coming = Some((from.to_path_buf(), *fingerprint))
-                    }
-                    Restoring::Failed(file, from, e)
-                        if crate::files::file_io::may_have_been_done(e, file) =>
-                    {
-                        if let Some((_, Some(fingerprint))) =
-                            coming.take().filter(|(at, _)| at == *from)
-                        {
-                            out_without_answer.insert(from.to_path_buf(), fingerprint);
-                        }
-                    }
-                    _ => {}
-                }
+                crate::files::trash::note_out_without_answer(
+                    &step,
+                    &mut coming,
+                    &mut out_without_answer,
+                );
                 if let Some(log) = undo_log.as_mut() {
                     log.note(step);
                 }
@@ -7149,7 +7138,7 @@ mod tests {
     /// the job, and the sidecar stayed hidden for good.
     #[test]
     fn a_delete_for_good_whose_set_aside_lost_its_answer_names_the_hidden_sidecar() {
-        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL};
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT};
         let dir = contract_folder("delete-aside-lost");
         let logs = dir.join("logs");
         let a = dir.join("a.png");
@@ -7159,7 +7148,7 @@ mod tests {
         let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         ANSWER_LOST_AT.set(Some(side.clone()));
-        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![side.clone()])));
         let mut errors = Vec::new();
         let how = (false, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
@@ -7190,7 +7179,9 @@ mod tests {
     /// named only the sidecar, and the sidecar stayed hidden for good.
     #[test]
     fn a_delete_for_good_whose_sidecar_cannot_come_back_names_the_hidden_sidecar() {
-        use crate::files::file_io::{FOLDER_SYNC_FAILS_IN, LOOKS_FAIL, RENAME_WAYS_MISSING};
+        use crate::files::file_io::{
+            FOLDER_SYNC_FAILS_IN, LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT, RENAME_WAYS_MISSING,
+        };
         let dir = contract_folder("delete-aside-not-back");
         let logs = dir.join("logs");
         let a = dir.join("a.png");
@@ -7201,7 +7192,7 @@ mod tests {
         log.note(std::slice::from_ref(&a));
         FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
         RENAME_WAYS_MISSING.set(2);
-        lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![side.clone()])));
         let mut errors = Vec::new();
         let how = (false, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
