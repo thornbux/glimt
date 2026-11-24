@@ -2819,8 +2819,6 @@ fn is_linked(file: &File) -> std::io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    /// Two names asked for at one moment of the clock, or after the clock went back, differ.
-    /// Before, a name was the clock's time alone, and two logs of one moment had one name.
     /// A step that failed counts as finished only when its file is at its new name and gone
     /// from its old one. Before, a gone old name was enough, and a sidecar that a share lost in
     /// a failed move counted as beside its file, so the loss was not told.
@@ -2839,6 +2837,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Two names asked for at one moment of the clock, or after the clock went back, differ.
+    /// Before, a name was the clock's time alone, and two logs of one moment had one name.
     #[test]
     fn two_new_names_at_one_moment_differ() {
         let mut last = 0;
