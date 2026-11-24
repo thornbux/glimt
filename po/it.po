@@ -4112,3 +4112,8 @@ msgstr "Impossibile spostare il file dei segni {from} in {to}: {e}. I segni rest
 #, fuzzy
 msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
 msgstr "Il file dei segni di Glimt 0.95 o precedente resta in {old}, perché esiste anche {new}. Si usano i segni di {new}: unisci i due a mano, o rimuovi il vecchio."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} contiene registri di lavori durante i quali Glimt si è fermato e che questo avvio non ha potuto completare, perché non ha potuto esaminare i loro file né distinguere la loro scheda o il loro disco da un altro. Vengono conservati, con i contrassegni e le stelle dei loro file, per un avvio successivo."

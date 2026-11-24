@@ -204,8 +204,10 @@ A log no window holds locked was cut short. For each step, the start looks at th
   a block device (a disk, card or stick, whose number the next card in the same reader or
   stick at the same port gets), the device alone tells nothing: only the folder's own inode,
   where one was noted, counts, and a folder above it that is still there, or a FAT card's
-  folder, cannot tell (#179, #266, #270). A share's or tmpfs's device number is its own, and
-  is compared as before. One function, `journal::is_on_the_volume_noted`, answers whether a
+  folder, cannot tell (#179, #266, #270). Where no volume can be read at the start, as in the
+  Flatpak's sandbox, such a folder is told by its device alone, as in Glimt 0.96, since it
+  could else never be told and its log would never finish. A share's or tmpfs's device number
+  is its own, and is compared as before. One function, `journal::is_on_the_volume_noted`, answers whether a
   folder is on the disk noted (surely, surely not, or cannot tell), and
   `journal::is_the_folder_noted`, on top of it, whether it is the folder noted
   (`source_rules::one_rule_tells_the_folder_a_log_noted`). The

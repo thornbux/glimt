@@ -1092,24 +1092,33 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
         }
     }
     let (mut moves, mut deletes, mut others) = (Vec::new(), Vec::new(), Vec::new());
+    // Whether a log stays because this start could not tell what its job had done.
+    let mut is_any_kept = false;
     for found in found {
         if let Some(sure) = Sure::of(&is_named_anew(&written_anew, found.log.path())) {
             remove_job_log(found.log.path(), sure);
             continue;
         }
         match found.read_as {
-            ReadAtStart::Move => moves.extend(move_job_cut_short(found)),
+            ReadAtStart::Move => match move_job_cut_short(found) {
+                Some(done) => moves.push(done),
+                None => is_any_kept = true,
+            },
             ReadAtStart::Delete => {
                 let time = found.log.file().metadata().and_then(|m| m.modified()).ok();
                 let records = delete_records(found.job, &found.records);
                 let jobs = dir.to_path_buf();
-                deletes.push(put_right_a_delete(found.log, records, time, jobs));
+                let (log, gone, is_kept) = put_right_a_delete(found.log, records, time, jobs);
+                is_any_kept |= is_kept;
+                deletes.push((log, gone));
             }
             ReadAtStart::UndoTrash => {
                 // A log whose files cannot be looked at now stays for a later start.
                 let done = back_from_the_trash(&found.records);
                 if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
                     others.push((found.log.read_surely(sure), done));
+                } else {
+                    is_any_kept = true;
                 }
             }
             ReadAtStart::Folder => {
@@ -1117,10 +1126,20 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
                 let done = folder_job_done(&found.records);
                 if let (Some(sure), Ok(done)) = (Sure::of(&done), done) {
                     others.push((found.log.read_surely(sure), done));
+                } else {
+                    is_any_kept = true;
                 }
             }
             ReadAtStart::Rename => {}
         }
+    }
+    // A log kept without a word would stay for ever unseen, as on a card that the start can
+    // never tell, with the marks of its files at their old names.
+    if is_any_kept {
+        crate::files::file_io::save_failed(crate::tf!(
+            "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start.",
+            folder = dir.display()
+        ));
     }
     (moves, deletes, others)
 }
@@ -1271,7 +1290,9 @@ fn delete_records(job: &'static str, records: &[Record]) -> DeleteRecords {
 /// Puts right the delete whose log `log` says `records`, found at the start, last written at
 /// `time`. Returns the log, held locked until it is removed or written anew in `jobs`, with the
 /// files whose marks and stars are to be forgotten: those whose name is surely not there any
-/// more in a folder that surely is (`is_gone_at_start`).
+/// more in a folder that surely is (`is_gone_at_start`). Returns also whether the log stays for
+/// a name that this start could not finish, other than a photo found gone for the first time,
+/// which is told on its own.
 ///
 /// A file that had not gone yet is still at its name, and keeps them. A file still there as
 /// the log knew it takes back its sidecars, from a hidden name that a delete for good put them
@@ -1291,7 +1312,7 @@ fn put_right_a_delete(
     records: DeleteRecords,
     time: Option<std::time::SystemTime>,
     jobs: PathBuf,
-) -> (DeleteLog, Vec<PathBuf>) {
+) -> (DeleteLog, Vec<PathBuf>, bool) {
     use crate::files::file_io::save_failed;
     let r = &records;
     let is_unfinished = |name: &PathBuf| r.job == "delete" && !r.done.contains(name);
@@ -1352,6 +1373,7 @@ fn put_right_a_delete(
     (time.into_iter()).for_each(|since| sidecars_back_from_the_trash(&stayed, since));
     let kept: HashSet<&PathBuf> = r.kept.iter().chain(&still_hidden).collect();
     let found: HashSet<&PathBuf> = r.found.iter().chain(&found_now).collect();
+    let is_kept = untold.len() > found_now.len();
     let records_left = steps_left(r, &untold, &kept, &found, log.path());
     // A log whose every name the start could tell about goes once the marks are forgotten.
     let is_told = untold.is_empty().then_some(()).ok_or(CannotTell);
@@ -1372,7 +1394,7 @@ fn put_right_a_delete(
             records_left,
         )),
     };
-    (log, gone)
+    (log, gone, is_kept)
 }
 
 /// Returns the records of the log written anew for the steps of `r` that are `untold`, numbered
@@ -1762,7 +1784,10 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// lasting inode, when it is the one noted, tells the disk. Without it, the device number tells
 /// it only off a block device: a share's or tmpfs's number is its own, while a block device's
 /// is given to the next card in the same reader or stick at the same port, so that it alone
-/// cannot tell (#179, #266, #270).
+/// cannot tell (#179, #266, #270). Where no volume can be read on this system, as in the
+/// Flatpak's sandbox, which has no /dev/disk/by-uuid, and no lasting inode tells the folder (FAT,
+/// exFAT, or a folder above the one noted), the device tells it, as in Glimt 0.96. Else a job
+/// killed on such a card would never finish, and its files' marks would never follow them.
 fn is_on_the_volume_noted(
     folder: &Path,
     noted: &FolderNoted,
@@ -1782,8 +1807,12 @@ fn is_on_the_volume_noted(
         };
     }
     let is_the_inode_noted = noted.noted_inode != 0 && inode == Some(noted.noted_inode);
+    let has_no_inode_to_tell = noted.noted_inode == 0 || inode.is_none();
+    let has_no_volumes = || noted.volumes_now.get_or_init(VolumesNow::read).is_none();
     match device == noted.noted_device
-        && (is_the_inode_noted || !is_on_a_block_device(folder, device))
+        && (is_the_inode_noted
+            || !is_on_a_block_device(folder, device)
+            || (has_no_inode_to_tell && has_no_volumes()))
     {
         true => Ok(true),
         false => Err(CannotTell),
@@ -5619,6 +5648,79 @@ mod tests {
         let found = super::delete_jobs_cut_short(&logs);
         assert_eq!(found[0].1, [a, c]);
         assert_eq!(let_go(found), 1);
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A Move, a delete and a Move Folder to Trash killed on a FAT card, where no volume can be
+    /// read, as in the Flatpak's sandbox, finish at the next start while the card is on the
+    /// device noted: the Move follows its photo, the delete forgets the marks of its files, also
+    /// of one in a folder gone since, and the folder counts as trashed. Before, the card's
+    /// folders, which keep no lasting inode, could never be told on a block device, and each log
+    /// stayed for ever, with the marks at the card's old names.
+    #[test]
+    fn a_job_killed_on_a_fat_card_finishes_where_no_volume_can_be_read() {
+        use super::JobDoneBeforeAKill::FolderTrashed;
+        let (dir, card, logs) = fat_card("start-fat-card-no-volumes");
+        let (sub, album, to) = (card.join("sub"), card.join("album"), dir.join("to"));
+        for folder in [&sub, &album, &to] {
+            std::fs::create_dir(folder).unwrap();
+        }
+        let (from, moved) = (card.join("a.jpg"), to.join("a.jpg"));
+        std::fs::write(&from, "the card's").unwrap();
+        let mut log = super::start_move_log(&logs, "move").unwrap();
+        log.note(&from, &moved);
+        std::fs::rename(&from, &moved).unwrap();
+        drop(log);
+        let (b, c) = (card.join("b.png"), sub.join("c.png"));
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(&[b.clone(), c.clone()]);
+        drop(log);
+        drop(super::start_folder_log(&logs, &album, None, None).unwrap());
+        std::fs::remove_dir(&sub).unwrap();
+        std::fs::remove_dir(&album).unwrap();
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(|on| on.push(card.clone()));
+        super::VOLUMES_UNREADABLE.set(true);
+        let (moves, deletes, mut others) = super::jobs_cut_short(&logs);
+        super::VOLUMES_UNREADABLE.set(false);
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
+        assert_eq!(moves.len(), 1);
+        assert_eq!(moves[0].1, [(from, moved)]);
+        drop(moves);
+        assert_eq!(deletes[0].1, [b, c]);
+        assert_eq!(let_go(deletes), 1);
+        assert_eq!(others.len(), 1);
+        let (log, done) = others.remove(0);
+        assert!(matches!(&done, FolderTrashed(folder) if *folder == album));
+        super::remove_once_written(log);
+        crate::files::file_io::wait_for_queued_writes();
+        crate::files::file_io::wait_for_queued_writes();
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A start that keeps logs because it cannot tell what their jobs had done says so once,
+    /// with the folder of the logs, and a start that finishes them says nothing. Before, such a
+    /// log stayed unseen, for ever where the start could never tell.
+    #[test]
+    fn logs_kept_for_a_later_start_are_told_once() {
+        let (dir, card, logs) = fat_card("start-kept-told");
+        let a = card.join("a.png");
+        for _ in 0..2 {
+            let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+            log.note(std::slice::from_ref(&a));
+            drop(log);
+        }
+        crate::files::file_io::take_saves_failed();
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(|on| on.push(card.clone()));
+        let found = super::delete_jobs_cut_short(&logs);
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
+        assert_eq!(let_go(found), 2);
+        let told = crate::files::file_io::take_saves_failed();
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(told[0].contains("could not finish"), "{told:?}");
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(let_go(found), 2);
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(told.is_empty(), "{told:?}");
         remove_fat_card(&dir, &card);
     }
 

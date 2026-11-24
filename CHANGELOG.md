@@ -25,7 +25,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A start after a kill no longer forgets the marks and stars of photos when another card is in
   the reader at the same path. That was possible when the card's volume could not be noted, as
   in the Flatpak, or when the card was swapped during the start. On a card or stick whose
-  volume is not known, the job's log now waits until the start can tell the card.
+  volume is not known, the job's log now waits until the start can tell the card. Where no
+  volume can be read at all, as in the Flatpak, a FAT or exFAT card is told by its device, as
+  before, so that a job killed on it still finishes.
+- A start that keeps a job's log because it cannot finish it yet, as with a card or share that
+  is not there, now says so once, with the folder of the logs. Before, such a log stayed
+  without a word.
 
 ## [0.96.0] - 2026-11-24
 

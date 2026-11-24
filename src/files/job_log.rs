@@ -606,8 +606,10 @@ pub(crate) fn logs_left_by_a_kill(dir: &Path) -> Vec<FoundLog> {
             continue;
         };
         // The hidden folder of a log that `JobLog::start` was making when a kill came. Its log
-        // names no step yet, so the folder goes once it is old enough that no start is still
-        // making it. A link is not followed.
+        // names no step yet, or it is a log written anew from one that is still beside it, as
+        // that one is removed only after the new one is renamed in. So nothing is lost with the
+        // folder, which goes once it is old enough that no start is still making it. A link is
+        // not followed.
         if kind.is_dir()
             && entry
                 .file_name()

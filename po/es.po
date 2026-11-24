@@ -4112,3 +4112,8 @@ msgstr "No se pudo mover el archivo de marcas {from} a {to}: {e}. Las marcas se 
 #, fuzzy
 msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
 msgstr "El archivo de marcas de Glimt 0.95 o anterior se deja en {old}, porque {new} también existe. Se usan las marcas de {new}: una los dos a mano o elimine el antiguo."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} contiene registros de trabajos durante los que Glimt se detuvo y que este inicio no pudo terminar, porque no pudo ver sus archivos ni distinguir su tarjeta o disco de otro. Se conservan, con las marcas y estrellas de sus archivos, para un inicio posterior."
