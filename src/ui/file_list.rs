@@ -1396,12 +1396,18 @@ impl crate::App {
     /// once have no one path, so they are shown in the text field.
     pub(crate) fn path_field(&mut self, ui: &mut egui::Ui) {
         let field = egui::Id::unique("path field");
+        let is_typed_in = ui.memory(|m| m.has_focus(field));
+        // The field is filled here, as the buttons take its place while it has no focus, so it
+        // opens with the folder that is open now.
+        if !is_typed_in {
+            self.folder.show_path();
+        }
         let shown = match self.folder.folders().is_empty() {
             true => Some(self.folder.collection().unwrap_or(self.folder.dir())),
             false => None,
         };
         let chosen = match shown {
-            Some(path) if !ui.memory(|m| m.has_focus(field)) => path_buttons(ui, path, field),
+            Some(path) if !is_typed_in => path_buttons(ui, path, field),
             _ => {
                 self.path_text_field(ui, field);
                 None
@@ -1437,9 +1443,6 @@ impl crate::App {
                     |p: &Path| Failure::from(tf!("No such folder: {folder}", folder = p.display()));
                 self.visit_if_there(ui.ctx(), path, gone);
             }
-        }
-        if !response.has_focus() {
-            self.folder.show_path();
         }
     }
 
@@ -2295,28 +2298,39 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
     // Each folder with the "/" before it, and room left over for the empty part to click.
     let separator = width("/".to_owned()) - 2.0 * padding;
     let widths: Vec<f32> = folders.iter().map(|p| width(name(p)) + separator).collect();
-    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y;
+    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y - spacing;
     let first = first_folder_that_fits(&widths, room, width("…".to_owned()));
     let mut chosen = None;
     ui.horizontal(|ui| {
-        if first > 0 {
-            submenu(ui, "…", |ui| {
-                for folder in &folders[..first] {
-                    if button(ui, &name(folder)).clicked() {
-                        chosen = Some(folder.to_path_buf());
+        // The folders get no more than the room, and a name too long for it is cut short. A
+        // row wider than the panel would widen the panel for good.
+        let size = egui::vec2(room.max(0.0), ui.spacing().interact_size.y);
+        let layout = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(size, layout, |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            if first > 0 {
+                let more = submenu(ui, "…", |ui| {
+                    for folder in &folders[..first] {
+                        if button(ui, &name(folder)).clicked() {
+                            chosen = Some(folder.to_path_buf());
+                        }
                     }
+                });
+                // "…" alone says nothing to a screen reader, nor that the row is a path.
+                let said = tf!("Folders before {folder}", folder = name(folders[first]));
+                more.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &said));
+                more.on_hover_text(said);
+            }
+            for (i, folder) in folders.iter().enumerate().skip(first) {
+                // The root, "/", has no "/" after it.
+                if i > 0 && folders[i - 1].file_name().is_some() {
+                    ui.weak("/");
                 }
-            });
-        }
-        for (i, folder) in folders.iter().enumerate().skip(first) {
-            // The root, "/", has no "/" after it.
-            if i > 0 && folders[i - 1].file_name().is_some() {
-                ui.weak("/");
+                if selectable(ui, i + 1 == folders.len(), &name(folder)).clicked() {
+                    chosen = Some(folder.to_path_buf());
+                }
             }
-            if selectable(ui, i + 1 == folders.len(), &name(folder)).clicked() {
-                chosen = Some(folder.to_path_buf());
-            }
-        }
+        });
         let empty = ui.available_rect_before_wrap();
         let response = ui.interact(empty, field, egui::Sense::click());
         response.widget_info(|| {
@@ -2428,6 +2442,80 @@ mod tests {
         assert_eq!(first_folder_that_fits(&widths, 1.0, 5.0), 3);
         assert_eq!(first_folder_that_fits(&[50.0], 1.0, 5.0), 0);
         assert_eq!(first_folder_that_fits(&[], -10.0, 5.0), 0);
+    }
+
+    /// The path's text field opens with the folder that is open, also when the buttons were
+    /// shown in its place until then. Before, it opened empty, or with the folder that was open
+    /// the last time it was drawn.
+    #[test]
+    fn the_path_field_opens_with_the_open_folder() {
+        let name = format!("glimt-test-path-field-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(dir.join("summer")).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir.join("summer"));
+        let field = eframe::egui::Id::unique("path field");
+        let shown = |app: &mut crate::App| {
+            let _ = ctx.run_ui(Default::default(), |ui| app.path_field(ui));
+            app.folder.dir().display().to_string()
+        };
+        // The buttons are drawn, then the field is clicked into.
+        let open = shown(&mut app);
+        ctx.memory_mut(|m| m.request_focus(field));
+        shown(&mut app);
+        assert_eq!(app.folder.path_text(), open);
+        // Esc, the parent folder opened by its button, then the field again.
+        ctx.memory_mut(|m| m.surrender_focus(field));
+        app.visit(&ctx, dir.clone());
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        let open = shown(&mut app);
+        ctx.memory_mut(|m| m.request_focus(field));
+        shown(&mut app);
+        assert_eq!(app.folder.path_text(), open);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A folder name wider than the side panel, such as a share's in GVfs, is cut short, so
+    /// the path never asks for more width than the panel has, and the empty part after it can
+    /// still be clicked. Before, the name widened the panel for good.
+    #[test]
+    fn a_long_folder_name_is_cut_to_the_room() {
+        let ctx = eframe::egui::Context::default();
+        let path = std::path::Path::new("/run/gvfs/smb-share:server=nas.local,share=photographs");
+        let field = eframe::egui::Id::unique("a field of the test");
+        let (mut used, mut click_room, mut wanted) = (f32::INFINITY, 0.0, 0.0);
+        for _ in 0..2 {
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                wanted = 2.0 * ui.spacing().interact_size.y - 1.0;
+                ui.allocate_ui(eframe::egui::vec2(160.0, 30.0), |ui| {
+                    super::path_buttons(ui, path, field);
+                    used = ui.min_rect().width();
+                });
+                click_room = ctx.read_response(field).map_or(0.0, |r| r.rect.width());
+            });
+        }
+        assert!(used <= 160.0, "the path took {used} of 160");
+        assert!(click_room >= wanted, "{click_room} to click, want {wanted}");
+    }
+
+    /// The "…" before a path cut short says which folders it holds, to a screen reader too.
+    #[test]
+    fn the_first_folders_of_a_path_say_what_they_are() {
+        let ctx = eframe::egui::Context::default();
+        ctx.enable_accesskit();
+        let path = std::path::Path::new("/home/someone/pictures/summer");
+        let field = eframe::egui::Id::unique("a field of the test");
+        let mut nodes = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(Default::default(), |ui| {
+                ui.allocate_ui(eframe::egui::vec2(150.0, 30.0), |ui| {
+                    super::path_buttons(ui, path, field);
+                });
+            });
+            let update = out.platform_output.accesskit_update.map(|u| u.nodes);
+            nodes.extend(update.into_iter().flatten().map(|(_, n)| n));
+        }
+        let labels: Vec<_> = nodes.iter().filter_map(|n| n.label()).collect();
+        assert!(labels.contains(&"Folders before summer"), "{labels:?}");
     }
 
     /// A scrolled view fades only the edges with more beyond them: none at its ends.

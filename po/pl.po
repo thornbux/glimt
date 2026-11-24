@@ -4137,3 +4137,8 @@ msgstr "{folder} zawiera dzienniki zadań, podczas których Glimt został zatrzy
 #, fuzzy
 msgid "Type a path"
 msgstr "Wpisz ścieżkę"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Foldery przed {folder}"

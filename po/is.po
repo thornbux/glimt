@@ -4126,3 +4126,8 @@ msgstr "{folder} geymir skrár verka sem Glimt stöðvaðist í og þessi ræsin
 #, fuzzy
 msgid "Type a path"
 msgstr "Slá inn slóð"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Möppur á undan {folder}"

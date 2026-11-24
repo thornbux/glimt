@@ -4148,3 +4148,8 @@ msgstr "{folder} obsahuje záznamy úloh, během nichž se Glimt zastavil a kter
 #, fuzzy
 msgid "Type a path"
 msgstr "Zadat cestu"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Složky před {folder}"

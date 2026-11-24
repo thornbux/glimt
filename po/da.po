@@ -4126,3 +4126,8 @@ msgstr "{folder} har logfiler fra job, som Glimt blev stoppet under, og som denn
 #, fuzzy
 msgid "Type a path"
 msgstr "Skriv en sti"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Mapper før {folder}"

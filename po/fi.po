@@ -4126,3 +4126,8 @@ msgstr "{folder} sisältää lokeja töistä, joiden aikana Glimt pysähtyi ja j
 #, fuzzy
 msgid "Type a path"
 msgstr "Kirjoita polku"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Folders before {folder}"
+msgstr "Kansiot ennen kansiota {folder}"

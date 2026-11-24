@@ -3315,3 +3315,7 @@ msgstr "{folder} har logger fra jobber som Glimt stoppet under, og som denne sta
 #: src/ui/file_list.rs
 msgid "Type a path"
 msgstr "Skriv inn en sti"
+
+#: src/ui/file_list.rs
+msgid "Folders before {folder}"
+msgstr "Mapper før {folder}"

@@ -1057,16 +1057,16 @@ pub(crate) fn link(ui: &mut egui::Ui, text: &str) -> egui::Response {
 }
 
 /// Draws a button of `title` that opens a submenu drawn by `add`, noted by its title as
-/// `button` does.
+/// `button` does. Returns the button's response.
 #[allow(clippy::disallowed_methods)] // The one place egui's own menu button is drawn.
 pub(crate) fn submenu<R>(
     ui: &mut egui::Ui,
     title: impl Into<egui::WidgetText>,
     add: impl FnOnce(&mut egui::Ui) -> R,
-) {
+) -> egui::Response {
     let title: egui::WidgetText = title.into();
     let name = title.text().to_owned();
-    noted(&ui.menu_button(title, add).response, &name);
+    noted(&ui.menu_button(title, add).response, &name)
 }
 
 /// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the

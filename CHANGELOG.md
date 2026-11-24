@@ -51,7 +51,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   (#220).
 - Rename Many and its Undo hold the sidecar locks of one photo at a time, so a rename that
   hangs on a share holds up few sidecar writes in other windows. Before, they held those of
-  every photo for the whole job, nearly all 64 for 100 photos (#153).
+  every photo for the whole job, nearly all 64 for 100 photos (#153). A photo changed after
+  the renames were planned, or whose sidecar Glimt wrote since, now stops the whole Rename Many
+  and puts back the names already changed. Before, that photo was left alone and the others
+  were renamed.
 - An edit of keywords, stars or a comment made while Rename Many runs is saved when the rename
   ends, also when a collection opened meanwhile is still being read. Before, it waited for
   that collection, and was lost when its listing failed (#263).
