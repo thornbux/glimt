@@ -2298,28 +2298,35 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
     // Each folder with the "/" before it, and room left over for the empty part to click.
     let separator = width("/".to_owned()) - 2.0 * padding;
     let widths: Vec<f32> = folders.iter().map(|p| width(name(p)) + separator).collect();
-    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y;
+    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y - spacing;
     let first = first_folder_that_fits(&widths, room, width("…".to_owned()));
     let mut chosen = None;
     ui.horizontal(|ui| {
-        if first > 0 {
-            submenu(ui, "…", |ui| {
-                for folder in &folders[..first] {
-                    if button(ui, &name(folder)).clicked() {
-                        chosen = Some(folder.to_path_buf());
+        // The folders get no more than the room, and a name too long for it is cut short. A
+        // row wider than the panel would widen the panel for good.
+        let size = egui::vec2(room.max(0.0), ui.spacing().interact_size.y);
+        let layout = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(size, layout, |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            if first > 0 {
+                submenu(ui, "…", |ui| {
+                    for folder in &folders[..first] {
+                        if button(ui, &name(folder)).clicked() {
+                            chosen = Some(folder.to_path_buf());
+                        }
                     }
+                });
+            }
+            for (i, folder) in folders.iter().enumerate().skip(first) {
+                // The root, "/", has no "/" after it.
+                if i > 0 && folders[i - 1].file_name().is_some() {
+                    ui.weak("/");
                 }
-            });
-        }
-        for (i, folder) in folders.iter().enumerate().skip(first) {
-            // The root, "/", has no "/" after it.
-            if i > 0 && folders[i - 1].file_name().is_some() {
-                ui.weak("/");
+                if selectable(ui, i + 1 == folders.len(), &name(folder)).clicked() {
+                    chosen = Some(folder.to_path_buf());
+                }
             }
-            if selectable(ui, i + 1 == folders.len(), &name(folder)).clicked() {
-                chosen = Some(folder.to_path_buf());
-            }
-        }
+        });
         let empty = ui.available_rect_before_wrap();
         let response = ui.interact(empty, field, egui::Sense::click());
         response.widget_info(|| {
@@ -2461,6 +2468,29 @@ mod tests {
         shown(&mut app);
         assert_eq!(app.folder.path_text(), open);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A folder name wider than the side panel, such as a share's in GVfs, is cut short, so
+    /// the path never asks for more width than the panel has, and the empty part after it can
+    /// still be clicked. Before, the name widened the panel for good.
+    #[test]
+    fn a_long_folder_name_is_cut_to_the_room() {
+        let ctx = eframe::egui::Context::default();
+        let path = std::path::Path::new("/run/gvfs/smb-share:server=nas.local,share=photographs");
+        let field = eframe::egui::Id::unique("a field of the test");
+        let (mut used, mut click_room, mut wanted) = (f32::INFINITY, 0.0, 0.0);
+        for _ in 0..2 {
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                wanted = 2.0 * ui.spacing().interact_size.y - 1.0;
+                ui.allocate_ui(eframe::egui::vec2(160.0, 30.0), |ui| {
+                    super::path_buttons(ui, path, field);
+                    used = ui.min_rect().width();
+                });
+                click_room = ctx.read_response(field).map_or(0.0, |r| r.rect.width());
+            });
+        }
+        assert!(used <= 160.0, "the path took {used} of 160");
+        assert!(click_room >= wanted, "{click_room} to click, want {wanted}");
     }
 
     /// A scrolled view fades only the edges with more beyond them: none at its ends.
