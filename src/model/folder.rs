@@ -133,8 +133,11 @@ pub(crate) struct Folder {
     /// The watcher saw the folder change, and the folder is read again once the window has
     /// rested from the last listing (`relist_after_rest`).
     change_waits: bool,
-    /// The folders that the watcher saw change since the last listing began.
-    changes_seen: Vec<PathBuf>,
+    /// The deepest folder that holds every folder the watcher saw change since the last listing
+    /// began, or `None` when it saw none. Only this one path is kept, so a tree that a sync
+    /// client writes into every second does not grow it during a long rest. Before, each
+    /// folder seen was kept, also every time again, until the next listing.
+    changes_seen: Option<PathBuf>,
     /// The folder is to be read whole when it is read again, as something other than the
     /// watcher asked for it (`relist_later`).
     relist_whole: bool,
@@ -220,7 +223,7 @@ impl Folder {
             listing_stop: Arc::default(),
             relist_when_done: false,
             change_waits: false,
-            changes_seen: Vec::new(),
+            changes_seen: None,
             relist_whole: false,
             next_listing_from: PathBuf::new(),
             listing_from: PathBuf::new(),
@@ -482,8 +485,15 @@ impl Folder {
     /// it saw change are kept for the next listing (`App::relist_changes`).
     pub(crate) fn changed_on_disk(&mut self) -> bool {
         let mut changed = false;
-        for folders in self.changed_rx.try_iter() {
-            self.changes_seen.extend(folders);
+        for folder in self.changed_rx.try_iter().flatten() {
+            let common = match self.changes_seen.take() {
+                None => folder,
+                Some(seen) => (seen.components().zip(folder.components()))
+                    .take_while(|(a, b)| a == b)
+                    .map(|(a, _)| a)
+                    .collect(),
+            };
+            self.changes_seen = Some(common);
             changed = true;
         }
         changed
@@ -496,21 +506,12 @@ impl Folder {
     fn subfolder_changed(&self, listed_whole_as: &ListedAs) -> Option<PathBuf> {
         let one_tree = self.collection.is_none() && self.folders.is_empty() && self.recursive;
         let listed = self.listed_as.as_ref() == Some(listed_whole_as);
-        if self.relist_whole || self.changes_seen.is_empty() || !one_tree || !listed {
+        if self.relist_whole || !one_tree || !listed {
             return None;
         }
-        let below = |p: &PathBuf| {
-            let rel = p.strip_prefix(&self.dir).ok()?;
-            (!rel.as_os_str().is_empty()).then(|| rel.to_path_buf())
-        };
-        let changed: Vec<PathBuf> = self.changes_seen.iter().map(below).collect::<Option<_>>()?;
-        let mut common: Vec<std::path::Component> = changed[0].components().collect();
-        for rel in &changed[1..] {
-            let same = (common.iter().zip(rel.components())).take_while(|(a, b)| *a == b);
-            common.truncate(same.count());
-        }
-        let common: PathBuf = common.into_iter().collect();
-        (!common.as_os_str().is_empty()).then_some(common)
+        // A change outside the open folder leaves a common folder above it, or none.
+        let rel = self.changes_seen.as_ref()?.strip_prefix(&self.dir).ok()?;
+        (!rel.as_os_str().is_empty()).then(|| rel.to_path_buf())
     }
 
     /// Opens `all` as folders shown together, after the frame.
@@ -908,8 +909,13 @@ impl Listing {
         // window tells it, or keeps the list when it shows the entry (a share that failed for a
         // moment).
         let mut left_out: Vec<Unread> = Vec::new();
+        // Each look at an entry waits on a share for the image that the window waits for, as
+        // a folder's looks do (`ReadsFirst`). Before, a sorted collection on a share read the
+        // EXIF of every entry in a row, and the next image of a slideshow waited behind them.
+        let mut gate = listing::ReadsFirst::for_files_anywhere(&self.awaited);
         let sizes = keep_files_with_size(&mut files, |(f, identity)| {
             let path = self.dir.join(f);
+            gate.before_a_look(&path);
             let m = looked_at(std::fs::symlink_metadata(&path), &path, &mut left_out)?;
             *identity = crate::files::file_io::identity_from_metadata(&path, &m);
             let meta = match m.is_symlink() {
@@ -926,7 +932,7 @@ impl Listing {
         let (by, dir) = (self.by, &self.dir);
         let rows = match sort {
             true => Rows::sorted(files, (by, self.ascending, self.case), |_, name| {
-                listing::sort_key(dir, name, by)
+                gate.sort_key(dir, name, by)
             }),
             false => Rows::unsorted(files),
         };
@@ -1850,7 +1856,7 @@ impl crate::App {
         self.folder.relist_when_done = false;
         // This listing reads every change seen before it.
         self.folder.change_waits = false;
-        self.folder.changes_seen.clear();
+        self.folder.changes_seen = None;
         self.folder.relist_whole = false;
     }
 
@@ -3949,6 +3955,30 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The changes that the watcher sees between listings keep one folder, the deepest that
+    /// holds them all, however often they come. Before, each folder seen was kept, every time
+    /// again, and a tree that a sync client wrote into grew the list during a long rest (#291).
+    #[test]
+    fn changes_seen_between_listings_keep_one_folder() {
+        let dir = contract_folder("changes-seen");
+        let (mut app, _ctx) = app_on(&dir);
+        (app.folder.watcher_generation).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..1000 {
+            let changed = vec![dir.join("s2/a"), dir.join("s2/b/c")];
+            app.folder.changed_tx.send(changed).unwrap();
+            assert!(app.folder.changed_on_disk());
+        }
+        let seen: Vec<&std::path::PathBuf> = app.folder.changes_seen.iter().collect();
+        assert_eq!(seen, [&dir.join("s2")]);
+        // A change outside the open folder leaves nothing below it to read alone.
+        let elsewhere = dir.parent().unwrap().join("elsewhere");
+        app.folder.changed_tx.send(vec![elsewhere]).unwrap();
+        app.folder.changed_on_disk();
+        let seen: Vec<&std::path::PathBuf> = app.folder.changes_seen.iter().collect();
+        assert!(seen.len() == 1 && !seen[0].starts_with(&dir), "{seen:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The watcher looks at the open folders every second, and at the tree's subfolders a
     /// thousand at a time, so in a few seconds it has looked at every one of them.
     #[test]
@@ -5802,7 +5832,7 @@ mod tests {
         let (files, left_out) = tree_on_disk(app);
         let c = &app.config;
         let order = (c.sort, c.sort_ascending, c.sort_case_sensitive);
-        let key = |_, name: &OsString| crate::model::listing::sort_key(&dir, name, order.0);
+        let key = |_, name: &OsString| sort_key_of(&dir, name, order.0);
         let rows = super::Rows::sorted(files, order, key);
         let listed = super::Listed {
             dirs: Vec::new(),
@@ -5920,6 +5950,18 @@ mod tests {
         }
     }
 
+    /// Returns what `name` in `dir` is sorted by in `by`, looked at through a gate of a disk of
+    /// its own, which never waits.
+    fn sort_key_of(
+        dir: &std::path::Path,
+        name: &OsString,
+        by: crate::model::listing::Sort,
+    ) -> crate::model::listing::SortKey {
+        let mut gate =
+            crate::model::listing::ReadsFirst::new(Default::default(), Default::default(), false);
+        gate.sort_key(dir, name, by)
+    }
+
     /// Asserts that `names`, files in `dir`, are in the order `order` (`listing::in_order`).
     fn assert_in_order(
         dir: &std::path::Path,
@@ -5927,7 +5969,7 @@ mod tests {
         order: (crate::model::listing::Sort, bool, bool),
         at: &str,
     ) {
-        let key = |name: &OsString| crate::model::listing::sort_key(dir, name, order.0);
+        let key = |name: &OsString| sort_key_of(dir, name, order.0);
         let keys: Vec<_> = names.iter().map(|name| key(name)).collect();
         for k in 1..names.len() {
             let (a, b) = ((&keys[k - 1], names[k - 1]), (&keys[k], names[k]));
@@ -6578,7 +6620,7 @@ mod tests {
                         Some(kept) => super::ListedRows::InListOrder(kept),
                         None => {
                             super::ListedRows::Rows(super::Rows::sorted(tree, order, |_, name| {
-                                crate::model::listing::sort_key(&dir, name, order.0)
+                                sort_key_of(&dir, name, order.0)
                             }))
                         }
                     };
