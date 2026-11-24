@@ -1925,8 +1925,9 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// Returns what `file`, a name in `dir`, is sorted by besides its name in the order `by`: a look
 /// at the file in an order that looks at the files, which only a thread may make, and
-/// `SortKey::Name` otherwise.
-pub fn sort_key(dir: &Path, file: &OsStr, by: Sort) -> SortKey {
+/// `SortKey::Name` otherwise. It is private, so that every look at a file for its key goes
+/// through the gate (`ReadsFirst::sort_key`), which on a share waits for the image awaited.
+fn sort_key(dir: &Path, file: &OsStr, by: Sort) -> SortKey {
     #[cfg(test)]
     if by.looks_at_files() {
         FILES_LOOKED_AT.set(FILES_LOOKED_AT.get() + 1);

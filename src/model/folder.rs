@@ -909,8 +909,13 @@ impl Listing {
         // window tells it, or keeps the list when it shows the entry (a share that failed for a
         // moment).
         let mut left_out: Vec<Unread> = Vec::new();
+        // Each look at an entry waits on a share for the image that the window waits for, as
+        // a folder's looks do (`ReadsFirst`). Before, a sorted collection on a share read the
+        // EXIF of every entry in a row, and the next image of a slideshow waited behind them.
+        let mut gate = listing::ReadsFirst::for_files_anywhere(&self.awaited);
         let sizes = keep_files_with_size(&mut files, |(f, identity)| {
             let path = self.dir.join(f);
+            gate.before_a_look(&path);
             let m = looked_at(std::fs::symlink_metadata(&path), &path, &mut left_out)?;
             *identity = crate::files::file_io::identity_from_metadata(&path, &m);
             let meta = match m.is_symlink() {
@@ -927,7 +932,7 @@ impl Listing {
         let (by, dir) = (self.by, &self.dir);
         let rows = match sort {
             true => Rows::sorted(files, (by, self.ascending, self.case), |_, name| {
-                listing::sort_key(dir, name, by)
+                gate.sort_key(dir, name, by)
             }),
             false => Rows::unsorted(files),
         };
@@ -5827,7 +5832,7 @@ mod tests {
         let (files, left_out) = tree_on_disk(app);
         let c = &app.config;
         let order = (c.sort, c.sort_ascending, c.sort_case_sensitive);
-        let key = |_, name: &OsString| crate::model::listing::sort_key(&dir, name, order.0);
+        let key = |_, name: &OsString| sort_key_of(&dir, name, order.0);
         let rows = super::Rows::sorted(files, order, key);
         let listed = super::Listed {
             dirs: Vec::new(),
@@ -5945,6 +5950,18 @@ mod tests {
         }
     }
 
+    /// Returns what `name` in `dir` is sorted by in `by`, looked at through a gate of a disk of
+    /// its own, which never waits.
+    fn sort_key_of(
+        dir: &std::path::Path,
+        name: &OsString,
+        by: crate::model::listing::Sort,
+    ) -> crate::model::listing::SortKey {
+        let mut gate =
+            crate::model::listing::ReadsFirst::new(Default::default(), Default::default(), false);
+        gate.sort_key(dir, name, by)
+    }
+
     /// Asserts that `names`, files in `dir`, are in the order `order` (`listing::in_order`).
     fn assert_in_order(
         dir: &std::path::Path,
@@ -5952,7 +5969,7 @@ mod tests {
         order: (crate::model::listing::Sort, bool, bool),
         at: &str,
     ) {
-        let key = |name: &OsString| crate::model::listing::sort_key(dir, name, order.0);
+        let key = |name: &OsString| sort_key_of(dir, name, order.0);
         let keys: Vec<_> = names.iter().map(|name| key(name)).collect();
         for k in 1..names.len() {
             let (a, b) = ((&keys[k - 1], names[k - 1]), (&keys[k], names[k]));
@@ -6603,7 +6620,7 @@ mod tests {
                         Some(kept) => super::ListedRows::InListOrder(kept),
                         None => {
                             super::ListedRows::Rows(super::Rows::sorted(tree, order, |_, name| {
-                                crate::model::listing::sort_key(&dir, name, order.0)
+                                sort_key_of(&dir, name, order.0)
                             }))
                         }
                     };
