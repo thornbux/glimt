@@ -3453,6 +3453,19 @@ pub(crate) fn mounted_type_or_test(dir: &Path) -> Option<String> {
     test_mount_of(dir).or_else(|| crate::files::file_io::mounted_type(dir))
 }
 
+/// Returns the place of the mount that holds `path`, as `file_io::mount_point_of` does. A test
+/// gives its folder a mount with `test_mount` instead, which is then the place.
+pub(crate) fn mount_point_of_or_test(path: &Path) -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        let mounts = crate::support::threads::lock_even_if_poisoned(&TEST_MOUNTS);
+        if let Some((at, _)) = mounts.iter().find(|(at, _)| path.starts_with(at)) {
+            return Some(at.clone());
+        }
+    }
+    crate::files::file_io::mount_point_of(path)
+}
+
 /// Returns the types of the mounts in the folders below `dir`, as `file_io::mounted_types_below`
 /// does, with those that a test gave a folder below `dir` with `test_mount`.
 pub(crate) fn mounted_types_below_or_test(dir: &Path) -> Vec<String> {

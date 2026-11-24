@@ -357,16 +357,27 @@ pub(crate) fn spawn_thumbnailers(
 }
 
 /// Returns the folder a thumbnail of `path` is set aside by while a worker is stuck there
-/// (`spawn_worker_pool`): `listed`, the folder opened, of which a tree (Include Subfolders) is
-/// on one share, or the file's own folder in a collection or several folders, listed under "/".
-/// Returns `None` when the file's folder holds a link, which may lead elsewhere than the share
-/// that stopped answering. Before, a local file beside a link into a stalled share waited for
-/// that share. Before, too, a tree was set aside by each subfolder, so thumbnails from more
-/// than `MOST_STUCK` subfolders of a stalled share gave up every worker (#154).
+/// (`spawn_worker_pool`): in a tree (Include Subfolders), `listed`, the folder opened, or the
+/// mount of a share mounted inside the tree that holds the file (`listing::mount_point`), and
+/// in a collection or several folders, listed under "/", the file's own folder. Returns `None`
+/// when the file's folder holds a link, which may lead elsewhere than the share that stopped
+/// answering. Before, a local file beside a link into a stalled share waited for that share,
+/// and a tree's local files waited for a stalled share mounted inside it (#264). Before, too, a
+/// tree was set aside by each subfolder, so thumbnails from more than `MOST_STUCK` subfolders
+/// of a stalled share gave up every worker (#154).
 fn thumbnail_set_aside_by(path: &std::path::Path, listed: &std::path::Path) -> Option<PathBuf> {
     let folder = path.parent()?;
-    let is_tree = listed.parent().is_some() && folder.starts_with(listed);
-    (!listing::holds_links(folder)).then(|| if is_tree { listed } else { folder }.to_owned())
+    if listing::holds_links(folder) {
+        return None;
+    }
+    if listed.parent().is_none() || !folder.starts_with(listed) {
+        return Some(folder.to_owned());
+    }
+    let mount = listing::mount_point(path);
+    Some(match mount.starts_with(listed) {
+        true => mount,
+        false => listed.to_owned(),
+    })
 }
 
 #[cfg(test)]
@@ -420,6 +431,24 @@ mod tests {
             super::thumbnail_set_aside_by(&share.join("d1/x.jpg"), Path::new("/")),
             Some(PathBuf::from("/set-aside-share-not-listed/d1"))
         );
+    }
+
+    /// In a tree with a share mounted inside it, the share's thumbnails are set aside by its
+    /// mount and the others by the folder opened, so a stalled share holds back only its own.
+    /// Before, the whole tree's thumbnails were set aside by the folder opened, and its local
+    /// files waited for the share (#264).
+    #[test]
+    fn a_share_inside_a_tree_sets_aside_only_its_own_thumbnails() {
+        use crate::files::file_ops::test_mount;
+        let tree =
+            std::env::temp_dir().join(format!("glimt-test-set-aside-tree-{}", std::process::id()));
+        let nas = tree.join("nas");
+        test_mount(&nas, Some("cifs"));
+        let set_aside_by = |path: &str| super::thumbnail_set_aside_by(&tree.join(path), &tree);
+        assert_eq!(set_aside_by("nas/d/x.jpg"), Some(nas.clone()));
+        assert_eq!(set_aside_by("nas/x.jpg"), Some(nas.clone()));
+        assert_eq!(set_aside_by("local/x.jpg"), Some(tree.clone()));
+        test_mount(&nas, None);
     }
 
     /// A minimized window runs `logic` but no `ui`, and takes there every answer of the

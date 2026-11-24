@@ -95,9 +95,11 @@ const LOOKS_PER_PAUSE: u64 = 100;
 static FOLDERS_WITH_LINKS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
     std::sync::Mutex::new(std::collections::BTreeSet::new());
 
-/// The one turn there is for a look or read on a share that nobody waits for
-/// (`BackgroundTurn`). Such work goes one at a time, so that a share that serves its calls one at
-/// a time always has the image the window waits for next in its queue.
+/// The turns for a look or read on a share that nobody waits for (`BackgroundTurn`), one for
+/// each share (`mount_point`). Such work on one share goes one at a time, so that a share that
+/// serves its calls one at a time always has the image the window waits for next in its queue.
+/// Before, one turn served every share, and a share that stopped answering held the work on the
+/// others for `IMAGE_AWAITED_FOR`.
 static BACKGROUND_TURN: TurnHolder = TurnHolder::new();
 
 /// When a program was last started on the user's files: Play Video, Open With or a tool.
@@ -113,7 +115,10 @@ thread_local! {
     /// The folders that this thread asked whether they are on a share in the last
     /// `SHARES_ASKED_FOR`, with the answers, and when the first was asked
     /// (`ReadsFirst::is_on_a_share`).
-    static SHARES_ASKED: std::cell::RefCell<(Option<std::time::Instant>, HashMap<PathBuf, bool>)> =
+    static SHARES_ASKED: AskedInThisThread<bool> = std::cell::RefCell::new((None, HashMap::new()));
+    /// The folders whose mount this thread asked for in the last `SHARES_ASKED_FOR`, with the
+    /// answers, and when the first was asked (`mount_point`).
+    static MOUNTS_ASKED: AskedInThisThread<PathBuf> =
         std::cell::RefCell::new((None, HashMap::new()));
 }
 
@@ -1005,6 +1010,10 @@ impl ImagesAwaited {
     }
 }
 
+/// What a thread was answered about each folder, and when it was first answered
+/// (`asked_in_this_thread`).
+type AskedInThisThread<T> = std::cell::RefCell<(Option<std::time::Instant>, HashMap<PathBuf, T>)>;
+
 /// The one gate that every look and read Glimt makes in the background on a share goes
 /// through, so that the share serves the image that the window waits for first. A share such
 /// as gvfsd-smb serves its calls largely one at a time, so every look in the background stands
@@ -1113,9 +1122,10 @@ impl ReadsFirst {
             return Some(BackgroundTurn { held: None });
         }
         let began = std::time::Instant::now();
-        // The work waits in the order it came for the turn, so that a thread that takes and
-        // gives back the turn in a loop lets the work that waited before its next take go first.
-        let ticket = self.turns.queue();
+        // The work waits in the order it came for the turn of its share, so that a thread that
+        // takes and gives back the turn in a loop lets the work that waited before its next
+        // take go first.
+        let ticket = self.turns.queue(mount_point(path));
         loop {
             if !is_wanted() {
                 return None;
@@ -1144,96 +1154,108 @@ impl ReadsFirst {
     /// `SHARES_ASKED_FOR` in this thread (`SHARES_ASKED`). Before, each job of a pool of
     /// workers read the mount table again, also on a disk of its own, before it was done.
     fn is_on_a_share(&mut self, path: &Path) -> bool {
-        if let Some(on_a_share) = self.on_a_share {
-            return on_a_share;
+        match self.on_a_share {
+            Some(on_a_share) => on_a_share,
+            None => asked_in_this_thread(&SHARES_ASKED, path, || is_on_a_share(path, false)),
         }
-        let folder = path.parent().unwrap_or(path);
-        SHARES_ASKED.with_borrow_mut(|(since, asked)| {
-            let now = std::time::Instant::now();
-            if since.is_none_or(|at| now.saturating_duration_since(at) >= SHARES_ASKED_FOR) {
-                asked.clear();
-                *since = Some(now);
-            }
-            if let Some(&on_a_share) = asked.get(folder) {
-                return on_a_share;
-            }
-            let on_a_share = is_on_a_share(path, false);
-            asked.insert(folder.to_path_buf(), on_a_share);
-            on_a_share
-        })
     }
 }
 
-/// The turns given so far, the number of the one held with the time it was taken, the tickets
-/// given so far, and those of the work that still waits for the turn.
+/// The turns given so far and the tickets given so far, which number them across every share,
+/// and the turn of each share whose turn is held or waited for, by its mount (`mount_point`).
 struct Turns {
     given: u64,
-    held: Option<(u64, std::time::Instant)>,
     tickets: u64,
+    shares: std::collections::BTreeMap<PathBuf, ShareTurn>,
+}
+
+impl Turns {
+    /// Forgets the turn of the share `mount` when nobody holds it or waits for it, so that a
+    /// long session does not keep the turns of every share it read.
+    fn forget_if_unused(&mut self, mount: &Path) {
+        let is_unused = (self.shares.get(mount))
+            .is_some_and(|share| share.held.is_none() && share.waiting.is_empty());
+        if is_unused {
+            self.shares.remove(mount);
+        }
+    }
+}
+
+/// The turn of one share: the number of the one held with the time it was taken, and the
+/// tickets of the work that still waits for it.
+#[derive(Default)]
+struct ShareTurn {
+    held: Option<(u64, std::time::Instant)>,
     waiting: std::collections::BTreeSet<u64>,
 }
 
-/// Who holds the one turn of the work on a share that nobody waits for (`BACKGROUND_TURN`).
+/// Who holds the turn of each share for the work that nobody waits for (`BACKGROUND_TURN`).
 struct TurnHolder(std::sync::Mutex<Turns>);
 
 impl TurnHolder {
     const fn new() -> Self {
         TurnHolder(std::sync::Mutex::new(Turns {
             given: 0,
-            held: None,
             tickets: 0,
-            waiting: std::collections::BTreeSet::new(),
+            shares: std::collections::BTreeMap::new(),
         }))
     }
 
-    /// Puts work in the queue for the turn. Returns its ticket, which leaves the queue when it
-    /// is dropped.
-    fn queue(&'static self) -> TurnTicket {
+    /// Puts work in the queue for the turn of the share whose mount is `mount`. Returns its
+    /// ticket, which leaves the queue when it is dropped.
+    fn queue(&'static self, mount: PathBuf) -> TurnTicket {
         let mut turns = lock_even_if_poisoned(&self.0);
         turns.tickets += 1;
         let number = turns.tickets;
-        turns.waiting.insert(number);
+        let share = turns.shares.entry(mount.clone()).or_default();
+        share.waiting.insert(number);
         TurnTicket {
             holder: self,
+            mount,
             number,
         }
     }
 }
 
-/// The place of work in the queue for the turn of a `TurnHolder` (`TurnHolder::queue`).
+/// The place of work in the queue for the turn of a share (`TurnHolder::queue`).
 struct TurnTicket {
     holder: &'static TurnHolder,
+    mount: PathBuf,
     number: u64,
 }
 
 impl TurnTicket {
-    /// Takes the turn at `now`, when this ticket is the oldest still waiting and nobody holds
-    /// the turn, or its holder took it `IMAGE_AWAITED_FOR` or longer before. Returns `None`
-    /// otherwise. So a holder stuck on a share that stopped answering is passed, and the work
-    /// after it still goes one at a time, in the order it came. Before, the turn went to
-    /// whoever asked first once it was free, and a thread that gave it back and asked again in
-    /// a loop kept it for as long as the loop ran, while the other work waited.
+    /// Takes the turn of its share at `now`, when this ticket is the oldest still waiting there
+    /// and nobody holds the turn, or its holder took it `IMAGE_AWAITED_FOR` or longer before.
+    /// Returns `None` otherwise. So a holder stuck on a share that stopped answering is passed,
+    /// and the work after it still goes one at a time, in the order it came. Before, the turn
+    /// went to whoever asked first once it was free, and a thread that gave it back and asked
+    /// again in a loop kept it for as long as the loop ran, while the other work waited.
     fn take(&self, now: std::time::Instant) -> Option<BackgroundTurn> {
         let mut turns = lock_even_if_poisoned(&self.holder.0);
-        let is_held = (turns.held)
+        let given = turns.given + 1;
+        let share = turns.shares.get_mut(&self.mount)?;
+        let is_held = (share.held)
             .is_some_and(|(_, since)| now.saturating_duration_since(since) < IMAGE_AWAITED_FOR);
-        if is_held || turns.waiting.first() != Some(&self.number) {
+        if is_held || share.waiting.first() != Some(&self.number) {
             return None;
         }
-        turns.waiting.remove(&self.number);
-        turns.given += 1;
-        turns.held = Some((turns.given, now));
+        share.waiting.remove(&self.number);
+        share.held = Some((given, now));
+        turns.given = given;
         Some(BackgroundTurn {
-            held: Some((self.holder, turns.given)),
+            held: Some((self.holder, self.mount.clone(), given)),
         })
     }
 }
 
 impl Drop for TurnTicket {
     fn drop(&mut self) {
-        lock_even_if_poisoned(&self.holder.0)
-            .waiting
-            .remove(&self.number);
+        let mut turns = lock_even_if_poisoned(&self.holder.0);
+        if let Some(share) = turns.shares.get_mut(&self.mount) {
+            share.waiting.remove(&self.number);
+        }
+        turns.forget_if_unused(&self.mount);
     }
 }
 
@@ -1242,18 +1264,22 @@ impl Drop for TurnTicket {
 /// hold it, elsewhere than on a share or for an image awaited, gives nothing back.
 #[must_use = "the work holds the turn until it is done"]
 pub(crate) struct BackgroundTurn {
-    /// The holder of the turn and the number of this turn, when it holds one. Its drop gives
-    /// the turn back only while no other work has passed it (`TurnTicket::take`).
-    held: Option<(&'static TurnHolder, u64)>,
+    /// The holder of the turn, the mount of its share and the number of this turn, when it
+    /// holds one. Its drop gives the turn back only while no other work has passed it
+    /// (`TurnTicket::take`).
+    held: Option<(&'static TurnHolder, PathBuf, u64)>,
 }
 
 impl Drop for BackgroundTurn {
     fn drop(&mut self) {
-        if let Some((holder, number)) = self.held {
+        if let Some((holder, mount, number)) = &self.held {
             let mut turns = lock_even_if_poisoned(&holder.0);
-            if turns.held.is_some_and(|(held, _)| held == number) {
-                turns.held = None;
+            if let Some(share) = turns.shares.get_mut(mount)
+                && share.held.is_some_and(|(held, _)| held == *number)
+            {
+                share.held = None;
             }
+            turns.forget_if_unused(mount);
         }
     }
 }
@@ -1513,6 +1539,40 @@ pub(crate) fn is_on_a_share(dir: &Path, with_subfolders: bool) -> bool {
     file_ops::file_system_type_or_test(dir).is_some_and(|kind| is_network(&kind))
         || (with_subfolders
             && (file_ops::mounted_types_below_or_test(dir).iter()).any(|kind| is_network(kind)))
+}
+
+/// Returns the place of the mount, or of the share on gvfs, that holds `path`
+/// (`file_io::mount_point_of`), asked once for each folder in each `SHARES_ASKED_FOR` in this
+/// thread (`MOUNTS_ASKED`). Returns an empty path when the mount table cannot be read, so that
+/// all such work shares one turn, as before there was a turn for each share.
+pub(crate) fn mount_point(path: &Path) -> PathBuf {
+    asked_in_this_thread(&MOUNTS_ASKED, path, || {
+        crate::files::file_ops::mount_point_of_or_test(path).unwrap_or_default()
+    })
+}
+
+/// Returns what `ask` answers about the folder of `path`, which this thread keeps in `asked` for
+/// `SHARES_ASKED_FOR` from the first answer kept there. Before, each job of a pool of workers
+/// read the mount table again, also on a disk of its own, before it was done.
+fn asked_in_this_thread<T: Clone>(
+    asked: &'static std::thread::LocalKey<AskedInThisThread<T>>,
+    path: &Path,
+    ask: impl FnOnce() -> T,
+) -> T {
+    let folder = path.parent().unwrap_or(path);
+    asked.with_borrow_mut(|(since, answers)| {
+        let now = std::time::Instant::now();
+        if since.is_none_or(|at| now.saturating_duration_since(at) >= SHARES_ASKED_FOR) {
+            answers.clear();
+            *since = Some(now);
+        }
+        if let Some(answer) = answers.get(folder) {
+            return answer.clone();
+        }
+        let answer = ask();
+        answers.insert(folder.to_path_buf(), answer.clone());
+        answer
+    })
 }
 
 /// Returns the path relative to the tree whose real path is `top` of a link's folder whose real
@@ -3051,7 +3111,7 @@ mod tests {
             std::path::Path::new("/share/a.jpg"),
             std::path::Path::new("/share/b.jpg"),
         );
-        let take = || TURN.queue().take(Instant::now());
+        let take = || TURN.queue(super::mount_point(a)).take(Instant::now());
         let held = take().unwrap();
         // The image awaited, work elsewhere than on a share and work not wanted go at once.
         awaited.set(vec![a.into()]);
@@ -3112,7 +3172,7 @@ mod tests {
         // Work that waited `IMAGE_AWAITED_FOR` for an image no longer waits for it, but still
         // waits for the turn, which work that came before it takes meanwhile.
         awaited.set(vec![a.into()]);
-        let before = TURN.queue();
+        let before = TURN.queue(super::mount_point(a));
         let (tx, rx) = mpsc::channel();
         let gate_b = share();
         let waiter = std::thread::spawn(move || {
@@ -3130,7 +3190,7 @@ mod tests {
         awaited.set(Vec::new());
         // A holder stuck on a share is passed after `IMAGE_AWAITED_FOR`, and only by one.
         let now = Instant::now();
-        let at = |later| TURN.queue().take(now + later);
+        let at = |later| TURN.queue(super::mount_point(a)).take(now + later);
         let stuck = at(Duration::ZERO).unwrap();
         assert!(at(Duration::from_secs(1)).is_none());
         let passing = at(IMAGE_AWAITED_FOR).unwrap();
@@ -3193,5 +3253,60 @@ mod tests {
         waiter.join().unwrap();
         let longest = longest.expect("the work waiting got the turn while the loop ran");
         assert!(longest < Duration::from_millis(250), "{longest:?}");
+    }
+
+    /// Each share has a turn of its own: work on one share goes while the turn of another is
+    /// held, and work on the same share waits for it. A turn nobody holds or waits for is
+    /// forgotten. Before, one turn served every share, so a share that stopped answering held
+    /// the work on every other share for `IMAGE_AWAITED_FOR` (#292), also the thumbnails of a
+    /// tree's own disk beside a share mounted inside it (#264).
+    #[test]
+    fn each_share_has_a_turn_of_its_own() {
+        use super::{ReadsFirst, TurnHolder};
+        use crate::files::file_ops::test_mount;
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+        static TURN: TurnHolder = TurnHolder::new();
+        let share = |name: &str| {
+            let dir = std::env::temp_dir().join(format!(
+                "glimt-test-turn-of-each-share-{name}-{}",
+                std::process::id()
+            ));
+            test_mount(&dir, Some("cifs"));
+            dir
+        };
+        let (one, other) = (share("one"), share("other"));
+        let gate = || ReadsFirst {
+            turns: &TURN,
+            ..ReadsFirst::for_files_anywhere(&Default::default())
+        };
+        let held = gate().before_work_nobody_waits_for(&one.join("a.jpg"), || true);
+        assert!(held.as_ref().is_some_and(|t| t.held.is_some()));
+        let began = Instant::now();
+        let elsewhere = gate().before_work_nobody_waits_for(&other.join("b.jpg"), || true);
+        assert!(elsewhere.is_some_and(|t| t.held.is_some()));
+        assert!(
+            began.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            began.elapsed()
+        );
+        let (tx, rx) = mpsc::channel();
+        let path = one.join("c.jpg");
+        let waiter = std::thread::spawn(move || {
+            let turn = gate().before_work_nobody_waits_for(&path, || true);
+            tx.send(turn.is_some_and(|t| t.held.is_some())).unwrap();
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(rx.try_recv().is_err(), "the turn of its share is held");
+        drop(held);
+        assert!(rx.recv_timeout(Duration::from_secs(2)).unwrap());
+        waiter.join().unwrap();
+        assert!(
+            crate::support::threads::lock_even_if_poisoned(&TURN.0)
+                .shares
+                .is_empty()
+        );
+        test_mount(&one, None);
+        test_mount(&other, None);
     }
 }
