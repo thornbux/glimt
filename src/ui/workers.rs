@@ -325,7 +325,9 @@ pub(crate) fn spawn_thumbnailers(
                 idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
             }
         },
-        |(path, listed, _): &(PathBuf, PathBuf, u64)| thumbnail_set_aside_by(path, listed),
+        |(path, listed, _): &(PathBuf, PathBuf, u64)| {
+            Some((thumbnail_set_aside_by(path, listed)?, path.clone()))
+        },
         // A job goes by its file, as the decoders' do, because a listing (a tree's next part)
         // moves the files while the jobs wait.
         move |(path, _, n): (PathBuf, PathBuf, u64)| {

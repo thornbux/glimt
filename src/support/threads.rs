@@ -3,7 +3,7 @@
 //! (`Working`) and until the window has handled its answer (`AnswerSender`).
 
 use crate::viewer::view::Failure;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, mpsc};
 
@@ -306,18 +306,52 @@ impl<T> AnswerSender<T> {
 /// it finds that its place is no longer its own.
 type JobStart = Arc<Mutex<Option<(Progress, Option<PathBuf>)>>>;
 
-/// What gives the folder a job of a pool is set aside by (`WorkerPool::set_aside_by`).
-type SetAsideBy<J> = Box<dyn Fn(&J) -> Option<PathBuf> + Send + Sync>;
+/// What gives the folder a job of a pool is set aside by, and the file the job is for
+/// (`WorkerPool::set_aside_by`).
+type SetAsideBy<J> = Box<dyn Fn(&J) -> Option<(PathBuf, PathBuf)> + Send + Sync>;
 
 /// The folders of a pool where a given-up worker is still stuck, and the jobs set aside until
 /// that folder answers again.
 struct Stalled<J> {
     /// The folder of each given-up worker's job, once for each worker.
     folders: Vec<PathBuf>,
-    /// The jobs of a stalled folder, by that folder.
-    set_aside: Vec<(PathBuf, J)>,
+    /// The jobs of a stalled folder, each with that folder and the file it is for, in the
+    /// order they came.
+    set_aside: Vec<(PathBuf, PathBuf, J)>,
+    /// The place in `set_aside` of the job for each file.
+    set_aside_files: std::collections::HashMap<PathBuf, usize>,
     /// The jobs set aside whose folder answered again, which the workers take before new ones.
     ready: std::collections::VecDeque<J>,
+}
+
+impl<J> Stalled<J> {
+    /// Sets `job` for `file` aside by its stalled `folder`. A job set aside for the same file
+    /// before gives its place to this newer one. Before, each time the user came back to the
+    /// folder while its share was down, its thumbnails were set aside again, all of them.
+    fn set_aside(&mut self, folder: PathBuf, file: PathBuf, job: J) {
+        match self.set_aside_files.get(&file) {
+            Some(&at) => self.set_aside[at] = (folder, file, job),
+            None => {
+                self.set_aside_files
+                    .insert(file.clone(), self.set_aside.len());
+                self.set_aside.push((folder, file, job));
+            }
+        }
+    }
+
+    /// Makes the jobs set aside by `folder` ready, in the order they came. Returns how many.
+    fn let_go(&mut self, folder: &Path) -> usize {
+        let (back, still): (Vec<_>, Vec<_>) = std::mem::take(&mut self.set_aside)
+            .into_iter()
+            .partition(|(f, _, _)| f == folder);
+        self.set_aside = still;
+        self.set_aside_files = (self.set_aside.iter().enumerate())
+            .map(|(at, (_, file, _))| (file.clone(), at))
+            .collect();
+        let now_ready = back.len();
+        self.ready.extend(back.into_iter().map(|(_, _, job)| job));
+        now_ready
+    }
 }
 
 /// What a worker of a pool waits for (`next_job`).
@@ -395,12 +429,7 @@ impl<J: Send + 'static> Drop for JobNote<J> {
                 stalled.folders.swap_remove(i);
             }
             if !stalled.folders.contains(folder) {
-                let (back, still): (Vec<_>, Vec<_>) = std::mem::take(&mut stalled.set_aside)
-                    .into_iter()
-                    .partition(|(f, _)| f == folder);
-                stalled.set_aside = still;
-                now_ready = back.len();
-                stalled.ready.extend(back.into_iter().map(|(_, job)| job));
+                now_ready = stalled.let_go(folder);
             }
         }
         for _ in 0..now_ready {
@@ -526,7 +555,7 @@ pub(crate) fn spawn_worker_pool<J: Send + 'static>(
     stuck_after: std::time::Duration,
     jobs: mpsc::Receiver<J>,
     wait_for_turn: impl Fn(usize) + Send + Sync + 'static,
-    set_aside_by: impl Fn(&J) -> Option<PathBuf> + Send + Sync + 'static,
+    set_aside_by: impl Fn(&J) -> Option<(PathBuf, PathBuf)> + Send + Sync + 'static,
     work: impl Fn(J) + Send + Sync + 'static,
 ) {
     start_pool(places, stuck_after, jobs, wait_for_turn, set_aside_by, work);
@@ -538,7 +567,7 @@ fn start_pool<J: Send + 'static>(
     stuck_after: std::time::Duration,
     jobs: mpsc::Receiver<J>,
     wait_for_turn: impl Fn(usize) + Send + Sync + 'static,
-    set_aside_by: impl Fn(&J) -> Option<PathBuf> + Send + Sync + 'static,
+    set_aside_by: impl Fn(&J) -> Option<(PathBuf, PathBuf)> + Send + Sync + 'static,
     work: impl Fn(J) + Send + Sync + 'static,
 ) -> Arc<WorkerPool<J>> {
     let starts: Vec<JobStart> = (0..places).map(|_| JobStart::default()).collect();
@@ -565,6 +594,7 @@ fn start_pool<J: Send + 'static>(
         stalled: Mutex::new(Stalled {
             folders: Vec::new(),
             set_aside: Vec::new(),
+            set_aside_files: Default::default(),
             ready: Default::default(),
         }),
         work: Box::new(work),
@@ -622,11 +652,12 @@ fn start_worker<J: Send + 'static>(pool: &Arc<WorkerPool<J>>, place: usize, star
             let Some(job) = next_job(&pool) else {
                 return;
             };
-            let folder = (pool.set_aside_by)(&job);
-            if let Some(folder) = folder.clone() {
+            let set_aside_by = (pool.set_aside_by)(&job);
+            let folder = set_aside_by.as_ref().map(|(folder, _)| folder.clone());
+            if let Some((folder, file)) = set_aside_by {
                 let mut stalled = lock_even_if_poisoned(&pool.stalled);
                 if stalled.folders.contains(&folder) {
-                    stalled.set_aside.push((folder, job));
+                    stalled.set_aside(folder, file, job);
                     continue;
                 }
             }
@@ -957,7 +988,7 @@ mod tests {
             assert!(!job.ends_with("panics"), "a broken file");
             done_tx.send(job).unwrap();
         };
-        let by_folder = |job: &PathBuf| job.parent().map(PathBuf::from);
+        let by_folder = |job: &PathBuf| Some((job.parent()?.to_path_buf(), job.clone()));
         let stuck_after = std::time::Duration::from_millis(100);
         super::spawn_worker_pool(1, stuck_after, rx, |_| {}, by_folder, work);
         (jobs, done)
@@ -1001,6 +1032,55 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(1));
         assert_eq!(pool.wakeups.load(Ordering::Relaxed), 0, "an idle pool woke");
         drop(jobs);
+    }
+
+    /// A job for a file that is set aside again, as the user comes back to a folder whose share
+    /// is still down, takes the place of the one set aside before, and only the newest is done
+    /// once the share answers. Before, each time added the same jobs again (#262).
+    #[test]
+    fn a_job_set_aside_again_takes_the_place_of_the_one_before() {
+        use std::path::PathBuf;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let answers = std::sync::Arc::new(AtomicBool::new(false));
+        let (jobs, rx) = std::sync::mpsc::channel::<(PathBuf, u32)>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let still_down = answers.clone();
+        let work = move |job: (PathBuf, u32)| {
+            while job.0.starts_with("/share") && !still_down.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            done_tx.send(job).unwrap();
+        };
+        let by_folder = |job: &(PathBuf, u32)| Some((job.0.parent()?.to_path_buf(), job.0.clone()));
+        let stuck_after = std::time::Duration::from_millis(100);
+        let pool = super::start_pool(1, stuck_after, rx, |_| {}, by_folder, work);
+        jobs.send((PathBuf::from("/share/0.jpg"), 0)).unwrap();
+        for n in 1..=50 {
+            jobs.send((PathBuf::from("/share/1.jpg"), n)).unwrap();
+        }
+        jobs.send((PathBuf::from("/local/a.jpg"), 0)).unwrap();
+        let ten_seconds = std::time::Duration::from_secs(10);
+        assert_eq!(
+            done.recv_timeout(ten_seconds),
+            Ok((PathBuf::from("/local/a.jpg"), 0))
+        );
+        let set_aside = super::lock_even_if_poisoned(&pool.stalled).set_aside.len();
+        assert_eq!(set_aside, 1, "the jobs set aside grew");
+        answers.store(true, Ordering::SeqCst);
+        let mut rest = vec![
+            done.recv_timeout(ten_seconds).unwrap(),
+            done.recv_timeout(ten_seconds).unwrap(),
+        ];
+        rest.sort();
+        assert_eq!(
+            rest,
+            [
+                (PathBuf::from("/share/0.jpg"), 0),
+                (PathBuf::from("/share/1.jpg"), 50)
+            ]
+        );
+        let more = done.recv_timeout(std::time::Duration::from_millis(300));
+        assert!(more.is_err(), "{more:?}");
     }
 
     /// The jobs set aside are done also when the job that stalled their folder ends in a
