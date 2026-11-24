@@ -2740,7 +2740,12 @@ mod tests {
     /// thumbnail does when it is done, makes egui ask for that frame and the next one at once,
     /// and the frame that takes its answer may ask for one more. Those frames are left out of
     /// the count, because when the other tests run beside it the threads' answers come in one
-    /// at a time over many frames, and they once added up to 13. Before, the file list
+    /// at a time over many frames, and they once added up to 13. The number of wakes in a slide
+    /// is bounded by the threads' own work for that slide, not by time: at most 2 were
+    /// measured, and the limit is 8. All the frames asked for at once, those after a wake among
+    /// them, are bounded too: at most 7 were measured, and the limit is 24. So a repaint loop
+    /// that a thread drives is caught, and so is the spring below, however the wakes fall.
+    /// Before, the file list
     /// scrolled to an image in its last rows past the end of its content, and egui sprang it
     /// back over about a second of frames, each one asked for at once. Without a vertical sync
     /// the window then drew as fast as it could, 576 ticks in 3 s in the release tests.
@@ -2803,6 +2808,9 @@ mod tests {
             let (mut clock, mut before) = (0.0, on_screen(&app));
             let (mut slides, mut at_once, mut most, mut last_shown) = (0, 0, 0, 0);
             let (mut frame, mut last_woken_frame, mut wakes_seen) = (0, None, 0);
+            // The frames at once, those after a wake among them, and the wakes, in a slide.
+            let (mut at_once_with_wakes, mut most_with_wakes) = (0, 0);
+            let (mut wakes_before_slide, mut most_wakes) = (0, 0);
             while last_shown < 2 && slides < 300 {
                 let input = egui::RawInput {
                     time: Some(clock),
@@ -2818,6 +2826,7 @@ mod tests {
                 assert!(delay < Duration::MAX, "no next frame asked for: {case}");
                 let follows_a_wake = last_woken_frame.is_some_and(|woken| frame <= woken + 2);
                 at_once += usize::from(delay.is_zero() && !follows_a_wake);
+                at_once_with_wakes += usize::from(delay.is_zero());
                 frame += 1;
                 // A frame asked for later comes then, unless a thread wakes the window first.
                 let mut passed = delay.max(frame_time);
@@ -2834,19 +2843,34 @@ mod tests {
                 if now != before {
                     slides += 1;
                     // The first two slides are left out, while the thumbnails come in.
+                    let wakes_now = wakes.load(Ordering::Relaxed);
                     if slides > 2 {
                         most = most.max(at_once);
+                        most_with_wakes = most_with_wakes.max(at_once_with_wakes);
+                        most_wakes = most_wakes.max(wakes_now - wakes_before_slide);
                         if now[0] == last && before[0] != last {
                             last_shown += 1;
                         }
                     }
-                    (before, at_once) = (now, 0);
+                    (before, at_once, at_once_with_wakes) = (now, 0, 0);
+                    wakes_before_slide = wakes_now;
                 }
             }
             assert_eq!(last_shown, 2, "the last image was not shown: {case}");
             assert!(
                 most <= 12,
                 "{most} frames asked for at once in a slide: {case}"
+            );
+            // The threads answer a fixed amount of work in a slide, the decodes of the seven
+            // images and the sizes, so a thread that wakes the window every frame fails here.
+            assert!(
+                most_wakes <= 8,
+                "{most_wakes} wakes from other threads in a slide: {case}"
+            );
+            assert!(
+                most_with_wakes <= 24,
+                "{most_with_wakes} frames asked for at once in a slide, those after a wake \
+                 among them: {case}"
             );
         }
         std::fs::remove_dir_all(&dir).unwrap();
