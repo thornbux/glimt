@@ -2301,7 +2301,7 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
     // Each folder with the "/" before it, and room left over for the empty part to click.
     let separator = width("/".to_owned()) - 2.0 * padding;
     let widths: Vec<f32> = folders.iter().map(|p| width(name(p)) + separator).collect();
-    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y;
+    let room = ui.available_width() - room_to_click(ui);
     let first = first_folder_that_fits(&widths, room, width("…".to_owned()));
     let mut chosen = None;
     ui.horizontal(|ui| {
@@ -2349,6 +2349,13 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
         }
     });
     chosen
+}
+
+/// Returns the width kept free after the folders of the path, for a click that turns it into
+/// the text field. It is one row's height, and never less than 24 points, the smallest target
+/// that WCAG 2.2 asks for, so that more folders fit beside it without making it hard to hit.
+fn room_to_click(ui: &egui::Ui) -> f32 {
+    ui.spacing().interact_size.y.max(24.0)
 }
 
 /// Returns the first of the folders of a path, `widths` wide each, to show as a button when
@@ -2490,7 +2497,7 @@ mod tests {
         let (mut used, mut click_room, mut wanted) = (f32::INFINITY, 0.0, 0.0);
         for _ in 0..2 {
             let _ = ctx.run_ui(Default::default(), |ui| {
-                wanted = 2.0 * ui.spacing().interact_size.y - 1.0;
+                wanted = super::room_to_click(ui) - 1.0;
                 ui.allocate_ui(eframe::egui::vec2(160.0, 30.0), |ui| {
                     super::path_buttons(ui, path, field);
                     used = ui.min_rect().width();
@@ -2525,7 +2532,7 @@ mod tests {
             let (mut nodes, mut click_room, mut wanted) = (Vec::new(), 0.0, 0.0);
             for _ in 0..2 {
                 let out = ctx.run_ui(Default::default(), |ui| {
-                    wanted = 2.0 * ui.spacing().interact_size.y - 1.0;
+                    wanted = super::room_to_click(ui) - 1.0;
                     eframe::egui::Panel::left("a panel of the test")
                         .resizable(true)
                         .default_size(240.0)
