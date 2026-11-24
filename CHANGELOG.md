@@ -18,6 +18,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the marks file cannot be looked at, and every window now locks the marks file by the file its
   name leads to, also through the link left at its old name, so two windows never write it
   under different locks.
+- The move of the marks file at start no longer removes its old name when a look at either name
+  fails, as on a share for a moment. Through a linked folder both names may be one file, and
+  every mark was lost. Both are kept now, and Glimt says so.
 
 ## [0.97.0] - 2026-11-24
 
