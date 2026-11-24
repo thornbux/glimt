@@ -676,6 +676,10 @@ impl crate::App {
     /// It is read again when the scale or the size changes.
     pub(crate) fn sync_thumb_source(&mut self, ppp: f32) {
         let large = self.thumb().x * ppp > 128.0;
+        #[cfg(test)]
+        crate::support::test_support::shared_setting_set(
+            LARGE_THUMBS.load(Ordering::Relaxed) != large,
+        );
         if LARGE_THUMBS.swap(large, Ordering::Relaxed) != large {
             self.thumbs_changed();
         }

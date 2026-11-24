@@ -1764,37 +1764,381 @@ fn items_are_in_order() {
 /// The names are compared with each `{…}` of a format as `{}`, so `glimt-test-link-{}` and
 /// `glimt-test-link-{pid}` are one name. Those two were not, and a symbolic link of the trash's
 /// test and a folder of `writes_through_links` were made at one path, so one of them failed
-/// with EEXIST when they ran at once.
+/// with EEXIST when they ran at once. Each name is read where the test code joins it to
+/// `temp_dir()`, also through a variable, and through a helper whose parameter is part of the
+/// name, where the word of each call is part of it too. Before, only the literals that started
+/// with `glimt-test-` were read, and 68 names that started otherwise were not checked.
 #[test]
 fn tests_use_temporary_names_of_their_own() {
-    // The literal with each `{…}` as `{}`.
-    let without_format_arguments = |literal: &str| {
-        let mut name = String::new();
-        let mut rest = literal;
-        while let Some((before, after)) = rest.split_once('{') {
-            name += before;
-            name += "{}";
-            rest = after.split_once('}').map_or("", |(_, after)| after);
+    let (names, mut wrong) = temporary_names(&rust_sources());
+    let mut seen: std::collections::HashMap<&str, &str> = Default::default();
+    for (name, location) in &names {
+        if let Some(first) = seen.insert(name, location) {
+            wrong.push(format!("{name}: {first} and {location}"));
         }
-        name + rest
+    }
+    assert!(
+        wrong.is_empty(),
+        "temporary names that are not a test's own (the same in two places, not Glimt's, or \
+         not read from the code):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The guard above reads a name in each spelling: a literal, a format, a variable and a
+/// helper's parameter with the word of each call. It finds a name that is not Glimt's, a
+/// temporary folder kept to be joined later, and a name that is made by other code.
+#[test]
+fn finds_every_temporary_name() {
+    let read = |code: &str| {
+        let text = format!("#[cfg(test)]\nmod tests {{\n{code}}}\n");
+        temporary_names(&[("a.rs".into(), text)])
     };
-    let mut seen: std::collections::HashMap<String, String> = Default::default();
+    let (names, wrong) = read(
+        "    fn one() {\n        let d = std::env::temp_dir().join(\"glimt-one\");\n    }\n\
+         \x20   fn two() {\n        let name = format!(\"glimt-two-{}\", 1);\n\
+         \x20       let d = std::env::temp_dir().join(name);\n    }\n\
+         \x20   fn folder(word: &str) -> PathBuf {\n\
+         \x20       std::env::temp_dir().join(format!(\"glimt-f-{word}-{}\", 1))\n    }\n\
+         \x20   fn three() {\n        folder(\"x\");\n        folder(\"x\");\n    }\n",
+    );
+    let names: Vec<&str> = names.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "glimt-one",
+            "glimt-two-{}",
+            "glimt-f-{}-{}",
+            "folder(x)",
+            "folder(x)"
+        ]
+    );
+    assert!(wrong.is_empty(), "{wrong:?}");
+    let (_, wrong) = read(
+        "    fn one() {\n        let d = std::env::temp_dir().join(\"b.jpg\");\n\
+         \x20       let t = std::env::temp_dir();\n\
+         \x20       let e = std::env::temp_dir().join(made());\n    }\n",
+    );
+    assert_eq!(wrong.len(), 3, "{wrong:?}");
+}
+
+/// Returns each name that the test code of `sources` makes in the temporary folder, with its
+/// location as "file:line", and each location where such a name cannot be read or is not Glimt's.
+/// The call of a helper whose parameter is part of a name gives the name "helper(word)", with
+/// the first literal of the call as its word.
+fn temporary_names(sources: &[(String, String)]) -> (Vec<(String, String)>, Vec<String>) {
+    let (mut names, mut wrong, mut helpers) = (Vec::new(), Vec::new(), Vec::new());
+    for (file, text) in sources {
+        read_temporary_paths(file, text, &mut names, &mut wrong, &mut helpers);
+    }
+    helpers.sort();
+    helpers.dedup();
+    for (file, text) in sources {
+        let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
+        for (i, line) in lines.iter().enumerate() {
+            for helper in &helpers {
+                let call = format!("{helper}(");
+                let is_call = |at: &usize| {
+                    let before = &line[..*at];
+                    !before.ends_with(is_word_char) && !before.ends_with("fn ")
+                };
+                for (at, _) in line.match_indices(&call).filter(|(at, _)| is_call(at)) {
+                    let inside = starts[i] + at + call.len();
+                    let end = call_end(text, inside);
+                    let word = (literals.iter()).find(|(p, _)| (inside..end).contains(p));
+                    if let Some((_, word)) = word {
+                        names.push((format!("{helper}({word})"), format!("{file}:{}", i + 1)));
+                    }
+                }
+            }
+        }
+    }
+    (names, wrong)
+}
+
+/// Adds the temporary names that the test code of `file`, whose source is `text`, joins to
+/// `temp_dir()` to `names`, the places where a name cannot be read or is not Glimt's to
+/// `wrong`, and the functions whose parameter is part of a name to `helpers`.
+fn read_temporary_paths(
+    file: &str,
+    text: &str,
+    names: &mut Vec<(String, String)>,
+    wrong: &mut Vec<String>,
+    helpers: &mut Vec<String>,
+) {
+    let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
+    let tests = tests_start(&lines);
+    let whole_file = ["support/test_support.rs", "support/source_rules.rs"].contains(&file);
+    let (mut function, mut item) = (0, 0);
+    for (i, line) in lines.iter().enumerate() {
+        if function_name(line).is_some() {
+            function = i;
+        }
+        if line.starts_with(|c: char| c.is_alphabetic()) {
+            item = i;
+        }
+        let is_test = whole_file
+            || i >= tests
+            || [function, item].iter().any(|&f| {
+                let above = lines[..f].iter().rev();
+                let attributes =
+                    above.take_while(|l| l.trim().is_empty() || l.trim().starts_with("#["));
+                attributes.into_iter().any(|l| l.trim() == "#[cfg(test)]")
+            });
+        for (at, _) in line.match_indices("temp_dir()").filter(|_| is_test) {
+            let location = format!("{file}:{}", i + 1);
+            let after = &line[at + "temp_dir()".len()..];
+            if after.starts_with(')') {
+                continue;
+            }
+            if !after.starts_with(".join(") {
+                wrong.push(format!(
+                    "{location}: temp_dir() kept, to be joined elsewhere"
+                ));
+                continue;
+            }
+            let from = starts[i] + at + "temp_dir().join(".len();
+            let argument = text[from..].trim_start();
+            let word: String = argument.chars().take_while(|&c| is_word_char(c)).collect();
+            let signature = signature(&lines, function);
+            let name = match () {
+                _ if argument.starts_with('"') || argument.starts_with("format!(") => (literals
+                    .iter())
+                .find(|(p, _)| *p >= from)
+                .map(|(_, l)| l.clone()),
+                _ if !argument[word.len()..].trim_start().starts_with(')') => None,
+                _ if signature.contains(&format!("{word}:")) => Some(format!("glimt-{{{word}}}")),
+                _ => bound_literal(&lines, &starts, &literals, function..i, &word),
+            };
+            let Some(name) = name else {
+                wrong.push(format!("{location}: a name not read from the code"));
+                continue;
+            };
+            if !name.starts_with("glimt-") {
+                wrong.push(format!("{location}: {name} is not a name of Glimt's own"));
+                continue;
+            }
+            let parameters = (name.split('{').skip(1))
+                .filter_map(|rest| rest.split_once('}'))
+                .filter(|(p, _)| !p.is_empty() && signature.contains(&format!("{p}:")));
+            if parameters.count() > 0 {
+                let helper = function_name(&lines[function]).unwrap_or_default();
+                helpers.push(helper.to_owned());
+            }
+            names.push((without_format_arguments(&name), location));
+        }
+    }
+    names.retain(|(name, _)| name != "glimt-{}");
+}
+
+/// Returns the literal that `let word = …;` gives in the lines `within`, the last such
+/// statement before their end. Returns `None` when there is none, or it holds no literal.
+fn bound_literal(
+    lines: &[String],
+    starts: &[usize],
+    literals: &[(usize, String)],
+    within: std::ops::Range<usize>,
+    word: &str,
+) -> Option<String> {
+    let binds = |l: &String| {
+        [" =", ":"]
+            .iter()
+            .any(|s| l.contains(&format!("let {word}{s}")))
+    };
+    let at = within.clone().rev().find(|&j| binds(&lines[j]))?;
+    let end = (at..within.end + 1).find(|&j| lines[j].contains(';'))?;
+    let end = starts[end] + lines[end].find(';').unwrap_or(0);
+    (literals.iter())
+        .find(|(p, _)| (starts[at]..end).contains(p))
+        .map(|(_, literal)| literal.clone())
+}
+
+/// Returns the signature of the function that starts on line `first` of `lines`, up to the line
+/// that opens its body.
+fn signature(lines: &[String], first: usize) -> String {
+    let end = (first..lines.len())
+        .find(|&j| lines[j].ends_with('{') || lines[j].ends_with(';'))
+        .unwrap_or(first);
+    lines[first..=end.max(first)].join(" ")
+}
+
+/// Returns where each line of `text` starts, as a byte offset, as `code_lines` counts the lines.
+fn line_starts(text: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    starts.extend(text.match_indices('\n').map(|(at, _)| at + 1));
+    starts
+}
+
+/// Returns `literal` with each `{…}` of a format as `{}`.
+fn without_format_arguments(literal: &str) -> String {
+    let mut name = String::new();
+    let mut rest = literal;
+    while let Some((before, after)) = rest.split_once('{') {
+        name += before;
+        name += "{}";
+        rest = after.split_once('}').map_or("", |(_, after)| after);
+    }
+    name + rest
+}
+
+/// $XDG_RUNTIME_DIR is read in one place, `remote::runtime_dir`, which gives the tests a runtime
+/// folder of their own, and `listen` reads it only to say why there is none. Before, the tests
+/// made their sockets in the user's own runtime folder, beside those of a Glimt that ran there.
+/// The name is found as a literal anywhere in the code, so also through a constant.
+#[test]
+fn the_runtime_folder_is_found_in_one_place() {
+    const HOMES: &[&str] = &["runtime_dir", "listen"];
+    // Made of two, so that this rule's own literal is not found.
+    let name = ["XDG_RUNTIME", "_DIR"].concat();
     let mut wrong = Vec::new();
-    for (name, text) in sources().iter().filter(|(n, _)| n.ends_with(".rs")) {
-        for (at, _) in text.match_indices("\"glimt-test-") {
-            let rest = &text[at + 1..];
-            let Some(end) = rest.find('"') else { continue };
-            let literal = without_format_arguments(&rest[..end]);
-            if let Some(first) = seen.insert(literal.clone(), name.clone()) {
-                wrong.push(format!("{literal}: {first} and {name}"));
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        let starts = line_starts(&text);
+        let end = tests_start(&lines);
+        for (at, literal) in literals(&text) {
+            let line = starts.partition_point(|&start| start <= at) - 1;
+            if literal != name || line >= end {
+                continue;
+            }
+            let function = (lines[..=line].iter().rev()).find_map(|l| function_name(l));
+            let at_home =
+                file == "features/remote.rs" && function.is_some_and(|f| HOMES.contains(&f));
+            if !at_home {
+                wrong.push(format!("{file}:{}", line + 1));
             }
         }
     }
     assert!(
         wrong.is_empty(),
-        "the same temporary name in two tests:\n{}",
+        "$XDG_RUNTIME_DIR read outside remote::runtime_dir, where the tests do not have a \
+         runtime folder of their own:\n{}",
         wrong.join("\n")
     );
+}
+
+/// Each setting that every window of the process shares (a static that the settings set and
+/// other threads read, as one window is one process) is written only in a function that calls
+/// `test_support::shared_setting_set`, so that a test which changes one without holding the
+/// shared settings fails at the change. A function that `App::with_config` calls and that writes
+/// a static calls it too, so a new such setting is found as well. Before, many tests' windows in
+/// one process overwrote each other's settings, and the decode and thumbnail threads of one test
+/// read another's (#130).
+#[test]
+fn shared_settings_are_changed_only_while_held() {
+    const SHARED: &[&str] = &[
+        "COLOR_MANAGEMENT",
+        "VIEW_FILTER",
+        "COLOUR",
+        "LARGE_THUMBS",
+        "MAX_ANIMATION_BYTES",
+        "MEMORY_LIMIT_MB",
+        "CPU_USE_LEVEL",
+        "USER_KEYS",
+        "CURRENT_TRANSLATION",
+        "SETTINGS_LOCKED",
+        "GIVEN_NAME",
+        "LISTENING_AS",
+    ];
+    let sources = rust_sources();
+    let main = code_lines(&source("main.rs"));
+    let start = (main
+        .iter()
+        .position(|l| function_name(l) == Some("with_config")))
+    .unwrap();
+    let body = main[start..=block_end(&main, start).unwrap()].join("\n");
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        if ["support/test_support.rs", "support/source_rules.rs"].contains(&file.as_str()) {
+            continue;
+        }
+        let lines = code_lines(text);
+        for (first, name) in
+            (0..tests_start(&lines)).filter_map(|i| Some((i, function_name(&lines[i])?)))
+        {
+            let Some(last) = block_end(&lines, first) else {
+                continue;
+            };
+            let function = &lines[first..=last];
+            let writes = |is_shared: &dyn Fn(&str) -> bool| {
+                function
+                    .iter()
+                    .any(|l| static_written(l).is_some_and(is_shared))
+            };
+            // A call of a free function, by its name alone or by its module's path, and not a
+            // method or a type's function of the same name (`Vec::new`).
+            let called_at_start = body.match_indices(&format!("{name}(")).any(|(at, _)| {
+                let before = &body[..at];
+                match before.strip_suffix("::") {
+                    Some(path) => (path.rsplit(|c: char| !is_word_char(c)).next())
+                        .is_some_and(|module| module.starts_with(|c: char| c.is_lowercase())),
+                    None => !before.ends_with(|c: char| c == '.' || is_word_char(c)),
+                }
+            });
+            let checks = function.iter().any(|l| l.contains("shared_setting_set("));
+            if !checks
+                && (writes(&|s| SHARED.contains(&s)) || (called_at_start && writes(&|_| true)))
+            {
+                wrong.push(format!("{file}:{} ({name})", first + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a setting that every window shares written without test_support::shared_setting_set:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The checks above find a shared setting written in each way: stored, swapped, through its
+/// lock, and a static written by a function that `App::with_config` calls.
+#[test]
+fn finds_a_shared_setting_written() {
+    for line in [
+        "    VIEW_FILTER.store(f, Ordering::Relaxed);",
+        "    if LARGE_THUMBS.swap(large, Ordering::Relaxed) != large {",
+        "    *write_even_if_poisoned(&CURRENT_TRANSLATION) = chosen;",
+        "    let mut given = lock_even_if_poisoned(&GIVEN_NAME);",
+        "    *crate::support::threads::lock_even_if_poisoned(&LISTENING_AS) = None;",
+    ] {
+        assert!(static_written(line).is_some(), "{line}");
+    }
+    for line in [
+        "    let shown = VIEW_FILTER.load(Ordering::Relaxed);",
+        "    lock_even_if_poisoned(&GIVEN_NAME).clone()",
+        "    let c = read_even_if_poisoned(&COLOUR);",
+    ] {
+        assert_eq!(static_written(line), None, "{line}");
+    }
+}
+
+/// Returns the static that the code line `line` writes: stores into, swaps or changes through
+/// its lock, or takes the lock of to change. Returns `None` for a line that writes no static.
+fn static_written(line: &str) -> Option<&str> {
+    let is_static = |name: &&str| {
+        name.len() > 1
+            && name
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    };
+    for change in [".store(", ".swap(", ".fetch_"] {
+        for (at, _) in line.match_indices(change) {
+            let before = &line[..at];
+            let name = &before[before
+                .rfind(|c: char| !is_word_char(c))
+                .map_or(0, |i| i + 1)..];
+            if is_static(&name) {
+                return Some(name);
+            }
+        }
+    }
+    let locked = |lock: &str| {
+        let at = line.find(lock)? + lock.len();
+        let name = line[at..].split(')').next()?;
+        is_static(&name).then_some(name)
+    };
+    let to_change = line.trim_start().starts_with('*') || line.contains("let mut ");
+    (locked("write_even_if_poisoned(&"))
+        .or_else(|| locked("lock_even_if_poisoned(&").filter(|_| to_change))
 }
 
 /// A test sits in the tests of the module whose code it tests. Once main.rs's tests module held
@@ -2485,19 +2829,10 @@ fn copies_of_settings_have_one_writer() {
             "MAX_ANIMATION_BYTES.",
             &[("images/decode.rs", "set_animation_limit")],
         ),
-        (
-            "VIEW_FILTER.",
-            &[
-                ("images/colour.rs", "set_up_colour"),
-                ("ui/menus.rs", "set_view_filter"),
-            ],
-        ),
+        ("VIEW_FILTER.", &[("images/colour.rs", "use_view_filter")]),
         (
             "COLOR_MANAGEMENT.",
-            &[
-                ("images/colour.rs", "set_up_colour"),
-                ("ui/menus.rs", "set_color_management"),
-            ],
+            &[("images/colour.rs", "use_color_management")],
         ),
     ];
     let writes: Vec<(String, &[(&str, &str)])> = (ATOMICS.iter())
@@ -2537,7 +2872,7 @@ fn whether_a_window_listens_is_asked_in_one_place() {
             ("main.rs", "with_config"),
             ("files/config.rs", ""),
             ("ui/preferences.rs", "window_settings"),
-            ("support/test_support.rs", "app_on"),
+            ("support/test_support.rs", "test_config"),
         ],
     )];
     let wrong = outside_their_homes(HOMES);
@@ -2575,7 +2910,16 @@ fn the_slideshow_never_reorders_the_list() {
     let calls: Vec<Vec<Call>> = graph.functions.iter().map(|f| graph.calls_of(f)).collect();
     let reorders =
         |f: &Function| (REORDERS.iter()).any(|(file, name)| f.file == *file && f.name == *name);
-    let mut wrong = Vec::new();
+    // A function of the list renamed or gone would leave nothing to find (#287).
+    let mut wrong: Vec<String> = (REORDERS.iter())
+        .filter(|(file, name)| {
+            !graph
+                .functions
+                .iter()
+                .any(|f| f.file == *file && f.name == *name)
+        })
+        .map(|(file, name)| format!("{file}: no fn {name} in REORDERS"))
+        .collect();
     for (start, f) in graph.functions.iter().enumerate() {
         if f.file != "viewer/slideshow.rs" {
             continue;
@@ -3625,11 +3969,51 @@ fn in_assigned_tuple(line: &str, at: usize) -> bool {
 /// functions it is allowed in, as "file:line (text)". A function named "" allows the whole
 /// file, and the text's own definition is allowed anywhere.
 fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
+    let sources = rust_sources();
     let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        wrong.extend(outside_homes_in(&file, &text, homes));
+    for (file, text) in &sources {
+        wrong.extend(outside_homes_in(file, text, homes));
     }
+    wrong.extend(homes_not_found(&sources, homes));
     wrong
+}
+
+/// A home that is not there, by its file or its function, is found, so a rule whose home was
+/// renamed fails rather than checks nothing.
+#[test]
+fn finds_a_home_that_is_gone() {
+    let sources = [("a.rs".to_owned(), "fn kept() {}\n".to_owned())];
+    let homes: &[(&str, &[(&str, &str)])] = &[(
+        "x(",
+        &[
+            ("a.rs", "kept"),
+            ("a.rs", ""),
+            ("a.rs", "gone"),
+            ("b.rs", ""),
+        ],
+    )];
+    assert_eq!(
+        homes_not_found(&sources, homes),
+        ["a.rs: no fn gone", "b.rs: no fn "]
+    );
+}
+
+/// Returns each home of `homes` whose file or function is not in `sources`, as "file: no fn
+/// name". A home renamed or gone would let a rule pass with nothing left to check (#287).
+fn homes_not_found(sources: &[(String, String)], homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
+    let all = homes.iter().flat_map(|(_, allowed)| allowed.iter());
+    let is_there = |file: &str, function: &str| {
+        (sources.iter()).any(|(name, text)| {
+            name == file
+                && (function.is_empty()
+                    || code_lines(text)
+                        .iter()
+                        .any(|l| function_name(l) == Some(function)))
+        })
+    };
+    (all.filter(|(file, function)| !is_there(file, function)))
+        .map(|(file, function)| format!("{file}: no fn {function}"))
+        .collect()
 }
 
 /// Returns the places in `text`, the source of `file`, that `outside_their_homes` reports.
