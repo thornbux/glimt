@@ -2831,9 +2831,7 @@ pub(crate) fn device_of_volume_now(volume: &std::ffi::OsStr) -> Option<u64> {
 /// `None` for a device that is no block device, before Linux 5.15, and when a look fails.
 pub(crate) fn medium_of_device(device: u64) -> Option<String> {
     use crate::images::decode::read_text;
-    // The boot's id does not change while Glimt runs, so it is read once.
-    static BOOT_ID: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    let boot = BOOT_ID.get_or_init(|| Some(read_text(BOOT_ID_FILE).ok()?.trim().to_owned()));
+    let boot = boot_id();
     let disk = format!(
         "/sys/dev/block/{}:{}",
         libc::major(device),
@@ -2844,7 +2842,16 @@ pub(crate) fn medium_of_device(device: u64) -> Option<String> {
         .or_else(|_| read_text(format!("{disk}/../diskseq")))
         .ok()?;
     let sequence: u64 = sequence.trim().parse().ok()?;
-    Some(format!("{}:{sequence}", boot.as_deref()?))
+    Some(format!("{}:{sequence}", boot?))
+}
+
+/// Returns the id of this boot, which a `medium` begins with, and `None` when it cannot be read.
+pub(crate) fn boot_id() -> Option<&'static str> {
+    use crate::images::decode::read_text;
+    // The boot's id does not change while Glimt runs, so it is read once.
+    static BOOT_ID: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let read = || (read_text(BOOT_ID_FILE).ok()).map(|id| id.trim().to_owned());
+    BOOT_ID.get_or_init(read).as_deref()
 }
 
 /// Returns, for each device number among `volumes`, each a name with the number of its block
