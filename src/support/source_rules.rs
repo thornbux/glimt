@@ -1764,37 +1764,221 @@ fn items_are_in_order() {
 /// The names are compared with each `{…}` of a format as `{}`, so `glimt-test-link-{}` and
 /// `glimt-test-link-{pid}` are one name. Those two were not, and a symbolic link of the trash's
 /// test and a folder of `writes_through_links` were made at one path, so one of them failed
-/// with EEXIST when they ran at once.
+/// with EEXIST when they ran at once. Each name is read where the test code joins it to
+/// `temp_dir()`, also through a variable, and through a helper whose parameter is part of the
+/// name, where the word of each call is part of it too. Before, only the literals that started
+/// with `glimt-test-` were read, and 68 names that started otherwise were not checked.
 #[test]
 fn tests_use_temporary_names_of_their_own() {
-    // The literal with each `{…}` as `{}`.
-    let without_format_arguments = |literal: &str| {
-        let mut name = String::new();
-        let mut rest = literal;
-        while let Some((before, after)) = rest.split_once('{') {
-            name += before;
-            name += "{}";
-            rest = after.split_once('}').map_or("", |(_, after)| after);
-        }
-        name + rest
-    };
-    let mut seen: std::collections::HashMap<String, String> = Default::default();
-    let mut wrong = Vec::new();
-    for (name, text) in sources().iter().filter(|(n, _)| n.ends_with(".rs")) {
-        for (at, _) in text.match_indices("\"glimt-test-") {
-            let rest = &text[at + 1..];
-            let Some(end) = rest.find('"') else { continue };
-            let literal = without_format_arguments(&rest[..end]);
-            if let Some(first) = seen.insert(literal.clone(), name.clone()) {
-                wrong.push(format!("{literal}: {first} and {name}"));
-            }
+    let (names, mut wrong) = temporary_names(&rust_sources());
+    let mut seen: std::collections::HashMap<&str, &str> = Default::default();
+    for (name, location) in &names {
+        if let Some(first) = seen.insert(name, location) {
+            wrong.push(format!("{name}: {first} and {location}"));
         }
     }
     assert!(
         wrong.is_empty(),
-        "the same temporary name in two tests:\n{}",
+        "temporary names that are not a test's own (the same in two places, not Glimt's, or \
+         not read from the code):\n{}",
         wrong.join("\n")
     );
+}
+
+/// The guard above reads a name in each spelling: a literal, a format, a variable and a
+/// helper's parameter with the word of each call. It finds a name that is not Glimt's, a
+/// temporary folder kept to be joined later, and a name that is made by other code.
+#[test]
+fn finds_every_temporary_name() {
+    let read = |code: &str| {
+        let text = format!("#[cfg(test)]\nmod tests {{\n{code}}}\n");
+        temporary_names(&[("a.rs".into(), text)])
+    };
+    let (names, wrong) = read(
+        "    fn one() {\n        let d = std::env::temp_dir().join(\"glimt-one\");\n    }\n\
+         \x20   fn two() {\n        let name = format!(\"glimt-two-{}\", 1);\n\
+         \x20       let d = std::env::temp_dir().join(name);\n    }\n\
+         \x20   fn folder(word: &str) -> PathBuf {\n\
+         \x20       std::env::temp_dir().join(format!(\"glimt-f-{word}-{}\", 1))\n    }\n\
+         \x20   fn three() {\n        folder(\"x\");\n        folder(\"x\");\n    }\n",
+    );
+    let names: Vec<&str> = names.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "glimt-one",
+            "glimt-two-{}",
+            "glimt-f-{}-{}",
+            "folder(x)",
+            "folder(x)"
+        ]
+    );
+    assert!(wrong.is_empty(), "{wrong:?}");
+    let (_, wrong) = read(
+        "    fn one() {\n        let d = std::env::temp_dir().join(\"b.jpg\");\n\
+         \x20       let t = std::env::temp_dir();\n\
+         \x20       let e = std::env::temp_dir().join(made());\n    }\n",
+    );
+    assert_eq!(wrong.len(), 3, "{wrong:?}");
+}
+
+/// Returns each name that the test code of `sources` makes in the temporary folder, with its
+/// location as "file:line", and each location where such a name cannot be read or is not Glimt's.
+/// The call of a helper whose parameter is part of a name gives the name "helper(word)", with
+/// the first literal of the call as its word.
+fn temporary_names(sources: &[(String, String)]) -> (Vec<(String, String)>, Vec<String>) {
+    let (mut names, mut wrong, mut helpers) = (Vec::new(), Vec::new(), Vec::new());
+    for (file, text) in sources {
+        read_temporary_paths(file, text, &mut names, &mut wrong, &mut helpers);
+    }
+    helpers.sort();
+    helpers.dedup();
+    for (file, text) in sources {
+        let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
+        for (i, line) in lines.iter().enumerate() {
+            for helper in &helpers {
+                let call = format!("{helper}(");
+                let is_call = |at: &usize| {
+                    let before = &line[..*at];
+                    !before.ends_with(is_word_char) && !before.ends_with("fn ")
+                };
+                for (at, _) in line.match_indices(&call).filter(|(at, _)| is_call(at)) {
+                    let inside = starts[i] + at + call.len();
+                    let end = call_end(text, inside);
+                    let word = (literals.iter()).find(|(p, _)| (inside..end).contains(p));
+                    if let Some((_, word)) = word {
+                        names.push((format!("{helper}({word})"), format!("{file}:{}", i + 1)));
+                    }
+                }
+            }
+        }
+    }
+    (names, wrong)
+}
+
+/// Adds the temporary names that the test code of `file`, whose source is `text`, joins to
+/// `temp_dir()` to `names`, the places where a name cannot be read or is not Glimt's to
+/// `wrong`, and the functions whose parameter is part of a name to `helpers`.
+fn read_temporary_paths(
+    file: &str,
+    text: &str,
+    names: &mut Vec<(String, String)>,
+    wrong: &mut Vec<String>,
+    helpers: &mut Vec<String>,
+) {
+    let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
+    let tests = tests_start(&lines);
+    let whole_file = ["support/test_support.rs", "support/source_rules.rs"].contains(&file);
+    let (mut function, mut item) = (0, 0);
+    for (i, line) in lines.iter().enumerate() {
+        if function_name(line).is_some() {
+            function = i;
+        }
+        if line.starts_with(|c: char| c.is_alphabetic()) {
+            item = i;
+        }
+        let is_test = whole_file
+            || i >= tests
+            || [function, item].iter().any(|&f| {
+                let above = lines[..f].iter().rev();
+                let attributes =
+                    above.take_while(|l| l.trim().is_empty() || l.trim().starts_with("#["));
+                attributes.into_iter().any(|l| l.trim() == "#[cfg(test)]")
+            });
+        for (at, _) in line.match_indices("temp_dir()").filter(|_| is_test) {
+            let location = format!("{file}:{}", i + 1);
+            let after = &line[at + "temp_dir()".len()..];
+            if after.starts_with(')') {
+                continue;
+            }
+            if !after.starts_with(".join(") {
+                wrong.push(format!(
+                    "{location}: temp_dir() kept, to be joined elsewhere"
+                ));
+                continue;
+            }
+            let from = starts[i] + at + "temp_dir().join(".len();
+            let argument = text[from..].trim_start();
+            let word: String = argument.chars().take_while(|&c| is_word_char(c)).collect();
+            let signature = signature(&lines, function);
+            let name = match () {
+                _ if argument.starts_with('"') || argument.starts_with("format!(") => (literals
+                    .iter())
+                .find(|(p, _)| *p >= from)
+                .map(|(_, l)| l.clone()),
+                _ if !argument[word.len()..].trim_start().starts_with(')') => None,
+                _ if signature.contains(&format!("{word}:")) => Some(format!("glimt-{{{word}}}")),
+                _ => bound_literal(&lines, &starts, &literals, function..i, &word),
+            };
+            let Some(name) = name else {
+                wrong.push(format!("{location}: a name not read from the code"));
+                continue;
+            };
+            if !name.starts_with("glimt-") {
+                wrong.push(format!("{location}: {name} is not a name of Glimt's own"));
+                continue;
+            }
+            let parameters = (name.split('{').skip(1))
+                .filter_map(|rest| rest.split_once('}'))
+                .filter(|(p, _)| !p.is_empty() && signature.contains(&format!("{p}:")));
+            if parameters.count() > 0 {
+                let helper = function_name(&lines[function]).unwrap_or_default();
+                helpers.push(helper.to_owned());
+            }
+            names.push((without_format_arguments(&name), location));
+        }
+    }
+    names.retain(|(name, _)| name != "glimt-{}");
+}
+
+/// Returns the literal that `let word = …;` gives in the lines `within`, the last such
+/// statement before their end. Returns `None` when there is none, or it holds no literal.
+fn bound_literal(
+    lines: &[String],
+    starts: &[usize],
+    literals: &[(usize, String)],
+    within: std::ops::Range<usize>,
+    word: &str,
+) -> Option<String> {
+    let binds = |l: &String| {
+        [" =", ":"]
+            .iter()
+            .any(|s| l.contains(&format!("let {word}{s}")))
+    };
+    let at = within.clone().rev().find(|&j| binds(&lines[j]))?;
+    let end = (at..within.end + 1).find(|&j| lines[j].contains(';'))?;
+    let end = starts[end] + lines[end].find(';').unwrap_or(0);
+    (literals.iter())
+        .find(|(p, _)| (starts[at]..end).contains(p))
+        .map(|(_, literal)| literal.clone())
+}
+
+/// Returns the signature of the function that starts on line `first` of `lines`, up to the line
+/// that opens its body.
+fn signature(lines: &[String], first: usize) -> String {
+    let end = (first..lines.len())
+        .find(|&j| lines[j].ends_with('{') || lines[j].ends_with(';'))
+        .unwrap_or(first);
+    lines[first..=end.max(first)].join(" ")
+}
+
+/// Returns where each line of `text` starts, as a byte offset, as `code_lines` counts the lines.
+fn line_starts(text: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    starts.extend(text.match_indices('\n').map(|(at, _)| at + 1));
+    starts
+}
+
+/// Returns `literal` with each `{…}` of a format as `{}`.
+fn without_format_arguments(literal: &str) -> String {
+    let mut name = String::new();
+    let mut rest = literal;
+    while let Some((before, after)) = rest.split_once('{') {
+        name += before;
+        name += "{}";
+        rest = after.split_once('}').map_or("", |(_, after)| after);
+    }
+    name + rest
 }
 
 /// A test sits in the tests of the module whose code it tests. Once main.rs's tests module held

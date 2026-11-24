@@ -3051,7 +3051,7 @@ mod tests {
     /// them, and keeps its kind. Another error, such as a permission denied, stays as it was.
     #[test]
     fn tells_a_rename_the_file_system_cannot_do_in_plain_words() {
-        let to = std::env::temp_dir().join("b.jpg");
+        let to = std::env::temp_dir().join("glimt-test-rename-explained.jpg");
         let kind = super::file_system_type(&std::env::temp_dir()).unwrap();
         for errno in [18, 38, 95] {
             let raw = std::io::Error::from_raw_os_error(errno);
