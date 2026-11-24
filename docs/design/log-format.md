@@ -120,6 +120,7 @@ The record kinds:
 |---|---|---|---|
 | `folder` | path, device, inode (`0` where the file system keeps none, FAT and exFAT) | before the first step in that folder, also the folder a file or folder goes to, and the folder a Move's file leaves | #179, an empty mount point |
 | `volume` | path of a `folder` record, the name of its volume in `/dev/disk/by-uuid` | after that `folder` record, on any file system on a block device with such a name (FAT, exFAT, ext4, NTFS, …), where the volume was found | #266, another card in the same reader, a stick back under another device number |
+| `medium` | path of a `folder` record, `boot:sequence`: this boot's id and the disk sequence number the kernel gave the disk or card (Linux 5.15 and later) | after that `folder` record, on a block device whose number is known | #305, #306, another card in the same reader where no volume can be read |
 | `shown` | the collection's path | at the start | the collection shown, now `collections/` |
 | `step` | number, from, to or `-`, fingerprint or `-` | before the step | every job |
 | `done` | number | after the step is done | #225, Rename Many's count |
@@ -198,15 +199,21 @@ A log no window holds locked was cut short. For each step, the start looks at th
   not count as the one that stayed. `/dev/disk/by-uuid` is read once for each log, and the
   volume it names for a device is looked up again by its own name before a folder counts as
   on it, so that a card swapped during the start is not taken for the one noted (#284). An
-  entry there that cannot be read leaves the whole folder unread (#283).
+  entry there that cannot be read leaves the whole folder unread (#283). A volume not found
+  now, or volumes that cannot be read now, leave it to the `medium` record, as below.
 - **A `folder` record without a `volume` record** (a share, FUSE without a block device, tmpfs,
   the Flatpak's sandbox, or a log of Glimt 0.94 or older) is told by its device and inode. On
   a block device (a disk, card or stick, whose number the next card in the same reader or
   stick at the same port gets), the device alone tells nothing: only the folder's own inode,
   where one was noted, counts, and a folder above it that is still there, or a FAT card's
-  folder, cannot tell (#179, #266, #270). Where no volume can be read at the start, as in the
-  Flatpak's sandbox, such a folder is told by its device alone, as in Glimt 0.96, since it
-  could else never be told and its log would never finish. A share's or tmpfs's device number
+  folder, cannot tell (#179, #266, #270). There a `medium` record tells it: the folder's
+  device must hold that medium now, looked up afresh in `/sys/dev/block`, which the Flatpak's
+  sandbox sees too. The kernel gives every disk, and every card put into a reader, a sequence
+  number no other gets in the same boot. Glimt 0.97 told such a folder by its device alone where
+  no volume could be read, in the Flatpak's sandbox or after an entry of `/dev/disk/by-uuid`
+  could not be read, and another card in the same reader passed for the one noted (#305,
+  #306). Without a medium that tells (after a new boot, or before Linux 5.15), the log stays
+  for a later start, with its files' marks. A share's or tmpfs's device number
   is its own, and is compared as before. One function, `journal::is_on_the_volume_noted`, answers whether a
   folder is on the disk noted (surely, surely not, or cannot tell), and
   `journal::is_the_folder_noted`, on top of it, whether it is the folder noted

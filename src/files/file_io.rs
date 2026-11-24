@@ -45,6 +45,9 @@ pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
 /// The folder where udev names each volume on a block device by its serial number or UUID.
 const VOLUMES_FOLDER: &str = "/dev/disk/by-uuid";
 
+/// The file that names this boot of the computer, which no other boot has.
+const BOOT_ID_FILE: &str = "/proc/sys/kernel/random/boot_id";
+
 /// In a test, a file picked whose fingerprint never comes, as on a share that stopped
 /// answering, until the test takes it away.
 #[cfg(test)]
@@ -732,6 +735,8 @@ struct Mount<'a> {
     at: PathBuf,
     /// Its file system's type, such as ext4, vfat or fuse.rclone.
     kind: &'a [u8],
+    /// What it mounts, such as /dev/sdb1, //nas/photos or a FUSE program's name.
+    source: &'a [u8],
     /// Its file system's options, such as btrfs's subvol=/@data.
     options: &'a [u8],
 }
@@ -1504,21 +1509,24 @@ fn file_system_type_in_udev(udev: &str) -> Option<String> {
 /// other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does not call
 /// the folder a network folder.
 pub(crate) fn is_remote(kind: &str) -> bool {
-    kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
+    kind.starts_with("fuse.") || matches!(kind, "fuse" | "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
 }
 
 /// Returns whether a mount of type `kind` (from `file_system_type`) is a network file system,
 /// where each look at a file is a round trip to another computer or a cloud: SMB, NFS, 9p, or
-/// one of the FUSE file systems named in `NETWORK_FUSE`. A local FUSE mount, such as a KDE
+/// one of the FUSE file systems named in `NETWORK_FUSE`, or a FUSE mount without a subtype whose
+/// source is another computer (`names_another_computer`). A local FUSE mount, such as a KDE
 /// Vault (gocryptfs, cryfs), a mergerfs pool, bindfs or the Flatpak's document portal, is not,
 /// although `is_remote` counts it. The FUSE file systems are named one by one, because a network
 /// one left out only has its sizes summed, as before 0.86.0, while a local one taken for a
 /// network one would lose them and be called a network folder.
 pub(crate) fn is_network(kind: &str) -> bool {
     // Each name is the subtype its program gives the mount: libfuse's default, the program's
-    // own name, or the one it sets itself (onedriver, goofys, juicefs). davfs2, go-mtpfs and
-    // blobfuse2 mount as plain "fuse" with no subtype, so they cannot be named here.
-    const NETWORK_FUSE: [&str; 16] = [
+    // own name, or the one it sets itself (onedriver, goofys, juicefs). blobfuse2 and go-mtpfs
+    // mount as plain "fuse" with their name as the source, which `type_of` takes as the subtype.
+    const NETWORK_FUSE: [&str; 18] = [
+        "blobfuse2",
+        "go-mtpfs",
         "sshfs",
         "rclone",
         "gvfsd-fuse",
@@ -1536,7 +1544,17 @@ pub(crate) fn is_network(kind: &str) -> bool {
         "goofys",
         "juicefs",
     ];
-    (kind.strip_prefix("fuse.")).map_or(is_remote(kind), |name| NETWORK_FUSE.contains(&name))
+    (kind.strip_prefix("fuse.")).map_or(is_remote(kind) && kind != "fuse", |name| {
+        NETWORK_FUSE.contains(&name) || names_another_computer(name)
+    })
+}
+
+/// Returns whether `source`, the source of a FUSE mount without a subtype, names another
+/// computer: a URL ("https://host/dav", as davfs2 gives) or a host's folder
+/// ("me@host:/photos"). A local source, a path ("/mnt/a:/mnt/b") or a name, does not.
+fn names_another_computer(source: &str) -> bool {
+    let host = source.split_once(':').map(|(host, _)| host);
+    source.contains("://") || host.is_some_and(|host| !host.is_empty() && !host.contains('/'))
 }
 
 /// Returns the types of the mounts whose mount points are in the folders below `dir`, as
@@ -1551,7 +1569,7 @@ pub(crate) fn mounted_types_below(dir: &Path) -> Vec<String> {
 fn mounted_types_below_in(mountinfo: &[u8], dir: &Path) -> Vec<String> {
     (mounts_in(mountinfo).iter())
         .filter(|m| m.at != dir && m.at.starts_with(dir))
-        .map(|m| String::from_utf8_lossy(m.kind).into_owned())
+        .map(type_of)
         .collect()
 }
 
@@ -1590,7 +1608,18 @@ fn file_system_type_among(
     (found.kind == b"fuseblk")
         .then(|| device_type(found.dev))
         .flatten()
-        .or_else(|| Some(String::from_utf8_lossy(found.kind).into_owned()))
+        .or_else(|| Some(type_of(found)))
+}
+
+/// Returns the type of `mount` as Glimt names it: the type that /proc/self/mountinfo gives, and
+/// for a FUSE mount without a subtype, plain "fuse", "fuse." with the mount's source. Such a
+/// program gives its own name as the source (blobfuse2, go-mtpfs) or what it serves (davfs2's
+/// URL), so that `is_network` can tell a network one from a local one (#257).
+fn type_of(mount: &Mount) -> String {
+    match mount.kind == b"fuse" && !mount.source.is_empty() {
+        true => format!("fuse.{}", String::from_utf8_lossy(mount.source)),
+        false => String::from_utf8_lossy(mount.kind).into_owned(),
+    }
 }
 
 /// Returns the mount of `mounts` that holds `path`, as `file_system_type_in` finds it. A path
@@ -1666,7 +1695,11 @@ fn mount_line(line: &[u8]) -> Option<Mount<'_>> {
     let (id, parent, dev) = (fields.next()?, fields.next()?, fields.next()?);
     let (root, at) = (fields.next()?, unescape_mount(fields.next()?));
     let mut after = fields.skip_while(|f| *f != b"-").skip(1);
-    let (kind, options) = (after.next()?, after.nth(1).unwrap_or_default());
+    let kind = after.next()?;
+    let (source, options) = (
+        after.next().unwrap_or_default(),
+        after.next().unwrap_or_default(),
+    );
     Some(Mount {
         id,
         parent,
@@ -1674,6 +1707,7 @@ fn mount_line(line: &[u8]) -> Option<Mount<'_>> {
         root,
         at,
         kind,
+        source,
         options,
     })
 }
@@ -2788,6 +2822,30 @@ pub(crate) fn device_of_volume_now(volume: &std::ffi::OsStr) -> Option<u64> {
     meta.file_type().is_block_device().then(|| meta.rdev())
 }
 
+/// Returns the medium in the block device numbered `device` now, as "boot:sequence": the id of
+/// this boot and the disk sequence number that the kernel (Linux 5.15 and later) gave the disk
+/// when it came, or the card when it was put into its reader. The kernel never gives a number
+/// twice in one boot, so it tells two cards in one reader apart where /dev/disk/by-uuid cannot
+/// be read, as in a Flatpak's sandbox, which sees /sys and /proc but not /dev/disk. Returns
+/// `None` for a device that is no block device, before Linux 5.15, and when a look fails.
+pub(crate) fn medium_of_device(device: u64) -> Option<String> {
+    use crate::images::decode::read_text;
+    // The boot's id does not change while Glimt runs, so it is read once.
+    static BOOT_ID: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let boot = BOOT_ID.get_or_init(|| Some(read_text(BOOT_ID_FILE).ok()?.trim().to_owned()));
+    let disk = format!(
+        "/sys/dev/block/{}:{}",
+        libc::major(device),
+        libc::minor(device)
+    );
+    // A partition has no number of its own. Its disk's is in the folder above the partition's.
+    let sequence = (read_text(format!("{disk}/diskseq")))
+        .or_else(|_| read_text(format!("{disk}/../diskseq")))
+        .ok()?;
+    let sequence: u64 = sequence.trim().parse().ok()?;
+    Some(format!("{}:{sequence}", boot.as_deref()?))
+}
+
 /// Returns, for each device number among `volumes`, each a name with the number of its block
 /// device, the one name that has it. A device that more than one name has gets `None`, as two
 /// names for one device cannot say which card it is.
@@ -3327,6 +3385,28 @@ mod tests {
         );
     }
 
+    /// The medium of a block device is this boot's id and the disk sequence number of the
+    /// device, or of its disk for a partition, as the Flatpak's sandbox sees them too. A device
+    /// that is no block device has none.
+    #[test]
+    fn a_medium_is_the_boot_and_the_disk_sequence_number() {
+        use crate::images::decode::read_text;
+        assert_eq!(super::medium_of_device(0), None);
+        let Ok(boot) = read_text(super::BOOT_ID_FILE) else {
+            return;
+        };
+        for entry in std::fs::read_dir("/sys/dev/block").into_iter().flatten() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().into_string().unwrap();
+            let (major, minor) = name.split_once(':').unwrap();
+            let device = libc::makedev(major.parse().unwrap(), minor.parse().unwrap());
+            let own = read_text(entry.path().join("diskseq"));
+            let sequence = own.or_else(|_| read_text(entry.path().join("../diskseq")));
+            let expected = sequence.map(|s| format!("{}:{}", boot.trim(), s.trim()));
+            assert_eq!(super::medium_of_device(device), expected.ok(), "{name}");
+        }
+    }
+
     /// An entry of the volumes' folder that cannot be read makes the whole folder unread, as
     /// it may be a second name of a device whose other name would else be taken for its one
     /// volume. Before, such an entry was passed over (#283).
@@ -3559,6 +3639,43 @@ mod tests {
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
+    }
+
+    /// A FUSE mount of plain type "fuse", with no subtype, is told by its source: one that names
+    /// another computer (davfs2's URL, a host's folder) or a network program (blobfuse2,
+    /// go-mtpfs) is a network folder, and a local one is not, though both count as remote, so
+    /// that no trash is offered there. Before, every such mount counted as a local disk (#257).
+    #[test]
+    fn a_plain_fuse_mount_is_told_by_its_source() {
+        let mounts = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+            2 1 0:60 / /mnt/dav rw - fuse https://dav.example.com/remote.php rw,user_id=0\n\
+            3 1 0:61 / /mnt/blob rw - fuse blobfuse2 rw\n\
+            4 1 0:62 / /mnt/phone rw - fuse go-mtpfs rw\n\
+            5 1 0:63 / /mnt/nas rw - fuse me@nas:/photos rw\n\
+            6 1 0:64 / /mnt/pool rw - fuse /mnt/a:/mnt/b rw\n\
+            7 1 0:65 / /mnt/vault rw - fuse vault rw\n";
+        let kind = |p: &str| {
+            let path = std::path::Path::new(p);
+            super::file_system_type_in(mounts, path, |_| None).unwrap()
+        };
+        for network in [
+            "/mnt/dav/a.jpg",
+            "/mnt/blob",
+            "/mnt/phone",
+            "/mnt/nas/a.jpg",
+        ] {
+            let found = kind(network);
+            assert!(super::is_network(&found), "{network}: {found}");
+            assert!(super::is_remote(&found), "{network}: {found}");
+        }
+        for local in ["/mnt/pool/a.jpg", "/mnt/vault"] {
+            let found = kind(local);
+            assert!(!super::is_network(&found), "{local}: {found}");
+            assert!(super::is_remote(&found), "{local}: {found}");
+        }
+        let below = super::mounted_types_below_in(mounts, std::path::Path::new("/mnt"));
+        assert_eq!(below.iter().filter(|k| super::is_network(k)).count(), 4);
+        assert!(super::is_remote("fuse") && !super::is_network("fuse"));
     }
 
     /// One sync of the whole file system is trusted only where its sync of the whole commits and

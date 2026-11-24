@@ -557,3 +557,4 @@ info_key exif.focal_length
 info_key exif.exposure_bias
 info_key exif.flash
 info_key exif.gps
+job_record record medium

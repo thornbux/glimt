@@ -34,9 +34,9 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 /// src/frozen-1.0.txt. "old-log" names the job log that this one was written from
 /// (`Record::OldLog`), a log of this format, not one of the old logs of Glimt 0.92 and older.
 #[cfg(test)]
-pub(crate) const RECORD_KINDS: [&str; 14] = [
+pub(crate) const RECORD_KINDS: [&str; 15] = [
     "folder", "shown", "step", "done", "tree", "trashed", "marks", "place", "aside", "kept",
-    "old-log", "found", "written", "volume",
+    "old-log", "found", "written", "volume", "medium",
 ];
 
 /// The name of the folder of the logs in Glimt's state folder, pinned in src/frozen-1.0.txt.
@@ -80,6 +80,11 @@ pub(crate) enum Record {
         path: PathBuf,
         volume: std::ffi::OsString,
     },
+    /// The medium that a folder of a `Folder` record is on, on a block device: the boot and the
+    /// disk sequence number of the disk or card, as "boot:sequence"
+    /// (`file_io::medium_of_device`). It tells the card from another one in the same reader
+    /// where no volume can be read, as in a Flatpak's sandbox, until the computer starts anew.
+    Medium { path: PathBuf, medium: String },
     /// The collection shown while the job ran, whose entries follow the files.
     Shown(PathBuf),
     /// A step about to be taken: its file, its new name (`None` for a delete), and the
@@ -148,6 +153,10 @@ impl Record {
                 path: folder,
                 volume,
             } => ("volume", vec![path(folder), volume.as_bytes().to_vec()]),
+            Record::Medium {
+                path: folder,
+                medium,
+            } => ("medium", vec![path(folder), medium.as_bytes().to_vec()]),
             Record::Shown(collection) => ("shown", vec![path(collection)]),
             Record::Step {
                 number,
@@ -209,6 +218,10 @@ impl Record {
             (b"volume", [p, v]) => Record::Volume {
                 path: absolute(p)?,
                 volume: plain_name(v)?.into_os_string(),
+            },
+            (b"medium", [p, m]) => Record::Medium {
+                path: absolute(p)?,
+                medium: medium(m)?,
             },
             (b"shown", [p]) => Record::Shown(absolute(p)?),
             (b"step", [n, from, to, known]) => Record::Step {
@@ -276,6 +289,7 @@ impl Record {
             | Record::Written { number, .. } => Some(*number),
             Record::Folder { .. }
             | Record::Volume { .. }
+            | Record::Medium { .. }
             | Record::Shown(_)
             | Record::Tree { .. }
             | Record::OldLog(_) => None,
@@ -297,6 +311,7 @@ impl Record {
             | Record::Written { number, .. } => Some(number),
             Record::Folder { .. }
             | Record::Volume { .. }
+            | Record::Medium { .. }
             | Record::Shown(_)
             | Record::Tree { .. }
             | Record::OldLog(_) => None,
@@ -809,6 +824,14 @@ fn plain_name(field: &[u8]) -> Option<PathBuf> {
     is_plain.then(|| PathBuf::from(std::ffi::OsStr::from_bytes(field)))
 }
 
+/// Returns `field` as a medium, "boot:sequence" (`Record::Medium`): a boot's id of hex digits
+/// and dashes, and a number. Returns `None` for any other.
+fn medium(field: &[u8]) -> Option<String> {
+    let (boot, sequence) = std::str::from_utf8(field).ok()?.split_once(':')?;
+    let is_boot = !boot.is_empty() && boot.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    (is_boot && sequence.parse::<u64>().is_ok()).then(|| format!("{boot}:{sequence}"))
+}
+
 /// Returns `field` as a number of type `T`, and `None` when it is not one.
 fn number<T: std::str::FromStr>(field: &[u8]) -> Option<T> {
     std::str::from_utf8(field).ok()?.parse().ok()
@@ -889,6 +912,10 @@ mod tests {
             Record::Written {
                 number: 0,
                 fingerprint: (None, 99, (1_700_000_001, 0)),
+            },
+            Record::Medium {
+                path: p("/card/DCIM"),
+                medium: "0f5e8c2a-1b3d-4e6f-8a9b-0c1d2e3f4a5b:42".into(),
             },
             Record::Volume {
                 path: p("/card/DCIM"),
