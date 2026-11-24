@@ -2636,8 +2636,6 @@ fn remove_plan(plan: &Path, names: &[PathBuf], sure: Sure) {
     let renames_synced = sync_folders(names);
     // A plan left behind would be offered again at the next start, and putting its old names
     // back would undo a finished rename, so a failure is told.
-    // shortcut: a crash between the two removals leaves the list of the plan's files behind,
-    // and nothing removes it; a sweep at the start if those are ever seen in numbers.
     remove_job_log(plan, sure);
     // The plan's folder is synced too, because a plan brought back by a power cut, after the
     // marks followed, would move them again. A disk that fails both is told once.
