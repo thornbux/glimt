@@ -831,9 +831,7 @@ pub(crate) fn save_copy_with_sidecar(
                     }
                     // A kill before the sidecar is back or removed would leave it hidden for
                     // good, so it is written down first, as a delete for good does.
-                    if !crate::files::file_io::is_surely_gone(&side) {
-                        aside_log = log_set_aside(new, &side, &aside);
-                    }
+                    aside_log = log_set_aside(new, &side, &aside);
                     let set_aside = crate::files::file_io::rename_never_over(&side, &aside);
                     let is_set_aside =
                         is_set_aside(set_aside, &side, &aside, needs_no_sidecar_there)?;
@@ -926,12 +924,16 @@ fn marks_left_at_the_name() -> &'static str {
 /// gives it back when Glimt was killed while the file there is still as the log knew it
 /// (`journal::deletes_cut_short`). Returns the log, held until the sidecar is back or removed,
 /// and `None` when it could not be written, which is told, as the Save As goes on without it as
-/// a delete does.
+/// a delete does. Returns `None` too when no sidecar is surely at `side`, as nothing is set
+/// aside then. A look that failed counts the sidecar as there.
 fn log_set_aside(
     new: &Path,
     side: &Path,
     aside: &Path,
 ) -> Option<crate::files::journal::DeleteLog> {
+    if crate::files::file_io::is_surely_gone(side) {
+        return None;
+    }
     #[cfg(not(test))]
     let dir = crate::files::job_log::jobs_dir()?;
     #[cfg(test)]
@@ -4351,7 +4353,9 @@ mod tests {
         let (side, aside) = (dir.join("b.png.xmp"), dir.join(".aside"));
         let enoent = || {
             let e = std::io::Error::from_raw_os_error(libc::ENOENT);
-            Err(crate::files::file_io::StepError::new(e, &side))
+            Err(crate::files::file_io::StepError::in_a_test(
+                e, &side, &aside,
+            ))
         };
         let none = |_: &crate::files::file_io::StepError| false;
         ON_A_SHARE_IN_A_TEST.set(Some(dir.clone()));

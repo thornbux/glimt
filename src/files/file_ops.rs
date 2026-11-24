@@ -3278,8 +3278,7 @@ fn delete_for_good(
             let removed = note_failed(log.as_deref_mut(), p, done_after_all(removed, p, None));
             removed.map_err(|e| failed(p, e)).is_ok()
         };
-        // A look that failed (a share that dropped for a moment) counts the file as there.
-        if !(deleted && is_surely_gone(p)) {
+        if !(deleted && is_deleted(p)) {
             // A delete that answered done, followed by a look that failed, may have deleted
             // the photo. The log stays, so that the next start forgets its marks when it is gone.
             if deleted && let Some(log) = log.as_deref_mut() {
@@ -3329,6 +3328,13 @@ fn delete_for_good(
         }
     }
     (went, sides, left_alone)
+}
+
+/// Returns whether the photo `p`, whose delete answered done or was judged done after all
+/// (`done_after_all`), is surely gone. A look that failed (a share that dropped for a moment)
+/// counts the photo as there. It is a look of its own, as no failed step is judged by one name.
+fn is_deleted(p: &Path) -> bool {
+    is_surely_gone(p)
 }
 
 /// Returns the sidecars of the photo `p` that a delete for good puts aside, each with its hidden
@@ -4002,7 +4008,8 @@ fn put_files(
         // still reported, so that its marks follow it and Undo brings it back.
         if catch_panic(put_one).is_none() {
             errors.push(format!("{}: {}", path.display(), broke_here()));
-            match !is_copy && is_surely_gone(path) && is_surely_there(&target) {
+            let left = crate::files::file_io::where_a_step_left_the_file(path, &target);
+            match !is_copy && left == crate::files::file_io::StepLeft::AtNewName {
                 true => put.push((path.clone(), target)),
                 false => drop(moving.remove(path)),
             }
@@ -4260,7 +4267,7 @@ fn sidecar_where_the_file_is(
         true => (at, side),
         false => (side, at),
     };
-    journal::finish_step(away, beside).is_ok()
+    journal::finish_step(away, beside) == crate::files::file_io::StepLeft::AtNewName
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns

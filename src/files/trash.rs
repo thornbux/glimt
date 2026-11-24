@@ -328,9 +328,9 @@ fn put_back(
             let fingerprint = crate::files::file_io::fingerprint(&t.file);
             on_back(Restoring::Coming(&t.from, fingerprint));
         }
-        // A file that an earlier Undo renamed out without an answer is out already.
-        let is_out = came_out.contains(&t.from) && crate::files::file_io::is_surely_gone(&t.file);
-        if !is_out && let Err(e) = rename(&t, on_back) {
+        if !is_out_already(&t, came_out)
+            && let Err(e) = rename(&t, on_back)
+        {
             error.get_or_insert(e);
             continue;
         }
@@ -419,21 +419,30 @@ fn put_back(
     back
 }
 
+/// Returns whether the file of `step` is out of the trash already: an earlier Undo renamed it
+/// out without an answer (`came_out`), and its name in the trash is surely gone. It is a look
+/// of its own, before any step of this Undo, as no failed step is judged by one name.
+fn is_out_already(step: &TrashEntry, came_out: &HashSet<PathBuf>) -> bool {
+    came_out.contains(&step.from) && crate::files::file_io::is_surely_gone(&step.file)
+}
+
 /// Settles where the sidecar `side` is after its rename out of the trash failed with `e`.
 /// Returns `Some(true)` when it is out at its own name alone, `Some(false)` when it is surely
 /// still in the trash, and `None` when it may be at either name or is at neither, lost on the
 /// way. A rename that may have been done may have left it at both names, one file under two,
-/// which `journal::finish_step` puts right. Only sure looks at both names tell the rest: a
-/// failed look tells nothing, also not that the sidecar is out.
+/// which `journal::finish_step` puts right. Only sure looks at both names tell the rest
+/// (`StepError::where_the_file_is`): a failed look tells nothing, also not that the sidecar is
+/// out.
 fn sidecar_back_after_all(side: &TrashEntry, e: &StepError) -> Option<bool> {
-    use crate::files::file_io::{is_surely_gone, is_surely_there};
+    use crate::files::file_io::StepLeft;
     if !e.may_have_been_done() {
         return Some(false);
     }
-    if crate::files::journal::finish_step(&side.file, &side.from).is_ok() {
-        return Some(true);
+    match crate::files::journal::finish_step(&side.file, &side.from) {
+        StepLeft::AtNewName => Some(true),
+        StepLeft::AtOldName => Some(false),
+        StepLeft::CannotTell => None,
     }
-    (is_surely_gone(&side.from) && is_surely_there(&side.file)).then_some(false)
 }
 
 /// Notes in `out_without_answer` the file of `step` whose rename out of the trash, or back into
@@ -688,7 +697,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         for n in 0..10_000 {
             let taken = name_in_trash(name, n);
             // A name taken in files/ is passed over too, so that the move below seldom fails.
-            if !crate::files::file_io::is_surely_gone(&files_folder.join(&taken)) {
+            if is_taken_in(&files_folder, &taken) {
                 continue;
             }
             let mut trashinfo = taken.clone();
@@ -761,6 +770,13 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         failed.extend(trash_by_hand(trash, &taken_meanwhile));
     }
     failed
+}
+
+/// Returns whether the name `taken` in the trash's `files_folder` may hold a file: a name whose
+/// look failed counts as taken. It is a look of its own, before the move into the trash, as no
+/// failed step is judged by one name.
+fn is_taken_in(files_folder: &Path, taken: &std::ffi::OsStr) -> bool {
+    !crate::files::file_io::is_surely_gone(&files_folder.join(taken))
 }
 
 /// Returns the name that a file called `name` takes in the trash's files/ folder at try `n`: the
@@ -918,7 +934,7 @@ mod tests {
             info: dir.join("info").join("a.jpg.xmp.trashinfo"),
         };
         let lost = std::io::Error::from_raw_os_error(libc::EIO);
-        let lost = crate::files::file_io::StepError::new(lost, &side.file);
+        let lost = crate::files::file_io::StepError::in_a_test(lost, &side.file, &side.from);
         assert_eq!(super::sidecar_back_after_all(&side, &lost), None);
     }
 

@@ -5780,8 +5780,9 @@ fn no_name_is_removed_on_a_cached_look() {
 /// (EIO, ETIMEDOUT, ENOENT and the rest, read from the function itself) are named nowhere
 /// outside file_io and the tests, as an unlink by `std::fs::remove_file` gives a plain
 /// `std::io::Error`. file_io names some of them for calls that are no step, such as a folder's
-/// sync. And a step is not judged done by a look at one of its names alone
-/// (`steps_judged_by_one_name`). Before, Save As judged a set-aside's NotFound by its own looks
+/// sync. And no function that has a step's failure in hand looks at a name itself
+/// (`steps_judged_by_looks`), as only `StepError::where_the_file_is` and `done_after_all` judge
+/// a step by both of its names. Before, Save As judged a set-aside's NotFound by its own looks
 /// at the two names, and a sidecar that a share's cache hid counted as none, and
 /// `journal::finish_step` took a step for done when its old name was gone.
 #[test]
@@ -5793,7 +5794,7 @@ fn steps_are_judged_done_in_one_place() {
         .filter(|(f, _)| f != "files/file_io.rs")
         .map(|(f, text)| (f, code_lines(&text)))
         .collect();
-    let mut wrong = steps_judged_by_one_name(&outside);
+    let mut wrong = steps_judged_by_looks(&outside);
     for (file, code) in outside {
         let in_test_code = test_code_lines(&code);
         for (i, line) in code[..tests_start(&code)].iter().enumerate() {
@@ -5811,14 +5812,17 @@ fn steps_are_judged_done_in_one_place() {
     );
 }
 
-/// Returns the lines of `sources` (each a file's name and its `code_lines`), outside the tests,
-/// where a failed step is judged by a look at one of its names alone: a line that looks at a
-/// failure (`Err(`, `is_err`, `.err()`) and at a name with `is_surely_gone` or
-/// `is_surely_there`, but not with both. A share that lost the step's answer may have lost the
-/// file too, or its cache may still show the old name, so only both names tell that the step
-/// was done (`journal::finish_step`). The lines are looked for in each function that calls a
-/// step or is given a `StepError`, in whatever form the step's result reaches the line.
-fn steps_judged_by_one_name(sources: &[(String, Vec<String>)]) -> Vec<String> {
+/// Returns the looks at a name (`is_surely_gone`, `is_surely_there`, `is_followed_to`) in the
+/// functions of `sources` (each a file's name and its `code_lines`), outside the tests, that
+/// have a step's failure in hand: they call a step, name a `StepError` or a `Restoring` (whose
+/// `Failed` passes a step's error on), or take an `std::io::Error` or `std::io::Result`, which
+/// may be a step's error passed on. A share that lost a step's answer may have lost the file
+/// too, or its cache may still show the old name, so only sure looks at both names tell where
+/// the file is, and `StepError::where_the_file_is` and `done_after_all` make them. A function
+/// that needs a look for something else puts it in a function of its own. Whole functions are
+/// read, not lines, so that a guard that rustfmt splits over lines, a look a line after the
+/// failure, and a function handed the error are found as well.
+fn steps_judged_by_looks(sources: &[(String, Vec<String>)]) -> Vec<String> {
     const STEPS: [&str; 6] = [
         "rename_never_over",
         "put_file",
@@ -5827,19 +5831,12 @@ fn steps_judged_by_one_name(sources: &[(String, Vec<String>)]) -> Vec<String> {
         "rename_step",
         "finish_step",
     ];
+    const LOOKS: [&str; 3] = ["is_surely_gone", "is_surely_there", "is_followed_to"];
     let calls_step = |line: &str| {
         (STEPS.iter()).any(|s| {
             (line.match_indices(&format!("{s}(")))
                 .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_word_char))
         })
-    };
-    let judges_by_one_name = |line: &str| {
-        let looks_at_failure = ["Err(", "is_err", ".err()"]
-            .iter()
-            .any(|f| line.contains(f));
-        let gone = line.contains("is_surely_gone(");
-        let there = line.contains("is_surely_there(");
-        looks_at_failure && (gone != there)
     };
     let mut wrong: Vec<String> = Vec::new();
     for (file, code) in sources {
@@ -5847,11 +5844,25 @@ fn steps_judged_by_one_name(sources: &[(String, Vec<String>)]) -> Vec<String> {
         let end = tests_start(code);
         for start in (0..end).filter(|&i| !in_test_code[i] && function_name(&code[i]).is_some()) {
             let last = block_end(code, start).unwrap_or(start).min(end - 1);
-            if !(code[start..=last].iter()).any(|l| calls_step(l) || names_word(l, "StepError")) {
+            let body = &code[start..=last];
+            let opens = (body.iter()).position(|l| l.ends_with('{')).unwrap_or(0);
+            let signature = body[..=opens].join(" ");
+            let parameters = signature
+                .rfind(") ->")
+                .map_or(&signature[..], |at| &signature[..at]);
+            let has_failure = (body.iter())
+                .any(|l| calls_step(l) || names_word(l, "StepError") || names_word(l, "Restoring"))
+                || ["io::Error", "io::Result"]
+                    .iter()
+                    .any(|t| parameters.contains(t));
+            if !has_failure {
                 continue;
             }
-            for i in (start..=last).filter(|&i| !in_test_code[i] && judges_by_one_name(&code[i])) {
-                wrong.push(format!("{file}:{}", i + 1));
+            let name = function_name(&code[start]).unwrap_or_default();
+            for i in (start..=last).filter(|&i| !in_test_code[i]) {
+                if LOOKS.iter().any(|look| names_word(&code[i], look)) {
+                    wrong.push(format!("{file}:{} ({name})", i + 1));
+                }
             }
         }
     }
@@ -5939,34 +5950,54 @@ fn an_error_number_is_found_where_a_step_is_judged() {
     assert_eq!(found, [8, 19]);
 }
 
-/// The rule finds a step judged done by a look at its old name alone, in forms that passed the
-/// rule of v0.97.0's first round: in the arm of a `match` on a result bound by a `match` over
-/// several lines, as a failed look at the old name, on the call's own line, and in a function
-/// given the step's error. It leaves alone a look at both names, a look in a function that makes
-/// no step, and the tests.
+/// The rule finds a look at a name in a function that has a step's failure in hand, in the
+/// forms that passed the rules of v0.97.0's first three rounds: a guard that rustfmt split onto
+/// a line of its own, a look on the line after a let-else on the step, a function handed the
+/// error passed on as an `std::io::Result` or a `Restoring::Failed`, a look at the old name
+/// alone, at the new name alone and at both, on the call's own line, and in a function given a
+/// `StepError`. It leaves alone a look in a function that has no failure of a step in hand, one
+/// that returns an `std::io::Result`, and the tests.
 #[test]
-fn finds_a_step_judged_by_its_old_name_alone() {
-    let text = "fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
-    let moved = match is_link {
-        true => rename_never_over(a, b),
-        false => put_file(a, b, false),
-    };
-    match moved {
-        Ok(()) => Ok(()),
-        Err(_) if is_surely_gone(a) => Ok(()),
-        Err(_) if !is_surely_there(a) => Ok(()),
-        Err(_) if is_surely_gone(a) && is_surely_there(b) => Ok(()),
-        Err(_) => Err(CannotTell),
+fn finds_a_step_judged_by_a_look_at_its_names() {
+    let text = "fn split_guard(a: &Path, b: &Path) -> bool {
+    match rename_step(a, b) {
+        Err(_)
+            if crate::files::file_io::is_surely_gone(&the_old_name_of_the_file) =>
+        {
+            true
+        }
+        _ => false,
     }
 }
-fn back(side: &TrashEntry, e: &StepError) -> Option<bool> {
-    let failed: Result<(), &StepError> = Err(e);
-    failed.err().map(|_| is_surely_gone(&side.from))
+fn let_else(last: &TrashEntry) {
+    let Err(e) = rename_never_over(&last.from, &last.file) else {
+        return;
+    };
+    if is_surely_gone(&last.from) {}
+}
+fn settled(r: std::io::Result<()>, a: &Path) -> bool {
+    r.is_err() && is_surely_gone(a)
+}
+fn on_back(step: Restoring) -> bool {
+    matches!(step, Restoring::Failed(a, _, _) if is_followed_to(a))
+}
+fn finish(a: &Path, b: &Path) -> bool {
+    match put_file(a, b, false) {
+        Err(_) if !is_surely_there(a) => true,
+        Err(_) if is_surely_gone(a) && is_surely_there(b) => true,
+        _ => false,
+    }
+}
+fn back(side: &TrashEntry, e: &StepError) -> bool {
+    e.may_have_been_done() && is_surely_gone(&side.from)
 }
 fn quick(a: &Path, b: &Path) -> bool {
     put_file_back(a, b, false).is_err_and(|_| is_surely_gone(a))
 }
-fn read(path: &Path) -> bool {
+fn read(path: &Path) -> std::io::Result<bool> {
+    std::fs::read(path).map(|_| is_surely_gone(path))
+}
+fn free(path: &Path) -> bool {
     std::fs::read(path).is_err() && is_surely_gone(path)
 }
 #[cfg(test)]
@@ -5978,8 +6009,17 @@ mod tests {
 ";
     let sources = [("a.rs".to_owned(), code_lines(text))];
     assert_eq!(
-        steps_judged_by_one_name(&sources),
-        ["a.rs:16", "a.rs:19", "a.rs:8", "a.rs:9"]
+        steps_judged_by_looks(&sources),
+        [
+            "a.rs:15 (let_else)",
+            "a.rs:18 (settled)",
+            "a.rs:21 (on_back)",
+            "a.rs:25 (finish)",
+            "a.rs:26 (finish)",
+            "a.rs:31 (back)",
+            "a.rs:34 (quick)",
+            "a.rs:4 (split_guard)",
+        ]
     );
 }
 

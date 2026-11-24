@@ -614,9 +614,10 @@ fn move_own_file(old: &Path, new: &Path) -> std::io::Result<()> {
     use crate::files::file_io::{put_file, remove_own, rename_never_over, sync_folder_of};
     #[cfg(test)]
     let renamed = match crate::files::file_io::MOVES_CROSS_DEVICES.get() {
-        true => Err(crate::files::file_io::StepError::new(
+        true => Err(crate::files::file_io::StepError::in_a_test(
             std::io::ErrorKind::CrossesDevices.into(),
             old,
+            new,
         )),
         // Glimt's own: the marks file, under the locks of both places.
         false => rename_never_over(old, new),

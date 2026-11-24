@@ -2308,7 +2308,7 @@ pub fn rename_step(a: &Path, b: &Path) -> Result<(), crate::files::file_io::Step
     if same_file_by_opening(a, b) {
         #[allow(clippy::disallowed_methods)] // a second name of the same file
         let removed = std::fs::remove_file(a);
-        return removed.map_err(|e| crate::files::file_io::StepError::new(e, a));
+        return removed.map_err(|e| crate::files::file_io::StepError::new(e, a, b));
     }
     crate::files::file_io::put_file(a, b, false)
 }
@@ -2316,16 +2316,15 @@ pub fn rename_step(a: &Path, b: &Path) -> Result<(), crate::files::file_io::Step
 /// Finishes a step from `a` to `b` that failed in a way that may have been done (a share that
 /// lost its answer), so that the file is at `b` alone. It may be at both names, one file under
 /// two, and then the name `a` goes (`rename_step`), or still only at `a`, and then it is moved.
-/// Returns `Ok` when nothing is left at `a` and the file is at `b`, and `CannotTell` otherwise,
-/// as a failed look tells nothing, and a file at neither name was lost on the way.
-pub fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
+/// Returns where the file is then: at `b` alone, at `a` alone, or neither, as a failed look
+/// tells nothing, and a file at neither name was lost on the way.
+pub fn finish_step(a: &Path, b: &Path) -> crate::files::file_io::StepLeft {
     // A step that failed again, also one that may have been done, is judged by sure looks at
-    // both names, so its error is not needed. Both are looked at, as `done_after_all` does,
-    // because a share may lose the file in a failed rename.
+    // both names (`StepError::where_the_file_is`), because a share may lose the file in a
+    // failed rename.
     match rename_step(a, b) {
-        Ok(()) => Ok(()),
-        Err(_) if is_surely_gone(a) && is_surely_there(b) => Ok(()),
-        Err(_) => Err(CannotTell),
+        Ok(()) => crate::files::file_io::StepLeft::AtNewName,
+        Err(e) => e.where_the_file_is(),
     }
 }
 
@@ -2829,11 +2828,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.jpg.xmp"), dir.join("b.jpg.xmp"));
-        assert!(super::finish_step(&a, &b).is_err());
+        use crate::files::file_io::StepLeft::{AtNewName, CannotTell};
+        assert_eq!(super::finish_step(&a, &b), CannotTell);
         std::fs::write(&b, "b").unwrap();
-        assert!(super::finish_step(&a, &b).is_ok());
+        assert_eq!(super::finish_step(&a, &b), AtNewName);
         std::fs::write(&a, "a").unwrap();
-        assert!(super::finish_step(&a, &b).is_err());
+        assert_eq!(super::finish_step(&a, &b), CannotTell);
         assert!(a.exists() && b.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
