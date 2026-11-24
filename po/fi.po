@@ -3921,6 +3921,10 @@ msgstr "{file} palautettiin, mutta sen sivutiedosto {side} ei ({e}), joten sivut
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} ei voinut seurata tiedostoa {file} ({e}), eikä {file} voinut palata ({error}), joten tiedosto on kohteessa {to} ja tämä sivutiedosto kohteessa {side}"
 
+#, fuzzy
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names"
+msgstr "{side} ei voinut seurata tiedostoa {file} ({e}), eikä {file} voinut palata ({error}), joten tiedosto on kohteessa {to}, ja tämä sivutiedosto voi olla kohteessa {side} tai kohteessa {at}, tai ei kummassakaan; tarkista molemmat nimet"
+
 #: src/files/file_io.rs
 #, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."

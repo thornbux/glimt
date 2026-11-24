@@ -4213,16 +4213,30 @@ fn follow_or_go_back(
     let to = to.display();
     let told = (not.failed.iter())
         .filter(|(side, at, e)| is_copy || !sidecar_where_the_file_is((side, at), e, false))
-        .map(|(side, _, e)| {
-            let side = side.display();
-            tf!(
-                "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}",
-                side,
-                file,
-                e,
-                error,
-                to
-            )
+        .map(|(side, at, e)| {
+            // A move that may have been done and could not be finished may have left the
+            // sidecar at either name, or lost it on the way.
+            let is_in_doubt = !is_copy && crate::files::file_io::may_have_been_done(e, side);
+            let (side, at) = (side.display(), at.display());
+            match is_in_doubt {
+                true => tf!(
+                    "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names",
+                    side,
+                    file,
+                    e,
+                    error,
+                    to,
+                    at
+                ),
+                false => tf!(
+                    "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}",
+                    side,
+                    file,
+                    e,
+                    error,
+                    to
+                ),
+            }
         })
         .chain(not.left_behind.iter().map(|l| l.told()))
         .collect();
@@ -5392,6 +5406,49 @@ mod tests {
                 false => assert!(told.is_empty(), "{told:?}"),
             }
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar whose move may have been done, and that no look can then find beside its file,
+    /// which could not go back, is told as being at either name or at neither. Before, it was
+    /// told as being at its old name, where it was not: here the share moved it and lost the
+    /// answer, and the look at its new name failed.
+    #[test]
+    fn a_sidecar_in_doubt_is_told_at_either_name() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT};
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-side-doubt-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("a.jpg"), "photo").unwrap();
+        std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
+        // Another file has taken the old name, so the photo cannot go back.
+        std::fs::write(from.join("a.jpg"), "another").unwrap();
+        let (side, at) = (from.join("a.jpg.xmp"), to.join("a.jpg.xmp"));
+        let photo = from.join("a.jpg");
+        let moving = std::collections::HashSet::from([&photo]);
+        ANSWER_LOST_AT.set(Some(side.clone()));
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![at.clone()])));
+        let result = super::follow_or_go_back(
+            (&photo, &to.join("a.jpg")),
+            false,
+            &moving,
+            (&mut Default::default(), None),
+        );
+        ANSWER_LOST_AT.set(None);
+        LOOKS_FAIL_ONCE_DONE_AT.set(None);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != at);
+        let Err((is_back, told)) = result else {
+            panic!("the sidecar followed")
+        };
+        assert!(!is_back, "{told:?}");
+        assert_eq!(std::fs::read_to_string(&at).unwrap(), "own");
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(told[0].contains("or at neither"), "{told:?}");
+        assert!(told[0].contains(&at.display().to_string()), "{told:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

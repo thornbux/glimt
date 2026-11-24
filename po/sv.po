@@ -3921,6 +3921,10 @@ msgstr "{file} flyttades tillbaka, men sidofilen {side} kunde inte ({e}), så si
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} kunde inte följa {file} ({e}), och {file} kunde inte flyttas tillbaka ({error}), så filen ligger i {to} och denna sidofil i {side}"
 
+#, fuzzy
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names"
+msgstr "{side} kunde inte följa {file} ({e}), och {file} kunde inte flyttas tillbaka ({error}), så filen ligger i {to}, och denna sidofil kan ligga i {side} eller i {at}, eller i ingen av dem; kontrollera båda namnen"
+
 #: src/files/file_io.rs
 #, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
