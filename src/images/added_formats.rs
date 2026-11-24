@@ -158,6 +158,8 @@ pub fn installed_formats() -> &'static [AddedFormat] {
 /// Makes `mb` megabytes the most memory an added format's program may take, from the setting
 /// `added_format_memory_mb`, at start and when it changes in Preferences.
 pub fn set_memory_limit(mb: usize) {
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(MEMORY_LIMIT_MB.load(Ordering::Relaxed) != mb);
     MEMORY_LIMIT_MB.store(mb, Ordering::Relaxed);
 }
 

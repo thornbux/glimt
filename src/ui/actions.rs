@@ -1722,7 +1722,10 @@ impl crate::App {
 /// Preferences. The settings hold them, and `USER_KEYS` holds the copy the key handling reads.
 /// Every change goes through this function, so the copy cannot fall behind the settings.
 pub(crate) fn use_user_keys(keys: &Keys) {
-    crate::support::threads::write_even_if_poisoned(&USER_KEYS).clone_from(&keys.0);
+    let mut in_effect = crate::support::threads::write_even_if_poisoned(&USER_KEYS);
+    #[cfg(test)]
+    crate::support::test_support::shared_setting_set(*in_effect != keys.0);
+    in_effect.clone_from(&keys.0);
 }
 
 /// Whether two shortcuts are the same keys. Not by `ctrl`: the defaults say Ctrl as `command`
@@ -1956,9 +1959,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-empty-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        // View → Filter and colour management are the process's. They are held from the colour
-        // tests while changed, and put back.
-        let held = (crate::images::colour::COLOUR_TEST.lock()).unwrap_or_else(|e| e.into_inner());
+        // View → Filter, colour management and the other settings that the whole process shares
+        // are held from the other tests while they are changed, and put back.
+        let held = crate::support::test_support::change_shared_settings();
         // A frame is drawn after each action, so every view and window it opens is drawn with
         // no file to show. The second round turns the toggles off again, so each view is also
         // drawn without the others.
@@ -1970,8 +1973,6 @@ mod tests {
                 frame(&mut app);
             }
         }
-        crate::images::colour::VIEW_FILTER.store(0, std::sync::atomic::Ordering::Relaxed);
-        crate::images::colour::COLOR_MANAGEMENT.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(held);
         std::fs::remove_dir_all(dir).unwrap();
     }
