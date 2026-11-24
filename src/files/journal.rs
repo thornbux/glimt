@@ -1750,6 +1750,18 @@ fn medium_of(folder: &Path, device: u64) -> Option<String> {
     }
 }
 
+/// Returns the id of this boot (`file_io::boot_id`). A test's boot is `b007`.
+fn boot_now() -> Option<&'static str> {
+    #[cfg(test)]
+    {
+        Some("b007")
+    }
+    #[cfg(not(test))]
+    {
+        crate::files::file_io::boot_id()
+    }
+}
+
 /// Returns the volume that `folder`, on the device `device`, is on
 /// (`file_io::volume_of_device`). A test gives it with `TEST_VOLUMES` instead, and gets `None`
 /// for a folder it gave none. It waits for the disk.
@@ -1831,9 +1843,13 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// cannot tell (#179, #266, #270). There the medium noted tells it, looked up afresh, which the
 /// kernel gives no other card in the same boot. It tells the card where no volume can be read,
 /// as in the Flatpak's sandbox, which has no /dev/disk/by-uuid (#305), or where an entry there
-/// could not be read (#306). Before, the device alone told it there, as in Glimt 0.96. Where no
-/// medium tells either (after a new boot, or before Linux 5.15), the log stays for a later start,
-/// with the marks of its files.
+/// could not be read (#306). Before, the device alone told it there, as in Glimt 0.96. Within
+/// one boot, the medium noted decides there. A medium noted in an earlier boot, or none noted
+/// (before Linux 5.15, or a log of Glimt 0.97), cannot tell, as the kernel's numbers start again
+/// at each boot, and a job killed by a power cut is read in a new boot. Where then no volume can
+/// be read either and no lasting inode tells the folder (FAT, exFAT, or a folder above the one
+/// noted), the device tells it, as in Glimt 0.97. Else such a log would stay for good, told at
+/// every start, and its files' marks would never follow them.
 fn is_on_the_volume_noted(
     folder: &Path,
     noted: &FolderNoted,
@@ -1858,10 +1874,19 @@ fn is_on_the_volume_noted(
     };
     // A disk whose volume was noted was told by its volume alone before, and is told now by its
     // medium alone, as its folders' inodes may be another stick's at the same port.
+    let is_of_another_boot = || {
+        let noted_boot = (noted.noted_medium.as_deref()).and_then(|m| m.rsplit_once(':'));
+        noted_boot.is_none_or(|(boot, _)| Some(boot) != boot_now())
+    };
+    let has_no_inode_to_tell = noted.noted_inode == 0 || inode.is_none();
+    let has_no_volumes = || noted.volumes_now.get_or_init(VolumesNow::read).is_none();
     let is_told = match noted.noted_volume {
         Some(_) => is_the_medium_noted(),
         None => {
-            is_the_inode_noted || !is_on_a_block_device(folder, device) || is_the_medium_noted()
+            is_the_inode_noted
+                || !is_on_a_block_device(folder, device)
+                || is_the_medium_noted()
+                || (has_no_inode_to_tell && is_of_another_boot() && has_no_volumes())
         }
     };
     match device == noted.noted_device && is_told {
@@ -5822,6 +5847,37 @@ mod tests {
             assert_eq!(let_go(found), 1);
             assert!(super::delete_jobs_cut_short(&logs).is_empty());
         }
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A killed delete on a FAT card, read where no volume can be read, as in the Flatpak, is
+    /// told by its device as in Glimt 0.97 when its medium was noted in an earlier boot, or not
+    /// at all, as in a log of 0.97. A job killed by a power cut is read in a new boot, where
+    /// the kernel numbers the cards again, so the medium cannot tell. Before, such a log stayed
+    /// for good, told at every start, and the marks of its files were never forgotten.
+    #[test]
+    fn a_killed_delete_on_a_fat_card_read_in_a_new_boot_is_told_by_its_device() {
+        let (dir, card, logs) = fat_card("start-fat-card-new-boot");
+        let (a, b) = (card.join("a.png"), card.join("b.png"));
+        std::fs::write(&b, "b").unwrap();
+        super::ON_A_BLOCK_DEVICE.with_borrow_mut(|on| on.push(card.clone()));
+        super::VOLUMES_UNREADABLE.set(true);
+        for medium_at_the_job in [Some("0ld-b007:1"), None] {
+            for medium_now in [Some("b007:1"), None] {
+                card_medium(&card, medium_at_the_job);
+                let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+                log.note(&[a.clone(), b.clone()]);
+                drop(log);
+                card_medium(&card, medium_now);
+                let found = super::delete_jobs_cut_short(&logs);
+                let what = format!("{medium_at_the_job:?} {medium_now:?}");
+                assert_eq!(found[0].1, std::slice::from_ref(&a), "{what}");
+                assert_eq!(let_go(found), 1);
+                assert!(super::delete_jobs_cut_short(&logs).is_empty(), "{what}");
+            }
+        }
+        super::VOLUMES_UNREADABLE.set(false);
         super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
         remove_fat_card(&dir, &card);
     }

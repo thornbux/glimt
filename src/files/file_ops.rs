@@ -3740,6 +3740,11 @@ fn rename_files_planned_in(
         .filter(|&(f, &p)| *f == xmp::sidecar(&photos_from[p]))
         .map(|(_, &p)| p)
         .collect();
+    // Whether step `k` renames a photo itself, not a sidecar, and one that had no sidecar.
+    let is_bare_photo_step = |k: usize| {
+        let j = k % from.len();
+        (j == 0 || photo[j - 1] != photo[j]) && !had_sidecar.contains(&photo[j])
+    };
     let mut folders = xmp::FolderIds::new();
     let mut lock_photo =
         |p: usize| xmp::lock_sidecars_among([&photos_from[p], &photos_to[p]], &mut folders);
@@ -3787,7 +3792,12 @@ fn rename_files_planned_in(
             locks.clear();
             let stuck = match may_be_done {
                 true => 1,
-                false => undo_photo_by_photo(&moves[..done], &photo_of_step, &mut lock_photo),
+                false => undo_photo_by_photo(
+                    &moves[..done],
+                    &photo_of_step,
+                    &is_bare_photo_step,
+                    &mut lock_photo,
+                ),
             };
             let (f, t) = (name(&from[j]), name(&to[j]));
             // When not all were put back (a share that stopped answering, say), the plan stays,
@@ -3901,10 +3911,15 @@ fn still_as_planned(
 
 /// Undoes the steps `done` of Rename Many, last first, as `journal::undo` does, with each
 /// photo's steps under the sidecar locks that `lock_photo` takes for it, as they were done.
-/// `photo_of_step` gives the photo of each step. Returns how many steps could not be undone.
+/// `photo_of_step` gives the photo of each step, and `is_bare_photo_step` whether a step renames
+/// a photo that had no sidecar when the renames were planned. Under the locks, each photo is
+/// checked again, as `still_as_planned` checks it on the way there: a sidecar that another
+/// window wrote at its new name after its locks were let go goes back with it. Returns how many
+/// steps could not be undone.
 fn undo_photo_by_photo(
     done: &[(PathBuf, PathBuf)],
     photo_of_step: &dyn Fn(usize) -> usize,
+    is_bare_photo_step: &dyn Fn(usize) -> bool,
     lock_photo: &mut dyn FnMut(usize) -> Vec<xmp::SidecarLock>,
 ) -> usize {
     let (mut end, mut left) = (done.len(), 0);
@@ -3915,10 +3930,45 @@ fn undo_photo_by_photo(
             start -= 1;
         }
         let _locks = lock_photo(p);
-        left += journal::undo(&done[start..end], end - start).1;
+        let photo_steps: Vec<&(PathBuf, PathBuf)> = (start..end)
+            .filter(|&k| is_bare_photo_step(k))
+            .map(|k| &done[k])
+            .collect();
+        let sidecar_went_back = match (photo_steps.first(), photo_steps.last()) {
+            (Some((before, _)), Some((_, now))) => unplanned_sidecar_goes_back(now, before),
+            _ => true,
+        };
+        // A sidecar that is not surely back keeps its photo under the new name, and the plan
+        // stays for the next start, which tells it. Had the sidecar's move been done after all,
+        // the next start puts the photo back beside it.
+        left += match sidecar_went_back {
+            true => journal::undo(&done[start..end], end - start).1,
+            false => end - start,
+        };
         end = start;
     }
     left
+}
+
+/// Moves the sidecar of the photo at `now` to the sidecar's name for `before`, the name that
+/// the photo's undo gives it back. The photo had no sidecar when its renames were planned, so a
+/// sidecar there was written by another window after the photo's locks were let go. Left
+/// behind, it would lose the photo its keywords and give them to the next file of the new name.
+/// Returns false when there is such a sidecar and it is not surely at its new name.
+fn unplanned_sidecar_goes_back(now: &Path, before: &Path) -> bool {
+    let own = xmp::sidecar(now);
+    let mut names = xmp::AdobeNames::default();
+    let sides = xmp::sidecars_moving_with(now, before, &HashSet::new(), &mut names);
+    match sides.into_iter().find(|(side, _)| *side == own) {
+        None => true,
+        Some((side, to)) => match journal::rename_step(&side, &to) {
+            Ok(()) => true,
+            Err(e) => matches!(
+                e.where_the_file_is(),
+                crate::files::file_io::StepLeft::AtNewName
+            ),
+        },
+    }
 }
 
 /// Keeps the `plan` of a Rename Many whose names were not all put back after the rename of `f`
@@ -4781,6 +4831,36 @@ mod tests {
             assert_eq!(std::fs::read_to_string(p(n)).unwrap(), text);
         }
         assert!(!p("c.jpg").exists() && !p("d.jpg").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar that another window wrote at a photo's new name, after Rename Many let go of
+    /// that photo's locks, goes back with the photo when a later photo stops the renames. Left
+    /// at the new name, it lost the photo its keywords and gave them to the next file of that
+    /// name.
+    #[test]
+    fn a_sidecar_written_at_a_new_name_goes_back_with_its_photo() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-rename-undo-sidecar-{}",
+            std::process::id()
+        ));
+        let (held, renaming) = rename_while_b_is_locked(&dir, false);
+        let p = |n: &str| dir.join(n);
+        // Another window's keyword for c.jpg, whose lock is free, and one for b.jpg, which
+        // stops the renames.
+        std::fs::write(p("c.jpg.xmp"), "c's").unwrap();
+        std::fs::write(p("b.jpg.xmp"), "b's").unwrap();
+        drop(held);
+        let refused = renaming.join().unwrap().unwrap_err();
+        assert!(refused.contains("nothing renamed"), "{refused}");
+        for (n, text) in [
+            ("a.jpg", "a.jpg"),
+            ("a.jpg.xmp", "c's"),
+            ("b.jpg.xmp", "b's"),
+        ] {
+            assert_eq!(std::fs::read_to_string(p(n)).unwrap(), text);
+        }
+        assert!(!p("c.jpg").exists() && !p("c.jpg.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

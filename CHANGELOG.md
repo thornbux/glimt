@@ -34,7 +34,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the Flatpak or when an entry of /dev/disk/by-uuid cannot be read, so the marks of the other
   card's photos are no longer forgotten. The card is told by the number the kernel gave it
   when it was put in, and where nothing tells, the job waits for a later start with its marks
-  (#305, #306).
+  (#305, #306). That number holds only until the computer restarts: after a restart, such as
+  after a power cut, a FAT or exFAT card is told by its device alone there, as before.
 - A WebDAV folder mounted with davfs2, an Azure container mounted with blobfuse2 and a phone
   mounted with go-mtpfs now count as network folders: Delete no longer offers the trash there,
   and their sizes are no longer summed over the network (#257).

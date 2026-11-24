@@ -212,8 +212,12 @@ A log no window holds locked was cut short. For each step, the start looks at th
   number no other gets in the same boot. Glimt 0.97 told such a folder by its device alone where
   no volume could be read, in the Flatpak's sandbox or after an entry of `/dev/disk/by-uuid`
   could not be read, and another card in the same reader passed for the one noted (#305,
-  #306). Without a medium that tells (after a new boot, or before Linux 5.15), the log stays
-  for a later start, with its files' marks. A share's or tmpfs's device number
+  #306). The medium decides only within the boot that noted it, as the kernel's numbers start
+  again at each boot. A medium noted in an earlier boot, as for a job killed by a power cut, or
+  none noted (before Linux 5.15, or a log of Glimt 0.97), cannot tell. Where then no volume can
+  be read either and no lasting inode tells the folder, the device tells it, as in Glimt 0.97,
+  so that such a log does not stay for good. Otherwise, without a medium that tells, the log
+  stays for a later start, with its files' marks. A share's or tmpfs's device number
   is its own, and is compared as before. One function, `journal::is_on_the_volume_noted`, answers whether a
   folder is on the disk noted (surely, surely not, or cannot tell), and
   `journal::is_the_folder_noted`, on top of it, whether it is the folder noted
