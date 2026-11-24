@@ -1137,7 +1137,7 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
     // never tell, with the marks of its files at their old names.
     if is_any_kept {
         crate::files::file_io::save_failed(crate::tf!(
-            "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start.",
+            "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start.",
             folder = dir.display()
         ));
     }

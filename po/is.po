@@ -4115,5 +4115,5 @@ msgstr "Merkjaskrá Glimt 0.95 eða eldri er skilin eftir í {old}, því {new} 
 
 #: src/files/journal.rs
 #, fuzzy
-msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
-msgstr "{folder} geymir skrár verka sem Glimt stöðvaðist í og þessi ræsing gat ekki lokið, því hún gat ekki skoðað skrár þeirra eða greint kort þeirra eða disk frá öðrum. Þær eru geymdar, með merkjum og stjörnum skránna, til síðari ræsingar."
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} geymir skrár verka sem Glimt stöðvaðist í og þessi ræsing gat ekki lokið enn. Þær eru geymdar, með merkjum og stjörnum skránna, til síðari ræsingar."
