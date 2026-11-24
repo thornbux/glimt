@@ -485,6 +485,19 @@ pub fn move_old_marks_file() -> Option<String> {
 /// there, the new one is used and the old one is left as it is, unless both hold the same
 /// marks. A move that failed is told, and the old file is used where it is.
 fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
+    move_marks_file_by(old, new, |file| {
+        let m = std::fs::metadata(file).map_err(|e| e.to_string())?;
+        Ok(crate::images::save::file_id_from_metadata(file, &m))
+    })
+}
+
+/// `move_marks_file`, which tells two files apart by `identity`, the look at a file that
+/// returns what tells it from every other, or why the look failed.
+fn move_marks_file_by(
+    old: &Path,
+    new: &Path,
+    identity: impl Fn(&Path) -> Result<crate::images::save::FileId, String>,
+) -> MarksMove {
     use crate::files::file_io::{is_surely_gone, lock_or_tell};
     // One file under both names has nothing to move.
     if is_surely_gone(old) || is_one_file(old, new) {
@@ -516,11 +529,17 @@ fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
     // A new file that could not be looked at counts as there, so the old one is left alone.
     if !is_surely_gone(new) {
         // The same marks under both names, as a move to another disk that was cut short or a
-        // backup copied back leaves them, are one file, and the old name becomes the link.
+        // backup copied back leaves them, are one file, and the old name becomes the link. It
+        // goes only when both are surely two files: after a failed look they may be one file
+        // through a linked folder, whose one name would go with every mark.
         let read = crate::images::decode::read_limited;
         if read(old).is_ok_and(|marks| read(new).is_ok_and(|other| other == marks)) {
-            return match crate::files::file_io::remove_own(old) {
-                Ok(()) => link_old_name(old, new),
+            return match identity(old).and_then(|a| Ok(a != identity(new)?)) {
+                Ok(true) => match crate::files::file_io::remove_own(old) {
+                    Ok(()) => link_old_name(old, new),
+                    Err(e) => failed(&e),
+                },
+                Ok(false) => MarksMove::Done,
                 Err(e) => failed(&e),
             };
         }
@@ -1189,6 +1208,37 @@ mod tests {
             assert_eq!(move_marks_file(&old, &file), MarksMove::Done);
             assert_eq!(std::fs::read_to_string(&file).unwrap(), line);
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The same marks under both names lose the old name only when both are surely two files.
+    /// When a look at either fails, as on a share for a moment, they may be one file through a
+    /// linked folder, whose one name would go. Both are kept, and the user is told.
+    #[test]
+    fn the_same_marks_under_both_names_are_kept_when_a_look_fails() {
+        use super::{MarksMove, move_marks_file_by};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-both-same-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (old, new) = (dir.join("state/marks"), dir.join("data/glimt/marks"));
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        let line = "1\t3\t/photos/a.jpg\n";
+        std::fs::write(&old, line).unwrap();
+        std::fs::write(&new, line).unwrap();
+        crate::files::file_io::take_saves_failed();
+        let failing = |file: &std::path::Path| match file.starts_with(dir.join("state")) {
+            true => Err("the share did not answer".to_owned()),
+            false => Ok(Ok((1, 2))),
+        };
+        assert_eq!(move_marks_file_by(&old, &new, failing), MarksMove::Failed);
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), line);
+        assert_eq!(std::fs::read_to_string(&new).unwrap(), line);
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(
+            told.len() == 1 && told[0].contains("the share did not answer"),
+            "{told:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
