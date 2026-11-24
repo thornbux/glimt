@@ -5504,20 +5504,20 @@ section "Glimt killed (kill -9) during the Undo of a Move: every photo under a n
 for v in new old; do
     as_version $v
     mkdir -p $XDG_STATE_HOME/glimt
-    # 200 photos of 4 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
+    # 100 photos of 10 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
     # the disk under /tmp and then back by the Undo, each copied and then unlinked; the Undo is
     # killed after the tenth is back. The photos start as hard links to one file, but come back
-    # as 200 copies, which must all fit in /dev/shm. With 10 MB photos the 108th copy filled the
-    # 1 GiB that run.sh gives it, the Undo ended there with its log removed, and whether the kill
-    # came before that end was a race.
+    # as 100 copies, which must all fit in /dev/shm. 200 photos of 10 MB filled the 1 GiB that
+    # run.sh gives it at the 108th, and the Undo ended there with its log removed; 200 of 4 MB
+    # all came back before the kill. Either way the kill missed the middle of the Undo.
     d=/dev/shm/undo-killed-$v to=/tmp/undo-killed-to-$v
     rm -rf $d $to $XDG_STATE_HOME/glimt/jobs; mkdir -p $d $to
-    head -c 4000000 /dev/urandom >$d/001.jpg
-    for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
-    room=$(( $(df -B1 --output=avail /dev/shm | tail -1) > 200 * $(stat -c %s $d/001.jpg) + 2000000 ))
+    head -c 10000000 /dev/urandom >$d/001.jpg
+    for i in $(seq -w 2 100); do ln $d/001.jpg $d/$i.jpg; done
+    room=$(( $(df -B1 --output=avail /dev/shm | tail -1) > 100 * $(stat -c %s $d/001.jpg) + 2000000 ))
     [ $v = new ] && expect "killed during the Undo of a Move: every photo fits back in /dev/shm" "$room" 1
-    for i in $(seq -w 1 200); do echo "sidecar $i" >$d/$i.jpg.xmp; done
-    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
+    for i in $(seq -w 1 100); do echo "sidecar $i" >$d/$i.jpg.xmp; done
+    for i in $(seq -w 1 100); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
     config
     start $d
     sleep 2
@@ -5525,10 +5525,12 @@ for v in new old; do
     answer $to
     key ctrl+m
     # The Move is over when its log is gone and the stars are at the new names.
-    until_ok "[ \$(ls $to | grep -c 'jpg\$') = 200 ] && [ -z \"\$(find $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null)\" ] && [ \$(grep -c '$to/' $MARKS) = 200 ]" 120
+    until_ok "[ \$(ls $to | grep -c 'jpg\$') = 100 ] && [ -z \"\$(find $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null)\" ] && [ \$(grep -c '$to/' $MARKS) = 100 ]" 120
     sleep 1
     key ctrl+z
-    for i in $(seq 400); do [ "$(ls $d | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.05; done
+    # Looked at every 10 ms for up to a minute, as an Undo that starts late under the load of the
+    # other parts must still be killed in its middle, not after it ended.
+    for i in $(seq 6000); do [ "$(ls $d | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.01; done
     kill -9 $GPID; wait $GPID 2>/dev/null
     back=$(ls $d | grep -c 'jpg$')
     logged=$(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -5542,7 +5544,7 @@ for line in open(marks):
     if len(fields) == 3:
         stars[fields[2]] = fields[1]
 named = beside = starred = 0
-for i in range(1, 201):
+for i in range(1, 101):
     name = "%03d.jpg" % i
     places = [p for p in (d, to) if os.path.isfile(f"{p}/{name}")]
     named += bool(places)
@@ -5557,11 +5559,12 @@ PY
     if [ $v = new ]; then
         expect "killed during the Undo of a Move: its log there at the kill" "$logged" 1
         expect "killed during the Undo of a Move: every photo under a name, its sidecar beside it, its stars on it, none at a name left" \
-            "$got" "200 200 200 0"
+            "$got" "100 100 100 0"
         expect "killed during the Undo of a Move: the next start leaves no log behind" "$logs_left" 0
         # An Undo that never started, or that ended before the kill, passes the lines above too.
         expect "killed in the middle of the Undo" \
-            "$([ $back -gt 0 ] && [ $back -lt 200 ] && echo yes)" yes
+            "$([ $back -gt 0 ] && [ $back -lt 100 ] && echo yes)" yes
+        note "new: $back back when killed"
     else note "old: named, sidecar beside, starred, left: $got, logs $logged $logs_left ($back back when killed)"; fi
 done
 
