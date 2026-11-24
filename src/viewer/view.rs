@@ -2303,6 +2303,8 @@ pub(crate) fn spawn_decoders(
         ctx.clone(),
         awaited.clone(),
     );
+    // How many decoders wait at the gate.
+    let at_the_gate = Arc::new(AtomicUsize::new(0));
     crate::support::threads::spawn_worker_pool(
         workers,
         STUCK_AFTER,
@@ -2326,14 +2328,22 @@ pub(crate) fn spawn_decoders(
                 is_wanted(&kept, n, &path, full_resolution)
             };
             // An image read ahead lets the images awaited go first. It is judged before the
-            // wait, during it and after it, as the user may move past it meanwhile.
-            let turn = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
-                .before_work_nobody_waits_for(&path, || judge().0);
+            // wait, during it and after it, as the user may move past it meanwhile. The last
+            // decoder does not wait while every other one waits at the gate, as the image
+            // awaited may be behind it in the queue, and no decoder would be left to read it.
+            // Before, with more images read ahead than decoders, every decoder waited at the
+            // gate, and the image awaited waited behind them for seconds.
+            let others_at_the_gate = at_the_gate.fetch_add(1, Ordering::SeqCst);
+            let turn = (others_at_the_gate + 1 < workers).then(|| {
+                crate::model::listing::ReadsFirst::for_files_anywhere(&awaited)
+                    .before_work_nobody_waits_for(&path, || judge().0)
+            });
+            at_the_gate.fetch_sub(1, Ordering::SeqCst);
             let (wanted, is_shown) = judge();
             // The shown image takes its bytes of the decodes' budget before the thumbnails
             // and the images read ahead.
             crate::images::decode::let_this_thread_go_first(is_shown);
-            if turn.is_none() || !wanted {
+            if turn.as_ref().is_some_and(Option::is_none) || !wanted {
                 let _ = done_tx.send(Decoded {
                     rotated: false,
                     path,
@@ -3036,9 +3046,10 @@ mod tests {
             crate::model::listing::ImagesAwaited::default(),
         );
         awaited.set(vec![dir.join("shown.jpg")]);
+        // Two decoders, as the last one does not wait at the gate.
         let (jobs, done) = super::spawn_decoders(
             &eframe::egui::Context::default(),
-            1,
+            2,
             (&kept, &awaited),
             &Arc::new(AtomicUsize::new(1)),
             &Arc::new(AtomicBool::new(true)),
@@ -3074,6 +3085,57 @@ mod tests {
             passed.elapsed() < Duration::from_secs(1),
             "{:?}",
             passed.elapsed()
+        );
+        test_mount(&dir, None);
+    }
+
+    /// On a share, the last decoder does not wait at the gate while every other one waits
+    /// there for the image awaited, so a decoder is left for that image. Before, with more
+    /// images read ahead than decoders (the Fastest preset), every decoder waited at the gate,
+    /// and the image awaited waited behind them in the queue for up to five seconds (#295).
+    #[test]
+    fn a_decoder_is_left_for_the_image_awaited() {
+        use crate::files::file_ops::test_mount;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-decoder-left-{}", std::process::id()));
+        test_mount(&dir, Some("cifs"));
+        let kept = ["shown.jpg", "next.jpg", "after.jpg"].map(|name| dir.join(name));
+        let (kept, awaited) = (
+            Arc::new(Mutex::new(kept.to_vec())),
+            crate::model::listing::ImagesAwaited::default(),
+        );
+        awaited.set(vec![dir.join("shown.jpg")]);
+        let (jobs, done) = super::spawn_decoders(
+            &eframe::egui::Context::default(),
+            2,
+            (&kept, &awaited),
+            &Arc::new(AtomicUsize::new(1)),
+            &Arc::new(AtomicBool::new(true)),
+        );
+        let job = |name: &str| super::DecodeJob {
+            full_resolution: false,
+            path: dir.join(name),
+            page: crate::images::decode::PageNumber(0),
+            request_number: 1,
+            max_box: [100, 100],
+        };
+        jobs.send(job("next.jpg")).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(done.try_recv().is_err(), "it waits for the image awaited");
+        let began = Instant::now();
+        jobs.send(job("after.jpg")).unwrap();
+        jobs.send(job("shown.jpg")).unwrap();
+        for _ in 0..2 {
+            let answer = done.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert!(answer.result.is_some(), "{:?}", answer.path);
+        }
+        assert!(
+            began.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            began.elapsed()
         );
         test_mount(&dir, None);
     }

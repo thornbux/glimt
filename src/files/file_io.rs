@@ -1467,6 +1467,25 @@ pub(crate) fn mounted_type(path: &Path) -> Option<String> {
     mounted_type_in(&mounts, path)
 }
 
+/// Returns the place of the mount that holds `path`, as /proc/self/mountinfo names it, which
+/// the work on one share has in common. gvfs serves every share through one mount, with a
+/// folder for each share in it, so a path there is in the folder of its share. Returns `None`
+/// when that cannot be read. The path is taken as it is, as in `file_system_type`.
+pub(crate) fn mount_point_of(path: &Path) -> Option<PathBuf> {
+    let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").ok()?;
+    mount_point_in(&mounts, path)
+}
+
+/// Returns the place of the mount in `mountinfo` that holds `path`, as `mount_point_of` does.
+fn mount_point_in(mountinfo: &[u8], path: &Path) -> Option<PathBuf> {
+    let mounts = mounts_in(mountinfo);
+    let mount = mount_holding(&mounts, path)?;
+    let share = (mount.kind == b"fuse.gvfsd-fuse")
+        .then(|| path.strip_prefix(&mount.at).ok()?.components().next())
+        .flatten();
+    Some(share.map_or_else(|| mount.at.clone(), |share| mount.at.join(share)))
+}
+
 /// Returns the type of the mount in `mountinfo` that holds `path`, as `mounted_type` does.
 fn mounted_type_in(mountinfo: &[u8], path: &Path) -> Option<String> {
     file_system_type_in(mountinfo, path, |_| None)
@@ -3356,6 +3375,7 @@ mod tests {
             let path = std::path::Path::new("/media/a b/x.jpg");
             super::file_system_type_in(&bytes, path, |_| Some("exfat".into()));
             super::is_mounted_whole_in(&bytes, path);
+            super::mount_point_in(&bytes, path);
         }
         for bytes in crate::support::test_support::broken(b"S:disk/by-uuid/1\nE:ID_FS_TYPE=exfat\n")
         {
@@ -3936,6 +3956,27 @@ mod tests {
         assert_eq!(below("/home/u/Pictures"), ["cifs"]);
         assert_eq!(below("/home/u/Pictures/nas"), Vec::<String>::new());
         assert_eq!(below("/home"), ["cifs", "ext4", "fuse.sshfs"]);
+    }
+
+    /// A path is in the mount that holds it, and on gvfs, which serves every share through one
+    /// mount, in the folder of its share, so that each share has a turn of its own.
+    #[test]
+    fn finds_the_mount_point_of_a_path() {
+        let mounts = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+            2 1 0:50 / /home/u/Pictures/nas rw - cifs //nas/p rw\n\
+            3 1 0:51 / /run/user/1000/gvfs rw - fuse.gvfsd-fuse gvfsd-fuse rw\n";
+        let at = |path: &str| super::mount_point_in(mounts, std::path::Path::new(path));
+        assert_eq!(at("/home/u/Pictures/a.jpg"), Some("/".into()));
+        let nas = Some("/home/u/Pictures/nas".into());
+        assert_eq!(at("/home/u/Pictures/nas/b/a.jpg"), nas);
+        assert_eq!(
+            at("/run/user/1000/gvfs/smb-share:server=n,share=p/a.jpg"),
+            Some("/run/user/1000/gvfs/smb-share:server=n,share=p".into())
+        );
+        assert_eq!(
+            at("/run/user/1000/gvfs"),
+            Some("/run/user/1000/gvfs".into())
+        );
     }
 
     /// A listing of files in several folders parses the mount table once, however many folders

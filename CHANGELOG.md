@@ -21,6 +21,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The move of the marks file at start no longer removes its old name when a look at either name
   fails, as on a share for a moment. Through a linked folder both names may be one file, and
   every mark was lost. Both are kept now, and Glimt says so.
+- A share that stopped answering no longer holds up the background work (thumbnails, images
+  read ahead, sizes) on another share for five seconds: each share now takes its turns on its
+  own, also each smb:// share that GNOME Files mounts. With Include Subfolders, the local
+  thumbnails of a tree no longer wait behind a stalled share mounted inside it (#292, #264).
+- On a share, the work waiting for its turn takes it as soon as it is free, no longer up to
+  20 ms later (#293).
+- With the Fastest preset, the image the window waits for on a share no longer waits up to
+  five seconds behind the images read ahead: one decoder is always left for it (#295).
 
 ## [0.97.0] - 2026-11-24
 
