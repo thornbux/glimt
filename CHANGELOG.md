@@ -12,6 +12,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   on the empty part after the folders, or Tab to it, turns the path into the text field to
   type a path in, as before; Esc turns it back.
 
+### Fixed
+
+- Glimt no longer hangs at start when `$XDG_STATE_HOME` and `$XDG_DATA_HOME` are one folder and
+  the marks file cannot be looked at, and every window now locks the marks file by the file its
+  name leads to, also through the link left at its old name, so two windows never write it
+  under different locks.
+- The move of the marks file at start no longer removes its old name when a look at either name
+  fails, as on a share for a moment. Through a linked folder both names may be one file, and
+  every mark was lost. Both are kept now, and Glimt says so.
+
 ## [0.97.0] - 2026-11-24
 
 ### Fixed
