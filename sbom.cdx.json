@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:cb93eb35-88f5-5b91-9ea4-9ddb26d5b791",
+ "serialNumber": "urn:uuid:f031335b-75eb-5b80-8df2-7206ecc38be4",
  "version": 1,
  "metadata": {
   "tools": {
@@ -235,20 +235,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/ahash@0.8.12",
+   "bom-ref": "pkg:cargo/ahash@0.8.13",
    "name": "ahash",
-   "version": "0.8.12",
+   "version": "0.8.13",
    "description": "A non-cryptographic hash function using AES-NI for high performance",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/ahash@0.8.12",
+   "purl": "pkg:cargo/ahash@0.8.13",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
+     "content": "0fca89247609239eeb6915e6991111866b92d7b31025e69302bbf430cc4d2c38"
     }
    ],
    "externalReferences": [
@@ -1135,20 +1135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/cc@1.11.1",
+   "bom-ref": "pkg:cargo/cc@1.11.3",
    "name": "cc",
-   "version": "1.11.1",
+   "version": "1.11.3",
    "description": "A build-time dependency for Cargo build scripts to assist in invoking the native\nC compiler to compile native C code into a static archive to be linked into Rust\ncode.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/cc@1.11.1",
+   "purl": "pkg:cargo/cc@1.11.3",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
+     "content": "02f0e023adb368345ce0ca6cdfc0f24a06554468d0e8503e14a0841de79bfa69"
     }
    ],
    "externalReferences": [
@@ -1310,20 +1310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/crc32fast@1.5.4",
+   "bom-ref": "pkg:cargo/crc32fast@1.5.6",
    "name": "crc32fast",
-   "version": "1.5.4",
+   "version": "1.5.6",
    "description": "Fast, SIMD-accelerated CRC32 (IEEE) checksum computation",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/crc32fast@1.5.4",
+   "purl": "pkg:cargo/crc32fast@1.5.6",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "5f97d3416d5337d15c4b0d78c8c91df922ca143f57ec20e2d1c188333047ef04"
+     "content": "fd9ae8fcb3ea71b0b26338b4ffb13006bb175de8fd07921089a906ce7e5e6945"
     }
    ],
    "externalReferences": [
@@ -1860,20 +1860,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/errno@0.3.14",
+   "bom-ref": "pkg:cargo/errno@0.3.15",
    "name": "errno",
-   "version": "0.3.14",
+   "version": "0.3.15",
    "description": "Cross-platform interface to the `errno` variable.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/errno@0.3.14",
+   "purl": "pkg:cargo/errno@0.3.15",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+     "content": "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
     }
    ],
    "externalReferences": [
@@ -1960,20 +1960,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/fast_image_resize@6.1.0",
+   "bom-ref": "pkg:cargo/fast_image_resize@6.2.0",
    "name": "fast_image_resize",
-   "version": "6.1.0",
+   "version": "6.2.0",
    "description": "Library for fast image resizing with using of SIMD instructions",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/fast_image_resize@6.1.0",
+   "purl": "pkg:cargo/fast_image_resize@6.2.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "e9c50201dc184ba6553da1695aac20a042efffbe2d84542cee31917c86c3ab1e"
+     "content": "f056f6b866ac980e0ebf973c6579170fa03285cb79d448435bd4d8fa2a74b511"
     }
    ],
    "externalReferences": [
@@ -2110,20 +2110,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/fixedbitset@0.5.7",
+   "bom-ref": "pkg:cargo/fixedbitset@0.5.9",
    "name": "fixedbitset",
-   "version": "0.5.7",
+   "version": "0.5.9",
    "description": "FixedBitSet is a simple bitset collection",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/fixedbitset@0.5.7",
+   "purl": "pkg:cargo/fixedbitset@0.5.9",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+     "content": "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
     }
    ],
    "externalReferences": [
@@ -2135,20 +2135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/flate2@1.1.10",
+   "bom-ref": "pkg:cargo/flate2@1.1.11",
    "name": "flate2",
-   "version": "1.1.10",
+   "version": "1.1.11",
    "description": "DEFLATE compression and decompression exposed as Read/BufRead/Write streams.\nSupports miniz_oxide and multiple zlib implementations. Supports zlib, gzip,\nand raw deflate streams.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/flate2@1.1.10",
+   "purl": "pkg:cargo/flate2@1.1.11",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
+     "content": "626d4928326b646e70f65ed36fc7cf9f206bdb68a0019ee7c6b4709da4e084c4"
     }
    ],
    "externalReferences": [
@@ -2485,20 +2485,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/getrandom@0.3.4",
+   "bom-ref": "pkg:cargo/getrandom@0.4.3",
    "name": "getrandom",
-   "version": "0.3.4",
+   "version": "0.4.3",
    "description": "A small cross-platform library for retrieving random data from system source",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/getrandom@0.3.4",
+   "purl": "pkg:cargo/getrandom@0.4.3",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
+     "content": "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
     }
    ],
    "externalReferences": [
@@ -2810,20 +2810,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/hashbrown@0.17.1",
+   "bom-ref": "pkg:cargo/hashbrown@0.17.2",
    "name": "hashbrown",
-   "version": "0.17.1",
+   "version": "0.17.2",
    "description": "A Rust port of Google's SwissTable hash map",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/hashbrown@0.17.1",
+   "purl": "pkg:cargo/hashbrown@0.17.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+     "content": "735eaa21a6a5ffb2e84362faaeb90c05ba8e19797ca30428478cb6ea3a4921bc"
     }
    ],
    "externalReferences": [
@@ -3760,20 +3760,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/naga-types@30.0.1",
+   "bom-ref": "pkg:cargo/naga-types@30.0.2",
    "name": "naga-types",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Common types for naga and wgpu",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/naga-types@30.0.1",
+   "purl": "pkg:cargo/naga-types@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "590afbf58a6f4f62873cd5cff4468061844bafa1cdf399cc954537c22d768d49"
+     "content": "14474170feb673cfb18b3565111a9869797cc1d290fb9ec969c53f5e1e231c6d"
     }
    ],
    "externalReferences": [
@@ -3785,20 +3785,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/naga@30.0.1",
+   "bom-ref": "pkg:cargo/naga@30.0.2",
    "name": "naga",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Shader translator and validator. Part of the wgpu project",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/naga@30.0.1",
+   "purl": "pkg:cargo/naga@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "a616d2fb8c89516ac2723a581f69d6c18576046bed761bd6b305e5618e6ae130"
+     "content": "fd0dd362bf26c0ffdd143df6da66a25d287e196eff482f117771010b207ad163"
     }
    ],
    "externalReferences": [
@@ -4260,20 +4260,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/pin-project-lite@0.2.17",
+   "bom-ref": "pkg:cargo/pin-project-lite@0.2.18",
    "name": "pin-project-lite",
-   "version": "0.2.17",
+   "version": "0.2.18",
    "description": "A lightweight version of pin-project written with declarative macros.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/pin-project-lite@0.2.17",
+   "purl": "pkg:cargo/pin-project-lite@0.2.18",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+     "content": "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
     }
    ],
    "externalReferences": [
@@ -4660,20 +4660,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/regex-automata@0.4.18",
+   "bom-ref": "pkg:cargo/regex-automata@0.4.19",
    "name": "regex-automata",
-   "version": "0.4.18",
+   "version": "0.4.19",
    "description": "Automata construction and matching using regular expressions.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/regex-automata@0.4.18",
+   "purl": "pkg:cargo/regex-automata@0.4.19",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+     "content": "41d60ef07df457506a0a1a2073112eb4aae5733dbd2813c3da77d1b0fd441158"
     }
    ],
    "externalReferences": [
@@ -4685,20 +4685,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/regex-syntax@0.8.11",
+   "bom-ref": "pkg:cargo/regex-syntax@0.8.12",
    "name": "regex-syntax",
-   "version": "0.8.11",
+   "version": "0.8.12",
    "description": "A regular expression parser.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/regex-syntax@0.8.11",
+   "purl": "pkg:cargo/regex-syntax@0.8.12",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+     "content": "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
     }
    ],
    "externalReferences": [
@@ -4710,20 +4710,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/regex@1.13.1",
+   "bom-ref": "pkg:cargo/regex@1.13.2",
    "name": "regex",
-   "version": "1.13.1",
+   "version": "1.13.2",
    "description": "An implementation of regular expressions for Rust. This implementation uses\nfinite automata and guarantees linear time matching on all inputs.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/regex@1.13.1",
+   "purl": "pkg:cargo/regex@1.13.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+     "content": "9807af0e638c12e753aa1b4e601791bf2a8f71274023c8bbeec12fc149950857"
     }
    ],
    "externalReferences": [
@@ -5360,26 +5360,26 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/smallvec@1.16.4",
+   "bom-ref": "pkg:cargo/smallvec@1.16.6",
    "name": "smallvec",
-   "version": "1.16.4",
+   "version": "1.16.6",
    "description": "'Small vector' optimization: store up to a small number of items on the stack",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/smallvec@1.16.4",
+   "purl": "pkg:cargo/smallvec@1.16.6",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
+     "content": "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
     }
    ],
    "externalReferences": [
     {
      "type": "vcs",
-     "url": "https://github.com/servo/rust-smallvec"
+     "url": "https://github.com/smallvec/smallvec"
     }
    ]
   },
@@ -5585,20 +5585,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/syn@3.0.9",
+   "bom-ref": "pkg:cargo/syn@3.0.10",
    "name": "syn",
-   "version": "3.0.9",
+   "version": "3.0.10",
    "description": "Parser for Rust source code",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/syn@3.0.9",
+   "purl": "pkg:cargo/syn@3.0.10",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
+     "content": "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
     }
    ],
    "externalReferences": [
@@ -5860,20 +5860,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "bom-ref": "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
    "name": "toml_datetime",
-   "version": "1.1.2+spec-1.1.0",
+   "version": "1.1.3+spec-1.1.0",
    "description": "A TOML-compatible datetime type",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "purl": "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "2b86d767906c6c42421dcba507eb9d203e779497710a47782a224bb871653053"
+     "content": "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
     }
    ],
    "externalReferences": [
@@ -5885,20 +5885,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
+   "bom-ref": "pkg:cargo/toml_edit@0.25.20+spec-1.1.0",
    "name": "toml_edit",
-   "version": "0.25.18+spec-1.1.0",
+   "version": "0.25.20+spec-1.1.0",
    "description": "Yet another format-preserving TOML parser.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
+   "purl": "pkg:cargo/toml_edit@0.25.20+spec-1.1.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "1ec6e78bd70db9420d8d212fa9dc97f116448a1ceff5d00eabb991d407e21396"
+     "content": "e76360e201d6dbd6583e17795ba71a88f47365a9139c8450a7979c32303b8e73"
     }
    ],
    "externalReferences": [
@@ -5910,20 +5910,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+   "bom-ref": "pkg:cargo/toml_parser@1.1.6+spec-1.1.0",
    "name": "toml_parser",
-   "version": "1.1.5+spec-1.1.0",
+   "version": "1.1.6+spec-1.1.0",
    "description": "Yet another format-preserving TOML parser.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+   "purl": "pkg:cargo/toml_parser@1.1.6+spec-1.1.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
+     "content": "e6769c452d71ba30696c6b37770c439a9cc9110f47f7d5cdbeda79840ef5ea31"
     }
    ],
    "externalReferences": [
@@ -6310,20 +6310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/uuid@1.29.0",
+   "bom-ref": "pkg:cargo/uuid@1.29.3",
    "name": "uuid",
-   "version": "1.29.0",
+   "version": "1.29.3",
    "description": "A library to generate and parse UUIDs.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/uuid@1.29.0",
+   "purl": "pkg:cargo/uuid@1.29.3",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+     "content": "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
     }
    ],
    "externalReferences": [
@@ -6735,20 +6735,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.1",
+   "bom-ref": "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.2",
    "name": "wgpu-core-deps-windows-linux-android",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Feature unification helper crate for the Windows/Linux/Android platforms",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.1",
+   "purl": "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "7586165fd5f6d881cb9ce4bb71f40d6caab2c0f1837e3fc1d9788a197fb6004f"
+     "content": "1331b08fa2362c5d454eccc4448e6e4f01eccfea569a00e310adbfc4415f2bdc"
     }
    ],
    "externalReferences": [
@@ -6760,20 +6760,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/wgpu-core@30.0.1",
+   "bom-ref": "pkg:cargo/wgpu-core@30.0.2",
    "name": "wgpu-core",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Core implementation logic of wgpu, the cross-platform, safe, pure-rust graphics API",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/wgpu-core@30.0.1",
+   "purl": "pkg:cargo/wgpu-core@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "14c018fce9b6270aa203c2fdd56f3cce996713534bd757e4ea58c8560b121f14"
+     "content": "ad661da2ee99f208c30090b585284b2ab5b8bf2358ddf2d2215592808ec62f1a"
     }
    ],
    "externalReferences": [
@@ -6785,20 +6785,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/wgpu-hal@30.0.1",
+   "bom-ref": "pkg:cargo/wgpu-hal@30.0.2",
    "name": "wgpu-hal",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Hardware abstraction layer for wgpu, the cross-platform, safe, pure-rust graphics API",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/wgpu-hal@30.0.1",
+   "purl": "pkg:cargo/wgpu-hal@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "b6b7fb58561a792bc237628ba0792e332de418fefe145f13b5ed8201e6d52f58"
+     "content": "a57452fe453658e141aafdb09de1028afa498805fab518238ddf372a518813ff"
     }
    ],
    "externalReferences": [
@@ -6810,20 +6810,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/wgpu-naga-bridge@30.0.1",
+   "bom-ref": "pkg:cargo/wgpu-naga-bridge@30.0.2",
    "name": "wgpu-naga-bridge",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Conversions between naga and wgpu-types. Part of the wgpu project",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/wgpu-naga-bridge@30.0.1",
+   "purl": "pkg:cargo/wgpu-naga-bridge@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d2f62e73117bb7a62bfd9c5a5841438a823f6566c6442a808ee269d2d055c081"
+     "content": "44a62ead68aad7cd40ac9e2cd2b8ec64f32dfbad2765f429b9fb74b8b735869f"
     }
    ],
    "externalReferences": [
@@ -6835,20 +6835,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/wgpu-types@30.0.1",
+   "bom-ref": "pkg:cargo/wgpu-types@30.0.2",
    "name": "wgpu-types",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Common types and utilities for wgpu, the cross-platform, safe, pure-rust graphics API",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/wgpu-types@30.0.1",
+   "purl": "pkg:cargo/wgpu-types@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "99dad6f1fbdbbdb4c278a6508b059d44688f5cebddf78d005a46a31340269286"
+     "content": "a9f6ee0bd50f5ab79fb8c25e3f33afb27126f034af4ba5909c7a0967058659e6"
     }
    ],
    "externalReferences": [
@@ -6860,20 +6860,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/wgpu@30.0.1",
+   "bom-ref": "pkg:cargo/wgpu@30.0.2",
    "name": "wgpu",
-   "version": "30.0.1",
+   "version": "30.0.2",
    "description": "Cross-platform, safe, pure-rust graphics API",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/wgpu@30.0.1",
+   "purl": "pkg:cargo/wgpu@30.0.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "527ccdf43dd5b2e8676eed9984ce00e2bbb0a1b85b70c1969dcb6cd2eb55ab9e"
+     "content": "146fc3d654250e6207921a66c87534c621bc886c70df83dcf466c1d66813810e"
     }
    ],
    "externalReferences": [
@@ -7310,20 +7310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zcheapstr@1.2.0",
+   "bom-ref": "pkg:cargo/zcheapstr@1.4.0",
    "name": "zcheapstr",
-   "version": "1.2.0",
+   "version": "1.4.0",
    "description": "An immutable, cheaply cloneable string type with borrowed, static and shared variants",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/zcheapstr@1.2.0",
+   "purl": "pkg:cargo/zcheapstr@1.4.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "939f186d9ecebe044315a5cb6d6f78568bbc21152adc954d5a0c2f58bdbc9920"
+     "content": "2da34e7164b75d803c3197b86e6cf61b874106fbd472c5082575a8bc5fbd0907"
     }
    ],
    "externalReferences": [
@@ -7335,20 +7335,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zerocopy-derive@0.8.63",
+   "bom-ref": "pkg:cargo/zerocopy-derive@0.8.64",
    "name": "zerocopy-derive",
-   "version": "0.8.63",
+   "version": "0.8.64",
    "description": "Custom derive for traits from the zerocopy crate",
    "licenses": [
     {
      "expression": "BSD-2-Clause OR Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/zerocopy-derive@0.8.63",
+   "purl": "pkg:cargo/zerocopy-derive@0.8.64",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f"
+     "content": "a5cbd820fe3e35fb38c83b6dc7e6b1618bc46e0cd10073ae94e8d52dc468d8b9"
     }
    ],
    "externalReferences": [
@@ -7360,20 +7360,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zerocopy@0.8.63",
+   "bom-ref": "pkg:cargo/zerocopy@0.8.64",
    "name": "zerocopy",
-   "version": "0.8.63",
+   "version": "0.8.64",
    "description": "Zerocopy makes zero-cost memory manipulation effortless. We write \"unsafe\" so you don't have to.",
    "licenses": [
     {
      "expression": "BSD-2-Clause OR Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/zerocopy@0.8.63",
+   "purl": "pkg:cargo/zerocopy@0.8.64",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "e5fe1f8f1b06191a00962174c61aa5005e0bb391a6d80d07e24d115c01a92ed8"
+     "content": "ed43f3060383c64b000f3c630550aebdfa9d3b76d48de32390483dd2cc7e0865"
     }
    ],
    "externalReferences": [
@@ -7385,20 +7385,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zlib-rs@0.6.8",
+   "bom-ref": "pkg:cargo/zlib-rs@0.6.9",
    "name": "zlib-rs",
-   "version": "0.6.8",
+   "version": "0.6.9",
    "description": "A memory-safe zlib implementation written in rust",
    "licenses": [
     {
      "expression": "Zlib"
     }
    ],
-   "purl": "pkg:cargo/zlib-rs@0.6.8",
+   "purl": "pkg:cargo/zlib-rs@0.6.9",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
+     "content": "aa76918995d776d9dd34d371030be228d021137449771493d56e29f77e4148ac"
     }
    ],
    "externalReferences": [
@@ -7549,7 +7549,7 @@
   {
    "ref": "pkg:cargo/accesskit@0.25.2",
    "dependsOn": [
-    "pkg:cargo/uuid@1.29.0"
+    "pkg:cargo/uuid@1.29.3"
    ]
   },
   {
@@ -7567,7 +7567,7 @@
    "ref": "pkg:cargo/accesskit_consumer@0.39.2",
    "dependsOn": [
     "pkg:cargo/accesskit@0.25.2",
-    "pkg:cargo/hashbrown@0.17.1"
+    "pkg:cargo/hashbrown@0.17.2"
    ]
   },
   {
@@ -7599,13 +7599,14 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/ahash@0.8.12",
+   "ref": "pkg:cargo/ahash@0.8.13",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
-    "pkg:cargo/getrandom@0.3.4",
+    "pkg:cargo/getrandom@0.4.3",
     "pkg:cargo/once_cell@1.21.4",
+    "pkg:cargo/serde@1.0.229",
     "pkg:cargo/version_check@0.9.5",
-    "pkg:cargo/zerocopy@0.8.63"
+    "pkg:cargo/zerocopy@0.8.64"
    ]
   },
   {
@@ -7653,7 +7654,7 @@
     "pkg:cargo/event-listener-strategy@0.5.4",
     "pkg:cargo/event-listener@5.4.2",
     "pkg:cargo/futures-core@0.3.34",
-    "pkg:cargo/pin-project-lite@0.2.17"
+    "pkg:cargo/pin-project-lite@0.2.18"
    ]
   },
   {
@@ -7662,7 +7663,7 @@
     "pkg:cargo/concurrent-queue@2.5.0",
     "pkg:cargo/event-listener-strategy@0.5.4",
     "pkg:cargo/futures-core@0.3.34",
-    "pkg:cargo/pin-project-lite@0.2.17"
+    "pkg:cargo/pin-project-lite@0.2.18"
    ]
   },
   {
@@ -7672,7 +7673,7 @@
     "pkg:cargo/concurrent-queue@2.5.0",
     "pkg:cargo/fastrand@2.5.0",
     "pkg:cargo/futures-lite@2.6.1",
-    "pkg:cargo/pin-project-lite@0.2.17",
+    "pkg:cargo/pin-project-lite@0.2.18",
     "pkg:cargo/slab@0.4.12"
    ]
   },
@@ -7695,7 +7696,7 @@
    "dependsOn": [
     "pkg:cargo/event-listener-strategy@0.5.4",
     "pkg:cargo/event-listener@5.4.2",
-    "pkg:cargo/pin-project-lite@0.2.17"
+    "pkg:cargo/pin-project-lite@0.2.18"
    ]
   },
   {
@@ -7717,7 +7718,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -7740,7 +7741,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -7825,7 +7826,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -7871,7 +7872,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/cc@1.11.1",
+   "ref": "pkg:cargo/cc@1.11.3",
    "dependsOn": [
     "pkg:cargo/find-msvc-tools@0.1.15",
     "pkg:cargo/jobserver@0.1.35",
@@ -7910,7 +7911,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/crc32fast@1.5.4",
+   "ref": "pkg:cargo/crc32fast@1.5.6",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5"
    ]
@@ -7957,7 +7958,7 @@
   {
    "ref": "pkg:cargo/eframe@0.37.0",
    "dependsOn": [
-    "pkg:cargo/ahash@0.8.12",
+    "pkg:cargo/ahash@0.8.13",
     "pkg:cargo/document-features@0.2.12",
     "pkg:cargo/egui-wgpu@0.37.0",
     "pkg:cargo/egui-winit@0.37.0",
@@ -7979,7 +7980,7 @@
   {
    "ref": "pkg:cargo/egui-wgpu@0.37.0",
    "dependsOn": [
-    "pkg:cargo/ahash@0.8.12",
+    "pkg:cargo/ahash@0.8.13",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/document-features@0.2.12",
     "pkg:cargo/egui@0.37.0",
@@ -7989,7 +7990,7 @@
     "pkg:cargo/thiserror@2.0.21",
     "pkg:cargo/type-map@0.5.1",
     "pkg:cargo/web-time@1.1.0",
-    "pkg:cargo/wgpu@30.0.1",
+    "pkg:cargo/wgpu@30.0.2",
     "pkg:cargo/winit@0.30.13"
    ]
   },
@@ -8012,7 +8013,7 @@
    "ref": "pkg:cargo/egui@0.37.0",
    "dependsOn": [
     "pkg:cargo/accesskit@0.25.2",
-    "pkg:cargo/ahash@0.8.12",
+    "pkg:cargo/ahash@0.8.13",
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/emath@0.37.0",
     "pkg:cargo/epaint@0.37.0",
@@ -8020,7 +8021,7 @@
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/nohash-hasher@0.2.0",
     "pkg:cargo/profiling@1.0.18",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.6",
     "pkg:cargo/unicode-segmentation@1.13.3"
    ]
   },
@@ -8067,7 +8068,7 @@
   {
    "ref": "pkg:cargo/epaint@0.37.0",
    "dependsOn": [
-    "pkg:cargo/ahash@0.8.12",
+    "pkg:cargo/ahash@0.8.13",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/ecolor@0.37.0",
     "pkg:cargo/emath@0.37.0",
@@ -8080,7 +8081,7 @@
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/self_cell@1.3.0",
     "pkg:cargo/skrifa@0.44.0",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.6",
     "pkg:cargo/unicode-general-category@1.1.0",
     "pkg:cargo/unicode-properties@0.1.5",
     "pkg:cargo/unicode-segmentation@1.13.3",
@@ -8096,7 +8097,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/errno@0.3.14",
+   "ref": "pkg:cargo/errno@0.3.15",
    "dependsOn": [
     "pkg:cargo/libc@0.2.191"
    ]
@@ -8111,18 +8112,18 @@
    "ref": "pkg:cargo/event-listener-strategy@0.5.4",
    "dependsOn": [
     "pkg:cargo/event-listener@5.4.2",
-    "pkg:cargo/pin-project-lite@0.2.17"
+    "pkg:cargo/pin-project-lite@0.2.18"
    ]
   },
   {
    "ref": "pkg:cargo/event-listener@5.4.2",
    "dependsOn": [
     "pkg:cargo/parking@2.2.1",
-    "pkg:cargo/pin-project-lite@0.2.17"
+    "pkg:cargo/pin-project-lite@0.2.18"
    ]
   },
   {
-   "ref": "pkg:cargo/fast_image_resize@6.1.0",
+   "ref": "pkg:cargo/fast_image_resize@6.2.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/cfg-if@1.0.5",
@@ -8155,15 +8156,15 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/fixedbitset@0.5.7",
+   "ref": "pkg:cargo/fixedbitset@0.5.9",
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/flate2@1.1.10",
+   "ref": "pkg:cargo/flate2@1.1.11",
    "dependsOn": [
-    "pkg:cargo/crc32fast@1.5.4",
+    "pkg:cargo/crc32fast@1.5.6",
     "pkg:cargo/miniz_oxide@0.9.1",
-    "pkg:cargo/zlib-rs@0.6.8"
+    "pkg:cargo/zlib-rs@0.6.9"
    ]
   },
   {
@@ -8215,7 +8216,7 @@
     "pkg:cargo/futures-core@0.3.34",
     "pkg:cargo/futures-io@0.3.34",
     "pkg:cargo/parking@2.2.1",
-    "pkg:cargo/pin-project-lite@0.2.17"
+    "pkg:cargo/pin-project-lite@0.2.18"
    ]
   },
   {
@@ -8223,7 +8224,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -8236,7 +8237,7 @@
     "pkg:cargo/futures-core@0.3.34",
     "pkg:cargo/futures-macro@0.3.34",
     "pkg:cargo/futures-task@0.3.34",
-    "pkg:cargo/pin-project-lite@0.2.17",
+    "pkg:cargo/pin-project-lite@0.2.18",
     "pkg:cargo/slab@0.4.12"
    ]
   },
@@ -8247,7 +8248,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/getrandom@0.3.4",
+   "ref": "pkg:cargo/getrandom@0.4.3",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/libc@0.2.191"
@@ -8273,11 +8274,11 @@
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/foldhash@0.2.0",
-    "pkg:cargo/hashbrown@0.17.1",
+    "pkg:cargo/hashbrown@0.17.2",
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/peniko@0.6.1",
     "pkg:cargo/skrifa@0.44.0",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.6",
     "pkg:cargo/vello_common@0.2.0"
    ]
   },
@@ -8286,8 +8287,8 @@
    "dependsOn": [
     "pkg:cargo/arboard@3.7.0",
     "pkg:cargo/eframe@0.37.0",
-    "pkg:cargo/fast_image_resize@6.1.0",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/fast_image_resize@6.2.0",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/futures-lite@2.6.1",
     "pkg:cargo/image@0.25.10",
     "pkg:cargo/jpeg-decoder@0.3.2",
@@ -8295,7 +8296,7 @@
     "pkg:cargo/libc@0.2.191",
     "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/png@0.18.1",
-    "pkg:cargo/regex@1.13.1",
+    "pkg:cargo/regex@1.13.2",
     "pkg:cargo/resvg@0.49.0",
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/tiff@0.11.3",
@@ -8354,7 +8355,7 @@
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/num-traits@0.2.19",
-    "pkg:cargo/zerocopy@0.8.63"
+    "pkg:cargo/zerocopy@0.8.64"
    ]
   },
   {
@@ -8363,7 +8364,7 @@
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/read-fonts@0.41.0",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.6"
    ]
   },
   {
@@ -8373,7 +8374,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/hashbrown@0.17.1",
+   "ref": "pkg:cargo/hashbrown@0.17.2",
    "dependsOn": [
     "pkg:cargo/foldhash@0.2.0"
    ]
@@ -8414,7 +8415,7 @@
    "ref": "pkg:cargo/indexmap@2.14.2",
    "dependsOn": [
     "pkg:cargo/equivalent@1.0.3",
-    "pkg:cargo/hashbrown@0.17.1"
+    "pkg:cargo/hashbrown@0.17.2"
    ]
   },
   {
@@ -8582,7 +8583,7 @@
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/euclid@0.22.14",
     "pkg:cargo/polycool@0.4.0",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.6"
    ]
   },
   {
@@ -8657,16 +8658,16 @@
    ]
   },
   {
-   "ref": "pkg:cargo/naga-types@30.0.1",
+   "ref": "pkg:cargo/naga-types@30.0.2",
    "dependsOn": [
-    "pkg:cargo/hashbrown@0.17.1",
+    "pkg:cargo/hashbrown@0.17.2",
     "pkg:cargo/indexmap@2.14.2",
     "pkg:cargo/rustc-hash@1.1.0",
     "pkg:cargo/thiserror@2.0.21"
    ]
   },
   {
-   "ref": "pkg:cargo/naga@30.0.1",
+   "ref": "pkg:cargo/naga@30.0.2",
    "dependsOn": [
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/bit-set@0.10.0",
@@ -8675,11 +8676,11 @@
     "pkg:cargo/cfg_aliases@0.2.2",
     "pkg:cargo/codespan-reporting@0.13.1",
     "pkg:cargo/half@2.7.1",
-    "pkg:cargo/hashbrown@0.17.1",
+    "pkg:cargo/hashbrown@0.17.2",
     "pkg:cargo/indexmap@2.14.2",
     "pkg:cargo/libm@0.2.16",
     "pkg:cargo/log@0.4.35",
-    "pkg:cargo/naga-types@30.0.1",
+    "pkg:cargo/naga-types@30.0.2",
     "pkg:cargo/num-traits@0.2.19",
     "pkg:cargo/once_cell@1.21.4",
     "pkg:cargo/rustc-hash@1.1.0",
@@ -8712,7 +8713,7 @@
    "ref": "pkg:cargo/ordered-stream@0.2.0",
    "dependsOn": [
     "pkg:cargo/futures-core@0.3.34",
-    "pkg:cargo/pin-project-lite@0.2.17"
+    "pkg:cargo/pin-project-lite@0.2.18"
    ]
   },
   {
@@ -8743,7 +8744,7 @@
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/libc@0.2.191",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.6"
    ]
   },
   {
@@ -8753,7 +8754,7 @@
     "pkg:cargo/color@0.3.3",
     "pkg:cargo/kurbo@0.13.1",
     "pkg:cargo/linebender_resource_handle@0.1.1",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.6"
    ]
   },
   {
@@ -8763,7 +8764,7 @@
   {
    "ref": "pkg:cargo/petgraph@0.8.3",
    "dependsOn": [
-    "pkg:cargo/fixedbitset@0.5.7",
+    "pkg:cargo/fixedbitset@0.5.9",
     "pkg:cargo/hashbrown@0.15.5",
     "pkg:cargo/indexmap@2.14.2"
    ]
@@ -8804,7 +8805,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/pin-project-lite@0.2.17",
+   "ref": "pkg:cargo/pin-project-lite@0.2.18",
    "dependsOn": []
   },
   {
@@ -8823,9 +8824,9 @@
    "ref": "pkg:cargo/png@0.18.1",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/crc32fast@1.5.4",
+    "pkg:cargo/crc32fast@1.5.6",
     "pkg:cargo/fdeflate@0.3.7",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/miniz_oxide@0.8.9"
    ]
   },
@@ -8845,7 +8846,7 @@
   {
    "ref": "pkg:cargo/proc-macro-crate@3.5.0",
    "dependsOn": [
-    "pkg:cargo/toml_edit@0.25.18+spec-1.1.0"
+    "pkg:cargo/toml_edit@0.25.20+spec-1.1.0"
    ]
   },
   {
@@ -8897,24 +8898,24 @@
    ]
   },
   {
-   "ref": "pkg:cargo/regex-automata@0.4.18",
+   "ref": "pkg:cargo/regex-automata@0.4.19",
    "dependsOn": [
     "pkg:cargo/aho-corasick@1.1.5",
     "pkg:cargo/memchr@2.8.3",
-    "pkg:cargo/regex-syntax@0.8.11"
+    "pkg:cargo/regex-syntax@0.8.12"
    ]
   },
   {
-   "ref": "pkg:cargo/regex-syntax@0.8.11",
+   "ref": "pkg:cargo/regex-syntax@0.8.12",
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/regex@1.13.1",
+   "ref": "pkg:cargo/regex@1.13.2",
    "dependsOn": [
     "pkg:cargo/aho-corasick@1.1.5",
     "pkg:cargo/memchr@2.8.3",
-    "pkg:cargo/regex-automata@0.4.18",
-    "pkg:cargo/regex-syntax@0.8.11"
+    "pkg:cargo/regex-automata@0.4.19",
+    "pkg:cargo/regex-syntax@0.8.12"
    ]
   },
   {
@@ -8964,7 +8965,7 @@
    "ref": "pkg:cargo/rustix@0.38.44",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/errno@0.3.14",
+    "pkg:cargo/errno@0.3.15",
     "pkg:cargo/libc@0.2.191",
     "pkg:cargo/linux-raw-sys@0.4.15"
    ]
@@ -8973,7 +8974,7 @@
    "ref": "pkg:cargo/rustix@1.1.6",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/errno@0.3.14",
+    "pkg:cargo/errno@0.3.15",
     "pkg:cargo/libc@0.2.191",
     "pkg:cargo/linux-raw-sys@0.12.1"
    ]
@@ -9016,7 +9017,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -9024,7 +9025,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -9034,7 +9035,7 @@
   {
    "ref": "pkg:cargo/signal-hook-registry@1.4.8",
    "dependsOn": [
-    "pkg:cargo/errno@0.3.14",
+    "pkg:cargo/errno@0.3.15",
     "pkg:cargo/libc@0.2.191"
    ]
   },
@@ -9070,7 +9071,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/smallvec@1.16.4",
+   "ref": "pkg:cargo/smallvec@1.16.6",
    "dependsOn": []
   },
   {
@@ -9159,7 +9160,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/syn@3.0.9",
+   "ref": "pkg:cargo/syn@3.0.10",
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
@@ -9179,7 +9180,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -9198,7 +9199,7 @@
    "ref": "pkg:cargo/tiff@0.11.3",
    "dependsOn": [
     "pkg:cargo/fax@0.2.7",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/half@2.7.1",
     "pkg:cargo/quick-error@2.0.1",
     "pkg:cargo/weezl@0.1.12",
@@ -9249,22 +9250,22 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "ref": "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
    "dependsOn": [
     "pkg:cargo/serde_core@1.0.229"
    ]
   },
   {
-   "ref": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
+   "ref": "pkg:cargo/toml_edit@0.25.20+spec-1.1.0",
    "dependsOn": [
     "pkg:cargo/indexmap@2.14.2",
-    "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
-    "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+    "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
+    "pkg:cargo/toml_parser@1.1.6+spec-1.1.0",
     "pkg:cargo/winnow@1.0.5"
    ]
   },
   {
-   "ref": "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+   "ref": "pkg:cargo/toml_parser@1.1.6+spec-1.1.0",
    "dependsOn": [
     "pkg:cargo/winnow@1.0.5"
    ]
@@ -9287,7 +9288,7 @@
    "ref": "pkg:cargo/tracing@0.1.44",
    "dependsOn": [
     "pkg:cargo/log@0.4.35",
-    "pkg:cargo/pin-project-lite@0.2.17",
+    "pkg:cargo/pin-project-lite@0.2.18",
     "pkg:cargo/tracing-attributes@0.1.31",
     "pkg:cargo/tracing-core@0.1.36"
    ]
@@ -9347,7 +9348,7 @@
    "dependsOn": [
     "pkg:cargo/base64@0.23.1",
     "pkg:cargo/data-url@0.3.2",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/fontdb@0.24.0",
     "pkg:cargo/harfrust@0.12.0",
     "pkg:cargo/imagesize@0.15.0",
@@ -9368,7 +9369,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/uuid@1.29.0",
+   "ref": "pkg:cargo/uuid@1.29.3",
    "dependsOn": [
     "pkg:cargo/serde_core@1.0.229"
    ]
@@ -9381,7 +9382,7 @@
     "pkg:cargo/guillotiere@0.7.0",
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/peniko@0.6.1",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.6",
     "pkg:cargo/thiserror@2.0.21"
    ]
   },
@@ -9390,7 +9391,7 @@
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/glifo@0.3.0",
-    "pkg:cargo/hashbrown@0.17.1",
+    "pkg:cargo/hashbrown@0.17.2",
     "pkg:cargo/vello_common@0.2.0"
    ]
   },
@@ -9401,11 +9402,11 @@
   {
    "ref": "pkg:cargo/wayland-backend@0.3.17",
    "dependsOn": [
-    "pkg:cargo/cc@1.11.1",
+    "pkg:cargo/cc@1.11.3",
     "pkg:cargo/downcast-rs@1.2.1",
     "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/scoped-tls@1.0.1",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.6",
     "pkg:cargo/wayland-sys@0.31.11"
    ]
   },
@@ -9509,13 +9510,13 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.1",
+   "ref": "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.2",
    "dependsOn": [
-    "pkg:cargo/wgpu-hal@30.0.1"
+    "pkg:cargo/wgpu-hal@30.0.2"
    ]
   },
   {
-   "ref": "pkg:cargo/wgpu-core@30.0.1",
+   "ref": "pkg:cargo/wgpu-core@30.0.2",
    "dependsOn": [
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/bit-set@0.10.0",
@@ -9524,63 +9525,63 @@
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/cfg_aliases@0.2.2",
     "pkg:cargo/document-features@0.2.12",
-    "pkg:cargo/hashbrown@0.17.1",
+    "pkg:cargo/hashbrown@0.17.2",
     "pkg:cargo/indexmap@2.14.2",
     "pkg:cargo/log@0.4.35",
-    "pkg:cargo/naga-types@30.0.1",
-    "pkg:cargo/naga@30.0.1",
+    "pkg:cargo/naga-types@30.0.2",
+    "pkg:cargo/naga@30.0.2",
     "pkg:cargo/once_cell@1.21.4",
     "pkg:cargo/parking_lot@0.12.5",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/rustc-hash@1.1.0",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.6",
     "pkg:cargo/thiserror@2.0.21",
-    "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.1",
-    "pkg:cargo/wgpu-hal@30.0.1",
-    "pkg:cargo/wgpu-naga-bridge@30.0.1",
-    "pkg:cargo/wgpu-types@30.0.1"
+    "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.2",
+    "pkg:cargo/wgpu-hal@30.0.2",
+    "pkg:cargo/wgpu-naga-bridge@30.0.2",
+    "pkg:cargo/wgpu-types@30.0.2"
    ]
   },
   {
-   "ref": "pkg:cargo/wgpu-hal@30.0.1",
+   "ref": "pkg:cargo/wgpu-hal@30.0.2",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/cfg_aliases@0.2.2",
-    "pkg:cargo/hashbrown@0.17.1",
+    "pkg:cargo/hashbrown@0.17.2",
     "pkg:cargo/libloading@0.8.9",
     "pkg:cargo/log@0.4.35",
-    "pkg:cargo/naga-types@30.0.1",
-    "pkg:cargo/naga@30.0.1",
+    "pkg:cargo/naga-types@30.0.2",
+    "pkg:cargo/naga@30.0.2",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/renderdoc-sys@1.1.0",
     "pkg:cargo/static_assertions@1.1.0",
     "pkg:cargo/thiserror@2.0.21",
-    "pkg:cargo/wgpu-naga-bridge@30.0.1",
-    "pkg:cargo/wgpu-types@30.0.1"
+    "pkg:cargo/wgpu-naga-bridge@30.0.2",
+    "pkg:cargo/wgpu-types@30.0.2"
    ]
   },
   {
-   "ref": "pkg:cargo/wgpu-naga-bridge@30.0.1",
+   "ref": "pkg:cargo/wgpu-naga-bridge@30.0.2",
    "dependsOn": [
-    "pkg:cargo/naga@30.0.1",
-    "pkg:cargo/wgpu-types@30.0.1"
+    "pkg:cargo/naga@30.0.2",
+    "pkg:cargo/wgpu-types@30.0.2"
    ]
   },
   {
-   "ref": "pkg:cargo/wgpu-types@30.0.1",
+   "ref": "pkg:cargo/wgpu-types@30.0.2",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/log@0.4.35",
-    "pkg:cargo/naga-types@30.0.1",
+    "pkg:cargo/naga-types@30.0.2",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/static_assertions@1.1.0"
    ]
   },
   {
-   "ref": "pkg:cargo/wgpu@30.0.1",
+   "ref": "pkg:cargo/wgpu@30.0.2",
    "dependsOn": [
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/bitflags@2.13.2",
@@ -9588,21 +9589,21 @@
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/cfg_aliases@0.2.2",
     "pkg:cargo/document-features@0.2.12",
-    "pkg:cargo/hashbrown@0.17.1",
+    "pkg:cargo/hashbrown@0.17.2",
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.6",
     "pkg:cargo/static_assertions@1.1.0",
-    "pkg:cargo/wgpu-core@30.0.1",
-    "pkg:cargo/wgpu-hal@30.0.1",
-    "pkg:cargo/wgpu-types@30.0.1"
+    "pkg:cargo/wgpu-core@30.0.2",
+    "pkg:cargo/wgpu-hal@30.0.2",
+    "pkg:cargo/wgpu-types@30.0.2"
    ]
   },
   {
    "ref": "pkg:cargo/winit@0.30.13",
    "dependsOn": [
-    "pkg:cargo/ahash@0.8.12",
+    "pkg:cargo/ahash@0.8.13",
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/calloop@0.13.0",
@@ -9739,7 +9740,7 @@
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/serde_repr@0.1.21",
     "pkg:cargo/tracing@0.1.44",
-    "pkg:cargo/uuid@1.29.0",
+    "pkg:cargo/uuid@1.29.3",
     "pkg:cargo/winnow@1.0.5",
     "pkg:cargo/zbus_macros@5.19.0",
     "pkg:cargo/zbus_names@4.3.5",
@@ -9752,7 +9753,7 @@
     "pkg:cargo/proc-macro-crate@3.5.0",
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/syn@3.0.10",
     "pkg:cargo/zbus_names@4.3.5",
     "pkg:cargo/zvariant@5.15.1",
     "pkg:cargo/zvariant_utils@4.2.0"
@@ -9776,13 +9777,13 @@
    ]
   },
   {
-   "ref": "pkg:cargo/zcheapstr@1.2.0",
+   "ref": "pkg:cargo/zcheapstr@1.4.0",
    "dependsOn": [
     "pkg:cargo/serde@1.0.229"
    ]
   },
   {
-   "ref": "pkg:cargo/zerocopy-derive@0.8.63",
+   "ref": "pkg:cargo/zerocopy-derive@0.8.64",
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
@@ -9790,13 +9791,13 @@
    ]
   },
   {
-   "ref": "pkg:cargo/zerocopy@0.8.63",
+   "ref": "pkg:cargo/zerocopy@0.8.64",
    "dependsOn": [
-    "pkg:cargo/zerocopy-derive@0.8.63"
+    "pkg:cargo/zerocopy-derive@0.8.64"
    ]
   },
   {
-   "ref": "pkg:cargo/zlib-rs@0.6.8",
+   "ref": "pkg:cargo/zlib-rs@0.6.9",
    "dependsOn": []
   },
   {
@@ -9816,7 +9817,7 @@
     "pkg:cargo/enumflags2@0.7.12",
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/winnow@1.0.5",
-    "pkg:cargo/zcheapstr@1.2.0",
+    "pkg:cargo/zcheapstr@1.4.0",
     "pkg:cargo/zvariant_derive@5.15.1",
     "pkg:cargo/zvariant_utils@4.2.0"
    ]
@@ -9827,7 +9828,7 @@
     "pkg:cargo/proc-macro-crate@3.5.0",
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/syn@3.0.10",
     "pkg:cargo/zvariant_utils@4.2.0"
    ]
   },
@@ -9837,7 +9838,7 @@
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
     "pkg:cargo/serde@1.0.229",
-    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/syn@3.0.10",
     "pkg:cargo/winnow@1.0.5"
    ]
   }
