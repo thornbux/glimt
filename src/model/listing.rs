@@ -1434,8 +1434,9 @@ where
 
 /// Walks the tree at `dir` as `walk_by` does, but only the folder `from` in it, a path relative
 /// to `dir`, and the folders below it. Its folders and images are named relative to `dir`, as
-/// in a walk of the whole tree, so a subfolder read again replaces its own names in the list. An
-/// error for `from` stops it, as one for `dir` stops the walk of the whole tree.
+/// in a walk of the whole tree, so a subfolder read again replaces its own names in the list. A
+/// link to a folder of the tree outside `from` is not followed. An error for `from` stops it, as
+/// one for `dir` stops the walk of the whole tree.
 pub(crate) fn walk_by_from<Id, Real, List>(
     (dir, from): (&Path, &Path),
     types: Types,
@@ -1475,9 +1476,13 @@ where
                         failed = true;
                         return Some(Err((full, e)));
                     }
+                    // A link from the subfolder read again to another part of the tree is
+                    // left out, as the walk of the whole tree reads that part by its own name.
+                    // Followed, a link to the top read the whole tree again, and the folders
+                    // it read were added to the watched ones again at every change.
                     real_path => match inside(real_path, &real) {
-                        Some(real_rel) => rel = real_rel,
-                        None => continue,
+                        Some(real_rel) if real_rel.starts_with(&start) => rel = real_rel,
+                        _ => continue,
                     },
                 }
             }
@@ -2434,6 +2439,47 @@ mod tests {
             assert_eq!(files, [".inner/c.jpg", "a.jpg"], "{top:?}");
         }
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    /// A subfolder read again does not follow a link to another part of the tree, which the
+    /// walk of the whole tree reads by its own name, but does follow one inside the subfolder.
+    /// Before, a link to the top read the whole tree again, and a link to a sibling added the
+    /// sibling's folders to the watched ones again at every change (#290).
+    #[test]
+    fn a_subfolder_read_again_stays_inside_it() {
+        use std::os::unix::fs::symlink;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-from-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for sub in ["s1/deep", "s2"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        for f in ["a.jpg", "s1/b.jpg", "s1/deep/c.jpg", "s2/d.jpg"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        symlink("..", dir.join("s1/up")).unwrap();
+        symlink("../s2", dir.join("s1/side")).unwrap();
+        symlink("deep", dir.join("s1/inner")).unwrap();
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let real = |p: &std::path::Path| std::fs::canonicalize(p);
+        let from = std::path::Path::new("s1");
+        let walked = super::walk_by_from(
+            (&dir, from),
+            types,
+            crate::images::save::file_id,
+            real,
+            super::list_folder,
+        );
+        let mut folders: Vec<std::path::PathBuf> =
+            walked.map(Result::unwrap).map(|(rel, ..)| rel).collect();
+        folders.sort();
+        assert_eq!(folders, ["s1", "s1/deep"].map(std::path::PathBuf::from));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A file reached through a link to a folder in the tree is named by its real path, the
