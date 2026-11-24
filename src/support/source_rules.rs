@@ -2910,7 +2910,16 @@ fn the_slideshow_never_reorders_the_list() {
     let calls: Vec<Vec<Call>> = graph.functions.iter().map(|f| graph.calls_of(f)).collect();
     let reorders =
         |f: &Function| (REORDERS.iter()).any(|(file, name)| f.file == *file && f.name == *name);
-    let mut wrong = Vec::new();
+    // A function of the list renamed or gone would leave nothing to find (#287).
+    let mut wrong: Vec<String> = (REORDERS.iter())
+        .filter(|(file, name)| {
+            !graph
+                .functions
+                .iter()
+                .any(|f| f.file == *file && f.name == *name)
+        })
+        .map(|(file, name)| format!("{file}: no fn {name} in REORDERS"))
+        .collect();
     for (start, f) in graph.functions.iter().enumerate() {
         if f.file != "viewer/slideshow.rs" {
             continue;
@@ -3960,11 +3969,51 @@ fn in_assigned_tuple(line: &str, at: usize) -> bool {
 /// functions it is allowed in, as "file:line (text)". A function named "" allows the whole
 /// file, and the text's own definition is allowed anywhere.
 fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
+    let sources = rust_sources();
     let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        wrong.extend(outside_homes_in(&file, &text, homes));
+    for (file, text) in &sources {
+        wrong.extend(outside_homes_in(file, text, homes));
     }
+    wrong.extend(homes_not_found(&sources, homes));
     wrong
+}
+
+/// A home that is not there, by its file or its function, is found, so a rule whose home was
+/// renamed fails rather than checks nothing.
+#[test]
+fn finds_a_home_that_is_gone() {
+    let sources = [("a.rs".to_owned(), "fn kept() {}\n".to_owned())];
+    let homes: &[(&str, &[(&str, &str)])] = &[(
+        "x(",
+        &[
+            ("a.rs", "kept"),
+            ("a.rs", ""),
+            ("a.rs", "gone"),
+            ("b.rs", ""),
+        ],
+    )];
+    assert_eq!(
+        homes_not_found(&sources, homes),
+        ["a.rs: no fn gone", "b.rs: no fn "]
+    );
+}
+
+/// Returns each home of `homes` whose file or function is not in `sources`, as "file: no fn
+/// name". A home renamed or gone would let a rule pass with nothing left to check (#287).
+fn homes_not_found(sources: &[(String, String)], homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
+    let all = homes.iter().flat_map(|(_, allowed)| allowed.iter());
+    let is_there = |file: &str, function: &str| {
+        (sources.iter()).any(|(name, text)| {
+            name == file
+                && (function.is_empty()
+                    || code_lines(text)
+                        .iter()
+                        .any(|l| function_name(l) == Some(function)))
+        })
+    };
+    (all.filter(|(file, function)| !is_there(file, function)))
+        .map(|(file, function)| format!("{file}: no fn {function}"))
+        .collect()
 }
 
 /// Returns the places in `text`, the source of `file`, that `outside_their_homes` reports.

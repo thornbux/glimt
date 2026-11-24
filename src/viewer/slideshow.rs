@@ -1087,9 +1087,15 @@ mod tests {
         assert!(!seen.contains(&shown(&app)), "a new image past the newest");
         app.move_along(&ctx, Action::First);
         assert_eq!(app.list.shown(), 0, "Home");
+        // Only the image Home shows counts as shown in the new round. Before, this asked only
+        // about one image, which the round before had seldom shown (#287).
+        let first = shown(&app);
+        let still_shown: Vec<&OsString> = (app.list.files().iter())
+            .filter(|f| **f != first && app.slideshow.has_shown(f))
+            .collect();
         assert!(
-            !app.slideshow.has_shown(&app.list.files()[5].clone()) || seen.contains(&shown(&app)),
-            "Home begins a new round"
+            still_shown.is_empty() && app.slideshow.has_shown(&first),
+            "Home begins a new round: {still_shown:?}"
         );
         app.set_random_order(&ctx, false);
         app.move_along(&ctx, Action::Last);
