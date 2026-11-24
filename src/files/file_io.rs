@@ -1844,7 +1844,20 @@ fn flush_within(limit: std::time::Duration) {
 /// seconds at most. Unlike `flush`, it does not also wait for the writes that other work
 /// queues after it.
 pub fn wait_for_queued_writes() {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    // In tests the writer threads are shared by every test, and some tests hold one on purpose.
+    // A test's wait that ran out went on before its own writes were done, and failed now and
+    // then (a delete's log still locked by its rewrite). So a test waits longer, and fails
+    // plainly when its writes were not reached.
+    #[cfg(not(test))]
+    wait_for_queued_writes_within(std::time::Duration::from_secs(5));
+    #[cfg(test)]
+    wait_for_queued_writes_within(std::time::Duration::from_secs(60));
+}
+
+/// Waits until the writes queued before this call in both writer threads are done, `most` at
+/// most. In tests a wait that runs out fails the test.
+fn wait_for_queued_writes_within(most: std::time::Duration) {
+    let until = std::time::Instant::now() + most;
     let (done, wait) = std::sync::mpsc::channel();
     let done_too = done.clone();
     write_later(move || {
@@ -1854,7 +1867,14 @@ pub fn wait_for_queued_writes() {
         let _ = done_too.send(());
     });
     for _ in 0..2 {
-        let _ = wait.recv_timeout(until.saturating_duration_since(std::time::Instant::now()));
+        let _reached = wait
+            .recv_timeout(until.saturating_duration_since(std::time::Instant::now()))
+            .is_ok();
+        #[cfg(test)]
+        assert!(
+            _reached,
+            "the writer threads did not reach this test's writes in time"
+        );
     }
 }
 
@@ -4097,6 +4117,23 @@ mod tests {
         release.send(()).unwrap();
         super::flush();
         assert!(own_write_is_done);
+    }
+
+    /// A test's wait for the writes it queued fails plainly when they are not done in time,
+    /// also while another test holds the writer thread, and a test waits a minute, not the five
+    /// seconds a window waits. Before, the wait went on before the writes, and a test that then
+    /// read its log found it still locked by its rewrite, now and then (the two tests whose
+    /// names end in `names_the_hidden_sidecar`).
+    #[test]
+    fn a_tests_wait_for_its_writes_does_not_go_on_without_them() {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        super::write_later_in_user_folders(move || {
+            let _ = held.recv_timeout(std::time::Duration::from_secs(2));
+        });
+        let limit = std::time::Duration::from_millis(100);
+        let waited = std::panic::catch_unwind(|| super::wait_for_queued_writes_within(limit));
+        drop(release);
+        assert!(waited.is_err(), "the wait went on before the writes");
     }
 
     /// A write still running when `flush` stops waiting is told. Before, Glimt ended without
