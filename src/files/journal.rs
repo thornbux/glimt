@@ -5672,10 +5672,11 @@ mod tests {
 
     /// A Move, a delete and a Move Folder to Trash killed on a FAT card, where no volume can be
     /// read, as in the Flatpak's sandbox, finish at the next start while the card is on the
-    /// device noted: the Move follows its photo, the delete forgets the marks of its files, also
-    /// of one in a folder gone since, and the folder counts as trashed. Before, the card's
-    /// folders, which keep no lasting inode, could never be told on a block device, and each log
-    /// stayed for ever, with the marks at the card's old names.
+    /// device noted: the Move follows its photo that went and leaves the one still on the card,
+    /// the delete forgets the marks of its files, also of one in a folder gone since, and the
+    /// folder counts as trashed. Before, the card's folders, which keep no lasting inode, could
+    /// never be told on a block device, and each log stayed for ever, with the marks at the
+    /// card's old names.
     #[test]
     fn a_job_killed_on_a_fat_card_finishes_where_no_volume_can_be_read() {
         use super::JobDoneBeforeAKill::FolderTrashed;
@@ -5685,10 +5686,14 @@ mod tests {
             std::fs::create_dir(folder).unwrap();
         }
         let (from, moved) = (card.join("a.jpg"), to.join("a.jpg"));
+        let (stayed, not_moved) = (card.join("d.jpg"), to.join("d.jpg"));
         std::fs::write(&from, "the card's").unwrap();
+        std::fs::write(&stayed, "not moved yet").unwrap();
         let mut log = super::start_move_log(&logs, "move").unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
+        // The kill came before this step's file went, so the start must tell its folder.
+        log.note(&stayed, &not_moved);
         drop(log);
         let (b, c) = (card.join("b.png"), sub.join("c.png"));
         let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
@@ -5703,8 +5708,9 @@ mod tests {
         super::VOLUMES_UNREADABLE.set(false);
         super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
         assert_eq!(moves.len(), 1);
-        assert_eq!(moves[0].1, [(from, moved)]);
-        drop(moves);
+        let (log, went) = moves.into_iter().next().unwrap();
+        assert_eq!(went, [(from, moved)]);
+        log.remove_once_followed();
         assert_eq!(deletes[0].1, [b, c]);
         assert_eq!(let_go(deletes), 1);
         assert_eq!(others.len(), 1);
