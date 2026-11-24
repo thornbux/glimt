@@ -3718,8 +3718,10 @@ fn rename_files_planned_in(
     job: &Job,
     still_picked: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), RenameFailed> {
-    // Sidecars go with their files, through the same steps.
-    let (from, to, photo, staying) = with_their_sidecars(&photos_from, &photos_to);
+    // Sidecars go with their files, through the same steps. The folders read for Adobe's
+    // sidecars here are not read again by an undo.
+    let mut names = xmp::AdobeNames::default();
+    let (from, to, photo, staying) = with_their_sidecars(&photos_from, &photos_to, &mut names);
     let (moves, swap) = steps_of_the_renames(&from, &to, &staying)?;
     // The plan is on disk while the renames run, so a crash halfway is put right at the next
     // start. Without it, nothing is renamed (`start_journal`).
@@ -3797,6 +3799,7 @@ fn rename_files_planned_in(
                     &photo_of_step,
                     &is_bare_photo_step,
                     &mut lock_photo,
+                    &mut names,
                 ),
             };
             let (f, t) = (name(&from[j]), name(&to[j]));
@@ -3873,15 +3876,15 @@ fn steps_of_the_renames(
 /// (`xmp::sidecars_moving_with`), each photo's sidecars right after it, as (from, to, and the
 /// number of the photo of each). Returns too the Adobe sidecars that keep their names, as only
 /// the case of the photo's extension changes (IMG_1.cr2). Their names are still the rename's
-/// own.
+/// own. `names` keeps the folders read for Adobe's sidecars.
 fn with_their_sidecars(
     from: &[PathBuf],
     to: &[PathBuf],
+    names: &mut xmp::AdobeNames,
 ) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<usize>, Vec<PathBuf>) {
-    let mut names = xmp::AdobeNames::default();
     let (mut froms, mut tos, mut photo, mut staying) = (vec![], vec![], vec![], vec![]);
     for (p, (f, t)) in from.iter().zip(to).enumerate() {
-        let sides = xmp::sidecars_moving_with(f, t, &HashSet::new(), &mut names);
+        let sides = xmp::sidecars_moving_with(f, t, &HashSet::new(), names);
         let (stay, go): (Vec<_>, Vec<_>) = sides.into_iter().partition(|(f, t)| f == t);
         staying.extend(stay.into_iter().map(|(side, _)| side));
         for (f, t) in [(f.clone(), t.clone())].into_iter().chain(go) {
@@ -3914,13 +3917,15 @@ fn still_as_planned(
 /// `photo_of_step` gives the photo of each step, and `is_bare_photo_step` whether a step renames
 /// a photo that had no sidecar when the renames were planned. Under the locks, each photo is
 /// checked again, as `still_as_planned` checks it on the way there: a sidecar that another
-/// window wrote at its new name after its locks were let go goes back with it. Returns how many
-/// steps could not be undone.
+/// window wrote at its new name after its locks were let go goes back with it. `names` holds the
+/// folders that the renames read for Adobe's sidecars, so that no folder is read again for each
+/// photo. Returns how many steps could not be undone.
 fn undo_photo_by_photo(
     done: &[(PathBuf, PathBuf)],
     photo_of_step: &dyn Fn(usize) -> usize,
     is_bare_photo_step: &dyn Fn(usize) -> bool,
     lock_photo: &mut dyn FnMut(usize) -> Vec<xmp::SidecarLock>,
+    names: &mut xmp::AdobeNames,
 ) -> usize {
     let (mut end, mut left) = (done.len(), 0);
     while end > 0 {
@@ -3935,7 +3940,7 @@ fn undo_photo_by_photo(
             .map(|k| &done[k])
             .collect();
         let sidecar_went_back = match (photo_steps.first(), photo_steps.last()) {
-            (Some((before, _)), Some((_, now))) => unplanned_sidecar_goes_back(now, before),
+            (Some((before, _)), Some((_, now))) => unplanned_sidecar_goes_back(now, before, names),
             _ => true,
         };
         // A sidecar that is not surely back keeps its photo under the new name, and the plan
@@ -3954,11 +3959,12 @@ fn undo_photo_by_photo(
 /// the photo's undo gives it back. The photo had no sidecar when its renames were planned, so a
 /// sidecar there was written by another window after the photo's locks were let go. Left
 /// behind, it would lose the photo its keywords and give them to the next file of the new name.
+/// Only Glimt's own sidecar is wanted. Adobe's are found through `names`, the folders that the
+/// renames read already, as a fresh read for each RAW photo would list its folder once for each.
 /// Returns false when there is such a sidecar and it is not surely at its new name.
-fn unplanned_sidecar_goes_back(now: &Path, before: &Path) -> bool {
+fn unplanned_sidecar_goes_back(now: &Path, before: &Path, names: &mut xmp::AdobeNames) -> bool {
     let own = xmp::sidecar(now);
-    let mut names = xmp::AdobeNames::default();
-    let sides = xmp::sidecars_moving_with(now, before, &HashSet::new(), &mut names);
+    let sides = xmp::sidecars_moving_with(now, before, &HashSet::new(), names);
     match sides.into_iter().find(|(side, _)| *side == own) {
         None => true,
         Some((side, to)) => match journal::rename_step(&side, &to) {
@@ -4861,6 +4867,42 @@ mod tests {
             assert_eq!(std::fs::read_to_string(p(n)).unwrap(), text);
         }
         assert!(!p("c.jpg").exists() && !p("c.jpg.xmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The undo of Rename Many finds the sidecar written at each RAW photo's new name through
+    /// the folders that the renames read, and lists no folder again for each photo. Before, it
+    /// listed the whole folder once for each RAW photo, while that photo's locks were held.
+    #[test]
+    fn the_undo_of_rename_many_lists_no_folder_for_each_photo() {
+        use crate::metadata::xmp::FOLDERS_LISTED;
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-rename-undo-listing-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        let (from, to) = (vec![p("a.cr2"), p("b.cr2")], vec![p("c.cr2"), p("d.cr2")]);
+        for f in &from {
+            std::fs::write(f, "raw").unwrap();
+        }
+        let mut names = crate::metadata::xmp::AdobeNames::default();
+        super::with_their_sidecars(&from, &to, &mut names);
+        let done: Vec<(PathBuf, PathBuf)> = from.iter().cloned().zip(to.clone()).collect();
+        for (f, t) in &done {
+            std::fs::rename(f, t).unwrap();
+            std::fs::write(crate::metadata::xmp::sidecar(t), "another window's").unwrap();
+        }
+        FOLDERS_LISTED.with(|listed| listed.set(0));
+        let left =
+            super::undo_photo_by_photo(&done, &|k| k, &|_| true, &mut |_| Vec::new(), &mut names);
+        assert_eq!(left, 0);
+        assert_eq!(FOLDERS_LISTED.with(|listed| listed.get()), 0);
+        for n in ["a.cr2.xmp", "b.cr2.xmp"] {
+            assert_eq!(std::fs::read_to_string(p(n)).unwrap(), "another window's");
+        }
+        assert!(p("a.cr2").exists() && !p("c.cr2").exists() && !p("c.cr2.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

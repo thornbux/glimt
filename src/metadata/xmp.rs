@@ -127,6 +127,10 @@ thread_local! {
     /// reads it once.
     #[cfg(test)]
     pub(crate) static SIDECAR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// How many folders this thread listed for Adobe's sidecars (`list_adobe_names`), for the
+    /// test that an undo of Rename Many lists none again for each photo.
+    #[cfg(test)]
+    pub(crate) static FOLDERS_LISTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -1219,6 +1223,8 @@ pub(crate) fn adobe_stem(path: &Path) -> Option<(&Path, String)> {
 /// Returns the RAW files and Adobe sidecars in the folder `dir`, by name stem. A folder that
 /// cannot be read has none.
 fn list_adobe_names(dir: &Path) -> std::collections::HashMap<String, StemNames> {
+    #[cfg(test)]
+    FOLDERS_LISTED.with(|listed| listed.set(listed.get() + 1));
     let mut stems: std::collections::HashMap<String, StemNames> = Default::default();
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = entry.file_name();
