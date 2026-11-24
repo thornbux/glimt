@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Glimt no longer hangs at start when `$XDG_STATE_HOME` and `$XDG_DATA_HOME` are one folder and
+  the marks file cannot be looked at, and every window now locks the marks file by the file its
+  name leads to, also through the link left at its old name, so two windows never write it
+  under different locks.
+
 ## [0.97.0] - 2026-11-24
 
 ### Fixed
