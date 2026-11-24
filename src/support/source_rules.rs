@@ -3744,6 +3744,46 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// (#179, #266, #270), and a volume read once for the log for the card there now (#284).
 #[test]
 fn one_rule_tells_the_folder_a_log_noted() {
+    let homes = homes_of_the_folder_rule();
+    let files = ["files/journal.rs", "files/job_log.rs", "files/file_ops.rs"];
+    let wrong: Vec<String> = (rust_sources().iter())
+        .filter(|(file, _)| files.contains(&file.as_str()))
+        .flat_map(|(file, text)| outside_homes_in(file, text, &homes))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a log's folder compared outside journal::is_on_the_volume_noted and \
+         is_the_folder_noted:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The rule of `one_rule_tells_the_folder_a_log_noted` finds a volume or a block device looked
+/// up by each name that file_io and libc give the look. Before, a look through
+/// `file_io::device_of_volume_now`, `volumes_by_device` or `libc::major` passed unseen.
+#[test]
+fn the_folder_rule_finds_every_look_at_a_volume() {
+    let planted = "fn judge(folder: &Path, device: u64) -> bool {\n    \
+        let all = crate::files::file_io::volumes_by_device();\n    \
+        let now = file_io::device_of_volume_now(volume);\n    \
+        libc::major(device) != 0\n}\n";
+    let wrong = outside_homes_in("files/file_ops.rs", planted, &homes_of_the_folder_rule());
+    let lines: Vec<&str> = (wrong.iter())
+        .map(|w| w.split(' ').next().unwrap())
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "files/file_ops.rs:2",
+            "files/file_ops.rs:3",
+            "files/file_ops.rs:4"
+        ]
+    );
+}
+
+/// Returns the names by which a log's folder is read or a volume is looked up, each with the
+/// functions where it may stand (`one_rule_tells_the_folder_a_log_noted`).
+fn homes_of_the_folder_rule() -> Vec<(&'static str, &'static [(&'static str, &'static str)])> {
     let rule: &[(&str, &str)] = &[
         ("files/journal.rs", "is_on_the_volume_noted"),
         ("files/journal.rs", "is_the_folder_noted"),
@@ -3763,7 +3803,7 @@ fn one_rule_tells_the_folder_a_log_noted() {
         ("files/journal.rs", "is_on_the_volume_noted"),
         ("files/journal.rs", "folder_record"),
     ];
-    let homes: Vec<(&str, &[(&str, &str)])> = vec![
+    vec![
         (".noted_device", built),
         (".noted_inode", built),
         (".noted_volume", volume),
@@ -3774,18 +3814,14 @@ fn one_rule_tells_the_folder_a_log_noted() {
         ("volume_of_folder(", looked_up),
         ("is_still_on_device(", looked_up),
         ("is_on_a_block_device(", looked_up),
-    ];
-    let files = ["files/journal.rs", "files/job_log.rs", "files/file_ops.rs"];
-    let wrong: Vec<String> = (rust_sources().iter())
-        .filter(|(file, _)| files.contains(&file.as_str()))
-        .flat_map(|(file, text)| outside_homes_in(file, text, &homes))
-        .collect();
-    assert!(
-        wrong.is_empty(),
-        "a log's folder compared outside journal::is_on_the_volume_noted and \
-         is_the_folder_noted:\n{}",
-        wrong.join("\n")
-    );
+        // The looks that these three make, each in its one place.
+        ("volumes_by_device(", &[("files/journal.rs", "read")]),
+        (
+            "device_of_volume_now(",
+            &[("files/journal.rs", "is_still_on_device")],
+        ),
+        ("major(", &[("files/journal.rs", "is_on_a_block_device")]),
+    ]
 }
 
 /// Three audit rounds in a row found a start that removed a log after a look or a write that
