@@ -2,7 +2,7 @@
 //! gio is not there or the Flatpak's trash portal refuses one), and put back from it for Undo by
 //! reading the trash folders' own files.
 
-use crate::files::file_io::{FileFingerprint, rename_never_over, shown_path};
+use crate::files::file_io::{FileFingerprint, StepError, rename_never_over, shown_path};
 use crate::{files::config, model::collections, tf};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -317,6 +317,7 @@ fn put_back(
 ) -> Vec<PathBuf> {
     let rename = |t: &TrashEntry, on_back: &mut dyn FnMut(Restoring)| {
         rename_never_over(&t.file, &t.from).map_err(|e| {
+            let e = std::io::Error::from(e);
             on_back(Restoring::Failed(&t.file, &t.from, &e));
             format!("{display}: {e}", display = shown_path(&t.from))
         })
@@ -361,8 +362,8 @@ fn put_back(
                     };
                     // A way back into the trash that may have been done leaves the name unknown,
                     // so the log stays for the next start, and every .trashinfo stays too.
-                    on_back(Restoring::Failed(&last.from, &last.file, &e));
-                    may_be_back_in = crate::files::file_io::may_have_been_done(&e, &last.from);
+                    may_be_back_in = e.may_have_been_done();
+                    on_back(Restoring::Failed(&last.from, &last.file, &e.into()));
                     break;
                 }
                 if may_be_back_in {
@@ -424,9 +425,9 @@ fn put_back(
 /// way. A rename that may have been done may have left it at both names, one file under two,
 /// which `journal::finish_step` puts right. Only sure looks at both names tell the rest: a
 /// failed look tells nothing, also not that the sidecar is out.
-fn sidecar_back_after_all(side: &TrashEntry, e: &std::io::Error) -> Option<bool> {
-    use crate::files::file_io::{is_surely_gone, is_surely_there, may_have_been_done};
-    if !may_have_been_done(e, &side.file) {
+fn sidecar_back_after_all(side: &TrashEntry, e: &StepError) -> Option<bool> {
+    use crate::files::file_io::{is_surely_gone, is_surely_there};
+    if !e.may_have_been_done() {
         return Some(false);
     }
     if crate::files::journal::finish_step(&side.file, &side.from).is_ok() {
@@ -697,7 +698,8 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
             // sync for the whole batch, or synced here where that sync does not reach the disk.
             let tmp = crate::files::file_io::tmp_path(&trashinfo);
             let write = |f: &mut std::fs::File| std::io::Write::write_all(f, text.as_bytes());
-            let give_name = |tmp: &Path| rename_never_over(tmp, &trashinfo);
+            let give_name =
+                |tmp: &Path| rename_never_over(tmp, &trashinfo).map_err(std::io::Error::from);
             written = match one_sync {
                 true => crate::files::file_io::write_beside_without_sync(
                     &tmp, &trashinfo, write, give_name,
@@ -744,12 +746,12 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         if let Err(e) = rename_never_over(path, &files_folder.join(&taken)) {
             // A move that may have been done keeps its .trashinfo, without which no trash view
             // lists the file and Undo cannot find it.
-            if !crate::files::file_io::may_have_been_done(&e, path) {
+            if !e.may_have_been_done() {
                 remove(&trashinfo);
             }
-            match e.kind() {
-                AlreadyExists => taken_meanwhile.push((path, path_in_trashinfo.clone())),
-                _ => failed.push((path.to_path_buf(), e)),
+            match e.is_name_taken() {
+                true => taken_meanwhile.push((path, path_in_trashinfo.clone())),
+                false => failed.push((path.to_path_buf(), e.into())),
             }
         }
     }
@@ -916,6 +918,7 @@ mod tests {
             info: dir.join("info").join("a.jpg.xmp.trashinfo"),
         };
         let lost = std::io::Error::from_raw_os_error(libc::EIO);
+        let lost = crate::files::file_io::StepError::new(lost, &side.file);
         assert_eq!(super::sidecar_back_after_all(&side, &lost), None);
     }
 

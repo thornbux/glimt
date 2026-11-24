@@ -610,10 +610,16 @@ arm becomes a method.
     (`source_rules::no_name_is_removed_on_a_cached_look`). Whether a failed step was done is
     judged only by its error in `may_have_been_done` and by the names in `done_after_all`,
     whose rename `rename_never_over` looks at its file right before it and is not tried when
-    that look fails; no other code judges a step's error number, nor, where a step's result
-    goes, its error's kind, a bare number or a look at the old name alone (`found_nothing_at`
-    says when a NotFound surely did nothing)
-    (`source_rules::steps_are_judged_done_in_one_place`);
+    that look fails. So the steps of file_io (`rename_never_over`, `put_file`,
+    `put_file_until_stopped`, `put_file_back`, and `journal::rename_step`) return a
+    `file_io::StepError`, whose number and kind only file_io sees: a caller asks it
+    (`may_have_been_done`, `found_nothing`, `is_name_taken`, `crosses_devices`,
+    `is_interrupted`, `is_name_too_long`), and a new question is a new method there. Passed on
+    as an `std::io::Error`, it has no number and no kind of a lost answer, and
+    `may_have_been_done` still judges it by the error inside. What the type cannot hold is
+    checked: no code outside file_io names an error number that `may_have_been_done` judges
+    by, as a plain unlink's error is no `StepError`, and no step is judged done by a look at
+    one of its names alone (`source_rules::steps_are_judged_done_in_one_place`);
   - delete, trash, move, rename or replace a user's file only after a look that it is still
     the file picked or read. Files picked before a wait (a question, a prompt, the file
     chooser) are carried as `file_io::PickedFiles`, whose fingerprints are taken in the

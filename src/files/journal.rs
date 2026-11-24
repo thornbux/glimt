@@ -1592,15 +1592,14 @@ fn sidecars_back_from_hiding(
 /// tell it again until the user gives the sidecar back by hand. Each failure is told.
 fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
     use crate::files::file_io::{rename_never_over, save_failed, sync_folder_of};
-    use std::io::ErrorKind::AlreadyExists;
     // Glimt's own: the sidecar it put aside under its temporary name, given back.
     let given_back = match rename_never_over(hidden, side) {
         Ok(()) => sync_folder_of(side),
         // A second name of the sidecar, which `rename_step` takes away as Rename Many's does.
-        Err(e) if e.kind() == AlreadyExists && same_file_by_opening(hidden, side) => {
-            rename_step(hidden, side)
+        Err(e) if e.is_name_taken() && same_file_by_opening(hidden, side) => {
+            rename_step(hidden, side).map_err(std::io::Error::from)
         }
-        Err(e) if e.kind() == AlreadyExists => {
+        Err(e) if e.is_name_taken() => {
             save_failed(crate::tf!(
                 "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}",
                 sidecar = side.display(),
@@ -1609,7 +1608,7 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
             return false;
         }
         Err(e) => {
-            let may_have_been_done = crate::files::file_io::may_have_been_done(&e, hidden);
+            let may_have_been_done = e.may_have_been_done();
             let e = may_be_hidden(e, photo, hidden);
             save_failed(format!("{}: {e}", side.display()));
             return may_have_been_done;
@@ -1625,16 +1624,17 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
 /// `hidden`, or to give it back its own name from there, with that hidden name in it. The error
 /// may mean that the rename was done all the same, on a share that lost its answer, so the
 /// sidecar may be under either name, and nothing guesses which.
-pub(crate) fn may_be_hidden(e: std::io::Error, photo: &Path, hidden: &Path) -> std::io::Error {
-    std::io::Error::new(
-        e.kind(),
-        crate::tf!(
-            "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})",
-            hidden = hidden.display(),
-            photo = photo.display(),
-            e
-        ),
-    )
+pub(crate) fn may_be_hidden(
+    e: impl std::fmt::Display,
+    photo: &Path,
+    hidden: &Path,
+) -> std::io::Error {
+    std::io::Error::other(crate::tf!(
+        "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})",
+        hidden = hidden.display(),
+        photo = photo.display(),
+        e
+    ))
 }
 
 /// Returns whether the file at `path` has the size and time of the fingerprint `known`, which a
@@ -2304,10 +2304,11 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
 /// between its link and its unlink, where both names are the file, is finished by taking the
 /// old name away. This is the one way a step is done, whether as Rename Many runs, as it is
 /// undone, or as it is put right at the next start.
-pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
+pub fn rename_step(a: &Path, b: &Path) -> Result<(), crate::files::file_io::StepError> {
     if same_file_by_opening(a, b) {
         #[allow(clippy::disallowed_methods)] // a second name of the same file
-        return std::fs::remove_file(a);
+        let removed = std::fs::remove_file(a);
+        return removed.map_err(|e| crate::files::file_io::StepError::new(e, a));
     }
     crate::files::file_io::put_file(a, b, false)
 }

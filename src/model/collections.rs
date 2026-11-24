@@ -543,7 +543,7 @@ pub fn rename(
     // rename.
     match crate::files::file_io::rename_never_over(file, &new) {
         Ok(()) => Ok(new),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+        Err(e) if e.is_name_taken() => {
             Err(tf!("There is a collection called \"{name}\" already", name))
         }
         Err(e) => Err(tf!("Could not rename the collection: {e}", e)),

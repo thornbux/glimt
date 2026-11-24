@@ -1988,6 +1988,7 @@ impl crate::App {
             };
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
+                let e = std::io::Error::from(e);
                 end_the_log_of_a_failed_folder_rename(&e, log.take());
                 return Some(Told::FailedWrite(format!("{}: {e}", new.display()).into()));
             }
@@ -3240,7 +3241,7 @@ fn delete_for_good(
                 Ok(()) => aside.push((side, hidden)),
                 // A share may have hidden it and lost its answer. Nothing guesses, so the user
                 // is told both names, and the log stays for the next start to give it back.
-                Err(e) if crate::files::file_io::may_have_been_done(&e, &side) => {
+                Err(e) if e.may_have_been_done() => {
                     if let Some(log) = log.as_deref_mut() {
                         log.keep_for_a_later_start(p);
                     }
@@ -3248,7 +3249,7 @@ fn delete_for_good(
                     break;
                 }
                 Err(e) => {
-                    all_aside = Err((side, e));
+                    all_aside = Err((side, e.into()));
                     break;
                 }
             }
@@ -3377,7 +3378,11 @@ fn keep_aside_of_a_photo_gone_without_answer(
     for (side, hidden) in aside {
         failed(
             &side,
-            journal::may_be_hidden(std::io::ErrorKind::NotFound.into(), p, &hidden),
+            journal::may_be_hidden(
+                std::io::Error::from(std::io::ErrorKind::NotFound),
+                p,
+                &hidden,
+            ),
         );
     }
 }
@@ -3721,7 +3726,7 @@ fn rename_files_planned_in(
         let stopped = job.is_stopped();
         let step = match stopped {
             true => Err(std::io::Error::other(tr("stopped"))),
-            false => journal::rename_step(a, b),
+            false => journal::rename_step(a, b).map_err(std::io::Error::from),
         };
         // A step is counted in the plan once done. When the middle of a swap cannot be
         // counted, because its names did not reach the disk, it is undone with the rest.
@@ -3961,11 +3966,13 @@ fn put_files(
                 }
                 put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
             } {
+                // A file stopped halfway is not there, and the stop itself is told.
+                let is_stop = e.is_interrupted() && job.is_stopped();
+                let e = std::io::Error::from(e);
                 if let Some(log) = move_log.as_deref_mut() {
                     log.note_last_step_failed(Direction::Forward, &e);
                 }
-                // A file stopped halfway is not there, and the stop itself is told.
-                if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
+                if !is_stop {
                     failed(&target, e);
                 }
                 moving.remove(path);
@@ -4077,7 +4084,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                 if let Some(log) = move_log.as_deref_mut() {
                     log.note(&to, &from);
                 }
-                let put = put_file(&to, &from, false);
+                let put = put_file(&to, &from, false).map_err(std::io::Error::from);
                 if let (Some(log), Err(e)) = (move_log.as_deref_mut(), &put) {
                     log.note_last_step_failed(Direction::Forward, e);
                 }
@@ -4162,7 +4169,7 @@ fn follow_or_go_back(
     let file = from.display();
     let put_back = at_put
         .and_then(|at_put| is_still_the_file(to, KnownAs::fingerprint(at_put)))
-        .and_then(|()| put_file_back(from, to, is_copy));
+        .and_then(|()| put_file_back(from, to, is_copy).map_err(std::io::Error::from));
     let Err(error) = put_back else {
         let mut told = Vec::new();
         for (side, at, was_copy) in not.followed.into_iter().rev() {
@@ -7569,7 +7576,7 @@ mod tests {
         let renamed = crate::files::file_io::rename_never_over(&old, &new);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != new);
         ANSWER_LOST_AT.set(None);
-        super::end_the_log_of_a_failed_folder_rename(&renamed.unwrap_err(), Some(log));
+        super::end_the_log_of_a_failed_folder_rename(&renamed.unwrap_err().into(), Some(log));
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
         let (_, _, found) = super::journal::jobs_cut_short(&jobs);
