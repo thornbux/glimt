@@ -29,6 +29,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   20 ms later (#293).
 - With the Fastest preset, the image the window waits for on a share no longer waits up to
   five seconds behind the images read ahead: one decoder is always left for it (#295).
+- After a job on a memory card was cut short, the next start no longer takes another card in
+  the same reader for the one the job worked on where the card's volume cannot be read, as in
+  the Flatpak or when an entry of /dev/disk/by-uuid cannot be read, so the marks of the other
+  card's photos are no longer forgotten. The card is told by the number the kernel gave it
+  when it was put in, and where nothing tells, the job waits for a later start with its marks
+  (#305, #306).
+- A WebDAV folder mounted with davfs2, an Azure container mounted with blobfuse2 and a phone
+  mounted with go-mtpfs now count as network folders: Delete no longer offers the trash there,
+  and their sizes are no longer summed over the network (#257).
 
 ## [0.97.0] - 2026-11-24
 
