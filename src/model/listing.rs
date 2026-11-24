@@ -1142,10 +1142,12 @@ impl ReadsFirst {
             let goes_first = a_program_is_starting()
                 || (now.duration_since(began) < IMAGE_AWAITED_FOR
                     && self.awaited.holds_the_walk_at(now, Some(path)));
-            if !goes_first && let Some(turn) = ticket.take(now) {
+            // A turn given back ends the wait at once, and the images awaited are asked about
+            // again at least every 20 ms.
+            let at_most = std::time::Duration::from_millis(20);
+            if let Some(turn) = ticket.take_or_wait(now, !goes_first, at_most) {
                 return Some(turn);
             }
-            std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
 
@@ -1189,16 +1191,18 @@ struct ShareTurn {
     waiting: std::collections::BTreeSet<u64>,
 }
 
-/// Who holds the turn of each share for the work that nobody waits for (`BACKGROUND_TURN`).
-struct TurnHolder(std::sync::Mutex<Turns>);
+/// Who holds the turn of each share for the work that nobody waits for (`BACKGROUND_TURN`),
+/// and what wakes the work waiting when a turn is given back or a ticket leaves a queue.
+struct TurnHolder(std::sync::Mutex<Turns>, std::sync::Condvar);
 
 impl TurnHolder {
     const fn new() -> Self {
-        TurnHolder(std::sync::Mutex::new(Turns {
+        let turns = Turns {
             given: 0,
             tickets: 0,
             shares: std::collections::BTreeMap::new(),
-        }))
+        };
+        TurnHolder(std::sync::Mutex::new(turns), std::sync::Condvar::new())
     }
 
     /// Puts work in the queue for the turn of the share whose mount is `mount`. Returns its
@@ -1225,19 +1229,41 @@ struct TurnTicket {
 }
 
 impl TurnTicket {
-    /// Takes the turn of its share at `now`, when this ticket is the oldest still waiting there
-    /// and nobody holds the turn, or its holder took it `IMAGE_AWAITED_FOR` or longer before.
-    /// Returns `None` otherwise. So a holder stuck on a share that stopped answering is passed,
-    /// and the work after it still goes one at a time, in the order it came. Before, the turn
-    /// went to whoever asked first once it was free, and a thread that gave it back and asked
-    /// again in a loop kept it for as long as the loop ran, while the other work waited.
+    /// Takes the turn of its share at `now` without a wait, as `take_or_wait` does. The tests
+    /// take turns with it.
+    #[cfg(test)]
     fn take(&self, now: std::time::Instant) -> Option<BackgroundTurn> {
+        self.take_or_wait(now, true, std::time::Duration::ZERO)
+    }
+
+    /// Takes the turn of its share at `now`, when `may_take`, this ticket is the oldest still
+    /// waiting there, and nobody holds the turn, or its holder took it `IMAGE_AWAITED_FOR` or
+    /// longer before. So a holder stuck on a share that stopped answering is passed, and the
+    /// work after it still goes one at a time, in the order it came. Before, the turn went to
+    /// whoever asked first once it was free, and a thread that gave it back and asked again in
+    /// a loop kept it for as long as the loop ran, while the other work waited.
+    ///
+    /// Returns `None` when it did not take the turn, after a wait of at most `at_most` that
+    /// ends as soon as a turn is given back or a ticket leaves a queue. The lock is held from
+    /// the try to the wait, so that no such change is missed between them. Before, the work
+    /// waiting looked again only every 20 ms, and each hand-over left the share idle for about
+    /// 10 ms.
+    fn take_or_wait(
+        &self,
+        now: std::time::Instant,
+        may_take: bool,
+        at_most: std::time::Duration,
+    ) -> Option<BackgroundTurn> {
         let mut turns = lock_even_if_poisoned(&self.holder.0);
         let given = turns.given + 1;
         let share = turns.shares.get_mut(&self.mount)?;
         let is_held = (share.held)
             .is_some_and(|(_, since)| now.saturating_duration_since(since) < IMAGE_AWAITED_FOR);
-        if is_held || share.waiting.first() != Some(&self.number) {
+        if !may_take || is_held || share.waiting.first() != Some(&self.number) {
+            if !at_most.is_zero() {
+                let (_turns, _) = (self.holder.1.wait_timeout(turns, at_most))
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
             return None;
         }
         share.waiting.remove(&self.number);
@@ -1256,6 +1282,8 @@ impl Drop for TurnTicket {
             share.waiting.remove(&self.number);
         }
         turns.forget_if_unused(&self.mount);
+        // The next ticket in the queue may now take the turn.
+        self.holder.1.notify_all();
     }
 }
 
@@ -1280,6 +1308,7 @@ impl Drop for BackgroundTurn {
                 share.held = None;
             }
             turns.forget_if_unused(mount);
+            holder.1.notify_all();
         }
     }
 }
@@ -3253,6 +3282,37 @@ mod tests {
         waiter.join().unwrap();
         let longest = longest.expect("the work waiting got the turn while the loop ran");
         assert!(longest < Duration::from_millis(250), "{longest:?}");
+    }
+
+    /// The work waiting for the turn takes it as soon as its holder gives it back. Before, it
+    /// looked again only every 20 ms, so each hand-over left the share idle for about 10 ms
+    /// (#293). The ticket is driven as `before_work_nobody_waits_for` drives it, without the
+    /// wait for a program started, which another test may have noted.
+    #[test]
+    fn a_turn_given_back_is_taken_at_once() {
+        use super::TurnHolder;
+        use std::time::{Duration, Instant};
+        static TURN: TurnHolder = TurnHolder::new();
+        let mount = std::path::PathBuf::from("/share");
+        let mut hand_overs = Vec::new();
+        for _ in 0..20 {
+            let held = TURN.queue(mount.clone()).take(Instant::now()).unwrap();
+            let ticket = TURN.queue(mount.clone());
+            let waiter = std::thread::spawn(move || {
+                loop {
+                    let at_most = Duration::from_millis(20);
+                    if let Some(_turn) = ticket.take_or_wait(Instant::now(), true, at_most) {
+                        return Instant::now();
+                    }
+                }
+            });
+            std::thread::sleep(Duration::from_millis(50));
+            let given_back = Instant::now();
+            drop(held);
+            hand_overs.push(waiter.join().unwrap().duration_since(given_back));
+        }
+        hand_overs.sort();
+        assert!(hand_overs[10] < Duration::from_millis(5), "{hand_overs:?}");
     }
 
     /// Each share has a turn of its own: work on one share goes while the turn of another is
