@@ -4132,3 +4132,8 @@ msgstr "Plik znaczników z Glimt 0.95 lub starszego zostaje w {old}, ponieważ i
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} zawiera dzienniki zadań, podczas których Glimt został zatrzymany, a których to uruchomienie nie mogło jeszcze dokończyć. Zostają, wraz ze znacznikami i gwiazdkami ich plików, na późniejsze uruchomienie."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Wpisz ścieżkę"

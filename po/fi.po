@@ -4121,3 +4121,8 @@ msgstr "Glimt 0.95:n tai vanhemman merkintätiedosto jätetään kohteeseen {old
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} sisältää lokeja töistä, joiden aikana Glimt pysähtyi ja joita tämä käynnistys ei vielä voinut viedä loppuun. Ne säilytetään tiedostojen merkkeineen ja tähtineen myöhempää käynnistystä varten."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Kirjoita polku"

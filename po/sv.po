@@ -4121,3 +4121,8 @@ msgstr "Märkesfilen från Glimt 0.95 eller äldre lämnas i {old}, eftersom {ne
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} har loggar från jobb som Glimt stoppades under, och som den här starten inte kunde slutföra ännu. De sparas, med filernas markeringar och stjärnor, till en senare start."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Skriv en sökväg"

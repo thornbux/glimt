@@ -4143,3 +4143,8 @@ msgstr "Soubor značek z Glimtu 0.95 nebo staršího zůstává v {old}, protož
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} obsahuje záznamy úloh, během nichž se Glimt zastavil a které toto spuštění zatím nemohlo dokončit. Zůstávají i se značkami a hvězdičkami jejich souborů pro pozdější spuštění."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Zadat cestu"

@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The folder path above the folder list is a button for each folder, and a click on one opens
+  that folder. A long path keeps its last folders and puts the first ones behind "…". A click
+  on the empty part after the folders, or Tab to it, turns the path into the text field to
+  type a path in, as before; Esc turns it back.
+
 ### Fixed
 
 - Glimt no longer hangs at start when `$XDG_STATE_HOME` and `$XDG_DATA_HOME` are one folder and
