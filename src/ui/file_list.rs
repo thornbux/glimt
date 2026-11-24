@@ -2736,19 +2736,22 @@ mod tests {
     /// decodes that come in, in every layout: one pane, two and four panes together or one at
     /// a time, and Compare. Only a few of its frames ask for the next one at once. The frames
     /// run on a clock of the test's own, which goes on by the time each frame asks to wait, so
-    /// the test needs no real seconds. A thread that wakes the window, as a decode or a
-    /// thumbnail does when it is done, makes egui ask for that frame and the next one at once,
-    /// and the frame that takes its answer may ask for one more. Those frames are left out of
-    /// the count, because when the other tests run beside it the threads' answers come in one
-    /// at a time over many frames, and they once added up to 13. The number of wakes in a slide
-    /// is bounded by the threads' own work for that slide, not by time: at most 2 were
-    /// measured, and the limit is 8. All the frames asked for at once, those after a wake among
-    /// them, are bounded too: at most 7 were measured, and the limit is 24. So a repaint loop
-    /// that a thread drives is caught, and so is the spring below, however the wakes fall.
-    /// Before, the file list
-    /// scrolled to an image in its last rows past the end of its content, and egui sprang it
-    /// back over about a second of frames, each one asked for at once. Without a vertical sync
-    /// the window then drew as fast as it could, 576 ticks in 3 s in the release tests.
+    /// the test needs no real seconds. The slides are counted only once the window is settled:
+    /// the thumbnails, the sizes and the decodes that the folder started are in, as nothing
+    /// waits for them and their answers would otherwise fall into a slide by timing. A thread
+    /// that wakes the window, as a slide's decode does when it is done, makes egui ask for that
+    /// frame and the next one at once, and the frame that takes its answer may ask for one
+    /// more. Those frames are left out of the count, because under load the answers come in
+    /// one at a time over many frames, and they once added up to 13. The wakes in a slide are
+    /// then bounded by that slide's decodes and preloads, at most four panes and their
+    /// neighbours: at most 4 were measured, and the limit is 8. All the frames asked for at
+    /// once, those after a wake among them, are at most the 12 of the slide's own and three
+    /// for each wake, so their limit is 12 + 3 × 8 = 36, and at most 8 were measured. So a
+    /// repaint loop that a thread drives is caught, and so is the spring below, about 48
+    /// frames, however the wakes fall. Before, the file list scrolled to an image in its last
+    /// rows past the end of its content, and egui sprang it back over about a second of
+    /// frames, each one asked for at once. Without a vertical sync the window then drew as
+    /// fast as it could, 576 ticks in 3 s in the release tests.
     #[test]
     fn a_slideshow_asks_only_for_the_frames_it_needs() {
         use eframe::egui;
@@ -2789,6 +2792,30 @@ mod tests {
             app.config.slideshow_delay = 1;
             app.config.slideshow_fade = 0;
             app.is_comparing = comparing;
+            // The work that the folder started and nobody waits for, the thumbnails and the
+            // sizes, is in before the slides are counted, so that none of its answers can wake
+            // the window in a counted slide. So are the decodes of the images shown.
+            let is_settled = |app: &crate::App| {
+                app.list.decodes_pending().is_empty()
+                    && !app.thumbs.is_making_any()
+                    && app.list.sizes_and_dates().values().all(Option::is_some)
+                    && app.status_bar.folder_total().is_some()
+            };
+            let (mut clock, settling) = (0.0, Instant::now());
+            while !is_settled(&app) {
+                assert!(
+                    settling.elapsed() < Duration::from_secs(30),
+                    "the folder's work was not answered: {case}"
+                );
+                let input = egui::RawInput {
+                    time: Some(clock),
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                let _ = ctx.run_ui(input, |ui| app.frame_ui(ui));
+                std::thread::sleep(Duration::from_millis(10));
+                clock += frame_time.as_secs_f64();
+            }
             // A thread that asks for a frame, as a decode or a thumbnail does when it is done,
             // wakes the window. The frame's own requests come from this thread and are no wake.
             let wakes = Arc::new(AtomicUsize::new(0));
@@ -2805,7 +2832,7 @@ mod tests {
                 all.extend(app.images_in_other_panes());
                 all
             };
-            let (mut clock, mut before) = (0.0, on_screen(&app));
+            let mut before = on_screen(&app);
             let (mut slides, mut at_once, mut most, mut last_shown) = (0, 0, 0, 0);
             let (mut frame, mut last_woken_frame, mut wakes_seen) = (0, None, 0);
             // The frames at once, those after a wake among them, and the wakes, in a slide.
@@ -2842,8 +2869,10 @@ mod tests {
                 let now = on_screen(&app);
                 if now != before {
                     slides += 1;
-                    // The first two slides are left out, while the thumbnails come in.
                     let wakes_now = wakes.load(Ordering::Relaxed);
+                    // The first two slides are left out, because in them the file list scrolls
+                    // to the first image shown, over about ten frames, each one asked for at
+                    // once.
                     if slides > 2 {
                         most = most.max(at_once);
                         most_with_wakes = most_with_wakes.max(at_once_with_wakes);
@@ -2861,14 +2890,18 @@ mod tests {
                 most <= 12,
                 "{most} frames asked for at once in a slide: {case}"
             );
-            // The threads answer a fixed amount of work in a slide, the decodes of the seven
-            // images and the sizes, so a thread that wakes the window every frame fails here.
+            // The threads answer only the slide's own decodes and preloads, as the folder's
+            // other work was in before the count, so a thread that wakes the window every frame
+            // fails here.
+            let most_wakes_allowed = 8;
             assert!(
-                most_wakes <= 8,
+                most_wakes <= most_wakes_allowed,
                 "{most_wakes} wakes from other threads in a slide: {case}"
             );
+            // Each wake leaves out at most three frames, so this follows from the two limits
+            // above.
             assert!(
-                most_with_wakes <= 24,
+                most_with_wakes <= 12 + 3 * most_wakes_allowed,
                 "{most_with_wakes} frames asked for at once in a slide, those after a wake \
                  among them: {case}"
             );
