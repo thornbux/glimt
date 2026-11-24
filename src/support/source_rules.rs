@@ -4114,9 +4114,6 @@ fn a_home_ends_at_the_next_top_level_item() {
     assert_eq!(wrong, ["a.rs:4 (risky()", "a.rs:5 (risky()"]);
 }
 
-/// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
-/// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
-/// sure answer makes.
 /// Which disk and which folder a job log noted (by its volume, its device and inode, or its
 /// device alone where that is not a block device) is decided in two functions:
 /// `journal::is_on_the_volume_noted` for the disk, the only one that reads the volume noted or
@@ -4208,6 +4205,9 @@ fn homes_of_the_folder_rule() -> Vec<(&'static str, &'static [(&'static str, &'s
     ]
 }
 
+/// Every job log and Rename Many plan, and every folder of the logs of Glimt 0.92 found without
+/// one, is removed by `job_log::remove_job_log` alone, which takes a `job_log::Sure` that only a
+/// sure answer makes.
 /// Three audit rounds in a row found a start that removed a log after a look or a write that
 /// could not tell, each through a removal of its own, and each was mended where it was found.
 #[test]
