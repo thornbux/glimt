@@ -3932,6 +3932,10 @@ msgstr "{file} wrócił, ale jego plik poboczny {side} nie ({e}), więc plik pob
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} nie mógł podążyć za {file} ({e}), a {file} nie mógł wrócić ({error}), więc plik jest w {to}, a ten plik poboczny w {side}"
 
+#, fuzzy
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names"
+msgstr "{side} nie mógł podążyć za {file} ({e}), a {file} nie mógł wrócić ({error}), więc plik jest w {to}, a ten plik poboczny może być w {side} lub w {at}, albo w żadnym z nich; sprawdź obie nazwy"
+
 #: src/files/file_io.rs
 #, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."

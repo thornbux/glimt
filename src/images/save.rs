@@ -803,7 +803,7 @@ pub(crate) fn save_copy_with_sidecar(
     // No sidecar can be at a name too long for its file system, and a copy without one needs
     // none. A copy that needs one is refused before it takes its name.
     let needs_no_sidecar_there =
-        |e: &std::io::Error| e.raw_os_error() == Some(libc::ENAMETOOLONG) && source.is_none();
+        |e: &crate::files::file_io::StepError| e.is_name_too_long() && source.is_none();
     // A copy that took its name is saved, also when its folder's sync failed after that. Its
     // sidecar is still written and the replaced file's put away, and the sync is told.
     let not_on_disk = match replace {
@@ -831,9 +831,7 @@ pub(crate) fn save_copy_with_sidecar(
                     }
                     // A kill before the sidecar is back or removed would leave it hidden for
                     // good, so it is written down first, as a delete for good does.
-                    if !crate::files::file_io::is_surely_gone(&side) {
-                        aside_log = log_set_aside(new, &side, &aside);
-                    }
+                    aside_log = log_set_aside(new, &side, &aside);
                     let set_aside = crate::files::file_io::rename_never_over(&side, &aside);
                     let is_set_aside =
                         is_set_aside(set_aside, &side, &aside, needs_no_sidecar_there)?;
@@ -879,7 +877,7 @@ pub(crate) fn save_copy_with_sidecar(
                 |tmp| {
                     let sidecar_lock = lock.insert(crate::metadata::xmp::lock_sidecar(new));
                     crate::metadata::xmp::check_no_sidecar(new, source.is_some(), sidecar_lock)?;
-                    crate::files::file_io::rename_never_over(tmp, new)
+                    crate::files::file_io::rename_never_over(tmp, new).map_err(std::io::Error::from)
                 },
             );
             crate::files::file_io::named_but_not_on_disk(written)?
@@ -926,12 +924,16 @@ fn marks_left_at_the_name() -> &'static str {
 /// gives it back when Glimt was killed while the file there is still as the log knew it
 /// (`journal::deletes_cut_short`). Returns the log, held until the sidecar is back or removed,
 /// and `None` when it could not be written, which is told, as the Save As goes on without it as
-/// a delete does.
+/// a delete does. Returns `None` too when no sidecar is surely at `side`, as nothing is set
+/// aside then. A look that failed counts the sidecar as there.
 fn log_set_aside(
     new: &Path,
     side: &Path,
     aside: &Path,
 ) -> Option<crate::files::journal::DeleteLog> {
+    if crate::files::file_io::is_surely_gone(side) {
+        return None;
+    }
     #[cfg(not(test))]
     let dir = crate::files::job_log::jobs_dir()?;
     #[cfg(test)]
@@ -988,10 +990,10 @@ fn write_copys_sidecar(
 /// that a share's cache showed empty counted as no sidecar, which was then removed with the
 /// hidden name after the save.
 fn is_set_aside(
-    set_aside: std::io::Result<()>,
+    set_aside: Result<(), crate::files::file_io::StepError>,
     side: &Path,
     aside: &Path,
-    needs_no_sidecar_there: impl Fn(&std::io::Error) -> bool,
+    needs_no_sidecar_there: impl Fn(&crate::files::file_io::StepError) -> bool,
 ) -> std::io::Result<bool> {
     match set_aside {
         Ok(()) => Ok(true),
@@ -999,31 +1001,27 @@ fn is_set_aside(
         // A share may have set the sidecar aside and lost its answer, which
         // `rename_never_over` could not tell from the names. Nothing is put back on a guess, so
         // the user is told both of its names.
-        Err(e) if crate::files::file_io::may_have_been_done(&e, side) => {
-            Err(may_be_set_aside(e, side, aside))
-        }
+        Err(e) if e.may_have_been_done() => Err(may_be_set_aside(e, side, aside)),
         // The rename surely did nothing, and nothing is at the sidecar's name.
-        Err(e) if crate::files::file_io::found_nothing_at(&e, side) => Ok(false),
-        Err(e) => Err(std::io::Error::new(
-            e.kind(),
-            format!("{}: {e}", side.display()),
-        )),
+        Err(e) if e.found_nothing() => Ok(false),
+        Err(e) => Err(std::io::Error::other(format!("{}: {e}", side.display()))),
     }
 }
 
 /// Returns the error of Save As when setting `side`, the sidecar of the file it replaces, aside
 /// at the hidden name `aside` failed with `e`, which may mean that it was set aside all the
 /// same (a share that lost its answer). It names both names, as nothing puts it back on a guess.
-fn may_be_set_aside(e: std::io::Error, side: &Path, aside: &Path) -> std::io::Error {
-    std::io::Error::new(
-        e.kind(),
-        crate::tf!(
-            "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})",
-            sidecar = side.display(),
-            aside = aside.display(),
-            e
-        ),
-    )
+fn may_be_set_aside(
+    e: crate::files::file_io::StepError,
+    side: &Path,
+    aside: &Path,
+) -> std::io::Error {
+    std::io::Error::other(crate::tf!(
+        "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})",
+        sidecar = side.display(),
+        aside = aside.display(),
+        e
+    ))
 }
 
 /// Returns what the window tells of the copy `new` saved: that it was saved, or, when its
@@ -4353,8 +4351,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-aside-enoent-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (side, aside) = (dir.join("b.png.xmp"), dir.join(".aside"));
-        let enoent = || Err(std::io::Error::from_raw_os_error(libc::ENOENT));
-        let none = |_: &std::io::Error| false;
+        let enoent = || {
+            let e = std::io::Error::from_raw_os_error(libc::ENOENT);
+            Err(crate::files::file_io::StepError::in_a_test(
+                e, &side, &aside,
+            ))
+        };
+        let none = |_: &crate::files::file_io::StepError| false;
         ON_A_SHARE_IN_A_TEST.set(Some(dir.clone()));
         let not_there = crate::files::file_io::rename_never_over(&side, &aside);
         let told = super::is_set_aside(enoent(), &side, &aside, none);

@@ -1988,6 +1988,7 @@ impl crate::App {
             };
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
+                let e = std::io::Error::from(e);
                 end_the_log_of_a_failed_folder_rename(&e, log.take());
                 return Some(Told::FailedWrite(format!("{}: {e}", new.display()).into()));
             }
@@ -3240,7 +3241,7 @@ fn delete_for_good(
                 Ok(()) => aside.push((side, hidden)),
                 // A share may have hidden it and lost its answer. Nothing guesses, so the user
                 // is told both names, and the log stays for the next start to give it back.
-                Err(e) if crate::files::file_io::may_have_been_done(&e, &side) => {
+                Err(e) if e.may_have_been_done() => {
                     if let Some(log) = log.as_deref_mut() {
                         log.keep_for_a_later_start(p);
                     }
@@ -3248,7 +3249,7 @@ fn delete_for_good(
                     break;
                 }
                 Err(e) => {
-                    all_aside = Err((side, e));
+                    all_aside = Err((side, e.into()));
                     break;
                 }
             }
@@ -3277,8 +3278,7 @@ fn delete_for_good(
             let removed = note_failed(log.as_deref_mut(), p, done_after_all(removed, p, None));
             removed.map_err(|e| failed(p, e)).is_ok()
         };
-        // A look that failed (a share that dropped for a moment) counts the file as there.
-        if !(deleted && is_surely_gone(p)) {
+        if !(deleted && is_deleted(p)) {
             // A delete that answered done, followed by a look that failed, may have deleted
             // the photo. The log stays, so that the next start forgets its marks when it is gone.
             if deleted && let Some(log) = log.as_deref_mut() {
@@ -3330,6 +3330,13 @@ fn delete_for_good(
     (went, sides, left_alone)
 }
 
+/// Returns whether the photo `p`, whose delete answered done or was judged done after all
+/// (`done_after_all`), is surely gone. A look that failed (a share that dropped for a moment)
+/// counts the photo as there. It is a look of its own, as no failed step is judged by one name.
+fn is_deleted(p: &Path) -> bool {
+    is_surely_gone(p)
+}
+
 /// Returns the sidecars of the photo `p` that a delete for good puts aside, each with its hidden
 /// name, as pairs `(sidecar, hidden)`, and notes them in `log`. They are noted on disk before
 /// the first rename, which the folder sync after the renames makes lasting.
@@ -3377,7 +3384,11 @@ fn keep_aside_of_a_photo_gone_without_answer(
     for (side, hidden) in aside {
         failed(
             &side,
-            journal::may_be_hidden(std::io::ErrorKind::NotFound.into(), p, &hidden),
+            journal::may_be_hidden(
+                std::io::Error::from(std::io::ErrorKind::NotFound),
+                p,
+                &hidden,
+            ),
         );
     }
 }
@@ -3721,7 +3732,7 @@ fn rename_files_planned_in(
         let stopped = job.is_stopped();
         let step = match stopped {
             true => Err(std::io::Error::other(tr("stopped"))),
-            false => journal::rename_step(a, b),
+            false => journal::rename_step(a, b).map_err(std::io::Error::from),
         };
         // A step is counted in the plan once done. When the middle of a swap cannot be
         // counted, because its names did not reach the disk, it is undone with the rest.
@@ -3961,11 +3972,13 @@ fn put_files(
                 }
                 put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
             } {
+                // A file stopped halfway is not there, and the stop itself is told.
+                let is_stop = e.is_interrupted() && job.is_stopped();
+                let e = std::io::Error::from(e);
                 if let Some(log) = move_log.as_deref_mut() {
                     log.note_last_step_failed(Direction::Forward, &e);
                 }
-                // A file stopped halfway is not there, and the stop itself is told.
-                if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
+                if !is_stop {
                     failed(&target, e);
                 }
                 moving.remove(path);
@@ -3995,7 +4008,8 @@ fn put_files(
         // still reported, so that its marks follow it and Undo brings it back.
         if catch_panic(put_one).is_none() {
             errors.push(format!("{}: {}", path.display(), broke_here()));
-            match !is_copy && is_surely_gone(path) && is_surely_there(&target) {
+            let left = crate::files::file_io::where_a_step_left_the_file(path, &target);
+            match !is_copy && left == crate::files::file_io::StepLeft::AtNewName {
                 true => put.push((path.clone(), target)),
                 false => drop(moving.remove(path)),
             }
@@ -4077,7 +4091,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                 if let Some(log) = move_log.as_deref_mut() {
                     log.note(&to, &from);
                 }
-                let put = put_file(&to, &from, false);
+                let put = put_file(&to, &from, false).map_err(std::io::Error::from);
                 if let (Some(log), Err(e)) = (move_log.as_deref_mut(), &put) {
                     log.note_last_step_failed(Direction::Forward, e);
                 }
@@ -4162,7 +4176,7 @@ fn follow_or_go_back(
     let file = from.display();
     let put_back = at_put
         .and_then(|at_put| is_still_the_file(to, KnownAs::fingerprint(at_put)))
-        .and_then(|()| put_file_back(from, to, is_copy));
+        .and_then(|()| put_file_back(from, to, is_copy).map_err(std::io::Error::from));
     let Err(error) = put_back else {
         let mut told = Vec::new();
         for (side, at, was_copy) in not.followed.into_iter().rev() {
@@ -4206,16 +4220,30 @@ fn follow_or_go_back(
     let to = to.display();
     let told = (not.failed.iter())
         .filter(|(side, at, e)| is_copy || !sidecar_where_the_file_is((side, at), e, false))
-        .map(|(side, _, e)| {
-            let side = side.display();
-            tf!(
-                "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}",
-                side,
-                file,
-                e,
-                error,
-                to
-            )
+        .map(|(side, at, e)| {
+            // A move that may have been done and could not be finished may have left the
+            // sidecar at either name, or lost it on the way.
+            let is_in_doubt = !is_copy && crate::files::file_io::may_have_been_done(e, side);
+            let (side, at) = (side.display(), at.display());
+            match is_in_doubt {
+                true => tf!(
+                    "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names",
+                    side,
+                    file,
+                    e,
+                    error,
+                    to,
+                    at
+                ),
+                false => tf!(
+                    "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}",
+                    side,
+                    file,
+                    e,
+                    error,
+                    to
+                ),
+            }
         })
         .chain(not.left_behind.iter().map(|l| l.told()))
         .collect();
@@ -4239,7 +4267,7 @@ fn sidecar_where_the_file_is(
         true => (at, side),
         false => (side, at),
     };
-    journal::finish_step(away, beside).is_ok()
+    journal::finish_step(away, beside) == crate::files::file_io::StepLeft::AtNewName
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
@@ -5385,6 +5413,49 @@ mod tests {
                 false => assert!(told.is_empty(), "{told:?}"),
             }
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar whose move may have been done, and that no look can then find beside its file,
+    /// which could not go back, is told as being at either name or at neither. Before, it was
+    /// told as being at its old name, where it was not: here the share moved it and lost the
+    /// answer, and the look at its new name failed.
+    #[test]
+    fn a_sidecar_in_doubt_is_told_at_either_name() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL, LOOKS_FAIL_ONCE_DONE_AT};
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-side-doubt-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("a.jpg"), "photo").unwrap();
+        std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
+        // Another file has taken the old name, so the photo cannot go back.
+        std::fs::write(from.join("a.jpg"), "another").unwrap();
+        let (side, at) = (from.join("a.jpg.xmp"), to.join("a.jpg.xmp"));
+        let photo = from.join("a.jpg");
+        let moving = std::collections::HashSet::from([&photo]);
+        ANSWER_LOST_AT.set(Some(side.clone()));
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![at.clone()])));
+        let result = super::follow_or_go_back(
+            (&photo, &to.join("a.jpg")),
+            false,
+            &moving,
+            (&mut Default::default(), None),
+        );
+        ANSWER_LOST_AT.set(None);
+        LOOKS_FAIL_ONCE_DONE_AT.set(None);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != at);
+        let Err((is_back, told)) = result else {
+            panic!("the sidecar followed")
+        };
+        assert!(!is_back, "{told:?}");
+        assert_eq!(std::fs::read_to_string(&at).unwrap(), "own");
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert!(told[0].contains("or at neither"), "{told:?}");
+        assert!(told[0].contains(&at.display().to_string()), "{told:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -7569,7 +7640,7 @@ mod tests {
         let renamed = crate::files::file_io::rename_never_over(&old, &new);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != new);
         ANSWER_LOST_AT.set(None);
-        super::end_the_log_of_a_failed_folder_rename(&renamed.unwrap_err(), Some(log));
+        super::end_the_log_of_a_failed_folder_rename(&renamed.unwrap_err().into(), Some(log));
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
         let (_, _, found) = super::journal::jobs_cut_short(&jobs);

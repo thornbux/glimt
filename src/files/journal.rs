@@ -1592,15 +1592,14 @@ fn sidecars_back_from_hiding(
 /// tell it again until the user gives the sidecar back by hand. Each failure is told.
 fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
     use crate::files::file_io::{rename_never_over, save_failed, sync_folder_of};
-    use std::io::ErrorKind::AlreadyExists;
     // Glimt's own: the sidecar it put aside under its temporary name, given back.
     let given_back = match rename_never_over(hidden, side) {
         Ok(()) => sync_folder_of(side),
         // A second name of the sidecar, which `rename_step` takes away as Rename Many's does.
-        Err(e) if e.kind() == AlreadyExists && same_file_by_opening(hidden, side) => {
-            rename_step(hidden, side)
+        Err(e) if e.is_name_taken() && same_file_by_opening(hidden, side) => {
+            rename_step(hidden, side).map_err(std::io::Error::from)
         }
-        Err(e) if e.kind() == AlreadyExists => {
+        Err(e) if e.is_name_taken() => {
             save_failed(crate::tf!(
                 "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}",
                 sidecar = side.display(),
@@ -1609,7 +1608,7 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
             return false;
         }
         Err(e) => {
-            let may_have_been_done = crate::files::file_io::may_have_been_done(&e, hidden);
+            let may_have_been_done = e.may_have_been_done();
             let e = may_be_hidden(e, photo, hidden);
             save_failed(format!("{}: {e}", side.display()));
             return may_have_been_done;
@@ -1625,16 +1624,17 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
 /// `hidden`, or to give it back its own name from there, with that hidden name in it. The error
 /// may mean that the rename was done all the same, on a share that lost its answer, so the
 /// sidecar may be under either name, and nothing guesses which.
-pub(crate) fn may_be_hidden(e: std::io::Error, photo: &Path, hidden: &Path) -> std::io::Error {
-    std::io::Error::new(
-        e.kind(),
-        crate::tf!(
-            "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})",
-            hidden = hidden.display(),
-            photo = photo.display(),
-            e
-        ),
-    )
+pub(crate) fn may_be_hidden(
+    e: impl std::fmt::Display,
+    photo: &Path,
+    hidden: &Path,
+) -> std::io::Error {
+    std::io::Error::other(crate::tf!(
+        "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})",
+        hidden = hidden.display(),
+        photo = photo.display(),
+        e
+    ))
 }
 
 /// Returns whether the file at `path` has the size and time of the fingerprint `known`, which a
@@ -2304,10 +2304,11 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
 /// between its link and its unlink, where both names are the file, is finished by taking the
 /// old name away. This is the one way a step is done, whether as Rename Many runs, as it is
 /// undone, or as it is put right at the next start.
-pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
+pub fn rename_step(a: &Path, b: &Path) -> Result<(), crate::files::file_io::StepError> {
     if same_file_by_opening(a, b) {
         #[allow(clippy::disallowed_methods)] // a second name of the same file
-        return std::fs::remove_file(a);
+        let removed = std::fs::remove_file(a);
+        return removed.map_err(|e| crate::files::file_io::StepError::new(e, a, b));
     }
     crate::files::file_io::put_file(a, b, false)
 }
@@ -2315,16 +2316,15 @@ pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
 /// Finishes a step from `a` to `b` that failed in a way that may have been done (a share that
 /// lost its answer), so that the file is at `b` alone. It may be at both names, one file under
 /// two, and then the name `a` goes (`rename_step`), or still only at `a`, and then it is moved.
-/// Returns `Ok` when nothing is left at `a` and the file is at `b`, and `CannotTell` otherwise,
-/// as a failed look tells nothing, and a file at neither name was lost on the way.
-pub fn finish_step(a: &Path, b: &Path) -> AtStart<()> {
+/// Returns where the file is then: at `b` alone, at `a` alone, or neither, as a failed look
+/// tells nothing, and a file at neither name was lost on the way.
+pub fn finish_step(a: &Path, b: &Path) -> crate::files::file_io::StepLeft {
     // A step that failed again, also one that may have been done, is judged by sure looks at
-    // both names, so its error is not needed. Both are looked at, as `done_after_all` does,
-    // because a share may lose the file in a failed rename.
+    // both names (`StepError::where_the_file_is`), because a share may lose the file in a
+    // failed rename.
     match rename_step(a, b) {
-        Ok(()) => Ok(()),
-        Err(_) if is_surely_gone(a) && is_surely_there(b) => Ok(()),
-        Err(_) => Err(CannotTell),
+        Ok(()) => crate::files::file_io::StepLeft::AtNewName,
+        Err(e) => e.where_the_file_is(),
     }
 }
 
@@ -2819,8 +2819,6 @@ fn is_linked(file: &File) -> std::io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    /// Two names asked for at one moment of the clock, or after the clock went back, differ.
-    /// Before, a name was the clock's time alone, and two logs of one moment had one name.
     /// A step that failed counts as finished only when its file is at its new name and gone
     /// from its old one. Before, a gone old name was enough, and a sidecar that a share lost in
     /// a failed move counted as beside its file, so the loss was not told.
@@ -2830,15 +2828,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.jpg.xmp"), dir.join("b.jpg.xmp"));
-        assert!(super::finish_step(&a, &b).is_err());
+        use crate::files::file_io::StepLeft::{AtNewName, CannotTell};
+        assert_eq!(super::finish_step(&a, &b), CannotTell);
         std::fs::write(&b, "b").unwrap();
-        assert!(super::finish_step(&a, &b).is_ok());
+        assert_eq!(super::finish_step(&a, &b), AtNewName);
         std::fs::write(&a, "a").unwrap();
-        assert!(super::finish_step(&a, &b).is_err());
+        assert_eq!(super::finish_step(&a, &b), CannotTell);
         assert!(a.exists() && b.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Two names asked for at one moment of the clock, or after the clock went back, differ.
+    /// Before, a name was the clock's time alone, and two logs of one moment had one name.
     #[test]
     fn two_new_names_at_one_moment_differ() {
         let mut last = 0;

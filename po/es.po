@@ -3921,6 +3921,10 @@ msgstr "{file} volvió, pero su archivo complementario {side} no pudo ({e}), as�
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} no pudo seguir a {file} ({e}), y {file} no pudo volver ({error}), así que el archivo está en {to} y este archivo complementario en {side}"
 
+#, fuzzy
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names"
+msgstr "{side} no pudo seguir a {file} ({e}), y {file} no pudo volver ({error}), así que el archivo está en {to}, y este archivo complementario puede estar en {side} o en {at}, o en ninguno; compruebe ambos nombres"
+
 #: src/files/file_io.rs
 #, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."

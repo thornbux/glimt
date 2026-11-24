@@ -1366,12 +1366,14 @@ pub fn follow(
             false => crate::files::file_io::put_file(side, to, is_copy),
         };
         match moved {
-            Err(e) if !is_copy && crate::files::file_io::may_have_been_done(&e, side) => Err(e),
-            Err(error) if is_link => Ok(Some((false, Some(error)))),
-            Err(error) if !is_copy => {
-                crate::files::file_io::put_file(side, to, true).map(|()| Some((true, Some(error))))
-            }
-            done => done.map(|()| Some((is_copy, None))),
+            Err(e) if !is_copy && e.may_have_been_done() => Err(e.into()),
+            Err(error) if is_link => Ok(Some((false, Some(error.into())))),
+            Err(error) if !is_copy => (crate::files::file_io::put_file(side, to, true))
+                .map(|()| Some((true, Some(error.into()))))
+                .map_err(std::io::Error::from),
+            done => done
+                .map(|()| Some((is_copy, None)))
+                .map_err(std::io::Error::from),
         }
     };
     let (mut followed, mut failed, mut left_behind) = (Vec::new(), Vec::new(), Vec::new());

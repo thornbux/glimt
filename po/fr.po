@@ -3921,6 +3921,10 @@ msgstr "{file} est revenu, mais pas son fichier annexe {side} ({e}), donc le fic
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} n'a pas pu suivre {file} ({e}), et {file} n'a pas pu revenir ({error}), donc le fichier est dans {to} et ce fichier annexe dans {side}"
 
+#, fuzzy
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names"
+msgstr "{side} n'a pas pu suivre {file} ({e}), et {file} n'a pas pu revenir ({error}), donc le fichier est dans {to}, et ce fichier annexe peut être dans {side} ou dans {at}, ou dans aucun des deux ; vérifiez les deux noms"
+
 #: src/files/file_io.rs
 #, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."

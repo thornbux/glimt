@@ -610,9 +610,18 @@ arm becomes a method.
     (`source_rules::no_name_is_removed_on_a_cached_look`). Whether a failed step was done is
     judged only by its error in `may_have_been_done` and by the names in `done_after_all`,
     whose rename `rename_never_over` looks at its file right before it and is not tried when
-    that look fails; no other code judges a step's error number, nor, where a step's result
-    goes, its error's kind, a bare number or a look at the old name alone (`found_nothing_at`
-    says when a NotFound surely did nothing)
+    that look fails. So the steps of file_io (`rename_never_over`, `put_file`,
+    `put_file_until_stopped`, `put_file_back`, and `journal::rename_step`) return a
+    `file_io::StepError`, whose number and kind only file_io sees: a caller asks it
+    (`may_have_been_done`, `found_nothing`, `is_name_taken`, `crosses_devices`,
+    `is_interrupted`, `is_name_too_long`, and `where_the_file_is`, which looks at both names),
+    and a new question is a new method there. Passed on as an `std::io::Error`, it has no
+    number and no kind of a lost answer, and `may_have_been_done` still judges it by the error
+    inside. What the type cannot hold is checked: no code outside file_io names an error number
+    that `may_have_been_done` judges by, as a plain unlink's error is no `StepError`, and no
+    function outside file_io that calls a step, or is given a `StepError`, a `Restoring` or an
+    `std::io::Error`, looks at a name with `is_surely_gone`, `is_surely_there` or
+    `is_followed_to`. A look it needs for something else goes in a function of its own
     (`source_rules::steps_are_judged_done_in_one_place`);
   - delete, trash, move, rename or replace a user's file only after a look that it is still
     the file picked or read. Files picked before a wait (a question, a prompt, the file

@@ -763,6 +763,122 @@ impl std::fmt::Display for NamedButNotOnDisk {
 
 impl std::error::Error for NamedButNotOnDisk {}
 
+/// The error of a step on a name: a rename (`rename_never_over`), a move or a copy given its
+/// name (`put_file` and the functions built on it), or the unlink of a second name
+/// (`journal::rename_step`). A share may have done such a step and lost its answer, which only
+/// file_io judges (`may_have_been_done`). So only file_io sees the error's number and kind, and
+/// the rest of Glimt gets the answers its methods give and the text to tell. Passed on as an
+/// `std::io::Error`, it has no number and no kind of a lost answer, and `may_have_been_done`
+/// still judges it by the error inside. Where the file is after a step that may have been done
+/// is told by `where_the_file_is`, by sure looks at both names, so that no caller looks at one
+/// name alone. Before, the callers got the `std::io::Error` itself, and some judged a lost
+/// answer their own way, in forms that no search of the source found all of.
+#[derive(Debug)]
+pub(crate) struct StepError {
+    /// The error of the step, as the file system or file_io gave it.
+    error: std::io::Error,
+    /// The name the step took the file from, by whose file system the error is judged.
+    from: PathBuf,
+    /// The name the step was taking the file to.
+    to: PathBuf,
+}
+
+impl StepError {
+    /// Makes the error of a step that was taking the file from `from` to `to` and failed with
+    /// `error`. Only the steps of the files folder make one, so that no other error, such as a
+    /// look's, is judged as a step's.
+    pub(in crate::files) fn new(error: std::io::Error, from: &Path, to: &Path) -> StepError {
+        StepError {
+            error,
+            from: from.to_path_buf(),
+            to: to.to_path_buf(),
+        }
+    }
+
+    /// Makes the error of a step from `from` to `to` for a test, as `new` does.
+    #[cfg(test)]
+    pub(crate) fn in_a_test(error: std::io::Error, from: &Path, to: &Path) -> StepError {
+        StepError::new(error, from, to)
+    }
+
+    /// Settles where the file of the failed step is, by sure looks at both of its names
+    /// (`where_a_step_left_the_file`).
+    pub(crate) fn where_the_file_is(&self) -> StepLeft {
+        where_a_step_left_the_file(&self.from, &self.to)
+    }
+
+    /// Returns whether the step may have been done all the same (`may_have_been_done`).
+    pub(crate) fn may_have_been_done(&self) -> bool {
+        may_have_been_done(&self.error, &self.from)
+    }
+
+    /// Returns whether the step surely did nothing because nothing was at its old name: the
+    /// error says that no file was there, and it is no lost answer (`may_have_been_done`).
+    pub(crate) fn found_nothing(&self) -> bool {
+        self.error.kind() == std::io::ErrorKind::NotFound && !self.may_have_been_done()
+    }
+
+    /// Returns whether the step was refused because a file or folder has the new name.
+    pub(crate) fn is_name_taken(&self) -> bool {
+        self.error.kind() == std::io::ErrorKind::AlreadyExists
+    }
+
+    /// Returns whether the rename was refused because the new name is on another file system,
+    /// so that the file is to be copied instead.
+    pub(crate) fn crosses_devices(&self) -> bool {
+        self.error.kind() == std::io::ErrorKind::CrossesDevices
+    }
+
+    /// Returns whether the step was cut short, as a Stop does (`put_file_until_stopped`).
+    pub(crate) fn is_interrupted(&self) -> bool {
+        self.error.kind() == std::io::ErrorKind::Interrupted
+    }
+
+    /// Returns whether a name was too long for its file system, so that no file can be there.
+    pub(crate) fn is_name_too_long(&self) -> bool {
+        self.error.raw_os_error() == Some(libc::ENAMETOOLONG)
+    }
+
+    /// Returns the error as it came, for file_io's own steps, which judge it here.
+    fn into_io_error(self) -> std::io::Error {
+        self.error
+    }
+}
+
+impl std::fmt::Display for StepError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::error::Error for StepError {}
+
+impl From<StepError> for std::io::Error {
+    /// Passes the error of a step on as an `std::io::Error` with no number, so that no caller
+    /// judges it by its number. Its kind is `AlreadyExists` when the new name is taken, which a
+    /// caller tries another name for (Crop's copy, a .trashinfo), and `Other` otherwise. A link
+    /// on NFS that was done and sent again answers so too, which leaves an extra name.
+    /// `may_have_been_done` judges it by the error inside (`step_error_inside`).
+    fn from(error: StepError) -> std::io::Error {
+        let kind = match error.is_name_taken() {
+            true => std::io::ErrorKind::AlreadyExists,
+            false => std::io::ErrorKind::Other,
+        };
+        std::io::Error::new(kind, error)
+    }
+}
+
+/// Where sure looks at both names of a step find its file (`where_a_step_left_the_file`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum StepLeft {
+    /// The file is at its new name, and its old name is surely gone.
+    AtNewName,
+    /// The file is at its old name, and its new name is surely gone.
+    AtOldName,
+    /// The looks cannot tell: the file is at both names or at neither, or a look failed.
+    CannotTell,
+}
+
 /// What the names say of a replace's rename that failed, which `taken_back` hands to the undo
 /// of the step before the rename.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -947,7 +1063,7 @@ fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
 /// under its old name or its new one. A caller whose next step counts on the new name being on
 /// disk (an unlink of the source, a plan removed) syncs the folder with `sync_folder_of` first.
 #[allow(clippy::disallowed_methods)] // its last fallback, a rename after looking
-pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) fn rename_never_over(from: &Path, to: &Path) -> Result<(), StepError> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices, Unsupported};
     #[cfg(test)]
     let missing = RENAME_WAYS_MISSING.get();
@@ -962,9 +1078,10 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         // the rename for not done. Any other error is the look's own, with its number, which a
         // caller may judge by (a name too long for a sidecar).
         Err(e) if may_have_been_done(&e, from) => {
-            return Err(std::io::Error::new(e.kind(), e.to_string()));
+            let e = std::io::Error::new(e.kind(), e.to_string());
+            return Err(StepError::new(e, from, to));
         }
-        Err(e) => return Err(e),
+        Err(e) => return Err(StepError::new(e, from, to)),
     };
     let one_step = match missing {
         0 => rename_noreplace(from, to),
@@ -993,7 +1110,7 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     if renamed.is_ok() {
         looks_fail_once_done_in_a_test(from);
     }
-    done_after_all(renamed, from, Some((to, before)))
+    done_after_all(renamed, from, Some((to, before))).map_err(|e| StepError::new(e, from, to))
 }
 
 /// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
@@ -1061,8 +1178,11 @@ fn unlink_was_refused(e: &std::io::Error) -> bool {
 /// `unlink_linked`'s. A file that is gone (ENOENT) is the exception on a network or cloud mount,
 /// where `from`, the name the step took the file from, is: NFS and SMB send a step again when its
 /// answer is lost, and a rename done the first time answers ENOENT the second. A mount whose type
-/// cannot be read counts as such a mount.
+/// cannot be read counts as such a mount. A step's own error is judged by its method
+/// (`StepError::may_have_been_done`). One passed on as an `std::io::Error`, in a job's log say,
+/// is judged here by the error inside it.
 pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
+    let e = step_error_inside(e);
     #[cfg(test)]
     if ON_A_SHARE_IN_A_TEST.with_borrow(|share| share.as_ref().is_some_and(|s| from.starts_with(s)))
     {
@@ -1071,11 +1191,13 @@ pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
     may_have_been_done_on(e, || file_system_type(from))
 }
 
-/// Returns whether the failed rename, link or unlink from `from` that gave the error `e` surely
-/// did nothing, because nothing was at `from`: the error says that no file was there, and
-/// `may_have_been_done` does not take it for a share that did the step and lost its answer.
-pub(crate) fn found_nothing_at(e: &std::io::Error, from: &Path) -> bool {
-    e.kind() == std::io::ErrorKind::NotFound && !may_have_been_done(e, from)
+/// Returns the error of a step (`StepError`) that `e` passes on, or `e` itself when it passes
+/// on none.
+fn step_error_inside(e: &std::io::Error) -> &std::io::Error {
+    let step = e
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<StepError>());
+    step.map_or(e, |step| &step.error)
 }
 
 /// Returns `may_have_been_done` for the error `e` of a step on a mount whose type `kind` gives.
@@ -1137,6 +1259,20 @@ pub(crate) fn done_after_all(
             _ => Ok(()),
         },
         result => result,
+    }
+}
+
+/// Returns where sure looks at both names of a step from `from` to `to` find its file. A failed
+/// look tells nothing, and a share may lose the file in a failed step, so only both names tell
+/// that the step was done, or that it was not. Only it and `done_after_all` judge a failed step
+/// by looks at its names.
+pub(crate) fn where_a_step_left_the_file(from: &Path, to: &Path) -> StepLeft {
+    if is_surely_gone(from) && is_surely_there(to) {
+        return StepLeft::AtNewName;
+    }
+    match is_surely_gone(to) && is_surely_there(from) {
+        true => StepLeft::AtOldName,
+        false => StepLeft::CannotTell,
     }
 }
 
@@ -1586,23 +1722,28 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
 /// Only that move syncs the copy's folder, before its source is removed. A copy alone leaves
 /// the source, so nothing is lost when its name does not reach the disk, and a folder sync for
 /// each file would make a copy of many small files to a USB stick up to twice as slow.
-pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
+pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> Result<(), StepError> {
     put_file_until_stopped(from, to, is_copy, &|| false)
 }
 
 /// Takes back a `put_file` of `from` to `to` whose sidecar could not follow, so that the file
 /// and its sidecar stay together. A move goes back to `from`, on disk with its folder, as the
 /// window then counts the file as never moved. A copy is removed, but only while `from` is
-/// surely there, so that the copy is never the only one left.
-pub(crate) fn put_file_back(from: &Path, to: &Path, was_copy: bool) -> std::io::Result<()> {
+/// surely there, so that the copy is never the only one left. The error is judged by `to`, the
+/// name the file is taken back from.
+pub(crate) fn put_file_back(from: &Path, to: &Path, was_copy: bool) -> Result<(), StepError> {
     if !was_copy {
-        return put_file(to, from, false).and_then(|()| sync_folder_of(from));
+        put_file(to, from, false)?;
+        return sync_folder_of(from).map_err(|e| StepError::new(e, to, from));
     }
+    // The original that is not there is told as text, of no kind that `found_nothing` reads,
+    // as the copy at `to` is still there.
     if !is_surely_there(from) {
-        return Err(std::io::ErrorKind::NotFound.into());
+        let not_there = std::io::Error::from(std::io::ErrorKind::NotFound);
+        return Err(StepError::new(std::io::Error::other(not_there), to, from));
     }
     #[allow(clippy::disallowed_methods)] // a copy just made, whose original is still there
-    std::fs::remove_file(to)
+    std::fs::remove_file(to).map_err(|e| StepError::new(e, to, from))
 }
 
 /// Copies or moves `from` to `to` as `put_file` does, and stops inside a large file when
@@ -1614,8 +1755,8 @@ pub(crate) fn put_file_until_stopped(
     to: &Path,
     is_copy: bool,
     is_stopped: &dyn Fn() -> bool,
-) -> std::io::Result<()> {
-    use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
+) -> Result<(), StepError> {
+    use std::io::ErrorKind::AlreadyExists;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     // Returns the fingerprint of the file at `from` as it was when it was opened to be copied.
     let copy = || -> std::io::Result<FileFingerprint> {
@@ -1665,7 +1806,10 @@ pub(crate) fn put_file_until_stopped(
                 copy_extended_attributes(from, &out, !is_copy);
                 out.sync_all().map(|()| at_open)
             })
-            .and_then(|at_open| rename_never_over(&part, to).map(|()| at_open));
+            .and_then(|at_open| {
+                let renamed = rename_never_over(&part, to).map_err(StepError::into_io_error);
+                renamed.map(|()| at_open)
+            });
         #[allow(clippy::disallowed_methods)] // the copy's hidden part
         // Not told: a copy that failed is told by its own error, and a copy that took its name
         // has no part left to remove.
@@ -1673,11 +1817,15 @@ pub(crate) fn put_file_until_stopped(
         copied
     };
     if is_copy {
-        return copy().map(|_| ());
+        return copy().map(|_| ()).map_err(|e| StepError::new(e, from, to));
     }
     #[cfg(test)]
     let moved = match MOVES_CROSS_DEVICES.get() {
-        true => Err(CrossesDevices.into()),
+        true => Err(StepError::new(
+            std::io::ErrorKind::CrossesDevices.into(),
+            from,
+            to,
+        )),
         false => rename_never_over(from, to),
     };
     #[cfg(not(test))]
@@ -1685,10 +1833,11 @@ pub(crate) fn put_file_until_stopped(
     match moved {
         // The copy is on disk with its name before the source goes: a stick pulled out right
         // after must not lose both.
-        Err(e) if e.kind() == CrossesDevices => (copy())
+        Err(e) if e.crosses_devices() => (copy())
             .and_then(|at_open| sync_folder_of(to).map(|()| at_open))
             .and_then(|at_open| still_the_file_copied(from, to, at_open))
-            .and_then(|()| unlink_linked(from, to)),
+            .and_then(|()| unlink_linked(from, to))
+            .map_err(|e| StepError::new(e, from, to)),
         done => done,
     }
 }
@@ -2255,7 +2404,7 @@ pub(crate) fn replace_what_was_read(
             is_still_the_file(path, KnownAs::fingerprint(read)).map(|()| nothing_to_undo)
         }),
         None => write_beside(&tmp_path(path), path, write, |tmp| {
-            rename_never_over(tmp, path)
+            rename_never_over(tmp, path).map_err(StepError::into_io_error)
         }),
     }
 }
@@ -2875,7 +3024,8 @@ pub(crate) fn named_but_not_on_disk(
     match result {
         Ok(()) => Ok(None),
         Err(e)
-            if e.get_ref()
+            if step_error_inside(&e)
+                .get_ref()
                 .is_some_and(|inner| inner.is::<NamedButNotOnDisk>()) =>
         {
             Ok(Some(e))
@@ -2920,7 +3070,8 @@ pub fn write_beside_without_sync(
     // that failed, even with a share's error, left the file as it was. Before, any such error
     // kept a hidden copy of the image in the user's folder, and its error did not name it.
     let is_kept = |e: &std::io::Error| {
-        e.get_ref()
+        step_error_inside(e)
+            .get_ref()
             .is_some_and(|inner| inner.is::<MayBeUnderBothNames>())
     };
     if result.as_ref().is_err_and(|e| !is_kept(e)) {
@@ -2941,7 +3092,7 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
         path,
         |f| f.write_all(bytes.as_ref()),
         // Glimt's own: the new file under its temporary name, given its name never over a file.
-        |tmp| crate::files::file_io::rename_never_over(tmp, path),
+        |tmp| crate::files::file_io::rename_never_over(tmp, path).map_err(StepError::into_io_error),
     )
 }
 
@@ -3587,7 +3738,7 @@ mod tests {
             let taken = super::rename_never_over(&a, &b);
             let renamed = super::rename_never_over(&a, &c);
             RENAME_WAYS_MISSING.set(0);
-            assert_eq!(taken.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+            assert!(taken.unwrap_err().is_name_taken());
             assert_eq!(text(&b), "b");
             renamed.unwrap();
             assert!(!a.exists() && text(&c) == "a");
@@ -3690,7 +3841,7 @@ mod tests {
         let renamed = super::rename_never_over(&a, &b);
         LOOK_FAILS.set(None);
         let e = renamed.unwrap_err();
-        assert!(!super::may_have_been_done(&e, &a), "{e}");
+        assert!(!e.may_have_been_done(), "{e}");
         assert!(a.exists() && !b.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -3947,6 +4098,55 @@ mod tests {
         )));
     }
 
+    /// The error of a step passed on as an `std::io::Error` shows no number and no kind of a
+    /// lost answer, so that no caller outside file_io judges it by them, and `may_have_been_done`
+    /// still judges it by the error inside. A name taken keeps its kind, for which a caller
+    /// tries another name. Before, a step gave its `std::io::Error` itself, and callers judged
+    /// a lost answer by its kind or number in forms that no search of the source found all of.
+    #[test]
+    fn a_step_error_passed_on_shows_no_lost_answer() {
+        use super::StepError;
+        let at = std::path::Path::new("/a.jpg");
+        for number in [
+            libc::EIO,
+            libc::ETIMEDOUT,
+            libc::ENOENT,
+            libc::EINTR,
+            libc::ENOMEM,
+        ] {
+            let step = StepError::new(std::io::Error::from_raw_os_error(number), at, at);
+            let may_have_been_done = step.may_have_been_done();
+            let passed_on = std::io::Error::from(step);
+            assert_eq!(passed_on.raw_os_error(), None);
+            assert_eq!(passed_on.kind(), std::io::ErrorKind::Other);
+            assert_eq!(
+                super::may_have_been_done(&passed_on, at),
+                may_have_been_done
+            );
+        }
+        let lost = StepError::new(std::io::Error::from_raw_os_error(libc::EIO), at, at);
+        assert!(super::may_have_been_done(&lost.into(), at));
+        let taken = StepError::new(std::io::Error::from_raw_os_error(libc::EEXIST), at, at);
+        let taken = std::io::Error::from(taken);
+        assert_eq!(taken.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(taken.raw_os_error(), None);
+    }
+
+    /// A copy that is not taken back because its original is not there is no step that found
+    /// nothing, as the copy is still at its name. Before, the refusal was a NotFound of its
+    /// own, which `found_nothing` read as nothing at the copy's name.
+    #[test]
+    fn a_copy_kept_for_want_of_its_original_did_not_find_nothing() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-copy-kept-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (from, to) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        std::fs::write(&to, "copy").unwrap();
+        let kept = super::put_file_back(&from, &to, true).unwrap_err();
+        assert!(!kept.found_nothing());
+        assert!(super::is_surely_there(&to));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Where neither RENAME_NOREPLACE nor links can be made (rclone, s3fs, MTP), the rename after
     /// looking takes a name for free only when the look said NotFound. A link that points
     /// nowhere, which `exists` took for no file, and a name whose look failed are not renamed
@@ -3968,10 +4168,9 @@ mod tests {
         let over_unseen = super::rename_never_over(&a, &unseen);
         RENAME_WAYS_MISSING.set(0);
         crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != unseen);
-        let kind = |r: std::io::Result<()>| r.unwrap_err().kind();
         let text = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
-        assert_eq!(kind(over_link), std::io::ErrorKind::AlreadyExists);
-        assert_eq!(kind(over_unseen), std::io::ErrorKind::AlreadyExists);
+        assert!(over_link.unwrap_err().is_name_taken());
+        assert!(over_unseen.unwrap_err().is_name_taken());
         assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
         assert_eq!(text(&unseen), "c");
         assert_eq!(text(&a), "a");
@@ -4097,7 +4296,7 @@ mod tests {
             asked.get() > 1
         };
         let stopped = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), true, &is_stopped);
-        assert_eq!(stopped.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert!(stopped.unwrap_err().is_interrupted());
         assert_eq!(asked.get(), 2, "not stopped inside the file");
         assert_eq!(std::fs::read_dir(dir.join("to")).unwrap().count(), 0);
         assert_eq!(std::fs::read(&a).unwrap().len(), 1 << 20);

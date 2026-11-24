@@ -91,7 +91,7 @@ fn copy_into(
         } else if meta.is_file() {
             // Named, as the files after it are not copied.
             crate::files::file_io::put_file(&source, &dest, true)
-                .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", source.display())))?;
+                .map_err(|e| std::io::Error::other(format!("{}: {e}", source.display())))?;
             files += 1;
         }
     }
