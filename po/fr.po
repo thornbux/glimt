@@ -4121,3 +4121,8 @@ msgstr "Le fichier des marques de Glimt 0.95 ou plus ancien est laissé dans {ol
 #, fuzzy
 msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start."
 msgstr "{folder} contient des journaux de tâches pendant lesquelles Glimt s'est arrêté, que ce démarrage n'a pas encore pu terminer. Ils sont gardés, avec les marques et étoiles de leurs fichiers, pour un démarrage ultérieur."
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Type a path"
+msgstr "Saisir un chemin"

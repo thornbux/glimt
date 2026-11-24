@@ -14,7 +14,7 @@ use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{Pick, entered};
-use crate::ui::menus::{checkbox, radio_choice, scroll_menu, selectable, submenu};
+use crate::ui::menus::{button, checkbox, radio_choice, scroll_menu, selectable, submenu};
 use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{Failure, broken_mark, pane_map};
 use crate::{files::config, model::collections, tf, ui::theme};
@@ -1390,10 +1390,36 @@ impl crate::App {
         }
     }
 
-    /// The folder path above the folder list, as in Geeqie. Enter opens what was typed.
+    /// The folder path above the folder list, as one button for each folder. A click on a folder
+    /// opens it. A click on the empty part of the bar, or the keyboard's focus there, turns the
+    /// bar into Geeqie's text field, where Enter opens what was typed. Several folders open at
+    /// once have no one path, so they are shown in the text field.
     pub(crate) fn path_field(&mut self, ui: &mut egui::Ui) {
-        let edit =
-            egui::TextEdit::singleline(self.folder.path_text_mut()).desired_width(f32::INFINITY);
+        let field = egui::Id::unique("path field");
+        let shown = match self.folder.folders().is_empty() {
+            true => Some(self.folder.collection().unwrap_or(self.folder.dir())),
+            false => None,
+        };
+        let chosen = match shown {
+            Some(path) if !ui.memory(|m| m.has_focus(field)) => path_buttons(ui, path, field),
+            _ => {
+                self.path_text_field(ui, field);
+                None
+            }
+        };
+        if let Some(folder) = chosen {
+            let gone =
+                |p: &Path| Failure::from(tf!("No such folder: {folder}", folder = p.display()));
+            self.visit_if_there(ui.ctx(), folder, gone);
+        }
+    }
+
+    /// The folder path as a text field, with the id `field`, as in Geeqie. Enter opens what was
+    /// typed: a folder, a path that starts with `~`, or a network location such as smb://.
+    fn path_text_field(&mut self, ui: &mut egui::Ui, field: egui::Id) {
+        let edit = egui::TextEdit::singleline(self.folder.path_text_mut())
+            .id(field)
+            .desired_width(f32::INFINITY);
         let response = ui.add(edit);
         if entered(&response) {
             let text = self.folder.path_text().trim().to_owned();
@@ -2245,6 +2271,83 @@ pub(crate) fn places_overlapped(lo: f32, hi: f32, step: f32, size: f32) -> std::
     first.max(0.0) as usize..(hi / step).ceil().max(0.0) as usize
 }
 
+/// Draws `path` as one button for each folder in it, the last one selected, with "…" before
+/// them for the first folders when they do not all fit. The empty part after them takes the
+/// id `field` of the path's text field, so a click there or the keyboard's focus turns the bar
+/// into that field. Returns the folder clicked, or `None`.
+fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathBuf> {
+    let mut folders: Vec<&Path> = (path.ancestors())
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect();
+    folders.reverse();
+    let name = |p: &Path| match p.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => p.display().to_string(),
+    };
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let (padding, spacing) = (ui.spacing().button_padding.x, ui.spacing().item_spacing.x);
+    let width = |text: String| {
+        let galley = ui
+            .painter()
+            .layout_no_wrap(text, font.clone(), egui::Color32::PLACEHOLDER);
+        galley.size().x + 2.0 * padding + spacing
+    };
+    // Each folder with the "/" before it, and room left over for the empty part to click.
+    let separator = width("/".to_owned()) - 2.0 * padding;
+    let widths: Vec<f32> = folders.iter().map(|p| width(name(p)) + separator).collect();
+    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y;
+    let first = first_folder_that_fits(&widths, room, width("…".to_owned()));
+    let mut chosen = None;
+    ui.horizontal(|ui| {
+        if first > 0 {
+            submenu(ui, "…", |ui| {
+                for folder in &folders[..first] {
+                    if button(ui, &name(folder)).clicked() {
+                        chosen = Some(folder.to_path_buf());
+                    }
+                }
+            });
+        }
+        for (i, folder) in folders.iter().enumerate().skip(first) {
+            // The root, "/", has no "/" after it.
+            if i > 0 && folders[i - 1].file_name().is_some() {
+                ui.weak("/");
+            }
+            if selectable(ui, i + 1 == folders.len(), &name(folder)).clicked() {
+                chosen = Some(folder.to_path_buf());
+            }
+        }
+        let empty = ui.available_rect_before_wrap();
+        let response = ui.interact(empty, field, egui::Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::Role::TextInput, true, tr("Type a path"))
+        });
+        let response = crate::support::test_hooks::noted(&response, tr("Type a path"))
+            .on_hover_cursor(egui::CursorIcon::Text);
+        if response.clicked() {
+            ui.memory_mut(|m| m.request_focus(field));
+            ui.ctx().request_repaint();
+        }
+    });
+    chosen
+}
+
+/// Returns the first of the folders of a path, `widths` wide each, to show as a button when
+/// they are to fit in `room`. The folders before it go behind a button `more` wide. The last
+/// folder is always shown, also when it alone does not fit.
+fn first_folder_that_fits(widths: &[f32], room: f32, more: f32) -> usize {
+    if widths.iter().sum::<f32>() <= room {
+        return 0;
+    }
+    let mut first = widths.len().saturating_sub(1);
+    let mut used = more + widths.get(first).copied().unwrap_or(0.0);
+    while first > 0 && used + widths[first - 1] <= room {
+        first -= 1;
+        used += widths[first];
+    }
+    first
+}
+
 /// The status bar's text about an image: "1800 × 1200 · 920.0 kB · 5 / 16", then the page or
 /// frame. The dimensions and the size are left out while they are not known, and the position
 /// comes as `position_text` gives it ("[5/16]").
@@ -2311,6 +2414,21 @@ fn fade_scrolled_edges<R>(ui: &egui::Ui, scrolled: &egui::scroll_area::ScrollAre
 #[cfg(test)]
 mod tests {
     use super::Panel;
+
+    /// A path that does not fit keeps its last folders and puts the first ones behind "…". The
+    /// folder shown stays, also when it alone is wider than the room.
+    #[test]
+    fn a_long_path_keeps_its_last_folders() {
+        use super::first_folder_that_fits;
+        let widths = [10.0, 20.0, 30.0, 40.0];
+        assert_eq!(first_folder_that_fits(&widths, 100.0, 5.0), 0);
+        assert_eq!(first_folder_that_fits(&widths, 99.0, 5.0), 1);
+        assert_eq!(first_folder_that_fits(&widths, 75.0, 5.0), 2);
+        assert_eq!(first_folder_that_fits(&widths, 74.0, 5.0), 3);
+        assert_eq!(first_folder_that_fits(&widths, 1.0, 5.0), 3);
+        assert_eq!(first_folder_that_fits(&[50.0], 1.0, 5.0), 0);
+        assert_eq!(first_folder_that_fits(&[], -10.0, 5.0), 0);
+    }
 
     /// A scrolled view fades only the edges with more beyond them: none at its ends.
     #[test]
