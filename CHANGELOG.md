@@ -29,6 +29,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   20 ms later (#293).
 - With the Fastest preset, the image the window waits for on a share no longer waits up to
   five seconds behind the images read ahead: one decoder is always left for it (#295).
+- Rename Many and its Undo hold the sidecar locks of one photo at a time, so a rename that
+  hangs on a share holds up few sidecar writes in other windows. Before, they held those of
+  every photo for the whole job, nearly all 64 for 100 photos (#153).
+- An edit of keywords, stars or a comment made while Rename Many runs is saved when the rename
+  ends, also when a collection opened meanwhile is still being read. Before, it waited for
+  that collection, and was lost when its listing failed (#263).
 
 ## [0.97.0] - 2026-11-24
 
