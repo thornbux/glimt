@@ -1078,11 +1078,19 @@ impl ReadsFirst {
         }
     }
 
-    /// Looks at the file `name` in `dir` for what it is sorted by in `by` (`sort_key`), after
-    /// the wait of a look (`before_a_look`).
-    pub(crate) fn sort_key(&mut self, dir: &Path, name: &OsStr, by: Sort) -> SortKey {
-        self.before_a_look(dir);
-        sort_key(dir, name, by)
+    /// Returns the gate made to end its waits when `stop` is set, as another listing sets it.
+    pub(crate) fn ended_by(self, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+        ReadsFirst { stop, ..self }
+    }
+
+    /// Looks at the file at `path` for what it is sorted by in `by` (`sort_key`), after the
+    /// wait of a look at that same path (`before_a_look`). The gate is given the path of the
+    /// file, not its folder, because a gate for files anywhere asks about the path it is given.
+    /// Before, a collection's files were asked about by its folder, "/", which is on no share,
+    /// and a sorted collection on a share read every key before the image awaited.
+    pub(crate) fn sort_key(&mut self, path: &Path, by: Sort) -> SortKey {
+        self.before_a_look(path);
+        sort_key(path, by)
     }
 
     /// Waits, when `path` is on a share, for the reads that go first, with what is left of the
@@ -1923,16 +1931,16 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// Returns what `file`, a name in `dir`, is sorted by besides its name in the order `by`: a look
-/// at the file in an order that looks at the files, which only a thread may make, and
+/// Returns what the file at `path` is sorted by besides its name in the order `by`: a look at
+/// the file in an order that looks at the files, which only a thread may make, and
 /// `SortKey::Name` otherwise. It is private, so that every look at a file for its key goes
 /// through the gate (`ReadsFirst::sort_key`), which on a share waits for the image awaited.
-fn sort_key(dir: &Path, file: &OsStr, by: Sort) -> SortKey {
+fn sort_key(path: &Path, by: Sort) -> SortKey {
     #[cfg(test)]
     if by.looks_at_files() {
         FILES_LOOKED_AT.set(FILES_LOOKED_AT.get() + 1);
     }
-    let meta = || std::fs::metadata(dir.join(file)).ok();
+    let meta = || std::fs::metadata(path).ok();
     let nanos = |t: std::io::Result<std::time::SystemTime>| {
         let since = t
             .ok()
@@ -1948,7 +1956,7 @@ fn sort_key(dir: &Path, file: &OsStr, by: Sort) -> SortKey {
         }
         Sort::Size => SortKey::Size(meta().map(|m| m.len())),
         Sort::ExifOriginal | Sort::ExifDigitized => {
-            let date = exif::date(&dir.join(file), by == Sort::ExifDigitized);
+            let date = exif::date(path, by == Sort::ExifDigitized);
             SortKey::Exif(date.is_none(), date)
         }
     }
@@ -3145,10 +3153,10 @@ mod tests {
             for (ascending, case) in [(true, true), (true, false), (false, true), (false, false)] {
                 let order = (sort, ascending, case);
                 let rows = super::Rows::sorted(listed(&names), order, |_, name| {
-                    sort_key(&dir, name, sort)
+                    sort_key(&dir.join(name), sort)
                 });
                 let files = rows.listed_names();
-                let key = |f: &super::ListedName| sort_key(&dir, &f.0, sort);
+                let key = |f: &super::ListedName| sort_key(&dir.join(&f.0), sort);
                 for pair in files.windows(2) {
                     let (a, b) = ((&key(&pair[0]), &pair[0].0), (&key(&pair[1]), &pair[1].0));
                     assert!(
