@@ -4112,3 +4112,8 @@ msgstr "Kunne ikke flytte mærkefilen {from} til {to}: {e}. Mærkerne bliver, hv
 #, fuzzy
 msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
 msgstr "Mærkefilen fra Glimt 0.95 eller ældre er efterladt i {old}, da {new} også findes. Mærkerne i {new} bruges: slå de to sammen i hånden, eller fjern den gamle."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} har logfiler fra job, som Glimt blev stoppet under, og som denne start ikke kunne gøre færdige, fordi den ikke kunne se deres filer eller skelne deres kort eller disk fra et andet. De beholdes, med filernes mærker og stjerner, til en senere start."

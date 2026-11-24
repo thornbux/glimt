@@ -3304,3 +3304,7 @@ msgstr "Kunne ikke flytte merkefilen {from} til {to}: {e}. Merkene blir der de e
 #: src/metadata/marks.rs
 msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
 msgstr "Merkefilen fra Glimt 0.95 eller eldre er latt være i {old}, fordi {new} også finnes. Merkene i {new} brukes: slå de to sammen for hånd, eller fjern den gamle."
+
+#: src/files/journal.rs
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} har logger fra jobber som Glimt stoppet under, og som denne starten ikke kunne fullføre, fordi den ikke kunne se på filene deres eller skille kortet eller disken deres fra et annet. De beholdes, med merkene og stjernene til filene deres, til en senere start."

@@ -4134,3 +4134,8 @@ msgstr "Soubor značek {from} nelze přesunout do {to}: {e}. Značky zůstávaj�
 #, fuzzy
 msgid "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one."
 msgstr "Soubor značek z Glimtu 0.95 nebo staršího zůstává v {old}, protože existuje i {new}. Používají se značky z {new}: spojte oba ručně, nebo starý odstraňte."
+
+#: src/files/journal.rs
+#, fuzzy
+msgid "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish, as it could not look at their files or tell their card or disk from another. They are kept, with the marks and stars of their files, for a later start."
+msgstr "{folder} obsahuje záznamy úloh, během nichž se Glimt zastavil a které toto spuštění nemohlo dokončit, protože nemohlo prohlédnout jejich soubory ani rozlišit jejich kartu či disk od jiného. Zůstávají i se značkami a hvězdičkami jejich souborů pro pozdější spuštění."
