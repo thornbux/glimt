@@ -2288,20 +2288,25 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
         None => p.display().to_string(),
     };
     let font = egui::TextStyle::Button.resolve(ui.style());
-    let (padding, spacing) = (ui.spacing().button_padding.x, ui.spacing().item_spacing.x);
+    // The folders are drawn with half the buttons' padding and no spacing, as the padding
+    // already parts them from the "/". So the folder above the open one fits beside the empty
+    // part at the panel's default width.
+    let padding = ui.spacing().button_padding.x / 2.0;
     let width = |text: String| {
         let galley = ui
             .painter()
             .layout_no_wrap(text, font.clone(), egui::Color32::PLACEHOLDER);
-        galley.size().x + 2.0 * padding + spacing
+        galley.size().x + 2.0 * padding
     };
     // Each folder with the "/" before it, and room left over for the empty part to click.
     let separator = width("/".to_owned()) - 2.0 * padding;
     let widths: Vec<f32> = folders.iter().map(|p| width(name(p)) + separator).collect();
-    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y - spacing;
+    let room = ui.available_width() - 2.0 * ui.spacing().interact_size.y;
     let first = first_folder_that_fits(&widths, room, width("…".to_owned()));
     let mut chosen = None;
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.spacing_mut().button_padding.x = padding;
         // The folders get no more than the room, and a name too long for it is cut short. A
         // row wider than the panel would widen the panel for good.
         let size = egui::vec2(room.max(0.0), ui.spacing().interact_size.y);
@@ -2495,6 +2500,53 @@ mod tests {
         }
         assert!(used <= 160.0, "the path took {used} of 160");
         assert!(click_room >= wanted, "{click_room} to click, want {wanted}");
+    }
+
+    /// At the side panel's default width, the path shows the folder above the one open as a
+    /// button of its own, beside the empty part to click. Before, every folder above it went
+    /// into "…", as the room kept for the empty part left none for a second button.
+    #[test]
+    fn the_parent_folder_has_a_button_at_the_default_width() {
+        for (path, parent) in [
+            ("/tmp/path-buttons/summer", "path-buttons"),
+            ("/tmp/glimt-demo/Pictures/Summer", "Pictures"),
+        ] {
+            // The window's own fonts and spacing, as the names' widths decide what fits.
+            let ctx = eframe::egui::Context::default();
+            crate::ui::theme::fonts(&ctx);
+            crate::ui::theme::apply(
+                &ctx,
+                &crate::ui::theme::built_in_theme("Desktop"),
+                None,
+                None,
+            );
+            ctx.enable_accesskit();
+            let field = eframe::egui::Id::unique("a field of the test");
+            let (mut nodes, mut click_room, mut wanted) = (Vec::new(), 0.0, 0.0);
+            for _ in 0..2 {
+                let out = ctx.run_ui(Default::default(), |ui| {
+                    wanted = 2.0 * ui.spacing().interact_size.y - 1.0;
+                    eframe::egui::Panel::left("a panel of the test")
+                        .resizable(true)
+                        .default_size(240.0)
+                        .show(ui, |ui| {
+                            super::path_buttons(ui, path.as_ref(), field);
+                            // The lists below the path fill the panel's width, as in the window.
+                            ui.allocate_space(ui.available_size());
+                        });
+                    click_room = ctx.read_response(field).map_or(0.0, |r| r.rect.width());
+                });
+                // Only the last frame counts, as the panel takes its width from the frame before.
+                let update = out.platform_output.accesskit_update.map(|u| u.nodes);
+                nodes = update.into_iter().flatten().map(|(_, n)| n).collect();
+            }
+            let labels: Vec<_> = nodes.iter().filter_map(|n| n.label()).collect();
+            assert!(labels.contains(&parent), "{path}: {labels:?}");
+            assert!(
+                click_room >= wanted,
+                "{path}: {click_room} to click, want {wanted}"
+            );
+        }
     }
 
     /// The "…" before a path cut short says which folders it holds, to a screen reader too.
