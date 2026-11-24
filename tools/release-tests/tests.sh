@@ -5443,6 +5443,70 @@ PY
     else note "old: named, renamed, hidden, starred, plans: $got $plans ($cut hidden when killed)"; fi
 done
 
+section "Glimt killed (kill -9) during the Undo of a Move: every photo under a name, the stars follow it back"
+# #235: the Undo of a Move keeps a log as the Move does (since 0.90, in jobs/ since 0.93), so a
+# kill while the files go back leaves no stars at the names they left. The killed Undo from the
+# trash, Rename Folder and Move Folder to Trash are in the section of the stick taken out. The
+# last release keeps this log too, so it is run for comparison only: only NEW must pass.
+for v in new old; do
+    as_version $v
+    mkdir -p $XDG_STATE_HOME/glimt
+    # 200 photos of 10 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
+    # the disk under /tmp and then back by the Undo, each copied and then unlinked; the Undo is
+    # killed after the tenth is back.
+    d=/dev/shm/undo-killed-$v to=/tmp/undo-killed-to-$v
+    rm -rf $d $to $XDG_STATE_HOME/glimt/jobs; mkdir -p $d $to
+    head -c 10000000 /dev/urandom >$d/001.jpg
+    for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
+    for i in $(seq -w 1 200); do echo "sidecar $i" >$d/$i.jpg.xmp; done
+    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
+    config
+    start $d
+    sleep 2
+    key ctrl+a
+    answer $to
+    key ctrl+m
+    # The Move is over when its log is gone and the stars are at the new names.
+    until_ok "[ \$(ls $to | grep -c 'jpg\$') = 200 ] && [ -z \"\$(find $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null)\" ] && [ \$(grep -c '$to/' $MARKS) = 200 ]" 120
+    sleep 1
+    key ctrl+z
+    for i in $(seq 400); do [ "$(ls $d | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.05; done
+    kill -9 $GPID; wait $GPID 2>/dev/null
+    back=$(ls $d | grep -c 'jpg$')
+    logged=$(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    start $d; sleep 2; quit         # a new start, which puts the Undo right
+    got=$(python3 - $d $to $MARKS <<'PY'
+import os, sys
+d, to, marks = sys.argv[1:]
+stars = {}
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3:
+        stars[fields[2]] = fields[1]
+named = beside = starred = 0
+for i in range(1, 201):
+    name = "%03d.jpg" % i
+    places = [p for p in (d, to) if os.path.isfile(f"{p}/{name}")]
+    named += bool(places)
+    beside += any(os.path.isfile(f"{p}/{name}.xmp") for p in places)
+    starred += any(stars.get(f"{p}/{name}") == "3" for p in places)
+left = sum(1 for p in stars if not os.path.isfile(p))
+print(named, beside, starred, left)
+PY
+)
+    logs_left=$(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    rm -rf $d $to
+    if [ $v = new ]; then
+        expect "killed during the Undo of a Move: its log there at the kill" "$logged" 1
+        expect "killed during the Undo of a Move: every photo under a name, its sidecar beside it, its stars on it, none at a name left" \
+            "$got" "200 200 200 0"
+        expect "killed during the Undo of a Move: the next start leaves no log behind" "$logs_left" 0
+        # An Undo that never started, or that ended before the kill, passes the lines above too.
+        expect "killed in the middle of the Undo" \
+            "$([ $back -gt 0 ] && [ $back -lt 200 ] && echo yes)" yes
+    else note "old: named, sidecar beside, starred, left: $got, logs $logged $logs_left ($back back when killed)"; fi
+done
+
 section "Glimt killed (kill -9) during a Move to Trash and a Delete: no sidecar at the name of a photo that went, and stars only on a later photo there"
 # F1-3. A delete forgot the marks of the files that went only in its last report, and a Move to
 # Trash sent a chunk's sidecars to the trash in a second gio call after its photos. A kill left

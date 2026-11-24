@@ -7,6 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A job log kept for a later start and written anew no longer forgets the older log it was
+  itself written from. When the start had failed to remove that older log, the next start read
+  it as a log of its own and gave its marks, stars and collection places again, over changes
+  made since or to another file that took the name (#279).
+- A hidden folder that Glimt left in its folder of job logs, when it was killed while it began
+  a job's log, is removed at a later start (#273).
 - A start after a kill no longer forgets the marks and stars of photos when another card is in
   the reader at the same path. That was possible when the card's volume could not be noted, as
   in the Flatpak, or when the card was swapped during the start. On a card or stick whose

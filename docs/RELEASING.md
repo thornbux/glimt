@@ -98,7 +98,7 @@ folder and the EXIF timings. Screenshots of the steps are in
   a Copy, a turned save and a sidecar write; a share (a FUSE pass-through) that removes a file
   but answers its unlink with an error while its cache still finds the name, under a Move and a
   Rename; a JPEG still being written when it is turned with Save Orientation on; `kill -9`
-  during a Move and a Rename Many, then a new start; a read-only folder or sidecar under a
+  during a Move, the Undo of a Move and a Rename Many, then a new start; a read-only folder or sidecar under a
   keyword save that Ctrl+Q waits for; the trash failing partway (its disk full, a small ext2,
   as gio refuses a tmpfs, and gio failing on some files), then Undo; the marks file, a
   collection and Rename Many's plan on a full disk; a photo and its sidecar split by a full

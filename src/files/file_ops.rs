@@ -1902,10 +1902,10 @@ impl crate::App {
                 .filter(|(_, to, _)| !written.contains(to))
                 .filter_map(|(_, to, _)| to.file_name())
                 .collect();
-            // shortcut: the real paths are looked up in the window's thread, but only of the
-            // files just written and the moved files that share a name with one, which the write
-            // reached a moment ago; look them up with the write if a share is seen to hold the
-            // window here.
+            // shortcut: the real paths and new fingerprints are looked up in the window's
+            // thread, but only of the files just written and the moved files that share a name
+            // with one, which the write reached a moment ago; look them up with the write if a
+            // share is seen to hold the window here.
             let (names, real): (HashSet<&std::ffi::OsStr>, HashSet<PathBuf>) = (paths.iter())
                 .filter_map(|p| Some((p.file_name().filter(|n| moved.contains(n))?, p)))
                 .filter_map(|(name, p)| Some((name, real_path(p)?)))
@@ -8130,6 +8130,7 @@ mod tests {
         );
         let gone: Vec<&&str> = known.iter().filter(|k| !found.contains(**k)).collect();
         assert!(gone.is_empty(), "named here but no longer there: {gone:?}");
+        every_operation_in_the_contract_keeps_a_job_log(IN_CONTRACT);
         // Work counts itself as writing however file_io's counter is named. Before, only the
         // whole path was seen, so `Working::new(&WRITING)` after a `use` passed unseen.
         for spelling in [
@@ -8161,6 +8162,51 @@ mod tests {
         ] {
             assert!(!starts_an_operation(other), "taken: {other}");
         }
+    }
+
+    /// Checks that each function of `in_contract` (as `every_file_operation_is_in_the_contract`
+    /// lists them) starts a job log (`JobLog::start`), in its own thread or in the work it hands
+    /// on, or says here why its operation needs none. A job that changes the user's files
+    /// without a log leaves marks, stars and collection entries at the old names when Glimt is
+    /// killed halfway, which a later file of that name takes. Before 0.93, the Undo of a Move,
+    /// Undo from the trash, Rename Folder and Move Folder to Trash kept no log (#235, #248), and
+    /// nothing stopped a new operation from keeping none either.
+    fn every_operation_in_the_contract_keeps_a_job_log(in_contract: &[(&str, &str)]) {
+        const KEEPS_NO_JOB_LOG: &[(&str, &str)] = &[
+            (
+                "wait_for_look_up_before_the_job",
+                "it holds the files until the job starts, and the job's own function keeps the log",
+            ),
+            (
+                "copy_for_sharing_into_real_folder",
+                "it makes new files only, and a copy cut short has no marks to lose",
+            ),
+            (
+                "write_sidecars",
+                "each sidecar is written whole or not at all, at the name it had",
+            ),
+            (
+                "save_orientation",
+                "the image is written whole or not at all, at the name it had",
+            ),
+        ];
+        let reaching = crate::support::source_rules::functions_reaching("JobLog", "start");
+        let keeps_none: Vec<&str> = KEEPS_NO_JOB_LOG.iter().map(|(f, _)| *f).collect();
+        let without: Vec<&str> = (in_contract.iter().map(|(f, _)| *f))
+            .filter(|f| !keeps_none.contains(f) && !reaching.contains(&format!("App::{f}")))
+            .collect();
+        assert!(
+            without.is_empty(),
+            "file operations that start no job log: {without:?}"
+        );
+        // A function that keeps a log after all, or that left the contract, leaves this list.
+        let stale: Vec<&str> = (keeps_none.iter().copied())
+            .filter(|f| {
+                reaching.contains(&format!("App::{f}"))
+                    || !in_contract.iter().any(|(name, _)| name == f)
+            })
+            .collect();
+        assert!(stale.is_empty(), "named as keeping no log: {stale:?}");
     }
 
     /// Returns whether `line` starts a job or background work: a call of one of the functions

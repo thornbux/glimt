@@ -7715,6 +7715,40 @@ fn reaching(calls: &[Vec<Call>], mut own: Vec<bool>) -> Vec<bool> {
     }
 }
 
+/// Returns the crate's functions that reach the method or associated function `owner::name`,
+/// however deep, also through the work that they hand to another thread, as a job's log is
+/// mostly started in the job's own thread. Each is named as `Owner::name`, or as `name` when it
+/// is a free function, and the function itself is among them.
+pub(crate) fn functions_reaching(owner: &str, name: &str) -> HashSet<String> {
+    let graph = CallGraph::new(&rust_sources());
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| {
+            let lines = &graph.lines[&f.file];
+            let text = lines[f.lines.clone()].join("\n");
+            let opens = (f.lines.clone()).find(|&i| lines[i].ends_with('{'));
+            let signature = lines[*f.lines.start()..=opens.unwrap_or(*f.lines.start())].join(" ");
+            (f.lines.clone())
+                .flat_map(|i| graph.callees(f, &text, &signature, &lines[i]))
+                .map(|(callee, text)| Call {
+                    callee: Some(callee),
+                    text,
+                    line: 0,
+                })
+                .collect()
+        })
+        .collect();
+    let own = (graph.functions.iter())
+        .map(|f| f.owner.as_deref() == Some(owner) && f.name == name)
+        .collect();
+    (reaching(&calls, own).into_iter().zip(&graph.functions))
+        .filter(|(reaches, _)| *reaches)
+        .map(|(_, f)| match &f.owner {
+            Some(owner) => format!("{owner}::{}", f.name),
+            None => f.name.clone(),
+        })
+        .collect()
+}
+
 /// Returns the comments just above the statement whose line `i` of `code` is, up to the
 /// statement's first line and then up the comments and attributes above it, with those of the
 /// statement's own lines.
