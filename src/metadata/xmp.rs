@@ -2482,13 +2482,21 @@ pub(crate) fn first_description_start(xmp: &str) -> Option<usize> {
 /// `KNOWN_NAMESPACES`, or else the prefix as written. A known prefix bound to another
 /// namespace, or to none, is replaced by that namespace in braces ("{urn:other}Make"), so the
 /// name cannot pass for a known one. An empty prefix is a default namespace's, and a property
-/// in an unknown default namespace is named by it in braces too. The namespace's control
-/// characters are replaced (`without_control_characters`), as the name is saved in Copy for
-/// Sharing's choice, one name to a line.
+/// in an unknown default namespace is named by it in braces too, as is one whose name would
+/// start like a word of Copy for Sharing's choice that is no tag ("group:x",
+/// `shared_copy::GROUP_KEY_START`). Saved, such a name was read back as a later group word,
+/// which leaves out no block, while in the dialog it left out every block. The namespace's
+/// control characters are replaced (`without_control_characters`), as the name is saved in
+/// Copy for Sharing's choice, one name to a line.
 fn name_in_namespace(prefix: &str, local: &str, uri: Option<&str>) -> String {
+    let is_group_word =
+        crate::images::shared_copy::GROUP_KEY_START.strip_suffix(':') == Some(prefix);
     match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| *known == u)) {
         Some((known, _)) => format!("{known}:{local}"),
-        None if prefix.is_empty() || KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) => {
+        None if prefix.is_empty()
+            || is_group_word
+            || KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) =>
+        {
             format!(
                 "{{{}}}{local}",
                 without_control_characters(uri.unwrap_or(""))

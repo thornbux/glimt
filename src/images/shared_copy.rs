@@ -964,7 +964,7 @@ pub(crate) const FILE_NAME_KEY: &str = "group:filename";
 
 /// How every word of the choice's file that is not a tag's name starts: the groups' keys and
 /// `FILE_NAME_KEY`. A later 1.x may add more such words to the file, which only grows.
-const GROUP_KEY_START: &str = "group:";
+pub(crate) const GROUP_KEY_START: &str = "group:";
 
 /// A group of tags, which the dialog shows with a checkbox for all of them and a list of each.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2480,6 +2480,32 @@ mod tests {
                 .iter()
                 .all(|(block, _)| ticked.is_left_out(block))
         );
+    }
+
+    /// An XMP property written with the prefix "group" is named by its namespace, so it is
+    /// never taken for a group word of the saved choice, and leaving it out leaves out the same
+    /// blocks in the dialog and once the choice is saved. Before, it was named "group:x", which
+    /// left out every block in the dialog and none of them once saved.
+    #[test]
+    fn an_xmp_tag_named_like_a_group_word_stays_a_tag() {
+        let xmp = "<rdf:Description xmlns:group='urn:g' group:x='1'><group:y>2</group:y>\
+                   </rdf:Description>";
+        let read = crate::metadata::xmp::properties(xmp);
+        let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
+        assert_eq!(names, ["{urn:g}x", "{urn:g}y"]);
+        for name in names {
+            let mut left_out = super::LeftOut::default();
+            left_out.set_tag(name, true);
+            let saved = super::LeftOut::parse(&left_out.text());
+            for (block, _) in super::BLOCKS {
+                assert_eq!(
+                    left_out.is_left_out(block),
+                    saved.is_left_out(block),
+                    "{block}"
+                );
+            }
+            assert!(saved.is_left_out(name));
+        }
     }
 
     /// The EXIF block of the tests, big-endian: Make "Canon", orientation 6, a body serial
