@@ -1442,9 +1442,11 @@ fn literal_end(c: &[char], i: usize) -> Option<usize> {
             .find(|&k| c[k..].starts_with(end))
             .map_or(c.len(), |k| k + end.len())
     };
-    // An r that starts a raw string (r"…", r#"…"#, br"…") does not end a word.
+    // An r that starts a raw string (r"…", r#"…"#, br"…", cr"…") does not end a word. Before,
+    // a C raw string was read as a plain one, and a quote inside it blanked the code after it.
     let before = i.wrapping_sub(1);
-    let raw_r = !word(before) || (at(before) == Some('b') && !word(i.wrapping_sub(2)));
+    let raw_r =
+        !word(before) || (matches!(at(before), Some('b' | 'c')) && !word(i.wrapping_sub(2)));
     match (at(i)?, at(i + 1)) {
         ('/', Some('/')) => Some((i..c.len()).find(|&k| c[k] == '\n').unwrap_or(c.len())),
         ('/', Some('*')) => Some(past(i + 2, &['*', '/'])),
@@ -1550,6 +1552,19 @@ fn reads_literals() {
                 &'static str r#\"x \"y\" z\"# br\"no\" '\\u{feff}' \"\"";
     let texts: Vec<String> = literals(code).into_iter().map(|l| l.1).collect();
     assert_eq!(texts, ["a \"b\" c\né", "x \"y\" z", ""]);
+}
+
+/// A C raw string is blanked whole, so a quote inside it blanks no code after it.
+#[test]
+fn reads_c_raw_strings() {
+    let code = "let a = cr#\"a \" b\"#; f(x);\nlet b = c\"d\"; g(y);";
+    assert_eq!(
+        code_lines(code),
+        [
+            format!("let a = c{}; f(x);", " ".repeat(10)),
+            format!("let b = c{}; g(y);", " ".repeat(3))
+        ]
+    );
 }
 
 /// The rules find a function at any indent, and a `Sense` that takes a click in every spelling.
@@ -1682,6 +1697,60 @@ fn indent(line: &str) -> usize {
 fn block_end(lines: &[String], i: usize) -> Option<usize> {
     let closes = |j: &usize| indent(&lines[*j]) == indent(&lines[i]);
     (i + 1..lines.len()).find(|j| closes(j) && lines[*j].trim_start().starts_with('}'))
+}
+
+/// The rules read all the code that is built. No `mod` takes its file from elsewhere with
+/// `#[path = "…"]` and nothing is built from another file with `include!`, as the rules read only
+/// the files below src/ by their own names (`sources`). Every `mod tests` is built only for the
+/// tests (`#[cfg(test)]`), as the rules pass over it as tests (`tests_start`). Before, either
+/// could hold code that no rule read.
+#[test]
+fn the_rules_read_all_the_code_that_is_built() {
+    let sources = rust_sources();
+    let wrong: Vec<String> = (sources.iter())
+        .flat_map(|(file, text)| {
+            let lines = code_the_rules_miss(text).into_iter();
+            lines.map(move |line| format!("{file}:{line}"))
+        })
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "code the rules do not read (#[path], include!, or a mod tests without #[cfg(test)]):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` that build code the rules do not read: a `#[path` attribute, an
+/// `include!`, and a `mod tests {` whose attributes just above it lack `#[cfg(test)]`.
+fn code_the_rules_miss(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let is_built_for_tests = |i: usize| {
+        let above = lines[..i].iter().rev().map(|l| l.trim());
+        let mut attributes = above
+            .filter(|l| !l.is_empty())
+            .take_while(|l| l.starts_with("#["));
+        attributes.any(|l| l == "#[cfg(test)]")
+    };
+    (0..lines.len())
+        .filter(|&i| {
+            let line = lines[i].trim();
+            let is_tests = without_qualifiers(&lines[i]) == "mod tests {";
+            line.starts_with("#[path")
+                || line.contains("include!(")
+                || (is_tests && !is_built_for_tests(i))
+        })
+        .map(|i| i + 1)
+        .collect()
+}
+
+/// The check above finds a module from another path, an `include!`, and a `mod tests` that
+/// is built always. It leaves `include_str!`, and a `mod tests` built for the tests, also with
+/// another attribute between.
+#[test]
+fn finds_code_the_rules_miss() {
+    let text = "#[path = \"x.rs\"]\nmod x;\ninclude!(\"y.rs\");\nconst A: &str = \
+        include_str!(\"a\");\nmod tests {\n}\n#[cfg(test)]\n#[allow(dead_code)]\nmod tests {\n}\n";
+    assert_eq!(code_the_rules_miss(text), [1, 3, 5]);
 }
 
 /// The line where the tests module starts in `lines`, or their end without one.
@@ -2697,12 +2766,7 @@ fn agents_md_names_every_kind_of_frozen_line() {
 /// because a list of the ways to drop the error always missed one.
 #[test]
 fn panics_are_caught_in_one_place() {
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        if !file.ends_with("threads.rs") {
-            wrong.extend((panics_caught_in(&text).iter()).map(|line| format!("{file}:{line}")));
-        }
-    }
+    let wrong = panics_caught_outside_threads(&rust_sources());
     assert!(
         wrong.is_empty(),
         "a panic caught outside threads::catch_panic (use it, or resume_unwind a join's \
@@ -2711,11 +2775,42 @@ fn panics_are_caught_in_one_place() {
     );
 }
 
+/// Returns the places of `sources` that catch a panic (`panics_caught_in`), as "file:line",
+/// in every file but support/threads.rs, the home of `catch_panic`. Before, every file whose
+/// name ended in threads.rs was passed over.
+fn panics_caught_outside_threads(sources: &[(String, String)]) -> Vec<String> {
+    let others = sources
+        .iter()
+        .filter(|(file, _)| file != "support/threads.rs");
+    others
+        .flat_map(|(file, text)| {
+            panics_caught_in(text)
+                .into_iter()
+                .map(move |line| format!("{file}:{line}"))
+        })
+        .collect()
+}
+
+/// Only support/threads.rs may catch a panic, not another file of that name.
+#[test]
+fn only_the_threads_module_catches_panics() {
+    let text = "fn a() {\n    std::panic::catch_unwind(f);\n}\n".to_owned();
+    let sources = [
+        ("support/threads.rs".to_owned(), text.clone()),
+        ("images/threads.rs".to_owned(), text),
+    ];
+    assert_eq!(
+        panics_caught_outside_threads(&sources),
+        ["images/threads.rs:2"]
+    );
+}
+
 /// Returns the lines of `text` outside the tests that catch a panic: `catch_unwind`, or a
 /// thread's `join()` whose error is not passed on. A join passes it on only when `?`,
 /// `.unwrap()` or `.expect(` follows it, also on the next line, or when the rest of its
 /// statement calls `resume_unwind`. Every other spelling counts, because there are many ways to
-/// drop an error (`.ok()`, `let Ok(…) = … else`, `match`, `.is_ok()`, `.into_iter()`).
+/// drop an error (`.ok()`, `let Ok(…) = … else`, `match`, `.is_ok()`, `.into_iter()`). A join
+/// called by its type's path (`JoinHandle::join(h)`) passes it on only through `resume_unwind`.
 fn panics_caught_in(text: &str) -> Vec<usize> {
     const PASSED_ON: [&str; 3] = ["?", ".unwrap()", ".expect("];
     let lines = code_lines(text);
@@ -2729,7 +2824,9 @@ fn panics_caught_in(text: &str) -> Vec<usize> {
             let rest = statement.split_once(".join()").map_or("", |(_, rest)| rest);
             !(PASSED_ON.iter().any(|s| after.starts_with(s)) || rest.contains("resume_unwind"))
         });
-        if line.contains("catch_unwind") || is_caught {
+        let is_caught_by_path = line.contains("JoinHandle::join(")
+            && !statement_text(&lines[..end], i).contains("resume_unwind");
+        if line.contains("catch_unwind") || is_caught || is_caught_by_path {
             found.push(i + 1);
         }
     }
@@ -2773,10 +2870,12 @@ fn finds_a_panic_caught() {
         } else if let Ok(part) = h.join() {\n    \
         workers.flat_map(|w| w.join().into_iter().flatten());\n    if h.join().is_ok() {\n    \
         let part = h.join()?;\n    let part = h.join().unwrap();\n    \
-        let part = h\n        .join()\n        .unwrap();\n\
+        let part = h\n        .join()\n        .unwrap();\n    \
+        std::thread::JoinHandle::join(h).ok();\n    \
+        JoinHandle::join(h).unwrap_or_else(|e| resume_unwind(e));\n\
         }\nmod tests {\n    fn t() {\n        h.join().ok();\n    }\n}\n";
     let found = panics_caught_in(text);
-    assert_eq!(found, [2, 3, 4, 6, 10, 11, 12, 15, 23, 27, 30, 31, 32]);
+    assert_eq!(found, [2, 3, 4, 6, 10, 11, 12, 15, 23, 27, 30, 31, 32, 38]);
 }
 
 /// A decoded image is turned by its EXIF orientation only after it is shrunk to the size shown
@@ -3046,13 +3145,48 @@ fn every_listing_of_a_tree_sends_parts() {
 /// within one frame often got the address of the first one back, so it was not read out.
 #[test]
 fn notices_are_given_through_their_setter() {
-    let wrong = outside_their_homes(&[(".notice =", &[]), ("&mut self.notice", &[])]);
+    let mut wrong = outside_their_homes(&[(".notice =", &[])]);
+    for (file, text) in rust_sources() {
+        let lines = notices_borrowed_in(&text).into_iter();
+        wrong.extend(lines.map(|line| format!("{file}:{line} (&mut ….notice)")));
+    }
     assert!(
         wrong.is_empty(),
         "give a notice with notice.give(…) or notice.give_error(…), or take it away with \
          notice.clear():\n{}",
         wrong.join("\n")
     );
+}
+
+/// Returns the lines of `text` outside the tests that borrow a notice mutably (`&mut
+/// app.notice`, `&mut self.notice`), by which `std::mem::take` or `replace` could change it
+/// without `Notice::give`. Before, only `&mut self.notice` was found.
+fn notices_borrowed_in(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let borrows = |line: &str| {
+        (line.match_indices("&mut ")).any(|(at, borrow)| {
+            let rest = &line[at + borrow.len()..];
+            let path = &rest[..rest
+                .find(|c: char| !is_word_char(c) && c != '.')
+                .unwrap_or(rest.len())];
+            path.ends_with(".notice")
+        })
+    };
+    (lines[..end].iter().enumerate())
+        .filter(|(_, line)| borrows(line))
+        .map(|(i, _)| i + 1)
+        .collect()
+}
+
+/// The check above finds a notice borrowed mutably by any path, and leaves another field
+/// whose name only starts with it, a notice borrowed to read, and the tests.
+#[test]
+fn finds_a_notice_borrowed_mutably() {
+    let text = "fn a() {\n    std::mem::take(&mut app.notice);\n    \
+        f(&mut self.notice);\n    g(&mut self.notice_sender);\n    h(&self.notice);\n}\n\
+        #[cfg(test)]\nmod tests {\n    fn t() {\n        f(&mut app.notice);\n    }\n}\n";
+    assert_eq!(notices_borrowed_in(text), [2, 3]);
 }
 
 /// A text that tells of something that went wrong or was refused is given as an error
@@ -6334,7 +6468,6 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         }
         (start..=i).any(|j| comments[j].contains("Glimt's own:"))
     };
-    let is_copy = |line: &str| line.contains(", true)");
     let mut found = Vec::new();
     let mut function = String::new();
     // Whether the function acts, acts on more than sidecars, checks, and finds sidecars.
@@ -6365,13 +6498,65 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         .iter()
         .any(|r| line.contains(r));
         let act = (ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i)))
-            || (line.contains("put_file(") && !is_copy(line));
+            || (line.contains("put_file(") && !copies_by_its_flag(line, "put_file("));
         acts |= act;
         acts_on_files |= act && !names_a_sidecar(line);
         checks |= CHECKS.iter().any(|check| line.contains(check));
         finds_sidecars |= SIDECAR_FINDERS.iter().any(|finder| line.contains(finder));
     }
     found
+}
+
+/// Returns whether each call of `call` on `line`, `put_file(` or `put_file_until_stopped(`,
+/// passes `true` as its third argument, `is_copy`, and so copies rather than moves. A call whose
+/// arguments do not end on the line counts as a move. Before, any `, true)` on the line made it
+/// a copy, also one that closed a call inside an argument, as in `put_file(&a, &f(x, true),
+/// false)`.
+fn copies_by_its_flag(line: &str, call: &str) -> bool {
+    let copies = |from: usize| {
+        let (mut depth, mut start, mut arguments) = (0, from, Vec::new());
+        for (i, c) in line[from..].char_indices().map(|(i, c)| (from + i, c)) {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' if depth == 0 => {
+                    arguments.push(line[start..i].trim());
+                    return arguments.get(2) == Some(&"true");
+                }
+                ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    arguments.push(line[start..i].trim());
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        false
+    };
+    let mut calls = line
+        .match_indices(call)
+        .map(|(at, _)| at + call.len())
+        .peekable();
+    calls.peek().is_some() && calls.all(copies)
+}
+
+/// The copy flag is read from each call's own third argument.
+#[test]
+fn finds_the_copy_flag_of_a_call() {
+    assert!(copies_by_its_flag("put_file(&a, &b, true)?;", "put_file("));
+    assert!(copies_by_its_flag(
+        "put_file_until_stopped(a, b, true, &stop)",
+        "put_file_until_stopped("
+    ));
+    assert!(!copies_by_its_flag(
+        "put_file(&a, &dest(x, true), false)",
+        "put_file("
+    ));
+    assert!(!copies_by_its_flag(
+        "put_file(&a, &b, is_copy)",
+        "put_file("
+    ));
+    assert!(!copies_by_its_flag("put_file(&a,", "put_file("));
+    assert!(!copies_by_its_flag("f(a, b, true)", "put_file("));
 }
 
 /// Returns whether `line` names a sidecar: a word that starts with `side` (`side`, `sides`,
@@ -6996,10 +7181,8 @@ fn renames_in(text: &str) -> Vec<(String, bool)> {
         let calls = ["rename_never_over(", "fs::rename(", "rename_noreplace("];
         renames |= calls.iter().any(|call| line.contains(call));
         let moves = ["put_file(", "put_file_until_stopped("];
-        renames |= moves.iter().any(|call| line.contains(call))
-            && ![", true)", ", true,"]
-                .iter()
-                .any(|copy| line.contains(copy));
+        renames |=
+            (moves.iter()).any(|call| line.contains(call) && !copies_by_its_flag(line, call));
         let syncs = [
             "sync_folder_of(",
             "sync_folder(",
