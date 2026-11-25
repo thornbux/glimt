@@ -1470,7 +1470,8 @@ fn explain_rename_error(e: std::io::Error, to: &Path) -> std::io::Error {
     // file system.
     match e.raw_os_error() {
         Some(18 | 38 | 95) => {
-            let kind = file_system_type(to.parent().unwrap_or(to)).unwrap_or_else(|| "?".into());
+            let kind = file_system_type(to.parent().unwrap_or(to));
+            let kind = kind.as_deref().map_or("?", shown_type);
             std::io::Error::new(
                 e.kind(),
                 crate::tf!(
@@ -1538,6 +1539,18 @@ fn file_system_type_in_udev(udev: &str) -> Option<String> {
     let kind = (udev.lines().filter_map(|l| l.split_once('=')))
         .find_map(|(key, value)| (key == "E:ID_FS_TYPE").then_some(value))?;
     (!kind.is_empty()).then(|| kind.to_owned())
+}
+
+/// Returns the type `kind` (from `file_system_type`) as a text for the user. A FUSE mount
+/// without a subtype is named by its source (`type_of`), which can be a URL or a path with a
+/// user's name in it, so such a name is shown as plain "fuse". A program's name, the subtype or
+/// source of the other FUSE mounts, has only letters, digits and `-_.+`.
+pub(crate) fn shown_type(kind: &str) -> &str {
+    let is_name = |c: char| c.is_ascii_alphanumeric() || "-_.+".contains(c);
+    match kind.strip_prefix("fuse.") {
+        Some(source) if !source.chars().all(is_name) => "fuse",
+        _ => kind,
+    }
 }
 
 /// Returns whether a mount of type `kind` (from `file_system_type`) is on another computer or in a
@@ -3538,6 +3551,22 @@ mod tests {
         super::replace_name(&dir.join("a.xmp"), "newer").unwrap();
         assert_eq!(noted(), None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A FUSE mount's type is shown by its program's name, and one named by its source, a URL or
+    /// a path, as plain "fuse", as the source can hold a user's name (#312).
+    #[test]
+    fn a_fuse_mounts_source_is_not_shown() {
+        for (kind, shown) in [
+            ("fuse.rclone", "fuse.rclone"),
+            ("fuse.blobfuse2", "fuse.blobfuse2"),
+            ("fuse.https://me@dav.example/photos", "fuse"),
+            ("fuse.me@host:/photos", "fuse"),
+            ("fuse./home/me/a:/home/me/b", "fuse"),
+            ("nfs4", "nfs4"),
+        ] {
+            assert_eq!(super::shown_type(kind), shown, "{kind}");
+        }
     }
 
     /// A rename the file system cannot do is told in plain words with the system's own after

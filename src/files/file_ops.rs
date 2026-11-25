@@ -3027,9 +3027,10 @@ pub(crate) fn forget_in_collection(
 }
 
 /// Returns the files of `paths` that are still there on a network or cloud mount, with the
-/// mount's type, after the trash refused them. Returns `None` when there are none, such as when
-/// the trash failed in a local folder that cannot be written. `file_system_type` gives a folder's
-/// file system, and it is asked once for each folder.
+/// mount's type as it is shown to the user (`shown_type`), after the trash refused them. Returns
+/// `None` when there are none, such as when the trash failed in a local folder that cannot be
+/// written. `file_system_type` gives a folder's file system, and it is asked once for each
+/// folder.
 fn left_by_trash(
     paths: &[PathBuf],
     file_system_type: impl Fn(&Path) -> Option<String>,
@@ -3046,7 +3047,8 @@ fn left_by_trash(
         .filter(|p| !is_surely_gone(p) && remote(p).is_some())
         .cloned()
         .collect();
-    Some((remote(left.first()?)?, left))
+    let kind = remote(left.first()?)?;
+    Some((crate::files::file_io::shown_type(&kind).to_owned(), left))
 }
 
 /// Returns the files of `refused` that the trash left on a network or cloud mount, with the
@@ -9553,6 +9555,11 @@ mod tests {
             super::left_by_trash(&[local.join("c.png")], file_system_type),
             None
         );
+        // A FUSE mount named by its source, a URL with a user's name in it, is told as "fuse"
+        // (#312).
+        let davfs = |_: &Path| Some("fuse.https://me@dav.example/photos".to_owned());
+        let left = super::left_by_trash(&[cloud.join("a.png")], davfs);
+        assert_eq!(left, Some(("fuse".to_owned(), vec![cloud.join("a.png")])));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
