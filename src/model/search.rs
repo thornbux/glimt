@@ -1007,22 +1007,64 @@ mod tests {
     }
 
     /// What a search depends on is read from its tree, as `parse` reads it, and never by a
-    /// second look at the text typed, which missed a term that did not stand first.
+    /// second look at the text typed, which missed a term that did not stand first. So the
+    /// text typed is read only by `parse`, given to the field to edit, emptied, asked whether
+    /// it is empty, or set (`query_text_read_other_ways`).
     #[test]
     fn what_a_search_depends_on_is_read_from_its_tree() {
-        let source = include_str!("search.rs");
-        for look in [
-            "starts_with(",
-            "contains(",
-            "ends_with(",
-            "strip_prefix(",
-            "find(",
-        ] {
-            let bypass = format!("self.query.{look}");
-            assert!(!source.contains(&bypass), "{bypass}: use has_term_with");
-        }
+        let wrong = query_text_read_other_ways(include_str!("search.rs"));
+        assert!(wrong.is_empty(), "use has_term_with: {wrong:?}");
         let uses = |q: &str| super::parse(q).is_some_and(|q| q.has_term_with(&["stars:"]));
         assert!(uses("a ( b | -stars:2 )") && uses(" stars:1") && !uses("a astars:1"));
+    }
+
+    /// The check above finds the text typed read in any other way: searched for a term by any
+    /// method, through the `Search` of `App`, or kept in a name to be searched later. Before,
+    /// only `self.query.` followed by five methods was found (#165).
+    #[test]
+    fn finds_the_text_typed_read_another_way() {
+        let text = "fn a(&self) {\n    parse(&self.query);\n    self.query.clear();\n    \
+            if self.search.query.is_empty() {}\n    let e = TextEdit::singleline(&mut self.search.query);\n    \
+            self.query = query.into();\n    let query = self.search.query.trim().to_owned();\n    \
+            self.search.query.contains(\"exif:\");\n    let q = &self.query;\n    \
+            self.query.split_whitespace().any(|t| t == \"x\");\n    matches!(self.query.as_str(), \"a\");\n}\n\
+            #[cfg(test)]\nmod tests {\n    fn t() { self.query.contains(\"x\"); }\n}\n";
+        assert_eq!(query_text_read_other_ways(text), [8, 9, 10, 11]);
+    }
+
+    /// Returns the lines (from 1) of `text`, outside the tests, that read the text typed in the
+    /// search field (the field `query`) other than in the ways that keep it to `parse`: given to
+    /// `parse` or to the field to edit (`&mut`), emptied, asked whether it is empty, set, or
+    /// trimmed into the text that `update_search` hands to `search_matches`, which parses it.
+    fn query_text_read_other_ways(text: &str) -> Vec<usize> {
+        const KEPT: [&str; 3] = [
+            "parse(&self.query)",
+            "&mut self.search.query",
+            "self.search.query.trim().to_owned()",
+        ];
+        let lines = crate::support::source_rules::code_lines(text);
+        let end = (lines.iter().position(|l| l == "mod tests {")).unwrap_or(lines.len());
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut wrong = Vec::new();
+        for (i, line) in lines[..end].iter().enumerate() {
+            let read_other_way = (line.match_indices(".query")).any(|(at, field)| {
+                let after = &line[at + field.len()..];
+                let field_end = after.trim_start();
+                let kept = KEPT.iter().any(|k| {
+                    (line.match_indices(k)).any(|(from, _)| (from..from + k.len()).contains(&at))
+                });
+                !after.starts_with(is_word)
+                    && !kept
+                    && ![".clear()", ".is_empty()"]
+                        .iter()
+                        .any(|m| field_end.starts_with(m))
+                    && !(field_end.starts_with('=') && !field_end.starts_with("=="))
+            });
+            if read_other_way {
+                wrong.push(i + 1);
+            }
+        }
+        wrong
     }
 
     #[test]

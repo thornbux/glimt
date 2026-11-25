@@ -917,8 +917,10 @@ msgstr[1] "bilder"
             "radio_choice(",
             "RichText::new(",
             "ProgressBar::new(",
-            // A window's title, which the taskbar, the window list and a screen reader show.
+            // A window's title, which the taskbar, the window list and a screen reader show, when
+            // the window is made and when it is changed.
             ".with_title(",
+            "ViewportCommand::Title(",
         ];
         // Words, not a {value} or a %field% of a template.
         let words = |t: &str| {
@@ -1070,6 +1072,10 @@ msgstr[1] "bilder"
             (
                 "x.rs",
                 "fn f() {\n    let b = ViewportBuilder::default().with_title(\"Projector\");\n}\n",
+            ),
+            (
+                "x.rs",
+                "fn f() {\n    ctx.send_viewport_cmd(ViewportCommand::Title(\"Projector\".into()));\n}\n",
             ),
         ];
         for (file, text) in samples {

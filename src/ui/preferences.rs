@@ -1316,28 +1316,58 @@ mod tests {
         }
     }
 
-    /// The `for` loops of `code`, each as the names its pattern binds and the code that it
-    /// takes its items from, with a leading `&` left out.
+    /// The loops of `code`, each as the names its pattern binds and the code that it takes its
+    /// items from, with a leading `&` left out: a `for` loop wherever it stands on its line, and
+    /// a closure given to `for_each` (`TABLE.iter().for_each(|(a, b)| …)`). Before, only a `for`
+    /// at the start of a line was found, so a table drawn through `for_each` was in no list
+    /// (#165).
     fn for_loops(code: &str) -> Vec<(Vec<String>, String)> {
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        let names_in = |pattern: &str| -> Vec<String> {
+            (pattern.split(|c: char| !is_word(c)))
+                .filter(|n| !n.is_empty() && *n != "mut" && *n != "ref")
+                .map(str::to_owned)
+                .collect()
+        };
         let mut loops = Vec::new();
+        for (at, call) in code.match_indices(".for_each(") {
+            let rest = code[at + call.len()..].trim_start();
+            let rest = rest.strip_prefix("move").unwrap_or(rest).trim_start();
+            let Some(pattern) = rest.strip_prefix('|').and_then(|r| r.split_once('|')) else {
+                continue;
+            };
+            // What it goes through starts after the last space, bracket or `=` before it.
+            let receiver = &code[..at];
+            let receiver = (receiver.strip_suffix(".iter()"))
+                .or(receiver.strip_suffix(".into_iter()"))
+                .unwrap_or(receiver);
+            let start = receiver
+                .rfind([' ', '(', '=', '\n', '{', ';'])
+                .map_or(0, |s| s + 1);
+            let source = receiver[start..].trim_start_matches('&');
+            loops.push((names_in(pattern.0), source.to_owned()));
+        }
         for (at, _) in code.match_indices("for ") {
+            let before = code[..at].chars().next_back();
             let line_start = code[..at].rfind('\n').map_or(0, |n| n + 1);
-            if !code[line_start..at].trim().is_empty() {
+            // `impl Trait for Type`, a longer name, a comment and a text are no loop.
+            let line_before = &code[line_start..at];
+            if before.is_some_and(is_word)
+                || line_before.contains("impl")
+                || line_before.contains("//")
+                || line_before.matches('"').count() % 2 == 1
+            {
                 continue;
             }
             let rest = &code[at + 4..];
-            let (Some(in_at), Some(body)) = (rest.find(" in "), rest.find(" {\n")) else {
+            let (Some(in_at), Some(body)) = (rest.find(" in "), rest.find(" {")) else {
                 continue;
             };
             if in_at > body {
                 continue;
             }
-            let names = (rest[..in_at].split(|c: char| !c.is_alphanumeric() && c != '_'))
-                .filter(|n| !n.is_empty() && *n != "mut" && *n != "ref")
-                .map(str::to_owned)
-                .collect();
             let source = rest[in_at + 4..body].trim().trim_start_matches('&');
-            loops.push((names, source.to_owned()));
+            loops.push((names_in(&rest[..in_at]), source.to_owned()));
         }
         loops
     }
@@ -1386,11 +1416,15 @@ mod tests {
         for (k, (_, label, _)) in config::FADES.iter().enumerate() {
             ui.label(tr(label));
         }
-        ui.label(tr(text));"#;
+        ui.label(tr(text));
+        THEMES.iter().for_each(|(theme, _)| choice(ui, tr(theme)));
+        if a { for (k, size) in SIZES { ui.label(tr(size)); } }
+        // A comment for each name in a table {
+        "#;
         let mut out = Drawn::default();
         texts(code, &mut out);
         assert_eq!(out.texts, ["A", "B", "G", "C {x}", "H"]);
-        assert_eq!(out.tables, ["theme_names", "FADES"]);
+        assert_eq!(out.tables, ["THEMES", "theme_names", "FADES", "SIZES"]);
         assert_eq!(out.unknown, ["text"]);
     }
 
