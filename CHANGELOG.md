@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A write that fails while a close waits for it no longer leaves the notice that Glimt closes
+  when the file operations are done above the failure, as the window stays open.
 - A video, HEIC or AVIF asked for while the image area has no width or height yet is decoded,
   instead of failing as too large and staying failed for the folder, and so is one much wider
   or taller than its box, such as a panorama's thumbnail (#211).
