@@ -5,8 +5,8 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, done_after_all, fingerprint,
-    is_surely_gone, is_surely_there, put_file, put_file_until_stopped, rename_never_over,
+    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, StepError, done_after_all,
+    fingerprint, is_surely_gone, put_file, put_file_until_stopped, rename_never_over,
     same_fingerprint,
 };
 use crate::files::job_log::Direction;
@@ -2134,25 +2134,27 @@ impl crate::App {
             let (_, picked) = picked.wait_for_fingerprints();
             // A log of the folder, so that a kill before the window has forgotten the marks of
             // its files leaves the next start to forget them. The folder stays without it.
-            let (log, error) = match picked.still_the_one_picked(&dir) {
+            let (log, failed, error) = match picked.still_the_one_picked(&dir) {
                 Ok(()) => match folder_log(&dir, None, collection.as_deref()) {
-                    Ok(log) => (
-                        log,
-                        crate::files::trash::trash(std::slice::from_ref(&dir))
-                            .err()
-                            .map(Failure::from),
-                    ),
-                    Err(warning) => (None, Some(warning)),
+                    Ok(log) => {
+                        let failed = crate::files::trash::trash(std::slice::from_ref(&dir));
+                        let error = crate::files::trash::told_failure(&failed).map(Failure::from);
+                        (log, failed, error)
+                    }
+                    Err(warning) => (None, Vec::new(), Some(warning)),
                 },
-                Err(e) => (None, Some(format!("{}: {e}", dir.display()).into())),
+                Err(e) => (
+                    None,
+                    Vec::new(),
+                    Some(format!("{}: {e}", dir.display()).into()),
+                ),
             };
-            // A failure that leaves the folder's name not surely there may have moved it all
-            // the same, so the log stays for the next start, which looks again.
+            // A failed trash that may have moved the folder all the same keeps the log for the
+            // next start, which looks again. Before, a look at the folder's name alone judged
+            // it (#308).
             let mut log = log;
-            if let Some(log) = log
-                .as_mut()
-                .filter(|_| error.is_some() && !is_surely_there(&dir))
-            {
+            let may_have_gone = failed.iter().any(|(_, e)| e.may_have_been_done());
+            if let Some(log) = log.as_mut().filter(|_| may_have_gone) {
                 log.keep_for_the_next_start();
             }
             // After a failure, the folder is listed again, as after a failed delete of files.
@@ -3191,19 +3193,27 @@ fn delete_chunk(
         .flat_map(|(p, sides)| sides.iter().chain([p]))
         .cloned()
         .collect();
-    let trashed = match in_order.is_empty() {
-        true => Ok(()),
+    let failed = match in_order.is_empty() {
+        true => Vec::new(),
         false => crate::files::trash::trash(&in_order),
     };
-    // A look that failed (a share that dropped for a moment) counts the photo as there.
+    // The trash tells each photo that did not surely go, and whether it may have gone all the
+    // same. Before, a look at each photo's name judged it, which a share's cache may answer
+    // wrongly (#308).
+    let failed_photo = |p: &PathBuf| failed.iter().find(|(f, _)| f == p).map(|(_, e)| e);
     let (mut went_with, mut stayed): (Vec<_>, Vec<_>) = (sidecars_of_file.into_iter())
-        .partition(|(p, _): &(PathBuf, Vec<PathBuf>)| is_surely_gone(p));
-    if trashed.is_err() {
-        give_adobe_sidecars_to_those_that_stayed(&mut went_with, &mut stayed);
+        .partition(|(p, _): &(PathBuf, Vec<PathBuf>)| failed_photo(p).is_none());
+    // A photo whose step surely did nothing is still there.
+    let surely_there: HashSet<PathBuf> = (stayed.iter())
+        .filter(|(p, _)| failed_photo(p).is_some_and(|e| !e.may_have_been_done()))
+        .map(|(p, _)| p.clone())
+        .collect();
+    if !failed.is_empty() {
+        give_adobe_sidecars_to_those_that_stayed(&mut went_with, &mut stayed, &surely_there);
     }
-    // A photo that is neither surely gone nor surely there may have gone to the trash, so the
-    // log stays for the next start, which looks again.
-    if let Some(log) = log.filter(|_| stayed.iter().any(|(p, _)| !is_surely_there(p))) {
+    // A photo that may have gone to the trash all the same keeps the log for the next start,
+    // which looks again.
+    if let Some(log) = log.filter(|_| stayed.len() > surely_there.len()) {
         log.keep_for_the_next_start();
     }
     let mut went: Vec<PathBuf> = went_with.iter().map(|(p, _)| p.clone()).collect();
@@ -3212,9 +3222,9 @@ fn delete_chunk(
         .collect();
     // A sidecar that stays is told, as the photo's own errors are, because the next file of that
     // name would show its keywords.
-    if let Err(e) = trashed {
-        take_back_sidecars(stayed, since, errors);
-        let back = take_back_from_the_trash(went_with, since, errors);
+    if let Some(e) = crate::files::trash::told_failure(&failed) {
+        take_back_sidecars(stayed, (&failed, &surely_there), since, errors);
+        let back = take_back_from_the_trash(went_with, &failed, since, errors);
         went.retain(|p| !back.contains(p));
         errors.push(e);
     }
@@ -3243,13 +3253,15 @@ fn note_gone(log: Option<&mut journal::DeleteLog>, path: &Path) {
 
 /// Moves Adobe's sidecar of a name stem, which went to the trash with the last RAW file of the
 /// stem, from that file in `went_with` to a RAW file of the same stem in `stayed` that is surely
-/// still there. The sidecar is that file's alone now, and `take_back_sidecars` brings it back.
+/// still there, by its step that surely did nothing (`surely_there`). The sidecar is that
+/// file's alone now, and `take_back_sidecars` brings it back.
 fn give_adobe_sidecars_to_those_that_stayed(
     went_with: &mut [(PathBuf, Vec<PathBuf>)],
     stayed: &mut [(PathBuf, Vec<PathBuf>)],
+    surely_there: &HashSet<PathBuf>,
 ) {
     for (p, sides) in stayed.iter_mut() {
-        let Some(stem) = xmp::adobe_stem(p).filter(|_| is_surely_there(p)) else {
+        let Some(stem) = xmp::adobe_stem(p).filter(|_| surely_there.contains(p)) else {
             continue;
         };
         for (_, went_sides) in went_with.iter_mut() {
@@ -3262,19 +3274,21 @@ fn give_adobe_sidecars_to_those_that_stayed(
 }
 
 /// Takes the sidecars that went to the trash of the files of `stayed`, which did not go, back
-/// out of it, so that each photo keeps its keywords. Only a photo surely there takes them back:
-/// one that could not be looked at may be gone, and its sidecar would then wait at its name for
-/// the next file of that name. The move to the trash began at `since`. A sidecar that cannot
-/// come back is told in `errors`.
+/// out of it, so that each photo keeps its keywords. Only a photo surely there takes them back,
+/// one whose step surely did nothing (`surely_there`): one that may have gone would leave its
+/// sidecar at its name for the next file of that name. A sidecar went when the trash told no
+/// failure of it (`failed`). The move to the trash began at `since`. A sidecar that cannot come
+/// back is told in `errors`.
 fn take_back_sidecars(
     stayed: Vec<(PathBuf, Vec<PathBuf>)>,
+    (failed, surely_there): (&[(PathBuf, StepError)], &HashSet<PathBuf>),
     since: std::time::SystemTime,
     errors: &mut Vec<String>,
 ) {
     let sidecars: Vec<PathBuf> = (stayed.into_iter())
-        .filter(|(p, _)| is_surely_there(p))
+        .filter(|(p, _)| surely_there.contains(p))
         .flat_map(|(_, sides)| sides)
-        .filter(|side| is_surely_gone(side))
+        .filter(|side| !failed.iter().any(|(f, _)| f == side))
         .collect();
     if sidecars.is_empty() {
         return;
@@ -3490,12 +3504,14 @@ fn keep_aside_of_a_photo_gone_without_answer(
 }
 
 /// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
-/// it, with those of its sidecars that went, so that the photo and its keywords stay together.
+/// it, with those of its sidecars that went, so that the photo and its keywords stay together. A
+/// sidecar went when the trash told no failure of it (`failed`).
 /// Otherwise the sidecar would wait at the old name for the next file of that name. The move to
 /// the trash began at `since`. Returns the files taken back, each told in `errors`. A file that
 /// cannot come back stays in the trash, and its Undo puts it back beside the sidecar left.
 fn take_back_from_the_trash(
     sidecars_of_file: Vec<(PathBuf, Vec<PathBuf>)>,
+    failed: &[(PathBuf, StepError)],
     since: std::time::SystemTime,
     errors: &mut Vec<String>,
 ) -> HashSet<PathBuf> {
@@ -3510,9 +3526,10 @@ fn take_back_from_the_trash(
     };
     let mut first_left = Vec::new();
     for (file, sides) in sidecars_of_file {
-        // A sidecar that could not be looked at counts as left, as it may still be there.
+        // A sidecar whose move the trash told as failed counts as left, also one that may have
+        // gone all the same, as it may still be there.
         let (gone, left): (Vec<PathBuf>, Vec<PathBuf>) =
-            sides.into_iter().partition(|s| is_surely_gone(s));
+            (sides.into_iter()).partition(|s| !failed.iter().any(|(f, _)| f == s));
         let Some(side) = left.first() else {
             continue;
         };
@@ -7444,7 +7461,7 @@ mod tests {
         let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         // The sidecar went to the trash, and the kill came before the photo.
-        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        assert!(crate::files::trash::trash(std::slice::from_ref(&side)).is_empty());
         assert!(!side.exists());
         drop(log);
         let found = super::journal::delete_jobs_cut_short(&logs);
@@ -9797,7 +9814,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
-        crate::files::trash::trash(std::slice::from_ref(&a)).unwrap();
+        assert!(crate::files::trash::trash(std::slice::from_ref(&a)).is_empty());
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
             out_without_answer: Default::default(),
             files: vec![a.clone()],

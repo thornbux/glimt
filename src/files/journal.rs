@@ -4791,7 +4791,7 @@ mod tests {
         let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
         let opened = std::fs::File::options().write(true).open(the_log_in(&logs));
         opened.unwrap().set_modified(two_hours_ago).unwrap();
-        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        assert!(crate::files::trash::trash(std::slice::from_ref(&side)).is_empty());
         assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
         assert!(!side.exists(), "the sidecar trashed on purpose came back");
         std::fs::remove_dir_all(&dir).unwrap();
@@ -4812,7 +4812,7 @@ mod tests {
         std::fs::write(&side, "whose").unwrap();
         let mut log = super::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&cr2));
-        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        assert!(crate::files::trash::trash(std::slice::from_ref(&side)).is_empty());
         drop(log);
         let _ = crate::files::file_io::take_saves_failed();
         assert_eq!(let_go(super::delete_jobs_cut_short(&logs)), 1);
