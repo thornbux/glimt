@@ -13,6 +13,8 @@ use crate::files::job_log::Direction;
 use crate::files::trash::{TrashMove, restore, restore_noting, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
+#[cfg(feature = "marks")]
+use crate::metadata::marks::{FilesWere, MovesKnownFrom};
 use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
 use crate::support::format::{count, escaped_name, thousands};
@@ -1258,7 +1260,8 @@ impl crate::App {
                 {
                     let not_followed = self.not_followed_before_a_kill(moved);
                     if !not_followed.is_empty() {
-                        self.marks.follow_files(not_followed, false, true);
+                        let known_from = MovesKnownFrom::ARecord;
+                        (self.marks).follow_files(not_followed, FilesWere::Moved, known_from);
                     }
                 }
             }
@@ -1266,8 +1269,16 @@ impl crate::App {
                 self.follow_names_moved(&moved, is_copy);
                 #[cfg(feature = "marks")]
                 match is_copy {
-                    true => self.marks.follow_files(moved, is_copy, true),
-                    false => self.marks.follow_renames(moved, true, marks_at_new_names),
+                    true => {
+                        let known_from = MovesKnownFrom::ARecord;
+                        self.marks
+                            .follow_files(moved, FilesWere::Copied, known_from)
+                    }
+                    false => {
+                        let known_from = MovesKnownFrom::ARecord;
+                        self.marks
+                            .follow_renames(moved, known_from, marks_at_new_names)
+                    }
                 }
                 #[cfg(not(feature = "marks"))]
                 let _ = marks_at_new_names;
@@ -1290,7 +1301,7 @@ impl crate::App {
         #[cfg(feature = "marks")]
         if !put_back.is_empty() {
             self.marks
-                .follow_renames(put_back, true, marks_when_begun.clone());
+                .follow_renames(put_back, MovesKnownFrom::ARecord, marks_when_begun.clone());
         }
         #[cfg(not(feature = "marks"))]
         let _ = (self, put_back, marks_when_begun);
@@ -1321,8 +1332,14 @@ impl crate::App {
         }
         self.follow_names_moved(&pairs, is_copy);
         #[cfg(feature = "marks")]
-        // The job that reports them has just moved the files, so their new names hold them.
-        self.marks.follow_files(pairs, is_copy, false);
+        {
+            let files_were = match is_copy {
+                true => FilesWere::Copied,
+                false => FilesWere::Moved,
+            };
+            // The job that reports them has just moved the files, so their new names hold them.
+            (self.marks).follow_files(pairs, files_were, MovesKnownFrom::TheJob);
+        }
     }
 
     /// Brings along all that `follow_moved_paths` does but the marks.
@@ -1825,8 +1842,11 @@ impl crate::App {
         #[cfg(feature = "marks")]
         if failed && names_known {
             let back = journal::marks_put_back(&renamed, &job.marks_at_new_names);
-            self.marks
-                .follow_renames(back, true, job.marks_at_new_names.clone());
+            self.marks.follow_renames(
+                back,
+                MovesKnownFrom::ARecord,
+                job.marks_at_new_names.clone(),
+            );
         }
         let pairs = match failed {
             true => Vec::new(),
@@ -1843,8 +1863,11 @@ impl crate::App {
         // A mark set at a new name while the job ran stays with its photo.
         self.follow_names_moved(&pairs, false);
         #[cfg(feature = "marks")]
-        self.marks
-            .follow_renames(pairs.clone(), false, job.marks_at_new_names);
+        self.marks.follow_renames(
+            pairs.clone(),
+            MovesKnownFrom::TheJob,
+            job.marks_at_new_names,
+        );
         #[cfg(not(feature = "marks"))]
         let _ = job.marks_at_new_names;
         if self.folder.collection().is_some() {

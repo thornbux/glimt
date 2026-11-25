@@ -52,6 +52,48 @@ impl Query {
     }
 }
 
+/// The EXIF text of each file in the folder, in lowercase, for "exif:" searches, and whether
+/// the names it lacks are read. It is built at the first such search and dropped with the
+/// folder.
+#[derive(Default)]
+enum ExifIndex {
+    /// No reading has answered in this folder yet.
+    #[default]
+    NotRead,
+    /// The texts read. The names in the list that it lacks are read at the next search.
+    Read(HashMap<OsString, String>),
+    /// The texts read before a reading ended without its answer in this folder. The names it
+    /// lacks are not read again until another folder opens, because the cause, such as a lack
+    /// of threads, would end each new reading too, and each would be started at once.
+    Died(HashMap<OsString, String>),
+}
+
+impl ExifIndex {
+    /// Returns the texts read, or `None` before any reading answered.
+    fn texts(&self) -> Option<&HashMap<OsString, String>> {
+        match self {
+            ExifIndex::NotRead => None,
+            ExifIndex::Read(texts) | ExifIndex::Died(texts) => Some(texts),
+        }
+    }
+
+    /// Adds the texts of a reading that answered, `read`, to those read before.
+    fn add(&mut self, read: HashMap<OsString, String>) {
+        match self {
+            ExifIndex::NotRead => *self = ExifIndex::Read(read),
+            ExifIndex::Read(texts) | ExifIndex::Died(texts) => texts.extend(read),
+        }
+    }
+
+    /// Notes that a reading ended without its answer, keeping the texts read before.
+    fn note_died(&mut self) {
+        *self = ExifIndex::Died(match std::mem::take(self) {
+            ExifIndex::NotRead => HashMap::new(),
+            ExifIndex::Read(texts) | ExifIndex::Died(texts) => texts,
+        });
+    }
+}
+
 /// The search field. It holds the query, the matches, and the EXIF index that exif: terms look
 /// in.
 #[derive(Default)]
@@ -70,17 +112,11 @@ pub(crate) struct Search {
     match_size_rx: Receiving<u64>,
     /// When to sum the matches' size, once the search has stayed the same for a moment.
     match_size_due: Option<Instant>,
-    /// The EXIF text of each file in the folder, in lowercase, for "exif:" searches. It is
-    /// built at the first such search and dropped with the folder.
-    exif_index: Option<HashMap<OsString, String>>,
+    exif_index: ExifIndex,
     /// The files whose keywords or comment changed after they were indexed. The next "exif:"
     /// search reads only these files again, not the whole folder.
     exif_to_read_again: HashSet<OsString>,
     exif_index_rx: Receiving<(HashMap<OsString, String>, Working)>,
-    /// Whether a reading of the EXIF index ended without its answer in this folder. The names
-    /// it lacks are then not read again until another folder opens, because the cause, such as
-    /// a lack of threads, would end each new reading too, and each would be started at once.
-    exif_index_failed: bool,
     /// Set when the index being read is no longer wanted (another folder), so the thread stops.
     exif_index_stop: Arc<AtomicBool>,
 }
@@ -116,10 +152,9 @@ impl Search {
 
     /// Drops the EXIF index of the folder and stops its reading, because another folder opens.
     pub(crate) fn forget_exif_index(&mut self) {
-        self.exif_index = None;
+        self.exif_index = ExifIndex::NotRead;
         self.exif_to_read_again.clear();
         self.exif_index_rx = Receiving::none();
-        self.exif_index_failed = false;
         // Its reading of every file ends, because no one waits for it now.
         self.exif_index_stop.store(true, Ordering::Relaxed);
     }
@@ -161,7 +196,12 @@ impl Search {
     }
 
     pub(crate) fn set_exif_index(&mut self, index: HashMap<OsString, String>) {
-        self.exif_index = Some(index);
+        self.exif_index = ExifIndex::Read(index);
+    }
+
+    /// Whether a reading of the EXIF index has answered.
+    pub(crate) fn has_exif_index(&self) -> bool {
+        self.exif_index.texts().is_some()
     }
 
     pub(crate) fn reads_exif_again(&self, name: &str) -> bool {
@@ -321,16 +361,13 @@ impl crate::App {
             // (`index_new_names`). Before, they were, and a cause that stayed started a new
             // reading in every frame.
             Took::Gone => {
-                self.search.exif_index_failed = true;
+                self.search.exif_index.note_died();
                 self.tell_background_stopped(tr("The EXIF index"));
                 (HashMap::new(), None)
             }
         };
         // The files read again go into the index there is. Otherwise this is the whole index.
-        match &mut self.search.exif_index {
-            Some(old) => old.extend(index),
-            None => self.search.exif_index = Some(index),
-        }
+        self.search.exif_index.add(index);
         // The index was read from the list as it was, so names that came since are read too.
         self.index_new_names();
         self.update_search(ctx);
@@ -340,10 +377,7 @@ impl crate::App {
     /// (renamed, moved or copied in, new in a folder read again, or from subfolders turned on),
     /// as it reads edited ones. Before, a name it lacked was found by no `exif:` search at all.
     pub(crate) fn index_new_names(&mut self) {
-        if self.search.exif_index_failed {
-            return;
-        }
-        if let Some(index) = &self.search.exif_index {
+        if let ExifIndex::Read(index) = &self.search.exif_index {
             let missing = self.list.files().iter().filter(|n| !index.contains_key(*n));
             self.search.exif_to_read_again.extend(missing.cloned());
         }
@@ -478,7 +512,7 @@ impl crate::App {
         // that sees the job end searches again.)
         let writing = self.file_operations.is_writing_sidecars();
         if !writing
-            && self.search.exif_index.is_some()
+            && self.search.exif_index.texts().is_some()
             && !self.search.exif_to_read_again.is_empty()
             && self.search.exif_index_rx.is_none()
         {
@@ -496,7 +530,7 @@ impl crate::App {
             });
             self.search.exif_index_rx = Receiving::of(rx);
         }
-        let Some(index) = &self.search.exif_index else {
+        let Some(index) = self.search.exif_index.texts() else {
             if self.search.exif_index_rx.is_none() {
                 // Marks made while keywords are written are kept for after this first index.
                 if !writing {
@@ -935,7 +969,7 @@ mod tests {
         assert!(typed(&mut app, &["exi", "exif:canon"]).is_empty());
         assert_eq!(app.targets(), None);
         assert_eq!(typed(&mut app, &["exif:canon", ""]), [0, 1].into());
-        let read = |a: &crate::App| a.search.exif_index.is_some();
+        let read = |a: &crate::App| a.search.has_exif_index();
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, read
         ));
@@ -970,7 +1004,7 @@ mod tests {
         app.search.forget_exif_index();
         app.update_search(&ctx);
         assert!(app.search.reads_index());
-        let read = |a: &crate::App| a.search.exif_index.is_some();
+        let read = |a: &crate::App| a.search.has_exif_index();
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, read
         ));
@@ -999,17 +1033,16 @@ mod tests {
         ] {
             assert_eq!(shown(&mut app, query), Some(Vec::new()), "{query}");
         }
-        let read = |a: &crate::App| a.search.exif_index.is_some();
+        let read = |a: &crate::App| a.search.has_exif_index();
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, read
         ));
         assert_eq!(shown(&mut app, "-exif:canon"), Some(vec![0, 1]));
         // A name the index has not read yet is not known either.
-        app.search
-            .exif_index
-            .as_mut()
-            .unwrap()
-            .remove(std::ffi::OsStr::new("b.jpg"));
+        let super::ExifIndex::Read(texts) = &mut app.search.exif_index else {
+            panic!("the index was not read");
+        };
+        texts.remove(std::ffi::OsStr::new("b.jpg"));
         assert_eq!(shown(&mut app, "-exif:canon"), Some(Vec::new()));
         std::fs::remove_dir_all(&dir).unwrap();
     }

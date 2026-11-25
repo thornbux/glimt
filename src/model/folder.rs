@@ -133,13 +133,8 @@ pub(crate) struct Folder {
     /// The watcher saw the folder change, and the folder is read again once the window has
     /// rested from the last listing (`relist_after_rest`).
     change_waits: bool,
-    /// The deepest folder that holds every folder the watcher saw change since the last listing
-    /// began, or `None` when it saw none. Only this one path is kept, so a tree that a sync
-    /// client writes into every second does not grow it during a long rest. Before, each
-    /// folder seen was kept, also every time again, until the next listing.
-    changes_seen: Option<PathBuf>,
-    /// Whether the watcher saw a change that `changed_on_disk` has not yet told.
-    change_not_told: bool,
+    /// What the watcher saw change since the last listing began.
+    changes_seen: ChangesSeen,
     /// The folder is to be read whole when it is read again, as something other than the
     /// watcher asked for it (`relist_later`).
     relist_whole: bool,
@@ -225,8 +220,7 @@ impl Folder {
             listing_stop: Arc::default(),
             relist_when_done: false,
             change_waits: false,
-            changes_seen: None,
-            change_not_told: false,
+            changes_seen: ChangesSeen::Nothing,
             relist_whole: false,
             next_listing_from: PathBuf::new(),
             listing_from: PathBuf::new(),
@@ -488,7 +482,16 @@ impl Folder {
     /// it saw change are kept for the next listing (`App::relist_changes`).
     pub(crate) fn changed_on_disk(&mut self) -> bool {
         self.receive_changes();
-        std::mem::take(&mut self.change_not_told)
+        match std::mem::take(&mut self.changes_seen) {
+            ChangesSeen::NotTold(common) => {
+                self.changes_seen = ChangesSeen::Told(common);
+                true
+            }
+            seen => {
+                self.changes_seen = seen;
+                false
+            }
+        }
     }
 
     /// Takes what the folder watcher saw change, keeping the folders for the next listing, so
@@ -497,15 +500,14 @@ impl Folder {
     /// was minimized (#188).
     pub(crate) fn receive_changes(&mut self) {
         for folder in self.changed_rx.try_iter().flatten() {
-            let common = match self.changes_seen.take() {
+            let common = match self.changes_seen.folder() {
                 None => folder,
                 Some(seen) => (seen.components().zip(folder.components()))
                     .take_while(|(a, b)| a == b)
                     .map(|(a, _)| a)
                     .collect(),
             };
-            self.changes_seen = Some(common);
-            self.change_not_told = true;
+            self.changes_seen = ChangesSeen::NotTold(common);
         }
     }
 
@@ -520,7 +522,7 @@ impl Folder {
             return None;
         }
         // A change outside the open folder leaves a common folder above it, or none.
-        let rel = self.changes_seen.as_ref()?.strip_prefix(&self.dir).ok()?;
+        let rel = self.changes_seen.folder()?.strip_prefix(&self.dir).ok()?;
         (!rel.as_os_str().is_empty()).then(|| rel.to_path_buf())
     }
 
@@ -665,6 +667,32 @@ pub(crate) struct Listed {
     read: FoldersRead,
     /// How long the reading took in the listing thread.
     read_in: Duration,
+}
+
+/// What the folder watcher saw change since the last listing began: the deepest folder that
+/// holds every folder it saw change, and whether `Folder::changed_on_disk` has told it. Only
+/// this one path is kept, so a tree that a sync client writes into every second does not grow
+/// it during a long rest. Before, each folder seen was kept, also every time again, until the
+/// next listing.
+#[derive(Default)]
+enum ChangesSeen {
+    /// The watcher saw no change.
+    #[default]
+    Nothing,
+    /// It saw changes below this folder that `changed_on_disk` has not told yet.
+    NotTold(PathBuf),
+    /// It saw changes below this folder, and `changed_on_disk` has told them.
+    Told(PathBuf),
+}
+
+impl ChangesSeen {
+    /// Returns the folder that holds every change seen, or `None` when none was seen.
+    fn folder(&self) -> Option<&Path> {
+        match self {
+            ChangesSeen::Nothing => None,
+            ChangesSeen::NotTold(folder) | ChangesSeen::Told(folder) => Some(folder),
+        }
+    }
 }
 
 /// The images of a listing as its thread sends them.
@@ -1868,8 +1896,7 @@ impl crate::App {
         self.folder.relist_when_done = false;
         // This listing reads every change seen before it.
         self.folder.change_waits = false;
-        self.folder.changes_seen = None;
-        self.folder.change_not_told = false;
+        self.folder.changes_seen = ChangesSeen::Nothing;
         self.folder.relist_whole = false;
     }
 
@@ -3994,13 +4021,13 @@ mod tests {
             app.folder.changed_tx.send(changed).unwrap();
             assert!(app.folder.changed_on_disk());
         }
-        let seen: Vec<&std::path::PathBuf> = app.folder.changes_seen.iter().collect();
-        assert_eq!(seen, [&dir.join("s2")]);
+        let seen: Vec<&std::path::Path> = app.folder.changes_seen.folder().into_iter().collect();
+        assert_eq!(seen, [dir.join("s2").as_path()]);
         // A change outside the open folder leaves nothing below it to read alone.
         let elsewhere = dir.parent().unwrap().join("elsewhere");
         app.folder.changed_tx.send(vec![elsewhere]).unwrap();
         app.folder.changed_on_disk();
-        let seen: Vec<&std::path::PathBuf> = app.folder.changes_seen.iter().collect();
+        let seen: Vec<&std::path::Path> = app.folder.changes_seen.folder().into_iter().collect();
         assert!(seen.len() == 1 && !seen[0].starts_with(&dir), "{seen:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
