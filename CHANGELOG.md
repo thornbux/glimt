@@ -82,6 +82,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the host's file managers do not list (#162).
 - A Flatpak window and a native window now keep each other out of a sidecar while one edits
   it. The Flatpak asks for the host's Glimt runtime folder for this (#170).
+- A tool whose program's path is not UTF-8 is started by that path. A program that could not
+  run, or that needs the Flatpak's permission, is named with escapes in the failure told, as a
+  file name is.
+- Remove Thumbnails of Deleted Files reads the thumbnail cache after the image the window waits
+  for when the home folder is on a share. The status bar's sizes no longer read udev's data
+  before the image the window waits for.
+- After gio fails to trash files on a share, the files left are no longer looked up in the
+  mount table again for each comparison of their sort.
 
 ## [0.98.0] - 2026-11-24
 
