@@ -6245,13 +6245,13 @@ mod tests {
             x ^= x << 17;
             (x % n as u64) as usize
         };
-        let escaped_name = |app: &crate::App| app.list.files().get(app.list.shown()).cloned();
+        let shown_file = |app: &crate::App| app.list.files().get(app.list.shown()).cloned();
         app.show_file(&ctx, 0);
         app.start_slideshow(&ctx);
         let mut fed = None;
         feed_what_runs(&mut app, &ctx, &mut fed);
         let mut seen = SlidesSeen::default();
-        seen.begin(escaped_name(&app).unwrap());
+        seen.begin(shown_file(&app).unwrap());
         let mut renamed = 0;
         let in_config = |app: &crate::App| {
             let c = &app.config;
@@ -6277,7 +6277,7 @@ mod tests {
                 event = [12, 13, 15, 16][next(4)];
             }
             let order_before = app.list.files().to_vec();
-            let mut shown_before = escaped_name(&app);
+            let mut shown_before = shown_file(&app);
             // The names that the list shows before the event: the search's matches, or all.
             let rows_before: Vec<OsString> = (order_before.iter().enumerate())
                 .filter(|&(i, _)| app.list.shows_file(i))
@@ -6324,7 +6324,7 @@ mod tests {
                         app.slideshow_tick(&ctx);
                         picked = Some(true);
                         if let Some(expected) = expected.filter(|_| app.slideshow.is_running()) {
-                            assert_eq!(escaped_name(&app), Some(expected), "after R off: {at}");
+                            assert_eq!(shown_file(&app), Some(expected), "after R off: {at}");
                         }
                         assert_eq!(seen.round, before);
                     }
@@ -6424,12 +6424,12 @@ mod tests {
                     app.move_along(&ctx, key);
                     match expected {
                         Some((back, name)) => {
-                            assert_eq!(escaped_name(&app), Some(name), "the history: {at}");
+                            assert_eq!(shown_file(&app), Some(name), "the history: {at}");
                             seen.back = back;
                             picked = Some(false);
                         }
                         // Left past the oldest image stays.
-                        None if older => assert_eq!(escaped_name(&app), shown_before, "{at}"),
+                        None if older => assert_eq!(shown_file(&app), shown_before, "{at}"),
                         None => picked = Some(true),
                     }
                 }
@@ -6438,7 +6438,7 @@ mod tests {
                     decode_all(&mut app, &ctx);
                     app.slideshow_tick(&ctx);
                     if let Some((back, name)) = expected {
-                        assert_eq!(escaped_name(&app), Some(name), "the history: {at}");
+                        assert_eq!(shown_file(&app), Some(name), "the history: {at}");
                         seen.back = back;
                         picked = Some(false);
                     } else {
@@ -6452,7 +6452,7 @@ mod tests {
                         Action::Last
                     };
                     app.move_along(&ctx, key);
-                    let now = escaped_name(&app).unwrap();
+                    let now = shown_file(&app).unwrap();
                     // The first or the last row that the list shows, of the search's matches.
                     let files = app.list.files();
                     let expected = match (app.list.matches(), event) {
@@ -6504,7 +6504,7 @@ mod tests {
                     // the next row after it that the round has not shown.
                     let i = next(app.list.files().len());
                     app.show_file(&ctx, i);
-                    let now = escaped_name(&app).unwrap();
+                    let now = shown_file(&app).unwrap();
                     let another = Some(&now) != same_image.as_ref();
                     if another {
                         seen.round.insert(now.clone());
@@ -6520,7 +6520,7 @@ mod tests {
                         picked = Some(true);
                         if let Some(expected) = expected.filter(|_| app.slideshow.is_running()) {
                             let what = "after an image shown by hand";
-                            assert_eq!(escaped_name(&app), Some(expected), "{what}: {at}");
+                            assert_eq!(shown_file(&app), Some(expected), "{what}: {at}");
                         }
                     }
                 }
@@ -6535,8 +6535,8 @@ mod tests {
                     }
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     seen = SlidesSeen::default();
-                    seen.begin(escaped_name(&app).unwrap());
-                    same_image = escaped_name(&app);
+                    seen.begin(shown_file(&app).unwrap());
+                    same_image = shown_file(&app);
                 }
                 26 | 27 => {
                     // One image opened in an order that looks at the files, from the file
@@ -6565,8 +6565,8 @@ mod tests {
                     fed = None;
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     seen = SlidesSeen::default();
-                    seen.begin(escaped_name(&app).unwrap());
-                    same_image = escaped_name(&app);
+                    seen.begin(shown_file(&app).unwrap());
+                    same_image = shown_file(&app);
                 }
                 30 if subfolders.len() > 1 => {
                     // A stop on an image of one of several folders given, itself and not in a
@@ -6580,8 +6580,8 @@ mod tests {
                     }
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     seen = SlidesSeen::default();
-                    seen.begin(escaped_name(&app).unwrap());
-                    same_image = escaped_name(&app);
+                    seen.begin(shown_file(&app).unwrap());
+                    same_image = shown_file(&app);
                 }
                 31 => {
                     // The tree opened anew in an order by date, and stopped on the image that its
@@ -6600,23 +6600,23 @@ mod tests {
                     };
                     send_part(&mut app, &ctx, f);
                     app.stop_slideshow(&ctx);
-                    let stopped_on = escaped_name(&app);
+                    let stopped_on = shown_file(&app);
                     if let Some(f) = fed.as_ref() {
                         send_whole(&mut app, &ctx, f);
                     }
                     // A list still empty after the first part shows no image to keep.
                     if stopped_on.is_some() {
-                        let now = escaped_name(&app);
+                        let now = shown_file(&app);
                         assert_eq!(now, stopped_on, "a whole list after a stop: {at}");
                     }
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     app.start_slideshow(&ctx);
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     seen = SlidesSeen::default();
-                    if let Some(name) = escaped_name(&app) {
+                    if let Some(name) = shown_file(&app) {
                         seen.begin(name);
                     }
-                    same_image = escaped_name(&app);
+                    same_image = shown_file(&app);
                 }
                 28 => {
                     // A sidecar written in an order that looks at the files: the folder is read
@@ -6707,8 +6707,8 @@ mod tests {
                     }
                     feed_what_runs(&mut app, &ctx, &mut fed);
                     seen = SlidesSeen::default();
-                    seen.begin(escaped_name(&app).unwrap());
-                    same_image = escaped_name(&app);
+                    seen.begin(shown_file(&app).unwrap());
+                    same_image = shown_file(&app);
                 }
                 23 | 24 => {
                     // A search narrowed, widened or cleared while the slideshow runs.
@@ -6719,7 +6719,7 @@ mod tests {
                 _ => {
                     app.stop_slideshow(&ctx);
                     assert_eq!(
-                        escaped_name(&app),
+                        shown_file(&app),
                         shown_before,
                         "a stop keeps the image: {at}"
                     );
@@ -6731,7 +6731,7 @@ mod tests {
             if picked.is_none() && !matches!(event, 15 | 16) {
                 seen.note_shown_elsewhere(&app, &mut same_image);
             }
-            let now = escaped_name(&app);
+            let now = shown_file(&app);
             if picked == Some(true) {
                 // A new image: one the round has not shown, or the first of a new round with
                 // Repeat once every image that the search shows was shown. Without Repeat, the
@@ -6853,7 +6853,7 @@ mod tests {
             if !app.slideshow.is_running() {
                 // Stopped by the test or at the end of a round without Repeat. The list is the
                 // tree on disk once it is read, and the slideshow starts again where it stopped.
-                let kept = escaped_name(&app);
+                let kept = shown_file(&app);
                 if let Some(f) = fed.as_ref() {
                     send_whole(&mut app, &ctx, f);
                 }
@@ -6864,17 +6864,13 @@ mod tests {
                 assert_eq!(app.list.rows().order(), Some(order), "a whole list: {at}");
                 assert_in_order(&dir, &all, order, &at);
                 if kept.as_ref().is_some_and(|k| disk.contains(k)) {
-                    assert_eq!(
-                        escaped_name(&app),
-                        kept,
-                        "the image kept after a stop: {at}"
-                    );
+                    assert_eq!(shown_file(&app), kept, "the image kept after a stop: {at}");
                 }
                 app.config.slideshow_repeat = repeat;
                 app.start_slideshow(&ctx);
                 feed_what_runs(&mut app, &ctx, &mut fed);
                 seen = SlidesSeen::default();
-                if let Some(name) = escaped_name(&app) {
+                if let Some(name) = shown_file(&app) {
                     seen.begin(name);
                 }
             }
