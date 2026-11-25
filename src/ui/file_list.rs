@@ -3061,9 +3061,12 @@ mod tests {
             app.is_comparing = comparing;
             // The work that the folder started and nobody waits for, the thumbnails and the
             // sizes, is in before the slides are counted, so that none of its answers can wake
-            // the window in a counted slide. So are the decodes of the images shown.
+            // the window in a counted slide. So are the decodes of the images shown, and the
+            // threads that every window starts for the desktop's look and the theme files
+            // (#309).
             let is_settled = |app: &crate::App| {
-                app.list.decodes_pending().is_empty()
+                app.desktop_settings.is_answered()
+                    && app.list.decodes_pending().is_empty()
                     && !app.thumbs.is_making_any()
                     && app.list.sizes_and_dates().values().all(Option::is_some)
                     && app.status_bar.folder_total().is_some()
