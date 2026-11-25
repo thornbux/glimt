@@ -1527,6 +1527,30 @@ fn mount_point_in(mountinfo: &[u8], path: &Path) -> Option<PathBuf> {
     Some(share.map_or_else(|| mount.at.clone(), |share| mount.at.join(share)))
 }
 
+/// Returns where `path` is in its file system: the folder that the mount holding it shows, as
+/// /proc/self/mountinfo names it, with the rest of the path below the mount point. A bind mount
+/// of /srv/photos at ~/photos gives /srv/photos/2024 for ~/photos/2024, and the empty folder
+/// ~/photos under it, while the bind is not mounted, gives /home/u/photos. A whole file system
+/// gives the path from its top, whether the host or a Flatpak shows it. Returns `None` when the
+/// table cannot be read or does not tell. The path is taken as it is, as in
+/// `file_system_type`.
+pub(crate) fn path_in_file_system(path: &Path) -> Option<PathBuf> {
+    let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").ok()?;
+    path_in_file_system_in(&mounts, path)
+}
+
+/// Returns where `path` is in its file system by `mountinfo`, as `path_in_file_system` does.
+fn path_in_file_system_in(mountinfo: &[u8], path: &Path) -> Option<PathBuf> {
+    let mounts = mounts_in(mountinfo);
+    let mount = mount_holding(&mounts, path)?;
+    let below = path.strip_prefix(&mount.at).ok()?;
+    let root = unescape_mount(mount.root);
+    Some(match below.as_os_str().is_empty() {
+        true => root,
+        false => root.join(below),
+    })
+}
+
 /// Returns the type of the mount in `mountinfo` that holds `path`, as `mounted_type` does.
 fn mounted_type_in(mountinfo: &[u8], path: &Path) -> Option<String> {
     file_system_type_in(mountinfo, path, |_| None)
@@ -3620,6 +3644,31 @@ mod tests {
         }
         assert!(!whole(dirs, "/mnt/pictures/2024"));
         assert!(super::is_remote("fuse.portal"));
+    }
+
+    /// A folder is placed in its file system by the mount that holds it: a bind mount's folder
+    /// below the folder it shows, and the empty mount point under it, while the bind is not
+    /// mounted, at its own path on the disk above (#270).
+    #[test]
+    fn places_a_folder_in_its_file_system() {
+        let mounted = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+            2 1 8:1 /srv/photos /home/u/photos rw - ext4 /dev/sda1 rw\n\
+            3 1 8:17 / /run/media/u/STICK rw - vfat /dev/sdb1 rw\n";
+        let place =
+            |mounts: &[u8], p: &str| super::path_in_file_system_in(mounts, std::path::Path::new(p));
+        let path = |p: &str| Some(std::path::PathBuf::from(p));
+        assert_eq!(
+            place(mounted, "/home/u/photos/2024"),
+            path("/srv/photos/2024")
+        );
+        assert_eq!(place(mounted, "/home/u/photos"), path("/srv/photos"));
+        assert_eq!(place(mounted, "/run/media/u/STICK/DCIM"), path("/DCIM"));
+        assert_eq!(place(mounted, "/run/media/u/STICK"), path("/"));
+        let not_mounted = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n";
+        assert_eq!(place(not_mounted, "/home/u/photos"), path("/home/u/photos"));
+        assert_eq!(place(b"", "/home/u/photos"), None);
+        // The real table places its own top.
+        assert!(super::path_in_file_system(std::path::Path::new("/")).is_some());
     }
 
     /// The mount that holds a path is the one the kernel finds going down through the mounts:

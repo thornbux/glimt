@@ -34,7 +34,7 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 /// src/frozen-1.0.txt. "old-log" names the job log that this one was written from
 /// (`Record::OldLog`), a log of this format, not one of the old logs of Glimt 0.92 and older.
 #[cfg(test)]
-pub(crate) const RECORD_KINDS: [&str; 16] = [
+pub(crate) const RECORD_KINDS: [&str; 17] = [
     "folder",
     "shown",
     "step",
@@ -51,6 +51,7 @@ pub(crate) const RECORD_KINDS: [&str; 16] = [
     "volume",
     "medium",
     "new-marks",
+    "in-file-system",
 ];
 
 /// The name of the folder of the logs in Glimt's state folder, pinned in src/frozen-1.0.txt.
@@ -99,6 +100,14 @@ pub(crate) enum Record {
     /// (`file_io::medium_of_device`). It tells the card from another one in the same reader
     /// where no volume can be read, as in a Flatpak's sandbox, until the computer starts anew.
     Medium { path: PathBuf, medium: String },
+    /// Where a folder of a `Folder` record is in its file system, as /proc/self/mountinfo shows
+    /// the mount that holds it (`file_io::path_in_file_system`). It tells the folder from an
+    /// empty mount point at its path, or above it, on the same disk: a bind mount of another
+    /// folder of that disk that is not mounted yet (#270).
+    InFileSystem {
+        path: PathBuf,
+        in_file_system: PathBuf,
+    },
     /// The collection shown while the job ran, whose entries follow the files.
     Shown(PathBuf),
     /// A step about to be taken: its file, its new name (`None` for a delete), and the
@@ -176,6 +185,10 @@ impl Record {
                 path: folder,
                 medium,
             } => ("medium", vec![path(folder), medium.as_bytes().to_vec()]),
+            Record::InFileSystem {
+                path: folder,
+                in_file_system,
+            } => ("in-file-system", vec![path(folder), path(in_file_system)]),
             Record::Shown(collection) => ("shown", vec![path(collection)]),
             Record::Step {
                 number,
@@ -246,6 +259,10 @@ impl Record {
             (b"medium", [p, m]) => Record::Medium {
                 path: absolute(p)?,
                 medium: medium(m)?,
+            },
+            (b"in-file-system", [p, f]) => Record::InFileSystem {
+                path: absolute(p)?,
+                in_file_system: absolute(f)?,
             },
             (b"shown", [p]) => Record::Shown(absolute(p)?),
             (b"step", [n, from, to, known]) => Record::Step {
@@ -320,6 +337,7 @@ impl Record {
             Record::Folder { .. }
             | Record::Volume { .. }
             | Record::Medium { .. }
+            | Record::InFileSystem { .. }
             | Record::Shown(_)
             | Record::Tree { .. }
             | Record::OldLog(_) => None,
@@ -343,6 +361,7 @@ impl Record {
             Record::Folder { .. }
             | Record::Volume { .. }
             | Record::Medium { .. }
+            | Record::InFileSystem { .. }
             | Record::Shown(_)
             | Record::Tree { .. }
             | Record::OldLog(_) => None,
@@ -952,6 +971,10 @@ mod tests {
                 number: 1,
                 bits: 3,
                 stars: 4,
+            },
+            Record::InFileSystem {
+                path: p("/home/u/photos/2024"),
+                in_file_system: p("/srv/photos/2024"),
             },
             Record::Volume {
                 path: p("/card/DCIM"),

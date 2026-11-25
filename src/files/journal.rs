@@ -18,6 +18,7 @@ use crate::files::file_io::{
 };
 use crate::files::job_log::{AtStart, CannotTell, Direction, JobLog, Record, Sure, remove_job_log};
 use crate::images::save::{same_file, same_file_by_opening};
+use crate::support::threads;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
@@ -79,11 +80,17 @@ thread_local! {
     // is not on one.
     pub(crate) static ON_A_BLOCK_DEVICE: std::cell::RefCell<Vec<PathBuf>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // The mounts that a test gives on this thread, each a mount point with the folder of its
+    // file system it shows, as a bind mount (`place_in_file_system`). A test's own folder is in
+    // none of them, and gets no place.
+    pub(crate) static TEST_MOUNTS_SHOWING: std::cell::RefCell<Vec<(PathBuf, PathBuf)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// What the `folder`, `volume` and `medium` records of a log noted of a folder: its device, its
 /// inode (0 where its file system keeps none), the volume it is on where its device has a name in
-/// /dev/disk/by-uuid, and the medium in its block device. Only `is_on_the_volume_noted` and
+/// /dev/disk/by-uuid, the medium in its block device, and where it is in its file system. Only
+/// `is_on_the_volume_noted` and
 /// `is_the_folder_noted` compare them with a folder now
 /// (`source_rules::one_rule_tells_the_folder_a_log_noted`).
 #[derive(Debug, Clone)]
@@ -92,6 +99,12 @@ struct FolderNoted {
     noted_inode: u64,
     noted_volume: Option<std::ffi::OsString>,
     noted_medium: Option<String>,
+    /// The folder noted, whose path the place below compares with a folder above it.
+    noted_folder: PathBuf,
+    noted_in_file_system: Option<PathBuf>,
+    /// Where each folder looked at is in its file system now, shared by every folder of the
+    /// log, so that the mount table is read once for each folder, not once for each file.
+    places_now: std::sync::Arc<std::sync::Mutex<HashMap<PathBuf, Option<PathBuf>>>>,
     /// The volumes found now, shared by every folder of the log. /dev/disk/by-uuid is read once
     /// for the start that reads the log, not once for each folder or file, and its answer is
     /// kept whatever it is: a volume, no volume for a device, or a read that failed (`None`).
@@ -1449,6 +1462,11 @@ fn steps_left(
                 path: path.clone(),
                 medium,
             }));
+            let place = noted.noted_in_file_system.clone();
+            records.extend(place.map(|in_file_system| Record::InFileSystem {
+                path: path.clone(),
+                in_file_system,
+            }));
         }
     }
     for (number, (name, known)) in left.enumerate() {
@@ -1714,6 +1732,9 @@ fn sidecars_back_from_the_trash(stayed: &[PathBuf], since: std::time::SystemTime
 /// folder's inode across mounts (FAT, exFAT, `has_lasting_inodes`) or its type is not known.
 /// Then only the device is compared.
 ///
+/// An `in-file-system` record follows where the folder is in its file system
+/// (`place_in_file_system`), which tells it from an empty mount point at its path or above it.
+///
 /// A `volume` record follows it with the volume the folder is on (`volume_of`), on any file
 /// system on a block device that has a name in /dev/disk/by-uuid (FAT, ext4, NTFS, ...), so that
 /// a start can tell the card or stick from another one at the same path, and find it again under
@@ -1742,7 +1763,32 @@ fn folder_record(folder: &Path) -> Vec<Record> {
         let path = folder.to_path_buf();
         records.push(Record::Medium { path, medium });
     }
+    if let Some(in_file_system) = place_in_file_system(folder) {
+        let path = folder.to_path_buf();
+        records.push(Record::InFileSystem {
+            path,
+            in_file_system,
+        });
+    }
     records
+}
+
+/// Returns where `folder` is in its file system now (`file_io::path_in_file_system`), and
+/// `None` where that is not known. A test gives it with `TEST_MOUNTS_SHOWING` instead.
+fn place_in_file_system(folder: &Path) -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        TEST_MOUNTS_SHOWING.with_borrow(|mounts| {
+            let (at, shows) = (mounts.iter())
+                .filter(|(at, _)| folder.starts_with(at))
+                .max_by_key(|(at, _)| at.as_os_str().len())?;
+            Some(shows.join(folder.strip_prefix(at).ok()?))
+        })
+    }
+    #[cfg(not(test))]
+    {
+        crate::files::file_io::path_in_file_system(folder)
+    }
 }
 
 /// Returns the medium in the block device `device` of `folder` now
@@ -1795,9 +1841,11 @@ fn volume_of(folder: &Path, device: u64) -> Option<std::ffi::OsString> {
 }
 
 /// Returns the folders that the `folder` records among `records` noted, each with the volume
-/// and the medium that the `volume` and `medium` records of the same folder noted.
+/// the medium and the place in its file system that the `volume`, `medium` and `in-file-system`
+/// records of the same folder noted.
 fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
     let volumes_now = std::sync::Arc::new(std::sync::OnceLock::new());
+    let places_now = std::sync::Arc::default();
     let mut folders: HashMap<PathBuf, FolderNoted> = (records.iter())
         .filter_map(|record| match record {
             Record::Folder {
@@ -1811,6 +1859,9 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
                     noted_inode: *inode,
                     noted_volume: None,
                     noted_medium: None,
+                    noted_folder: path.clone(),
+                    noted_in_file_system: None,
+                    places_now: std::sync::Arc::clone(&places_now),
                     volumes_now: volumes_now.clone(),
                 },
             )),
@@ -1827,6 +1878,14 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
             Record::Medium { path, medium } => {
                 if let Some(noted) = folders.get_mut(path) {
                     noted.noted_medium = Some(medium.clone());
+                }
+            }
+            Record::InFileSystem {
+                path,
+                in_file_system,
+            } => {
+                if let Some(noted) = folders.get_mut(path) {
+                    noted.noted_in_file_system = Some(in_file_system.clone());
                 }
             }
             _ => {}
@@ -1856,6 +1915,10 @@ fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
 /// ext4 stick's top folder has the inode 2 (#314), so either alone took another card at the same
 /// path for the one noted. Such a log waits for a later start.
 ///
+/// A folder whose place in its file system is not the one noted, or above it, is not told
+/// either: a bind mount of another folder of the same disk, not mounted yet, leaves an empty
+/// mount point there with the volume, the medium and the device noted (#270).
+///
 /// Without a volume, another device cannot tell, as then the folder noted is not here (an empty
 /// mount point) or came back under another device number. On the noted device, the folder's own
 /// lasting inode, when it is the one noted, tells the disk. Without it, the device number tells
@@ -1877,6 +1940,24 @@ fn is_on_the_volume_noted(
     device: u64,
     inode: Option<u64>,
 ) -> AtStart<bool> {
+    // A folder at the place noted, or above it, is somewhere else in its file system while a
+    // mount that held it is not mounted, as an empty mount point is, on the same disk (#270).
+    if let Some(noted_place) = &noted.noted_in_file_system
+        && let Ok(below) = noted.noted_folder.strip_prefix(folder)
+    {
+        let looked = threads::lock_even_if_poisoned(&noted.places_now)
+            .get(folder)
+            .cloned();
+        let place = looked.unwrap_or_else(|| {
+            let place = place_in_file_system(folder);
+            let mut places = threads::lock_even_if_poisoned(&noted.places_now);
+            places.insert(folder.to_path_buf(), place.clone());
+            place
+        });
+        if place.is_some_and(|place| place.join(below) != *noted_place) {
+            return Err(CannotTell);
+        }
+    }
     let is_of_another_boot = || {
         let noted_boot = (noted.noted_medium.as_deref()).and_then(|m| m.rsplit_once(':'));
         noted_boot.is_none_or(|(boot, _)| Some(boot) != boot_now())
@@ -6286,5 +6367,45 @@ mod tests {
         }
         super::ON_A_BLOCK_DEVICE.with_borrow_mut(Vec::clear);
         remove_fat_card(&dir, &card);
+    }
+
+    /// A killed delete in a folder of a bind mount of another folder of the same disk, read
+    /// while the bind is not mounted, keeps its log: the folder is gone from the empty mount
+    /// point, which is on the device, the volume and the medium noted. The start forgets the
+    /// marks only once the bind is back and the folder is surely deleted. Before, the folder
+    /// counted as deleted, and the marks of its files, still there behind the bind, were
+    /// forgotten (#270).
+    #[test]
+    fn a_folder_behind_a_bind_mount_not_mounted_is_not_taken_for_deleted() {
+        let temporary = format!("glimt-test-bind-not-mounted-{}", std::process::id());
+        let dir = std::env::temp_dir().join(temporary);
+        let _ = std::fs::remove_dir_all(&dir);
+        let (bind, logs) = (dir.join("photos"), dir.join("logs"));
+        let folder = bind.join("2024");
+        std::fs::create_dir_all(&folder).unwrap();
+        let a = folder.join("a.png");
+        let showing = |shows: &str| {
+            super::TEST_MOUNTS_SHOWING.with_borrow_mut(|mounts| {
+                mounts.clear();
+                mounts.push((dir.clone(), "/home/u".into()));
+                mounts.push((bind.clone(), shows.into()));
+            })
+        };
+        showing("/srv/photos");
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(std::slice::from_ref(&a));
+        drop(log);
+        std::fs::remove_dir(&folder).unwrap();
+        // The bind is not mounted: its mount point shows itself on the disk above.
+        showing("/home/u/photos");
+        let found = super::delete_jobs_cut_short(&logs);
+        assert!(found[0].1.is_empty(), "{:?}", found[0].1);
+        assert_eq!(let_go(found), 1);
+        showing("/srv/photos");
+        let found = super::delete_jobs_cut_short(&logs);
+        assert_eq!(found[0].1, std::slice::from_ref(&a));
+        assert_eq!(let_go(found), 1);
+        super::TEST_MOUNTS_SHOWING.with_borrow_mut(Vec::clear);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
