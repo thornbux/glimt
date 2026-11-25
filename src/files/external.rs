@@ -891,7 +891,7 @@ pub fn set_wallpaper(path: &Path) -> Result<(), String> {
 /// runs in the sandbox, whose runtime has them, and GTK and gio go through the desktop portals
 /// there.
 #[allow(clippy::disallowed_methods)] // one of the two places a program is named to run
-pub fn command(program: &str) -> std::process::Command {
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     std::process::Command::new(program)
 }
 
@@ -900,8 +900,8 @@ pub fn command(program: &str) -> std::process::Command {
 /// through `flatpak-spawn --host`, which needs a permission the Flatpak does not ask for (Flathub
 /// allows none). Without the permission, it is a command that fails saying how to give it, so
 /// each caller's error tells the user.
-pub fn host_command(program: &str) -> std::process::Command {
-    host(program, &[])
+pub fn host_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    host(program.as_ref(), &[])
 }
 
 /// As `command`, for a program Glimt may have to stop, with what every such program needs. It
@@ -917,7 +917,7 @@ pub fn stoppable_command(program: &str) -> std::process::Command {
 /// reach of a signal to its process group, and `--watch-bus` ends it when its flatpak-spawn is
 /// killed.
 pub fn stoppable_host_command(program: &str) -> std::process::Command {
-    stoppable(host(program, &["--watch-bus"]))
+    stoppable(host(program.as_ref(), &["--watch-bus"]))
 }
 
 fn stoppable(mut command: std::process::Command) -> std::process::Command {
@@ -978,7 +978,7 @@ fn host_allowed() -> bool {
     })
 }
 
-fn host(program: &str, flags: &[&str]) -> std::process::Command {
+fn host(program: &std::ffi::OsStr, flags: &[&str]) -> std::process::Command {
     host_for(std::env::var_os("FLATPAK_ID"), host_allowed, program, flags)
 }
 
@@ -986,7 +986,7 @@ fn host(program: &str, flags: &[&str]) -> std::process::Command {
 fn host_for(
     id: Option<std::ffi::OsString>,
     allowed: impl FnOnce() -> bool,
-    program: &str,
+    program: &std::ffi::OsStr,
     flags: &[&str],
 ) -> std::process::Command {
     let Some(id) = id else {
@@ -995,7 +995,7 @@ fn host_for(
     if !allowed() {
         let why = crate::tf!(
             "{program} runs outside the Flatpak, which needs: {how}",
-            program,
+            program = escaped_name(program),
             how = format!(
                 "flatpak override --user --talk-name=org.freedesktop.Flatpak {}",
                 escaped_name(id)
@@ -1046,7 +1046,7 @@ mod tests {
     }
 
     /// In a Flatpak, a host program goes through flatpak-spawn, and without the permission it
-    /// fails saying how to give it. Outside a Flatpak it is just the program.
+    /// fails saying how to give it. Outside a Flatpak it is just the program, by its own path.
     #[test]
     fn host_programs_need_the_permission_in_a_flatpak() {
         let args = |c: &std::process::Command| {
@@ -1055,17 +1055,30 @@ mod tests {
             all
         };
         let id = || Some("io.github.thornbux.Glimt".into());
-        let plain = super::host_for(None, || unreachable!(), "mpv", &[]);
+        let plain = super::host_for(None, || unreachable!(), "mpv".as_ref(), &[]);
         assert_eq!(args(&plain), ["mpv"]);
-        let spawn = super::host_for(id(), || true, "mpv", &["--watch-bus"]);
+        // A tool's program whose path is not UTF-8 is run by that path, not by its lossy text.
+        let odd = <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(b"/opt/t\xff/run");
+        assert_eq!(
+            super::host_for(None, || unreachable!(), odd, &[]).get_program(),
+            odd
+        );
+        let spawn = super::host_for(id(), || true, "mpv".as_ref(), &["--watch-bus"]);
         let spawn = args(&spawn);
         assert_eq!(spawn[..3], ["flatpak-spawn", "--host", "--watch-bus"]);
         assert_eq!(spawn.last().unwrap(), "mpv");
-        let mut refused = super::stoppable(super::host_for(id(), || false, "mpv", &[]));
+        let mut refused = super::stoppable(super::host_for(id(), || false, "mpv".as_ref(), &[]));
         refused.arg("x");
         let why = super::run_limited(refused, 1 << 10, super::PROGRAM_TIME_LIMIT).unwrap_err();
         assert!(why.starts_with("mpv runs outside the Flatpak"), "{why}");
         assert!(why.ends_with("--talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt"));
+        // The program's name in that message is escaped, so a line break in it adds no line.
+        let named = super::host_for(id(), || false, "m\nv".as_ref(), &[]);
+        assert!(
+            named
+                .get_args()
+                .all(|a| !a.to_string_lossy().contains('\n'))
+        );
     }
 
     /// A program that is there is remembered. One that is not is asked for again, so it is

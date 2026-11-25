@@ -118,7 +118,7 @@ impl Tool {
             use crate::files::external::{host_command, start_users_program};
             use std::os::unix::process::CommandExt;
             let mut child = start_users_program(
-                host_command(program.to_string_lossy().as_ref())
+                host_command(&program)
                     .process_group(0)
                     .args(&args[1..])
                     .current_dir(folder)
