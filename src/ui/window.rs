@@ -66,6 +66,11 @@ pub(crate) struct Window {
     /// `guard_close` sent the close again itself, because the work it waited for ended. That
     /// close is no new close by the user, so it does not count in `close_requests`.
     is_close_sent_again: bool,
+    /// The number of the notice that says the close waits for the files, while it waits.
+    close_notice: Option<u64>,
+    /// The number of that notice once a failed write forgot its close, which made the notice
+    /// untrue. `poll_background` takes it away, when it is still shown.
+    forgotten_close_notice: Option<u64>,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
     /// A save that worked forgets it, so the same turn made again is saved too.
@@ -103,6 +108,8 @@ impl Window {
             title_template: String::new(),
             close_requests: 0,
             is_close_sent_again: false,
+            close_notice: None,
+            forgotten_close_notice: None,
             turn_tried_at_close: None,
             // A signal that came before the window was made, while it started, closes it too.
             termination_signals_seen: 0,
@@ -186,6 +193,20 @@ impl Window {
         self.last_failed_write = Some(failure.clone());
         self.failed_writes_to_show.push(failure);
         self.close_requests = 0;
+        if let Some(number) = self.close_notice.take() {
+            self.forgotten_close_notice = Some(number);
+        }
+    }
+
+    /// Notes `number`, the notice that says the close waits for the files.
+    pub(crate) fn note_close_notice(&mut self, number: Option<u64>) {
+        self.close_notice = number;
+    }
+
+    /// Returns the number of the close's notice that a failed write made untrue, or `None`
+    /// when there is none. `take_failed_writes_to_show` forgets it.
+    pub(crate) fn forgotten_close_notice(&self) -> Option<u64> {
+        self.forgotten_close_notice
     }
 
     /// Returns how many failed writes the window has told.
@@ -199,8 +220,9 @@ impl Window {
     }
 
     /// Takes the failed writes kept since the last call, each to be shown as a message of its
-    /// own.
+    /// own, and forgets the close's notice that they made untrue.
     pub(crate) fn take_failed_writes_to_show(&mut self) -> Vec<Failure> {
+        self.forgotten_close_notice = None;
         std::mem::take(&mut self.failed_writes_to_show)
     }
 
@@ -359,6 +381,7 @@ impl crate::App {
             }
             .into(),
         );
+        self.window.note_close_notice(self.notice.shown_number());
     }
 
     /// Saves keywords typed and a setting changed during a drag, and takes the file jobs' last
@@ -854,9 +877,20 @@ mod tests {
         close(&mut app);
         let a = dir.join("a.png");
         assert!(app.file_operations.is_saving(&a));
-        // The save's thread lets go of the file just after it tells the result.
+        // Passes of `logic` alone, as while the window is minimized, take the failure before any
+        // `poll_background`. The close's notice goes with the close that the failure forgot.
+        // Before, it stayed above the failure, though the window stays open, and the test failed
+        // now and then, when the save failed before the first `poll_background`.
         let over = |app: &crate::App| !app.file_operations.is_saving(&a);
-        assert!(run_background_until(&mut app, &ctx, over));
+        for _ in 0..500 {
+            if over(&app) {
+                break;
+            }
+            let _ = ctx.run_logic(&RawInput::default(), |ctx| app.guard_close(ctx));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(over(&app));
+        app.poll_background(&ctx);
         // The failure keeps the window open and stays on screen, also in the passes after it.
         // Before, the close that waited for the save closed the window as the failure came.
         for _ in 0..3 {

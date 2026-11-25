@@ -648,6 +648,18 @@ impl Notice {
         });
     }
 
+    /// Returns the number of the notice shown, or `None` when no notice is shown.
+    pub(crate) fn shown_number(&self) -> Option<u64> {
+        self.shown.as_ref().map(|(_, number)| *number)
+    }
+
+    /// Takes the notice away, as `clear` does, when it is still the one numbered `number`.
+    pub(crate) fn clear_if_shown(&mut self, number: u64) {
+        if self.shown_number() == Some(number) {
+            self.clear();
+        }
+    }
+
     /// Takes the notice away. The warnings that no frame has drawn yet stay shown.
     pub(crate) fn clear(&mut self) {
         self.set_shown(None);
