@@ -620,15 +620,21 @@ fn start_pool<J: Send + 'static>(
 }
 
 /// Gives up each worker of `pool` whose job is stuck (`Progress::is_stuck`), and starts a
-/// new worker in its place, while fewer than `MOST_STUCK` are stuck.
+/// new worker in its place, while fewer than `MOST_STUCK` are stuck. The job's folder is set
+/// aside only when the job made no progress, as a read from a share that stopped answering
+/// does. A job that ran past the ceiling on the processor, such as a long decode on a slow
+/// machine, says nothing about its folder. Before, the folder's later jobs waited for it too.
 fn replace_stuck_workers<J: Send + 'static>(
     pool: &Arc<WorkerPool<J>>,
     stuck_after: std::time::Duration,
 ) {
     let mut places = lock_even_if_poisoned(&pool.places);
     for (place, start) in places.iter_mut().enumerate() {
-        let stuck_in = (lock_even_if_poisoned(start).as_mut())
-            .and_then(|(progress, folder)| progress.is_stuck(stuck_after).then(|| folder.clone()));
+        let stuck_in = (lock_even_if_poisoned(start).as_mut()).and_then(|(progress, folder)| {
+            let stalls_its_folder = progress.idle_for() >= stuck_after;
+            let folder = folder.clone().filter(|_| stalls_its_folder);
+            progress.is_stuck(stuck_after).then_some(folder)
+        });
         if let Some(folder) = stuck_in
             && pool.stuck.load(Ordering::Relaxed) < MOST_STUCK
         {
@@ -1135,7 +1141,9 @@ mod tests {
     /// A worker whose job runs on the processor for ever, as a decoder sent into an endless
     /// loop by a crafted file does, is given up after `Progress::CEILING` times `stuck_after`,
     /// and the next job is done by a new worker. Before, it counted as slow, not stuck, and was
-    /// never given up.
+    /// never given up. Its folder is not set aside, as for a stalled share, because a job that
+    /// uses the processor says nothing about the folder. Before, the folder's next job waited
+    /// for it to end.
     #[test]
     fn a_job_that_never_ends_is_given_up() {
         use std::path::PathBuf;
@@ -1153,15 +1161,16 @@ mod tests {
             }
             done_tx.send(job).unwrap();
         };
-        super::spawn_worker_pool(1, stuck_after, rx, |_| {}, |_| None, work);
+        let by_folder = |job: &PathBuf| Some((job.parent()?.to_path_buf(), job.clone()));
+        super::spawn_worker_pool(1, stuck_after, rx, |_| {}, by_folder, work);
         jobs.send(PathBuf::from("/crafted/endless.jpg")).unwrap();
-        jobs.send(PathBuf::from("/other/next.jpg")).unwrap();
+        jobs.send(PathBuf::from("/crafted/next.jpg")).unwrap();
         let next = done.recv_timeout(Duration::from_secs(10));
         stop.store(true, Ordering::SeqCst);
         assert_eq!(
             next,
-            Ok(PathBuf::from("/other/next.jpg")),
-            "the endless job was kept"
+            Ok(PathBuf::from("/crafted/next.jpg")),
+            "the endless job was kept, or its folder set aside"
         );
     }
 

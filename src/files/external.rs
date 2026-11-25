@@ -149,10 +149,13 @@ pub fn ffmpeg_frame(
 }
 
 /// Returns an ffmpeg filter that shrinks to fit `max`, keeping the shape, and never enlarges. A
-/// thumbnail of a 48 MP phone photo or an 8K video frame needs no 150 MB picture first.
+/// thumbnail of a 48 MP phone photo or an 8K video frame needs no 150 MB picture first. A side
+/// of 0, such as that of an image area with no width yet, is taken as 1, because ffmpeg reads a
+/// 0 as the frame's own size, and that frame is larger than `ffmpeg_ppm` takes for the box.
+/// Before, every video, HEIC and AVIF failed then as too large, and stayed failed in the list.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
 fn ffmpeg_scale_filter(max: Option<[u32; 2]>) -> Option<String> {
-    let [w, h] = max?;
+    let [w, h] = max?.map(|side| side.max(1));
     Some(format!(
         "scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease"
     ))
@@ -506,6 +509,7 @@ pub fn ffmpeg_ppm(
     // scaled to a box is a PPM of at most 6 bytes a pixel of the box (16 bits a channel), and
     // its header. That much is taken from the decodes' budget before ffmpeg starts, because the
     // frame stays in memory while its pixels are decoded.
+    // The 1 added to each side also covers a side of 0, which the filter takes as 1.
     let in_box = |[w, h]: [u32; 2]| (u64::from(w) + 1) * (u64::from(h) + 1) * 6;
     let limit = max.map_or(MAX_DECODE_BYTES, in_box).min(MAX_DECODE_BYTES) + 64;
     let input = DecodeInput::reserve(limit)?;
@@ -1322,6 +1326,10 @@ mod tests {
             "scale='min(256,iw)':'min(256,ih)':force_original_aspect_ratio=decrease"
         );
         assert_eq!(super::ffmpeg_scale_filter(None), None);
+        assert_eq!(
+            super::ffmpeg_scale_filter(Some([0, 0])).unwrap(),
+            "scale='min(1,iw)':'min(1,ih)':force_original_aspect_ratio=decrease"
+        );
     }
 
     /// Two tiles side by side, cut to 1000×500 and turned a quarter, with the keys as the parser

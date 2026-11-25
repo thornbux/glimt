@@ -7,6 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A video, HEIC or AVIF asked for while the image area has no width or height yet is decoded,
+  instead of failing as too large and staying failed for the folder (#211).
+- When the reading of the `exif:` search's index ends unexpectedly, it is told once and not
+  started again for the whole folder at once, round after round (#186).
+- A decode that keeps the processor busy for over two minutes on a slow machine no longer makes
+  the folder's other thumbnails wait until it ends (#255).
 - An XMP prefix is read as the Description that writes it binds it. A `dc:subject` that another
   Description writes in another namespace with the same prefix is no longer shown among the
   keywords, taken out by an edit or written back as a keyword, and Copy for Sharing names and
