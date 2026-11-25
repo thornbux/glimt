@@ -335,7 +335,7 @@ pub fn run_limited(
     max: u64,
     limit: std::time::Duration,
 ) -> Result<Vec<u8>, String> {
-    let program = command.get_program().to_string_lossy().into_owned();
+    let program = escaped_name(command.get_program());
     let mut child = command.spawn().map_err(|e| format!("{program}: {e}"))?;
     let (out, err, ok) = output_of(&mut child, max, limit);
     let out = out.ok_or_else(|| format!("{program}: too much output"))?;
@@ -1229,6 +1229,11 @@ mod tests {
             super::run_limited(fails, 1024, super::PROGRAM_TIME_LIMIT).unwrap_err(),
             "the reason"
         );
+        // A program that cannot start is named escaped, so a line break in its name adds no
+        // line of its own to the failure told.
+        let missing = super::stoppable_command("no-such\nprogram-glimt");
+        let why = super::run_limited(missing, 1024, super::PROGRAM_TIME_LIMIT).unwrap_err();
+        assert!(why.starts_with("no-such") && !why.contains('\n'), "{why}");
     }
 
     /// A program is there or not, and the shell is asked once.
