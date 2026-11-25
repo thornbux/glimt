@@ -453,7 +453,8 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     });
     let packets = jpeg_xmp_packets(data);
     // The Dynamic Depth spec lets a namespace be declared in either packet, so the
-    // declarations of both count for each.
+    // declarations of both count for a prefix that is bound to nothing where it is written
+    // (`TopLevelProperty::is_in`).
     let declared: std::collections::HashSet<(&str, &str)> = (packets.iter())
         .flat_map(|xmp| crate::metadata::xmp::namespace_declarations_with_default(xmp))
         .collect();
@@ -506,12 +507,17 @@ fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
     let main = main.map_or_else(String::new, |(_, body)| {
         String::from_utf8_lossy(body).into_owned()
     });
-    let declared = crate::metadata::xmp::namespace_declarations_with_default(&main);
-    let declared = declared.into_iter().collect();
+    // The main packet names its extended packet itself, so no other packet binds its prefix.
+    let nowhere_else = std::collections::HashSet::new();
     let properties = crate::metadata::xmp::top_level_properties(main.as_bytes());
-    let guid = properties
-        .iter()
-        .find(|found| found.is_in(main.as_bytes(), &declared, &[XMP_NOTE], "HasExtendedXMP"));
+    let guid = (properties.iter()).find(|found| {
+        found.is_in(
+            main.as_bytes(),
+            &nowhere_else,
+            &[XMP_NOTE],
+            "HasExtendedXMP",
+        )
+    });
     let Some(guid) = guid.map(|found| main[found.value.clone()].trim().to_owned()) else {
         return [main, String::new()];
     };

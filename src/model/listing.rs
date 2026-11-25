@@ -154,6 +154,19 @@ pub enum SortKey {
     Exif(bool, Option<String>),
 }
 
+impl SortKey {
+    /// Returns the key in the order `by` of a file that could not be looked at, as `sort_key`
+    /// gives it.
+    fn not_looked_at(by: Sort) -> SortKey {
+        match by {
+            Sort::Name | Sort::Number | Sort::Extension => SortKey::Name,
+            Sort::Date | Sort::Created => SortKey::Time(None),
+            Sort::Size => SortKey::Size(None),
+            Sort::ExifOriginal | Sort::ExifDigitized => SortKey::Exif(true, None),
+        }
+    }
+}
+
 /// Where the names of a list went when a part of a tree was merged into it
 /// (`Rows::merged`): the places of the names that the part left out, and the places among
 /// the names that stayed before which the part's names went. The window carries what it holds
@@ -298,11 +311,14 @@ impl Rows {
     /// Adds the row of `name` at the end, with `key`, what it is sorted by, in an order that
     /// looks at the files. Every caller has a key for each row of such an order, as it takes
     /// them from rows of that order.
+    /// A key that is missing all the same is taken as the key of a file that could not be
+    /// looked at, so that it costs that row its place and every later row keeps its own key.
+    /// Before, it was dropped, and every later row was sorted by the key of the row after it.
     fn push(&mut self, (file, identity): ListedName, key: Option<SortKey>) {
         self.files.push(file);
         self.identities.push(identity);
-        if let (RowOrder::ByKey(_, keys), Some(key)) = (&mut self.order, key) {
-            keys.push(key);
+        if let RowOrder::ByKey((by, ..), keys) = &mut self.order {
+            keys.push(key.unwrap_or_else(|| SortKey::not_looked_at(*by)));
         }
     }
 
@@ -2004,10 +2020,14 @@ pub fn in_order(
 }
 
 /// Returns a 64-bit hash of a name's bytes, the same in every thread of this Glimt, as the
-/// listing thread looks up the hashes that the window made (`NameHashes`).
+/// listing thread looks up the hashes that the window made (`NameHashes`). Its keys are drawn
+/// at random once for this Glimt, so that no one can make names that share a hash ahead of
+/// time. Before, the keys were fixed, and two such names kept one of them out of every part of
+/// a tree's listing until its whole list.
 pub fn name_hash(name: &[u8]) -> u64 {
-    use std::hash::Hasher;
-    let mut hasher = std::hash::DefaultHasher::new();
+    use std::hash::{BuildHasher, Hasher};
+    static KEYS: std::sync::OnceLock<std::hash::RandomState> = std::sync::OnceLock::new();
+    let mut hasher = KEYS.get_or_init(std::hash::RandomState::new).build_hasher();
     hasher.write(name);
     hasher.finish()
 }
@@ -2899,6 +2919,45 @@ mod tests {
         (0..rows.len())
             .filter_map(|i| rows.key(i).cloned())
             .collect()
+    }
+
+    /// A row added without a key in an order that looks at the files is given the key of a
+    /// file that could not be looked at, so the rows after it keep their own. Before, the key
+    /// was dropped, and each later row had the key of the row after it.
+    #[test]
+    fn a_row_without_a_key_shifts_no_other_key() {
+        use super::{Sort, SortKey};
+        let size = |n| SortKey::Size(Some(n));
+        let mut rows = rows_of(
+            listed(&["a", "b"]),
+            &[size(1), size(2)],
+            (Sort::Size, true, true),
+        );
+        rows.push(listed(&["c"]).remove(0), None);
+        rows.push(listed(&["d"]).remove(0), Some(size(4)));
+        assert_eq!(
+            keys_of(&rows),
+            [size(1), size(2), SortKey::Size(None), size(4)]
+        );
+    }
+
+    /// The names' hashes have keys of this Glimt's own, not the fixed keys of
+    /// `DefaultHasher::new`, by which names that share a hash could be made ahead of time.
+    #[test]
+    fn name_hashes_have_keys_of_their_own() {
+        use std::hash::Hasher;
+        let fixed = |name: &[u8]| {
+            let mut hasher = std::hash::DefaultHasher::new();
+            hasher.write(name);
+            hasher.finish()
+        };
+        let names: [&[u8]; 3] = [b"a.jpg", b"b/c.png", b""];
+        assert!(names.iter().all(|n| super::name_hash(n) != fixed(n)));
+        assert!(
+            names
+                .iter()
+                .all(|n| super::name_hash(n) == super::name_hash(n))
+        );
     }
 
     /// A rename that puts rows out of their order puts each of them back at its place by a

@@ -103,6 +103,10 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // Makes a hard link by `rename_never_over` on this thread be made and then answer
+    // AlreadyExists, as an NFSv3 LINK sent again after its first answer was lost does.
+    pub(crate) static LINK_ANSWERS_EXISTS: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
     // Runs once with the path of a file that `open_if_unlocked` has made new and not yet locked,
     // so that a test can do there what another window could do in that moment.
     pub(crate) static BEFORE_NEW_FILE_IS_LOCKED: std::cell::RefCell<Option<NewFileHook>> =
@@ -835,9 +839,11 @@ impl StepError {
         self.error.kind() == std::io::ErrorKind::CrossesDevices
     }
 
-    /// Returns whether the step was cut short, as a Stop does (`put_file_until_stopped`).
+    /// Returns whether a Stop cut the step short (`put_file_until_stopped`). That error has no
+    /// number. An EINTR that a share gives has one, and is a failure of the step like any other,
+    /// to be told also when it comes at the moment of a Stop (#304).
     pub(crate) fn is_interrupted(&self) -> bool {
-        self.error.kind() == std::io::ErrorKind::Interrupted
+        self.error.kind() == std::io::ErrorKind::Interrupted && self.error.raw_os_error().is_none()
     }
 
     /// Returns whether a name was too long for its file system, so that no file can be there.
@@ -863,7 +869,8 @@ impl From<StepError> for std::io::Error {
     /// Passes the error of a step on as an `std::io::Error` with no number, so that no caller
     /// judges it by its number. Its kind is `AlreadyExists` when the new name is taken, which a
     /// caller tries another name for (Crop's copy, a .trashinfo), and `Other` otherwise. A link
-    /// on NFS that was done and sent again answers so too, which leaves an extra name.
+    /// on NFS that was done and sent again answers so too, and `rename_never_over` takes it for
+    /// done when the new name opens as the file.
     /// `may_have_been_done` judges it by the error inside (`step_error_inside`).
     fn from(error: StepError) -> std::io::Error {
         let kind = match error.is_name_taken() {
@@ -1099,9 +1106,27 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> Result<(), StepError>
         0 | 1 => std::fs::hard_link(from, to),
         _ => Err(Unsupported.into()),
     };
+    #[cfg(test)]
+    let link = || {
+        let answer = |()| match LINK_ANSWERS_EXISTS.get() {
+            true => Err(AlreadyExists.into()),
+            false => Ok(()),
+        };
+        link().and_then(answer)
+    };
     let renamed = match one_step {
         Err(e) if e.kind() == Unsupported => match link() {
             Ok(()) => unlink_linked(from, to),
+            // On NFSv3 a LINK sent again after its first answer was lost answers EEXIST although
+            // the first one made it. The new name then opens as the file itself, and the step
+            // goes on: taken as a name in the way, it left a second name that a caller trying
+            // another name never removed (#307).
+            Err(e)
+                if e.kind() == AlreadyExists
+                    && crate::images::save::same_file_by_opening(from, to) =>
+            {
+                unlink_linked(from, to)
+            }
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
             // A name whose look failed counts as there, as does a link that points nowhere.
             Err(_) if !is_surely_gone(to) => Err(AlreadyExists.into()),
@@ -4095,6 +4120,35 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A link that NFSv3 made and then answered AlreadyExists, as a LINK sent again after its
+    /// first answer was lost does, is a rename done: the old name goes and the call succeeds.
+    /// Before, it was taken for a name in the way, and a new file (`create_file`) was left
+    /// under its hidden name and its own name both (#307). A name that holds another file is
+    /// still refused.
+    #[test]
+    fn a_link_made_and_answered_already_there_is_a_rename_done() {
+        use super::{LINK_ANSWERS_EXISTS, RENAME_WAYS_MISSING};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-link-exists-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, c) = (dir.join("a.jpg"), dir.join("b.jpg"), dir.join("c.jpg"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&c, "c").unwrap();
+        RENAME_WAYS_MISSING.set(1);
+        LINK_ANSWERS_EXISTS.set(true);
+        let renamed = super::rename_never_over(&a, &b);
+        LINK_ANSWERS_EXISTS.set(false);
+        let refused = super::rename_never_over(&b, &c);
+        RENAME_WAYS_MISSING.set(0);
+        renamed.unwrap();
+        assert!(!a.exists());
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "a");
+        assert!(refused.unwrap_err().is_name_taken());
+        assert_eq!(std::fs::read_to_string(&c).unwrap(), "c");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The mounts below a folder are those whose mount points are inside it, not the folder's
     /// own mount, nor one beside it whose name only starts with the same letters.
     #[test]
@@ -4490,6 +4544,10 @@ mod tests {
         let stopped = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), true, &is_stopped);
         assert!(stopped.unwrap_err().is_interrupted());
         assert_eq!(asked.get(), 2, "not stopped inside the file");
+        // A share's EINTR is no Stop, also when it comes as the user presses Stop (#304).
+        let eintr = std::io::Error::from_raw_os_error(libc::EINTR);
+        let share = super::StepError::new(eintr, &a, &dir.join("to/a.mp4"));
+        assert!(!share.is_interrupted());
         assert_eq!(std::fs::read_dir(dir.join("to")).unwrap().count(), 0);
         assert_eq!(std::fs::read(&a).unwrap().len(), 1 << 20);
         std::fs::remove_dir_all(dir).unwrap();
