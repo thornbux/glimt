@@ -892,6 +892,10 @@ const PHOTOSHOP_RESOURCES: &str = "Photoshop resources";
 /// copy writes new or leaves out (`REWRITTEN_PROFILES`).
 const RAW_PROFILES: &str = "Raw profiles";
 
+/// What goes before the keyword of a PNG text chunk that starts like a word of the choice's
+/// file that is no tag (`GROUP_KEY_START`), so that its tag is never read back as a group word.
+const PNG_TEXT_LIKE_A_GROUP_WORD: &str = "PNG text ";
+
 /// The tag of a JPEG's comment segment (COM).
 const JPEG_COMMENT: &str = "JPEG comment";
 
@@ -1159,10 +1163,15 @@ impl LeftOut {
 
     /// Whether the tag `tag` is left out: by its name or by any of its groups left out whole,
     /// unless it is kept on its own (`kept_tags`), or as a block that can hold a tag of a
-    /// group that has one left out (`BLOCKS`).
+    /// group that has one left out (`BLOCKS`). A PNG keyword named like a group word is left
+    /// out also by a later group word of its keyword (`later_keys`), as a choice saved by Glimt
+    /// 0.98 or older named the keyword so.
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
+        let saved_as_its_keyword = (tag.strip_prefix(PNG_TEXT_LIKE_A_GROUP_WORD))
+            .is_some_and(|keyword| self.later_keys.contains(keyword));
         (!self.kept_tags.contains(tag)
             && (self.tags_left_out.contains(tag)
+                || saved_as_its_keyword
                 || (Group::groups_of(tag).iter()).any(|g| self.is_group_left_out(*g))))
             || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
     }
@@ -1182,6 +1191,12 @@ impl LeftOut {
             self.tags_left_out.insert(tag.to_owned());
         } else {
             self.tags_left_out.remove(tag);
+            // A keyword kept is no longer left out by its old name either (`is_left_out`).
+            if let Some(keyword) = tag.strip_prefix(PNG_TEXT_LIKE_A_GROUP_WORD)
+                && self.later_keys.remove(keyword)
+            {
+                self.tags_left_out.remove(keyword);
+            }
             if (Group::groups_of(tag).iter()).any(|g| self.is_group_left_out(*g)) {
                 self.kept_tags.insert(tag.to_owned());
             }
@@ -1346,6 +1361,7 @@ pub(crate) fn names_of_single_tags() -> Vec<String> {
         &b"\x89PNG\r\n\x1a\n"[..],
         &header,
         &png_chunk(b"vpAg", b""),
+        &png_chunk(b"tEXt", b"group:x\0v"),
         &png_chunk(b"IEND", b""),
     ];
     let markers = [jpeg_segment(0xec, b"x"), jpeg_segment(0xf0, b"x")].concat();
@@ -2064,8 +2080,11 @@ fn walk_png(data: &[u8]) -> Option<Walked<'_>> {
 }
 
 /// Returns the tag of a PNG's text chunk `name` with the contents `body`: its keyword, or
-/// `RAW_PROFILES` for a raw profile kept. Returns `None` for a chunk the copy writes new or
-/// never carries: the XMP, read into `walked`, and the raw profiles of `REWRITTEN_PROFILES`.
+/// `RAW_PROFILES` for a raw profile kept. A keyword that starts like a group word ("group:x")
+/// is named with `PNG_TEXT_LIKE_A_GROUP_WORD` before it. Before, it was named "group:x", which
+/// the saved choice read back as a group word, and a later group word leaves out no block.
+/// Returns `None` for a chunk the copy writes new or never carries: the XMP, read into
+/// `walked`, and the raw profiles of `REWRITTEN_PROFILES`.
 /// shortcut: an XMP chunk that is compressed is not read, so its properties are not carried;
 /// unpack it if a program is found that writes one.
 fn png_text_tag<'a>(
@@ -2095,7 +2114,11 @@ fn png_text_tag<'a>(
             .any(|k| kind.eq_ignore_ascii_case(k));
         return (!rewritten).then(|| Some(RAW_PROFILES.to_owned()));
     }
-    Some(Some(String::from_utf8_lossy(keyword).into_owned()))
+    let keyword = String::from_utf8_lossy(keyword);
+    match keyword.starts_with(GROUP_KEY_START) {
+        true => Some(Some(format!("{PNG_TEXT_LIKE_A_GROUP_WORD}{keyword}"))),
+        false => Some(Some(keyword.into_owned())),
+    }
 }
 
 /// Walks a WebP: each chunk of its RIFF file, up to the end its RIFF header gives. What follows
@@ -3071,6 +3094,44 @@ mod tests {
         let saved = super::LeftOut::parse(&left_out.text());
         assert!(saved.is_left_out(" keyword ") && saved.is_left_out("keyword"));
         assert!(super::LeftOut::parse("  group:place \n").is_group_left_out(super::Group::Place));
+    }
+
+    /// A PNG keyword that starts like a group word is named with "PNG text " before it, so
+    /// leaving it out leaves out the same blocks before and after the choice is saved. A
+    /// choice saved with its keyword alone, as Glimt 0.98 saved it, still leaves it out, and
+    /// unticking it keeps it. Before, it was named "group:x" and read back as a group word.
+    #[test]
+    fn a_png_keyword_named_like_a_group_word_stays_a_tag() {
+        let dir = folder("group-keyword");
+        let mut png = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut png);
+        picture().write_with_encoder(encoder).unwrap();
+        let chunk = super::png_chunk(b"tEXt", b"group:x\0v");
+        let path = dir.join("a.png");
+        std::fs::write(&path, [&png[..33], &chunk, &png[33..]].concat()).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        assert!(found.contains(&"PNG text group:x".to_owned()), "{found:?}");
+        assert!(
+            !found.iter().any(|t| t.starts_with(super::GROUP_KEY_START)),
+            "{found:?}"
+        );
+        let mut left_out = super::LeftOut::default();
+        left_out.set_tag("PNG text group:x", true);
+        let saved = super::LeftOut::parse(&left_out.text());
+        for (block, _) in super::BLOCKS {
+            assert_eq!(
+                left_out.is_left_out(block),
+                saved.is_left_out(block),
+                "{block}"
+            );
+        }
+        assert!(saved.is_left_out("PNG text group:x"));
+        let mut older = super::LeftOut::parse("group:x\n");
+        assert!(older.is_left_out("PNG text group:x"));
+        older.set_tag("PNG text group:x", false);
+        assert!(!older.is_left_out("PNG text group:x"));
+        assert!(!super::LeftOut::parse(&older.text()).is_left_out("PNG text group:x"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A PNG keyword with a line break is listed without it, so unticking it under a ticked

@@ -559,3 +559,4 @@ info_key exif.flash
 info_key exif.gps
 job_record record medium
 job_record record new-marks
+sharing_tag PNG text group:x
