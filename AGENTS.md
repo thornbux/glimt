@@ -47,7 +47,9 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   reasons.
 - **As fast with 500,000 files in a folder as with 10.** No O(n) work per frame, no system call
   per file in the list (use `DirEntry::file_type`), draw lists with `show_rows`, compare file
-  names as bytes. Test large folders with hard links to one image, for example
+  names as bytes, and sort by a key that looks at the disk with `sort_by_cached_key`, once for
+  each file (`source_rules::sort_keys_that_reach_the_disk_are_worked_out_once`). Test large
+  folders with hard links to one image, for example
   `mkdir big && for i in $(seq 500000); do ln a.jpg big/$i.jpg; done` on tmpfs.
 - **Little memory.** Decode to screen size; full resolution only when zoomed. Preloading has a
   fixed budget (N images on each side). Measure RssAnon before and after changes that touch

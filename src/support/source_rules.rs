@@ -10980,6 +10980,83 @@ fn ways_to_the_disk(calls: &[Vec<Call>]) -> Vec<Option<usize>> {
     }
 }
 
+/// A sort whose key or comparison looks at the disk or the system, itself or through the
+/// crate's functions however deep, works out each key once, with `sort_by_cached_key`.
+/// `sort_by_key` and `sort_by` work it out again at each comparison, a few thousand times for
+/// a chunk of a hundred files. Before, the files that gio left in a failed trash were sorted
+/// so, and each comparison of a file on a share read the mount table again (audit 0.99.0,
+/// R2-6).
+/// Risk: a sort of a chunk of files on a share looks at the disk thousands of times.
+#[test]
+fn sort_keys_that_reach_the_disk_are_worked_out_once() {
+    let wrong = sorts_that_reach_the_disk(&rust_sources());
+    assert!(
+        wrong.is_empty(),
+        "sort with sort_by_cached_key by a key that looks at the disk, once for each item:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds a sort by a key that reaches the disk through a method, however deep,
+/// and a comparison that looks at the disk itself, and leaves a sort by a cached key and one by
+/// a key in memory.
+/// Risk: a sort that reads the mount table at each comparison passes unseen.
+#[test]
+fn finds_a_sort_whose_key_reaches_the_disk() {
+    let text = "struct Step;\nimpl Step {\n    fn may_have_been_done(&self) -> bool {\n        \
+        mounts()\n    }\n}\n\
+        fn mounts() -> bool {\n    std::fs::metadata(p).is_ok()\n}\n\
+        fn a(left: &mut Vec<Step>) {\n    left.sort_by_key(|step| step.may_have_been_done());\n}\n\
+        fn b(paths: &mut Vec<PathBuf>) {\n    paths.sort_by(|x, y| {\n        \
+        x.metadata().ok().cmp(&y.metadata().ok())\n    });\n}\n\
+        fn c(left: &mut Vec<Step>) {\n    \
+        left.sort_by_cached_key(|step| step.may_have_been_done());\n}\n\
+        fn d(names: &mut Vec<String>) {\n    names.sort_by_key(|n| n.len());\n}\n";
+    let sources = [("x.rs".to_owned(), text.to_owned())];
+    assert_eq!(sorts_that_reach_the_disk(&sources), ["x.rs:11", "x.rs:14"]);
+}
+
+/// Returns the places in `sources`, as `file:line`, where a slice is sorted by a key or a
+/// comparison worked out at each comparison (`sort_by_key`, `sort_by` and their unstable forms)
+/// that makes one of `DISK_CALLS`, itself or through the crate's functions however deep.
+fn sorts_that_reach_the_disk(sources: &[(String, String)]) -> Vec<String> {
+    const SORTS: [&str; 4] = [
+        "sort_by_key(",
+        "sort_unstable_by_key(",
+        "sort_by(",
+        "sort_unstable_by(",
+    ];
+    let graph = CallGraph::new(sources);
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| graph.calls_of(f))
+        .collect();
+    let ways = ways_to_the_disk(&calls);
+    let mut found = Vec::new();
+    for function in &graph.functions {
+        let lines = &graph.lines[&function.file];
+        let whole = lines[function.lines.clone()].join("\n");
+        let first = *function.lines.start();
+        let opens = (function.lines.clone()).find(|&k| lines[k].ends_with('{'));
+        let signature = lines[first..=opens.unwrap_or(first)].join(" ");
+        for k in function.lines.clone() {
+            for sort in SORTS {
+                for (at, _) in lines[k].match_indices(sort) {
+                    let (key, _) = call_text(lines, k, at);
+                    let reaches = DISK_CALLS.iter().any(|c| key.contains(c))
+                        || (graph
+                            .callees(function, &whole, &signature, &key)
+                            .into_iter())
+                        .any(|(callee, _)| ways[callee].is_some());
+                    if reaches {
+                        found.push(format!("{}:{}", function.file, k + 1));
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
 /// Returns the functions of `file`, whose `code_lines` are `lines`, outside its tests: the free
 /// ones and the methods of its `impl` and `trait` blocks. A function inside another is part of
 /// that one.
