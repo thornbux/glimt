@@ -9380,18 +9380,22 @@ pub(crate) fn functions_reaching(owner: &str, name: &str) -> HashSet<String> {
 /// Returns the calls, as written (`name(`), that the function `owner::name` of `sources` makes
 /// in its own thread whose callee reaches, however deep, a function that `marks` marks. `marks`
 /// is given each function's owner ("" for a free function), its name and its code. The
-/// functions in `passed_over`, by owner and name, are not followed into. A guard that must see
-/// a call through every helper finds it through this one function. Returns
-/// "no fn owner::name" when there is no such function, so a guard of one renamed fails.
+/// functions in `passed_over`, by file, owner and name, are not followed into, so that a
+/// function of the same name in another file is followed. A guard that must see a call through
+/// every helper finds it through this one function. Returns "no fn owner::name" when there is
+/// no such function, so a guard of one renamed fails.
 pub(crate) fn calls_reaching(
     sources: &[(String, String)],
     owner: &str,
     name: &str,
     marks: impl Fn(&str, &str, &str) -> bool,
-    passed_over: &HashSet<(String, String)>,
+    passed_over: &HashSet<(String, String, String)>,
 ) -> Vec<String> {
     let graph = CallGraph::new(sources);
-    let key = |f: &Function| (f.owner.clone().unwrap_or_default(), f.name.clone());
+    let key = |f: &Function| {
+        let owner = f.owner.clone().unwrap_or_default();
+        (f.file.clone(), owner, f.name.clone())
+    };
     let calls: Vec<Vec<Call>> = (graph.functions.iter())
         .map(|f| match passed_over.contains(&key(f)) {
             true => Vec::new(),
@@ -9418,12 +9422,13 @@ pub(crate) fn calls_reaching(
 }
 
 /// Returns the functions of `sources` that the function `owner::name` reaches in its own thread,
-/// however deep, itself among them, each as its owner ("" for a free function) and its name.
+/// however deep, itself among them, each as its file, its owner ("" for a free function) and
+/// its name.
 pub(crate) fn functions_reached_from(
     sources: &[(String, String)],
     owner: &str,
     name: &str,
-) -> HashSet<(String, String)> {
+) -> HashSet<(String, String, String)> {
     let graph = CallGraph::new(sources);
     let start =
         (graph.functions.iter()).position(|f| f.owner.as_deref() == Some(owner) && f.name == name);
@@ -9441,7 +9446,10 @@ pub(crate) fn functions_reached_from(
     }
     (seen.into_iter())
         .map(|f| &graph.functions[f])
-        .map(|f| (f.owner.clone().unwrap_or_default(), f.name.clone()))
+        .map(|f| {
+            let owner = f.owner.clone().unwrap_or_default();
+            (f.file.clone(), owner, f.name.clone())
+        })
         .collect()
 }
 
