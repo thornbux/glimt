@@ -3,3 +3,4 @@
 /build-flatpak
 /.flatpak-builder
 /glimt-test-*
+/.claude/worktrees/
