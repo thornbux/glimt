@@ -5,6 +5,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A sidecar that another window wrote at a photo's new name while Rename Many ran now goes with
+  the photo when the next start puts the names back or finishes them after Glimt was stopped,
+  as the window's own undo moves it. So does one that an undo cut short left at the old name
+  or at a hidden name of a swap (#310).
+- A share's error that broke off a Move at the very moment the user pressed Stop is now told,
+  no longer taken for the Stop (#304).
+- On NFSv3, a rename whose link the server made but answered "already there" no longer leaves
+  a second name or a second copy, such as two copies of an image cropped (#307).
+
 ## [0.98.0] - 2026-11-24
 
 ### Added
