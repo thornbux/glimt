@@ -9825,7 +9825,9 @@ fn background_reads_on_a_share_go_through_the_gate() {
 /// one that reads nothing, and one that reads only the mount table before the gate, but not a
 /// path through a folder opened. Before, a gate anywhere in the work passed it (#294). It also
 /// finds a read after the gate is made but before its first wait, and a helper that takes the
-/// gate but never waits at it, which passed while making or taking a `ReadsFirst` counted.
+/// gate but never waits at it, which passed while making or taking a `ReadsFirst` counted, and
+/// a helper that reads before it waits at the gate, which passed while a wait anywhere in a
+/// helper made it the gate (audit 0.99.0, R2-3).
 #[test]
 fn finds_a_background_reader_without_the_gate() {
     let text = "fn look(p: &Path) {\n    std::fs::metadata(p);\n}\n\
@@ -9850,12 +9852,15 @@ fn finds_a_background_reader_without_the_gate() {
         fn m() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
         let mut gate = ReadsFirst::for_files_anywhere(&awaited);\n        look(p);\n        \
         gate.before_a_look(p);\n    });\n}\n\
-        fn n() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || sizes(&mut gate, p));\n}\n";
+        fn n() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || sizes(&mut gate, p));\n}\n\
+        fn late(gate: &mut ReadsFirst, ps: &[PathBuf]) {\n    for p in ps {\n        \
+        look(p);\n        gate.before_a_look(p);\n    }\n}\n\
+        fn o() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || late(&mut gate, ps));\n}\n";
     let sources = [("x.rs".to_owned(), text.to_owned())];
     let found: Vec<String> = (ungated_background_readers(&sources).into_iter())
         .map(|(_, function)| function)
         .collect();
-    assert_eq!(found, ["a", "f", "g", "k", "m", "n"]);
+    assert_eq!(found, ["a", "f", "g", "k", "m", "n", "o"]);
 }
 
 /// Work that goes through the gate for work nobody waits for
@@ -10042,9 +10047,6 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
                 || (!handed && BACKGROUND_READS.iter().any(|r| text.contains(r)))
         })
         .collect();
-    let gates: Vec<bool> = (graph.functions.iter())
-        .map(|f| THE_GATE.iter().any(|g| own_lines(f).contains(g)))
-        .collect();
     // A read of the mount table, the system's own file, is no read of the user's files on a
     // share, so a call that names it does not carry its reads on. A path through a folder
     // opened (`/proc/self/fd/N/…`) is the user's, and counts.
@@ -10069,7 +10071,8 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
                 .collect()
         })
         .collect();
-    let (reads, gates) = (reaching(&users_calls, reads), reaching(&calls, gates));
+    let reads = reaching(&users_calls, reads);
+    let gates = gates_before_reads(&graph, &calls, &users_calls, &reads);
     let mut found = Vec::new();
     for (file, text) in sources {
         let (code, comments) = (code_lines(text), comment_lines(text));
@@ -10128,6 +10131,52 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
     }
     found.dedup();
     found
+}
+
+/// Returns, for each function of `graph`, whether it passes the gate before it reads: whether
+/// it waits at the gate (`THE_GATE`), itself or through a function that passes it so, on a line
+/// before its first read of the user's files. `calls` are the calls of each function,
+/// `users_calls` those that carry reads of the user's files on, and `reads` whether each
+/// function reads them, however deep. A line that does both passes, as its call orders them.
+/// Before, a wait anywhere in a helper made it pass, also one after its read, so the helper's
+/// first look went around the gate (audit 0.99.0, R2-3).
+fn gates_before_reads(
+    graph: &CallGraph,
+    calls: &[Vec<Call>],
+    users_calls: &[Vec<Call>],
+    reads: &[bool],
+) -> Vec<bool> {
+    let on_line = |calls: &[Call], k: usize, marks: &[bool]| {
+        (calls.iter()).any(|c| c.line == k + 1 && c.callee.is_some_and(|g| marks[g]))
+    };
+    let mut gates = vec![false; graph.functions.len()];
+    loop {
+        let mut changed = false;
+        for (f, function) in graph.functions.iter().enumerate() {
+            let lines = &graph.lines[&function.file];
+            let text = lines[function.lines.clone()].join("\n");
+            let handed = HANDED_TO_A_THREAD.iter().any(|h| text.contains(h));
+            let (mut first_read, mut first_gate) = (None, None);
+            for k in function.lines.clone() {
+                let reads_itself = (users_calls[f].iter()).any(|c| {
+                    c.line == k + 1 && c.callee.is_none() && BACKGROUND_READS.contains(&&*c.text)
+                }) || (!handed
+                    && BACKGROUND_READS.iter().any(|r| lines[k].contains(r)));
+                if THE_GATE.iter().any(|g| lines[k].contains(g)) || on_line(&calls[f], k, &gates) {
+                    first_gate = first_gate.or(Some(k));
+                } else if reads_itself || on_line(&users_calls[f], k, reads) {
+                    first_read = first_read.or(Some(k));
+                }
+            }
+            if !gates[f] && first_gate.is_some_and(|g| first_read.is_none_or(|r| g < r)) {
+                gates[f] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            return gates;
+        }
+    }
 }
 
 /// Returns, for each function of `calls` (the calls of each function, by its index), whether it
