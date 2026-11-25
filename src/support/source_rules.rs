@@ -7753,32 +7753,33 @@ fn c_flags_come_from_libc() {
 }
 
 /// Returns the calls that take the C library's flags, each as `name(` with the place of its
-/// flags among its arguments, counted from 0: `custom_flags`, the libc calls that take flags,
-/// and every function of `sources` that hands its own parameter on to the flags of one of
-/// them, however deep (such as `decode::open_regular_with_flags`).
-fn flag_takers(sources: &[(String, String)]) -> Vec<(String, usize)> {
-    let mut takers: Vec<(String, usize)> = [
-        ("custom_flags(", 0),
-        ("libc::open(", 1),
-        ("libc::openat(", 2),
-        ("libc::fcntl(", 2),
+/// flags among its arguments, counted from 0 and without `self`, and whether it takes `self`:
+/// `custom_flags`, the libc calls that take flags, and every function of `sources` that hands
+/// its own parameter on to the flags of one of them, however deep (such as
+/// `decode::open_regular_with_flags`).
+fn flag_takers(sources: &[(String, String)]) -> Vec<(String, usize, bool)> {
+    let mut takers: Vec<(String, usize, bool)> = [
+        ("custom_flags(", 0, true),
+        ("libc::open(", 1, false),
+        ("libc::openat(", 2, false),
+        ("libc::fcntl(", 2, false),
     ]
-    .map(|(call, at)| (call.to_owned(), at))
+    .map(|(call, at, takes_self)| (call.to_owned(), at, takes_self))
     .to_vec();
+    let graph = CallGraph::new(sources);
     loop {
         let known = takers.len();
-        for (file, text) in sources {
-            let code = code_lines(text);
-            for f in functions_in(file, &code) {
-                let call = format!("{}(", f.name);
-                let body = code[f.lines.clone()].join("\n");
-                let flags = flag_arguments(&body, &takers);
-                for (at, parameter) in parameters(&f, &code).iter().enumerate() {
-                    let hands_on = (flags.iter())
-                        .any(|a| a.split(|c: char| !is_word_char(c)).any(|w| w == parameter));
-                    if hands_on && !takers.contains(&(call.clone(), at)) {
-                        takers.push((call.clone(), at));
-                    }
+        for (g, f) in graph.functions.iter().enumerate() {
+            let code = &graph.lines[&f.file];
+            let call = format!("{}(", f.name);
+            let body = code[f.lines.clone()].join("\n");
+            let flags = flag_arguments(&body, &takers);
+            for (at, parameter) in parameters(f, code).iter().enumerate() {
+                let hands_on = (flags.iter())
+                    .any(|a| a.split(|c: char| !is_word_char(c)).any(|w| w == parameter));
+                let taker = (call.clone(), at, graph.takes_self(g));
+                if hands_on && !takers.contains(&taker) {
+                    takers.push(taker);
                 }
             }
         }
@@ -7788,20 +7789,27 @@ fn flag_takers(sources: &[(String, String)]) -> Vec<(String, usize)> {
     }
 }
 
-/// Returns the flags given, as written, to each call of `takers` in `code`. A call of a longer
-/// name, and a function's own definition, are left out.
-fn flag_arguments(code: &str, takers: &[(String, usize)]) -> Vec<String> {
+/// Returns the flags given, as written, to each call of `takers` in `code`. A method called by
+/// its type's path (`OpenOptionsExt::custom_flags(&mut o, flags)`) is given its value first,
+/// so its flags come one later. A call of a longer name, and a function's own definition, are
+/// left out.
+fn flag_arguments(code: &str, takers: &[(String, usize, bool)]) -> Vec<String> {
     let mut arguments = Vec::new();
-    for (taker, flags_at) in takers {
+    for (taker, flags_at, takes_self) in takers {
         for (at, _) in code.match_indices(taker.as_str()) {
             let before = &code[..at];
             if before.ends_with(is_word_char) || before.ends_with("fn ") {
                 continue;
             }
+            let by_path = before.strip_suffix("::").is_some_and(|owner| {
+                let last = &owner[owner.trim_end_matches(is_word_char).len()..];
+                owner.ends_with('>') || last.starts_with(char::is_uppercase)
+            });
+            let flags_at = flags_at + usize::from(by_path && *takes_self);
             let spans = call_arguments(code, at + taker.len());
             arguments.extend(
                 spans
-                    .get(*flags_at)
+                    .get(flags_at)
                     .map(|span| code[span.clone()].to_owned()),
             );
         }
@@ -7811,11 +7819,12 @@ fn flag_arguments(code: &str, takers: &[(String, usize)]) -> Vec<String> {
 
 /// Returns the lines (from 1) of `text` outside the tests that write a flag of the C library by
 /// hand. That is a constant named as the open flags are (`O_…`), or a number given to a call of
-/// `takers` (`flag_takers`), written in the call or bound by a `let` before it. A flag taken
-/// from libc, passed on as a parameter, or 0 for none, is no number written by hand. A file's mode
-/// (`.mode(0o600)`) is the same on every processor, and is no flag. A call broken over lines is
-/// read whole, from its first line (`statements`).
-fn flags_written_by_hand(text: &str, takers: &[(String, usize)]) -> Vec<usize> {
+/// `takers` (`flag_takers`), written in the call, bound by a `let` before it, or named by a
+/// `const` or `static` of the file. A flag taken from libc, passed on as a parameter, or 0 for
+/// none, is no number written by hand. A file's mode (`.mode(0o600)`) is the same on every
+/// processor, and is no flag. A call broken over lines is read whole, from its first line
+/// (`statements`).
+fn flags_written_by_hand(text: &str, takers: &[(String, usize, bool)]) -> Vec<usize> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let defines_flag = |line: &String| {
@@ -7824,21 +7833,32 @@ fn flags_written_by_hand(text: &str, takers: &[(String, usize)]) -> Vec<usize> {
     };
     // A 0 is no flag at all, on every processor.
     let is_number = |word: &str| word.starts_with(|c: char| c.is_ascii_digit()) && word != "0";
-    // The value that the last `let` before line `i` binds to `word`.
+    // The value that `line` binds to `word`, by a `let`, or by a `const` or `static` when
+    // `constant` is true.
+    let binds = |line: &String, word: &str, constant: bool| {
+        let line = without_qualifiers(line.trim_start());
+        let rest = match constant {
+            true => (line.strip_prefix("const ")).or_else(|| line.strip_prefix("static "))?,
+            false => line.strip_prefix("let ")?,
+        };
+        let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+        let (name, value) = rest.split_once('=')?;
+        let name = name.split(':').next()?.trim();
+        (name == word).then(|| value.trim().to_owned())
+    };
+    // The value that the last `let` before line `i`, or a constant anywhere, binds to `word`.
     let bound_before = |i: usize, word: &str| {
-        (lines[..i].iter().rev()).find_map(|l| {
-            let rest = l.trim_start().strip_prefix("let ")?;
-            let rest = rest.strip_prefix("mut ").unwrap_or(rest);
-            let (name, value) = rest.split_once('=')?;
-            let name = name.split(':').next()?.trim();
-            (name == word).then(|| value.trim().to_owned())
-        })
+        (lines[..i].iter().rev())
+            .find_map(|l| binds(l, word, false))
+            .or_else(|| lines[..end].iter().find_map(|l| binds(l, word, true)))
     };
     let defined = (0..end).filter(|&i| defines_flag(&lines[i]));
     let mut found: Vec<usize> = defined.map(|i| i + 1).collect();
     for (i, statement) in statements(text) {
         let numbers = flag_arguments(&statement, takers).iter().any(|argument| {
-            (argument.split(|c: char| !is_word_char(c))).any(|word| {
+            // A name by its path (`libc::O_NONBLOCK`) stays one word, as it names no constant
+            // of the file.
+            (argument.split(|c: char| !(is_word_char(c) || c == ':'))).any(|word| {
                 is_number(word) || bound_before(i, word).is_some_and(|value| is_number(&value))
             })
         });
@@ -7853,7 +7873,8 @@ fn flags_written_by_hand(text: &str, takers: &[(String, usize)]) -> Vec<usize> {
 /// The check above finds a flag defined by hand, and a number given to `custom_flags` or to a
 /// function that hands its parameter on to it, also through a `let` and over lines. It leaves
 /// a flag taken from libc, a parameter passed on, and a file's mode. Before, only a `const O_…`
-/// was found, so `.custom_flags(0o4000)` passed (#213).
+/// was found, so `.custom_flags(0o4000)` passed (#213), and until 0.99 a number named by a
+/// `const` of another name, and `custom_flags` called by its trait's path.
 #[test]
 fn finds_a_flag_written_by_hand() {
     let text = "fn open() {\n    const O_NONBLOCK: i32 = 0o4000;\n    let f = libc::O_NONBLOCK;\n}\n\
@@ -7862,18 +7883,24 @@ fn finds_a_flag_written_by_hand() {
         let nonblocking = 2048;\n    with_flags(p, libc::O_NOFOLLOW | nonblocking);\n    \
         with_flags(p, libc::O_NOFOLLOW);\n    o.mode(0o600);\n    with_flags(p, 0);\n    \
         with_flags(\n        p,\n        \
-        4,\n    );\n}\n";
+        4,\n    );\n}\n\
+        const NONBLOCK: i32 = 0o4000;\n\
+        fn b() {\n    o.custom_flags(NONBLOCK);\n    OpenOptionsExt::custom_flags(&mut o, 0o4000);\n    \
+        OpenOptionsExt::custom_flags(&mut o, libc::O_NONBLOCK);\n}\n";
     let sources = [("a.rs".to_owned(), text.to_owned())];
     let takers = flag_takers(&sources);
     assert!(
-        takers.contains(&("with_flags(".to_owned(), 1)),
+        takers.contains(&("with_flags(".to_owned(), 1, false)),
         "{takers:?}"
     );
     assert!(
-        !takers.contains(&("with_flags(".to_owned(), 0)),
+        !(takers.iter()).any(|(call, at, _)| (call.as_str(), *at) == ("with_flags(", 0)),
         "{takers:?}"
     );
-    assert_eq!(flags_written_by_hand(text, &takers), [2, 9, 10, 12, 16]);
+    assert_eq!(
+        flags_written_by_hand(text, &takers),
+        [2, 9, 10, 12, 16, 23, 24]
+    );
 }
 
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
