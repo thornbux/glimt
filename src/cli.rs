@@ -222,7 +222,8 @@ impl Start {
                 }
                 if !remote::name_fits(value) {
                     return Err(format!(
-                        "--name {value} is too long for remote control here"
+                        "--name {} is too long for remote control here",
+                        escaped_name(value)
                     ));
                 }
                 self.name = Some(value.to_owned());

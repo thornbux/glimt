@@ -1701,7 +1701,7 @@ pub fn client(
     if now[0] == "run" && Action::for_script(&now[1]).is_none() {
         eprintln!(
             "glimt: {} is not an action a script may run; glimt --action-list lists them",
-            words[1]
+            escaped_name(&words[1])
         );
         std::process::exit(NOT_SENT);
     }
