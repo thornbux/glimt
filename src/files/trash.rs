@@ -570,7 +570,7 @@ fn left_by_a_program(paths: &[PathBuf], said: &str) -> Vec<(PathBuf, StepError)>
         .map(|p| (p.clone(), StepError::of_a_program(said, p)))
         .filter(|(_, step)| !step.found_nothing())
         .collect();
-    left.sort_by_key(|(_, step)| step.may_have_been_done());
+    left.sort_by_cached_key(|(_, step)| step.may_have_been_done());
     left
 }
 
