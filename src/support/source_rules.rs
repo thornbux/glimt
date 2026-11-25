@@ -8846,7 +8846,9 @@ fn finds_every_thread_without_the_busy_pointer() {
 /// `THE_GATE` too, itself or through a function it calls. Before, only the walk of a tree
 /// waited, and the folder watcher, the thumbnails, the images read ahead and the other readers
 /// held a slideshow's next image on gvfs for many seconds. The threads that need no gate are
-/// listed with the reason.
+/// listed with the reason. A thread that someone waits for (it holds a `Working` or answers
+/// through an `AnswerSender`, so its comment says "Its busy pointer:") is not read at all: its
+/// reads are the ones the window waits for (#294).
 #[test]
 fn background_reads_on_a_share_go_through_the_gate() {
     let found = ungated_background_readers(&rust_sources());
@@ -8908,9 +8910,7 @@ fn finds_a_background_reader_without_the_gate() {
 #[test]
 fn work_through_the_gate_is_judged_wanted() {
     let sources = rust_sources();
-    let callees: Vec<String> = (sources.iter())
-        .flat_map(|(_, text)| functions_taking_is_wanted(text))
-        .collect();
+    let callees = functions_taking_is_wanted(&sources);
     let mut wrong = Vec::new();
     for (file, text) in &sources {
         wrong.extend(
@@ -8925,39 +8925,64 @@ fn work_through_the_gate_is_judged_wanted() {
     );
 }
 
-/// Returns the names of the functions of `text` whose parameters include one named
-/// `is_wanted`: the gate itself and the helpers that pass the check on to it, such as
-/// `size_through`. A `|| true` given to a helper reaches the gate as surely as one given to it.
-fn functions_taking_is_wanted(text: &str) -> Vec<String> {
-    let code = code_lines(text);
-    let mut names = Vec::new();
-    for (i, line) in code.iter().enumerate() {
-        let Some(at) = line.find("fn ") else { continue };
-        if at > 0 && line[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
-            continue;
+/// Returns the names of the functions of `sources` that take whether their work is wanted:
+/// those with a parameter named `is_wanted` (the gate itself), and every helper that passes a
+/// parameter of its own, of any name, on to one of them, however deep, such as `size_through`.
+/// A `|| true` given to a helper reaches the gate as surely as one given to it. Before, a name
+/// `is_wanted` anywhere in a signature counted, and a helper whose parameter had another name
+/// did not (#294).
+fn functions_taking_is_wanted(sources: &[(String, String)]) -> Vec<String> {
+    let functions: Vec<(Function, Vec<String>, String)> = (sources.iter())
+        .flat_map(|(file, text)| {
+            let code = code_lines(text);
+            (functions_in(file, &code).into_iter())
+                .map(|f| {
+                    let parameters = parameters(&f, &code);
+                    let body = code[f.lines.clone()].join("\n");
+                    (f, parameters, body)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    // Each taker with the place of the check among its arguments, counted without `self`.
+    let mut takers: Vec<(String, usize)> = (functions.iter())
+        .filter_map(|(f, parameters, _)| {
+            let at = parameters.iter().position(|p| p == "is_wanted")?;
+            Some((f.name.clone(), at))
+        })
+        .collect();
+    loop {
+        let known = takers.len();
+        for (f, parameters, body) in &functions {
+            let mut passed = Vec::new();
+            for (name, check_at) in &takers {
+                for (at, call) in body.match_indices(&format!("{name}(")) {
+                    let before = &body[..at];
+                    if before.ends_with(is_word_char) || before.ends_with("fn ") {
+                        continue;
+                    }
+                    let arguments = call_arguments(body, at + call.len());
+                    let Some(check) = arguments.get(*check_at) else {
+                        continue;
+                    };
+                    let words: Vec<&str> = body[check.clone()]
+                        .split(|c: char| !is_word_char(c))
+                        .collect();
+                    passed.extend(parameters.iter().position(|p| words.contains(&p.as_str())));
+                }
+            }
+            for check_at in passed {
+                if !takers.contains(&(f.name.clone(), check_at)) {
+                    takers.push((f.name.clone(), check_at));
+                }
+            }
         }
-        let rest = &line[at + 3..];
-        let name: String = (rest.chars())
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        if name.is_empty() {
-            continue;
-        }
-        let signature = (code[i..].iter())
-            .take_while(|l| !l.contains('{') && !l.ends_with(';'))
-            .chain(
-                code[i..]
-                    .iter()
-                    .find(|l| l.contains('{') || l.ends_with(';')),
-            )
-            .take(12)
-            .map(|l| l.split('{').next().unwrap_or(""))
-            .collect::<String>();
-        if signature.contains("is_wanted") {
-            names.push(name);
+        if takers.len() == known {
+            let mut names: Vec<String> = takers.into_iter().map(|(name, _)| name).collect();
+            names.dedup();
+            return names;
         }
     }
-    names
 }
 
 /// Returns the lines of `text` outside the tests where a call of one of `callees` (the
@@ -8985,7 +9010,22 @@ fn work_not_judged_wanted(text: &str, callees: &[String]) -> Vec<usize> {
             let text: String = (call_text(&code[..end], i, at).0)
                 .split_whitespace()
                 .collect();
-            let is_constant = ["||true", "||{true}"].iter().any(|c| text.contains(c));
+            // A `|| true` given through a name bound to it before the call counts too (#294).
+            let bound_to_true = (code[..i].iter().rev()).take_while(|l| function_name(l).is_none());
+            let names_true: Vec<String> = bound_to_true
+                .filter_map(|l| {
+                    let rest = l.trim().strip_prefix("let ")?;
+                    let (name, value) = rest.split_once('=')?;
+                    let value: String = value.split_whitespace().collect();
+                    let value = value.trim_start_matches("move").trim_end_matches(';');
+                    ["||true", "||{true}"]
+                        .contains(&value)
+                        .then(|| name.trim().to_owned())
+                })
+                .collect();
+            let words: Vec<&str> = text.split(|c: char| !is_word_char(c)).collect();
+            let is_constant = ["||true", "||{true}"].iter().any(|c| text.contains(c))
+                || names_true.iter().any(|n| words.contains(&n.as_str()));
             if is_constant && !comment_above(&code, &comments, i).contains("Always wanted:") {
                 found.push(i + 1);
             }
@@ -9009,10 +9049,19 @@ fn finds_work_through_the_gate_not_judged_wanted() {
         let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n\
         fn size_through(\n    gate: &mut ReadsFirst,\n    is_wanted: &dyn Fn() -> bool,\n) {}\n\
         fn e() {\n    size_through(&mut gate, &|| true);\n}\n\
-        fn f() {\n    other_size_through(&mut gate, &|| true);\n}\n";
-    let callees = functions_taking_is_wanted(text);
-    assert_eq!(callees, ["before_work_nobody_waits_for", "size_through"]);
-    assert_eq!(work_not_judged_wanted(text, &callees), [3, 6, 23]);
+        fn f() {\n    other_size_through(&mut gate, &|| true);\n}\n\
+        fn total(gate: &mut ReadsFirst, wanted: &dyn Fn() -> bool) {\n    \
+        size_through(gate, wanted);\n}\n\
+        fn g() {\n    total(&mut gate, &|| true);\n}\n\
+        fn h() {\n    let always = || true;\n    gate.before_work_nobody_waits_for(p, always);\n}\n\
+        fn is_wanted() -> bool {\n    true\n}\n\
+        fn k(path: &Path) {\n    gate.before_work_nobody_waits_for(path, &wanted);\n}\n";
+    let callees = functions_taking_is_wanted(&[("x.rs".into(), text.into())]);
+    assert_eq!(
+        callees,
+        ["before_work_nobody_waits_for", "size_through", "total"]
+    );
+    assert_eq!(work_not_judged_wanted(text, &callees), [3, 6, 23, 32, 36]);
 }
 
 /// Returns, as (file, function), the functions of `sources` outside the tests that start a
@@ -9063,6 +9112,11 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
             let whole = own_lines(function);
             let opens = (function.lines.clone()).find(|&k| code[k].ends_with('{'));
             let signature = code[*function.lines.start()..=opens.unwrap_or(i)].join(" ");
+            // shortcut: a thread counts as gated when its work reaches the gate anywhere, not
+            // when every read comes after it. Read in order, three threads read first (the
+            // watcher's first modification times, a tool's files still listed, a thumbnail's
+            // folder set aside), each a change of its own (#294); worth reading in order once
+            // those go through the gate first.
             let callees: Vec<usize> = (i..=last)
                 .flat_map(|k| graph.callees(function, &whole, &signature, &code[k]))
                 .map(|(callee, _)| callee)
