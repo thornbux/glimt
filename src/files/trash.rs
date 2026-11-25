@@ -19,6 +19,10 @@ thread_local! {
     /// `trash_by_hand`, as another user who swaps the folder's name meanwhile would.
     static MEANWHILE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
         const { std::cell::RefCell::new(None) };
+    /// The files that the next `trash` of a test refuses as gio would, which goes on with the
+    /// others and fails at the end. `None` trashes by hand, as tests do without gio.
+    pub(crate) static GIO_REFUSES_IN_A_TEST: std::cell::RefCell<Option<Vec<PathBuf>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// The marks and stars that a delete took away, for its Undo. The marks writer thread adds them
@@ -494,7 +498,8 @@ fn first_of_each<K: Ord>(
 ///
 /// Returns each file that did not surely go, with the error of its step, whose
 /// `may_have_been_done` tells whether it may have gone all the same. When gio fails, each file
-/// may have gone, as gio may have moved it before it failed. A file that nothing was at when it
+/// is judged by a look at its own name, as gio goes on with the others after one fails
+/// (`left_by_a_program`). A file that nothing was at when it
 /// was to go by hand, as gio took it before it failed, went. Before, the callers judged a
 /// failed trash by a look at each file's old name, which a share's cache may still show (#308).
 pub(crate) fn trash(paths: &[PathBuf]) -> Vec<(PathBuf, StepError)> {
@@ -502,6 +507,13 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Vec<(PathBuf, StepError)> {
     // Tests trash by hand into their own home's trash, where Undo looks. gio would put the
     // files into the user's own trash.
     let has_gio = !cfg!(test) && has_program("gio");
+    #[cfg(test)]
+    if let Some(refused) = GIO_REFUSES_IN_A_TEST.take() {
+        return match gio_in_a_test(paths, &refused) {
+            Ok(()) => Vec::new(),
+            Err(e) => left_by_a_program(paths, &e),
+        };
+    }
     let refused = match has_gio {
         false => Err("gio is not there".to_owned()),
         true => {
@@ -520,9 +532,7 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Vec<(PathBuf, StepError)> {
     // The host's trash, also where the host has its own XDG_DATA_HOME.
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
     let (true, Some(home)) = (!has_gio || in_flatpak(), home) else {
-        return (paths.iter())
-            .map(|p| (p.clone(), StepError::of_a_program(&e, p)))
-            .collect();
+        return left_by_a_program(paths, &e);
     };
     // Each is tried by hand. One that gio took before it failed is not there to move.
     let all: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
@@ -533,6 +543,35 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Vec<(PathBuf, StepError)> {
         })
         .filter(|(_, step)| !step.found_nothing())
         .collect()
+}
+
+/// Trashes `paths` by hand as gio does, all but those of `refused`, and fails at the end when
+/// it refused any, as gio goes on with the other files after one fails.
+#[cfg(test)]
+fn gio_in_a_test(paths: &[PathBuf], refused: &[PathBuf]) -> Result<(), String> {
+    let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
+    let home = home.ok_or("no home trash")?;
+    let taken: Vec<&Path> = (paths.iter())
+        .filter(|p| !refused.contains(p))
+        .map(PathBuf::as_path)
+        .collect();
+    match trash_by_hand_anywhere(&taken, &home).is_empty() && taken.len() == paths.len() {
+        true => Ok(()),
+        false => Err("gio: Error trashing file: Permission denied".to_owned()),
+    }
+}
+
+/// Returns each of `paths` that did not surely go when the program that was to trash them all
+/// failed saying `said`, with the error of its step, judged by the file's own name
+/// (`StepError::of_a_program`). The files that surely stayed come first, so that the failure
+/// told names one of them, the file the program's text is most likely about.
+fn left_by_a_program(paths: &[PathBuf], said: &str) -> Vec<(PathBuf, StepError)> {
+    let mut left: Vec<(PathBuf, StepError)> = (paths.iter())
+        .map(|p| (p.clone(), StepError::of_a_program(said, p)))
+        .filter(|(_, step)| !step.found_nothing())
+        .collect();
+    left.sort_by_key(|(_, step)| step.may_have_been_done());
+    left
 }
 
 /// Returns the failures of `trash`, each with the name of its file, as one text to tell, or
@@ -1354,6 +1393,32 @@ mod tests {
         assert!(want.contains("=/") && text.contains(&want), "{text}");
         std::fs::remove_file(&entry.file).unwrap();
         std::fs::remove_file(&entry.info).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// When gio fails, each file is judged by its own name, as gio goes on with the others. One
+    /// that went is no failure and keeps its Undo, one still there on a local disk surely stayed
+    /// and is told first, and one on a share may have gone. Before, all of them counted as files
+    /// that may have gone.
+    #[test]
+    fn a_failed_program_leaves_each_file_judged_by_its_own_name() {
+        use crate::files::file_io::ON_A_SHARE_IN_A_TEST;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-gio-failed-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("share")).unwrap();
+        let went = dir.join("went.png");
+        let stayed = dir.join("stayed.png");
+        let shared = dir.join("share/shared.png");
+        std::fs::write(&stayed, "x").unwrap();
+        std::fs::write(&shared, "x").unwrap();
+        ON_A_SHARE_IN_A_TEST.set(Some(dir.join("share")));
+        let paths = [went.clone(), shared.clone(), stayed.clone()];
+        let left = super::left_by_a_program(&paths, "gio: Error trashing file");
+        ON_A_SHARE_IN_A_TEST.set(None);
+        let names: Vec<_> = left.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(names, [stayed, shared]);
+        assert!(!left[0].1.may_have_been_done());
+        assert!(left[1].1.may_have_been_done());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -829,10 +829,21 @@ impl StepError {
     }
 
     /// Makes the error of a program that was to make the step on `from`, among other files, and
-    /// failed saying `said`. The program may have made the step before it failed, so the step
-    /// may have been done (#308).
+    /// failed saying `said`. Such a program, `gio trash` say, goes on with the other files after
+    /// one fails, so each file is judged by a look at its own name. Nothing there is the step
+    /// done (`found_nothing`), except on a share, where it may also be a step sent again. The
+    /// file still there on a local disk is a step that surely did nothing. A look on a share,
+    /// whose cache may still show a name that went, or a look that fails, leaves a step that may
+    /// have been done (#308). Before, every file counted as one that may have gone, so the files
+    /// that went lost their Undo, and the one that stayed did not get its sidecars back.
     pub(in crate::files) fn of_a_program(said: &str, from: &Path) -> StepError {
-        let error = std::io::Error::other(ProgramFailed(said.to_owned()));
+        let error = match look(from, false) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => e,
+            Ok(_) if type_of_the_steps_mount(from).is_some_and(|kind| !is_remote(&kind)) => {
+                std::io::Error::other(said.to_owned())
+            }
+            _ => std::io::Error::other(ProgramFailed(said.to_owned())),
+        };
         StepError::new(error, from, from)
     }
 
@@ -1251,12 +1262,18 @@ pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
     if e.get_ref().is_some_and(|inner| inner.is::<ProgramFailed>()) {
         return true;
     }
+    may_have_been_done_on(e, || type_of_the_steps_mount(from))
+}
+
+/// Returns the type of the mount that holds `from`, the name a step took its file from, as
+/// `file_system_type` does, and "nfs" in a test that puts `from` on a share.
+fn type_of_the_steps_mount(from: &Path) -> Option<String> {
     #[cfg(test)]
     if ON_A_SHARE_IN_A_TEST.with_borrow(|share| share.as_ref().is_some_and(|s| from.starts_with(s)))
     {
-        return may_have_been_done_on(e, || Some("nfs".to_owned()));
+        return Some("nfs".to_owned());
     }
-    may_have_been_done_on(e, || file_system_type(from))
+    file_system_type(from)
 }
 
 /// Returns the error of a step (`StepError`) that `e` passes on, or `e` itself when it passes
