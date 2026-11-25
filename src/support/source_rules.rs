@@ -6662,15 +6662,170 @@ fn paths_through_a_descriptor_are_shown_by_their_names() {
 /// `format::escaped_name`, which writes its control characters and marks of direction as
 /// escapes. `display` is the method that makes a path into text for the user, so it is used
 /// nowhere. A path's text for another use, such as a line of Glimt's own file or a path sent
-/// to a window, is its `to_string_lossy`. Before, a file named with line breaks added a
-/// sentence of its own to the delete question, and U+202E showed a name reversed (#189).
+/// to a window, is its `to_string_lossy`, which never reaches text for the user
+/// (`names_given_to_the_user_raw`). Before, a file named with line breaks added a sentence of
+/// its own to the delete question, and U+202E showed a name reversed (#189). Until 0.99, a
+/// name's `to_string_lossy` given to a label or a `tf!` passed.
 #[test]
 fn names_are_shown_through_one_function() {
-    let wrong = outside_their_homes(&[(".display(", &[]), ("::display", &[])]);
+    let mut wrong = outside_their_homes(&[(".display(", &[]), ("::display", &[])]);
+    for (file, text) in rust_sources() {
+        wrong.extend(names_given_to_the_user_raw(&file, &text));
+    }
     assert!(
         wrong.is_empty(),
         "a name or path shown without format::escaped_name:\n{}",
         wrong.join("\n")
+    );
+}
+
+/// Returns the places in `text`, of `file`, outside the tests and `format::escaped_name`, where
+/// the lossy text of a path or a name (`to_string_lossy`, `to_str` or `into_string`, in each
+/// spelling that `methods_named` finds) is given to text for the user: a translated text
+/// (`tf!`, `tr`), a widget (a method of `ui`, or a function that takes `ui` first), a hover
+/// text, a `RichText`, a notice or a failure (`give`, `give_error`, `Failure`), or a line
+/// printed. The text is followed through every `let` of its function that binds it, also into
+/// a text made with it (`format!`, by an argument or by its name in braces). A lossy text for
+/// another use, such as a lock file's name, a key or a field to edit, reaches none of these,
+/// and one that is only tested (`.contains(…)`) makes no text.
+fn names_given_to_the_user_raw(file: &str, text: &str) -> Vec<String> {
+    const LOSSY: [&str; 3] = ["to_string_lossy", "to_str", "into_string"];
+    const TESTS: [&str; 6] = [
+        ".contains(",
+        ".starts_with(",
+        ".ends_with(",
+        ".is_empty(",
+        "==",
+        "!=",
+    ];
+    const TAKERS: [&str; 10] = [
+        "tf!(",
+        "tr(",
+        "eprintln!(",
+        "println!(",
+        "on_hover_text(",
+        "RichText::new(",
+        "give(",
+        "give_error(",
+        "Failure::from(",
+        "Failure::because(",
+    ];
+    let (code, literals) = (code_lines(text), literal_lines(text));
+    let end = tests_start(&code);
+    // The spans of the arguments in `statement` that are taken as text for the user.
+    let taken_as_text = |statement: &str| {
+        let mut spans = Vec::new();
+        for taker in TAKERS {
+            for (at, _) in statement.match_indices(taker) {
+                if !statement[..at].ends_with(is_word_char) {
+                    let from = at + taker.len();
+                    spans.push(from..call_end(statement, from));
+                }
+            }
+        }
+        // A widget: a method of `ui` (`ui.label(`), or a function that takes `ui` first.
+        for (at, _) in statement.match_indices("ui") {
+            let (before, after) = (&statement[..at], &statement[at + 2..]);
+            if before.ends_with(is_word_char) || after.starts_with(is_word_char) {
+                continue;
+            }
+            if let Some(method) = after.strip_prefix('.') {
+                let rest = method.trim_start_matches(is_word_char);
+                if rest.starts_with('(') {
+                    let from = statement.len() - rest.len() + 1;
+                    spans.push(from..call_end(statement, from));
+                }
+            } else if before.ends_with('(') && after.trim_start().starts_with(',') {
+                spans.push(at..call_end(statement, at));
+            }
+        }
+        spans
+    };
+    let statements = statements(text);
+    let mut wrong = Vec::new();
+    let mut lossy_names: Vec<String> = Vec::new();
+    let mut function = String::new();
+    for (k, (i, statement)) in statements.iter().enumerate() {
+        if let Some(name) = function_name(&code[*i]) {
+            function = name.to_owned();
+            lossy_names.clear();
+        }
+        if function == "escaped_name" {
+            continue;
+        }
+        // The literals of the statement's lines, where a name in braces is a text made with it.
+        let next = statements.get(k + 1).map_or(end, |(j, _)| *j);
+        let in_braces = literals[*i..next.max(*i + 1)].join(" ");
+        let names_in_braces = (lossy_names.iter()).any(|n| {
+            in_braces.contains(&format!("{{{n}}}")) || in_braces.contains(&format!("{{{n}:"))
+        });
+        // A lossy text that is only tested (`.contains(…)`, `==`) makes no text.
+        let is_lossy = |part: &str| {
+            (LOSSY.iter())
+                .flat_map(|m| {
+                    methods_named(part, m)
+                        .into_iter()
+                        .map(move |at| at + m.len())
+                })
+                .any(|after| {
+                    let rest = part[after..].strip_prefix("()").unwrap_or(&part[after..]);
+                    !TESTS.iter().any(|t| rest.trim_start().starts_with(t))
+                })
+                || (part.split(|c: char| !is_word_char(c)))
+                    .any(|w| lossy_names.iter().any(|n| n == w))
+        };
+        let spans = taken_as_text(statement);
+        if spans.iter().any(|span| is_lossy(&statement[span.clone()]))
+            || (!spans.is_empty() && names_in_braces)
+        {
+            wrong.push(format!("{file}:{} (lossy text shown)", i + 1));
+        }
+        // A `let` that binds a lossy text, or a text made with one, carries it on.
+        let Some((pattern, value)) =
+            (statement.trim_start().strip_prefix("let ")).and_then(|rest| rest.split_once('='))
+        else {
+            continue;
+        };
+        if is_lossy(value) || names_in_braces {
+            let pattern = pattern.split(':').next().unwrap_or(pattern);
+            let bound = (pattern.split(|c: char| !is_word_char(c)))
+                .filter(|w| !w.is_empty() && *w != "mut");
+            lossy_names.extend(bound.map(str::to_owned));
+        }
+    }
+    wrong
+}
+
+/// The check above finds a name's lossy text given to a widget, to a `tf!`, to a function that
+/// takes `ui` first through a text made with it by name, to a failure and to a hover text. It
+/// leaves one made into a lock file's name or given to a field to edit, and the one in
+/// `escaped_name`. Before, only `display` was found, so each of these passed (audit 0.99.0).
+#[test]
+fn finds_a_lossy_name_shown() {
+    let text = "fn label(ui: &mut Ui, p: &Path) {\n    \
+        ui.label(p.file_name().unwrap_or_default().to_string_lossy());\n}\n\
+        fn told(p: &Path) -> String {\n    tf!(\"{name} is gone\", name = p.to_string_lossy())\n}\n\
+        fn bound(ui: &mut Ui, p: &Path) {\n    let name = p.file_name()?.to_string_lossy();\n    \
+        let text = format!(\"{name}!\");\n    button_enabled(ui, true, &text);\n}\n\
+        fn failure(p: &Path) -> Failure {\n    \
+        Failure::from(format!(\"{}: gone\", p.to_string_lossy()))\n}\n\
+        fn lock(p: &Path) -> Option<PathBuf> {\n    let name = p.file_name()?.to_string_lossy();\n    \
+        Some(p.with_file_name(format!(\".{name}.lock\")))\n}\n\
+        fn kept(p: &Path) {\n    self.ask(Prompt::Rename, p.to_string_lossy().into_owned());\n}\n\
+        fn escaped_name(name: &OsStr) -> String {\n    tf!(\"{n}\", n = name.to_string_lossy())\n}\n\
+        fn hover(r: Response, p: &Path) {\n    r.on_hover_text(p.to_str().unwrap_or_default());\n}\n\
+        fn fat(name: &OsStr, fat: Option<&str>) -> String {\n    \
+        let kind = fat.filter(|_| name.to_string_lossy().contains(\":\"))?;\n    \
+        tf!(\"A {kind} file system\", kind)\n}\n";
+    assert_eq!(
+        names_given_to_the_user_raw("a.rs", text),
+        [
+            "a.rs:2 (lossy text shown)",
+            "a.rs:5 (lossy text shown)",
+            "a.rs:10 (lossy text shown)",
+            "a.rs:13 (lossy text shown)",
+            "a.rs:26 (lossy text shown)",
+        ]
     );
 }
 

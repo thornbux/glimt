@@ -995,7 +995,7 @@ fn host_for(
             program,
             how = format!(
                 "flatpak override --user --talk-name=org.freedesktop.Flatpak {}",
-                id.to_string_lossy()
+                escaped_name(id)
             )
         );
         let mut sh = command("sh");
