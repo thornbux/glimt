@@ -30,13 +30,16 @@ pub fn unturned(
     data: &[u8],
 ) -> Result<(image::DynamicImage, image::metadata::Orientation), String> {
     let jpeg = preview(data).ok_or("no preview image in the RAW file")?;
-    let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg))
-        .map_err(|e| e.to_string())?;
-    // TIFF-based RAW files carry the orientation in their own header; others in the JPEG.
+    // TIFF-based RAW files carry the orientation in their own header, and others in the JPEG.
+    let in_jpeg = || {
+        let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg)).ok()?;
+        dec.orientation().ok()
+    };
     let orientation = crate::metadata::exif::orientation(data)
-        .or_else(|| dec.orientation().ok())
+        .or_else(in_jpeg)
         .unwrap_or(image::metadata::Orientation::NoTransforms);
-    Ok((crate::images::decode::from_decoder(dec)?, orientation))
+    // The preview lies in `data`, which a decode holds counted (`from_memory`).
+    Ok((crate::images::decode::from_memory(jpeg)?, orientation))
 }
 
 /// The EXIF block: the file itself if it is TIFF-based (its header is enough), else the one

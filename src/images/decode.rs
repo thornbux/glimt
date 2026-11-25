@@ -1233,15 +1233,22 @@ pub fn fits_decode_limit(w: u32, h: u32, bytes: u64) -> bool {
 /// a huge image would make Glimt allocate gigabytes, which aborts the process. This is the one
 /// way a decoder made directly is decoded; clippy refuses the image crate's.
 ///
-/// A decoder over bytes in memory (a `Cursor`) is refused while this thread holds no counted
-/// input, because those bytes were then read outside the budget. A RAW's preview decoded from
-/// a `Vec` that `read_limited` gave outside a decode job passed before.
+/// A decoder over bytes in memory (a `Cursor`) is refused, because only `from_memory`, which
+/// is given the bytes, can tell that the budget counts all of them. A RAW's preview decoded from
+/// a `Vec` that `read_limited` gave outside a decode job passed before, and later a decoder
+/// over more bytes than this thread had counted.
 pub fn from_decoder<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, String> {
     // shortcut: the reader is told by the decoder's type name, which Rust does not promise to
     // keep; `whole_reads_of_images_are_counted` fails if it changes.
-    if std::any::type_name::<D>().contains("Cursor<") && INPUT_HOLDS.get() == 0 {
+    if std::any::type_name::<D>().contains("Cursor<") {
         return Err(NOT_COUNTED.into());
     }
+    decode_within_limits(dec)
+}
+
+/// Decodes the image `dec` reads, after `fits_decode_limit`, with its pixels taken from the
+/// budget. `from_decoder` and `from_memory` call it once they know where its bytes lie.
+fn decode_within_limits<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, String> {
     let (w, h) = dec.dimensions();
     if !fits_decode_limit(w, h, dec.color_type().bytes_per_pixel().into()) {
         return Err(format!(
@@ -1261,7 +1268,7 @@ pub fn from_decoder<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, Stri
 pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
     is_counted_input(bytes)?;
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format();
-    from_decoder(
+    decode_within_limits(
         reader
             .map_err(|e| e.to_string())?
             .into_decoder()
@@ -1627,11 +1634,13 @@ fn image_reader_and_whole_read(
     // JPEG larger than a decode may take is refused here, as read_limited refuses it. The format
     // counts as the bytes tell it, so a JPEG named .png is refused too. Other formats are read by
     // seeking, so a large TIFF or PNG still opens. A file of no known format is refused as well.
-    let whole = matches!(reader.format(), Some(image::ImageFormat::Jpeg) | None);
-    if whole && meta.len() > MAX_DECODE_BYTES {
+    let is_jpeg = reader.format() == Some(image::ImageFormat::Jpeg);
+    if (is_jpeg || reader.format().is_none()) && meta.len() > MAX_DECODE_BYTES {
         return Err(file_too_large());
     }
-    Ok((reader, if whole { meta.len() } else { 0 }))
+    // A file of no known format is never read: its decoder fails first. Before, its length was
+    // counted, up to 512 MB of the budget waited for and given back for nothing.
+    Ok((reader, if is_jpeg { meta.len() } else { 0 }))
 }
 
 /// Scale down to fit within `max`.
@@ -2085,8 +2094,11 @@ mod tests {
 
     /// A whole read of an image's file counts in its decode job until the job ends, and is
     /// refused outside one, also the image crate's whole read of a JPEG. A decoder over bytes
-    /// in memory that nothing counted is refused. Before, `read_limited` read up to 512 MB
-    /// outside the budget for the EXIF pass, and a decoder over such bytes passed.
+    /// in memory is refused, also while the thread counts some, and those bytes are decoded
+    /// through `from_memory` only when they are counted. A file of no known format counts
+    /// nothing, as it is never read. Before, `read_limited` read up to 512 MB outside the
+    /// budget for the EXIF pass, a decoder over such bytes passed, and later one passed while
+    /// the thread counted any bytes at all.
     #[test]
     fn whole_reads_of_images_are_counted() {
         use image::codecs::jpeg::JpegDecoder;
@@ -2102,6 +2114,8 @@ mod tests {
         .unwrap();
         std::fs::write(&file, &jpeg).unwrap();
         std::fs::write(&named_png, &jpeg).unwrap();
+        let unknown = dir.join("c.heic");
+        std::fs::write(&unknown, vec![b'x'; 1 << 20]).unwrap();
         let length = jpeg.len() as u64;
         assert!(super::read_limited(&file).is_err());
         assert!(super::image_reader(&named_png).is_err());
@@ -2112,8 +2126,15 @@ mod tests {
             let _job = super::start_decode_job();
             let bytes = super::read_limited(&file).unwrap();
             assert!(super::JOB_HOLDS.get().unwrap() >= length);
-            let img = super::from_decoder(JpegDecoder::new(std::io::Cursor::new(&bytes)).unwrap());
-            assert_eq!(img.unwrap().width(), 8);
+            let uncounted = jpeg.repeat(2);
+            let over = JpegDecoder::new(std::io::Cursor::new(&uncounted)).unwrap();
+            assert!(super::from_decoder(over).is_err());
+            assert!(super::from_memory(&uncounted).is_err());
+            assert_eq!(super::from_memory(&bytes).unwrap().width(), 8);
+            // A file of no known format is not read, so it counts nothing.
+            let held = super::JOB_HOLDS.get();
+            super::image_reader(&unknown).unwrap();
+            assert_eq!(super::JOB_HOLDS.get(), held);
             // With the bytes read, the image crate's own read of the other is on top.
             super::image_reader(&named_png).unwrap();
             assert!(super::JOB_HOLDS.get().unwrap() >= 2 * length);
