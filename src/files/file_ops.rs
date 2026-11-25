@@ -3940,12 +3940,14 @@ fn undo_photo_by_photo(
             .map(|k| &done[k])
             .collect();
         let sidecar_went_back = match (photo_steps.first(), photo_steps.last()) {
-            (Some((before, _)), Some((_, now))) => unplanned_sidecar_goes_back(now, before, names),
+            (Some((before, _)), Some((_, now))) => {
+                journal::unplanned_sidecar_follows(now, before, names).is_ok()
+            }
             _ => true,
         };
         // A sidecar that is not surely back keeps its photo under the new name, and the plan
-        // stays for the next start, which tells it. Had the sidecar's move been done after all,
-        // the next start puts the photo back beside it.
+        // stays for the next start. Its repair moves the sidecar by the same rule, wherever this
+        // left it, and tells a move that fails again.
         left += match sidecar_went_back {
             true => journal::undo(&done[start..end], end - start).1,
             false => end - start,
@@ -3953,28 +3955,6 @@ fn undo_photo_by_photo(
         end = start;
     }
     left
-}
-
-/// Moves the sidecar of the photo at `now` to the sidecar's name for `before`, the name that
-/// the photo's undo gives it back. The photo had no sidecar when its renames were planned, so a
-/// sidecar there was written by another window after the photo's locks were let go. Left
-/// behind, it would lose the photo its keywords and give them to the next file of the new name.
-/// Only Glimt's own sidecar is wanted. Adobe's are found through `names`, the folders that the
-/// renames read already, as a fresh read for each RAW photo would list its folder once for each.
-/// Returns false when there is such a sidecar and it is not surely at its new name.
-fn unplanned_sidecar_goes_back(now: &Path, before: &Path, names: &mut xmp::AdobeNames) -> bool {
-    let own = xmp::sidecar(now);
-    let sides = xmp::sidecars_moving_with(now, before, &HashSet::new(), names);
-    match sides.into_iter().find(|(side, _)| *side == own) {
-        None => true,
-        Some((side, to)) => match journal::rename_step(&side, &to) {
-            Ok(()) => true,
-            Err(e) => matches!(
-                e.where_the_file_is(),
-                crate::files::file_io::StepLeft::AtNewName
-            ),
-        },
-    }
 }
 
 /// Keeps the `plan` of a Rename Many whose names were not all put back after the rename of `f`
