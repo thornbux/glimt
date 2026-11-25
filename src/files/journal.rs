@@ -2469,6 +2469,14 @@ fn repair_step(a: &Path, b: &Path) -> Option<bool> {
 /// hidden steps of a swap (a → .t0, b → a, .t0 → b) are followed to their ends, so marks and
 /// collections can follow the files as after a finished Rename Many.
 pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
+    (names_of_each_file(moves).into_iter())
+        .filter_map(|names| Some((names.first()?.to_path_buf(), names.last()?.to_path_buf())))
+        .collect()
+}
+
+/// Each file of a plan's `moves`, as the names that the steps give it in turn, from its first to
+/// its last, a swap's hidden name among them.
+fn names_of_each_file(moves: &[(PathBuf, PathBuf)]) -> Vec<Vec<&Path>> {
     // A file's own name is never the hidden name an earlier step gave another file. Its chain
     // runs forward through the later steps only, because a swap's steps lead round in a ring.
     // Both are looked up in maps, so a swap of 100,000 files is followed in one pass.
@@ -2482,22 +2490,101 @@ pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
         .filter(|(k, (a, _))| first_to.get(a.as_path()).is_none_or(|first| first >= k));
     starts
         .map(|(k, (a, b))| {
-            let (mut at, mut end): (usize, &Path) = (k, b);
+            let (mut at, mut names): (usize, Vec<&Path>) = (k, vec![a, b]);
             // The first step after `at` that takes the file on from `end`.
             let next = |at: usize, end: &Path| {
                 let ks = steps_from.get(end)?;
                 ks.get(ks.partition_point(|&n| n <= at)).copied()
             };
-            while let Some(n) = next(at, end) {
-                (at, end) = (n, &moves[n].1);
+            while let Some(n) = names.last().and_then(|end| next(at, end)) {
+                at = n;
+                names.push(&moves[n].1);
             }
-            (a.clone(), end.to_path_buf())
+            names
         })
         .collect()
 }
 
+/// Gives each photo of a plan's `moves` that had no sidecar of Glimt's when the renames were
+/// planned the sidecar that another window wrote at one of its other names while the renames
+/// ran, or while the plan waited for the start. Each photo is at its first name when the renames
+/// were undone (`undone`), and at its last otherwise. A sidecar is looked for at a hidden name
+/// of the photo, where an undo in the window cut short leaves it, and at the photo's other end,
+/// when no file is there. This is the rule of the window's undo (`unplanned_sidecar_follows`),
+/// so a sidecar written at a photo's new name follows the photo also after a kill. Each
+/// failure is told.
+fn unplanned_sidecars_follow_their_photos(moves: &[(PathBuf, PathBuf)], undone: bool) {
+    use crate::metadata::xmp;
+    let files = names_of_each_file(moves);
+    let firsts: HashSet<&Path> = files
+        .iter()
+        .filter_map(|names| names.first().copied())
+        .collect();
+    let mut names = xmp::AdobeNames::default();
+    let mut folders = xmp::FolderIds::new();
+    for file in &files {
+        let (Some(&first), Some(&last)) = (file.first(), file.last()) else {
+            continue;
+        };
+        // A sidecar's own steps, and a photo whose sidecar the plan moved, are passed over.
+        let is_sidecar = first
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
+        if is_sidecar || firsts.contains(xmp::sidecar(first).as_path()) {
+            continue;
+        }
+        let (at, other) = if undone { (first, last) } else { (last, first) };
+        let is_hidden = |p: &Path| {
+            (p.file_name().unwrap_or_default().as_bytes()).starts_with(HIDDEN_NAME.as_bytes())
+        };
+        // The other end of a swap holds another photo again, whose sidecar it may be.
+        let left_at: Vec<&Path> = (file.iter().copied())
+            .filter(|&n| n != at && (is_hidden(n) || n == other) && is_surely_gone(n))
+            .filter(|&n| !is_surely_gone(&xmp::sidecar(n)))
+            .collect();
+        if left_at.is_empty() || !is_surely_there(at) {
+            continue;
+        }
+        for name in left_at {
+            let both = [name.to_path_buf(), at.to_path_buf()];
+            let _locks = xmp::lock_sidecars_among(&both, &mut folders);
+            if let Err((side, e)) = unplanned_sidecar_follows(name, at, &mut names) {
+                crate::files::file_io::save_failed(format!("{}: {e}", side.display()));
+            }
+        }
+    }
+}
+
+/// Moves the sidecar of Glimt's of the photo at `now` to the sidecar's name for `to`, the name
+/// the photo has or is given. The photo had no sidecar when its renames were planned, so a
+/// sidecar there was written by another window after the photo's locks were let go. Left
+/// behind, it would lose the photo its keywords and give them to the next file of that name.
+/// Only Glimt's own sidecar is wanted. Adobe's are found through `names`, the folders read
+/// already, as a fresh read for each RAW photo would list its folder once for each. It is the one
+/// rule for this of the window's undo and the start's repair. Returns the sidecar and the error
+/// when there is such a sidecar and it is not surely at its new name.
+pub fn unplanned_sidecar_follows(
+    now: &Path,
+    to: &Path,
+    names: &mut crate::metadata::xmp::AdobeNames,
+) -> Result<(), (PathBuf, crate::files::file_io::StepError)> {
+    use crate::metadata::xmp;
+    let own = xmp::sidecar(now);
+    let sides = xmp::sidecars_moving_with(now, to, &HashSet::new(), names);
+    let Some((side, to)) = sides.into_iter().find(|(side, _)| *side == own) else {
+        return Ok(());
+    };
+    match rename_step(&side, &to) {
+        Ok(()) => Ok(()),
+        Err(e) if e.where_the_file_is() == crate::files::file_io::StepLeft::AtNewName => Ok(()),
+        Err(e) => Err((side, e)),
+    }
+}
+
 /// Puts the old names back or finishes the renames, by undoing the `done` steps or doing the
-/// rest. For a plan that did not count them, it takes every step, by the names alone. Returns
+/// rest. For a plan that did not count them, it takes every step, by the names alone. Once
+/// nothing is left, a sidecar written at another name of a photo follows it, as in the window's
+/// undo (`unplanned_sidecars_follow_their_photos`). Returns
 /// (renamed, left). The plan goes when nothing is left, and otherwise it is asked about again
 /// at the next start. Returns `None` when another window has the plan or has put it right
 /// already. Then nothing was done here, and the caller must not tell marks and collections of
@@ -2570,6 +2657,11 @@ pub fn repair_cut_short(
         (true, None) => undo(moves, moves.len()),
         (false, None) => finish(moves, 0),
     };
+    // Every photo is under the name it was to get, so a sidecar written at another of its names
+    // goes there too, before the plan that tells which names are the photo's goes.
+    if left == 0 {
+        unplanned_sidecars_follow_their_photos(moves, undo_them);
+    }
     // Every step was done, or surely had nothing of the plan's to rename.
     let is_put_right = (left == 0).then_some(()).ok_or(CannotTell);
     if let Some(sure) = Sure::of(&is_put_right) {
@@ -4033,6 +4125,79 @@ mod tests {
         super::repair_cut_short(&plan, &moves, Some(0), true);
         GONE_FROM_THE_SERVER.set(None);
         assert!(p("b.jpg").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar that another window wrote at a photo's new name while Rename Many ran goes with
+    /// the photo when the start puts the names back after a kill, as the window's own undo
+    /// moves it. So does one that a window's undo cut short left at the photo's old name or at a
+    /// swap's hidden name, when the start finishes the renames or puts them back. Before, the
+    /// start undid only the planned steps, and the photo lost its keywords to the next file of
+    /// the name (#310).
+    #[test]
+    fn a_sidecar_written_at_a_new_name_follows_its_photo_at_the_start() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-plan-xmp-{}", std::process::id()));
+        let plans = dir.join("plans");
+        let p = |n: &str| dir.join(n);
+        let text = |n: &str| std::fs::read_to_string(p(n)).ok();
+        // A plan of `moves`, cut short with `done` steps counted.
+        let cut_short = |moves: &[(std::path::PathBuf, std::path::PathBuf)], done: usize| {
+            let mut plan = super::start_journal(&plans, moves).unwrap();
+            (0..done).for_each(|_| plan.count_step_done());
+            let path = plan.path().to_path_buf();
+            plan.keep_on_disk();
+            path
+        };
+        let renamed = [(p("a.jpg"), p("c.jpg"))];
+        for (undo, sidecar_at, photo_at, sidecar_to) in [
+            // Killed during the renames, and put back.
+            (true, "c.jpg.xmp", "c.jpg", "a.jpg.xmp"),
+            // A window's undo moved the sidecar back and was killed before the photo, and the
+            // start finishes the renames.
+            (false, "a.jpg.xmp", "c.jpg", "c.jpg.xmp"),
+        ] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(p(photo_at), "a").unwrap();
+            std::fs::write(p(sidecar_at), "keywords").unwrap();
+            let plan = cut_short(&renamed, 1);
+            assert_eq!(
+                super::repair_cut_short(&plan, &renamed, Some(1), undo).map(|(_, left)| left),
+                Some(0)
+            );
+            assert_eq!(
+                text(sidecar_to).as_deref(),
+                Some("keywords"),
+                "{sidecar_to}"
+            );
+            assert_eq!(text(sidecar_at), None, "{sidecar_at}");
+        }
+        // A swap whose undo in the window was cut short with the sidecar of a.jpg's photo, which
+        // was at b.jpg, under the hidden name between. Both photos are back.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let hidden = |k: usize| format!("{}x-{k}", super::HIDDEN_NAME);
+        let swap = [
+            (p("a.jpg"), p(&hidden(0))),
+            (p("b.jpg"), p(&hidden(1))),
+            (p(&hidden(0)), p("b.jpg")),
+            (p(&hidden(1)), p("a.jpg")),
+        ];
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("b.jpg"), "b").unwrap();
+        std::fs::write(p(&format!("{}.xmp", hidden(0))), "a's").unwrap();
+        let plan = cut_short(&swap, 0);
+        assert_eq!(
+            super::repair_cut_short(&plan, &swap, Some(0), true).map(|(_, left)| left),
+            Some(0)
+        );
+        assert_eq!(text("a.jpg.xmp").as_deref(), Some("a's"));
+        assert_eq!(text("b.jpg.xmp"), None);
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            4,
+            "a, b, a's sidecar and plans/"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
