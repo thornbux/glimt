@@ -520,8 +520,12 @@ arm becomes a method.
   `format::escaped_name` (or `App::name`, `file_io::shown_path`, which use it), which writes
   line breaks and marks of direction as escapes, so a planted name cannot add lines of its own
   to a question. `display()` is used nowhere; a path's text for another use is its
-  `to_string_lossy`, which never reaches a widget, a `tf!`, a notice or a failure, also
-  through a `let` or a `format!` (`source_rules::names_are_shown_through_one_function`).
+  `to_string_lossy`, which never reaches text for the user, also through a `let`, a `format!`
+  or a function that returns it (`source_rules::names_are_shown_through_one_function`). What
+  reaches the user is one list, `source_rules::texts_for_the_user`, which every check that asks
+  so reads: a widget, a `tf!`, a notice, a failure, a screen reader, the title, a print, an
+  error returned, and every function of the crate that tells the user what it is given, found
+  in the code by what it takes and where it passes it on.
 - **A notice** (the message over the image) is given with `self.notice.give(text)` and taken
   away with `self.notice.clear()`, never assigned. That way each notice gets a new number, by
   which a screen reader knows that the same text was given again

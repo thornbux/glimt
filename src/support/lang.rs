@@ -890,44 +890,20 @@ msgstr[1] "bilder"
                 "the reason given to the screen saver",
             ),
         ];
-        let shown_by = [
-            ".label(",
-            ".button(",
-            ".small_button(",
-            ".checkbox(",
-            ".radio(",
-            ".radio_value(",
-            ".selectable_label(",
-            ".selectable_value(",
-            ".menu_button(",
-            ".heading(",
-            ".weak(",
-            ".strong(",
-            ".small(",
-            "link(",
-            "submenu(",
-            ".on_hover_text(",
-            ".on_disabled_hover_text(",
-            ".hint_text(",
-            ".selected_text(",
-            ".text(",
-            ".give(",
-            ".give_error(",
-            "Window::new(",
-            "Button::new(",
-            "button(",
-            "selectable(",
-            "choice(",
-            "checkbox(",
-            "radio(",
-            "radio_choice(",
-            "RichText::new(",
-            "ProgressBar::new(",
-            // A window's title, which the taskbar, the window list and a screen reader show, when
-            // the window is made and when it is changed.
-            ".with_title(",
-            "ViewportCommand::Title(",
-        ];
+        // The calls by which a text reaches the user in the window, from the one list that every
+        // check that asks so reads, also the crate's own functions that show what they are
+        // given. A text printed on the terminal stays English, and an error is translated where
+        // its caller shows it. A translation's own text is checked below, and its other
+        // arguments are values put into it.
+        use crate::support::source_rules::{Reaches, rust_sources, texts_for_the_user};
+        let sources = rust_sources();
+        let shown_by = texts_for_the_user(&sources);
+        let shown_by: Vec<&str> = (shown_by.iter())
+            .filter(|(call, reaches)| {
+                *reaches == Reaches::Window && !["tr(", "tf!("].contains(&call.as_str())
+            })
+            .map(|(call, _)| call.as_str())
+            .collect();
         // Words, not a {value} or a %field% of a template.
         let words = |t: &str| {
             (t.split_whitespace())
@@ -1089,8 +1065,8 @@ msgstr[1] "bilder"
         }
         let mut used = HashSet::new();
         let mut wrong = Vec::new();
-        for (file, text) in crate::support::source_rules::rust_sources() {
-            wrong.extend(check(&file, &text, &mut used));
+        for (file, text) in &sources {
+            wrong.extend(check(file, text, &mut used));
         }
         for (file, marks, _) in ENGLISH {
             for mark in *marks {

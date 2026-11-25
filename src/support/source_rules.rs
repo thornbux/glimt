@@ -784,6 +784,93 @@ const THE_GATE: &[&str] = &[
     "wait_for_reads_that_go_first(",
 ];
 
+/// The calls by which a text reaches the user, as they are written, that the crate's own code
+/// does not show, by where the text reaches the user. `texts_for_the_user` adds to these every
+/// function of the crate that tells the user what it is given, so every check that asks whether
+/// a text reaches the user reads that one list (`names_given_to_the_user_raw`,
+/// `every_text_shown_is_translated`). A call that starts with `.` is a method of any value, and
+/// another call is matched where no longer name ends with it. Before, each check had a list of
+/// its own, and the names check saw none of the ways a file job or a thread tells a failure
+/// (audit 0.99.0).
+const TEXT_FOR_THE_USER: &[(Reaches, &[&str])] = &[
+    (
+        Reaches::Terminal,
+        &["println!(", "eprintln!(", "print!(", "eprint!("],
+    ),
+    (
+        Reaches::Caller,
+        &[
+            "Err(",
+            ".map_err(",
+            ".ok_or(",
+            ".ok_or_else(",
+            "errors.push(",
+            "failures.push(",
+            "problems.push(",
+            "refused.push(",
+            "warnings.push(",
+        ],
+    ),
+    (
+        Reaches::Window,
+        &[
+            // A text translated for the user.
+            "tr(",
+            "tf!(",
+            // A widget and its texts, also the ones Glimt draws its widgets with (menus.rs).
+            ".label(",
+            ".button(",
+            ".small_button(",
+            ".checkbox(",
+            ".radio(",
+            ".radio_value(",
+            ".selectable_label(",
+            ".selectable_value(",
+            ".menu_button(",
+            ".heading(",
+            ".weak(",
+            ".strong(",
+            ".small(",
+            ".hint_text(",
+            ".selected_text(",
+            ".text(",
+            "link(",
+            "submenu(",
+            "button(",
+            "selectable(",
+            "choice(",
+            "checkbox(",
+            "radio(",
+            "radio_choice(",
+            "Window::new(",
+            "Button::new(",
+            "RichText::new(",
+            "ProgressBar::new(",
+            // A notice and a failure, which `texts_for_the_user` finds in the code too.
+            ".give(",
+            ".give_error(",
+            "Failure::from(",
+            "Failure::because(",
+            // A hover text.
+            ".on_hover_text(",
+            ".on_hover_text_at_pointer(",
+            ".on_disabled_hover_text(",
+            // What a screen reader says.
+            "WidgetInfo::labeled(",
+            "WidgetInfo::selected(",
+            // A window's title, which the taskbar, the window list and a screen reader show,
+            // when the window is made and when it is changed.
+            ".with_title(",
+            "ViewportCommand::Title(",
+        ],
+    ),
+];
+
+/// The types that hold a text told to the user: a failure, what a thread tells the window, a
+/// message of a notice and the notice itself. A function that takes one, or one of these
+/// types' own that takes anything, tells the user what it is given (`texts_for_the_user`).
+const TOLD_TYPES: [&str; 4] = ["Failure", "Told", "NoticeMessage", "Notice"];
+
 /// The threads in the background that read without the gate
 /// (`background_reads_on_a_share_go_through_the_gate`), as (file, function), each with the
 /// reason it needs none: it reads Glimt's own files or the system's, not the user's on a share;
@@ -1006,6 +1093,48 @@ const CHANGING_METHODS: &[&str] = &[
     "take",
     "truncate",
 ];
+
+/// Where a text given to a call of `TEXT_FOR_THE_USER` reaches the user, from the least shown
+/// to the most.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Reaches {
+    /// It becomes an error, returned or kept with others, which a caller tells in the window or
+    /// on the terminal. A function that puts what it is given into its error does not tell it
+    /// itself, so it is no call of the list.
+    Caller,
+    /// It is printed on the terminal, which stays English.
+    Terminal,
+    /// The window shows it inside another text, such as a name in a `tf!` or a `format!`, so
+    /// it is shown as it is, not translated.
+    InWindowText,
+    /// The window shows it as its own text, or a screen reader says it, so it is translated.
+    Window,
+}
+
+/// A function of the crate as `texts_for_the_user` judges whether it tells the user what it is
+/// given.
+struct Teller {
+    /// The calls it may be called by (`ways_called`).
+    calls: Vec<String>,
+    /// The names of its parameters that may hold a text.
+    names: Vec<String>,
+    /// Its code.
+    body: String,
+    /// What its types alone say about what it tells.
+    told_by_types: ToldByTypes,
+}
+
+/// What the types of a function say about what it tells the user (`Teller`).
+#[derive(Clone, Copy, PartialEq)]
+enum ToldByTypes {
+    /// Nothing: only what it passes its parameters on to says.
+    Nothing,
+    /// It is one of `TOLD_TYPES`' own and takes something, which it tells, as `Notice::give`.
+    AllItTakes,
+    /// It takes a value of `TOLD_TYPES`, which it tells. A text given whole to it is no text it
+    /// shows, such as the folder that `LocksTold::tell` keeps a failure by.
+    ToldValuesOnly,
+}
 
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
@@ -6669,9 +6798,7 @@ fn paths_through_a_descriptor_are_shown_by_their_names() {
 #[test]
 fn names_are_shown_through_one_function() {
     let mut wrong = outside_their_homes(&[(".display(", &[]), ("::display", &[])]);
-    for (file, text) in rust_sources() {
-        wrong.extend(names_given_to_the_user_raw(&file, &text));
-    }
+    wrong.extend(names_given_to_the_user_raw(&rust_sources()));
     assert!(
         wrong.is_empty(),
         "a name or path shown without format::escaped_name:\n{}",
@@ -6679,16 +6806,378 @@ fn names_are_shown_through_one_function() {
     );
 }
 
+/// Returns every call by which a text reaches the user, each with where it reaches the user:
+/// those of `TEXT_FOR_THE_USER`, and the crate's own functions of `sources` that tell the user
+/// what they are given (`tellers_in`). The tuple variants of an enum that holds one of
+/// `TOLD_TYPES` are on it too (`Told::Notice`). A method is on it as `Type::name(`, and as
+/// `.name(` when every method of the crate of that name tells, as a call by its name alone may
+/// be any of them. An associated function is on it as `Type::name(`, and a free function as
+/// `name(` when every free function of that name tells. So a new way of telling the user is
+/// found without being added by hand.
+pub(crate) fn texts_for_the_user(sources: &[(String, String)]) -> Vec<(String, Reaches)> {
+    let mut fixed: std::collections::HashMap<String, Reaches> = (TEXT_FOR_THE_USER.iter())
+        .flat_map(|(reaches, calls)| calls.iter().map(|c| (c.to_string(), *reaches)))
+        .collect();
+    for (_, text) in sources {
+        let variants = told_variants(&code_lines(text));
+        fixed.extend(variants.into_iter().map(|v| (v, Reaches::Window)));
+    }
+    let modules = modules_of(sources);
+    let functions = tellers_in(sources);
+    let mut levels: Vec<Option<Reaches>> = (functions.iter())
+        .map(|f| (f.told_by_types != ToldByTypes::Nothing).then_some(Reaches::Window))
+        .collect();
+    // A function that tells only the values of `TOLD_TYPES` it takes shows no text given whole.
+    let told_values_only: HashSet<&String> = (functions.iter())
+        .filter(|f| f.told_by_types == ToldByTypes::ToldValuesOnly)
+        .flat_map(|f| &f.calls)
+        .collect();
+    loop {
+        let takers = calls_that_tell(&fixed, &functions, &levels);
+        let at_least = |least: Reaches| -> HashSet<String> {
+            (takers.iter())
+                .filter(|(_, reaches)| **reaches >= least)
+                .map(|(call, _)| call.clone())
+                .collect()
+        };
+        let shown = at_least(Reaches::Window);
+        let (in_text, printed) = (at_least(Reaches::InWindowText), at_least(Reaches::Terminal));
+        // A translation's own text is a literal, and its other arguments are values put into it.
+        let shown_as_given: HashSet<String> = (shown.iter())
+            .filter(|call| !["tr(", "tf!("].contains(&call.as_str()))
+            .filter(|call| !told_values_only.contains(call))
+            .cloned()
+            .collect();
+        let mut changed = false;
+        for (f, level) in functions.iter().zip(levels.iter_mut()) {
+            let reaches = match () {
+                _ if given_whole_to(f, &shown_as_given, &modules) => Some(Reaches::Window),
+                _ if given_inside(f, &in_text, &modules) => Some(Reaches::InWindowText),
+                _ if given_inside(f, &printed, &modules) => Some(Reaches::Terminal),
+                _ => None,
+            };
+            if reaches > *level {
+                (*level, changed) = (reaches, true);
+            }
+        }
+        if !changed {
+            let mut takers: Vec<(String, Reaches)> = takers.into_iter().collect();
+            takers.sort_by(|a, b| a.0.cmp(&b.0));
+            return takers;
+        }
+    }
+}
+
+/// Returns whether function `f` gives a parameter of its own whole to a call of `calls`, as an
+/// argument of its own, as in `ui.label(text)` or `Told::Notice(text)`. `modules` are the
+/// crate's modules (`modules_of`).
+fn given_whole_to(f: &Teller, calls: &HashSet<String>, modules: &HashSet<String>) -> bool {
+    let is_a_parameter = |argument: &str| {
+        let mut argument = argument.trim().trim_start_matches(['&', '*']);
+        argument = argument.strip_prefix("mut ").unwrap_or(argument);
+        let ends = [
+            ".into()",
+            ".to_owned()",
+            ".to_string()",
+            ".clone()",
+            ".as_str()",
+        ];
+        while let Some(shorter) = ends.iter().find_map(|end| argument.strip_suffix(end)) {
+            argument = shorter;
+        }
+        f.names.iter().any(|n| n == argument)
+    };
+    let body = without_escaped_names(&f.body);
+    (text_for_the_user_in(&body, calls, modules).into_iter()).any(|span| {
+        (call_arguments(&body, span.start).into_iter()).any(|a| is_a_parameter(&body[a]))
+    })
+}
+
+/// Returns whether function `f` gives a parameter of its own to a call of `calls` anywhere in
+/// its arguments, such as a value of a `tf!` or a `format!`. A parameter given through
+/// `escaped_name` or `shown_path` is given escaped, which is how a name is shown. `modules` are
+/// the crate's modules (`modules_of`).
+fn given_inside(f: &Teller, calls: &HashSet<String>, modules: &HashSet<String>) -> bool {
+    let body = without_escaped_names(&f.body);
+    (text_for_the_user_in(&body, calls, modules).into_iter()).any(|span| {
+        (body[span].split(|c: char| !is_word_char(c))).any(|word| f.names.iter().any(|n| n == word))
+    })
+}
+
+/// Returns `code` with the arguments of each `escaped_name` and `shown_path` blanked, as what
+/// they are given is shown escaped.
+fn without_escaped_names(code: &str) -> String {
+    let mut code = code.to_owned();
+    for call in ["escaped_name(", "shown_path("] {
+        let starts: Vec<usize> = (code.match_indices(call))
+            .filter(|(at, _)| !code[..*at].ends_with(is_word_char))
+            .map(|(at, _)| at + call.len())
+            .collect();
+        for from in starts {
+            let end = call_end(&code, from);
+            let blank = " ".repeat(code[from..end].len());
+            code.replace_range(from..end, &blank);
+        }
+    }
+    code
+}
+
+/// Returns the names of the crate's modules, by the paths of the files of `sources`, and
+/// `crate`, `super` and `self`, by which a call names a function of the crate.
+fn modules_of(sources: &[(String, String)]) -> HashSet<String> {
+    let mut modules: HashSet<String> = ["crate", "super", "self"].map(str::to_owned).into();
+    for (file, _) in sources {
+        let path = file.trim_end_matches(".rs");
+        modules.extend(path.split('/').map(str::to_owned));
+    }
+    modules
+}
+
+/// Returns the functions of `sources`, each with what `texts_for_the_user` judges it by
+/// (`Teller`). A function tells what it is given by its types alone when it takes one of
+/// `TOLD_TYPES` (`save_failed`, `give_error`, `send_failed_write`, `tell_failed_write`,
+/// `speak_notice`), or is one of those types' own and takes anything (`Notice::give`,
+/// `Failure::because`). `texts_for_the_user` finds the others, which pass a parameter on to a
+/// call that shows or prints it, however deep (`speak_item`).
+fn tellers_in(sources: &[(String, String)]) -> Vec<Teller> {
+    let is_told_type = |text: &str| {
+        (text.split(|c: char| !is_word_char(c))).any(|word| TOLD_TYPES.contains(&word))
+    };
+    let mut functions = Vec::new();
+    for (file, text) in sources {
+        let code = code_lines(text);
+        for f in functions_in(file, &code) {
+            // The `ui` a widget is drawn in is no text, though it is passed to every widget.
+            let names: Vec<String> = (parameters(&f, &code).into_iter())
+                .filter(|name| name != "ui")
+                .collect();
+            let takes_told_type = (parameter_texts(&f, &code).iter()).any(|p| {
+                p.split_once(':')
+                    .is_some_and(|(_, kind)| is_told_type(kind))
+            });
+            let is_told_types_own = (f.owner.as_deref()).is_some_and(|o| TOLD_TYPES.contains(&o));
+            let told_by_types = match () {
+                _ if is_told_types_own && !names.is_empty() => ToldByTypes::AllItTakes,
+                _ if takes_told_type => ToldByTypes::ToldValuesOnly,
+                _ => ToldByTypes::Nothing,
+            };
+            functions.push(Teller {
+                calls: ways_called(&f, &code),
+                names,
+                body: code[f.lines.clone()].join("\n"),
+                told_by_types,
+            });
+        }
+    }
+    functions
+}
+
+/// Returns the ways function `f`, whose file's `code_lines` are `code`, is called: a method as
+/// `.name(` and `Type::name(`, an associated function as `Type::name(` and a free function as
+/// `name(`.
+fn ways_called(f: &Function, code: &[String]) -> Vec<String> {
+    let takes_self = parameter_texts(f, code).first().is_some_and(|p| {
+        !p.contains(':') && p.split(|c: char| !is_word_char(c)).any(|w| w == "self")
+    });
+    match &f.owner {
+        Some(owner) if takes_self => vec![format!(".{}(", f.name), format!("{owner}::{}(", f.name)],
+        Some(owner) => vec![format!("{owner}::{}(", f.name)],
+        None => vec![format!("{}(", f.name)],
+    }
+}
+
+/// Returns the calls of `fixed` and those of `functions` whose `levels` say they tell, each
+/// with where its text reaches the user. A call that several functions may be called by, such
+/// as `.send(` or `find(`, tells only when every one of them does, and as far as the least.
+fn calls_that_tell(
+    fixed: &std::collections::HashMap<String, Reaches>,
+    functions: &[Teller],
+    levels: &[Option<Reaches>],
+) -> std::collections::HashMap<String, Reaches> {
+    let mut by_call: std::collections::HashMap<&str, Option<Reaches>> = Default::default();
+    for (f, level) in functions.iter().zip(levels) {
+        for call in &f.calls {
+            let least = by_call.entry(call).or_insert(*level);
+            *least = (*least).min(*level);
+        }
+    }
+    let mut takers = fixed.clone();
+    for (call, least) in by_call {
+        if let Some(reaches) = least.filter(|r| fixed.get(call).is_none_or(|f| f < r)) {
+            takers.insert(call.to_owned(), reaches);
+        }
+    }
+    takers
+}
+
+/// Returns the tuple variants, as `Type::Variant(`, of each enum in `code`, a file's
+/// `code_lines`, that holds one of `TOLD_TYPES` (`Told::Notice(`), as what it holds is told
+/// to the user.
+fn told_variants(code: &[String]) -> Vec<String> {
+    let end = tests_start(code);
+    let mut found = Vec::new();
+    for (i, line) in code[..end].iter().enumerate() {
+        let Some(name) = without_qualifiers(line).strip_prefix("enum ") else {
+            continue;
+        };
+        let name = name.split([' ', '<', '{']).next().unwrap_or_default();
+        let body: Vec<&String> = code[i + 1..end].iter().take_while(|l| *l != "}").collect();
+        let holds_told_type = body
+            .iter()
+            .any(|l| (l.split(|c: char| !is_word_char(c))).any(|word| TOLD_TYPES.contains(&word)));
+        if !holds_told_type || line.starts_with(' ') {
+            continue;
+        }
+        for variant in &body {
+            let Some((variant, _)) = variant.trim().split_once('(') else {
+                continue;
+            };
+            if !variant.is_empty() && variant.chars().all(is_word_char) {
+                found.push(format!("{name}::{variant}("));
+            }
+        }
+    }
+    found
+}
+
+/// Returns the spans of the arguments in `code` that are taken as text for the user by a call
+/// of `takers` (`texts_for_the_user`), matched by the path it is called by
+/// (`self.notice.give(` is a call of `.give(`, `crate::tr(` one of `tr(`). A function is named
+/// by its name alone only through a path of the crate, one of `modules` (`modules_of`):
+/// `fs::write(` is no call of `write(`.
+fn text_for_the_user_in(
+    code: &str,
+    takers: &HashSet<String>,
+    modules: &HashSet<String>,
+) -> Vec<std::ops::Range<usize>> {
+    let mut spans = Vec::new();
+    for (open, path) in calls_in(code) {
+        // The path from each of its parts on: `.give` of `notice.give`, `errors.push` of
+        // `self.errors.push`, `tr` of `lang::tr` and `Window::new` of `egui::Window::new`. A
+        // method's name alone names no function.
+        let mut starts = vec![0];
+        for (k, c) in path.char_indices() {
+            if c == '.' {
+                starts.push(k);
+                if path[k + 1..].contains('.') {
+                    starts.push(k + 1);
+                }
+            } else if let Some(rest) = path[k..].strip_prefix("::") {
+                let segment = path[..k].rsplit([':', '.']).next().unwrap_or_default();
+                if rest.contains([':', '.']) || modules.contains(segment) {
+                    starts.push(k + 2);
+                }
+            }
+        }
+        let is_taker = (starts.into_iter())
+            .any(|k| k < path.len() && takers.contains(&format!("{}(", &path[k..])));
+        if is_taker {
+            spans.push(open + 1..call_end(code, open + 1));
+        }
+    }
+    spans
+}
+
+/// Returns the spans of the arguments in `code` of the widgets it draws: a method of `ui`
+/// (`ui.label(`), and any call that takes `ui` first, as a widget of the crate does.
+fn widgets_of_ui_in(code: &str) -> Vec<std::ops::Range<usize>> {
+    let mut spans = Vec::new();
+    for (open, path) in calls_in(code) {
+        let from = open + 1;
+        let takes_ui_first = (code[from..].trim_start().strip_prefix("ui"))
+            .is_some_and(|rest| rest.trim_start().starts_with(','));
+        let is_ui_method = (path.rsplit_once('.'))
+            .is_some_and(|(owner, _)| owner == "ui" || owner.ends_with(".ui"));
+        if is_ui_method || takes_ui_first {
+            spans.push(from..call_end(code, from));
+        }
+    }
+    spans
+}
+
+/// Returns where each `(` of `code` opens, with the path written before it (`self.notice.give`,
+/// `crate::tf!`, or nothing for a bracket of its own), leaving out a function's definition.
+fn calls_in(code: &str) -> Vec<(usize, &str)> {
+    let mut calls = Vec::new();
+    for (open, _) in code.match_indices('(') {
+        let before = &code[..open];
+        let path_start = before
+            .trim_end_matches(|c: char| is_word_char(c) || matches!(c, ':' | '.' | '!'))
+            .len();
+        if !before[..path_start].ends_with("fn ") {
+            calls.push((open, before[path_start..].trim_start_matches(['!', ':'])));
+        }
+    }
+    calls
+}
+
+/// Returns the places in `sources`, outside the tests and `format::escaped_name`, where the
+/// lossy text of a path or a name is given to text for the user (`lossy_names_shown_in`). A
+/// function that returns such a text is followed to its callers, however deep, as what they get
+/// from it is lossy too. A call that several functions may be called by, such as `.name(`,
+/// gives a lossy text only when each of them does.
+fn names_given_to_the_user_raw(sources: &[(String, String)]) -> Vec<String> {
+    let takers: HashSet<String> = (texts_for_the_user(sources).into_iter())
+        .map(|(call, _)| call)
+        .collect();
+    let modules = modules_of(sources);
+    // Each function by its file and its first line, with the ways it is called.
+    let mut functions: Vec<(String, usize, Vec<String>)> = Vec::new();
+    for (file, text) in sources {
+        let code = code_lines(text);
+        for f in functions_in(file, &code) {
+            functions.push((file.clone(), *f.lines.start(), ways_called(&f, &code)));
+        }
+    }
+    let mut gives_lossy = vec![false; functions.len()];
+    loop {
+        let mut by_call: std::collections::HashMap<&str, bool> = Default::default();
+        for ((_, _, calls), gives) in functions.iter().zip(&gives_lossy) {
+            for call in calls {
+                *by_call.entry(call).or_insert(*gives) &= *gives;
+            }
+        }
+        let helpers: HashSet<String> = (by_call.into_iter())
+            .filter(|(_, gives)| *gives)
+            .map(|(call, _)| call.to_owned())
+            .collect();
+        let (mut wrong, mut changed) = (Vec::new(), false);
+        for (file, text) in sources {
+            let (shown, returning) = lossy_names_shown_in(file, text, &takers, &helpers, &modules);
+            wrong.extend(shown);
+            for line in returning {
+                let at = (functions.iter()).position(|(f, start, _)| f == file && *start == line);
+                if let Some(at) = at.filter(|&at| !gives_lossy[at]) {
+                    (gives_lossy[at], changed) = (true, true);
+                }
+            }
+        }
+        if !changed {
+            return wrong;
+        }
+    }
+}
+
 /// Returns the places in `text`, of `file`, outside the tests and `format::escaped_name`, where
 /// the lossy text of a path or a name (`to_string_lossy`, `to_str` or `into_string`, in each
-/// spelling that `methods_named` finds) is given to text for the user: a translated text
-/// (`tf!`, `tr`), a widget (a method of `ui`, or a function that takes `ui` first), a hover
-/// text, a `RichText`, a notice or a failure (`give`, `give_error`, `Failure`), or a line
-/// printed. The text is followed through every `let` of its function that binds it, also into
-/// a text made with it (`format!`, by an argument or by its name in braces). A lossy text for
-/// another use, such as a lock file's name, a key or a field to edit, reaches none of these,
-/// and one that is only tested (`.contains(…)`) makes no text.
-fn names_given_to_the_user_raw(file: &str, text: &str) -> Vec<String> {
+/// spelling that `methods_named` finds, or a call of one of `helpers`, which return one) is
+/// given to text for the user: to a call of `takers`, a method of `ui` or a function that takes
+/// `ui` first (`text_for_the_user_in` in `modules`, `widgets_of_ui_in`). The text is followed
+/// through every `let` of its function that binds it, also into a text made with it
+/// (`format!`, by an argument or by its name in braces). A name given to `escaped_name` or
+/// `shown_path` is shown escaped. A lossy text for another use, such as a lock file's name, a
+/// key or a field to edit, reaches none of these, and one that is only tested (`.contains(…)`)
+/// makes no text.
+/// Returns also the first lines of the functions of `text` that return a text and give back
+/// such a lossy one. The error of a `Result` is not what such a function returns, as it is told
+/// where it is made (`Err(`).
+fn lossy_names_shown_in(
+    file: &str,
+    text: &str,
+    takers: &HashSet<String>,
+    helpers: &HashSet<String>,
+    modules: &HashSet<String>,
+) -> (Vec<String>, Vec<usize>) {
     const LOSSY: [&str; 3] = ["to_string_lossy", "to_str", "into_string"];
     const TESTS: [&str; 6] = [
         ".contains(",
@@ -6698,61 +7187,45 @@ fn names_given_to_the_user_raw(file: &str, text: &str) -> Vec<String> {
         "==",
         "!=",
     ];
-    const TAKERS: [&str; 10] = [
-        "tf!(",
-        "tr(",
-        "eprintln!(",
-        "println!(",
-        "on_hover_text(",
-        "RichText::new(",
-        "give(",
-        "give_error(",
-        "Failure::from(",
-        "Failure::because(",
-    ];
     let (code, literals) = (code_lines(text), literal_lines(text));
     let end = tests_start(&code);
-    // The spans of the arguments in `statement` that are taken as text for the user.
-    let taken_as_text = |statement: &str| {
-        let mut spans = Vec::new();
-        for taker in TAKERS {
-            for (at, _) in statement.match_indices(taker) {
-                if !statement[..at].ends_with(is_word_char) {
-                    let from = at + taker.len();
-                    spans.push(from..call_end(statement, from));
-                }
-            }
-        }
-        // A widget: a method of `ui` (`ui.label(`), or a function that takes `ui` first.
-        for (at, _) in statement.match_indices("ui") {
-            let (before, after) = (&statement[..at], &statement[at + 2..]);
-            if before.ends_with(is_word_char) || after.starts_with(is_word_char) {
-                continue;
-            }
-            if let Some(method) = after.strip_prefix('.') {
-                let rest = method.trim_start_matches(is_word_char);
-                if rest.starts_with('(') {
-                    let from = statement.len() - rest.len() + 1;
-                    spans.push(from..call_end(statement, from));
-                }
-            } else if before.ends_with('(') && after.trim_start().starts_with(',') {
-                spans.push(at..call_end(statement, at));
-            }
-        }
-        spans
-    };
     let statements = statements(text);
-    let mut wrong = Vec::new();
+    let (mut wrong, mut returning) = (Vec::new(), Vec::new());
     let mut lossy_names: Vec<String> = Vec::new();
-    let mut function = String::new();
+    let (mut function, mut first_line, mut returns_text) = (String::new(), 0, false);
     for (k, (i, statement)) in statements.iter().enumerate() {
         if let Some(name) = function_name(&code[*i]) {
-            function = name.to_owned();
+            (function, first_line) = (name.to_owned(), *i);
             lossy_names.clear();
+            let returned = statement.rsplit_once("->").map_or("", |(_, r)| r);
+            // A `Result`'s value, up to the comma before its error.
+            let returned = match returned.split_once("Result<") {
+                Some((_, inside)) => {
+                    let mut depth = 0usize;
+                    let end = (inside.char_indices()).find(|&(_, c)| match c {
+                        '<' | '(' => {
+                            depth += 1;
+                            false
+                        }
+                        '>' | ')' | ',' if depth == 0 => true,
+                        '>' | ')' => {
+                            depth -= 1;
+                            false
+                        }
+                        _ => false,
+                    });
+                    &inside[..end.map_or(inside.len(), |(at, _)| at)]
+                }
+                None => returned,
+            };
+            returns_text = (returned.split(|c: char| !is_word_char(c)))
+                .any(|w| ["String", "str", "Cow"].contains(&w));
         }
         if function == "escaped_name" {
             continue;
         }
+        // A name given to `escaped_name` or `shown_path` is shown escaped.
+        let statement = &without_escaped_names(statement);
         // The literals of the statement's lines, where a name in braces is a text made with it.
         let next = statements.get(k + 1).map_or(end, |(j, _)| *j);
         let in_braces = literals[*i..next.max(*i + 1)].join(" ");
@@ -6773,12 +7246,22 @@ fn names_given_to_the_user_raw(file: &str, text: &str) -> Vec<String> {
                 })
                 || (part.split(|c: char| !is_word_char(c)))
                     .any(|w| lossy_names.iter().any(|n| n == w))
+                || !text_for_the_user_in(part, helpers, modules).is_empty()
         };
-        let spans = taken_as_text(statement);
+        let mut spans = text_for_the_user_in(statement, takers, modules);
+        spans.extend(widgets_of_ui_in(statement));
         if spans.iter().any(|span| is_lossy(&statement[span.clone()]))
             || (!spans.is_empty() && names_in_braces)
         {
             wrong.push(format!("{file}:{} (lossy text shown)", i + 1));
+        }
+        // A statement that may be the function's value: one that `return`s, or an expression
+        // that ends no statement and opens no block, such as its last line or a `match` arm.
+        let trimmed = statement.trim();
+        let gives_back = trimmed.starts_with("return ")
+            || !(trimmed.starts_with("let ") || trimmed.ends_with([';', '{', '}']));
+        if returns_text && gives_back && (is_lossy(statement) || names_in_braces) {
+            returning.push(first_line);
         }
         // A `let` that binds a lossy text, or a text made with one, carries it on.
         let Some((pattern, value)) =
@@ -6793,7 +7276,7 @@ fn names_given_to_the_user_raw(file: &str, text: &str) -> Vec<String> {
             lossy_names.extend(bound.map(str::to_owned));
         }
     }
-    wrong
+    (wrong, returning)
 }
 
 /// The check above finds a name's lossy text given to a widget, to a `tf!`, to a function that
@@ -6818,13 +7301,85 @@ fn finds_a_lossy_name_shown() {
         let kind = fat.filter(|_| name.to_string_lossy().contains(\":\"))?;\n    \
         tf!(\"A {kind} file system\", kind)\n}\n";
     assert_eq!(
-        names_given_to_the_user_raw("a.rs", text),
+        names_given_to_the_user_raw(&[("a.rs".to_owned(), text.to_owned())]),
         [
             "a.rs:2 (lossy text shown)",
             "a.rs:5 (lossy text shown)",
             "a.rs:10 (lossy text shown)",
             "a.rs:13 (lossy text shown)",
             "a.rs:26 (lossy text shown)",
+        ]
+    );
+}
+
+/// The check above also finds a name's lossy text told in each way a file job or a thread
+/// tells the user: kept with a job's errors, returned as an error or put in one, given to
+/// `save_failed`, a `Told` or a `NoticeSender`, said by a screen reader, put in the window's
+/// title or in a hover text of another kind, and given to a function of the crate that tells
+/// what it is given, also one found only through another such function. It follows a lossy
+/// text that a function returns to its caller, however deep, and leaves one that goes through
+/// `escaped_name`. The list it reads tells a text
+/// shown as its own from one shown inside another text, one printed and one put into an error.
+/// Before, it looked for a fixed list of ten calls in one function at a time, and every one of
+/// these passed (audit 0.99.0, R2-2).
+/// Risk: a raw name reaches the user through an error, a thread's notice or speech unseen.
+#[test]
+fn finds_a_lossy_name_told_in_every_way() {
+    let library = "pub struct Failure {\n    heading: String,\n}\n\
+        pub enum Told {\n    Notice(String),\n    Error(Failure),\n}\n\
+        pub fn save_failed(error: impl Into<Failure>) {}\n\
+        impl NoticeSender {\n    pub fn send(&self, text: String) {\n        \
+        self.tx.send(Told::Notice(text));\n    }\n}\n\
+        fn speak_item(response: &Response, name: &str) {\n    \
+        response.widget_info(|| WidgetInfo::labeled(Role::ListItem, true, name));\n}\n\
+        fn say(words: &str) {\n    speak_item(&r, words);\n}\n\
+        fn gone(name: &str) {\n    notice.give(tf!(\"{name} is gone\", name));\n}\n\
+        fn warn(text: &str) {\n    eprintln!(\"{}\", text);\n}\n\
+        fn parse(s: &str) -> Result<u8, String> {\n    Err(format!(\"{}\", s))\n}\n";
+    let text = "fn a(p: &Path) {\n    errors.push(format!(\"{}: {e}\", p.to_string_lossy()));\n}\n\
+        fn b(p: &Path) -> Result<(), String> {\n    Err(format!(\"{}\", p.to_string_lossy()))\n}\n\
+        fn c(p: &Path) {\n    let r = run(p).map_err(|e| format!(\"{}: {e}\", p.to_string_lossy()));\n}\n\
+        fn d(p: &Path) {\n    save_failed(p.to_string_lossy().into_owned());\n}\n\
+        fn e(p: &Path) {\n    tx.send(Told::Notice(p.to_string_lossy().into_owned()));\n}\n\
+        fn f(n: &NoticeSender, p: &Path) {\n    n.send(p.to_string_lossy().into_owned());\n}\n\
+        fn g(r: &Response, p: &Path) {\n    speak_item(r, &p.to_string_lossy());\n}\n\
+        fn h(p: &Path) {\n    ctx.send_viewport_cmd(ViewportCommand::Title(lossy_name(p)));\n}\n\
+        fn lossy_name(p: &Path) -> String {\n    p.to_string_lossy().into_owned()\n}\n\
+        fn deeper(p: &Path) -> String {\n    let name = lossy_name(p);\n    \
+        format!(\"{name}.jpg\")\n}\n\
+        fn k(r: Response, p: &Path) {\n    r.on_disabled_hover_text(deeper(p));\n}\n\
+        fn m(p: &Path) {\n    say(&p.to_string_lossy());\n}\n\
+        fn n(p: &Path) {\n    let key = lossy_name(p);\n    keys.insert(key);\n}\n\
+        fn q(p: &Path) {\n    gone(&p.to_string_lossy());\n}\n\
+        fn s(p: &Path) {\n    let name = p.to_string_lossy();\n    save_failed(escaped_name(&*name));\n}\n";
+    let sources = [
+        ("lib.rs".to_owned(), library.to_owned()),
+        ("a.rs".to_owned(), text.to_owned()),
+    ];
+    let takers = texts_for_the_user(&sources);
+    let reaches = |call: &str| (takers.iter()).find(|(c, _)| c == call).map(|(_, r)| *r);
+    for call in [
+        "save_failed(",
+        "Told::Notice(",
+        ".send(",
+        "speak_item(",
+        "say(",
+    ] {
+        assert_eq!(reaches(call), Some(Reaches::Window), "{call}");
+    }
+    // A function that prints what it is given prints it, and one that puts it into its error
+    // leaves the telling to its caller.
+    assert_eq!(reaches("warn("), Some(Reaches::Terminal));
+    assert_eq!(reaches("parse("), None);
+    assert_eq!(reaches("gone("), Some(Reaches::InWindowText));
+    let found: Vec<String> = (names_given_to_the_user_raw(&sources).into_iter())
+        .map(|found| found.replace(" (lossy text shown)", ""))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "a.rs:2", "a.rs:5", "a.rs:8", "a.rs:11", "a.rs:14", "a.rs:17", "a.rs:20", "a.rs:23",
+            "a.rs:33", "a.rs:36", "a.rs:43",
         ]
     );
 }
@@ -11452,6 +12007,18 @@ fn constants_in(sources: &[(String, String)]) -> Vec<(String, String, String)> {
 /// Returns the names of the parameters of function `f`, whose file's `code_lines` are `code`,
 /// in order and without `self`.
 fn parameters(f: &Function, code: &[String]) -> Vec<String> {
+    (parameter_texts(f, code).iter())
+        .filter_map(|p| {
+            let name = p.trim().trim_start_matches('&').trim_start_matches("mut ");
+            let name = name.split(':').next()?.trim();
+            (!name.is_empty() && name != "self").then(|| name.to_owned())
+        })
+        .collect()
+}
+
+/// Returns the parameters of function `f`, whose file's `code_lines` are `code`, each as it is
+/// written with its type, in order and with `self`.
+fn parameter_texts(f: &Function, code: &[String]) -> Vec<String> {
     let lines = &code[f.lines.clone()];
     let opens = lines.iter().position(|l| l.ends_with('{')).unwrap_or(0);
     let signature = lines[..=opens].join(" ");
@@ -11461,7 +12028,7 @@ fn parameters(f: &Function, code: &[String]) -> Vec<String> {
     // The parameters start at the first '(' after the generics, and are parted by the commas
     // outside every bracket, also the angle brackets of a type (`HashMap<K, V>`).
     let (mut depth, mut previous) = (0usize, ' ');
-    let (mut names, mut parameter, mut started) = (Vec::new(), String::new(), false);
+    let (mut texts, mut parameter, mut started) = (Vec::new(), String::new(), false);
     for c in signature[at + 3 + f.name.len()..].chars() {
         let is_arrow = c == '>' && previous == '-';
         previous = c;
@@ -11475,7 +12042,7 @@ fn parameters(f: &Function, code: &[String]) -> Vec<String> {
             ')' if depth == 0 => break,
             '>' | ')' | ']' => depth = depth.saturating_sub(1),
             ',' if depth == 0 && started => {
-                names.push(std::mem::take(&mut parameter));
+                texts.push(std::mem::take(&mut parameter));
                 continue;
             }
             _ => {}
@@ -11484,14 +12051,8 @@ fn parameters(f: &Function, code: &[String]) -> Vec<String> {
             parameter.push(c);
         }
     }
-    names.push(parameter);
-    (names.iter())
-        .filter_map(|p| {
-            let name = p.trim().trim_start_matches('&').trim_start_matches("mut ");
-            let name = name.split(':').next()?.trim();
-            (!name.is_empty() && name != "self").then(|| name.to_owned())
-        })
-        .collect()
+    texts.push(parameter);
+    texts
 }
 
 /// Returns the text between the first quote of `text` and the next quote after it, as written,
