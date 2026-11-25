@@ -1219,18 +1219,28 @@ done
 section "--remote quit to a minimized window while copying: it waits, and ends once the copies are whole"
 # eframe runs no ui for a minimized window. In 0.76.0 before its fix, a close there met no guard,
 # so the window ended halfway through the copy.
+# #289: the photos are read from the FUSE share at /mnt/lossy while /tmp/lossy-slow names their
+# folder, about 2.5 s a photo, so the copy is still at it when the quit comes on any machine.
+# Before, 240 copies of 25 MB on a disk were all done before the quit on a fast machine.
+faults=yes
 for v in new old; do
+    if ! grep -q ' /mnt/lossy fuse' /proc/mounts; then
+        fail "no FUSE share at /mnt/lossy: run.sh's containers need --privileged for /dev/fuse"
+        break
+    fi
     as_version $v
-    d=/tmp/quit-hidden-$v
-    mkdir -p $d/to
-    # 240 names of one file: as much to copy as a fast machine needs to be still at it.
-    head -c 25000000 /dev/urandom >$d/000.jpg
-    for i in $(seq -w 1 239); do ln $d/000.jpg $d/$i.jpg; done
+    d=/mnt/lossy/quit-hidden-$v
+    rm -f /tmp/lossy-slow
+    rm -rf $d; mkdir -p $d/to
+    # 20 names of one file of 1 MB, read slowly.
+    head -c 1000000 /dev/urandom >$d/000.jpg
+    for i in $(seq -w 1 19); do ln $d/000.jpg $d/$i.jpg; done
     config
     start $d
     sleep 2
     key ctrl+a
     answer $d/to
+    echo /quit-hidden-$v >/tmp/lossy-slow
     key ctrl+c
     for i in $(seq 200); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.05; done
     # Minimized as in the section before.
@@ -1243,13 +1253,14 @@ for v in new old; do
     for i in $(seq 240); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
     ended=$(kill -0 $GPID 2>/dev/null && echo runs || echo ended)
     quit
-    whole=$(find $d/to -name '*.jpg' -size 24415k | wc -l)
+    rm -f /tmp/lossy-slow
+    whole=$(find $d/to -name '*.jpg' -size 1000000c | wc -l)
     parts=$(ls -A $d/to | grep -c glimt-tmp)
-    rm -rf $d    # 6 GB
+    rm -rf $d
     if [ $v = new ]; then
         expect "the minimized window waits for the copies" "$waited" waits
         expect "it ends once they are done, still minimized" "$ended" ended
-        expect "all 240 copies whole, no hidden ones left" "$whole $parts" "240 0"
+        expect "all 20 copies whole, no hidden ones left" "$whole $parts" "20 0"
     else note "old: $waited, then $ended, $whole whole, $parts hidden"; fi
 done
 
@@ -5376,14 +5387,23 @@ rm -rf $d
 
 section "Glimt killed (kill -9) during a Move and a Rename Many: every photo under a name, the stars follow"
 # EDGES-3: a Move tells the marks where the files went only in its last report.
+faults=yes
 for v in new old; do
     as_version $v
     mkdir -p $XDG_STATE_HOME/glimt
-    # 200 photos of 10 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
-    # the disk under /tmp, so each is copied and then unlinked; killed after the tenth.
-    d=/dev/shm/killed-$v to=/tmp/killed-to-$v
+    # 200 photos of 1 MB, each with a sidecar and three stars, moved from the FUSE share at
+    # /mnt/lossy to the disk under /tmp, so each is copied and then unlinked; killed after the
+    # third. #289: the share reads them slowly while /tmp/lossy-slow names their folder (about
+    # 2.5 s a photo), so the kill lands in the middle of the Move on any machine. Before, the
+    # photos came from /dev/shm, and on a fast machine all 200 were moved before the kill.
+    if ! grep -q ' /mnt/lossy fuse' /proc/mounts; then
+        fail "no FUSE share at /mnt/lossy: run.sh's containers need --privileged for /dev/fuse"
+        break
+    fi
+    d=/mnt/lossy/killed-$v to=/tmp/killed-to-$v
+    rm -f /tmp/lossy-slow
     rm -rf $d $to; mkdir -p $d $to
-    head -c 10000000 /dev/urandom >$d/001.jpg
+    head -c 1000000 /dev/urandom >$d/001.jpg
     for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
     for i in $(seq -w 1 200); do echo "sidecar $i" >$d/$i.jpg.xmp; done
     for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
@@ -5392,9 +5412,11 @@ for v in new old; do
     sleep 2
     key ctrl+a
     answer $to
+    echo /killed-$v >/tmp/lossy-slow
     key ctrl+m
-    for i in $(seq 400); do [ "$(ls $to | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.05; done
+    for i in $(seq 1200); do [ "$(ls $to | grep -c 'jpg$')" -ge 3 ] && break; sleep 0.1; done
     kill -9 $GPID; wait $GPID 2>/dev/null
+    rm -f /tmp/lossy-slow
     moved=$(ls $to | grep -c 'jpg$')
     start $to; sleep 2; quit         # a new start, which may put things right
     got=$(python3 - $d $to $MARKS <<'PY'
@@ -5501,18 +5523,26 @@ section "Glimt killed (kill -9) during the Undo of a Move: every photo under a n
 # kill while the files go back leaves no stars at the names they left. The killed Undo from the
 # trash, Rename Folder and Move Folder to Trash are in the section of the stick taken out. The
 # last release keeps this log too, so it is run for comparison only: only NEW must pass.
+# #315: the Undo reads the photos back from the FUSE share at /mnt/lossy while /tmp/lossy-slow
+# names their folder, where each read of 128 KiB takes 0.3 s, so a photo of 1 MB takes about
+# 2.5 s to come back and the kill lands in the middle of the Undo on any machine. Before, the
+# photos came from a disk under /tmp, and every one of them was back before the kill.
+faults=yes
 for v in new old; do
+    if ! grep -q ' /mnt/lossy fuse' /proc/mounts; then
+        fail "no FUSE share at /mnt/lossy: run.sh's containers need --privileged for /dev/fuse"
+        break
+    fi
     as_version $v
     mkdir -p $XDG_STATE_HOME/glimt
-    # 100 photos of 10 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
-    # the disk under /tmp and then back by the Undo, each copied and then unlinked; the Undo is
-    # killed after the tenth is back. The photos start as hard links to one file, but come back
-    # as 100 copies, which must all fit in /dev/shm. 200 photos of 10 MB filled the 1 GiB that
-    # run.sh gives it at the 108th, and the Undo ended there with its log removed; 200 of 4 MB
-    # all came back before the kill. Either way the kill missed the middle of the Undo.
-    d=/dev/shm/undo-killed-$v to=/tmp/undo-killed-to-$v
+    # 100 photos of 1 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
+    # the share and then back by the Undo, each copied and then unlinked; the Undo is killed
+    # once three are back. The photos start as hard links to one file, but come back as 100
+    # copies, which must all fit in /dev/shm.
+    d=/dev/shm/undo-killed-$v to=/mnt/lossy/undo-killed-to-$v
+    rm -f /tmp/lossy-slow
     rm -rf $d $to $XDG_STATE_HOME/glimt/jobs; mkdir -p $d $to
-    head -c 10000000 /dev/urandom >$d/001.jpg
+    head -c 1000000 /dev/urandom >$d/001.jpg
     for i in $(seq -w 2 100); do ln $d/001.jpg $d/$i.jpg; done
     room=$(( $(df -B1 --output=avail /dev/shm | tail -1) > 100 * $(stat -c %s $d/001.jpg) + 2000000 ))
     [ $v = new ] && expect "killed during the Undo of a Move: every photo fits back in /dev/shm" "$room" 1
@@ -5527,12 +5557,15 @@ for v in new old; do
     # The Move is over when its log is gone and the stars are at the new names.
     until_ok "[ \$(ls $to | grep -c 'jpg\$') = 100 ] && [ -z \"\$(find $XDG_STATE_HOME/glimt/jobs -type f 2>/dev/null)\" ] && [ \$(grep -c '$to/' $MARKS) = 100 ]" 120
     sleep 1
+    echo /undo-killed-to-$v >/tmp/lossy-slow
     key ctrl+z
-    # Looked at every 10 ms for up to a minute, as an Undo that starts late under the load of the
-    # other parts must still be killed in its middle, not after it ended.
-    for i in $(seq 6000); do [ "$(ls $d | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.01; done
+    # Looked at every 0.1 s for up to two minutes. With each photo about 2.5 s on its way back,
+    # three are back long before the hundredth.
+    for i in $(seq 1200); do [ "$(ls $d | grep -c 'jpg$')" -ge 3 ] && break; sleep 0.1; done
     kill -9 $GPID; wait $GPID 2>/dev/null
     back=$(ls $d | grep -c 'jpg$')
+    slow_reads=$(grep -c "^READ /undo-killed-to-$v/" /tmp/lossyfs.log)
+    rm -f /tmp/lossy-slow
     logged=$(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
     start $d; sleep 2; quit         # a new start, which puts the Undo right
     got=$(python3 - $d $to $MARKS <<'PY'
@@ -5564,7 +5597,10 @@ PY
         # An Undo that never started, or that ended before the kill, passes the lines above too.
         expect "killed in the middle of the Undo" \
             "$([ $back -gt 0 ] && [ $back -lt 100 ] && echo yes)" yes
-        note "new: $back back when killed"
+        # The share was slow while the Undo read from it, so it was slowed, not merely quick.
+        expect "killed during the Undo of a Move: the share slowed its reads" \
+            "$([ "$slow_reads" -gt 0 ] && echo yes)" yes
+        note "new: $back back when killed, $slow_reads slow reads"
     else note "old: named, sidecar beside, starred, left: $got, logs $logged $logs_left ($back back when killed)"; fi
 done
 
@@ -5715,15 +5751,23 @@ section "the last release killed (kill -9) during a Move: a start of this one pu
 # would need the held sidecar lock of the delete section above, for no check the unit test lacks.
 # A last release of 0.93 or later leaves its log in jobs/ instead, which a start of this one puts
 # right the same way, so the log is counted in either folder. No log in moves/ is made here then.
+faults=yes
 for v in new old; do
     as_version new
     second=$BIN
     [ $v = old ] && second=/opt/glimt-old
     mkdir -p $XDG_STATE_HOME/glimt
     rm -rf $XDG_STATE_HOME/glimt/jobs $XDG_STATE_HOME/glimt/moves $XDG_STATE_HOME/glimt/deletes
-    d=/dev/shm/old-log-$v to=/tmp/old-log-to-$v
+    # #289: the photos are read from the slowed FUSE share (as in the section of the killed Undo),
+    # so the kill lands in the middle of the Move on any machine.
+    if ! grep -q ' /mnt/lossy fuse' /proc/mounts; then
+        fail "no FUSE share at /mnt/lossy: run.sh's containers need --privileged for /dev/fuse"
+        break
+    fi
+    d=/mnt/lossy/old-log-$v to=/tmp/old-log-to-$v
+    rm -f /tmp/lossy-slow
     rm -rf $d $to; mkdir -p $d $to
-    head -c 10000000 /dev/urandom >$d/001.jpg
+    head -c 1000000 /dev/urandom >$d/001.jpg
     for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
     for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$MARKS
     config
@@ -5731,9 +5775,11 @@ for v in new old; do
     sleep 2
     key ctrl+a
     answer $to
+    echo /old-log-$v >/tmp/lossy-slow
     key ctrl+m
-    for i in $(seq 400); do [ "$(ls $to | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.05; done
+    for i in $(seq 1200); do [ "$(ls $to | grep -c 'jpg$')" -ge 3 ] && break; sleep 0.1; done
     kill -9 $GPID; wait $GPID 2>/dev/null
+    rm -f /tmp/lossy-slow
     move_logs() {
         echo $(($(ls $XDG_STATE_HOME/glimt/moves 2>/dev/null | grep -cv '^files$') +
             $(find $XDG_STATE_HOME/glimt/jobs -maxdepth 1 -type f 2>/dev/null | wc -l)))
@@ -6016,8 +6062,12 @@ while time.time() < end:
     still = still + 1 if now == last else 0
     last = now
     time.sleep(0.1 if wait else 0.01)" $d $how
-        # Counted after the kill, as the stand-in gio trashes on until it is killed too.
+        # Counted after the kill, as the stand-in gio trashes on until it is killed too, and once
+        # Glimt and every stand-in are gone (#289): counted while one was still dying, one more
+        # photo went after the count (969 against 970).
         kill -9 $GPID 2>/dev/null; pkill -9 -f /tmp/stub/gio
+        wait $GPID 2>/dev/null
+        for i in $(seq 100); do pgrep -f /tmp/stub/gio >/dev/null || break; sleep 0.05; done
         gone=$((1000 - $(ls $d | grep -c 'jpg$')))
         kill_and_take_out "$how" 1000
         start /tmp/stick-elsewhere; sleep 3; quit
