@@ -934,18 +934,23 @@ const TEXT_SEARCHES: [(&str, usize); 34] = [
 ];
 
 /// The helpers that look at a name for another reason than to judge where a failed step left a
-/// file (`steps_judged_by_looks`), each with that reason. Approved by the maintainer (#308), who
-/// approved `trash::is_taken_in` too, which the rule does not find, as it looks before the move.
-const LOOK_ON_ITS_OWN: [(&str, &str); 3] = [
+/// file (`steps_judged_by_looks`), each as its file and name, with that reason. Approved by the
+/// maintainer (#308), who approved `trash::is_taken_in` too, which the rule does not find, as it
+/// looks before the move. An entry excuses only the function of its file, so that another
+/// function of the same name elsewhere is checked.
+const LOOK_ON_ITS_OWN: [(&str, &str, &str); 3] = [
     (
+        "files/trash.rs",
         "is_out_already",
         "a file an earlier Undo took out without an answer, looked at before any step of this one",
     ),
     (
+        "files/file_ops.rs",
         "is_deleted",
         "a photo whose delete answered done or was judged done after all, looked at after that",
     ),
     (
+        "images/save.rs",
         "log_set_aside",
         "a sidecar that Save As would set aside, looked at before any step, to log it or not",
     ),
@@ -6248,11 +6253,13 @@ fn steps_are_judged_done_in_one_place() {
         .filter(|(f, _)| f != "files/file_io.rs")
         .map(|(f, text)| (f, code_lines(&text)))
         .collect();
-    let on_its_own: Vec<&str> = LOOK_ON_ITS_OWN.iter().map(|(name, _)| *name).collect();
+    let on_its_own: Vec<(&str, &str)> = (LOOK_ON_ITS_OWN.iter())
+        .map(|(file, name, _)| (*file, *name))
+        .collect();
     let mut wrong = steps_judged_by_looks(&outside, &on_its_own);
     // Each helper excused is one that the rule would find, so the list excuses nothing else.
     let unexcused = steps_judged_by_looks(&outside, &[]);
-    for name in &on_its_own {
+    for (_, name) in &on_its_own {
         if !unexcused
             .iter()
             .any(|w| w.ends_with(&format!(" through {name})")))
@@ -6286,23 +6293,13 @@ fn steps_are_judged_done_in_one_place() {
 /// the file is, and `StepError::where_the_file_is` and `done_after_all` make them. A function
 /// that needs a look for something else puts it in a function of its own. Whole functions are
 /// read, not lines, so that a guard that rustfmt splits over lines, a look a line after the
-/// failure, and a function handed the error are found as well.
-fn steps_judged_by_looks(sources: &[(String, Vec<String>)], on_its_own: &[&str]) -> Vec<String> {
-    const STEPS: [&str; 7] = [
-        "rename_never_over",
-        "put_file",
-        "put_file_until_stopped",
-        "put_file_back",
-        "rename_step",
-        "finish_step",
-        "trash::trash",
-    ];
+/// failure, and a function handed the error are found as well. A step is found by its name
+/// alone, however it is imported (`trash(` after a `use`, or `trash::trash(`).
+fn steps_judged_by_looks(
+    sources: &[(String, Vec<String>)],
+    on_its_own: &[(&str, &str)],
+) -> Vec<String> {
     const LOOKS: [&str; 3] = ["is_surely_gone", "is_surely_there", "is_followed_to"];
-    let calls = |line: &str, name: &str| {
-        (line.match_indices(&format!("{name}(")))
-            .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_word_char))
-    };
-    let calls_step = |line: &str| STEPS.iter().any(|s| calls(line, s));
     let helpers = helpers_that_look(sources, &LOOKS, on_its_own);
     let mut wrong: Vec<String> = Vec::new();
     for (file, code) in sources {
@@ -6310,39 +6307,7 @@ fn steps_judged_by_looks(sources: &[(String, Vec<String>)], on_its_own: &[&str])
         let end = tests_start(code);
         for start in (0..end).filter(|&i| !in_test_code[i] && function_name(&code[i]).is_some()) {
             let last = block_end(code, start).unwrap_or(start).min(end - 1);
-            let body = &code[start..=last];
-            let opens = (body.iter()).position(|l| l.ends_with('{')).unwrap_or(0);
-            let signature = body[..=opens].join(" ");
-            let parameters = signature
-                .rfind(") ->")
-                .map_or(&signature[..], |at| &signature[..at]);
-            let carries_failure = |l: &String| {
-                calls_step(l)
-                    || ["StepError", "Restoring", "StepLeft"]
-                        .iter()
-                        .any(|t| names_word(l, t))
-            };
-            // A parameter that is a failure, not a function that is given one or gives one back
-            // (`on_back: &mut dyn FnMut(Restoring)`).
-            let markers = [
-                "io::Error",
-                "io::Result",
-                "StepError",
-                "Restoring",
-                "StepLeft",
-            ];
-            let handed_an_error = markers.iter().any(|t| {
-                (parameters.match_indices(t)).any(|(at, _)| {
-                    let parameter = parameters[..at].rsplit(',').next().unwrap_or("");
-                    !parameter.contains("Fn") && !parameter.contains("->")
-                })
-            });
-            let body_from = start + opens + 1;
-            let first_failure = match handed_an_error {
-                true => Some(start),
-                false => (body_from..=last).find(|&i| carries_failure(&code[i])),
-            };
-            let Some(first_failure) = first_failure else {
+            let Some(first_failure) = failure_in_hand_from(code, start, last) else {
                 continue;
             };
             let name = function_name(&code[start]).unwrap_or_default();
@@ -6366,25 +6331,100 @@ fn steps_judged_by_looks(sources: &[(String, Vec<String>)], on_its_own: &[&str])
     wrong
 }
 
+/// Returns the line of `code`, a file's `code_lines`, from which the function on its lines
+/// `start..=last` has a step's failure in hand: its first line when it is handed one (an
+/// `std::io::Error` or `std::io::Result`, a `StepError`, a `Restoring` or a `StepLeft`), and
+/// else the first line of its body that calls a step or names one of those types. Returns
+/// `None` when it has none. A step is found by its name alone, however it is imported.
+fn failure_in_hand_from(code: &[String], start: usize, last: usize) -> Option<usize> {
+    const STEPS: [&str; 7] = [
+        "rename_never_over",
+        "put_file",
+        "put_file_until_stopped",
+        "put_file_back",
+        "rename_step",
+        "finish_step",
+        "trash",
+    ];
+    let body = &code[start..=last];
+    let opens = (body.iter()).position(|l| l.ends_with('{')).unwrap_or(0);
+    let signature = body[..=opens].join(" ");
+    let parameters = signature
+        .rfind(") ->")
+        .map_or(&signature[..], |at| &signature[..at]);
+    let carries_failure = |l: &String| {
+        STEPS.iter().any(|s| calls_by_name(l, s))
+            || ["StepError", "Restoring", "StepLeft"]
+                .iter()
+                .any(|t| names_word(l, t))
+    };
+    // A parameter that is a failure, not a function that is given one or gives one back
+    // (`on_back: &mut dyn FnMut(Restoring)`).
+    let markers = [
+        "io::Error",
+        "io::Result",
+        "StepError",
+        "Restoring",
+        "StepLeft",
+    ];
+    let handed_an_error = markers.iter().any(|t| {
+        (parameters.match_indices(t)).any(|(at, _)| {
+            let parameter = parameters[..at].rsplit(',').next().unwrap_or("");
+            !parameter.contains("Fn") && !parameter.contains("->")
+        })
+    });
+    match handed_an_error {
+        true => Some(start),
+        false => (start + opens + 1..=last).find(|&i| carries_failure(&code[i])),
+    }
+}
+
+/// Returns whether `line` calls the function `name`, however it is imported: by its name alone
+/// (`trash(` after a `use`), or by any path (`trash::trash(`, `super::trash(`). A longer name
+/// that ends the same (`move_to_trash(`) is not the call.
+fn calls_by_name(line: &str, name: &str) -> bool {
+    (line.match_indices(&format!("{name}(")))
+        .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_word_char))
+}
+
 /// Returns the names of the functions of `sources` (each a file's name and its `code_lines`),
-/// outside the tests, that look at a name with one of `looks`, themselves or through such a
-/// one call down, but for those named in `on_its_own` (`LOOK_ON_ITS_OWN`), whose looks are for
-/// something else than where a failed step left a file (`steps_judged_by_looks`). Each is
-/// returned as the file and line (from 1) of its call, and the helper's name.
+/// outside the tests, that look at a name with one of `looks`, themselves or through the
+/// functions they call, however deep, but for those named in `on_its_own` (`LOOK_ON_ITS_OWN`,
+/// by file and name), whose looks are for something else than where a failed step left a file
+/// (`steps_judged_by_looks`). A function that has a step's failure in hand is not followed
+/// into, as `steps_judged_by_looks` checks it itself. Each is returned as the file and line
+/// (from 1) of its call, and the helper's name. Before, only a helper that made the look itself
+/// was found, so a look two calls down passed (#308).
 fn helpers_that_look(
     sources: &[(String, Vec<String>)],
     looks: &[&str],
-    on_its_own: &[&str],
+    on_its_own: &[(&str, &str)],
 ) -> Vec<(String, usize, String)> {
     let text: Vec<(String, String)> = (sources.iter())
         .map(|(file, code)| (file.clone(), code.join("\n")))
         .collect();
     let graph = CallGraph::new(&text);
-    let on_its_own = |f: &Function| on_its_own.contains(&f.name.as_str());
+    let on_its_own = |f: &Function| on_its_own.contains(&(f.file.as_str(), f.name.as_str()));
+    let checked_itself = |f: &Function| {
+        let code = &graph.lines[&f.file];
+        failure_in_hand_from(code, *f.lines.start(), *f.lines.end()).is_some()
+    };
     let calls: Vec<Vec<Call>> = (graph.functions.iter())
         .map(|f| match on_its_own(f) {
             true => Vec::new(),
             false => graph.calls_of(f),
+        })
+        .collect();
+    let followed: Vec<Vec<Call>> = (graph.functions.iter().zip(&calls))
+        .map(|(f, calls)| match checked_itself(f) {
+            true => Vec::new(),
+            false => (calls.iter())
+                .map(|c| Call {
+                    callee: c.callee,
+                    text: c.text.clone(),
+                    line: c.line,
+                })
+                .collect(),
         })
         .collect();
     let own: Vec<bool> = (graph.functions.iter())
@@ -6393,9 +6433,7 @@ fn helpers_that_look(
             !on_its_own(f) && looks.iter().any(|l| names_word(&body, l))
         })
         .collect();
-    // A helper is the function that makes the look itself, one call down. A deeper one does
-    // work of its own, and one that has a step's failure in hand is checked itself.
-    let reaches: Vec<bool> = own;
+    let reaches = reaching(&followed, own);
     let mut found = Vec::new();
     for (f, calls) in graph.functions.iter().zip(&calls) {
         for call in calls {
@@ -6492,7 +6530,8 @@ fn an_error_number_is_found_where_a_step_is_judged() {
 /// a line of its own, a look on the line after a let-else on the step, a function handed the
 /// error passed on as an `std::io::Result` or a `Restoring::Failed`, a look at the old name
 /// alone, at the new name alone and at both, on the call's own line, and in a function given a
-/// `StepError`. It leaves alone a look in a function that has no failure of a step in hand, one
+/// `StepError`; and, since 0.99, a look two calls down and a step imported by its bare name
+/// (`trash(`). It leaves alone a look in a function that has no failure of a step in hand, one
 /// that returns an `std::io::Result`, and the tests.
 #[test]
 fn finds_a_step_judged_by_a_look_at_its_names() {
@@ -6545,6 +6584,17 @@ fn through(a: &Path, b: &Path) -> bool {
     let failed = rename_step(a, b).is_err();
     before && failed && looked(a)
 }
+fn deeper(a: &Path) -> bool {
+    looked(a)
+}
+fn two_down(a: &Path, b: &Path) -> bool {
+    let failed = rename_step(a, b).is_err();
+    failed && deeper(a)
+}
+fn trashed(a: &Path) -> bool {
+    let failed = trash(&[a]);
+    !failed.is_empty() && is_surely_gone(a)
+}
 #[cfg(test)]
 mod tests {
     fn t() {
@@ -6565,7 +6615,20 @@ mod tests {
             "a.rs:34 (quick)",
             "a.rs:4 (split_guard)",
             "a.rs:48 (through through looked)",
+            "a.rs:55 (two_down through deeper)",
+            "a.rs:59 (trashed)",
         ]
+    );
+    // An excuse holds for the helper of its file only.
+    let excused = steps_judged_by_looks(&sources, &[("a.rs", "looked")]);
+    assert!(
+        !excused.iter().any(|w| w.contains(" through ")),
+        "{excused:?}"
+    );
+    let elsewhere = steps_judged_by_looks(&sources, &[("b.rs", "looked")]);
+    assert!(
+        elsewhere.contains(&"a.rs:55 (two_down through deeper)".to_owned()),
+        "{elsewhere:?}"
     );
 }
 
@@ -6877,11 +6940,11 @@ fn test_only_files(sources: &[(String, String)]) -> Vec<String> {
 // need a parser, worth it if this class is found again.
 fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
     // `replace_name` and a raw `fs::rename` replace a file as `replace_name_with` does, so a
-    // caller that hands them a user's path is an act too.
-    const ACTS: [&str; 12] = [
+    // caller that hands them a user's path is an act too. `trash::trash` is found by its name
+    // alone, however it is imported (`calls_by_name`).
+    const ACTS: [&str; 11] = [
         "remove_file(",
         "remove_dir_all(",
-        "trash::trash(",
         "put_file_until_stopped(",
         "rename_files(",
         "rename_files_planned_in(",
@@ -6947,7 +7010,8 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         .iter()
         .any(|r| line.contains(r));
         let act = (ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i)))
-            || (line.contains("put_file(") && !copies_by_its_flag(line, "put_file("));
+            || (line.contains("put_file(") && !copies_by_its_flag(line, "put_file("))
+            || calls_by_name(line, "trash");
         acts |= act;
         acts_on_files |= act && !names_a_sidecar(line);
         checks |= CHECKS.iter().any(|check| line.contains(check));
@@ -7049,7 +7113,9 @@ fn finds_a_destructive_act_without_its_check() {
         fn r() {\n    #[allow(clippy::disallowed_methods)] // a reason\n    \
         std::fs::rename(x, y)\n}\n\
         fn s() {\n    // Glimt's own: a thumbnail\n    std::fs::rename(tmp, thumb)\n}\n\
-        fn t() {\n    // Glimt's own: a plan's list\n    file_io::replace_name(list, text)\n}\n";
+        fn t() {\n    // Glimt's own: a plan's list\n    file_io::replace_name(list, text)\n}\n\
+        use crate::files::trash::trash;\nfn u() {\n    trash(&[x])\n}\n\
+        fn v() {\n    move_to_trash(&[x])\n}\n";
     assert_eq!(
         destructive_acts_in(text),
         [
@@ -7066,6 +7132,7 @@ fn finds_a_destructive_act_without_its_check() {
             ("o".into(), false),
             ("q".into(), false),
             ("r".into(), false),
+            ("u".into(), false),
         ]
     );
 }

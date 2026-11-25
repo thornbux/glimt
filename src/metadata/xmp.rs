@@ -1472,9 +1472,10 @@ pub fn follow(
     names: &mut AdobeNames,
 ) -> Result<Vec<LeftBehind>, NotFollowed> {
     // Each sidecar is found here, at the move, not picked before it, so it is the photo's
-    // sidecar by what it is now. Each step returns whether the sidecar was copied, with the
-    // error of the move when it was copied as it could not be moved, or `None` when nothing was
-    // put at its new name.
+    // sidecar by what it is now. They are all found before the first of them moves.
+    let sidecars = sidecars_moving_with(from, to, moving, names);
+    // Each step returns whether the sidecar was copied, with the error of the move when it was
+    // copied as it could not be moved, or `None` when nothing was put at its new name.
     type Followed = Option<(bool, Option<std::io::Error>)>;
     let follow_one = |side: &Path, to: &Path| -> std::io::Result<Followed> {
         // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays
@@ -1508,7 +1509,7 @@ pub fn follow(
         }
     };
     let (mut followed, mut failed, mut left_behind) = (Vec::new(), Vec::new(), Vec::new());
-    for (side, to) in sidecars_moving_with(from, to, moving, names) {
+    for (side, to) in sidecars {
         match follow_one(&side, &to) {
             Ok(Some((was_copy, not_moved))) => {
                 let Some(error) = not_moved else {
