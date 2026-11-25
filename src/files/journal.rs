@@ -203,6 +203,14 @@ pub(crate) enum ReadAtStart {
 /// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
 
+/// The marks and stars that the window knew at each new name of a Rename Many's photos when the
+/// job began, (0, 0) for none. A new name that is also an old name of the job (a swap or a
+/// shift) is not among them, as its marks are then another photo's. The marks writer compares
+/// them with the marks at the new name as the job ends: a mark set there while the job ran, on
+/// the photo shown under that name, follows the photo (`marks::follow_pairs`). An old mark that
+/// a file gone from the name left behind is as it was, and never goes on the photo.
+pub type MarksAtNewNames = HashMap<PathBuf, (u8, u8)>;
+
 /// What a plan of Rename Many knows of its files: the fingerprint of each step's photo, and the
 /// folders it noted (`folders_noted`).
 type PlanKnown = (Vec<Option<FileFingerprint>>, HashMap<PathBuf, FolderNoted>);
@@ -2106,15 +2114,27 @@ fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
     }
 }
 
+/// Writes the plan of `moves` as `start_journal_with_marks` does, with no marks known at the
+/// new names, as a plan of Glimt 0.98 has none.
+#[cfg(test)]
+pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
+    start_journal_with_marks(dir, moves, &MarksAtNewNames::new())
+}
+
 /// Writes `moves` down in `dir`, the folder of the job logs, as a job log of the kind "rename",
 /// locked and on disk with its name, before the first of them is done. Each step has the
-/// fingerprint of the photo it moves (`known_fingerprints`). Returns the plan, or the error
-/// when it cannot be written, and the renames are then not started: without the plan, a crash
-/// halfway would leave names that no start puts right, and the marks file, in the same folder,
-/// could not follow the new names either. A plan not written whole is removed
-/// (`JobLog::start`), because finishing a plan left half written would undo renames done
-/// without it.
-pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
+/// fingerprint of the photo it moves (`known_fingerprints`), and a `new-marks` record when its
+/// new name is in `marks_at_new_names`, so that a start knows them too (`read_marks_at_new_names`).
+/// Returns the plan, or the error when it cannot be written, and the renames are then not
+/// started: without the plan, a crash halfway would leave names that no start puts right, and
+/// the marks file, in the same folder, could not follow the new names either. A plan not
+/// written whole is removed (`JobLog::start`), because finishing a plan left half written would
+/// undo renames done without it.
+pub fn start_journal_with_marks(
+    dir: &Path,
+    moves: &[(PathBuf, PathBuf)],
+    marks_at_new_names: &MarksAtNewNames,
+) -> std::io::Result<Journal> {
     let names = one_name_per_folder(moves);
     // The folders of the renames come first, so that a start can tell them from an empty mount
     // point at their path (`is_gone_at_start`).
@@ -2123,6 +2143,15 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Resul
         .flat_map(folder_record)
         .collect();
     records.extend(rename_steps(moves, &known_fingerprints(moves)));
+    let marks = (moves.iter().enumerate()).filter_map(|(number, (_, to))| {
+        let &(bits, stars) = marks_at_new_names.get(to)?;
+        Some(Record::NewMarks {
+            number,
+            bits,
+            stars,
+        })
+    });
+    records.extend(marks);
     Ok(Journal {
         log: JobLog::start(dir, "rename", &records)?,
         done: 0,
@@ -2278,6 +2307,43 @@ fn rename_records(
     // The renames are done in order, so the count is that of the first ones done.
     let done = (0..moves.len()).take_while(|n| done.contains(n)).count();
     Some((moves, done, known))
+}
+
+/// Returns the marks and stars that the window knew at the new names of the plan `plan` when its
+/// Rename Many began (`MarksAtNewNames`). Returns none for a plan that cannot be read, and for
+/// one of Glimt 0.98 or older, which did not write them down: its marks then follow as they did.
+pub fn read_marks_at_new_names(plan: &Path) -> MarksAtNewNames {
+    use crate::files::job_log::{LogRead, read_job_log_without_lock};
+    let Ok(LogRead::Log { job, records, .. }) = read_job_log_without_lock(plan) else {
+        return MarksAtNewNames::new();
+    };
+    let Some((moves, ..)) = rename_records(job, &records) else {
+        return MarksAtNewNames::new();
+    };
+    (records.iter())
+        .filter_map(|record| match record {
+            Record::NewMarks {
+                number,
+                bits,
+                stars,
+            } => Some((moves.get(*number)?.1.clone(), (*bits, *stars))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Returns the pairs by which the marks of photos whose renames were undone go back, as (new
+/// name, old name): only those whose new name the window knew the marks of when the job began
+/// (`MarksAtNewNames`), as only there a mark set during the job can be told from an old one.
+/// `renamed` are the photos as (old name, new name).
+pub fn marks_put_back(
+    renamed: &[(PathBuf, PathBuf)],
+    marks_at_new_names: &MarksAtNewNames,
+) -> Vec<(PathBuf, PathBuf)> {
+    (renamed.iter())
+        .filter(|(_, to)| marks_at_new_names.contains_key(to))
+        .map(|(from, to)| (to.clone(), from.clone()))
+        .collect()
 }
 
 /// Returns the fingerprint that a line of a list of files (`known_line`) names, and `None` for

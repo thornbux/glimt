@@ -34,9 +34,23 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 /// src/frozen-1.0.txt. "old-log" names the job log that this one was written from
 /// (`Record::OldLog`), a log of this format, not one of the old logs of Glimt 0.92 and older.
 #[cfg(test)]
-pub(crate) const RECORD_KINDS: [&str; 15] = [
-    "folder", "shown", "step", "done", "tree", "trashed", "marks", "place", "aside", "kept",
-    "old-log", "found", "written", "volume", "medium",
+pub(crate) const RECORD_KINDS: [&str; 16] = [
+    "folder",
+    "shown",
+    "step",
+    "done",
+    "tree",
+    "trashed",
+    "marks",
+    "place",
+    "aside",
+    "kept",
+    "old-log",
+    "found",
+    "written",
+    "volume",
+    "medium",
+    "new-marks",
 ];
 
 /// The name of the folder of the logs in Glimt's state folder, pinned in src/frozen-1.0.txt.
@@ -135,6 +149,11 @@ pub(crate) enum Record {
         number: usize,
         fingerprint: FileFingerprint,
     },
+    /// The marks and stars that the window knew at the step's new name when a Rename Many
+    /// began, (0, 0) for none. A mark set at the new name while the job ran differs from them,
+    /// so it can be told from an old mark that a file gone from that name left behind. A plan
+    /// of Glimt 0.98 or older has none, and its marks follow as they did then.
+    NewMarks { number: usize, bits: u8, stars: u8 },
 }
 
 impl Record {
@@ -203,6 +222,11 @@ impl Record {
                 let known = known.trim_end().as_bytes().to_vec();
                 ("written", vec![text(number), known])
             }
+            Record::NewMarks {
+                number,
+                bits,
+                stars,
+            } => ("new-marks", vec![text(number), text(bits), text(stars)]),
         }
     }
 
@@ -269,6 +293,11 @@ impl Record {
                     std::str::from_utf8(known).ok()?,
                 )?,
             },
+            (b"new-marks", [n, bits, stars]) => Record::NewMarks {
+                number: number(n)?,
+                bits: number(bits)?,
+                stars: number(stars)?,
+            },
             _ => return None,
         };
         Some(record)
@@ -286,7 +315,8 @@ impl Record {
             | Record::Aside { number, .. }
             | Record::Kept(number)
             | Record::Found(number)
-            | Record::Written { number, .. } => Some(*number),
+            | Record::Written { number, .. }
+            | Record::NewMarks { number, .. } => Some(*number),
             Record::Folder { .. }
             | Record::Volume { .. }
             | Record::Medium { .. }
@@ -308,7 +338,8 @@ impl Record {
             | Record::Aside { number, .. }
             | Record::Kept(number)
             | Record::Found(number)
-            | Record::Written { number, .. } => Some(number),
+            | Record::Written { number, .. }
+            | Record::NewMarks { number, .. } => Some(number),
             Record::Folder { .. }
             | Record::Volume { .. }
             | Record::Medium { .. }
@@ -916,6 +947,11 @@ mod tests {
             Record::Medium {
                 path: p("/card/DCIM"),
                 medium: "0f5e8c2a-1b3d-4e6f-8a9b-0c1d2e3f4a5b:42".into(),
+            },
+            Record::NewMarks {
+                number: 1,
+                bits: 3,
+                stars: 4,
             },
             Record::Volume {
                 path: p("/card/DCIM"),

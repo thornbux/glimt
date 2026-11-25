@@ -79,6 +79,9 @@ pub(crate) struct RenameJob {
     shown: Option<usize>,
     /// Whether this is an Undo giving the old names back. Such a rename is not undone itself.
     undoing: bool,
+    /// The marks that the window knew at the new names when the job began, by which a mark set
+    /// there during the job is told from an old one (`journal::MarksAtNewNames`).
+    marks_at_new_names: journal::MarksAtNewNames,
 }
 
 /// What a rename's thread answers: how it went, the places in the job of the files that an
@@ -202,6 +205,12 @@ pub(crate) struct OperationReport {
     /// their files not under the names they were to get (`journal::names_left`). They are asked
     /// about again at once, with the way out of leaving the names as they are.
     pub(crate) cut_short_left: Option<(Vec<journal::CutShort>, String)>,
+    /// The marks known at the new names of the plans of Rename Many that `moved` or
+    /// `marks_put_back` come from, as the plans wrote them down (`journal::marks_at_new_names`).
+    pub(crate) marks_at_new_names: journal::MarksAtNewNames,
+    /// The photos whose renames a repair undid, as (new name, old name), by which a mark set at
+    /// a new name during the job goes back with its photo (`journal::marks_put_back`).
+    pub(crate) marks_put_back: Vec<(PathBuf, PathBuf)>,
 }
 
 /// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
@@ -1061,6 +1070,8 @@ impl crate::App {
                 job_log,
                 cut_short_left,
                 is_moved_from_a_record,
+                marks_at_new_names,
+                marks_put_back,
             },
             _pointer,
         ) in self
@@ -1091,7 +1102,9 @@ impl crate::App {
             #[cfg(feature = "marks")]
             self.marks.forget(&overwritten, None);
             // The moves come before the deleted files, so the marks go along first.
-            self.follow_moves_reported(moved, is_copy, move_log, is_moved_from_a_record);
+            self.marks_put_back(marks_put_back, &marks_at_new_names);
+            let from_a_record = is_moved_from_a_record.then_some(marks_at_new_names);
+            self.follow_moves_reported(moved, is_copy, move_log, from_a_record);
             self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
@@ -1235,7 +1248,7 @@ impl crate::App {
         moved: Vec<(PathBuf, PathBuf)>,
         is_copy: bool,
         move_log: Option<journal::MoveLog>,
-        is_from_a_record: bool,
+        from_a_record: Option<journal::MarksAtNewNames>,
     ) {
         match &move_log {
             Some(log) if log.is_found_at_start() => {
@@ -1249,16 +1262,38 @@ impl crate::App {
                     }
                 }
             }
-            _ if is_from_a_record => {
+            _ if let Some(marks_at_new_names) = from_a_record => {
                 self.follow_names_moved(&moved, is_copy);
                 #[cfg(feature = "marks")]
-                self.marks.follow_files(moved, is_copy, true);
+                match is_copy {
+                    true => self.marks.follow_files(moved, is_copy, true),
+                    false => self.marks.follow_renames(moved, true, marks_at_new_names),
+                }
+                #[cfg(not(feature = "marks"))]
+                let _ = marks_at_new_names;
             }
             _ => self.follow_moved_paths(moved, is_copy),
         }
         if let Some(log) = move_log {
             log.remove_once_followed();
         }
+    }
+
+    /// Takes back to each photo of `put_back`, (new name, old name), whose Rename Many a repair
+    /// undid, a mark set at its new name while the job ran, by the marks known there when the
+    /// job began, `marks_when_begun` (`marks::Marks::follow_renames`).
+    fn marks_put_back(
+        &mut self,
+        put_back: Vec<(PathBuf, PathBuf)>,
+        marks_when_begun: &journal::MarksAtNewNames,
+    ) {
+        #[cfg(feature = "marks")]
+        if !put_back.is_empty() {
+            self.marks
+                .follow_renames(put_back, true, marks_when_begun.clone());
+        }
+        #[cfg(not(feature = "marks"))]
+        let _ = (self, put_back, marks_when_begun);
     }
 
     /// Returns the files of `went`, moved before Glimt was killed, whose marks have not
@@ -1681,12 +1716,14 @@ impl crate::App {
         };
         let undoing = undoing.map(UndoUntilStarted::started).is_some();
         let shown = from.iter().position(|f| self.is_file(self.list.shown(), f));
+        let marks_at_new_names = self.marks_at_new_names(&from, &to);
         let job = RenameJob {
             folder: folder_of_all(&from),
             from: from.clone(),
             to: to.clone(),
             shown,
             undoing,
+            marks_at_new_names: marks_at_new_names.clone(),
         };
         let (tx, rx) = answer_channel(&self.busy);
         let undo_on_the_way = self.file_operations.undo_on_the_way();
@@ -1697,12 +1734,37 @@ impl crate::App {
             from.iter()
                 .for_each(|p| crate::support::threads::panic_in_a_test_at(p));
             let (_, picked) = picked.wait_for_fingerprints();
-            let _ = tx.send(rename_undoable((listed, to), (&picked, undoing), &steps));
+            let renamed = rename_undoable(
+                (listed, to),
+                (&picked, undoing),
+                &steps,
+                &marks_at_new_names,
+            );
+            let _ = tx.send(renamed);
             drop((undo_on_the_way, steps));
             None
         });
         self.file_operations.renaming = Some(job);
         self.file_operations.renaming_rx = Receiving::of(rx);
+    }
+
+    /// Returns the marks that this window knows at each new name `to` of a Rename Many of the
+    /// files `from`, but for a new name that is also an old one, whose marks are another photo's
+    /// (`journal::MarksAtNewNames`).
+    fn marks_at_new_names(&self, from: &[PathBuf], to: &[PathBuf]) -> journal::MarksAtNewNames {
+        #[cfg(feature = "marks")]
+        {
+            let old: HashSet<&PathBuf> = from.iter().collect();
+            (to.iter())
+                .filter(|to| !old.contains(to))
+                .map(|to| (to.clone(), self.marks.get(to)))
+                .collect()
+        }
+        #[cfg(not(feature = "marks"))]
+        {
+            let _ = (from, to);
+            journal::MarksAtNewNames::new()
+        }
     }
 
     /// Brings the list along after Rename Many has run, with the shown image under its new
@@ -1754,12 +1816,21 @@ impl crate::App {
         }
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
-        let pairs: Vec<(PathBuf, PathBuf)> = match failed {
+        let renamed: Vec<(PathBuf, PathBuf)> = (job.from.iter().zip(&job.to).enumerate())
+            .filter(|(k, _)| left_alone.binary_search(k).is_err())
+            .map(|(_, (f, t))| (f.clone(), t.clone()))
+            .collect();
+        // A failed rename that put every old name back takes back to each photo the marks set
+        // at its new name while the job ran.
+        #[cfg(feature = "marks")]
+        if failed && names_known {
+            let back = journal::marks_put_back(&renamed, &job.marks_at_new_names);
+            self.marks
+                .follow_renames(back, true, job.marks_at_new_names.clone());
+        }
+        let pairs = match failed {
             true => Vec::new(),
-            false => (job.from.iter().zip(&job.to).enumerate())
-                .filter(|(k, _)| left_alone.binary_search(k).is_err())
-                .map(|(_, (f, t))| (f.clone(), t.clone()))
-                .collect(),
+            false => renamed,
         };
         // The writes asked for during the rename go first, as they were asked for before
         // anything that follows the files now. When a failed rename left names it does not
@@ -1769,7 +1840,13 @@ impl crate::App {
         for failure in (told.map(Failure::from).into_iter()).chain(dropped) {
             self.tell_failed_write(failure);
         }
-        self.follow_moved_paths(pairs, false);
+        // A mark set at a new name while the job ran stays with its photo.
+        self.follow_names_moved(&pairs, false);
+        #[cfg(feature = "marks")]
+        self.marks
+            .follow_renames(pairs.clone(), false, job.marks_at_new_names);
+        #[cfg(not(feature = "marks"))]
+        let _ = job.marks_at_new_names;
         if self.folder.collection().is_some() {
             return self.start_listing(ctx);
         }
@@ -3640,6 +3717,7 @@ fn rename_undoable(
     (listed, to): (Vec<ListedFile>, Vec<PathBuf>),
     (picked, undoing): (&PickedFingerprints, bool),
     job: &Job,
+    marks_at_new_names: &journal::MarksAtNewNames,
 ) -> RenameOutcome {
     let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
     // This first look leaves out the files changed already. Each file is looked at again under
@@ -3656,7 +3734,7 @@ fn rename_undoable(
     let (kept_from, kept_to) = pairs.iter().cloned().unzip();
     let (result, names_known, stopped) = match pairs.is_empty() {
         true => (Ok(()), true, false),
-        false => match rename_files(kept_from, kept_to, job, &still_picked) {
+        false => match rename_files(kept_from, kept_to, job, &still_picked, marks_at_new_names) {
             Ok(()) => (Ok(()), true, false),
             Err(e) => (Err(e.text), e.names_put_back, e.stopped),
         },
@@ -3690,13 +3768,14 @@ pub(crate) fn rename_files(
     to: Vec<PathBuf>,
     job: &Job,
     still_picked: &dyn Fn(&Path) -> std::io::Result<()>,
+    marks_at_new_names: &journal::MarksAtNewNames,
 ) -> Result<(), RenameFailed> {
     rename_files_planned_in(
         crate::files::job_log::jobs_dir(),
-        from,
-        to,
+        (from, to),
         job,
         still_picked,
+        marks_at_new_names,
     )
 }
 
@@ -3713,10 +3792,10 @@ pub(crate) fn rename_files(
 /// stay behind under the old name. Either stops the renames, and the steps done go back.
 fn rename_files_planned_in(
     plans: Option<PathBuf>,
-    photos_from: Vec<PathBuf>,
-    photos_to: Vec<PathBuf>,
+    (photos_from, photos_to): (Vec<PathBuf>, Vec<PathBuf>),
     job: &Job,
     still_picked: &dyn Fn(&Path) -> std::io::Result<()>,
+    marks_at_new_names: &journal::MarksAtNewNames,
 ) -> Result<(), RenameFailed> {
     // Sidecars go with their files, through the same steps. The folders read for Adobe's
     // sidecars here are not read again by an undo.
@@ -3726,7 +3805,7 @@ fn rename_files_planned_in(
     // The plan is on disk while the renames run, so a crash halfway is put right at the next
     // start. Without it, nothing is renamed (`start_journal`).
     let plan = match plans {
-        Some(dir) => journal::start_journal(&dir, &moves),
+        Some(dir) => journal::start_journal_with_marks(&dir, &moves, marks_at_new_names),
         None => Err(std::io::ErrorKind::NotFound.into()),
     };
     let mut plan = plan.map_err(|e| {
@@ -4622,6 +4701,7 @@ mod tests {
             to: Vec::new(),
             shown: None,
             undoing: false,
+            marks_at_new_names: Default::default(),
         });
         assert!(!run_background_until(&mut app, &ctx, |app| !app
             .folder
@@ -4658,6 +4738,7 @@ mod tests {
             to: Vec::new(),
             shown: None,
             undoing: false,
+            marks_at_new_names: Default::default(),
         });
         let edited = |p: &std::path::Path| PathBuf::from(format!("{}.edited", p.display()));
         app.write_sidecars(
@@ -4732,7 +4813,7 @@ mod tests {
         to: Vec<PathBuf>,
         job: &super::Job,
     ) -> Result<(), super::RenameFailed> {
-        super::rename_files(from, to, job, &|_| Ok(()))
+        super::rename_files(from, to, job, &|_| Ok(()), &Default::default())
     }
 
     /// Makes `a.jpg` and `b.jpg` in the test's own folder `dir`, with the sidecar `a.jpg.xmp`
@@ -6184,10 +6265,10 @@ mod tests {
         let job = super::Job::new("Renaming", 2, false, Vec::new());
         let refused = super::rename_files_planned_in(
             Some(p("plans")),
-            vec![p("a.jpg"), p("b.jpg")],
-            vec![p("b.jpg"), p("a.jpg")],
+            (vec![p("a.jpg"), p("b.jpg")], vec![p("b.jpg"), p("a.jpg")]),
             &job,
             &|_| Ok(()),
+            &Default::default(),
         );
         let refused = refused.err().unwrap();
         assert!(refused.names_put_back);
@@ -9924,6 +10005,7 @@ mod tests {
             to: vec![r.clone()],
             shown: Some(0),
             undoing: false,
+            marks_at_new_names: Default::default(),
         });
         std::fs::rename(&a, &r).unwrap();
         app.start_listing(&ctx);
@@ -9961,6 +10043,7 @@ mod tests {
             from,
             shown: None,
             undoing: false,
+            marks_at_new_names: Default::default(),
         });
         let holds = |dir: &std::path::Path| app.file_operations.renames_files_in(dir);
         for dir in [&std::path::PathBuf::from("/"), &d, &q, &q.join("s")] {
@@ -9990,6 +10073,7 @@ mod tests {
             to: vec![r.clone()],
             shown: Some(0),
             undoing: false,
+            marks_at_new_names: Default::default(),
         };
         // The list changes while the file is renamed, as a refresh would change it.
         app.list.note_names_changed();
@@ -9999,6 +10083,71 @@ mod tests {
         let shown = app.list.files().get(app.list.shown()).cloned();
         assert!(app.is_file(app.list.shown(), &r), "{shown:?}");
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A mark set in another window at a photo's new name while Rename Many ran stays with the
+    /// photo: at its new name when the rename went through, and back at its old name when it
+    /// failed and was undone. An old mark that a file gone from the new name left behind never
+    /// goes on the photo. Before, the photo's own marks were written over the mark set during
+    /// the job, and an undo left that mark at the new name (#311).
+    #[cfg(feature = "marks")]
+    #[test]
+    fn a_mark_set_at_a_new_name_during_rename_many_stays_with_its_photo() {
+        // Whether the rename went through, whether c.png was marked during the job, and the
+        // stars of a.png and c.png at the end.
+        for (went, marked_meanwhile, stars_a, stars_c) in [
+            (true, true, 0, 5),
+            (true, false, 0, 2),
+            (false, true, 5, 0),
+            (false, false, 2, 4),
+        ] {
+            let d = contract_folder("rename-marked-meanwhile");
+            let (a, c) = (d.join("a.png"), d.join("c.png"));
+            let (mut app, ctx) = app_on(&d);
+            let rate = |app: &mut crate::App, p: &PathBuf, n: u8| {
+                let file = crate::support::test_support::unlisted(std::slice::from_ref(p));
+                app.marks.rate(&file, n);
+            };
+            // An old mark of a c.png that was deleted outside Glimt.
+            std::fs::write(&c, "an older c").unwrap();
+            rate(&mut app, &c, 4);
+            std::fs::remove_file(&c).unwrap();
+            rate(&mut app, &a, 2);
+            assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+            let (from, to) = (vec![a.clone()], vec![c.clone()]);
+            let marks_at_new_names = app.marks_at_new_names(&from, &to);
+            assert_eq!(marks_at_new_names.get(&c), Some(&(0, 4)));
+            // The job renames a.png to c.png, and another window rates the photo there.
+            std::fs::rename(&a, &c).unwrap();
+            if marked_meanwhile {
+                rate(&mut app, &c, 5);
+            }
+            if !went {
+                std::fs::rename(&c, &a).unwrap();
+            }
+            let job = super::RenameJob {
+                folder: d.clone(),
+                from,
+                to,
+                shown: None,
+                undoing: false,
+                marks_at_new_names,
+            };
+            let outcome = super::RenameOutcome {
+                result: if went { Ok(()) } else { Err("stopped".into()) },
+                names_known: true,
+                ..renamed_whole()
+            };
+            app.finish_rename_many(&ctx, job, outcome);
+            assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+            let case = (went, marked_meanwhile);
+            assert_eq!(
+                (stars(&app, &a), stars(&app, &c)),
+                (stars_a, stars_c),
+                "{case:?}"
+            );
+            std::fs::remove_dir_all(d).unwrap();
+        }
     }
 
     /// The report of a Rename Many that renamed every file and left an Undo of nothing.
@@ -10027,6 +10176,7 @@ mod tests {
             to: vec![d.join("b.png")],
             shown: None,
             undoing: false,
+            marks_at_new_names: Default::default(),
         };
         app.file_operations.renaming = Some(job);
         let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);

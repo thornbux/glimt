@@ -1311,16 +1311,25 @@ fn put_cut_short_right(
 ) -> Option<Told> {
     let (mut renamed, mut left) = (0, 0);
     let (mut moved, mut left_plans, mut names_left) = (Vec::new(), Vec::new(), String::new());
+    let (mut marks_at_new_names, mut marks_put_back) = (Default::default(), Vec::new());
     for (plan, moves, done) in plans {
+        // Read before the repair, which removes the plan.
+        let known = journal::read_marks_at_new_names(&plan);
         // Put right by another window: nothing done here, nothing to tell.
         let Some((r, l)) = journal::repair_cut_short(&plan, &moves, done, undo) else {
             continue;
         };
         (renamed, left) = (renamed + r, left + l);
-        // Finished: marks and collections follow the files, as after a Rename Many.
-        if !undo && l == 0 {
-            moved.extend(journal::pairs(&moves));
+        // Finished: marks and collections follow the files, as after a Rename Many. Put back:
+        // a mark set at a new name while the job ran goes back with its photo.
+        match (undo, l) {
+            (false, 0) => moved.extend(journal::pairs(&moves)),
+            (true, 0) => {
+                marks_put_back.extend(journal::marks_put_back(&journal::pairs(&moves), &known))
+            }
+            _ => {}
         }
+        Extend::extend(&mut marks_at_new_names, known);
         if l > 0 {
             names_left += &journal::names_left(&plan, &moves, done, undo);
             left_plans.push((plan, moves, done));
@@ -1338,6 +1347,8 @@ fn put_cut_short_right(
         is_moved_from_a_record: true,
         cut_short_left: (!left_plans.is_empty())
             .then(|| (left_plans, format!("{header}\n{names_left}"))),
+        marks_at_new_names,
+        marks_put_back,
         ..Default::default()
     });
     let files = count(renamed, "file");
@@ -1361,7 +1372,10 @@ fn leave_names_as_they_are(
     report_tx: &AnswerSender<OperationReport>,
 ) -> Option<Told> {
     let (mut left, mut failed) = (Vec::new(), None);
+    let mut marks_at_new_names = journal::MarksAtNewNames::new();
     for (plan, moves, done) in plans {
+        // Read before the plan goes.
+        marks_at_new_names.extend(journal::read_marks_at_new_names(plan));
         match journal::leave_names(plan, moves, *done) {
             Ok(followed) => left.push(followed),
             Err(None) => {}
@@ -1372,6 +1386,7 @@ fn leave_names_as_they_are(
         read_folder_again: true,
         moved: left.iter().flatten().cloned().collect(),
         is_moved_from_a_record: true,
+        marks_at_new_names,
         ..Default::default()
     });
     // A plan that could not be opened or is open in another window stays, and is told.
@@ -1637,6 +1652,63 @@ mod tests {
         assert_eq!(std::fs::read_to_string(p("b.txt")).unwrap(), "a, edited");
         assert!(!p("a.txt").exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The start's repair of a Rename Many cut short gives the photo the mark that another
+    /// window set at its new name while the job ran, whether it finishes the renames or puts
+    /// them back, as the window's own end of the job does. An old mark left at the new name by
+    /// a file gone from it never goes on the photo, and a plan of Glimt 0.98, which did not
+    /// write down the marks known at the new names, is put right as before (#311).
+    #[cfg(feature = "marks")]
+    #[test]
+    fn the_start_gives_a_photo_the_mark_set_at_its_new_name_during_rename_many() {
+        use crate::files::journal;
+        use crate::support::test_support::run_background_until;
+        // Whether the renames are put back, the marks known at c.png when the job began (`None`
+        // for a plan of Glimt 0.98), the stars set at c.png meanwhile, and the stars of a.png
+        // and c.png at the end.
+        for (undo, known, meanwhile, stars_a, stars_c) in [
+            (true, Some((0, 0)), 5, 5, 0),
+            (true, Some((0, 4)), 4, 2, 4),
+            (false, Some((0, 0)), 5, 0, 5),
+            (false, Some((0, 4)), 4, 0, 2),
+            (true, None, 5, 2, 5),
+        ] {
+            let dir =
+                std::env::temp_dir().join(format!("glimt-test-start-marks-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(p("a.png"), "a").unwrap();
+            let (mut app, ctx) = app_on(&dir);
+            let rate = |app: &mut crate::App, n: &str, stars: u8| {
+                let file = crate::support::test_support::unlisted(&[p(n)]);
+                app.marks.rate(&file, stars);
+            };
+            rate(&mut app, "a.png", 2);
+            let moves = vec![(p("a.png"), p("c.png"))];
+            let marks = known.map(|k| (p("c.png"), k)).into_iter().collect();
+            let mut plan = journal::start_journal_with_marks(&plans, &moves, &marks).unwrap();
+            journal::rename_step(&moves[0].0, &moves[0].1).unwrap();
+            plan.count_step_done();
+            plan.keep_on_disk();
+            // Another window rates the photo at its new name before Glimt is killed.
+            rate(&mut app, "c.png", meanwhile);
+            assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+            let found = journal::cut_short_plans(&plans);
+            app.file_operations
+                .ask_again_about_cut_short(found, String::new());
+            app.work_on_cut_short(&ctx, super::CutShortWork::PutRight(undo));
+            assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+            let stars = |n: &str| app.marks.get(&p(n)).1;
+            let case = (undo, known);
+            assert_eq!(
+                (stars("a.png"), stars("c.png")),
+                (stars_a, stars_c),
+                "{case:?}"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 
     /// Move To opens the folder chooser before the files picked are looked at, so that a file
