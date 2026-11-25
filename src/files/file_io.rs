@@ -768,6 +768,20 @@ impl std::fmt::Display for NamedButNotOnDisk {
 
 impl std::error::Error for NamedButNotOnDisk {}
 
+/// The failure of a program that makes a step on several files, such as `gio trash`, with what
+/// it said. It may have done the step for some of them before it failed, so each counts as a
+/// step that may have been done (`may_have_been_done`).
+#[derive(Debug)]
+struct ProgramFailed(String);
+
+impl std::fmt::Display for ProgramFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ProgramFailed {}
+
 /// The error of a step on a name: a rename (`rename_never_over`), a move or a copy given its
 /// name (`put_file` and the functions built on it), or the unlink of a second name
 /// (`journal::rename_step`). A share may have done such a step and lost its answer, which only
@@ -800,6 +814,14 @@ impl StepError {
         }
     }
 
+    /// Makes the error of a program that was to make the step on `from`, among other files, and
+    /// failed saying `said`. The program may have made the step before it failed, so the step
+    /// may have been done (#308).
+    pub(in crate::files) fn of_a_program(said: &str, from: &Path) -> StepError {
+        let error = std::io::Error::other(ProgramFailed(said.to_owned()));
+        StepError::new(error, from, from)
+    }
+
     /// Makes the error of a step from `from` to `to` for a test, as `new` does.
     #[cfg(test)]
     pub(crate) fn in_a_test(error: std::io::Error, from: &Path, to: &Path) -> StepError {
@@ -820,7 +842,8 @@ impl StepError {
     /// Returns whether the step surely did nothing because nothing was at its old name: the
     /// error says that no file was there, and it is no lost answer (`may_have_been_done`).
     pub(crate) fn found_nothing(&self) -> bool {
-        self.error.kind() == std::io::ErrorKind::NotFound && !self.may_have_been_done()
+        let error = step_error_inside(&self.error);
+        error.kind() == std::io::ErrorKind::NotFound && !self.may_have_been_done()
     }
 
     /// Returns whether the step was refused because a file or folder has the new name.
@@ -1209,6 +1232,10 @@ fn unlink_was_refused(e: &std::io::Error) -> bool {
 /// is judged here by the error inside it.
 pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
     let e = step_error_inside(e);
+    // A program that steps through several files may have done this one before it failed.
+    if e.get_ref().is_some_and(|inner| inner.is::<ProgramFailed>()) {
+        return true;
+    }
     #[cfg(test)]
     if ON_A_SHARE_IN_A_TEST.with_borrow(|share| share.as_ref().is_some_and(|s| from.starts_with(s)))
     {

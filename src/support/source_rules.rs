@@ -932,6 +932,24 @@ const TEXT_SEARCHES: [(&str, usize); 34] = [
     ("RegexBuilder::new(", 0),
 ];
 
+/// The helpers that look at a name for another reason than to judge where a failed step left a
+/// file (`steps_judged_by_looks`), each with that reason. Approved by the maintainer (#308), who
+/// approved `trash::is_taken_in` too, which the rule does not find, as it looks before the move.
+const LOOK_ON_ITS_OWN: [(&str, &str); 3] = [
+    (
+        "is_out_already",
+        "a file an earlier Undo took out without an answer, looked at before any step of this one",
+    ),
+    (
+        "is_deleted",
+        "a photo whose delete answered done or was judged done after all, looked at after that",
+    ),
+    (
+        "log_set_aside",
+        "a sidecar that Save As would set aside, looked at before any step, to log it or not",
+    ),
+];
+
 /// The methods of the standard library's types that change their value (`&mut self`), by which
 /// a guard finds a value changed through a method: a setting (`config_writes`) or a shared
 /// static through its lock (`static_written`).
@@ -6222,7 +6240,18 @@ fn steps_are_judged_done_in_one_place() {
         .filter(|(f, _)| f != "files/file_io.rs")
         .map(|(f, text)| (f, code_lines(&text)))
         .collect();
-    let mut wrong = steps_judged_by_looks(&outside);
+    let on_its_own: Vec<&str> = LOOK_ON_ITS_OWN.iter().map(|(name, _)| *name).collect();
+    let mut wrong = steps_judged_by_looks(&outside, &on_its_own);
+    // Each helper excused is one that the rule would find, so the list excuses nothing else.
+    let unexcused = steps_judged_by_looks(&outside, &[]);
+    for name in &on_its_own {
+        if !unexcused
+            .iter()
+            .any(|w| w.ends_with(&format!(" through {name})")))
+        {
+            wrong.push(format!("LOOK_ON_ITS_OWN: {name} excuses nothing"));
+        }
+    }
     for (file, code) in outside {
         let in_test_code = test_code_lines(&code);
         for (i, line) in code[..tests_start(&code)].iter().enumerate() {
@@ -6250,22 +6279,23 @@ fn steps_are_judged_done_in_one_place() {
 /// that needs a look for something else puts it in a function of its own. Whole functions are
 /// read, not lines, so that a guard that rustfmt splits over lines, a look a line after the
 /// failure, and a function handed the error are found as well.
-fn steps_judged_by_looks(sources: &[(String, Vec<String>)]) -> Vec<String> {
-    const STEPS: [&str; 6] = [
+fn steps_judged_by_looks(sources: &[(String, Vec<String>)], on_its_own: &[&str]) -> Vec<String> {
+    const STEPS: [&str; 7] = [
         "rename_never_over",
         "put_file",
         "put_file_until_stopped",
         "put_file_back",
         "rename_step",
         "finish_step",
+        "trash::trash",
     ];
     const LOOKS: [&str; 3] = ["is_surely_gone", "is_surely_there", "is_followed_to"];
-    let calls_step = |line: &str| {
-        (STEPS.iter()).any(|s| {
-            (line.match_indices(&format!("{s}(")))
-                .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_word_char))
-        })
+    let calls = |line: &str, name: &str| {
+        (line.match_indices(&format!("{name}(")))
+            .any(|(at, _)| !line[..at].chars().next_back().is_some_and(is_word_char))
     };
+    let calls_step = |line: &str| STEPS.iter().any(|s| calls(line, s));
+    let helpers = helpers_that_look(sources, &LOOKS, on_its_own);
     let mut wrong: Vec<String> = Vec::new();
     for (file, code) in sources {
         let in_test_code = test_code_lines(code);
@@ -6278,18 +6308,47 @@ fn steps_judged_by_looks(sources: &[(String, Vec<String>)]) -> Vec<String> {
             let parameters = signature
                 .rfind(") ->")
                 .map_or(&signature[..], |at| &signature[..at]);
-            let has_failure = (body.iter())
-                .any(|l| calls_step(l) || names_word(l, "StepError") || names_word(l, "Restoring"))
-                || ["io::Error", "io::Result"]
-                    .iter()
-                    .any(|t| parameters.contains(t));
-            if !has_failure {
+            let carries_failure = |l: &String| {
+                calls_step(l)
+                    || ["StepError", "Restoring", "StepLeft"]
+                        .iter()
+                        .any(|t| names_word(l, t))
+            };
+            // A parameter that is a failure, not a function that is given one or gives one back
+            // (`on_back: &mut dyn FnMut(Restoring)`).
+            let markers = [
+                "io::Error",
+                "io::Result",
+                "StepError",
+                "Restoring",
+                "StepLeft",
+            ];
+            let handed_an_error = markers.iter().any(|t| {
+                (parameters.match_indices(t)).any(|(at, _)| {
+                    let parameter = parameters[..at].rsplit(',').next().unwrap_or("");
+                    !parameter.contains("Fn") && !parameter.contains("->")
+                })
+            });
+            let body_from = start + opens + 1;
+            let first_failure = match handed_an_error {
+                true => Some(start),
+                false => (body_from..=last).find(|&i| carries_failure(&code[i])),
+            };
+            let Some(first_failure) = first_failure else {
                 continue;
-            }
+            };
             let name = function_name(&code[start]).unwrap_or_default();
             for i in (start..=last).filter(|&i| !in_test_code[i]) {
                 if LOOKS.iter().any(|look| names_word(&code[i], look)) {
                     wrong.push(format!("{file}:{} ({name})", i + 1));
+                }
+                // A look moved into a helper is a look all the same (#308), once a failure is in
+                // hand: a helper's look before the first step, as at the name a step will take,
+                // judges no failure.
+                let through = (helpers.iter())
+                    .filter(|(f, line, _)| f == file && *line == i + 1 && i > first_failure);
+                for (_, _, helper) in through {
+                    wrong.push(format!("{file}:{} ({name} through {helper})", i + 1));
                 }
             }
         }
@@ -6297,6 +6356,48 @@ fn steps_judged_by_looks(sources: &[(String, Vec<String>)]) -> Vec<String> {
     wrong.sort();
     wrong.dedup();
     wrong
+}
+
+/// Returns the names of the functions of `sources` (each a file's name and its `code_lines`),
+/// outside the tests, that look at a name with one of `looks`, themselves or through such a
+/// one call down, but for those named in `on_its_own` (`LOOK_ON_ITS_OWN`), whose looks are for
+/// something else than where a failed step left a file (`steps_judged_by_looks`). Each is
+/// returned as the file and line (from 1) of its call, and the helper's name.
+fn helpers_that_look(
+    sources: &[(String, Vec<String>)],
+    looks: &[&str],
+    on_its_own: &[&str],
+) -> Vec<(String, usize, String)> {
+    let text: Vec<(String, String)> = (sources.iter())
+        .map(|(file, code)| (file.clone(), code.join("\n")))
+        .collect();
+    let graph = CallGraph::new(&text);
+    let on_its_own = |f: &Function| on_its_own.contains(&f.name.as_str());
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| match on_its_own(f) {
+            true => Vec::new(),
+            false => graph.calls_of(f),
+        })
+        .collect();
+    let own: Vec<bool> = (graph.functions.iter())
+        .map(|f| {
+            let body = graph.lines[&f.file][f.lines.clone()].join("\n");
+            !on_its_own(f) && looks.iter().any(|l| names_word(&body, l))
+        })
+        .collect();
+    // A helper is the function that makes the look itself, one call down. A deeper one does
+    // work of its own, and one that has a step's failure in hand is checked itself.
+    let reaches: Vec<bool> = own;
+    let mut found = Vec::new();
+    for (f, calls) in graph.functions.iter().zip(&calls) {
+        for call in calls {
+            let Some(g) = call.callee.filter(|&g| reaches[g]) else {
+                continue;
+            };
+            found.push((f.file.clone(), call.line, graph.functions[g].name.clone()));
+        }
+    }
+    found
 }
 
 /// Returns the error numbers (EIO, ENOENT, …) that the function `name` of `code`, a file's
@@ -6428,6 +6529,14 @@ fn read(path: &Path) -> std::io::Result<bool> {
 fn free(path: &Path) -> bool {
     std::fs::read(path).is_err() && is_surely_gone(path)
 }
+fn looked(a: &Path) -> bool {
+    is_surely_gone(a)
+}
+fn through(a: &Path, b: &Path) -> bool {
+    let before = looked(b);
+    let failed = rename_step(a, b).is_err();
+    before && failed && looked(a)
+}
 #[cfg(test)]
 mod tests {
     fn t() {
@@ -6437,7 +6546,7 @@ mod tests {
 ";
     let sources = [("a.rs".to_owned(), code_lines(text))];
     assert_eq!(
-        steps_judged_by_looks(&sources),
+        steps_judged_by_looks(&sources, &[]),
         [
             "a.rs:15 (let_else)",
             "a.rs:18 (settled)",
@@ -6447,6 +6556,7 @@ mod tests {
             "a.rs:31 (back)",
             "a.rs:34 (quick)",
             "a.rs:4 (split_guard)",
+            "a.rs:48 (through through looked)",
         ]
     );
 }
@@ -8897,9 +9007,11 @@ fn background_reads_on_a_share_go_through_the_gate() {
     );
 }
 
-/// The check above finds a thread nobody waits for that reads through a function, and a worker
-/// pool whose work reads, and passes one that goes through the gate, itself or in a function it
-/// calls, a thread with a busy pointer, and one that reads nothing.
+/// The check above finds a thread nobody waits for that reads through a function, a worker
+/// pool whose work reads, and a thread that reads before it passes the gate. It passes one that
+/// goes through the gate first, itself or in a function it calls, a thread with a busy pointer,
+/// one that reads nothing, and one that reads only the mount table before the gate, but not a
+/// path through a folder opened. Before, a gate anywhere in the work passed it (#294).
 #[test]
 fn finds_a_background_reader_without_the_gate() {
     let text = "fn look(p: &Path) {\n    std::fs::metadata(p);\n}\n\
@@ -8911,12 +9023,20 @@ fn finds_a_background_reader_without_the_gate() {
         fn d() {\n    // Its busy pointer: the listing.\n    std::thread::spawn(move || look(p));\n}\n\
         fn e() {\n    // No busy pointer: a reaper.\n    std::thread::spawn(move || drop(p));\n}\n\
         fn f() {\n    spawn_worker_pool(\n        1,\n        move |p| {\n            \
-        let m = p.metadata();\n        },\n    );\n}\n";
+        let m = p.metadata();\n        },\n    );\n}\n\
+        fn g() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        look(p);\n        gate.before_a_look(p);\n    });\n}\n\
+        fn read_all(p: &str) -> Vec<u8> {\n    std::fs::read(p)\n}\n\
+        fn mounts() -> Vec<u8> {\n    read_all(\"/proc/self/mountinfo\")\n}\n\
+        fn h() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        mounts();\n        gate.before_a_look(p);\n        look(p);\n    });\n}\n\
+        fn k() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        read_all(\"/proc/self/fd/7/a.jpg\");\n        gate.before_a_look(p);\n    });\n}\n";
     let sources = [("x.rs".to_owned(), text.to_owned())];
     let found: Vec<String> = (ungated_background_readers(&sources).into_iter())
         .map(|(_, function)| function)
         .collect();
-    assert_eq!(found, ["a", "f"]);
+    assert_eq!(found, ["a", "f", "g", "k"]);
 }
 
 /// Work that goes through the gate for work nobody waits for
@@ -9106,7 +9226,31 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
     let gates: Vec<bool> = (graph.functions.iter())
         .map(|f| THE_GATE.iter().any(|g| own_lines(f).contains(g)))
         .collect();
-    let (reads, gates) = (reaching(&calls, reads), reaching(&calls, gates));
+    // A read of the mount table, the system's own file, is no read of the user's files on a
+    // share, so a call that names it does not carry its reads on. A path through a folder
+    // opened (`/proc/self/fd/N/…`) is the user's, and counts.
+    let raw: std::collections::HashMap<&str, Vec<&str>> = (sources.iter())
+        .map(|(file, text)| (file.as_str(), text.lines().collect()))
+        .collect();
+    let of_the_system = |f: &Function, c: &Call| {
+        let line = raw[f.file.as_str()].get(c.line - 1).copied().unwrap_or("");
+        ["\"/proc/self/mountinfo\"", "\"/proc/mounts\""]
+            .iter()
+            .any(|p| line.contains(p))
+    };
+    let users_calls: Vec<Vec<Call>> = (graph.functions.iter().zip(&calls))
+        .map(|(f, calls)| {
+            (calls.iter())
+                .filter(|c| !of_the_system(f, c))
+                .map(|c| Call {
+                    callee: c.callee,
+                    text: c.text.clone(),
+                    line: c.line,
+                })
+                .collect()
+        })
+        .collect();
+    let (reads, gates) = (reaching(&users_calls, reads), reaching(&calls, gates));
     let mut found = Vec::new();
     for (file, text) in sources {
         let (code, comments) = (code_lines(text), comment_lines(text));
@@ -9127,24 +9271,38 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
                 continue;
             };
             let function = &graph.functions[f];
-            let (work, last) = call_text(&code[..end], i, at);
+            let (_, last) = call_text(&code[..end], i, at);
             let whole = own_lines(function);
             let opens = (function.lines.clone()).find(|&k| code[k].ends_with('{'));
             let signature = code[*function.lines.start()..=opens.unwrap_or(i)].join(" ");
-            // shortcut: a thread counts as gated when its work reaches the gate anywhere, not
-            // when every read comes after it. Read in order, three threads read first (the
-            // watcher's first modification times, a tool's files still listed, a thumbnail's
-            // folder set aside), each a change of its own (#294); worth reading in order once
-            // those go through the gate first.
-            let callees: Vec<usize> = (i..=last)
-                .flat_map(|k| graph.callees(function, &whole, &signature, &code[k]))
-                .map(|(callee, _)| callee)
-                .collect();
-            let reads_here = BACKGROUND_READS.iter().any(|r| work.contains(r))
-                || callees.iter().any(|&g| reads[g]);
-            let gated =
-                THE_GATE.iter().any(|g| work.contains(g)) || callees.iter().any(|&g| gates[g]);
-            if reads_here && !gated {
+            // Each line of the work, from the thread's start, is read for what it does: whether
+            // it reads and whether it passes the gate, itself or through what it calls. A read
+            // on a line before the first that passes the gate goes around it, also when the gate
+            // comes later. A line that does both passes, as its call orders them. Before, a gate
+            // anywhere in the work passed it (#294).
+            let (mut first_read, mut first_gate) = (None, None);
+            for (k, line) in code.iter().enumerate().take(last + 1).skip(i) {
+                let part = if k == i { &line[at..] } else { &line[..] };
+                let callees: Vec<usize> = (graph.callees(function, &whole, &signature, part))
+                    .into_iter()
+                    .map(|(callee, _)| callee)
+                    .collect();
+                let gates_here =
+                    THE_GATE.iter().any(|g| part.contains(g)) || callees.iter().any(|&g| gates[g]);
+                let reads_here = BACKGROUND_READS.iter().any(|r| part.contains(r))
+                    || callees.iter().any(|&g| reads[g]);
+                if gates_here {
+                    first_gate = first_gate.or(Some(k));
+                } else if reads_here {
+                    first_read = first_read.or(Some(k));
+                }
+            }
+            let around_the_gate = match (first_read, first_gate) {
+                (Some(read), Some(gate)) => read < gate,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            if around_the_gate {
                 found.push((file.clone(), function.name.clone()));
             }
         }
@@ -9192,7 +9350,7 @@ pub(crate) fn functions_reaching(owner: &str, name: &str) -> HashSet<String> {
                 .collect()
         })
         .collect();
-    let own = (graph.functions.iter())
+    let own: Vec<bool> = (graph.functions.iter())
         .map(|f| f.owner.as_deref() == Some(owner) && f.name == name)
         .collect();
     (reaching(&calls, own).into_iter().zip(&graph.functions))
@@ -9225,7 +9383,7 @@ pub(crate) fn calls_reaching(
             false => graph.calls_of(f),
         })
         .collect();
-    let own = (graph.functions.iter())
+    let own: Vec<bool> = (graph.functions.iter())
         .map(|f| {
             let code = graph.lines[&f.file][f.lines.clone()].join("\n");
             let owner = f.owner.as_deref().unwrap_or("");

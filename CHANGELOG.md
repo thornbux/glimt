@@ -39,6 +39,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   no longer taken for the Stop (#304).
 - On NFSv3, a rename whose link the server made but answered "already there" no longer leaves
   a second name or a second copy, such as two copies of an image cropped (#307).
+- A minimized window takes the changes that the folder watcher sees as they come, where they
+  piled up until the window was shown again (#188).
+- A Move to Trash or a Move Folder to Trash whose trash failed is judged by what each file's
+  move answered, not by a look at its old name, which a share's cache may still show. A file
+  that may have gone all the same keeps its marks until the next start puts them right (#308).
+- On a share, the folder watcher's first look at its folders and a tool's look at the files
+  it is given wait for the image the window waits for, as every other look in the background
+  does (#294).
 - A notice that comes in the same moment as a failed write, such as Add to Collection's
   "added" when the collection could not be saved, is shown above the failure, no longer taken
   away by it (#301).

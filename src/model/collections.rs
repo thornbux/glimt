@@ -273,7 +273,10 @@ impl crate::App {
             let trashed = picked
                 .still_the_one_picked(&file)
                 .map_err(|e| e.to_string())
-                .and_then(|()| crate::files::trash::trash(std::slice::from_ref(&file)));
+                .and_then(|()| {
+                    let failed = crate::files::trash::trash(std::slice::from_ref(&file));
+                    crate::files::trash::told_failure(&failed).map_or(Ok(()), Err)
+                });
             Some(match trashed {
                 Ok(()) => crate::support::threads::Told::Notice(tf!(
                     "Collection {name} moved to the trash",

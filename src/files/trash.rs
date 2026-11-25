@@ -491,7 +491,13 @@ fn first_of_each<K: Ord>(
 /// move it. In a Flatpak, a file that the trash portal refused goes by hand too. The portal
 /// refuses a file that is not writable, because GLib hands it a descriptor open for writing,
 /// though a move needs only the folder.
-pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
+///
+/// Returns each file that did not surely go, with the error of its step, whose
+/// `may_have_been_done` tells whether it may have gone all the same. When gio fails, each file
+/// may have gone, as gio may have moved it before it failed. A file that nothing was at when it
+/// was to go by hand, as gio took it before it failed, went. Before, the callers judged a
+/// failed trash by a look at each file's old name, which a share's cache may still show (#308).
+pub(crate) fn trash(paths: &[PathBuf]) -> Vec<(PathBuf, StepError)> {
     use crate::files::external::{has_program, in_flatpak};
     // Tests trash by hand into their own home's trash, where Undo looks. gio would put the
     // files into the user's own trash.
@@ -509,23 +515,31 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
         }
     };
     let Err(e) = refused else {
-        return Ok(());
+        return Vec::new();
     };
     // The host's trash, also where the host has its own XDG_DATA_HOME.
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
     let (true, Some(home)) = (!has_gio || in_flatpak(), home) else {
-        return Err(e);
+        return (paths.iter())
+            .map(|p| (p.clone(), StepError::of_a_program(&e, p)))
+            .collect();
     };
-    // Each one left is tried, and the first that still fails is told as it failed. One that
-    // could not be looked at is tried too, so that its failure is told rather than taken for done.
-    let left: Vec<&Path> = (paths.iter())
-        .filter(|p| !crate::files::file_io::is_surely_gone(p))
-        .map(PathBuf::as_path)
-        .collect();
-    match trash_by_hand_anywhere(&left, &home).into_iter().next() {
-        None => Ok(()),
-        Some((path, e)) => Err(format!("{}: {e}", shown_path(&path))),
-    }
+    // Each is tried by hand. One that gio took before it failed is not there to move.
+    let all: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    (trash_by_hand_anywhere(&all, &home).into_iter())
+        .map(|(path, e)| {
+            let step = StepError::new(e, &path, &path);
+            (path, step)
+        })
+        .filter(|(_, step)| !step.found_nothing())
+        .collect()
+}
+
+/// Returns the failures of `trash`, each with the name of its file, as one text to tell, or
+/// `None` when every file went.
+pub(crate) fn told_failure(failed: &[(PathBuf, StepError)]) -> Option<String> {
+    let (path, e) = failed.first()?;
+    Some(format!("{}: {e}", shown_path(path)))
 }
 
 /// Moves `paths` into a trash by hand, the one that gio would choose for each. A file on the file
@@ -918,6 +932,32 @@ fn read_trash_info(text: &str, top: &Path) -> Option<(PathBuf, String)> {
 
 #[cfg(test)]
 mod tests {
+    /// A file whose move into the trash lost its answer, where no look can tell where it is,
+    /// is told as one that may have gone, by the step's own error, which the callers judge with
+    /// `may_have_been_done`. A file that nothing was at went. Before, the trash told only a text,
+    /// and its callers judged each file by a look at its old name alone, which a share's cache
+    /// may still show (#308).
+    #[test]
+    fn a_trash_that_lost_its_answer_is_told_as_one_that_may_have_gone() {
+        use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL_ONCE_DONE_AT};
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-trash-answer-lost-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        std::fs::write(&file, "x").unwrap();
+        ANSWER_LOST_AT.set(Some(file.clone()));
+        LOOKS_FAIL_ONCE_DONE_AT.set(Some((file.clone(), vec![file.clone()])));
+        let failed = super::trash(std::slice::from_ref(&file));
+        LOOKS_FAIL_ONCE_DONE_AT.set(None);
+        ANSWER_LOST_AT.set(None);
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(failed[0].1.may_have_been_done());
+        assert!(super::trash(std::slice::from_ref(&dir.join("none.png"))).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A sidecar whose rename out of the trash may have been done, and which is at neither of
     /// its names, counts as neither out nor in the trash, so its loss is told. Before, the gone
     /// name in the trash counted it as out at its own name.
@@ -1056,7 +1096,7 @@ mod tests {
         let file = dir.join("a.png");
         std::fs::write(&file, "x").unwrap();
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
-        super::trash(std::slice::from_ref(&file)).unwrap();
+        assert!(super::trash(std::slice::from_ref(&file)).is_empty());
         assert!(!file.exists());
         let uid = super::own_uid().unwrap();
         let trash = super::top_of_file_system(&dir)
@@ -1108,7 +1148,7 @@ mod tests {
         let file = link.join(&name);
         std::fs::write(&file, "x").unwrap();
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
-        super::trash(std::slice::from_ref(&file)).unwrap();
+        assert!(super::trash(std::slice::from_ref(&file)).is_empty());
         assert!(!file.exists());
         let uid = super::own_uid().unwrap();
         assert!(!pictures.join(format!(".Trash-{uid}")).exists());
@@ -1179,7 +1219,7 @@ mod tests {
                 std::fs::rename(&t, &m).unwrap();
                 std::os::unix::fs::symlink(&d, &t).unwrap();
             })));
-            super::trash(std::slice::from_ref(&file)).unwrap();
+            assert!(super::trash(std::slice::from_ref(&file)).is_empty());
             assert!(!file.exists());
             assert!(
                 !decoy.join("files").exists(),
@@ -1228,7 +1268,7 @@ mod tests {
         let file = dir.join(&name);
         std::fs::write(&file, "own").unwrap();
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
-        super::trash(std::slice::from_ref(&file)).unwrap();
+        assert!(super::trash(std::slice::from_ref(&file)).is_empty());
         // The other user's file of the same name, a .trashinfo dated now, in their folder.
         std::fs::write(decoy.join("files").join(&name), "planted").unwrap();
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
@@ -1303,7 +1343,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).unwrap();
             return;
         }
-        super::trash(std::slice::from_ref(&file)).unwrap();
+        assert!(super::trash(std::slice::from_ref(&file)).is_empty());
         let entries = super::read_trash(&home, std::path::Path::new("/"));
         let entry = entries.iter().find(|t| t.from == file).unwrap();
         let text = std::fs::read_to_string(&entry.info).unwrap();
@@ -1347,7 +1387,7 @@ mod tests {
         crate::files::file_io::FILES_SYNCED.take();
         let trashed = super::trash(&files);
         crate::files::file_ops::test_mount(&home.join("info"), None);
-        trashed.unwrap();
+        assert!(trashed.is_empty(), "{trashed:?}");
         let synced = crate::files::file_io::FOLDERS_SYNCED.take();
         assert_eq!(synced, [home.join("info")]);
         assert_eq!(crate::files::file_io::FILES_SYNCED.take(), 0);
