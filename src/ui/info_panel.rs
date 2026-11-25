@@ -242,11 +242,13 @@ impl InfoPanel {
         drawn(read, shown, self.reading_since, self.drawn_at)
     }
 
-    /// Returns the info panel's rows to draw for the shown file `shown`, or None when none are
-    /// drawn.
-    fn rows_drawn_for(&self, shown: &Path) -> Option<&[(&'static str, String)]> {
+    /// Returns the info panel's rows to draw for the shown file `shown`, and how they are drawn,
+    /// decided at one moment. The EXIF window's fields are read with the rows, so they are drawn
+    /// in the same way. Returns `None` when none are drawn.
+    fn rows_drawn_for(&self, shown: &Path) -> Option<(&[(&'static str, String)], Drawn)> {
         let (read, rows) = self.exif.as_ref()?;
-        (self.drawn(read, shown) != Drawn::Not).then_some(rows.as_slice())
+        let drawn = self.drawn(read, shown);
+        (drawn != Drawn::Not).then_some((rows.as_slice(), drawn))
     }
 
     /// Returns the edit to draw for the shown file `shown` and how it is drawn, or None when
@@ -258,7 +260,7 @@ impl InfoPanel {
 
     /// Returns the info panel's row `label` as it is drawn for the shown file `shown`.
     pub(crate) fn exif_row(&self, shown: &Path, label: &str) -> Option<&str> {
-        let rows = self.rows_drawn_for(shown)?;
+        let (rows, _) = self.rows_drawn_for(shown)?;
         rows.iter().find(|r| r.0 == label).map(|r| r.1.as_str())
     }
 
@@ -406,13 +408,12 @@ impl crate::App {
                         // The rows of the image before stay only while the read of this one is
                         // young, as a read that does not answer would leave them for good.
                         let shown = self.path(self.list.shown());
-                        let rows = self.info_panel.rows_drawn_for(&shown).unwrap_or_default();
                         // The rows kept of the image before are disabled, as its fields below
                         // are, so that its GPS link cannot be clicked under this image's name
                         // and a screen reader reads them as unavailable.
-                        let is_kept = (self.info_panel.exif.as_ref()).is_some_and(|(read, _)| {
-                            self.info_panel.drawn(read, &shown) == Drawn::KeptWhileReading
-                        });
+                        let (rows, drawn) = (self.info_panel.rows_drawn_for(&shown))
+                            .unwrap_or((&[], Drawn::Not));
+                        let is_kept = drawn == Drawn::KeptWhileReading;
                         for (label, value) in rows {
                             ui.add_enabled_ui(!is_kept, |ui| ui.weak(tr(label)));
                             ui.add_enabled_ui(!is_kept, |ui| {
@@ -878,11 +879,17 @@ impl crate::App {
             // The fields of the image before stay only while the read of this one is young, as
             // in the info panel.
             let shown = self.path(self.list.shown());
-            let is_drawn = self.info_panel.rows_drawn_for(&shown).is_some();
-            let all: &[_] = match is_drawn {
-                true => &self.info_panel.exif_all,
-                false => &[],
+            // The fields kept of the image before are disabled, as the panel's rows are, so
+            // that a screen reader does not read them as this image's.
+            let drawn = self
+                .info_panel
+                .rows_drawn_for(&shown)
+                .map(|(_, drawn)| drawn);
+            let all: &[_] = match drawn {
+                Some(_) => &self.info_panel.exif_all,
+                None => &[],
             };
+            let is_kept = drawn == Some(Drawn::KeptWhileReading);
             egui::Window::new(title)
                 .id(egui::Id::unique("exif window"))
                 .open(&mut open)
@@ -892,17 +899,19 @@ impl crate::App {
                     if all.is_empty() {
                         ui.weak(tr("No EXIF data"));
                     }
-                    egui::Grid::new("exif all")
-                        .striped(true)
-                        .num_columns(3)
-                        .show(ui, |ui| {
-                            for (group, name, value) in all {
-                                ui.weak(tr(group));
-                                ui.label(name);
-                                ui.label(value);
-                                ui.end_row();
-                            }
-                        });
+                    ui.add_enabled_ui(!is_kept, |ui| {
+                        egui::Grid::new("exif all")
+                            .striped(true)
+                            .num_columns(3)
+                            .show(ui, |ui| {
+                                for (group, name, value) in all {
+                                    ui.weak(tr(group));
+                                    ui.label(name);
+                                    ui.label(value);
+                                    ui.end_row();
+                                }
+                            });
+                    });
                 });
             self.info_panel.is_exif_window_open = open;
         }
@@ -1279,10 +1288,8 @@ mod tests {
         // The time runs out after the drawing has begun.
         std::thread::sleep(edge * 2);
         let b = dir.join("b.png");
-        assert!(app.info_panel.rows_drawn_for(&b).is_some());
-        let (read, _) = app.info_panel.exif.as_ref().unwrap();
-        let drawn = app.info_panel.drawn(read, &b);
-        assert_eq!(drawn, super::Drawn::KeptWhileReading);
+        let drawn = app.info_panel.rows_drawn_for(&b).map(|(_, drawn)| drawn);
+        assert_eq!(drawn, Some(super::Drawn::KeptWhileReading));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1313,6 +1320,48 @@ mod tests {
                 let update = out.platform_output.accesskit_update.map(|u| u.nodes);
                 for (_, node) in update.into_iter().flatten() {
                     if node.role() == eframe::egui::Role::Link && node.label() == Some(place) {
+                        found = Some(node.is_disabled());
+                    }
+                }
+            }
+            found
+        };
+        assert_eq!(is_disabled(&mut app), Some(false));
+        app.show_file(&ctx, 1);
+        assert_eq!(is_disabled(&mut app), Some(true));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The EXIF window's fields kept of the image before while the next one is read are
+    /// disabled, as the panel's rows are, so that a screen reader reads them as unavailable.
+    /// Before, the window titled with the new image's name drew them as its own (#192).
+    #[cfg(feature = "accessibility")]
+    #[test]
+    fn the_exif_windows_fields_kept_of_the_image_before_are_disabled() {
+        let name = format!("glimt-test-exif-window-kept-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        // A stand-in for a reader that does not answer.
+        let (_answers, rx) = std::sync::mpsc::channel::<super::ExifRead>();
+        app.info_panel.exif_answers = rx;
+        let model = "Test Camera 1";
+        app.info_panel.exif_all = vec![("Camera", "Model".into(), model.into())];
+        app.info_panel.is_exif_window_open = true;
+        ctx.enable_accesskit();
+        let is_disabled = |app: &mut crate::App| {
+            let mut found = None;
+            for _ in 0..2 {
+                let out = ctx.run_ui(Default::default(), |ui| {
+                    app.exif_fields_window(&ui.ctx().clone())
+                });
+                let update = out.platform_output.accesskit_update.map(|u| u.nodes);
+                for (_, node) in update.into_iter().flatten() {
+                    if node.role() == eframe::egui::Role::Label && node.value() == Some(model) {
                         found = Some(node.is_disabled());
                     }
                 }
