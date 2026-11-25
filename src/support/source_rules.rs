@@ -774,10 +774,11 @@ const BACKGROUND_READS: &[&str] = &[
     "from_memory(",
 ];
 
-/// What passes a thread's looks and reads on a share through the gate (`listing::ReadsFirst`),
-/// which waits there for the images that the window waits for.
+/// What passes a thread's looks and reads on a share through the gate (`listing::ReadsFirst`):
+/// its waits for the images that the window waits for. Making a `ReadsFirst`, or taking one as
+/// a parameter, waits for nothing, so the name of the type does not count. Before, it did, and a
+/// read after the gate was made but before its first wait passed (#294).
 const THE_GATE: &[&str] = &[
-    "ReadsFirst",
     "before_a_look(",
     "before_work_nobody_waits_for(",
     "wait_for_reads_that_go_first(",
@@ -9018,7 +9019,9 @@ fn background_reads_on_a_share_go_through_the_gate() {
 /// pool whose work reads, and a thread that reads before it passes the gate. It passes one that
 /// goes through the gate first, itself or in a function it calls, a thread with a busy pointer,
 /// one that reads nothing, and one that reads only the mount table before the gate, but not a
-/// path through a folder opened. Before, a gate anywhere in the work passed it (#294).
+/// path through a folder opened. Before, a gate anywhere in the work passed it (#294). It also
+/// finds a read after the gate is made but before its first wait, and a helper that takes the
+/// gate but never waits at it, which passed while making or taking a `ReadsFirst` counted.
 #[test]
 fn finds_a_background_reader_without_the_gate() {
     let text = "fn look(p: &Path) {\n    std::fs::metadata(p);\n}\n\
@@ -9038,12 +9041,17 @@ fn finds_a_background_reader_without_the_gate() {
         fn h() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
         mounts();\n        gate.before_a_look(p);\n        look(p);\n    });\n}\n\
         fn k() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
-        read_all(\"/proc/self/fd/7/a.jpg\");\n        gate.before_a_look(p);\n    });\n}\n";
+        read_all(\"/proc/self/fd/7/a.jpg\");\n        gate.before_a_look(p);\n    });\n}\n\
+        fn sizes(gate: &mut ReadsFirst, p: &Path) {\n    look(p);\n}\n\
+        fn m() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        let mut gate = ReadsFirst::for_files_anywhere(&awaited);\n        look(p);\n        \
+        gate.before_a_look(p);\n    });\n}\n\
+        fn n() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || sizes(&mut gate, p));\n}\n";
     let sources = [("x.rs".to_owned(), text.to_owned())];
     let found: Vec<String> = (ungated_background_readers(&sources).into_iter())
         .map(|(_, function)| function)
         .collect();
-    assert_eq!(found, ["a", "f", "g", "k"]);
+    assert_eq!(found, ["a", "f", "g", "k", "m", "n"]);
 }
 
 /// Work that goes through the gate for work nobody waits for
