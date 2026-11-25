@@ -11,6 +11,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the photo when the next start puts the names back or finishes them after Glimt was stopped,
   as the window's own undo moves it. So does one that an undo cut short left at the old name
   or at a hidden name of a swap (#310).
+- Marks and stars that another window set on a photo under its new name while Rename Many ran
+  now stay with the photo: under its new name when the renames go through, and back under its
+  old name when they are stopped or fail, also when the next start puts them right after Glimt
+  was stopped. Before, the photo's earlier marks were put over them, or they stayed behind at
+  the new name. An old mark that a file deleted outside Glimt left at the new name still never
+  goes on the photo (#311).
 - A share's error that broke off a Move at the very moment the user pressed Stop is now told,
   no longer taken for the Stop (#304).
 - On NFSv3, a rename whose link the server made but answered "already there" no longer leaves
