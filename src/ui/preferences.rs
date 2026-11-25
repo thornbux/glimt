@@ -5,7 +5,7 @@ use crate::files::config::{
     CPU_LEVELS, FADES, FULL_SCREEN_INFO_TEMPLATE, MAX_SLIDESHOW_DELAY, MEMORY_LEVELS,
 };
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
-use crate::support::format::thousands;
+use crate::support::format::{escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::set_cpu_use;
 use crate::ui::actions::{ALL, Action, SHORTCUTS, shortcuts};
@@ -729,7 +729,7 @@ impl crate::App {
             let own_file = !INPUT_PROFILES.iter().any(|p| p.0 == current);
             let file = Path::new(&current).file_name().filter(|_| own_file);
             let label = file.map_or(tr("Profile file…").into(), |n| {
-                format!("{}…", n.to_string_lossy())
+                format!("{}…", escaped_name(n))
             });
             if radio(ui, own_file, &label).clicked() {
                 self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
@@ -747,13 +747,14 @@ impl crate::App {
                 ui.label(tr("Screen profile:"));
                 if let Some(path) = from_desktop {
                     let name = Path::new(&path).file_name().unwrap_or_default();
-                    let name = tf!("{name}, from the desktop", name = name.to_string_lossy());
-                    ui.label(name).on_hover_text(path);
+                    let name = tf!("{name}, from the desktop", name = escaped_name(name));
+                    ui.label(name).on_hover_text(escaped_name(path));
                     return;
                 }
                 let file = Path::new(&self.config.screen_profile).file_name();
-                let name = file.map_or(tr("none, sRGB").into(), |n| n.to_string_lossy());
-                ui.label(name).on_hover_text(&self.config.screen_profile);
+                let name = file.map_or(tr("none, sRGB").into(), escaped_name);
+                ui.label(name)
+                    .on_hover_text(escaped_name(&self.config.screen_profile));
                 if crate::ui::menus::button(ui, tr("Choose…")).clicked() {
                     self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
                 }

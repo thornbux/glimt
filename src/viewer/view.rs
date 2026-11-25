@@ -7,7 +7,7 @@ use crate::files::external::is_video;
 use crate::files::file_io::Identity;
 use crate::images::decode::{Decoded, catch_panic_as_error, decode, histogram};
 use crate::model::list::LoadedImage;
-use crate::support::format::fill_template;
+use crate::support::format::{escaped_name, fill_template};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{STUCK_AFTER, lock_even_if_poisoned};
@@ -536,6 +536,9 @@ pub(crate) struct Notice {
     /// notice given meanwhile shows them under its own text, until they have been on the
     /// screen for `READ_TIME`, so a notice that comes soon after cannot hide them.
     kept_until_drawn: Vec<(Failure, Option<Instant>)>,
+    /// How many notices were given when a frame last took the failed writes
+    /// (`show_failed_writes`). A notice with a higher number came since.
+    given_when_failures_taken: u64,
 }
 
 impl Notice {
@@ -618,6 +621,23 @@ impl Notice {
         self.given += 1;
         self.set_shown(Some((messages, self.given)));
         self.kept_until_drawn.push((warning, None));
+    }
+
+    /// Shows `failures`, the failed writes that a frame takes, each kept until drawn
+    /// (`keep_until_drawn`), under the notice given since the frame before took them. A notice
+    /// given before that, which the frames since have shown, is taken away first, so a failure
+    /// is not read as part of an older notice. Before, the notice of the same frame was taken
+    /// away too, such as Add to Collection's "added" when the collection's write failed (#301).
+    pub(crate) fn show_failed_writes(&mut self, failures: Vec<Failure>) {
+        let since = self.given_when_failures_taken;
+        let is_new = (self.shown.as_ref()).is_some_and(|(_, number)| *number > since);
+        if !failures.is_empty() && !is_new {
+            self.clear();
+        }
+        for failure in failures {
+            self.keep_until_drawn(failure);
+        }
+        self.given_when_failures_taken = self.given;
     }
 
     /// Notes that a frame drew the notice at `now`, and lets the warnings go that have been
@@ -1260,7 +1280,7 @@ impl crate::App {
             &self.config.full_screen_info_template,
             |field| match field {
                 "name" => self.name(self.list.shown()).to_string(),
-                "path" => path.display().to_string(),
+                "path" => escaped_name(&path),
                 "position" => self.position_text(),
                 "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
                     .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
@@ -1843,7 +1863,7 @@ impl crate::App {
             } else if let Some(e) = self.list.decode_errors().get(&self.list.shown()) {
                 crate::tf!(
                     "Could not open {name}:\n{e}",
-                    name = self.path(self.list.shown()).display(),
+                    name = escaped_name(self.path(self.list.shown())),
                     e
                 )
             } else {

@@ -1,10 +1,11 @@
 //! File → Check Images: every image of the list decoded in the background, the broken ones listed,
 //! and those that could not be checked.
 
+use crate::files::file_io::{FileFingerprint, fingerprint_of_file_read, same_fingerprint};
 use crate::images::decode::DecodeFailure;
-use crate::support::format::{count, thousands};
+use crate::support::format::{count, escaped_name, thousands};
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, Working, background_threads};
+use crate::support::threads::{Receiving, Took, Working, answer_channel, background_threads};
 use crate::{images::decode, tf};
 use eframe::egui;
 use std::ffi::OsString;
@@ -20,10 +21,14 @@ pub(crate) struct ImageCheck {
     working: Arc<AtomicUsize>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     total: usize,
-    /// Each file that failed: its name in the list, why, and whether that is the file's fault.
-    found_rx: Receiving<(OsString, String, bool)>,
-    /// The broken ones found: (name in the list, why).
-    broken: Vec<(OsString, String)>,
+    /// Each file that failed: its name in the list, why, whether that is the file's fault, and
+    /// its fingerprint, taken before it was read.
+    found_rx: Receiving<(OsString, String, bool, Option<FileFingerprint>)>,
+    /// The broken ones found: (name in the list, why, fingerprint before it was read).
+    broken: Vec<(OsString, String, Option<FileFingerprint>)>,
+    /// The broken files that are still as the check read them, which Select Them selects once
+    /// they have been looked at in the background (`start_selecting_broken`).
+    still_broken: Receiving<(Vec<OsString>, Working)>,
     /// The files that could not be checked, for a reason that says nothing about the file,
     /// such as ffmpeg not installed or a share away for a moment: (name in the list, why).
     /// They are not marked broken, as a user who trusts the mark may delete them.
@@ -48,6 +53,7 @@ impl crate::App {
         };
         if let Some(c) = &mut check {
             self.take_found(c);
+            self.select_still_broken(ctx, c);
         }
         let (mut open, mut start, mut show, mut select) = (true, false, None, false);
         egui::Window::new(tr("Check Images"))
@@ -102,14 +108,14 @@ impl crate::App {
                     |ui, rows| {
                         for i in rows {
                             let (name, text) = match c.broken.get(i) {
-                                Some((name, why)) => {
-                                    (name, format!("{}: {why}", name.to_string_lossy()))
+                                Some((name, why, _)) => {
+                                    (name, format!("{}: {why}", escaped_name(name)))
                                 }
                                 None => {
                                     let (name, why) = &c.unchecked[i - c.broken.len()];
                                     let text = tf!(
                                         "{name}: could not be checked: {why}",
-                                        name = name.to_string_lossy(),
+                                        name = escaped_name(name),
                                         why
                                     );
                                     (name, text)
@@ -130,12 +136,8 @@ impl crate::App {
         {
             self.show_file(ctx, i);
         }
-        if select {
-            let broken = (self.list.files().iter().enumerate())
-                .filter(|(_, f)| self.broken_files.contains(*f))
-                .map(|(i, _)| i)
-                .collect();
-            self.select_for_action(ctx, broken);
+        if select && let Some(c) = &mut check {
+            self.start_selecting_broken(c);
         }
         if open {
             self.check_images = Some(check);
@@ -164,6 +166,7 @@ impl crate::App {
             total: files.len(),
             found_rx: Receiving::of(found),
             broken: Vec::new(),
+            still_broken: Receiving::none(),
             unchecked: Vec::new(),
         };
         for _ in 0..threads {
@@ -177,9 +180,10 @@ impl crate::App {
                     let Some((name, path)) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
                         break;
                     };
+                    let read_as = fingerprint_of_file_read(path);
                     if let Err(why) = decode::check_decodes(path) {
                         let is_broken = decode::failure_of(path, &why) == DecodeFailure::OfTheFile;
-                        let _ = tx.send((name.clone(), why, is_broken));
+                        let _ = tx.send((name.clone(), why, is_broken, read_as));
                     }
                     done.fetch_add(1, Ordering::Relaxed);
                 }
@@ -194,15 +198,58 @@ impl crate::App {
     /// Takes the failures that the check's threads found: a broken file is listed and marked
     /// in the file list, and one that could not be checked is only listed.
     fn take_found(&mut self, check: &mut ImageCheck) {
-        while let Took::Answer((name, why, is_broken)) = check.found_rx.next() {
+        while let Took::Answer((name, why, is_broken, read_as)) = check.found_rx.next() {
             match is_broken {
                 true => {
                     self.broken_files.insert(name.clone());
-                    check.broken.push((name, why));
+                    check.broken.push((name, why, read_as));
                 }
                 false => check.unchecked.push((name, why)),
             }
         }
+    }
+
+    /// Select Them: looks in the background which of the broken files are still as the check
+    /// read them, and `select_still_broken` selects those. A file that another program wrote
+    /// anew since, also in place under the same inode (`cp -f`), may be a good photo now, so it
+    /// is neither selected nor marked broken any more.
+    fn start_selecting_broken(&mut self, check: &mut ImageCheck) {
+        let dir = self.folder.dir().to_path_buf();
+        let read: Vec<(OsString, Option<FileFingerprint>)> = (check.broken.iter())
+            .map(|(name, _, read_as)| (name.clone(), *read_as))
+            .collect();
+        let (tx, rx) = answer_channel(&self.busy);
+        let ctx = self.ctx.clone();
+        // Its busy pointer: the answer's, until the window has selected the files.
+        std::thread::spawn(move || {
+            let is_as_read = |name: &OsString, read_as: Option<FileFingerprint>| {
+                let now = fingerprint_of_file_read(&dir.join(name));
+                matches!((read_as, now), (Some(a), Some(b)) if same_fingerprint(a, b))
+            };
+            let unchanged = (read.into_iter())
+                .filter(|(name, read_as)| is_as_read(name, *read_as))
+                .map(|(name, _)| name)
+                .collect();
+            let _ = tx.send(unchanged);
+            ctx.request_repaint();
+        });
+        check.still_broken = Receiving::of(rx);
+    }
+
+    /// Selects the broken files that are still as the check read them, once the look of
+    /// `start_selecting_broken` has answered, and forgets the mark of the others.
+    fn select_still_broken(&mut self, ctx: &egui::Context, check: &mut ImageCheck) {
+        let Took::Answer((unchanged, _working)) = check.still_broken.take() else {
+            return;
+        };
+        let unchanged: std::collections::HashSet<OsString> = unchanged.into_iter().collect();
+        check.broken.retain(|(name, ..)| unchanged.contains(name));
+        self.broken_files.retain(|name| unchanged.contains(name));
+        let broken = (self.list.files().iter().enumerate())
+            .filter(|(_, f)| self.broken_files.contains(*f))
+            .map(|(i, _)| i)
+            .collect();
+        self.select_for_action(ctx, broken);
     }
 }
 
@@ -263,10 +310,50 @@ mod tests {
         app.take_found(&mut check);
         let unchecked: Vec<_> = check.unchecked.iter().map(|(name, _)| name).collect();
         assert_eq!(unchecked, ["away.png"]);
-        let broken: Vec<_> = check.broken.iter().map(|(name, _)| name).collect();
+        let broken: Vec<_> = check.broken.iter().map(|(name, ..)| name).collect();
         assert_eq!(broken, ["text.png"]);
         assert_eq!(app.broken_files.len(), 1);
         assert!(app.broken_files.contains(std::ffi::OsStr::new("text.png")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Select Them selects only the broken files that are still as the check read them. One
+    /// that another program wrote anew in place since (`cp -f`, the same inode) is neither
+    /// selected nor marked broken. Before, the marks were kept by name, and Select Them selected
+    /// the good photo, ready to be deleted (#202).
+    #[test]
+    fn select_them_leaves_out_a_file_written_anew_since_the_check() {
+        let name = format!("glimt-test-check-rewritten-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            std::fs::write(dir.join(name), b"not a picture").unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let mut check = app.start_check(&ctx);
+        let start = std::time::Instant::now();
+        while check.working.load(super::Ordering::Relaxed) > 0 {
+            assert!(start.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        app.take_found(&mut check);
+        assert_eq!(app.broken_files.len(), 2);
+        // b.png is written anew in place, as a good picture.
+        let mut good = std::io::Cursor::new(Vec::new());
+        image::RgbImage::new(2, 2)
+            .write_to(&mut good, image::ImageFormat::Png)
+            .unwrap();
+        std::fs::write(dir.join("b.png"), good.into_inner()).unwrap();
+        app.start_selecting_broken(&mut check);
+        let start = std::time::Instant::now();
+        while app.list.selected().is_empty() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            app.select_still_broken(&ctx, &mut check);
+        }
+        let a = app.list.files().iter().position(|n| n == "a.png").unwrap();
+        assert_eq!(app.list.selected(), &[a].into());
+        assert!(!app.broken_files.contains(std::ffi::OsStr::new("b.png")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

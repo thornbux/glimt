@@ -4,7 +4,7 @@
 use crate::files::config::xdg_dir;
 use crate::files::file_io::{is_surely_dir, is_surely_gone};
 use crate::images::save::{FileId, file_id};
-use crate::support::format::{count, local_time};
+use crate::support::format::{count, escaped_name, local_time};
 use crate::support::lang::tr;
 use std::path::{Path, PathBuf};
 
@@ -64,7 +64,7 @@ fn copy_into(
             Err(e) => {
                 return Err(std::io::Error::new(
                     e.kind(),
-                    format!("{}: {e}", source.display()),
+                    format!("{}: {e}", escaped_name(source)),
                 ));
             }
             Ok(meta) => meta,
@@ -77,7 +77,7 @@ fn copy_into(
             if target.contains(&id) {
                 return Err(std::io::Error::other(crate::tf!(
                     "A backup cannot go inside {folder}, which it copies",
-                    folder = source.display()
+                    folder = escaped_name(source)
                 )));
             }
             // A link back up to a folder being copied would copy it inside itself forever.
@@ -91,7 +91,7 @@ fn copy_into(
         } else if meta.is_file() {
             // Named, as the files after it are not copied.
             crate::files::file_io::put_file(&source, &dest, true)
-                .map_err(|e| std::io::Error::other(format!("{}: {e}", source.display())))?;
+                .map_err(|e| std::io::Error::other(format!("{}: {e}", escaped_name(source))))?;
             files += 1;
         }
     }
@@ -107,7 +107,7 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     if !is_surely_dir(dir) {
         return Err(crate::tf!(
             "{folder} is not a folder",
-            folder = dir.display()
+            folder = escaped_name(dir)
         ));
     }
     let own = own_folders();
@@ -122,7 +122,7 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     if let Some((_, inside)) = own.iter().find(|(_, d)| inside_own(d)) {
         return Err(crate::tf!(
             "A backup cannot go inside {folder}, which it copies",
-            folder = inside.display()
+            folder = escaped_name(inside)
         ));
     }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
@@ -133,7 +133,7 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     let to = new_backup_folder(dir, &date).map_err(|e| {
         crate::tf!(
             "The backup to {folder} is not whole: {e}",
-            folder = dir.display(),
+            folder = escaped_name(dir),
             e
         )
     })?;
@@ -145,12 +145,12 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     match copied {
         Ok(n) => Ok(crate::tf!(
             "Glimt's data backed up to {folder}: {files}",
-            folder = to.display(),
+            folder = escaped_name(to),
             files = count(n, "file")
         )),
         Err(e) => Err(crate::tf!(
             "The backup to {folder} is not whole: {e}",
-            folder = to.display(),
+            folder = escaped_name(to),
             e
         )),
     }

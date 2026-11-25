@@ -1,7 +1,7 @@
 //! The window itself: its size and place remembered, and the screen saver kept off in full screen.
 
 use crate::files::config::WindowState;
-use crate::support::format::fill_template;
+use crate::support::format::{escaped_name, fill_template};
 use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::viewer::view::Failure;
@@ -515,12 +515,12 @@ impl crate::App {
         ) {
             (Some(_), _) => (
                 self.name(self.list.shown()).into_owned(),
-                self.path(self.list.shown()).display().to_string(),
+                escaped_name(self.path(self.list.shown())),
             ),
-            (None, Some(file)) => (file.display().to_string(), file.display().to_string()),
+            (None, Some(file)) => (escaped_name(file), escaped_name(file)),
             (None, None) => (
-                self.folder.dir().display().to_string(),
-                self.folder.dir().display().to_string(),
+                escaped_name(self.folder.dir()),
+                escaped_name(self.folder.dir()),
             ),
         };
         // The shown image's own folder: a collection and several folders are listed as "/".
@@ -532,10 +532,7 @@ impl crate::App {
                 .and_then(|f| f.parent())
                 .map(Path::to_path_buf),
         };
-        let folder = folder
-            .unwrap_or_else(|| self.folder.dir().to_path_buf())
-            .display()
-            .to_string();
+        let folder = escaped_name(folder.unwrap_or_else(|| self.folder.dir().to_path_buf()));
         // A named Glimt says which it is.
         let app = match remote::given_name() {
             Some(n) => tf!("Glimt ({n})", n),

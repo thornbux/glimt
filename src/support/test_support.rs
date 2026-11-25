@@ -128,8 +128,8 @@ pub(crate) fn contract_folder(name: &str) -> std::path::PathBuf {
     }
     let gqv = format!(
         "#GQview collection\n\"{}\"\n\"{}\"\n",
-        dir.join("a.png").display(),
-        dir.join("b.png").display()
+        dir.join("a.png").to_string_lossy(),
+        dir.join("b.png").to_string_lossy()
     );
     std::fs::write(dir.join("col.gqv"), gqv).unwrap();
     dir

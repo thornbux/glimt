@@ -7,7 +7,8 @@ use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{ImagesAwaited, ReadsFirst, SORTS, Types, list_folder};
 use crate::support::format::{
-    NOT_COUNTED_ON_A_SHARE, count, human_size, local_time, middle_cut, size_text, thousands,
+    NOT_COUNTED_ON_A_SHARE, count, escaped_name, human_size, local_time, middle_cut, size_text,
+    thousands,
 };
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
@@ -753,7 +754,7 @@ impl crate::App {
             if let Some(img) = result {
                 let tex = img.map(|img| {
                     ctx.load_texture(
-                        format!("thumb {}", path.display()),
+                        format!("thumb {}", path.to_string_lossy()),
                         img,
                         egui::TextureOptions::LINEAR,
                     )
@@ -947,7 +948,7 @@ impl crate::App {
             p.galley(at.min, galley, gold);
         }
         let response = response.on_hover_text_at_pointer(match self.folder.collection() {
-            Some(_) => self.path(i).display().to_string(),
+            Some(_) => escaped_name(self.path(i)),
             None => self.name(i).into_owned(),
         });
         (response, go_to)
@@ -1146,7 +1147,7 @@ impl crate::App {
                         return drop(ui.label("…"));
                     }
                     let open = self.tree.expanded.contains(path);
-                    let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
+                    let name = path.file_name().map_or("/".into(), escaped_name);
                     if crate::ui::menus::caret(ui, open, &name).clicked() {
                         toggled = Some(path.to_path_buf());
                     }
@@ -1249,8 +1250,8 @@ impl crate::App {
                             let here = dir == self.folder.dir();
                             let on = !here && !self.list.files().is_empty();
                             let button =
-                                crate::ui::menus::button_enabled(ui, on, &name.to_string_lossy());
-                            if button.on_hover_text(dir.display().to_string()).clicked()
+                                crate::ui::menus::button_enabled(ui, on, &escaped_name(name));
+                            if button.on_hover_text(escaped_name(&dir)).clicked()
                                 && let Some(targets) = self.targets()
                             {
                                 let files = targets.iter().map(|&i| self.listed_file(i));
@@ -1415,7 +1416,7 @@ impl crate::App {
         };
         if let Some(folder) = chosen {
             let gone =
-                |p: &Path| Failure::from(tf!("No such folder: {folder}", folder = p.display()));
+                |p: &Path| Failure::from(tf!("No such folder: {folder}", folder = escaped_name(p)));
             self.visit_if_there(ui.ctx(), folder, gone);
         }
     }
@@ -1439,8 +1440,9 @@ impl crate::App {
             if let Some(uri) = crate::files::external::network_location(text) {
                 self.mount(ui.ctx(), uri.to_owned());
             } else {
-                let gone =
-                    |p: &Path| Failure::from(tf!("No such folder: {folder}", folder = p.display()));
+                let gone = |p: &Path| {
+                    Failure::from(tf!("No such folder: {folder}", folder = escaped_name(p)))
+                };
                 self.visit_if_there(ui.ctx(), path, gone);
             }
         }
@@ -1555,7 +1557,7 @@ impl crate::App {
                             let d = &self.folder.subdirs()[row - up.is_some() as usize];
                             let name = d.file_name().unwrap_or_default();
                             (
-                                format!("{}  {}", theme::icon::FOLDER, name.to_string_lossy()),
+                                format!("{}  {}", theme::icon::FOLDER, escaped_name(name)),
                                 d,
                             )
                         }
@@ -2284,8 +2286,8 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
         .collect();
     folders.reverse();
     let name = |p: &Path| match p.file_name() {
-        Some(name) => name.to_string_lossy().into_owned(),
-        None => p.display().to_string(),
+        Some(name) => escaped_name(name),
+        None => escaped_name(p),
     };
     let font = egui::TextStyle::Button.resolve(ui.style());
     // The folders are drawn with half the buttons' padding and no spacing, as the padding

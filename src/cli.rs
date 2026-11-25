@@ -4,6 +4,7 @@
 
 use crate::features::remote;
 use crate::files::config::{self, Config, FADES};
+use crate::support::format::escaped_name;
 use crate::viewer::view::LAYOUTS;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -322,7 +323,7 @@ fn config_report(
 /// fine, or a line for each problem. A settings file that is not there yet is fine, as Glimt
 /// then uses the defaults, unless `given` says that the command line named it.
 fn config_check(path: &Path, given: bool) -> Result<String, Vec<String>> {
-    let shown = path.display();
+    let shown = escaped_name(path);
     // Parsed by `parse_checked`, which config's survives_broken_files feeds broken input.
     let problems = match crate::images::decode::read_text(path) {
         Ok(text) => Config::parse_checked(&text).1,

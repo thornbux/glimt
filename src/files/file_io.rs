@@ -273,12 +273,7 @@ impl OtherNames {
     /// Counts a save that replaced the file at `path`.
     fn add(&mut self, path: &Path) {
         self.count += 1;
-        let name = || {
-            path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned()
-        };
+        let name = || crate::support::format::escaped_name(path.file_name().unwrap_or_default());
         self.first.get_or_insert_with(name);
     }
 
@@ -773,6 +768,20 @@ impl std::fmt::Display for NamedButNotOnDisk {
 
 impl std::error::Error for NamedButNotOnDisk {}
 
+/// The failure of a program that makes a step on several files, such as `gio trash`, with what
+/// it said. It may have done the step for some of them before it failed, so each counts as a
+/// step that may have been done (`may_have_been_done`).
+#[derive(Debug)]
+struct ProgramFailed(String);
+
+impl std::fmt::Display for ProgramFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ProgramFailed {}
+
 /// The error of a step on a name: a rename (`rename_never_over`), a move or a copy given its
 /// name (`put_file` and the functions built on it), or the unlink of a second name
 /// (`journal::rename_step`). A share may have done such a step and lost its answer, which only
@@ -805,6 +814,14 @@ impl StepError {
         }
     }
 
+    /// Makes the error of a program that was to make the step on `from`, among other files, and
+    /// failed saying `said`. The program may have made the step before it failed, so the step
+    /// may have been done (#308).
+    pub(in crate::files) fn of_a_program(said: &str, from: &Path) -> StepError {
+        let error = std::io::Error::other(ProgramFailed(said.to_owned()));
+        StepError::new(error, from, from)
+    }
+
     /// Makes the error of a step from `from` to `to` for a test, as `new` does.
     #[cfg(test)]
     pub(crate) fn in_a_test(error: std::io::Error, from: &Path, to: &Path) -> StepError {
@@ -825,7 +842,8 @@ impl StepError {
     /// Returns whether the step surely did nothing because nothing was at its old name: the
     /// error says that no file was there, and it is no lost answer (`may_have_been_done`).
     pub(crate) fn found_nothing(&self) -> bool {
-        self.error.kind() == std::io::ErrorKind::NotFound && !self.may_have_been_done()
+        let error = step_error_inside(&self.error);
+        error.kind() == std::io::ErrorKind::NotFound && !self.may_have_been_done()
     }
 
     /// Returns whether the step was refused because a file or folder has the new name.
@@ -1214,6 +1232,10 @@ fn unlink_was_refused(e: &std::io::Error) -> bool {
 /// is judged here by the error inside it.
 pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
     let e = step_error_inside(e);
+    // A program that steps through several files may have done this one before it failed.
+    if e.get_ref().is_some_and(|inner| inner.is::<ProgramFailed>()) {
+        return true;
+    }
     #[cfg(test)]
     if ON_A_SHARE_IN_A_TEST.with_borrow(|share| share.as_ref().is_some_and(|s| from.starts_with(s)))
     {
@@ -1470,7 +1492,8 @@ fn explain_rename_error(e: std::io::Error, to: &Path) -> std::io::Error {
     // file system.
     match e.raw_os_error() {
         Some(18 | 38 | 95) => {
-            let kind = file_system_type(to.parent().unwrap_or(to)).unwrap_or_else(|| "?".into());
+            let kind = file_system_type(to.parent().unwrap_or(to));
+            let kind = kind.as_deref().map_or("?", shown_type);
             std::io::Error::new(
                 e.kind(),
                 crate::tf!(
@@ -1562,6 +1585,18 @@ fn file_system_type_in_udev(udev: &str) -> Option<String> {
     let kind = (udev.lines().filter_map(|l| l.split_once('=')))
         .find_map(|(key, value)| (key == "E:ID_FS_TYPE").then_some(value))?;
     (!kind.is_empty()).then(|| kind.to_owned())
+}
+
+/// Returns the type `kind` (from `file_system_type`) as a text for the user. A FUSE mount
+/// without a subtype is named by its source (`type_of`), which can be a URL or a path with a
+/// user's name in it, so such a name is shown as plain "fuse". A program's name, the subtype or
+/// source of the other FUSE mounts, has only letters, digits and `-_.+`.
+pub(crate) fn shown_type(kind: &str) -> &str {
+    let is_name = |c: char| c.is_ascii_alphanumeric() || "-_.+".contains(c);
+    match kind.strip_prefix("fuse.") {
+        Some(source) if !source.chars().all(is_name) => "fuse",
+        _ => kind,
+    }
 }
 
 /// Returns whether a mount of type `kind` (from `file_system_type`) is on another computer or in a
@@ -2428,7 +2463,7 @@ fn named_without_descriptor(path: &Path) -> Option<std::borrow::Cow<'_, Path>> {
 /// (`source_rules::paths_through_a_descriptor_are_shown_by_their_names`).
 pub(crate) fn shown_path(path: &Path) -> String {
     let named = named_without_descriptor(path);
-    named.as_deref().unwrap_or(path).display().to_string()
+    crate::support::format::escaped_name(named.as_deref().unwrap_or(path))
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
@@ -3577,6 +3612,22 @@ mod tests {
         super::replace_name(&dir.join("a.xmp"), "newer").unwrap();
         assert_eq!(noted(), None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A FUSE mount's type is shown by its program's name, and one named by its source, a URL or
+    /// a path, as plain "fuse", as the source can hold a user's name (#312).
+    #[test]
+    fn a_fuse_mounts_source_is_not_shown() {
+        for (kind, shown) in [
+            ("fuse.rclone", "fuse.rclone"),
+            ("fuse.blobfuse2", "fuse.blobfuse2"),
+            ("fuse.https://me@dav.example/photos", "fuse"),
+            ("fuse.me@host:/photos", "fuse"),
+            ("fuse./home/me/a:/home/me/b", "fuse"),
+            ("nfs4", "nfs4"),
+        ] {
+            assert_eq!(super::shown_type(kind), shown, "{kind}");
+        }
     }
 
     /// A rename the file system cannot do is told in plain words with the system's own after

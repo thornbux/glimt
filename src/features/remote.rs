@@ -10,6 +10,7 @@
 
 use crate::features::remote;
 use crate::images::decode::{copy_limited, read_line_limited};
+use crate::support::format::escaped_name;
 use crate::support::lang::tr;
 #[cfg(feature = "test-hooks")]
 use crate::support::test_hooks;
@@ -1599,7 +1600,7 @@ fn print_answer(
     match read {
         Ok(_) => ANSWERED.store(true, std::sync::atomic::Ordering::Relaxed),
         Err(e) => {
-            eprintln!("glimt: no answer from {}: {e}", path.display());
+            eprintln!("glimt: no answer from {}: {e}", escaped_name(path));
             TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
@@ -1799,7 +1800,7 @@ fn open_path_sent(path: &str) -> String {
         return uri.to_owned();
     }
     let full = std::path::absolute(path).unwrap_or_else(|_| path.into());
-    full.display().to_string()
+    full.to_string_lossy().into_owned()
 }
 
 /// Listens for commands in the background and passes each line to `tx`, with where to answer
@@ -2466,7 +2467,7 @@ fn mark_focused(dir: &Path, id: &str) {
     // meanwhile got an empty name.
     let path = dir.join(FOCUSED_FILE);
     if let Err(e) = crate::files::file_io::replace_file(&path, id) {
-        eprintln!("glimt: {}: {e}", path.display());
+        eprintln!("glimt: {}: {e}", escaped_name(path));
     }
 }
 

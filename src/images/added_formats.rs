@@ -20,6 +20,7 @@
 //! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has, and at most the memory of the setting
 //! `added_format_memory_mb`, which it finds in `GLIMT_FORMAT_MEMORY_MB`.
 
+use crate::support::format::escaped_name;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -102,7 +103,7 @@ impl AddedFormat {
             .arg(&program)
             .args(&args[1..])
             .spawn()
-            .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
+            .map_err(|e| format!("{} ({}): {e}", self.name, escaped_name(program)))?;
         let named = |e| format!("{}: {e}", self.name);
         let mut input = crate::images::decode::DecodeInput::reserve(0).map_err(named)?;
         let (image, err, ok) =

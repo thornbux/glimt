@@ -8,7 +8,7 @@
 use crate::files::config::fits_on_a_line;
 use crate::files::file_io::ListedFile;
 use crate::images::save::FileId;
-use crate::support::format::without_control_characters;
+use crate::support::format::{escaped_name, without_control_characters};
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
@@ -369,7 +369,7 @@ pub struct LeftBehind {
 impl LeftBehind {
     /// Returns the text that tells the user where the sidecar is still, and why.
     pub fn told(&self) -> String {
-        let (sidecar, e) = (self.sidecar.display(), &self.error);
+        let (sidecar, e) = (escaped_name(&self.sidecar), &self.error);
         let Some(copy) = &self.copy else {
             return crate::tf!(
                 "{sidecar} is a link and could not be moved ({e}), so it stays at its old name",
@@ -377,7 +377,7 @@ impl LeftBehind {
                 e
             );
         };
-        let copy = copy.display();
+        let copy = escaped_name(copy);
         crate::tf!(
             "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too",
             sidecar,
@@ -745,7 +745,7 @@ pub(crate) fn check_no_sidecar(
     _sidecar_lock: &SidecarLock,
 ) -> std::io::Result<()> {
     let side = sidecar(path);
-    let named = side.display();
+    let named = escaped_name(&side);
     match crate::files::file_io::check_free(&side) {
         Ok(()) => Ok(()),
         Err(e) if e.raw_os_error() == Some(libc::ENAMETOOLONG) && !will_have_one => Ok(()),
@@ -1245,7 +1245,7 @@ fn update(
     // The file the write is for is still the one the list showed, looked at under the lock.
     let refused = WRITING_FOR.with_borrow_mut(|writing| {
         let (file, refused) = writing.as_mut().filter(|(file, _)| file.path() == path)?;
-        let e = format!("{}: {}", path.display(), file.check().err()?);
+        let e = format!("{}: {}", escaped_name(path), file.check().err()?);
         Some(refused.insert(e).clone())
     });
     if let Some(e) = refused {
@@ -1255,11 +1255,11 @@ fn update(
     // A link is not written through, because a downloaded folder may point IMG.jpg.xmp at
     // another file of the user's, which a keyword added here would then change. A sidecar
     // that cannot be looked at is not written either, as it may be such a link.
-    let named = |e: std::io::Error| format!("{}: {e}", side.display());
+    let named = |e: std::io::Error| format!("{}: {e}", escaped_name(&side));
     if crate::files::file_io::is_link(&side).map_err(named)? {
         return Err(crate::tf!(
             "{name} is a link: not written through",
-            name = side.display()
+            name = escaped_name(&side)
         ));
     }
     // The sidecar is looked at before it is read, so that one another program writes after the
@@ -1268,9 +1268,9 @@ fn update(
     // A sidecar that is there but cannot be read (no permission, not UTF-8) is not written
     // over, because it may hold another program's edits.
     let old = match own_sidecar(path) {
-        Err(e) => return Err(format!("{}: {e}", side.display())),
+        Err(e) => return Err(format!("{}: {e}", escaped_name(&side))),
         Ok(Some(bytes)) => {
-            String::from_utf8(bytes).map_err(|e| format!("{}: {e}", side.display()))?
+            String::from_utf8(bytes).map_err(|e| format!("{}: {e}", escaped_name(&side)))?
         }
         Ok(None) if only_if_there => return Ok(()),
         Ok(None) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
@@ -1287,7 +1287,7 @@ fn update(
     }
     // A link put there since the look above is replaced, and the file it points to is left
     // alone. A sidecar changed or made since the read is left alone too.
-    let named = |e: std::io::Error| format!("{}: {e}", side.display());
+    let named = |e: std::io::Error| format!("{}: {e}", escaped_name(&side));
     let write = |f: &mut std::fs::File| std::io::Write::write_all(f, text.as_bytes());
     crate::files::file_io::replace_what_was_read(&side, read, write).map_err(named)
 }

@@ -6,6 +6,7 @@
 //! log of a higher version alone.
 
 use crate::files::file_io::{FileFingerprint, TMP_PREFIX};
+use crate::support::format::escaped_name;
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
@@ -725,7 +726,7 @@ pub(crate) fn logs_left_by_a_kill(dir: &Path) -> Vec<FoundLog> {
     if left_alone > 0 {
         crate::files::file_io::save_failed(crate::tf!(
             "{folder} holds logs that a newer Glimt left, or that this Glimt cannot read. They are kept for a Glimt that can finish them.",
-            folder = dir.display()
+            folder = escaped_name(dir)
         ));
     }
     found

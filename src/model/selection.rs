@@ -1,7 +1,7 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::model::folder::total_size_unless_on_a_share;
-use crate::support::format::{count, thousands};
+use crate::support::format::{count, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::Receiving;
 use crate::tf;
@@ -24,26 +24,19 @@ impl crate::App {
         (self.list.files().get(i)).map_or("".into(), |name| self.name_shown(name))
     }
 
-    /// Returns how the list shows `name`, an entry of the list's files.
+    /// Returns how the list shows `name`, an entry of the list's files, with its control
+    /// characters written as escapes (`escaped_name`).
     pub(crate) fn name_shown<'a>(&self, name: &'a std::ffi::OsStr) -> std::borrow::Cow<'a, str> {
         // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
         if !self.folder.folders().is_empty() {
             let path = Path::new(name);
-            let last = |p: &Path| {
-                p.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            let folder = path.parent().map(last).unwrap_or_default();
-            return format!("{folder}/{last}", last = last(path)).into();
+            let folder = path.parent().and_then(Path::file_name).unwrap_or_default();
+            let file = path.file_name().unwrap_or_default();
+            return format!("{}/{}", escaped_name(folder), escaped_name(file)).into();
         }
         match self.folder.collection() {
-            Some(_) => Path::new(name)
-                .file_name()
-                .unwrap_or(name)
-                .to_string_lossy(),
-            None => name.to_string_lossy(),
+            Some(_) => escaped_name(Path::new(name).file_name().unwrap_or(name)).into(),
+            None => escaped_name(name).into(),
         }
     }
 
@@ -479,6 +472,25 @@ pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+
+    /// A file planted with line breaks and a mark that turns the text around in its name is
+    /// shown with them written as escapes, in the list, the title and the delete question,
+    /// which all take the name from `name_shown`. Before, the name added a sentence of its own
+    /// to the delete question (#189).
+    #[test]
+    fn a_name_is_shown_with_its_control_characters_escaped() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-name-escaped-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let planted = "a.jpg\"?\n\nOnly the cached copy goes.\u{202e}.png";
+        image::RgbImage::new(2, 2).save(dir.join(planted)).unwrap();
+        let (app, _ctx) = app_on(&dir);
+        assert_eq!(
+            app.name(0),
+            "a.jpg\"?\\n\\nOnly the cached copy goes.\\u{202e}.png"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// Next on the last image, a click on the shown image's row and a pane step that clamps to
     /// it keep the shown image as it is. Its turn is not dropped, or written into the file, as

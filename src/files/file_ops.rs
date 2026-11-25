@@ -5,8 +5,8 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, done_after_all, fingerprint,
-    is_surely_gone, is_surely_there, put_file, put_file_until_stopped, rename_never_over,
+    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, StepError, done_after_all,
+    fingerprint, is_surely_gone, put_file, put_file_until_stopped, rename_never_over,
     same_fingerprint,
 };
 use crate::files::job_log::Direction;
@@ -15,7 +15,7 @@ use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
 use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
-use crate::support::format::{count, thousands};
+use crate::support::format::{count, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
     AnswerSender, Receiving, Told, Took, Working, answer_channel, catch_panic,
@@ -1456,7 +1456,7 @@ impl crate::App {
                         Ok(found) => then(app, ctx, found),
                         Err(_) => app.notice.give_error(tf!(
                             "{folder} did not answer within a minute, so nothing was done",
-                            folder = folder.display()
+                            folder = escaped_name(&folder)
                         )),
                     }
                     // The job that `then` started took its own, so Ctrl+Z waits on.
@@ -1563,7 +1563,7 @@ impl crate::App {
                 }
                 None => {
                     let moved = job.report(|| {
-                        let (files, folder) = (count(paths.len(), "file"), dest.display());
+                        let (files, folder) = (count(paths.len(), "file"), escaped_name(dest));
                         match is_copy {
                             true => tf!("{files} copied to {folder}", files, folder),
                             false => tf!("{files} moved to {folder}", files, folder),
@@ -1789,7 +1789,7 @@ impl crate::App {
             false => tr("the file was changed meanwhile"),
         };
         let mut errors: Vec<String> = (left_alone.iter())
-            .map(|&k| format!("{}: {other}", job.from[k].display()))
+            .map(|&k| format!("{}: {other}", escaped_name(&job.from[k])))
             .collect();
         let told = if !errors.is_empty() {
             errors.extend(result.err());
@@ -1914,7 +1914,9 @@ impl crate::App {
             let is_decoded = |now| decoded.is_none_or(|read| same_fingerprint(read, now));
             let result = catch_panic_as_error(|| match jpeg {
                 // A look that failed is no answer, and the fingerprint below then tells it.
-                _ if is_surely_gone(&path) => Err(tf!("{name} is gone", name = path.display())),
+                _ if is_surely_gone(&path) => {
+                    Err(tf!("{name} is gone", name = escaped_name(&path)))
+                }
                 _ if !fingerprint(&path).is_some_and(is_decoded) => {
                     Err(crate::files::file_io::changed_meanwhile().to_string())
                 }
@@ -2055,7 +2057,9 @@ impl crate::App {
                     read_folder_again: true,
                     ..Default::default()
                 });
-                return Some(Told::FailedWrite(format!("{}: {e}", old.display()).into()));
+                return Some(Told::FailedWrite(
+                    format!("{}: {e}", escaped_name(old)).into(),
+                ));
             }
             // A log of the folder, so that a kill before the window has followed it leaves
             // the next start to make the marks follow. The folder keeps its name without it.
@@ -2067,14 +2071,16 @@ impl crate::App {
             if let Err(e) = rename_never_over(&old, &new) {
                 let e = std::io::Error::from(e);
                 end_the_log_of_a_failed_folder_rename(&e, log.take());
-                return Some(Told::FailedWrite(format!("{}: {e}", new.display()).into()));
+                return Some(Told::FailedWrite(
+                    format!("{}: {e}", escaped_name(&new)).into(),
+                ));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
             // sync is told, but the window still follows the folder, which has its new name.
             let synced = crate::files::file_io::sync_folder_of(&new);
             let error = synced
                 .err()
-                .map(|e| Told::FailedWrite(format!("{}: {e}", new.display()).into()));
+                .map(|e| Told::FailedWrite(format!("{}: {e}", escaped_name(&new)).into()));
             let _ = report_tx.send(OperationReport {
                 folder_renamed: Some((old, new)),
                 job_log: log,
@@ -2134,25 +2140,27 @@ impl crate::App {
             let (_, picked) = picked.wait_for_fingerprints();
             // A log of the folder, so that a kill before the window has forgotten the marks of
             // its files leaves the next start to forget them. The folder stays without it.
-            let (log, error) = match picked.still_the_one_picked(&dir) {
+            let (log, failed, error) = match picked.still_the_one_picked(&dir) {
                 Ok(()) => match folder_log(&dir, None, collection.as_deref()) {
-                    Ok(log) => (
-                        log,
-                        crate::files::trash::trash(std::slice::from_ref(&dir))
-                            .err()
-                            .map(Failure::from),
-                    ),
-                    Err(warning) => (None, Some(warning)),
+                    Ok(log) => {
+                        let failed = crate::files::trash::trash(std::slice::from_ref(&dir));
+                        let error = crate::files::trash::told_failure(&failed).map(Failure::from);
+                        (log, failed, error)
+                    }
+                    Err(warning) => (None, Vec::new(), Some(warning)),
                 },
-                Err(e) => (None, Some(format!("{}: {e}", dir.display()).into())),
+                Err(e) => (
+                    None,
+                    Vec::new(),
+                    Some(format!("{}: {e}", escaped_name(&dir)).into()),
+                ),
             };
-            // A failure that leaves the folder's name not surely there may have moved it all
-            // the same, so the log stays for the next start, which looks again.
+            // A failed trash that may have moved the folder all the same keeps the log for the
+            // next start, which looks again. Before, a look at the folder's name alone judged
+            // it (#308).
             let mut log = log;
-            if let Some(log) = log
-                .as_mut()
-                .filter(|_| error.is_some() && !is_surely_there(&dir))
-            {
+            let may_have_gone = failed.iter().any(|(_, e)| e.may_have_been_done());
+            if let Some(log) = log.as_mut().filter(|_| may_have_gone) {
                 log.keep_for_the_next_start();
             }
             // After a failure, the folder is listed again, as after a failed delete of files.
@@ -2754,7 +2762,7 @@ impl crate::App {
                     Ok(true) => {
                         Some(tr("choose another name: the image itself is not changed").into())
                     }
-                    Err(e) => Some(format!("{}: {e}", to.display())),
+                    Err(e) => Some(format!("{}: {e}", escaped_name(&to))),
                 };
                 if let Some(e) = e {
                     return Some(Told::FailedWrite(
@@ -2765,7 +2773,7 @@ impl crate::App {
             // The chooser waited, and another file may have taken the name meanwhile. Its
             // frames are not saved as the ones shown.
             if let Err(e) = how.is_still_the_file_shown(&path) {
-                let e = format!("{}: {e}", path.display());
+                let e = format!("{}: {e}", escaped_name(&path));
                 return Some(Told::FailedWrite(
                     tf!("Could not save the frames: {e}", e).into(),
                 ));
@@ -2794,7 +2802,10 @@ impl crate::App {
             // which would keep the window open after the user asked it to close.
             let stopped = std::sync::atomic::AtomicBool::new(false);
             let saved = if made.is_err() {
-                Err(tf!("Could not make {folder}", folder = folder.display()))
+                Err(tf!(
+                    "Could not make {folder}",
+                    folder = escaped_name(&folder)
+                ))
             } else {
                 decode::catch_panic_as_error(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
@@ -2820,7 +2831,7 @@ impl crate::App {
                                 .map_err(|e| e.to_string())
                                 .and_then(|sidecar_failed| sidecar_failed.map_or(Ok(()), Err))
                             })
-                            .map_err(|e| format!("{}: {e}", file.display()))
+                            .map_err(|e| format!("{}: {e}", escaped_name(file)))
                     })
                 })
             };
@@ -2833,11 +2844,11 @@ impl crate::App {
             }
             Some(match (saved, only) {
                 (Ok(0), _) => Told::Notice(tr("No such frame").to_owned()),
-                (Ok(_), Some(_)) => Told::Notice(tf!("Saved {file}", file = to.display())),
+                (Ok(_), Some(_)) => Told::Notice(tf!("Saved {file}", file = escaped_name(&to))),
                 (Ok(n), None) => Told::Notice(tf!(
                     "{frames} saved in {folder}",
                     frames = count(n, "frame"),
-                    folder = folder.display()
+                    folder = escaped_name(&folder)
                 )),
                 (Err(e), _) if stopped.load(Ordering::Relaxed) => Told::Notice(e),
                 (Err(e), _) => Told::FailedWrite(tf!("Could not save the frames: {e}", e).into()),
@@ -3027,9 +3038,10 @@ pub(crate) fn forget_in_collection(
 }
 
 /// Returns the files of `paths` that are still there on a network or cloud mount, with the
-/// mount's type, after the trash refused them. Returns `None` when there are none, such as when
-/// the trash failed in a local folder that cannot be written. `file_system_type` gives a folder's
-/// file system, and it is asked once for each folder.
+/// mount's type as it is shown to the user (`shown_type`), after the trash refused them. Returns
+/// `None` when there are none, such as when the trash failed in a local folder that cannot be
+/// written. `file_system_type` gives a folder's file system, and it is asked once for each
+/// folder.
 fn left_by_trash(
     paths: &[PathBuf],
     file_system_type: impl Fn(&Path) -> Option<String>,
@@ -3046,7 +3058,8 @@ fn left_by_trash(
         .filter(|p| !is_surely_gone(p) && remote(p).is_some())
         .cloned()
         .collect();
-    Some((remote(left.first()?)?, left))
+    let kind = remote(left.first()?)?;
+    Some((crate::files::file_io::shown_type(&kind).to_owned(), left))
 }
 
 /// Returns the files of `refused` that the trash left on a network or cloud mount, with the
@@ -3096,7 +3109,7 @@ fn delete_in_chunks(
         let (went, side, left_alone) =
             catch_panic(|| delete_chunk(chunk, picked, (trash, log), errors)).unwrap_or_else(
                 || {
-                    errors.push(format!("{}: {}", chunk[0].display(), broke_here()));
+                    errors.push(format!("{}: {}", escaped_name(&chunk[0]), broke_here()));
                     let went: Vec<PathBuf> = (chunk.iter())
                         .filter(|p| is_surely_gone(p))
                         .cloned()
@@ -3161,7 +3174,7 @@ fn delete_chunk(
         match picked.still_the_one_picked(p) {
             Ok(()) => kept.push(p.clone()),
             Err(e) => {
-                errors.push(format!("{display}: {e}", display = p.display()));
+                errors.push(format!("{shown}: {e}", shown = escaped_name(p)));
                 left_alone.push(p.clone());
             }
         }
@@ -3191,19 +3204,27 @@ fn delete_chunk(
         .flat_map(|(p, sides)| sides.iter().chain([p]))
         .cloned()
         .collect();
-    let trashed = match in_order.is_empty() {
-        true => Ok(()),
+    let failed = match in_order.is_empty() {
+        true => Vec::new(),
         false => crate::files::trash::trash(&in_order),
     };
-    // A look that failed (a share that dropped for a moment) counts the photo as there.
+    // The trash tells each photo that did not surely go, and whether it may have gone all the
+    // same. Before, a look at each photo's name judged it, which a share's cache may answer
+    // wrongly (#308).
+    let failed_photo = |p: &PathBuf| failed.iter().find(|(f, _)| f == p).map(|(_, e)| e);
     let (mut went_with, mut stayed): (Vec<_>, Vec<_>) = (sidecars_of_file.into_iter())
-        .partition(|(p, _): &(PathBuf, Vec<PathBuf>)| is_surely_gone(p));
-    if trashed.is_err() {
-        give_adobe_sidecars_to_those_that_stayed(&mut went_with, &mut stayed);
+        .partition(|(p, _): &(PathBuf, Vec<PathBuf>)| failed_photo(p).is_none());
+    // A photo whose step surely did nothing is still there.
+    let surely_there: HashSet<PathBuf> = (stayed.iter())
+        .filter(|(p, _)| failed_photo(p).is_some_and(|e| !e.may_have_been_done()))
+        .map(|(p, _)| p.clone())
+        .collect();
+    if !failed.is_empty() {
+        give_adobe_sidecars_to_those_that_stayed(&mut went_with, &mut stayed, &surely_there);
     }
-    // A photo that is neither surely gone nor surely there may have gone to the trash, so the
-    // log stays for the next start, which looks again.
-    if let Some(log) = log.filter(|_| stayed.iter().any(|(p, _)| !is_surely_there(p))) {
+    // A photo that may have gone to the trash all the same keeps the log for the next start,
+    // which looks again.
+    if let Some(log) = log.filter(|_| stayed.len() > surely_there.len()) {
         log.keep_for_the_next_start();
     }
     let mut went: Vec<PathBuf> = went_with.iter().map(|(p, _)| p.clone()).collect();
@@ -3212,9 +3233,9 @@ fn delete_chunk(
         .collect();
     // A sidecar that stays is told, as the photo's own errors are, because the next file of that
     // name would show its keywords.
-    if let Err(e) = trashed {
-        take_back_sidecars(stayed, since, errors);
-        let back = take_back_from_the_trash(went_with, since, errors);
+    if let Some(e) = crate::files::trash::told_failure(&failed) {
+        take_back_sidecars(stayed, (&failed, &surely_there), since, errors);
+        let back = take_back_from_the_trash(went_with, &failed, since, errors);
         went.retain(|p| !back.contains(p));
         errors.push(e);
     }
@@ -3243,13 +3264,15 @@ fn note_gone(log: Option<&mut journal::DeleteLog>, path: &Path) {
 
 /// Moves Adobe's sidecar of a name stem, which went to the trash with the last RAW file of the
 /// stem, from that file in `went_with` to a RAW file of the same stem in `stayed` that is surely
-/// still there. The sidecar is that file's alone now, and `take_back_sidecars` brings it back.
+/// still there, by its step that surely did nothing (`surely_there`). The sidecar is that
+/// file's alone now, and `take_back_sidecars` brings it back.
 fn give_adobe_sidecars_to_those_that_stayed(
     went_with: &mut [(PathBuf, Vec<PathBuf>)],
     stayed: &mut [(PathBuf, Vec<PathBuf>)],
+    surely_there: &HashSet<PathBuf>,
 ) {
     for (p, sides) in stayed.iter_mut() {
-        let Some(stem) = xmp::adobe_stem(p).filter(|_| is_surely_there(p)) else {
+        let Some(stem) = xmp::adobe_stem(p).filter(|_| surely_there.contains(p)) else {
             continue;
         };
         for (_, went_sides) in went_with.iter_mut() {
@@ -3262,19 +3285,21 @@ fn give_adobe_sidecars_to_those_that_stayed(
 }
 
 /// Takes the sidecars that went to the trash of the files of `stayed`, which did not go, back
-/// out of it, so that each photo keeps its keywords. Only a photo surely there takes them back:
-/// one that could not be looked at may be gone, and its sidecar would then wait at its name for
-/// the next file of that name. The move to the trash began at `since`. A sidecar that cannot
-/// come back is told in `errors`.
+/// out of it, so that each photo keeps its keywords. Only a photo surely there takes them back,
+/// one whose step surely did nothing (`surely_there`): one that may have gone would leave its
+/// sidecar at its name for the next file of that name. A sidecar went when the trash told no
+/// failure of it (`failed`). The move to the trash began at `since`. A sidecar that cannot come
+/// back is told in `errors`.
 fn take_back_sidecars(
     stayed: Vec<(PathBuf, Vec<PathBuf>)>,
+    (failed, surely_there): (&[(PathBuf, StepError)], &HashSet<PathBuf>),
     since: std::time::SystemTime,
     errors: &mut Vec<String>,
 ) {
     let sidecars: Vec<PathBuf> = (stayed.into_iter())
-        .filter(|(p, _)| is_surely_there(p))
+        .filter(|(p, _)| surely_there.contains(p))
         .flat_map(|(_, sides)| sides)
-        .filter(|side| is_surely_gone(side))
+        .filter(|side| !failed.iter().any(|(f, _)| f == side))
         .collect();
     if sidecars.is_empty() {
         return;
@@ -3319,7 +3344,8 @@ fn delete_for_good(
     // The files gone so far and the one being deleted, which leave its stem's sidecar to it.
     let mut leaving: HashSet<&PathBuf> = HashSet::new();
     let (mut went, mut sides, mut left_alone) = (Vec::new(), Vec::new(), Vec::new());
-    let mut failed = |at: &Path, e: std::io::Error| errors.push(format!("{}: {e}", at.display()));
+    let mut failed =
+        |at: &Path, e: std::io::Error| errors.push(format!("{}: {e}", escaped_name(at)));
     for p in chunk {
         if let Err(e) = picked.still_the_one_picked(p) {
             failed(p, e);
@@ -3490,12 +3516,14 @@ fn keep_aside_of_a_photo_gone_without_answer(
 }
 
 /// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
-/// it, with those of its sidecars that went, so that the photo and its keywords stay together.
+/// it, with those of its sidecars that went, so that the photo and its keywords stay together. A
+/// sidecar went when the trash told no failure of it (`failed`).
 /// Otherwise the sidecar would wait at the old name for the next file of that name. The move to
 /// the trash began at `since`. Returns the files taken back, each told in `errors`. A file that
 /// cannot come back stays in the trash, and its Undo puts it back beside the sidecar left.
 fn take_back_from_the_trash(
     sidecars_of_file: Vec<(PathBuf, Vec<PathBuf>)>,
+    failed: &[(PathBuf, StepError)],
     since: std::time::SystemTime,
     errors: &mut Vec<String>,
 ) -> HashSet<PathBuf> {
@@ -3510,9 +3538,10 @@ fn take_back_from_the_trash(
     };
     let mut first_left = Vec::new();
     for (file, sides) in sidecars_of_file {
-        // A sidecar that could not be looked at counts as left, as it may still be there.
+        // A sidecar whose move the trash told as failed counts as left, also one that may have
+        // gone all the same, as it may still be there.
         let (gone, left): (Vec<PathBuf>, Vec<PathBuf>) =
-            sides.into_iter().partition(|s| is_surely_gone(s));
+            (sides.into_iter()).partition(|s| !failed.iter().any(|(f, _)| f == s));
         let Some(side) = left.first() else {
             continue;
         };
@@ -3529,8 +3558,8 @@ fn take_back_from_the_trash(
     for (file, side) in first_left.iter().filter(|(file, _)| back.contains(file)) {
         errors.push(tf!(
             "{side} could not go to the trash, so {file} stays where it was, with its sidecar",
-            side = side.display(),
-            file = file.display()
+            side = escaped_name(side),
+            file = escaped_name(file)
         ));
     }
     errors.extend(error);
@@ -3638,7 +3667,7 @@ fn refused_on_fat(
             .entry(dir)
             .or_insert_with(|| file_system_type(dir))
             .clone()?;
-        is_fat(&kind).then(|| (name.into_owned(), kind))
+        is_fat(&kind).then(|| (escaped_name(&*name), kind))
     })
 }
 
@@ -3859,7 +3888,7 @@ fn rename_files_planned_in(
         if let Err((e, done)) = step {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
-            let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
+            let name = |p: &PathBuf| escaped_name(p.file_name().unwrap_or_default());
             // A step whose answer was lost (a share's EIO or timeout) may have been done.
             // Nothing is undone then, because an undo counts on knowing which steps were done.
             // The plan stays as it is, and the next start finds the step by the names, once the
@@ -4167,7 +4196,7 @@ fn end_the_log_of_a_failed_folder_rename(
 fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> Failure {
     Failure::from(tf!(
         "Could not save {name}: {e}",
-        name = dir.display(),
+        name = escaped_name(&dir),
         e = failure
     ))
 }
@@ -4200,7 +4229,7 @@ fn put_files(
             crate::support::threads::panic_in_a_test_at(path);
             let another_to_come = is_another_of_its_stem_to_come(path, &mut stems_to_come);
             let mut failed = |at: &Path, e: std::io::Error| {
-                errors.push(format!("{display}: {e}", display = at.display()));
+                errors.push(format!("{shown}: {e}", shown = escaped_name(at)));
             };
             // The file is moved first and then its sidecar, and a sidecar that cannot follow
             // takes the file back (`xmp::follow`, `put_file_back`). A move holds the
@@ -4258,7 +4287,7 @@ fn put_files(
         // A file that breaks the work costs only that file. One that went before the panic is
         // still reported, so that its marks follow it and Undo brings it back.
         if catch_panic(put_one).is_none() {
-            errors.push(format!("{}: {}", path.display(), broke_here()));
+            errors.push(format!("{}: {}", escaped_name(path), broke_here()));
             let left = crate::files::file_io::where_a_step_left_the_file(path, &target);
             match !is_copy && left == crate::files::file_io::StepLeft::AtNewName {
                 true => put.push((path.clone(), target)),
@@ -4274,7 +4303,7 @@ fn put_files(
         && !put.is_empty()
         && let Err(e) = crate::files::file_io::sync_folder(dest)
     {
-        errors.push(format!("{display}: {e}", display = dest.display()));
+        errors.push(format!("{shown}: {e}", shown = escaped_name(dest)));
     }
     (errors, put)
 }
@@ -4332,7 +4361,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
         // Another program may have put another file at `to` since the move.
         if !fingerprint(&to).is_some_and(|now| same_fingerprint(at_move, now)) {
             let other = tr("another file has taken its place");
-            errors.push(format!("{}: {other}", to.display()));
+            errors.push(format!("{}: {other}", escaped_name(&to)));
             moving.remove(&to);
             continue;
         }
@@ -4376,7 +4405,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                 }
             }
             Err((at, e)) => {
-                errors.push(format!("{}: {e}", at.display()));
+                errors.push(format!("{}: {e}", escaped_name(at)));
                 moving.remove(&to);
                 left.push((from, to, at_move));
             }
@@ -4390,7 +4419,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
         .collect();
     for folder in folders {
         if let Err(e) = crate::files::file_io::sync_folder(folder) {
-            errors.push(format!("{}: {e}", folder.display()));
+            errors.push(format!("{}: {e}", escaped_name(folder)));
         }
     }
     (back, left, errors)
@@ -4424,7 +4453,7 @@ fn follow_or_go_back(
         Ok(left_behind) => return Err((false, left_behind.iter().map(|l| l.told()).collect())),
         Err(not) => not,
     };
-    let file = from.display();
+    let file = escaped_name(from);
     let put_back = at_put
         .and_then(|at_put| is_still_the_file(to, KnownAs::fingerprint(at_put)))
         .and_then(|()| put_file_back(from, to, is_copy).map_err(std::io::Error::from));
@@ -4432,7 +4461,7 @@ fn follow_or_go_back(
         let mut told = Vec::new();
         for (side, at, was_copy) in not.followed.into_iter().rev() {
             if let Err(e) = crate::files::file_io::put_file_back(&side, &at, was_copy) {
-                let (side, at) = (side.display(), at.display());
+                let (side, at) = (escaped_name(side), escaped_name(at));
                 told.push(tf!(
                     "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}",
                     file,
@@ -4450,7 +4479,7 @@ fn follow_or_go_back(
             .collect();
         let is_whole = told.is_empty() && !beside.contains(&false);
         told.extend(not.failed.iter().map(|(_, at, e)| {
-            let side = at.display();
+            let side = escaped_name(at);
             match is_whole {
                 true => tf!(
                     "{side}: {e}, so {file} stays where it was, with its sidecar",
@@ -4468,14 +4497,14 @@ fn follow_or_go_back(
         log.note_last_step_failed(Direction::Back, &error);
     }
     let is_back = crate::files::file_io::may_have_been_done(&error, to);
-    let to = to.display();
+    let to = escaped_name(to);
     let told = (not.failed.iter())
         .filter(|(side, at, e)| is_copy || !sidecar_where_the_file_is((side, at), e, false))
         .map(|(side, at, e)| {
             // A move that may have been done and could not be finished may have left the
             // sidecar at either name, or lost it on the way.
             let is_in_doubt = !is_copy && crate::files::file_io::may_have_been_done(e, side);
-            let (side, at) = (side.display(), at.display());
+            let (side, at) = (escaped_name(side), escaped_name(at));
             match is_in_doubt {
                 true => tf!(
                     "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to}, and this sidecar may be at {side} or at {at}, or at neither; check both names",
@@ -4558,7 +4587,7 @@ fn ours_but_case(
         if own_name || !fingerprint(&at).is_some_and(|i| ours.contains(&(folded(&at), i))) {
             return Err(tf!(
                 "{name} exists already; nothing renamed",
-                name = at.display()
+                name = escaped_name(at)
             ));
         }
     }
@@ -7444,7 +7473,7 @@ mod tests {
         let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         log.note(std::slice::from_ref(&a));
         // The sidecar went to the trash, and the kill came before the photo.
-        crate::files::trash::trash(std::slice::from_ref(&side)).unwrap();
+        assert!(crate::files::trash::trash(std::slice::from_ref(&side)).is_empty());
         assert!(!side.exists());
         drop(log);
         let found = super::journal::delete_jobs_cut_short(&logs);
@@ -9553,6 +9582,11 @@ mod tests {
             super::left_by_trash(&[local.join("c.png")], file_system_type),
             None
         );
+        // A FUSE mount named by its source, a URL with a user's name in it, is told as "fuse"
+        // (#312).
+        let davfs = |_: &Path| Some("fuse.https://me@dav.example/photos".to_owned());
+        let left = super::left_by_trash(&[cloud.join("a.png")], davfs);
+        assert_eq!(left, Some(("fuse".to_owned(), vec![cloud.join("a.png")])));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -9797,7 +9831,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
-        crate::files::trash::trash(std::slice::from_ref(&a)).unwrap();
+        assert!(crate::files::trash::trash(std::slice::from_ref(&a)).is_empty());
         app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
             out_without_answer: Default::default(),
             files: vec![a.clone()],

@@ -2,7 +2,7 @@
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
 use crate::files::file_io::{AsSeen, FileFingerprint, fingerprint, fingerprint_of_file_read};
-use crate::support::format::{count, human_size, thousands};
+use crate::support::format::{count, escaped_name, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
 use crate::{features::duplicates, tf};
@@ -192,7 +192,7 @@ impl FindDuplicates {
                                 false => self.checked.remove(path),
                             };
                         }
-                        let name = path.file_name().unwrap_or_default().to_string_lossy();
+                        let name = escaped_name(path.file_name().unwrap_or_default());
                         if crate::ui::menus::link(ui, &name).clicked() {
                             *show = Some(path.clone());
                         }
@@ -203,7 +203,7 @@ impl FindDuplicates {
                         ui.weak(format!(
                             "{}  {}",
                             size,
-                            path.parent().unwrap_or(path).display()
+                            escaped_name(path.parent().unwrap_or(path))
                         ));
                     });
                 }

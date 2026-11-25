@@ -6,7 +6,7 @@
 use crate::files::config::Config;
 use crate::images::decode::catch_panic_as_error;
 use crate::model::listing::ReadsFirst;
-use crate::support::format::count;
+use crate::support::format::{count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took};
 use crate::ui::dialogs::Pick;
@@ -553,7 +553,7 @@ impl crate::App {
             let done = done.map(|()| match &to {
                 PrintTo::Printer(printer) => tf!("{what} sent to {printer}", what, printer),
                 PrintTo::File(file, _) => {
-                    tf!("{what} saved in {file}", what, file = file.display())
+                    tf!("{what} saved in {file}", what, file = escaped_name(file))
                 }
             });
             // A PDF file not written is a failed write, which keeps a close that waited for it
@@ -699,11 +699,11 @@ fn caption_of_file(
 ) -> String {
     #[cfg(test)]
     crate::support::threads::panic_in_a_test_at(path);
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let name = escaped_name(path.file_name().unwrap_or_default());
     let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
     let text = crate::support::format::fill_template(template, |field| match field {
         "name" => name.to_string(),
-        "path" => path.display().to_string(),
+        "path" => escaped_name(path),
         "position" => format!("{}/{n}", k + 1),
         "dimensions" => (size.map(|[w, h]| (w as u32, h as u32)))
             .or_else(|| crate::images::decode::dimensions(path))
@@ -1107,13 +1107,7 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Co
             )),
         }
         if c.print_caption {
-            let name = || {
-                dialog.paths[k]
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            };
+            let name = || escaped_name(dialog.paths[k].file_name().unwrap_or_default());
             let line = captions
                 .and_then(|c2| c2.1.get(k).cloned())
                 .unwrap_or_else(name);

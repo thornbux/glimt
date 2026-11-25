@@ -516,7 +516,11 @@ arm becomes a method.
 - **A user-visible change** gets a line under `[Unreleased]` in `CHANGELOG.md`, in its own
   commit.
 - **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `po/*.po`
-  (see Language).
+  (see Language). A file's or folder's name or path in it, or in a label, goes through
+  `format::escaped_name` (or `App::name`, `file_io::shown_path`, which use it), which writes
+  line breaks and marks of direction as escapes, so a planted name cannot add lines of its own
+  to a question. `display()` is used nowhere; a path's text for another use is its
+  `to_string_lossy` (`source_rules::names_are_shown_through_one_function`).
 - **A notice** (the message over the image) is given with `self.notice.give(text)` and taken
   away with `self.notice.clear()`, never assigned. That way each notice gets a new number, by
   which a screen reader knows that the same text was given again

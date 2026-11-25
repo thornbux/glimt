@@ -7,6 +7,7 @@ use crate::files::config::fits_on_a_line;
 use crate::files::file_io::ListedFile;
 use crate::files::journal::MarksAtNewNames;
 use crate::files::trash::ForgottenMarks;
+use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -428,7 +429,7 @@ fn read_marks_file(file: &Path) -> Option<HashMap<PathBuf, (u8, u8)>> {
             known_stamps().remove(file);
             crate::files::file_io::save_failed(crate::tf!(
                 "Could not read the marks file {name}: {e}",
-                name = file.display(),
+                name = escaped_name(file),
                 e
             ));
             return None;
@@ -536,8 +537,8 @@ fn move_marks_file_by(
     let failed = |e: &dyn std::fmt::Display| {
         crate::files::file_io::save_failed(crate::tf!(
             "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are.",
-            from = old.display(),
-            to = new.display(),
+            from = escaped_name(old),
+            to = escaped_name(new),
             e
         ));
         // A move that failed after the copy was made may have left the file only at `new`.
@@ -596,7 +597,7 @@ fn link_old_name(old: &Path, new: &Path) -> MarksMove {
     if let Err(e) = linked {
         crate::files::file_io::save_failed(crate::tf!(
             "Could not save {name}: {e}",
-            name = old.display(),
+            name = escaped_name(old),
             e
         ));
     }
@@ -641,8 +642,8 @@ fn old_file_left_beside(old: &Path, new: &Path) -> Option<String> {
     (!is_surely_gone(old) && !is_surely_gone(new) && !is_one_file(old, new)).then(|| {
         crate::tf!(
             "The marks file of Glimt 0.95 or older is left at {old}, as {new} is there too. The marks of {new} are used: join the two by hand, or remove the old one.",
-            old = old.display(),
-            new = new.display()
+            old = escaped_name(old),
+            new = escaped_name(new)
         )
     })
 }
@@ -861,7 +862,7 @@ fn names_taken(edits: &[Edit]) -> (Vec<&ListedFile>, Option<String>) {
     let taken: Vec<&ListedFile> = files
         .filter(|f| {
             f.check()
-                .map_err(|e| first.get_or_insert(format!("{}: {e}", f.path().display())))
+                .map_err(|e| first.get_or_insert(format!("{}: {e}", escaped_name(f.path()))))
                 .is_err()
         })
         .collect();
@@ -1007,7 +1008,7 @@ fn write(file: &Path, changes: Vec<Edit>) {
     if let Err(e) = result {
         crate::files::file_io::save_failed(crate::tf!(
             "Could not save {name}: {e}",
-            name = file.display(),
+            name = escaped_name(file),
             e
         ));
         // A file whose stamp changed was written after all (only its folder's sync failed), or

@@ -5,7 +5,7 @@
 //! `geeqie --remote`. The desktop files of added formats are read with the same `desktop_files`
 //! and `desktop_entry_values`.
 
-use crate::support::format::{Piece, pieces};
+use crate::support::format::{Piece, escaped_name, pieces};
 use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -126,7 +126,7 @@ impl Tool {
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::piped()),
             )
-            .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+            .map_err(|e| format!("{}: {e}", escaped_name(&program)))?;
             let pid = child.id();
             lock_even_if_poisoned(running).push((self.name.clone(), pid));
             // Its errors are read in a thread of their own, and only the last of them are kept.
@@ -147,7 +147,7 @@ impl Tool {
                 None => return Err(crate::support::lang::tr("stopped").into()),
             }
             drop(now);
-            let status = status.map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+            let status = status.map_err(|e| format!("{}: {e}", escaped_name(&program)))?;
             if !status.success() {
                 let wait = std::time::Duration::from_millis(500);
                 let err = errors.and_then(|rx| rx.recv_timeout(wait).ok());
@@ -408,14 +408,14 @@ pub fn desktop_file_problems() -> Vec<String> {
     let formats = given_no_file("formats", &["f"]).map(|path| {
         crate::tf!(
             "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}",
-            file = path.display(),
+            file = escaped_name(path),
             example = "sh -c \"convert \\\"$1\\\" ppm:-\" sh %f"
         )
     });
     let tools = given_no_file("tools", &["f", "u", "F", "U"]).map(|path| {
         crate::tf!(
             "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}",
-            file = path.display(),
+            file = escaped_name(path),
             example = "sh -c \"exiftool \\\"$1\\\"\" sh %f"
         )
     });
@@ -446,8 +446,8 @@ fn old_desktop_files_in(glimt_home: Option<&Path>, found: &[(PathBuf, String)]) 
         holds_desktop_files.then(|| {
             crate::tf!(
                 "{folder} holds tools or added formats that Glimt no longer reads: move their desktop files to {new_folder}",
-                folder = folder.display(),
-                new_folder = new_folder.display()
+                folder = escaped_name(folder),
+                new_folder = escaped_name(new_folder)
             )
         })
     });
@@ -456,7 +456,7 @@ fn old_desktop_files_in(glimt_home: Option<&Path>, found: &[(PathBuf, String)]) 
         .map(|(path, _)| {
             crate::tf!(
                 "{file} is not loaded: its header [Glimt Decoder] is no longer read. Write [Glimt Format] instead",
-                file = path.display()
+                file = escaped_name(path)
             )
         });
     folders.chain(headers).collect()

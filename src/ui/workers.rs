@@ -61,15 +61,11 @@ impl crate::App {
         if let Some(all) = self.folder.take_together() {
             self.open_folders(ctx, all);
         }
-        // The failed writes go last, so that no other notice of this frame hides them, and
-        // they stay under the later notices until they have been on the screen long enough.
+        // The failed writes go last, under the notice of this frame, so that no other notice
+        // hides them. They stay under the later notices until they have been on the screen
+        // long enough.
         let failed = self.window.take_failed_writes_to_show();
-        if !failed.is_empty() {
-            self.notice.clear();
-            for f in failed {
-                self.notice.keep_until_drawn(f);
-            }
-        }
+        self.notice.show_failed_writes(failed);
     }
 
     /// Takes every answer that background threads and the desktop sent: decoded images and
@@ -545,8 +541,11 @@ mod tests {
         taken
     }
 
-    /// A failed write stays on screen when another notice comes in the same frame. Before, the
-    /// failure was given first, and the notice took its place at once.
+    /// A failed write stays on screen when another notice comes in the same frame, and that
+    /// notice is shown above it, but not a notice of a frame before. Before, the failure was
+    /// given first, and the notice took its place at once. Later the notice was taken away for
+    /// the failure, so Add to Collection's "added" was never shown when the collection's write
+    /// failed (#301).
     #[test]
     fn a_failed_write_is_not_hidden_by_a_later_notice() {
         let dir = contract_folder("failure-not-hidden");
@@ -555,7 +554,21 @@ mod tests {
         app.tell_failed_write(failed);
         app.notice_sender.send("3 files moved".into()).unwrap();
         app.poll_background(&ctx);
-        assert_eq!(app.notice.text(), Some(failed));
+        let shown = format!("3 files moved\n{failed}");
+        assert_eq!(app.notice.text(), Some(shown.as_str()));
+        assert_eq!(app.notice.error_texts(), [failed]);
+        // A notice of a frame before, which was shown already, is taken away for the failure,
+        // which would otherwise read as part of it.
+        app.notice.give("Saved a.png".into());
+        app.poll_background(&ctx);
+        app.tell_failed_write("Could not save the marks: test");
+        app.poll_background(&ctx);
+        let shown = app.notice.text().unwrap_or_default();
+        assert!(!shown.contains("Saved a.png"), "{shown:?}");
+        assert!(
+            shown.ends_with("Could not save the marks: test"),
+            "{shown:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

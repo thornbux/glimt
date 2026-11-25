@@ -39,6 +39,29 @@ and versions follow [Semantic Versioning](https://semver.org/).
   no longer taken for the Stop (#304).
 - On NFSv3, a rename whose link the server made but answered "already there" no longer leaves
   a second name or a second copy, such as two copies of an image cropped (#307).
+- A minimized window takes the changes that the folder watcher sees as they come, where they
+  piled up until the window was shown again (#188).
+- A Move to Trash or a Move Folder to Trash whose trash failed is judged by what each file's
+  move answered, not by a look at its old name, which a share's cache may still show. A file
+  that may have gone all the same keeps its marks until the next start puts them right (#308).
+- On a share, the folder watcher's first look at its folders and a tool's look at the files
+  it is given wait for the image the window waits for, as every other look in the background
+  does (#294).
+- A notice that comes in the same moment as a failed write, such as Add to Collection's
+  "added" when the collection could not be saved, is shown above the failure, no longer taken
+  away by it (#301).
+- The EXIF window draws the fields kept of the image before as unavailable while the next
+  image is read, as the info panel does, so a screen reader no longer reads them as the new
+  image's (#192).
+- A network mount through FUSE without a type of its own, such as davfs2, is named "fuse" in
+  the delete question and the other messages, no longer by its address, which can hold a user
+  name (#312).
+- A file or folder name with line breaks, other control characters or a mark that turns the
+  text around is shown with them as escapes (`\n`, `\u{202e}`) in every question, notice and
+  label, so a planted name can no longer add a sentence of its own to the delete question
+  (#189).
+- Check Images' Select Them no longer selects a file that another program wrote anew in place
+  since the check, which may now be a good photo (#202).
 - The start after Glimt was stopped no longer takes another card or stick in the same reader
   or port, in the same boot, for the one a job worked on: not a card cloned with dd, which has
   the same volume (#272), nor in the Flatpak a second ext4 stick (#314). Their marks are kept
