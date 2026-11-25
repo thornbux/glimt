@@ -6,7 +6,7 @@
 use crate::files::config::Config;
 use crate::images::decode::catch_panic_as_error;
 use crate::model::listing::ReadsFirst;
-use crate::support::format::{count, escaped_name};
+use crate::support::format::{count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took};
 use crate::ui::dialogs::Pick;
@@ -699,7 +699,7 @@ fn caption_of_file(
 ) -> String {
     #[cfg(test)]
     crate::support::threads::panic_in_a_test_at(path);
-    let name = escaped_name(path.file_name().unwrap_or_default());
+    let name = escaped_file_name(path);
     let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
     let text = crate::support::format::fill_template(template, |field| match field {
         "name" => name.to_string(),
@@ -1107,7 +1107,7 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Co
             )),
         }
         if c.print_caption {
-            let name = || escaped_name(dialog.paths[k].file_name().unwrap_or_default());
+            let name = || escaped_file_name(&dialog.paths[k]);
             let line = captions
                 .and_then(|c2| c2.1.get(k).cloned())
                 .unwrap_or_else(name);

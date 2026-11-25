@@ -17,7 +17,7 @@ use crate::images::save::save_rotated;
 use crate::metadata::marks::{FilesWere, MovesKnownFrom};
 use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
-use crate::support::format::{count, escaped_name, thousands};
+use crate::support::format::{count, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
     AnswerSender, Receiving, Told, Took, Working, answer_channel, catch_panic,
@@ -3911,7 +3911,7 @@ fn rename_files_planned_in(
         if let Err((e, done)) = step {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
-            let name = |p: &PathBuf| escaped_name(p.file_name().unwrap_or_default());
+            let name = |p: &PathBuf| escaped_file_name(p);
             // A step whose answer was lost (a share's EIO or timeout) may have been done.
             // Nothing is undone then, because an undo counts on knowing which steps were done.
             // The plan stays as it is, and the next start finds the step by the names, once the

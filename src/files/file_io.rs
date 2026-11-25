@@ -273,7 +273,7 @@ impl OtherNames {
     /// Counts a save that replaced the file at `path`.
     fn add(&mut self, path: &Path) {
         self.count += 1;
-        let name = || crate::support::format::escaped_name(path.file_name().unwrap_or_default());
+        let name = || crate::support::format::escaped_file_name(path);
         self.first.get_or_insert_with(name);
     }
 

@@ -8,7 +8,7 @@ use crate::files::file_ops::OperationReport;
 use crate::images::decode;
 use crate::images::save;
 use crate::images::save::{CopyAs, Format};
-use crate::support::format::escaped_name;
+use crate::support::format::{escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
@@ -175,7 +175,7 @@ impl crate::App {
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("save as")).show(ctx, |ui| {
             ui.strong(tr("Save As"));
-            ui.label(escaped_name(dialog.path.file_name().unwrap_or_default()));
+            ui.label(escaped_file_name(&dialog.path));
             save_as_fields(ui, &mut dialog);
             crate::ui::menus::checkbox(
                 ui,

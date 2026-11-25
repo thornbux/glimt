@@ -1,7 +1,7 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::model::folder::total_size_unless_on_a_share;
-use crate::support::format::{count, escaped_name, thousands};
+use crate::support::format::{count, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::Receiving;
 use crate::tf;
@@ -31,11 +31,10 @@ impl crate::App {
         if !self.folder.folders().is_empty() {
             let path = Path::new(name);
             let folder = path.parent().and_then(Path::file_name).unwrap_or_default();
-            let file = path.file_name().unwrap_or_default();
-            return format!("{}/{}", escaped_name(folder), escaped_name(file)).into();
+            return format!("{}/{}", escaped_name(folder), escaped_file_name(path)).into();
         }
         match self.folder.collection() {
-            Some(_) => escaped_name(Path::new(name).file_name().unwrap_or(name)).into(),
+            Some(_) => escaped_file_name(Path::new(name)).into(),
             None => escaped_name(name).into(),
         }
     }

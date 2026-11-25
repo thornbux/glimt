@@ -8,7 +8,7 @@ use crate::files::external::Login;
 use crate::files::file_io::{FileFingerprint, PickedFiles, fingerprint, save_failed};
 use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
-use crate::support::format::{count, escaped_name};
+use crate::support::format::{count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{AnswerSender, Receiving, Told, Took, Working, answer_channel};
 use crate::{files::journal, images::save, model::collections, tf, ui::theme};
@@ -1116,8 +1116,8 @@ impl crate::App {
     /// Asks before a folder goes to the trash.
     pub(crate) fn confirm_folder_dialog(&mut self, ctx: &egui::Context) {
         if self.dialogs.is_confirming_folder_trash {
-            let name = (self.dialogs.folder_target.as_deref()).and_then(Path::file_name);
-            let name = escaped_name(name.unwrap_or_default());
+            let target = self.dialogs.folder_target.as_deref();
+            let name = target.map(escaped_file_name).unwrap_or_default();
             let mut trash = false;
             let enter = self.answers(ctx, egui::Key::Enter);
             let modal =

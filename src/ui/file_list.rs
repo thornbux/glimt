@@ -7,8 +7,8 @@ use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{ImagesAwaited, ReadsFirst, SORTS, Types, list_folder};
 use crate::support::format::{
-    NOT_COUNTED_ON_A_SHARE, count, escaped_name, human_size, local_time, middle_cut, size_text,
-    thousands,
+    NOT_COUNTED_ON_A_SHARE, count, escaped_file_name, escaped_name, human_size, local_time,
+    middle_cut, size_text, thousands,
 };
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
@@ -1555,9 +1555,8 @@ impl crate::App {
                         (0, Some(parent)) => (format!("{}  ..", theme::icon::UP), parent),
                         _ => {
                             let d = &self.folder.subdirs()[row - up.is_some() as usize];
-                            let name = d.file_name().unwrap_or_default();
                             (
-                                format!("{}  {}", theme::icon::FOLDER, escaped_name(name)),
+                                format!("{}  {}", theme::icon::FOLDER, escaped_file_name(d)),
                                 d,
                             )
                         }
@@ -2285,10 +2284,7 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
         .filter(|p| !p.as_os_str().is_empty())
         .collect();
     folders.reverse();
-    let name = |p: &Path| match p.file_name() {
-        Some(name) => escaped_name(name),
-        None => escaped_name(p),
-    };
+    let name = escaped_file_name;
     let font = egui::TextStyle::Button.resolve(ui.style());
     // The folders are drawn with half the buttons' padding and no spacing, as the padding
     // already parts them from the "/". So the folder above the open one fits beside the empty

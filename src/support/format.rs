@@ -255,6 +255,13 @@ pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> String {
     shown
 }
 
+/// Returns the name of the file or folder at `path` as `escaped_name` shows it, or the whole
+/// path, escaped, when it ends in no name, such as "/" or "photos/..". Before, each caller
+/// took the name itself, and such a path was shown as an empty name.
+pub(crate) fn escaped_file_name(path: &std::path::Path) -> String {
+    escaped_name(path.file_name().unwrap_or(path.as_os_str()))
+}
+
 #[cfg(test)]
 mod tests {
     /// A name is shown with its line breaks, other control characters and marks of direction
@@ -273,6 +280,10 @@ mod tests {
         );
         let path = std::path::Path::new("/tmp/a\u{2066}b");
         assert_eq!(super::escaped_name(path), "/tmp/a\\u{2066}b");
+        // A path's name alone, and the whole path when it ends in no name.
+        assert_eq!(super::escaped_file_name(path), "a\\u{2066}b");
+        let up = std::path::Path::new("/tmp/..");
+        assert_eq!(super::escaped_file_name(up), "/tmp/..");
     }
 
     /// The full screen info's and the print's template broken in thousands of ways: no panic.
