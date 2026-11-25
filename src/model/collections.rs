@@ -4,6 +4,7 @@
 
 use crate::files::config::fits_on_a_line;
 use crate::model::listing::real_dir;
+use crate::support::format::escaped_name;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, lock_even_if_poisoned};
 use crate::ui::actions::Action;
@@ -267,11 +268,7 @@ impl crate::App {
         };
         let shown = self.folder.collection() == Some(file.as_path());
         if !self.run_in_background(ctx, vec![file.clone()], move || {
-            let name = file
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
+            let name = escaped_name(file.file_stem().unwrap_or_default());
             let (_, picked) = picked.wait_for_fingerprints();
             let trashed = picked
                 .still_the_one_picked(&file)
@@ -322,7 +319,7 @@ impl crate::App {
                     }
                 },
             };
-            let name = file.file_stem().unwrap_or_default().to_string_lossy();
+            let name = escaped_name(file.file_stem().unwrap_or_default());
             let (told, failed) = match append(&file, &paths, new) {
                 Ok(n) => (
                     tf!("{n} added to the collection \"{name}\"", n, name),
@@ -331,7 +328,7 @@ impl crate::App {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
                     tf!(
                         "The collection {file} is gone (renamed or removed in another window): not saved",
-                        file = file.display()
+                        file = escaped_name(file)
                     ),
                     true,
                 ),
@@ -492,7 +489,7 @@ pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Op
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                     crate::files::file_io::save_failed(tf!(
                         "Could not save {name}: {e}",
-                        name = file.display(),
+                        name = escaped_name(file),
                         e
                     ));
                 }
@@ -712,7 +709,7 @@ pub(crate) fn edit_open_collection(
         Failure::from(match e.kind() {
             std::io::ErrorKind::NotFound => tf!(
                 "The collection {file} is gone (renamed or removed in another window): not saved",
-                file = file.display()
+                file = escaped_name(file)
             ),
             _ => tf!("Could not save the collection: {e}", e),
         })

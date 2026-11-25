@@ -228,8 +228,53 @@ pub(crate) fn without_control_characters(text: &str) -> String {
         .collect()
 }
 
+/// Returns `name`, a file's or folder's name or path, as a text for the user: a label, a
+/// question, a notice or a line printed. Each control character, such as a line break, and each
+/// character that turns the direction of the text around it, such as U+202E, is written as an
+/// escape ("\n", "\u{202e}"). So a planted name cannot add lines of its own to a question, push
+/// its buttons off the screen, or show itself reversed. It is the one way such a name is shown
+/// (`source_rules::names_are_shown_through_one_function`).
+pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> String {
+    let is_hidden_mark = |c: char| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}' | '\u{2029}'
+            )
+            || ('\u{202a}'..='\u{202e}').contains(&c)
+            || ('\u{2066}'..='\u{2069}').contains(&c)
+    };
+    let mut shown = String::new();
+    for c in name.as_ref().to_string_lossy().chars() {
+        match c {
+            '\n' | '\r' | '\t' => shown.extend(c.escape_default()),
+            c if is_hidden_mark(c) => shown.extend(c.escape_unicode()),
+            c => shown.push(c),
+        }
+    }
+    shown
+}
+
 #[cfg(test)]
 mod tests {
+    /// A name is shown with its line breaks, other control characters and marks of direction
+    /// written as escapes, and is otherwise as it is. Before, a name of line breaks added a
+    /// sentence of its own to the delete question, and U+202E showed it reversed (#189).
+    #[test]
+    fn a_name_is_shown_without_its_control_characters() {
+        let planted = "a.jpg\"?\n\nOnly the cached copy is removed.\u{202e}gpj.exe\t\u{7}";
+        assert_eq!(
+            super::escaped_name(planted),
+            "a.jpg\"?\\n\\nOnly the cached copy is removed.\\u{202e}gpj.exe\\t\\u{7}"
+        );
+        assert_eq!(
+            super::escaped_name("Ferie/Bålet 2024.jpg"),
+            "Ferie/Bålet 2024.jpg"
+        );
+        let path = std::path::Path::new("/tmp/a\u{2066}b");
+        assert_eq!(super::escaped_name(path), "/tmp/a\\u{2066}b");
+    }
+
     /// The full screen info's and the print's template broken in thousands of ways: no panic.
     #[test]
     fn survives_broken_templates() {

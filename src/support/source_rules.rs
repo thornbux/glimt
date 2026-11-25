@@ -6477,6 +6477,22 @@ fn paths_through_a_descriptor_are_shown_by_their_names() {
     );
 }
 
+/// A file's or folder's name or path is made into text for the user only through
+/// `format::escaped_name`, which writes its control characters and marks of direction as
+/// escapes. `display` is the method that makes a path into text for the user, so it is used
+/// nowhere. A path's text for another use, such as a line of Glimt's own file or a path sent
+/// to a window, is its `to_string_lossy`. Before, a file named with line breaks added a
+/// sentence of its own to the delete question, and U+202E showed a name reversed (#189).
+#[test]
+fn names_are_shown_through_one_function() {
+    let wrong = outside_their_homes(&[(".display(", &[]), ("::display", &[])]);
+    assert!(
+        wrong.is_empty(),
+        "a name or path shown without format::escaped_name:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Returns the places in `text`, of `file`, where a whole path is made into text outside
 /// `shown_path` and the tests: through `display`, `to_string_lossy`, `to_str` or
 /// `into_string`, called or named by a type's path (`.map(Path::display)`, `methods_named`),
@@ -7789,7 +7805,10 @@ fn the_lints_stay_on() {
         read_build_settings(&root.join(part), &mut builds);
     }
     for (file, text) in builds {
-        let file = Path::new(&file).strip_prefix(root).unwrap().display();
+        let file = Path::new(&file)
+            .strip_prefix(root)
+            .unwrap()
+            .to_string_lossy();
         for line in build_flags_that_turn_off_lints_or_unwinding(&text) {
             wrong.push(format!(
                 "{file}:{line}: a flag that lowers a held lint, or a panic that aborts"
@@ -7824,7 +7843,7 @@ fn read_build_settings(path: &Path, into: &mut Vec<(String, String)>) {
     } else if path.file_name().is_some_and(|n| n != "cargo-sources.json")
         && let Ok(text) = std::fs::read_to_string(path)
     {
-        into.push((path.display().to_string(), text));
+        into.push((path.to_string_lossy().into_owned(), text));
     }
 }
 

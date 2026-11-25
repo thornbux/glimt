@@ -8,6 +8,7 @@ use crate::files::file_ops::OperationReport;
 use crate::images::decode;
 use crate::images::save;
 use crate::images::save::{CopyAs, Format};
+use crate::support::format::escaped_name;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
@@ -174,13 +175,7 @@ impl crate::App {
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("save as")).show(ctx, |ui| {
             ui.strong(tr("Save As"));
-            ui.label(
-                dialog
-                    .path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-            );
+            ui.label(escaped_name(dialog.path.file_name().unwrap_or_default()));
             save_as_fields(ui, &mut dialog);
             crate::ui::menus::checkbox(
                 ui,
@@ -241,7 +236,7 @@ impl crate::App {
             let (_, picked) = picked.wait_for_fingerprints();
             let saved = picked
                 .still_the_one_picked(&path)
-                .map_err(|e| format!("{}: {e}", path.display()))
+                .map_err(|e| format!("{}: {e}", escaped_name(&path)))
                 .and_then(|()| {
                     decode::catch_panic_as_error(|| save::save_as(&path, &copy_as, &to, at_pick))
                 });

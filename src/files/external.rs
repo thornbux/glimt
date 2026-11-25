@@ -5,6 +5,7 @@
 //! started.
 
 use crate::model::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
+use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
@@ -833,7 +834,7 @@ pub(crate) fn start_users_program(
 /// made is told through `notices`, and nothing is opened.
 pub fn open_own_folder(dir: &Path, notices: &crate::support::threads::NoticeSender) {
     if let Err(e) = std::fs::create_dir_all(dir) {
-        let folder = format!("{}: {e}", dir.display());
+        let folder = format!("{}: {e}", escaped_name(dir));
         // A window that is gone has nothing to show it in.
         let _ = notices.send_error(crate::tf!("Could not make {folder}", folder));
         return;

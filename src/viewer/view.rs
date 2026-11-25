@@ -7,7 +7,7 @@ use crate::files::external::is_video;
 use crate::files::file_io::Identity;
 use crate::images::decode::{Decoded, catch_panic_as_error, decode, histogram};
 use crate::model::list::LoadedImage;
-use crate::support::format::fill_template;
+use crate::support::format::{escaped_name, fill_template};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{STUCK_AFTER, lock_even_if_poisoned};
@@ -1280,7 +1280,7 @@ impl crate::App {
             &self.config.full_screen_info_template,
             |field| match field {
                 "name" => self.name(self.list.shown()).to_string(),
-                "path" => path.display().to_string(),
+                "path" => escaped_name(&path),
                 "position" => self.position_text(),
                 "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
                     .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
@@ -1863,7 +1863,7 @@ impl crate::App {
             } else if let Some(e) = self.list.decode_errors().get(&self.list.shown()) {
                 crate::tf!(
                     "Could not open {name}:\n{e}",
-                    name = self.path(self.list.shown()).display(),
+                    name = escaped_name(self.path(self.list.shown())),
                     e
                 )
             } else {

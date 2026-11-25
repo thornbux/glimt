@@ -5,6 +5,7 @@ use crate::files::file_io::{FileFingerprint, RenameFailed};
 use crate::images::decode::load_icc;
 use crate::metadata::exif;
 use crate::model::listing::has_ext;
+use crate::support::format::escaped_name;
 use crate::support::lang::tr;
 use image::ImageDecoder;
 use std::path::Path;
@@ -805,7 +806,7 @@ pub(crate) fn save_copy_with_sidecar(
     };
     let side = crate::metadata::xmp::sidecar(new);
     let named =
-        |e: std::io::Error| std::io::Error::new(e.kind(), format!("{}: {e}", side.display()));
+        |e: std::io::Error| std::io::Error::new(e.kind(), format!("{}: {e}", escaped_name(&side)));
     // No sidecar can be at a name too long for its file system, and a copy without one needs
     // none. A copy that needs one is refused before it takes its name.
     let needs_no_sidecar_there =
@@ -846,7 +847,7 @@ pub(crate) fn save_copy_with_sidecar(
                     Ok(move |failed| match (is_set_aside, failed) {
                         (true, RenameFailed::NotDone) => {
                             crate::files::file_io::rename_never_over(aside, side).map_err(|e| {
-                                let e = format!("{}: {e}", aside.display());
+                                let e = format!("{}: {e}", escaped_name(aside));
                                 std::io::Error::other(crate::tf!(
                                     "its sidecar was not put back: {e}",
                                     e
@@ -909,8 +910,8 @@ fn left_as_it_is(is_set_aside: bool, aside: &Path, side: &Path) -> std::io::Erro
             "{}; {marks}",
             crate::tf!(
                 "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
-                aside = aside.display(),
-                sidecar = side.display()
+                aside = escaped_name(aside),
+                sidecar = escaped_name(side)
             )
         ),
         false => marks.to_owned(),
@@ -945,7 +946,7 @@ fn log_set_aside(
     #[cfg(test)]
     let dir = ASIDE_LOG_DIR.with_borrow(Clone::clone)?;
     let told = |e: std::io::Error| {
-        crate::files::file_io::save_failed(format!("{}: {e}", dir.display()));
+        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(&dir)));
     };
     let mut log = crate::files::journal::start_delete_log(&dir, "delete", None)
         .map_err(told)
@@ -973,12 +974,12 @@ fn write_copys_sidecar(
     let (sidecar_not_on_disk, sidecar_failed) =
         match crate::files::file_io::named_but_not_on_disk(written.unwrap_or(Ok(()))) {
             Ok(not_on_disk) => (not_on_disk, None),
-            Err(e) => (None, Some(format!("{}: {e}", side.display()))),
+            Err(e) => (None, Some(format!("{}: {e}", escaped_name(side)))),
         };
     if let Some(e) = not_on_disk.or(sidecar_not_on_disk) {
         crate::files::file_io::save_failed(crate::tf!(
             "{file} was saved, but it may not be on the disk yet: {e}",
-            file = new.display(),
+            file = escaped_name(new),
             e
         ));
     }
@@ -1010,7 +1011,10 @@ fn is_set_aside(
         Err(e) if e.may_have_been_done() => Err(may_be_set_aside(e, side, aside)),
         // The rename surely did nothing, and nothing is at the sidecar's name.
         Err(e) if e.found_nothing() => Ok(false),
-        Err(e) => Err(std::io::Error::other(format!("{}: {e}", side.display()))),
+        Err(e) => Err(std::io::Error::other(format!(
+            "{}: {e}",
+            escaped_name(side)
+        ))),
     }
 }
 
@@ -1024,8 +1028,8 @@ fn may_be_set_aside(
 ) -> std::io::Error {
     std::io::Error::other(crate::tf!(
         "the file there was not replaced, but its sidecar {sidecar} may have been set aside as {aside}; if it is not at its own name, give it back that name ({e})",
-        sidecar = side.display(),
-        aside = aside.display(),
+        sidecar = escaped_name(side),
+        aside = escaped_name(aside),
         e
     ))
 }
@@ -1037,7 +1041,7 @@ pub(crate) fn told_saved(
     new: &Path,
     sidecar_failed: Option<String>,
 ) -> crate::support::threads::Told {
-    let file = new.display();
+    let file = escaped_name(new);
     match sidecar_failed {
         None => crate::support::threads::Told::Notice(crate::tf!("Saved {file}", file)),
         Some(e) => crate::support::threads::Told::FailedWrite(
@@ -1223,13 +1227,13 @@ pub fn save_as(
             to.with_file_name(name)
         }
     };
-    if same_file(path, &to).map_err(|e| format!("{}: {e}", to.display()))? {
+    if same_file(path, &to).map_err(|e| format!("{}: {e}", escaped_name(&to)))? {
         return Err(tr("choose another name: the image itself is not changed").into());
     }
     let (out, _) = copy_bytes(path, how)?;
     let sidecar_failed =
         save_copy_with_sidecar(path, &to, &out, at_pick.filter(|_| matches), how.strip)
-            .map_err(|e| format!("{}: {e}", to.display()))?;
+            .map_err(|e| format!("{}: {e}", escaped_name(&to)))?;
     Ok((to, sidecar_failed))
 }
 
@@ -1381,7 +1385,7 @@ fn derive_sidecar<'a>(
         }
         (Some(_), RenameFailed::MayHaveBeenDone) => Err(crate::tf!(
             "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does",
-            sidecar = crate::metadata::xmp::sidecar(path).display()
+            sidecar = escaped_name(crate::metadata::xmp::sidecar(path))
         )),
         (None, _) => Ok(()),
     }))

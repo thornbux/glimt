@@ -2,7 +2,7 @@
 //! and those that could not be checked.
 
 use crate::images::decode::DecodeFailure;
-use crate::support::format::{count, thousands};
+use crate::support::format::{count, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, background_threads};
 use crate::{images::decode, tf};
@@ -103,13 +103,13 @@ impl crate::App {
                         for i in rows {
                             let (name, text) = match c.broken.get(i) {
                                 Some((name, why)) => {
-                                    (name, format!("{}: {why}", name.to_string_lossy()))
+                                    (name, format!("{}: {why}", escaped_name(name)))
                                 }
                                 None => {
                                     let (name, why) = &c.unchecked[i - c.broken.len()];
                                     let text = tf!(
                                         "{name}: could not be checked: {why}",
-                                        name = name.to_string_lossy(),
+                                        name = escaped_name(name),
                                         why
                                     );
                                     (name, text)

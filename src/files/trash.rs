@@ -319,7 +319,7 @@ fn put_back(
         rename_never_over(&t.file, &t.from).map_err(|e| {
             let e = std::io::Error::from(e);
             on_back(Restoring::Failed(&t.file, &t.from, &e));
-            format!("{display}: {e}", display = shown_path(&t.from))
+            format!("{shown}: {e}", shown = shown_path(&t.from))
         })
     };
     let (mut back, mut renamed) = (Vec::new(), Vec::new());
@@ -338,7 +338,7 @@ fn put_back(
         let mut out = vec![t];
         for side in sides {
             if let Err(e) = rename_never_over(&side.file, &side.from) {
-                let told = format!("{display}: {e}", display = shown_path(&side.from));
+                let told = format!("{shown}: {e}", shown = shown_path(&side.from));
                 match sidecar_back_after_all(&side, &e) {
                     Some(true) => {
                         out.push(side);

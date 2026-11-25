@@ -8,7 +8,7 @@ use crate::files::external::Login;
 use crate::files::file_io::{FileFingerprint, PickedFiles, fingerprint, save_failed};
 use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
-use crate::support::format::count;
+use crate::support::format::{count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{AnswerSender, Receiving, Told, Took, Working, answer_channel};
 use crate::{files::journal, images::save, model::collections, tf, ui::theme};
@@ -568,7 +568,7 @@ impl crate::App {
         self.desktop_settings.read_theme_files_again(ctx);
         self.notice.give(tf!(
             "Saved as {file}: edit it, then choose it again",
-            file = file.display()
+            file = escaped_name(file)
         ));
     }
 
@@ -703,7 +703,7 @@ impl crate::App {
                 field = Some(edit.id);
                 if let (Prompt::RenameMany, Some(first)) = (prompt, &first) {
                     let name = pattern_name(text.trim(), first, 1);
-                    ui.weak(tf!("First: {name}", name = name.to_string_lossy()));
+                    ui.weak(tf!("First: {name}", name = escaped_name(&name)));
                     if let Some(warning) = fat_warning(&name, fat.as_deref()) {
                         ui.colored_label(ui.visuals().warn_fg_color, warning);
                     }
@@ -864,7 +864,7 @@ impl crate::App {
                 let report_tx = self.file_operations.report_sender();
                 self.run_in_background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
-                        let told = format!("{display}: {e}", display = target.display());
+                        let told = format!("{shown}: {e}", shown = escaped_name(target));
                         return Some(Told::FailedWrite(told.into()));
                     }
                     let _ = report_tx.send(OperationReport {
@@ -911,7 +911,7 @@ impl crate::App {
         let folder = (cut_short.iter())
             .find_map(|c| c.1.first())
             .and_then(|m| m.0.parent())
-            .map_or(String::new(), |p| p.display().to_string());
+            .map_or(String::new(), escaped_name);
         let is_list_kept = self.file_operations.names_left().map(|(_, kept)| kept);
         let (mut choice, mut save, mut copy, mut leave) = (None, false, false, false);
         egui::Modal::new(egui::Id::unique("cut short")).show(ctx, |ui| {
@@ -1116,11 +1116,8 @@ impl crate::App {
     /// Asks before a folder goes to the trash.
     pub(crate) fn confirm_folder_dialog(&mut self, ctx: &egui::Context) {
         if self.dialogs.is_confirming_folder_trash {
-            let name = (self.dialogs.folder_target.as_deref())
-                .and_then(Path::file_name)
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
+            let name = (self.dialogs.folder_target.as_deref()).and_then(Path::file_name);
+            let name = escaped_name(name.unwrap_or_default());
             let mut trash = false;
             let enter = self.answers(ctx, egui::Key::Enter);
             let modal =
@@ -1154,7 +1151,7 @@ impl crate::App {
             return;
         };
         // A collection is shown by its name without ".gqv".
-        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        let name = escaped_name(file.file_stem().unwrap_or_default());
         let question = tf!(
             "Move the collection \"{name}\" to the trash? Its images stay where they are.",
             name
@@ -1421,7 +1418,7 @@ fn save_names_left(
 ) -> Option<Told> {
     use std::io::Write;
     let write = |f: &mut std::fs::File| f.write_all(list.as_bytes());
-    let name = file.display();
+    let name = escaped_name(file);
     Some(
         match crate::files::file_io::write_picked_name(file, at_pick, write) {
             Ok(()) => {

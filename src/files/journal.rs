@@ -18,6 +18,7 @@ use crate::files::file_io::{
 };
 use crate::files::job_log::{AtStart, CannotTell, Direction, JobLog, Record, Sure, remove_job_log};
 use crate::images::save::{same_file, same_file_by_opening};
+use crate::support::format::escaped_name;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
@@ -639,7 +640,7 @@ impl DeleteLog {
         let (path, file) = self.log.into_path_and_file();
         crate::files::file_io::write_later(move || {
             if let Err(e) = write_anew(&dir, job, time, &records, &path) {
-                crate::files::file_io::save_failed(format!("{}: {e}", dir.display()));
+                crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(dir)));
             }
             drop(file);
         });
@@ -963,7 +964,7 @@ fn remove_after_the_writes(mut log: JobLog) {
                 }
                 None => {
                     if let Err(e) = written_anew_without(&path, &applied) {
-                        crate::files::file_io::save_failed(format!("{}: {e}", path.display()));
+                        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(path)));
                     }
                 }
             }
@@ -1155,7 +1156,7 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
     if is_any_kept {
         crate::files::file_io::save_failed(crate::tf!(
             "{folder} holds logs of jobs that Glimt stopped during, which this start could not finish yet. They are kept, with the marks and stars of their files, for a later start.",
-            folder = dir.display()
+            folder = escaped_name(dir)
         ));
     }
     (moves, deletes, others)
@@ -1348,7 +1349,7 @@ fn put_right_a_delete(
             Ok(true) if is_unfinished(name) && !was_found => {
                 save_failed(crate::tf!(
                     "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start.",
-                    photo = name.display()
+                    photo = escaped_name(name)
                 ));
                 untold.insert(name.clone());
                 found_now.insert(name.clone());
@@ -1357,7 +1358,7 @@ fn put_right_a_delete(
                 if is_unfinished(name) {
                     save_failed(crate::tf!(
                         "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted.",
-                        photo = name.display()
+                        photo = escaped_name(name)
                     ));
                 }
                 gone.push(name.clone());
@@ -1366,7 +1367,7 @@ fn put_right_a_delete(
                 if is_unfinished(name) && was_found {
                     save_failed(crate::tf!(
                         "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back.",
-                        photo = name.display()
+                        photo = escaped_name(name)
                     ));
                 }
                 stayed.push(name.clone());
@@ -1588,16 +1589,16 @@ fn sidecars_back_from_hiding(
         } else if not_as_left.contains(photo) {
             save_failed(crate::tf!(
                 "{photo} is not there as the delete left it, so its sidecar {sidecar} stays under the hidden name {hidden}",
-                photo = photo.display(),
-                sidecar = side.display(),
-                hidden = hidden.display()
+                photo = escaped_name(photo),
+                sidecar = escaped_name(side),
+                hidden = escaped_name(hidden)
             ));
             continue;
         } else {
             continue;
         };
         if let Err(e) = put_right {
-            save_failed(format!("{}: {e}", side.display()));
+            save_failed(format!("{}: {e}", escaped_name(side)));
         }
     }
     (still_hidden, unseen)
@@ -1625,20 +1626,20 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
         Err(e) if e.is_name_taken() => {
             save_failed(crate::tf!(
                 "The name {sidecar} is taken by another file now, so the sidecar put aside stays under the hidden name {hidden}",
-                sidecar = side.display(),
-                hidden = hidden.display()
+                sidecar = escaped_name(side),
+                hidden = escaped_name(hidden)
             ));
             return false;
         }
         Err(e) => {
             let may_have_been_done = e.may_have_been_done();
             let e = may_be_hidden(e, photo, hidden);
-            save_failed(format!("{}: {e}", side.display()));
+            save_failed(format!("{}: {e}", escaped_name(side)));
             return may_have_been_done;
         }
     };
     if let Err(e) = given_back {
-        save_failed(format!("{}: {e}", side.display()));
+        save_failed(format!("{}: {e}", escaped_name(side)));
     }
     false
 }
@@ -1654,8 +1655,8 @@ pub(crate) fn may_be_hidden(
 ) -> std::io::Error {
     std::io::Error::other(crate::tf!(
         "it may be under the hidden name {hidden} now; if {photo} is still there and this sidecar is not at its own name, give it back that name ({e})",
-        hidden = hidden.display(),
-        photo = photo.display(),
+        hidden = escaped_name(hidden),
+        photo = escaped_name(photo),
         e
     ))
 }
@@ -2074,7 +2075,7 @@ fn is_the_file_that_went(
     };
     if let Err(e) = &is_it {
         can_be_looked_at(to)?;
-        crate::files::file_io::save_failed(format!("{}: {e}", to.display()));
+        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(to)));
     }
     Ok(is_it.is_ok())
 }
@@ -2106,7 +2107,7 @@ fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
             Err(not) => (not.failed, not.left_behind),
         };
         for (_, at, error) in failed {
-            crate::files::file_io::save_failed(format!("{}: {error}", at.display()));
+            crate::files::file_io::save_failed(format!("{}: {error}", escaped_name(at)));
         }
         for left in left_behind {
             crate::files::file_io::save_failed(left.told());
@@ -2263,7 +2264,7 @@ fn note_written_anew_in_job_logs(dir: &Path, path: &Path, before: FileFingerprin
         if let Err(e) = JobLog::found(entry.path(), file).add_records(&written) {
             crate::files::file_io::save_failed(crate::tf!(
                 "Could not save {name}: {e}",
-                name = entry.path().display(),
+                name = escaped_name(entry.path()),
                 e
             ));
         }
@@ -2615,7 +2616,7 @@ fn unplanned_sidecars_follow_their_photos(moves: &[(PathBuf, PathBuf)], undone: 
             let both = [name.to_path_buf(), at.to_path_buf()];
             let _locks = xmp::lock_sidecars_among(&both, &mut folders);
             if let Err((side, e)) = unplanned_sidecar_follows(name, at, &mut names) {
-                crate::files::file_io::save_failed(format!("{}: {e}", side.display()));
+                crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(side)));
             }
         }
     }
@@ -2676,7 +2677,7 @@ pub fn repair_cut_short(
     let (known, folders) = match read_plan_known(plan, moves.len()) {
         Ok(read) => read,
         Err(e) => {
-            crate::files::file_io::save_failed(format!("{}: {e}", plan.display()));
+            crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(plan)));
             return Some((0, 1));
         }
     };
@@ -2698,7 +2699,7 @@ pub fn repair_cut_short(
             .collect(),
     };
     if let Some((name, e)) = another_file_at(taken.into_iter()) {
-        crate::files::file_io::save_failed(format!("{}: {e}", name.display()));
+        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(name)));
         return Some((0, 1));
     }
     let mut first = 0;
@@ -2752,7 +2753,7 @@ pub fn names_left(
     use crate::files::file_io::{KnownAs, is_still_the_file};
     let (known, unread) = match read_plan_known(plan, moves.len()) {
         Ok((known, _)) => (known, String::new()),
-        Err(e) => (Vec::new(), format!("{}: {e}\n", plan.display())),
+        Err(e) => (Vec::new(), format!("{}: {e}\n", escaped_name(plan))),
     };
     let mut text = unread;
     for (first, now, last, known) in files_of(moves, done, &known) {
@@ -2760,7 +2761,7 @@ pub fn names_left(
         if now == meant || is_surely_gone(now) {
             continue;
         }
-        text += &format!("{} → {}", now.display(), meant.display());
+        text += &format!("{} → {}", escaped_name(now), escaped_name(meant));
         let hidden =
             (now.file_name().unwrap_or_default().as_bytes()).starts_with(HIDDEN_NAME.as_bytes());
         let refused = known
@@ -2977,7 +2978,7 @@ fn tell_when_not_synced(synced: Result<(), (&Path, std::io::Error)>) {
         let folder = name.parent().unwrap_or(name);
         crate::files::file_io::save_failed(crate::tf!(
             "Could not save {name}: {e}",
-            name = folder.display(),
+            name = escaped_name(folder),
             e
         ));
     }
@@ -3016,7 +3017,7 @@ pub fn clear_old_log_folders(state: &Path) {
             }
             (_, Ok(true)) => crate::files::file_io::save_failed(crate::tf!(
                 "{folder} holds logs that Glimt 0.92 or older left when it was stopped during a Rename Many, a Move or a delete. This Glimt no longer reads them: start Glimt 0.94 once to put them right. Until then they are kept.",
-                folder = folder.display()
+                folder = escaped_name(folder)
             )),
             _ => {}
         }

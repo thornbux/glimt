@@ -273,12 +273,7 @@ impl OtherNames {
     /// Counts a save that replaced the file at `path`.
     fn add(&mut self, path: &Path) {
         self.count += 1;
-        let name = || {
-            path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned()
-        };
+        let name = || crate::support::format::escaped_name(path.file_name().unwrap_or_default());
         self.first.get_or_insert_with(name);
     }
 
@@ -2402,7 +2397,7 @@ fn named_without_descriptor(path: &Path) -> Option<std::borrow::Cow<'_, Path>> {
 /// (`source_rules::paths_through_a_descriptor_are_shown_by_their_names`).
 pub(crate) fn shown_path(path: &Path) -> String {
     let named = named_without_descriptor(path);
-    named.as_deref().unwrap_or(path).display().to_string()
+    crate::support::format::escaped_name(named.as_deref().unwrap_or(path))
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.

@@ -11,7 +11,7 @@ use crate::files::config::sharing_path;
 use crate::files::file_io::{PickedFiles, create_file, edit_shared, save_failed, write_later};
 use crate::files::file_ops::OperationReport;
 use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
-use crate::support::format::count;
+use crate::support::format::{count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took, Working, answer_channel};
 use crate::tf;
@@ -251,11 +251,11 @@ impl SharingOutcome {
         let bytes = match made {
             Ok(None) => return self.other_formats += 1,
             Ok(Some(bytes)) => bytes,
-            Err(e) => return self.errors.push(format!("{}: {e}", path.display())),
+            Err(e) => return self.errors.push(format!("{}: {e}", escaped_name(path))),
         };
         // Another window or program may have given the name to another photo meanwhile.
         if let Err(e) = still_the_one_picked(path) {
-            return self.errors.push(format!("{}: {e}", path.display()));
+            return self.errors.push(format!("{}: {e}", escaped_name(path)));
         }
         // Only the looks that fail count against a bound, so a folder whose names cannot be
         // looked at does not keep it trying. Names surely taken do not, as the copies are
@@ -301,7 +301,7 @@ impl SharingOutcome {
                     return;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return self.errors.push(format!("{}: {e}", target.display())),
+                Err(e) => return self.errors.push(format!("{}: {e}", escaped_name(target))),
             }
         }
         self.names_taken += 1;
@@ -321,7 +321,7 @@ impl SharingOutcome {
             (None, None) => tf!(
                 "{files} copied to {folder}",
                 files = count(self.copied, "file"),
-                folder = folder.display()
+                folder = escaped_name(folder)
             ),
         };
         if self.other_formats > 0 {
@@ -505,7 +505,11 @@ fn is_name_free(
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(e) => Err(std::io::Error::new(
             e.kind(),
-            tf!("could not look at {name}: {e}", name = target.display(), e),
+            tf!(
+                "could not look at {name}: {e}",
+                name = escaped_name(target),
+                e
+            ),
         )),
     }
 }
@@ -594,7 +598,11 @@ fn save_choice(text: String) {
     };
     write_later(move || {
         if let Err(e) = edit_shared(&file, |_| (text.into_bytes(), ())) {
-            save_failed(tf!("Could not save {name}: {e}", name = file.display(), e));
+            save_failed(tf!(
+                "Could not save {name}: {e}",
+                name = escaped_name(file),
+                e
+            ));
         }
     });
 }

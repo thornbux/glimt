@@ -6,6 +6,7 @@
 use crate::features::print;
 use crate::files::file_io::{edit_shared, save_failed, write_later};
 use crate::model::listing::Sort;
+use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::Keys;
 use crate::viewer::view::Failure;
@@ -621,7 +622,7 @@ impl Config {
                 if let Err(e) = write_settings(&p, &ours, &LAST_SAVED_TEXT) {
                     save_failed(crate::tf!(
                         "Could not save {name}: {e}",
-                        name = p.display(),
+                        name = escaped_name(p),
                         e
                     ));
                 }
@@ -843,7 +844,7 @@ pub fn left_out_for_line_breaks(left_out: usize) -> Option<Failure> {
 /// not fit on a line.
 pub fn last_dir_line(dir: &Path) -> String {
     match fits_on_a_line(dir) {
-        true => format!("{LAST_DIR}={}\n", dir.display()),
+        true => format!("{LAST_DIR}={}\n", dir.to_string_lossy()),
         false => String::new(),
     }
 }
