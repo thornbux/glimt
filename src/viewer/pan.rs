@@ -297,27 +297,7 @@ impl crate::App {
             pan.stop_reading_days.store(true, Ordering::Relaxed);
         }
         if stale && pan.days_rx.is_none() {
-            let (tx, rx) = mpsc::channel();
-            let (dir, files, exif, known) = (
-                self.folder.dir().to_path_buf(),
-                self.list.files().to_vec(),
-                pan.uses_exif_dates,
-                std::mem::take(&mut pan.known_dates),
-            );
-            let ctx = ctx.clone();
-            // The days are read from the list as it is now, which no file has left yet.
-            pan.removed_while_reading = (Vec::new(), self.list.version());
-            let pointer = Working::new(&self.busy);
-            pan.stop_reading_days = Arc::default();
-            let stop = pan.stop_reading_days.clone();
-            std::thread::spawn(move || {
-                timeline(&dir, &files, exif, known, &stop, |days, known| {
-                    let _ = tx.send((days, known));
-                    ctx.request_repaint();
-                });
-                drop(pointer);
-            });
-            pan.days_rx = Receiving::of(rx);
+            self.start_reading_days(ctx, pan);
         }
         // The days so far, the last ones sent; days for a list that changed meanwhile are taken
         // as old, and made again.
@@ -341,6 +321,32 @@ impl crate::App {
             }
             self.tell_background_stopped(tr("The Pan view's days"));
         }
+    }
+
+    /// Starts reading the days of the list as it is now in the background. `pan_days` takes
+    /// them as they come.
+    fn start_reading_days(&mut self, ctx: &egui::Context, pan: &mut PanView) {
+        let (tx, rx) = mpsc::channel();
+        let (dir, files, exif, known) = (
+            self.folder.dir().to_path_buf(),
+            self.list.files().to_vec(),
+            pan.uses_exif_dates,
+            std::mem::take(&mut pan.known_dates),
+        );
+        let ctx = ctx.clone();
+        // The days are read from the list as it is now, which no file has left yet.
+        pan.removed_while_reading = (Vec::new(), self.list.version());
+        let pointer = Working::new(&self.busy);
+        pan.stop_reading_days = Arc::default();
+        let stop = pan.stop_reading_days.clone();
+        std::thread::spawn(move || {
+            timeline(&dir, &files, exif, known, &stop, |days, known| {
+                let _ = tx.send((days, known));
+                ctx.request_repaint();
+            });
+            drop(pointer);
+        });
+        pan.days_rx = Receiving::of(rx);
     }
 
     /// The timeline: each day's heading and its images in rows of cells, only the rows in view
@@ -1122,7 +1128,9 @@ mod tests {
         // a.png renamed to x.png while the dates are being read.
         let mut reading = app.pan_view.take().unwrap();
         reading.forget_dates();
-        app.pan_days(&ctx, &mut reading);
+        // Started without taking its answer, which `pan_days` would take at once when the
+        // reading was quick, and the rename would then not come while the dates are read.
+        app.start_reading_days(&ctx, &mut reading);
         assert!(reading.days_rx.is_some());
         app.pan_view = Some(reading);
         app.follow_moved_paths(vec![(dir.join("a.png"), dir.join("x.png"))], false);

@@ -9034,7 +9034,7 @@ fn answers_keep_the_busy_pointer() {
     const SEND_AS_THEY_GO: &[(&str, &str, &str)] = &[
         (
             "viewer/pan.rs",
-            "pan_days",
+            "start_reading_days",
             "the days read so far, drawn as they come",
         ),
         (
