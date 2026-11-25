@@ -77,6 +77,10 @@ pub(crate) struct Search {
     /// search reads only these files again, not the whole folder.
     exif_to_read_again: HashSet<OsString>,
     exif_index_rx: Receiving<(HashMap<OsString, String>, Working)>,
+    /// Whether a reading of the EXIF index ended without its answer in this folder. The names
+    /// it lacks are then not read again until another folder opens, because the cause, such as
+    /// a lack of threads, would end each new reading too, and each would be started at once.
+    exif_index_failed: bool,
     /// Set when the index being read is no longer wanted (another folder), so the thread stops.
     exif_index_stop: Arc<AtomicBool>,
 }
@@ -115,6 +119,7 @@ impl Search {
         self.exif_index = None;
         self.exif_to_read_again.clear();
         self.exif_index_rx = Receiving::none();
+        self.exif_index_failed = false;
         // Its reading of every file ends, because no one waits for it now.
         self.exif_index_stop.store(true, Ordering::Relaxed);
     }
@@ -312,8 +317,11 @@ impl crate::App {
             Took::Nothing => return,
             Took::Answer(answer) => (answer.0, Some(answer.1)),
             // Without any index, the search would start reading again at once, so it gets an
-            // empty one, and the user is told.
+            // empty one, and the user is told. The names it lacks are not read again either
+            // (`index_new_names`). Before, they were, and a cause that stayed started a new
+            // reading in every frame.
             Took::Gone => {
+                self.search.exif_index_failed = true;
                 self.tell_background_stopped(tr("The EXIF index"));
                 (HashMap::new(), None)
             }
@@ -332,6 +340,9 @@ impl crate::App {
     /// (renamed, moved or copied in, new in a folder read again, or from subfolders turned on),
     /// as it reads edited ones. Before, a name it lacked was found by no `exif:` search at all.
     pub(crate) fn index_new_names(&mut self) {
+        if self.search.exif_index_failed {
+            return;
+        }
         if let Some(index) = &self.search.exif_index {
             let missing = self.list.files().iter().filter(|n| !index.contains_key(*n));
             self.search.exif_to_read_again.extend(missing.cloned());
@@ -924,6 +935,41 @@ mod tests {
         assert!(typed(&mut app, &["exi", "exif:canon"]).is_empty());
         assert_eq!(app.targets(), None);
         assert_eq!(typed(&mut app, &["exif:canon", ""]), [0, 1].into());
+        let read = |a: &crate::App| a.search.exif_index.is_some();
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, read
+        ));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A reading of the EXIF index that ends without its answer starts no new reading of the
+    /// names it lacks. Before, the empty index it got lacked every name, so the search started
+    /// a reading of every file again at once, and a cause that stayed (too few threads) made
+    /// that repeat in every frame, each time with the busy pointer and a notice.
+    #[test]
+    fn an_index_reading_that_died_is_not_started_again() {
+        use std::collections::HashMap;
+        use std::ffi::OsString;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-index-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.jpg", "b.jpg"].iter().map(Into::into).collect());
+        app.search.set_query("exif:canon");
+        let (tx, rx) = std::sync::mpsc::channel::<(
+            HashMap<OsString, String>,
+            crate::support::threads::Working,
+        )>();
+        drop(tx);
+        app.search.exif_index_rx = crate::support::threads::Receiving::of(rx);
+        app.receive_exif_index(&ctx);
+        assert!(!app.search.reads_index(), "a new reading was started");
+        assert!(app.search.has_nothing_to_read_again());
+        // Another folder reads its index again.
+        app.search.forget_exif_index();
+        app.update_search(&ctx);
+        assert!(app.search.reads_index());
         let read = |a: &crate::App| a.search.exif_index.is_some();
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, read
