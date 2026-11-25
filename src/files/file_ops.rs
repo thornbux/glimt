@@ -4848,8 +4848,8 @@ mod tests {
     /// Makes `a.jpg` and `b.jpg` in the test's own folder `dir`, with the sidecar `a.jpg.xmp`
     /// when `with_sidecar`, and starts their rename to `c.jpg` and `d.jpg` in another thread
     /// while the test holds the sidecar lock of `b.jpg`. Returns the lock and the thread, which
-    /// gives the rename's failure, once `c.jpg` is there. Before #153, the rename held the locks
-    /// of every photo for the whole job, and `c.jpg` never came.
+    /// gives the rename's failure, once `c.jpg` and its sidecar are there. Before #153, the
+    /// rename held the locks of every photo for the whole job, and `c.jpg` never came.
     fn rename_while_b_is_locked(
         dir: &std::path::Path,
         with_sidecar: bool,
@@ -4872,8 +4872,11 @@ mod tests {
             let job = super::Job::new("Renaming", 2, false, Vec::new());
             rename_files(from, to, &job).map_err(|e| e.text)
         });
+        // The first photo's last step: its sidecar follows it after the photo itself. Waited for
+        // only to c.jpg, the test read c.jpg.xmp now and then before it was there.
+        let last_of_a = p(if with_sidecar { "c.jpg.xmp" } else { "c.jpg" });
         let start = std::time::Instant::now();
-        while !p("c.jpg").exists() {
+        while !last_of_a.exists() {
             assert!(
                 start.elapsed() < std::time::Duration::from_secs(10),
                 "the rename of a.jpg waited for the lock of b.jpg"
