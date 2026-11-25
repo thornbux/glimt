@@ -1462,11 +1462,16 @@ fn language_text(xmp: &str, tag: &str) -> String {
 }
 
 /// The items of the language alternative `tag` in `xmp` (`items_with_languages`), one for each
-/// language. When it is written twice, the text of the first that has a language is the one
-/// read, edited and written.
+/// language. An item without a language is the x-default one, as `language_alternative`
+/// writes it so. When a language is written twice, the text of the first is the one read,
+/// edited and written. Before, an item without a language and an x-default item were read as
+/// two languages and written as one, so an edit read back as the old text.
 fn languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    for item in items_with_languages(xmp, tag) {
+    for mut item in items_with_languages(xmp, tag) {
+        if item.0.is_empty() {
+            item.0 = "x-default".into();
+        }
         if !out.iter().any(|(language, _)| *language == item.0) {
             out.push(item);
         }
@@ -1504,11 +1509,6 @@ fn language_alternative(
     }
     let mut out = format!("\n   <{written_as}>\n    <rdf:Alt>\n");
     for (language, text) in items {
-        let language = if language.is_empty() {
-            "x-default".into()
-        } else {
-            language
-        };
         out += &format!(
             "     <rdf:li xml:lang=\"{}\">{}</rdf:li>\n",
             escape(&language),
@@ -3476,6 +3476,23 @@ mod tests {
             [pair("de", "Ein Hund am Strand"), pair("en-US", "A dgo")]
         );
         assert_eq!(parse(&written).comment, "Hello");
+    }
+
+    /// A comment written as an attribute, which is an item without a language, and an
+    /// x-default item are one language. An edit replaces the text shown, and the next read
+    /// shows the new text. Before, both were written as x-default, and it showed the old one.
+    #[test]
+    fn an_item_without_a_language_is_the_default_one() {
+        let xmp = r#"<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"
+    dc:description="Old"><dc:description><rdf:Alt><rdf:li xml:lang="x-default">Shown</rdf:li>
+    <rdf:li xml:lang="de">Alt</rdf:li></rdf:Alt></dc:description></rdf:Description>"#;
+        let edited = set_comment(xmp, xmp, "New", false).unwrap();
+        assert_eq!(parse(&edited).comment, "New", "{edited}");
+        let pair = |l: &str, t: &str| (l.to_owned(), t.to_owned());
+        assert_eq!(
+            languages(&edited, "dc:description"),
+            [pair("x-default", "New"), pair("de", "Alt")]
+        );
     }
 
     /// The writers read the first Description's start tag as the reader does: a namespace
