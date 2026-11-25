@@ -1075,7 +1075,6 @@ mod tests {
     /// intent change nothing. Before, they reached the shared thumbnail cache and prints.
     #[test]
     fn hands_out_the_files_colours_whatever_the_view() {
-        use std::sync::atomic::Ordering;
         let _held = crate::support::test_support::change_shared_settings();
         let grey = || {
             image::DynamicImage::from(image::RgbaImage::from_pixel(
@@ -1087,9 +1086,9 @@ mod tests {
         let p3 = moxcms::ColorProfile::new_display_p3().encode().unwrap();
         let tagged = super::to_srgb(grey(), Some(&p3));
         assert_ne!(tagged, grey());
-        super::COLOR_MANAGEMENT.store(false, Ordering::Relaxed);
+        super::use_color_management(false);
         let off = super::to_srgb(grey(), Some(&p3));
-        super::COLOR_MANAGEMENT.store(true, Ordering::Relaxed);
+        super::use_color_management(true);
         super::set_input("adobe").unwrap();
         super::set_colour(|c| c.use_image_profile = false);
         super::set_intent("relative");

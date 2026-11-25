@@ -1978,34 +1978,78 @@ fn finds_every_temporary_name() {
          \x20       let e = std::env::temp_dir().join(made());\n    }\n",
     );
     assert_eq!(wrong.len(), 3, "{wrong:?}");
+    // What slipped past before (#303): a name in /dev/shm, a helper that joins its whole
+    // parameter called with a name not Glimt's or with no literal, and the temporary folder
+    // given to a function that joins a name to it.
+    let (_, wrong) = read(
+        "    fn one() {\n        let shm = std::path::Path::new(\"/dev/shm\");\n\
+         \x20       let fine = dev(shm);\n        let d = shm.join(\"other\");\n    }\n\
+         \x20   fn whole(name: &str) -> PathBuf {\n        std::env::temp_dir().join(name)\n    }\n\
+         \x20   fn under(dir: &Path) -> PathBuf {\n        dir.join(\"x\")\n    }\n\
+         \x20   fn two() {\n        whole(\"b.jpg\");\n        whole(made());\n        \
+         whole(\"glimt-fine\");\n        under(&std::env::temp_dir());\n        \
+         dev(&std::env::temp_dir());\n    }\n",
+    );
+    assert_eq!(wrong.len(), 4, "{wrong:?}");
 }
 
 /// Returns each name that the test code of `sources` makes in the temporary folder, with its
 /// location as "file:line", and each location where such a name cannot be read or is not Glimt's.
 /// The call of a helper whose parameter is part of a name gives the name "helper(word)", with
 /// the first literal of the call as its word.
+/// A helper that joins its whole parameter to the temporary folder gives the word of each call
+/// as the name itself, which must then be Glimt's (`glimt-…`), and a call of it without a
+/// literal is a name not read from the code (#303).
 fn temporary_names(sources: &[(String, String)]) -> (Vec<(String, String)>, Vec<String>) {
     let (mut names, mut wrong, mut helpers) = (Vec::new(), Vec::new(), Vec::new());
+    // The functions that join a name to one of their parameters.
+    let mut joiners = Vec::new();
+    for (_, text) in sources {
+        let code = code_lines(text);
+        for (i, name) in (0..code.len()).filter_map(|i| Some((i, function_name(&code[i])?))) {
+            let last = block_end(&code, i).unwrap_or(i);
+            let body = code[i..=last].join("\n");
+            let signature = signature(&code, i);
+            let inside = signature.split_once('(').map_or("", |(_, rest)| rest);
+            let inside = inside.rsplit_once(')').map_or(inside, |(params, _)| params);
+            let joins = (inside.split(',').filter_map(|p| p.split_once(':')))
+                .map(|(p, _)| p.trim().trim_start_matches("mut ").trim())
+                .any(|p| !p.is_empty() && body.contains(&format!("{p}.join(")));
+            if joins {
+                joiners.push(name.to_owned());
+            }
+        }
+    }
     for (file, text) in sources {
-        read_temporary_paths(file, text, &mut names, &mut wrong, &mut helpers);
+        read_temporary_paths(file, text, &mut names, &mut wrong, &mut helpers, &joiners);
     }
     helpers.sort();
     helpers.dedup();
     for (file, text) in sources {
         let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
         for (i, line) in lines.iter().enumerate() {
-            for helper in &helpers {
+            for (helper, whole) in &helpers {
                 let call = format!("{helper}(");
                 let is_call = |at: &usize| {
                     let before = &line[..*at];
                     !before.ends_with(is_word_char) && !before.ends_with("fn ")
                 };
                 for (at, _) in line.match_indices(&call).filter(|(at, _)| is_call(at)) {
+                    let location = format!("{file}:{}", i + 1);
                     let inside = starts[i] + at + call.len();
                     let end = call_end(text, inside);
                     let word = (literals.iter()).find(|(p, _)| (inside..end).contains(p));
-                    if let Some((_, word)) = word {
-                        names.push((format!("{helper}({word})"), format!("{file}:{}", i + 1)));
+                    match word {
+                        Some((_, word)) if *whole && !word.starts_with("glimt-") => {
+                            wrong.push(format!("{location}: {word} is not a name of Glimt's own"))
+                        }
+                        Some((_, word)) => names.push((format!("{helper}({word})"), location)),
+                        // The helper's own part of the name stays its own, unless the whole
+                        // name is the parameter.
+                        None if *whole && !line[..at].ends_with(['.', ':']) => {
+                            wrong.push(format!("{location}: a name not read from the code"))
+                        }
+                        None => {}
                     }
                 }
             }
@@ -2022,7 +2066,8 @@ fn read_temporary_paths(
     text: &str,
     names: &mut Vec<(String, String)>,
     wrong: &mut Vec<String>,
-    helpers: &mut Vec<String>,
+    helpers: &mut Vec<(String, bool)>,
+    joiners: &[String],
 ) {
     let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
     let tests = tests_start(&lines);
@@ -2043,10 +2088,22 @@ fn read_temporary_paths(
                     above.take_while(|l| l.trim().is_empty() || l.trim().starts_with("#["));
                 attributes.into_iter().any(|l| l.trim() == "#[cfg(test)]")
             });
-        for (at, _) in line.match_indices("temp_dir()").filter(|_| is_test) {
+        let folders = match is_test {
+            true => temporary_folders_on(&lines, text, function, i),
+            false => Vec::new(),
+        };
+        for (at, root) in folders {
             let location = format!("{file}:{}", i + 1);
-            let after = &line[at + "temp_dir()".len()..];
-            if after.starts_with(')') {
+            let after = &line[at + root..];
+            // Given to a function of the crate that joins a name to it, the name is made there,
+            // where it is not read (#303). Given to anything else, it is only looked at.
+            if after.starts_with([')', ',']) {
+                let called = enclosing_call(&line[..at]);
+                if joiners.contains(&called) {
+                    wrong.push(format!(
+                        "{location}: temp_dir() given to {called}, which joins to it"
+                    ));
+                }
                 continue;
             }
             if !after.starts_with(".join(") {
@@ -2055,7 +2112,7 @@ fn read_temporary_paths(
                 ));
                 continue;
             }
-            let from = starts[i] + at + "temp_dir().join(".len();
+            let from = starts[i] + at + root + ".join(".len();
             let argument = text[from..].trim_start();
             let word: String = argument.chars().take_while(|&c| is_word_char(c)).collect();
             let signature = signature(&lines, function);
@@ -2081,12 +2138,68 @@ fn read_temporary_paths(
                 .filter(|(p, _)| !p.is_empty() && signature.contains(&format!("{p}:")));
             if parameters.count() > 0 {
                 let helper = function_name(&lines[function]).unwrap_or_default();
-                helpers.push(helper.to_owned());
+                // The whole name is the parameter, as `glimt-` was put before it above.
+                let whole = name == format!("glimt-{{{word}}}");
+                helpers.push((helper.to_owned(), whole));
             }
             names.push((without_format_arguments(&name), location));
         }
     }
     names.retain(|(name, _)| name != "glimt-{}");
+}
+
+/// Returns the name of the call whose arguments `before` ends inside, the code before an
+/// argument, or "" when it ends inside none.
+fn enclosing_call(before: &str) -> String {
+    let mut depth = 0i32;
+    for (at, c) in before.char_indices().rev() {
+        match c {
+            ')' | ']' => depth += 1,
+            '(' | '[' if depth > 0 => depth -= 1,
+            '(' => {
+                let called = &before[..at];
+                let name = &called[called.trim_end_matches(is_word_char).len()..];
+                return name.to_owned();
+            }
+            _ => {}
+        }
+    }
+    String::new()
+}
+
+/// Returns where each temporary folder starts on line `i` of `lines`, a file's `code_lines`
+/// whose raw text is `text`, each with its length: `temp_dir()`, and a name that the function
+/// from line `function` bound to /dev/shm, which some tests use as another disk. A name
+/// made in /dev/shm is read as one made in the temporary folder (#303).
+fn temporary_folders_on(
+    lines: &[String],
+    text: &str,
+    function: usize,
+    i: usize,
+) -> Vec<(usize, usize)> {
+    let raw: Vec<&str> = text.lines().collect();
+    let mut roots = vec!["temp_dir()".to_owned()];
+    for (j, line) in lines.iter().enumerate().take(i).skip(function) {
+        let binds_shm = raw.get(j).is_some_and(|l| l.contains("\"/dev/shm\""));
+        if let Some(rest) = line.trim_start().strip_prefix("let ").filter(|_| binds_shm) {
+            let name: String = rest.chars().take_while(|&c| is_word_char(c)).collect();
+            roots.push(name);
+        }
+    }
+    let line = &lines[i];
+    let mut found = Vec::new();
+    for root in roots.iter().filter(|r| !r.is_empty()) {
+        for (at, _) in line.match_indices(root.as_str()) {
+            let after = &line[at + root.len()..];
+            let is_word = root.ends_with(is_word_char)
+                && (line[..at].ends_with(is_word_char) || after.starts_with(is_word_char));
+            // A name of /dev/shm counts where it is joined, not where it is only looked at.
+            if !is_word && (root == "temp_dir()" || after.starts_with(".join(")) {
+                found.push((at, root.len()));
+            }
+        }
+    }
+    found
 }
 
 /// Returns the literal that `let word = …;` gives in the lines `within`, the last such
@@ -2199,44 +2312,57 @@ fn shared_settings_are_changed_only_while_held() {
     ];
     let sources = rust_sources();
     let main = code_lines(&source("main.rs"));
-    let start = (main
-        .iter()
-        .position(|l| function_name(l) == Some("with_config")))
-    .unwrap();
+    let start = (main.iter()).position(|l| function_name(l) == Some("with_config"));
+    let start = start.unwrap();
     let body = main[start..=block_end(&main, start).unwrap()].join("\n");
+    // A call of a free function, by its name alone or by its module's path, and not a method
+    // or a type's function of the same name (`Vec::new`).
+    // shortcut: only the functions that `with_config` calls itself are read for a static of any
+    // name, as deeper ones keep counters and caches (`FOLDERS_MADE`, the translations parsed)
+    // that no rule can tell from a setting; worth a list of what is no setting if a shared
+    // setting is ever found deeper.
+    let called_at_start = |name: &str| {
+        body.match_indices(&format!("{name}(")).any(|(at, _)| {
+            let before = &body[..at];
+            match before.strip_suffix("::") {
+                Some(path) => (path.rsplit(|c: char| !is_word_char(c)).next())
+                    .is_some_and(|module| module.starts_with(|c: char| c.is_lowercase())),
+                None => !before.ends_with(|c: char| c == '.' || is_word_char(c)),
+            }
+        })
+    };
     let mut wrong = Vec::new();
     for (file, text) in &sources {
         if ["support/test_support.rs", "support/source_rules.rs"].contains(&file.as_str()) {
             continue;
         }
         let lines = code_lines(text);
-        for (first, name) in
-            (0..tests_start(&lines)).filter_map(|i| Some((i, function_name(&lines[i])?)))
-        {
-            let Some(last) = block_end(&lines, first) else {
-                continue;
-            };
-            let function = &lines[first..=last];
+        // Each statement whole, so a chain that rustfmt broke before `.store(` is read too.
+        let statements = statements(text);
+        for function in functions_in(file, &lines) {
+            let name = &function.name;
             let writes = |is_shared: &dyn Fn(&str) -> bool| {
-                function
-                    .iter()
-                    .any(|l| static_written(l).is_some_and(is_shared))
+                (statements.iter())
+                    .filter(|(i, _)| function.lines.contains(i))
+                    .any(|(_, s)| static_written(s).is_some_and(is_shared))
             };
-            // A call of a free function, by its name alone or by its module's path, and not a
-            // method or a type's function of the same name (`Vec::new`).
-            let called_at_start = body.match_indices(&format!("{name}(")).any(|(at, _)| {
-                let before = &body[..at];
-                match before.strip_suffix("::") {
-                    Some(path) => (path.rsplit(|c: char| !is_word_char(c)).next())
-                        .is_some_and(|module| module.starts_with(|c: char| c.is_lowercase())),
-                    None => !before.ends_with(|c: char| c == '.' || is_word_char(c)),
-                }
-            });
-            let checks = function.iter().any(|l| l.contains("shared_setting_set("));
+            let run_by_a_new_window = function.owner.is_none() && called_at_start(name);
+            let checks = (function.lines.clone()).any(|i| lines[i].contains("shared_setting_set("));
             if !checks
-                && (writes(&|s| SHARED.contains(&s)) || (called_at_start && writes(&|_| true)))
+                && (writes(&|s| SHARED.contains(&s)) || (run_by_a_new_window && writes(&|_| true)))
             {
-                wrong.push(format!("{file}:{} ({name})", first + 1));
+                wrong.push(format!("{file}:{} ({name})", function.lines.start() + 1));
+            }
+        }
+        // A test changes a shared setting only through its setter, which checks that the test
+        // holds the shared settings (#303).
+        for i in tests_start(&lines)..lines.len() {
+            let carried = match lines[i].trim_start().starts_with('.') {
+                true => format!("{}{}", lines[i - 1].trim(), lines[i].trim()),
+                false => lines[i].clone(),
+            };
+            if static_written(&carried).is_some_and(|s| SHARED.contains(&s)) {
+                wrong.push(format!("{file}:{} (a test)", i + 1));
             }
         }
     }
@@ -2248,7 +2374,9 @@ fn shared_settings_are_changed_only_while_held() {
 }
 
 /// The checks above find a shared setting written in each way: stored, swapped, through its
-/// lock, and a static written by a function that `App::with_config` calls.
+/// lock, also by a method that changes it (`.take()`), and a static written by a function that
+/// `App::with_config` calls. A store on a line of its own after rustfmt broke the chain is read
+/// with the statement it ends (`statements`), as the joined line in the list shows.
 #[test]
 fn finds_a_shared_setting_written() {
     for line in [
@@ -2257,6 +2385,9 @@ fn finds_a_shared_setting_written() {
         "    *write_even_if_poisoned(&CURRENT_TRANSLATION) = chosen;",
         "    let mut given = lock_even_if_poisoned(&GIVEN_NAME);",
         "    *crate::support::threads::lock_even_if_poisoned(&LISTENING_AS) = None;",
+        "    lock_even_if_poisoned(&GIVEN_NAME).take();",
+        "    lock_even_if_poisoned(&GIVEN_NAME).replace(name);",
+        "    VIEW_FILTER.load(Ordering::Relaxed);VIEW_FILTER.store(f, Ordering::Relaxed);",
     ] {
         assert!(static_written(line).is_some(), "{line}");
     }
@@ -2294,7 +2425,21 @@ fn static_written(line: &str) -> Option<&str> {
         let name = line[at..].split(')').next()?;
         is_static(&name).then_some(name)
     };
-    let to_change = line.trim_start().starts_with('*') || line.contains("let mut ");
+    // Changed through the lock: assigned, bound to change, or given to a method that changes
+    // it (`lock_even_if_poisoned(&GIVEN_NAME).take()`, #303).
+    let changed_through = |lock: &str| {
+        let Some(at) = line.find(lock) else {
+            return false;
+        };
+        let after = line[at..].split_once(')').map_or("", |(_, rest)| rest);
+        let method: String = (after.strip_prefix('.').unwrap_or_default().chars())
+            .take_while(|&c| is_word_char(c))
+            .collect();
+        CHANGING_METHODS.contains(&method.as_str())
+    };
+    let to_change = line.trim_start().starts_with('*')
+        || line.contains("let mut ")
+        || changed_through("lock_even_if_poisoned(&");
     (locked("write_even_if_poisoned(&"))
         .or_else(|| locked("lock_even_if_poisoned(&").filter(|_| to_change))
 }

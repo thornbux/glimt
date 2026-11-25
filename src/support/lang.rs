@@ -722,6 +722,11 @@ msgstr[1] "bilder"
                   #, fuzzy, c-format\n#: src/b.rs\nmsgid \"Two\"\nmsgstr \"Zwei\"\n";
         assert_eq!(wrongly_marked(po, false), ["msgid \"\""]);
         assert_eq!(wrongly_marked(po, true), ["msgid \"Two\""]);
+        // Indented lines, which `parse` reads as they are trimmed, are read so too (#303).
+        let indented = "msgid \"\"\nmsgstr \"\"\n\n  #, fuzzy\n  msgid \"Three\"\n  msgstr \"Drei\"\n\n\
+                        \tmsgid \"Four\"\nmsgstr \"Vier\"\n";
+        assert_eq!(wrongly_marked(indented, true), ["msgid \"Three\""]);
+        assert_eq!(wrongly_marked(indented, false), ["msgid \"Four\""]);
     }
 
     /// Every translation has every text and noun of the Norwegian one, which each new text
@@ -1117,7 +1122,8 @@ msgstr[1] "bilder"
     /// continued lines, is no text and is left out. The mark is found among all the comment
     /// lines above the msgid, also with other flags beside it.
     fn wrongly_marked(po: &str, read_by_native: bool) -> Vec<&str> {
-        let lines: Vec<&str> = po.lines().collect();
+        // Trimmed, as `parse` trims each line, so an indented mark or msgid is read too (#303).
+        let lines: Vec<&str> = po.lines().map(str::trim).collect();
         let is_header = |i: usize| {
             lines[i] == "msgid \"\"" && !lines.get(i + 1).is_some_and(|l| l.starts_with('"'))
         };

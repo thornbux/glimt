@@ -54,6 +54,10 @@ impl Drop for SharedSettingsChanged {
         crate::images::added_formats::set_memory_limit(config.added_format_memory_mb);
         crate::support::threads::set_cpu_use(config.cpu_use);
         crate::ui::file_list::LARGE_THUMBS.store(false, std::sync::atomic::Ordering::Relaxed);
+        // The settings locked, the name given and the name listened as, as a test starts.
+        crate::files::config::unlock();
+        crate::features::remote::keep_given_name(None);
+        crate::features::remote::keep_listening_as(None);
         SHARED_SETTINGS_CHANGING.store(false, std::sync::atomic::Ordering::Relaxed);
         CHANGES_SHARED_SETTINGS.set(false);
     }
@@ -494,8 +498,10 @@ fn read_shared_settings() {
 /// the shared settings to change them (`change_shared_settings`). Each setter of one calls it,
 /// so a test cannot change what the other tests' windows read.
 pub(crate) fn shared_setting_set(changed: bool) {
+    // This thread's test, not any test: another test that holds them does not let this one
+    // change them (#303).
     assert!(
-        !changed || SHARED_SETTINGS_CHANGING.load(std::sync::atomic::Ordering::Relaxed),
+        !changed || CHANGES_SHARED_SETTINGS.get(),
         "a test changed a setting that every window of the process shares: hold \
          test_support::change_shared_settings() while it is changed"
     );
@@ -534,6 +540,45 @@ mod tests {
             assert_eq!(limit(), 7 << 20);
         }
         assert_eq!(limit(), before, "put back");
+    }
+
+    /// A test that does not hold the shared settings cannot change one while another test holds
+    /// them. Before, the check asked whether any test held them, so such a change passed (#303).
+    #[test]
+    fn a_change_is_refused_while_another_test_holds_the_settings() {
+        use std::sync::atomic::Ordering;
+        let (held, is_held) = std::sync::mpsc::channel();
+        let (done, is_done) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _held = super::change_shared_settings();
+            held.send(()).unwrap();
+            is_done.recv().unwrap();
+        });
+        is_held.recv().unwrap();
+        let limit = crate::images::decode::MAX_ANIMATION_BYTES.load(Ordering::Relaxed);
+        let other = limit / 1_000_000 + 3;
+        let unheld = std::panic::catch_unwind(|| crate::images::decode::set_animation_limit(other));
+        done.send(()).unwrap();
+        holder.join().unwrap();
+        assert!(
+            unheld.is_err(),
+            "changed while another test held the settings"
+        );
+    }
+
+    /// The settings locked, the name given and the name listened as are put back when a test
+    /// that changed them lets the shared settings go. Before, they stayed as it left them (#303).
+    #[test]
+    fn the_settings_a_test_changed_are_put_back() {
+        {
+            let _held = super::change_shared_settings();
+            crate::files::config::lock();
+            crate::features::remote::set_name("glimt-test-put-back".into());
+            crate::features::remote::keep_listening_as(Some("glimt-test-put-back".into()));
+        }
+        super::read_shared_settings();
+        assert!(!crate::files::config::locked());
+        assert_eq!(crate::features::remote::given_name(), None);
     }
 
     /// What background work told just before it ended is taken before `run_background_until`
