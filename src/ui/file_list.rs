@@ -2352,8 +2352,10 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
 }
 
 /// Returns the width kept free after the folders of the path, for a click that turns it into
-/// the text field. It is one row's height, and never less than 24 points, the smallest target
-/// that WCAG 2.2 asks for, so that more folders fit beside it without making it hard to hit.
+/// the text field. The width is one row's height, and never less than 24 points, the width of
+/// the smallest target that WCAG 2.2 asks for. Its height is the row's own, 18 points with
+/// egui's spacing, so the room is 24 points wide but not 24 high. A narrower room lets more
+/// folders fit beside it.
 fn room_to_click(ui: &egui::Ui) -> f32 {
     ui.spacing().interact_size.y.max(24.0)
 }
@@ -3059,9 +3061,12 @@ mod tests {
             app.is_comparing = comparing;
             // The work that the folder started and nobody waits for, the thumbnails and the
             // sizes, is in before the slides are counted, so that none of its answers can wake
-            // the window in a counted slide. So are the decodes of the images shown.
+            // the window in a counted slide. So are the decodes of the images shown, and the
+            // threads that every window starts for the desktop's look and the theme files
+            // (#309).
             let is_settled = |app: &crate::App| {
-                app.list.decodes_pending().is_empty()
+                app.desktop_settings.is_answered()
+                    && app.list.decodes_pending().is_empty()
                     && !app.thumbs.is_making_any()
                     && app.list.sizes_and_dates().values().all(Option::is_some)
                     && app.status_bar.folder_total().is_some()

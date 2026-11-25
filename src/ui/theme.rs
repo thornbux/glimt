@@ -317,6 +317,16 @@ impl DesktopSettings {
         }
         (look.is_some() || themes_changed, screen)
     }
+
+    /// Returns whether every thread that these settings started has answered and its answer
+    /// was taken: the desktop's look, its screen profile and the theme files. A test that counts
+    /// the frames that threads ask for waits for this first, as each answer wakes the window.
+    #[cfg(test)]
+    pub(crate) fn is_answered(&self) -> bool {
+        self.look_answer.is_none()
+            && self.screen_profile_answer.is_none()
+            && self.theme_files_answer.is_none()
+    }
 }
 
 /// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then
@@ -573,6 +583,22 @@ mod tests {
     fn a_built_in_name_is_told_from_an_own_one() {
         assert!(super::is_built_in("High Contrast Light"));
         assert!(!super::is_built_in("Mine"));
+    }
+
+    /// The desktop settings tell when the threads they started have answered and the answers
+    /// were taken, so that a test that counts the frames threads ask for can wait for them
+    /// first (#309).
+    #[test]
+    fn desktop_settings_tell_when_their_threads_answered() {
+        let ctx = eframe::egui::Context::default();
+        let mut settings = super::DesktopSettings::new(&ctx, false);
+        assert!(!settings.is_answered());
+        let took = std::time::Instant::now();
+        while !settings.is_answered() {
+            assert!(took.elapsed().as_secs() < 30, "no answer");
+            settings.receive();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     /// The user's own theme files are read in the background, and a theme is taken from what

@@ -2202,10 +2202,10 @@ mod tests {
         /// `let Some(name) = self.targets()`, and uses that name after for more than a look:
         /// a `name.is_empty()` or `name.len()`, a `drop(name)` or a `let _ = name` passes no
         /// file on, so the act after it may still take the shown image.
-        fn uses_targets(code: &str) -> bool {
+        fn uses_targets(code: &str, givers: &[String]) -> bool {
             let flat = code.split_whitespace().collect::<Vec<_>>().join(" ");
             let flat = flat.replace(" .", ".");
-            GIVERS.iter().any(|giver| {
+            givers.iter().any(|giver| {
                 (flat.match_indices(&format!("self.{giver}("))).any(|(at, s)| {
                     // The call ends at its closing parenthesis, after its arguments.
                     let Some(close) = flat[at + s.len()..].find(')') else {
@@ -2240,7 +2240,12 @@ mod tests {
         }
         /// Returns whether `code`, or a function it calls on `self` up to `depth` calls down,
         /// asks for the selected files through one of the givers and uses them.
-        fn reaches(code: &str, depth: u8, bodies: &HashMap<String, String>) -> bool {
+        fn reaches(
+            code: &str,
+            depth: u8,
+            bodies: &HashMap<String, String>,
+            givers: &[String],
+        ) -> bool {
             let called = (code.match_indices("self.")).filter_map(|(at, s)| {
                 let rest = &code[at + s.len()..];
                 let name = rest
@@ -2248,8 +2253,51 @@ mod tests {
                     .next()?;
                 rest[name.len()..].starts_with('(').then_some(name)
             });
-            let deeper = |n: &str| bodies.get(n).is_some_and(|b| reaches(b, depth - 1, bodies));
-            uses_targets(code) || depth > 0 && { called }.any(deeper)
+            let deeper =
+                |n: &str| (bodies.get(n)).is_some_and(|b| reaches(b, depth - 1, bodies, givers));
+            uses_targets(code, givers) || depth > 0 && { called }.any(deeper)
+        }
+        /// Returns the types that the functions of `bodies` named in `givers` give back, as
+        /// written after `->` in their signatures.
+        fn types_given(bodies: &HashMap<String, String>, givers: &[String]) -> Vec<String> {
+            (givers.iter().filter_map(|g| bodies.get(g)))
+                .flat_map(|body| body.lines().filter(|l| l.contains("fn ")))
+                .filter_map(|l| {
+                    l.split_once("->")
+                        .map(|(_, t)| t.trim_end_matches('{').trim())
+                })
+                .map(str::to_owned)
+                .collect()
+        }
+        /// Returns `givers` with every function of `bodies` that gives the targets on: one that
+        /// gives back what a giver gives (the same type) and asks a giver for it, itself or in
+        /// a function it calls. Its callers must then use what it gives, as a giver's must.
+        /// Before, a wrapper (`fn picked(&mut self) -> Option<Vec<usize>>`) that bound the
+        /// targets and gave them back counted as using them, so an arm that dropped what it
+        /// gave and acted on the shown image passed (#165).
+        fn givers_of(mut givers: Vec<String>, bodies: &HashMap<String, String>) -> Vec<String> {
+            let types = types_given(bodies, &givers);
+            loop {
+                let known = givers.len();
+                let others: HashMap<String, String> = (bodies.iter())
+                    .filter(|(n, _)| !givers.contains(n))
+                    .map(|(n, b)| (n.clone(), b.clone()))
+                    .collect();
+                for (name, body) in bodies {
+                    let gives_the_same = types_given(bodies, std::slice::from_ref(name))
+                        .iter()
+                        .any(|t| types.contains(t));
+                    if !givers.contains(name)
+                        && gives_the_same
+                        && reaches(body, 3, &others, &givers)
+                    {
+                        givers.push(name.clone());
+                    }
+                }
+                if givers.len() == known {
+                    return givers;
+                }
+            }
         }
         // The code of every function outside the tests, by name. Functions of one name are put
         // together, which can only let an arm pass, never fail one that reaches its targets.
@@ -2282,7 +2330,8 @@ mod tests {
         }
         // An arm that runs another action is checked as that action, not through `run` itself.
         bodies.remove("run");
-        for giver in GIVERS {
+        let givers = givers_of(GIVERS.map(str::to_owned).to_vec(), &bodies);
+        for giver in &givers {
             bodies.remove(giver);
         }
         // The rule follows the value, also over a split line, and not a call whose value is
@@ -2335,9 +2384,29 @@ mod tests {
                 false,
             ),
         ] {
-            assert_eq!(uses_targets(code), uses, "{code}");
-            assert_eq!(reaches(code, 3, &bodies), uses, "{code}");
+            assert_eq!(uses_targets(code, &givers), uses, "{code}");
+            assert_eq!(reaches(code, 3, &bodies, &givers), uses, "{code}");
         }
+        // A wrapper that gives the targets on is a giver too, so what it gives must be used.
+        let wrapper: HashMap<String, String> = [
+            (
+                "targets".to_owned(),
+                "fn targets(&mut self) -> Option<Vec<usize>> {\n}".to_owned(),
+            ),
+            (
+                "picked".to_owned(),
+                "fn picked(&mut self) -> Option<Vec<usize>> {\n    let t = self.targets()?;\n    \
+                 Some(t)\n}"
+                    .to_owned(),
+            ),
+        ]
+        .into();
+        let wrapped = givers_of(vec!["targets".to_owned()], &wrapper);
+        assert_eq!(wrapped, ["targets", "picked"]);
+        let dropped = "if self.picked().is_some() { self.act(self.list.shown()) }";
+        assert!(!reaches(dropped, 3, &HashMap::new(), &wrapped));
+        let used = "let Some(p) = self.picked() else { return }; self.act(p)";
+        assert!(reaches(used, 3, &HashMap::new(), &wrapped));
         let (_, match_arms) = run.split_once("match action {\n").unwrap();
         // An arm starts at each line of the match's own indent that names an action.
         let mut arms: Vec<String> = Vec::new();
@@ -2362,7 +2431,7 @@ mod tests {
                 let (_, does) = arm.split_once("=>").unwrap();
                 let nothing = does.trim().trim_end_matches(',') == "{}";
                 assert!(
-                    nothing || reaches(does, 3, &bodies),
+                    nothing || reaches(does, 3, &bodies, &givers),
                     "{name} acts on the selection (Action::target) but its arm in App::run \
                      reaches no targets(), targets_without_notice() or ask_about_targets():\n{arm}"
                 );

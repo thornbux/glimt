@@ -982,6 +982,14 @@ pub fn locked() -> bool {
     SETTINGS_LOCKED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Unlocks the settings again, as `test_support::SharedSettingsChanged` puts them back after a
+/// test that locked them.
+#[cfg(test)]
+pub(crate) fn unlock() {
+    crate::support::test_support::shared_setting_set(locked());
+    SETTINGS_LOCKED.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// `ours` (key=value lines), except that where a value is as this window `saved` it, the one
 /// `on_disk` is kept, because another window may have changed that setting since. The result
 /// keeps the file's own order, its comments and blank lines, with the settings it lacks after

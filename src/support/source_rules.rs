@@ -932,6 +932,57 @@ const TEXT_SEARCHES: [(&str, usize); 34] = [
     ("RegexBuilder::new(", 0),
 ];
 
+/// The methods of the standard library's types that change their value (`&mut self`), by which
+/// a guard finds a value changed through a method: a setting (`config_writes`) or a shared
+/// static through its lock (`static_written`).
+const CHANGING_METHODS: &[&str] = &[
+    "append",
+    "as_mut",
+    "clear",
+    "clone_from",
+    "dedup",
+    "drain",
+    "entry",
+    "extend",
+    "extend_from_slice",
+    "fill",
+    "get_mut",
+    "get_or_insert",
+    "get_or_insert_with",
+    "first_mut",
+    "insert",
+    "insert_str",
+    "iter_mut",
+    "last_mut",
+    "pop",
+    "pop_back",
+    "pop_front",
+    "push",
+    "push_back",
+    "push_front",
+    "push_str",
+    "remove",
+    "replace",
+    "replace_range",
+    "resize",
+    "retain",
+    "retain_mut",
+    "reverse",
+    "rotate_left",
+    "rotate_right",
+    "sort",
+    "sort_by",
+    "sort_by_key",
+    "sort_unstable",
+    "sort_unstable_by",
+    "sort_unstable_by_key",
+    "split_off",
+    "swap",
+    "swap_remove",
+    "take",
+    "truncate",
+];
+
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -1138,6 +1189,11 @@ impl CallGraph {
         name: &str,
     ) -> Vec<usize> {
         let receiver = &before[..before.len() - 1];
+        // What a function of the crate gives back as `impl Trait` (an iterator) has no method of
+        // the crate, so `self.x.places().next()` calls none.
+        if self.gives_an_opaque_type(receiver) {
+            return Vec::new();
+        }
         // A receiver that ends in a call or an index (`self.folder.current().x(`) starts after
         // it here, so its first word is empty and its type is not found.
         let receiver_start =
@@ -1164,6 +1220,39 @@ impl CallGraph {
                 .collect(),
             None => methods.collect(),
         }
+    }
+
+    /// Returns whether `receiver` ends in a call of a function of the crate that gives back an
+    /// `impl Trait`, for every function of the crate of that name. Returns false when the call
+    /// is of no function of the crate, or one of them gives back another type.
+    fn gives_an_opaque_type(&self, receiver: &str) -> bool {
+        let Some(inside) = receiver.strip_suffix(')') else {
+            return false;
+        };
+        let mut depth = 1;
+        let open = inside.char_indices().rev().find(|&(_, c)| {
+            depth += match c {
+                ')' => 1,
+                '(' => -1,
+                _ => 0,
+            };
+            depth == 0
+        });
+        let called = &inside[..open.map_or(0, |(at, _)| at)];
+        let name = &called[called.trim_end_matches(is_word_char).len()..];
+        let all = (self.methods.get(name).into_iter().flatten())
+            .chain(self.free.get(name).into_iter().flatten());
+        let returns: Vec<String> = all
+            .map(|&g| {
+                let g = &self.functions[g];
+                let lines = &self.lines[&g.file][g.lines.clone()];
+                let opens = lines.iter().position(|l| l.ends_with('{')).unwrap_or(0);
+                let signature = lines[..=opens].join(" ");
+                let returned = signature.rsplit_once("->").map_or("", |(_, r)| r);
+                returned.trim_start().to_owned()
+            })
+            .collect();
+        !returns.is_empty() && returns.iter().all(|r| r.starts_with("impl "))
     }
 
     /// Returns whether function `g` takes `self` (`self`, `&self`, `&mut self`, `mut self`).
@@ -1889,34 +1978,78 @@ fn finds_every_temporary_name() {
          \x20       let e = std::env::temp_dir().join(made());\n    }\n",
     );
     assert_eq!(wrong.len(), 3, "{wrong:?}");
+    // What slipped past before (#303): a name in /dev/shm, a helper that joins its whole
+    // parameter called with a name not Glimt's or with no literal, and the temporary folder
+    // given to a function that joins a name to it.
+    let (_, wrong) = read(
+        "    fn one() {\n        let shm = std::path::Path::new(\"/dev/shm\");\n\
+         \x20       let fine = dev(shm);\n        let d = shm.join(\"other\");\n    }\n\
+         \x20   fn whole(name: &str) -> PathBuf {\n        std::env::temp_dir().join(name)\n    }\n\
+         \x20   fn under(dir: &Path) -> PathBuf {\n        dir.join(\"x\")\n    }\n\
+         \x20   fn two() {\n        whole(\"b.jpg\");\n        whole(made());\n        \
+         whole(\"glimt-fine\");\n        under(&std::env::temp_dir());\n        \
+         dev(&std::env::temp_dir());\n    }\n",
+    );
+    assert_eq!(wrong.len(), 4, "{wrong:?}");
 }
 
 /// Returns each name that the test code of `sources` makes in the temporary folder, with its
 /// location as "file:line", and each location where such a name cannot be read or is not Glimt's.
 /// The call of a helper whose parameter is part of a name gives the name "helper(word)", with
 /// the first literal of the call as its word.
+/// A helper that joins its whole parameter to the temporary folder gives the word of each call
+/// as the name itself, which must then be Glimt's (`glimt-…`), and a call of it without a
+/// literal is a name not read from the code (#303).
 fn temporary_names(sources: &[(String, String)]) -> (Vec<(String, String)>, Vec<String>) {
     let (mut names, mut wrong, mut helpers) = (Vec::new(), Vec::new(), Vec::new());
+    // The functions that join a name to one of their parameters.
+    let mut joiners = Vec::new();
+    for (_, text) in sources {
+        let code = code_lines(text);
+        for (i, name) in (0..code.len()).filter_map(|i| Some((i, function_name(&code[i])?))) {
+            let last = block_end(&code, i).unwrap_or(i);
+            let body = code[i..=last].join("\n");
+            let signature = signature(&code, i);
+            let inside = signature.split_once('(').map_or("", |(_, rest)| rest);
+            let inside = inside.rsplit_once(')').map_or(inside, |(params, _)| params);
+            let joins = (inside.split(',').filter_map(|p| p.split_once(':')))
+                .map(|(p, _)| p.trim().trim_start_matches("mut ").trim())
+                .any(|p| !p.is_empty() && body.contains(&format!("{p}.join(")));
+            if joins {
+                joiners.push(name.to_owned());
+            }
+        }
+    }
     for (file, text) in sources {
-        read_temporary_paths(file, text, &mut names, &mut wrong, &mut helpers);
+        read_temporary_paths(file, text, &mut names, &mut wrong, &mut helpers, &joiners);
     }
     helpers.sort();
     helpers.dedup();
     for (file, text) in sources {
         let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
         for (i, line) in lines.iter().enumerate() {
-            for helper in &helpers {
+            for (helper, whole) in &helpers {
                 let call = format!("{helper}(");
                 let is_call = |at: &usize| {
                     let before = &line[..*at];
                     !before.ends_with(is_word_char) && !before.ends_with("fn ")
                 };
                 for (at, _) in line.match_indices(&call).filter(|(at, _)| is_call(at)) {
+                    let location = format!("{file}:{}", i + 1);
                     let inside = starts[i] + at + call.len();
                     let end = call_end(text, inside);
                     let word = (literals.iter()).find(|(p, _)| (inside..end).contains(p));
-                    if let Some((_, word)) = word {
-                        names.push((format!("{helper}({word})"), format!("{file}:{}", i + 1)));
+                    match word {
+                        Some((_, word)) if *whole && !word.starts_with("glimt-") => {
+                            wrong.push(format!("{location}: {word} is not a name of Glimt's own"))
+                        }
+                        Some((_, word)) => names.push((format!("{helper}({word})"), location)),
+                        // The helper's own part of the name stays its own, unless the whole
+                        // name is the parameter.
+                        None if *whole && !line[..at].ends_with(['.', ':']) => {
+                            wrong.push(format!("{location}: a name not read from the code"))
+                        }
+                        None => {}
                     }
                 }
             }
@@ -1933,7 +2066,8 @@ fn read_temporary_paths(
     text: &str,
     names: &mut Vec<(String, String)>,
     wrong: &mut Vec<String>,
-    helpers: &mut Vec<String>,
+    helpers: &mut Vec<(String, bool)>,
+    joiners: &[String],
 ) {
     let (lines, starts, literals) = (code_lines(text), line_starts(text), literals(text));
     let tests = tests_start(&lines);
@@ -1954,10 +2088,22 @@ fn read_temporary_paths(
                     above.take_while(|l| l.trim().is_empty() || l.trim().starts_with("#["));
                 attributes.into_iter().any(|l| l.trim() == "#[cfg(test)]")
             });
-        for (at, _) in line.match_indices("temp_dir()").filter(|_| is_test) {
+        let folders = match is_test {
+            true => temporary_folders_on(&lines, text, function, i),
+            false => Vec::new(),
+        };
+        for (at, root) in folders {
             let location = format!("{file}:{}", i + 1);
-            let after = &line[at + "temp_dir()".len()..];
-            if after.starts_with(')') {
+            let after = &line[at + root..];
+            // Given to a function of the crate that joins a name to it, the name is made there,
+            // where it is not read (#303). Given to anything else, it is only looked at.
+            if after.starts_with([')', ',']) {
+                let called = enclosing_call(&line[..at]);
+                if joiners.contains(&called) {
+                    wrong.push(format!(
+                        "{location}: temp_dir() given to {called}, which joins to it"
+                    ));
+                }
                 continue;
             }
             if !after.starts_with(".join(") {
@@ -1966,7 +2112,7 @@ fn read_temporary_paths(
                 ));
                 continue;
             }
-            let from = starts[i] + at + "temp_dir().join(".len();
+            let from = starts[i] + at + root + ".join(".len();
             let argument = text[from..].trim_start();
             let word: String = argument.chars().take_while(|&c| is_word_char(c)).collect();
             let signature = signature(&lines, function);
@@ -1992,12 +2138,68 @@ fn read_temporary_paths(
                 .filter(|(p, _)| !p.is_empty() && signature.contains(&format!("{p}:")));
             if parameters.count() > 0 {
                 let helper = function_name(&lines[function]).unwrap_or_default();
-                helpers.push(helper.to_owned());
+                // The whole name is the parameter, as `glimt-` was put before it above.
+                let whole = name == format!("glimt-{{{word}}}");
+                helpers.push((helper.to_owned(), whole));
             }
             names.push((without_format_arguments(&name), location));
         }
     }
     names.retain(|(name, _)| name != "glimt-{}");
+}
+
+/// Returns the name of the call whose arguments `before` ends inside, the code before an
+/// argument, or "" when it ends inside none.
+fn enclosing_call(before: &str) -> String {
+    let mut depth = 0i32;
+    for (at, c) in before.char_indices().rev() {
+        match c {
+            ')' | ']' => depth += 1,
+            '(' | '[' if depth > 0 => depth -= 1,
+            '(' => {
+                let called = &before[..at];
+                let name = &called[called.trim_end_matches(is_word_char).len()..];
+                return name.to_owned();
+            }
+            _ => {}
+        }
+    }
+    String::new()
+}
+
+/// Returns where each temporary folder starts on line `i` of `lines`, a file's `code_lines`
+/// whose raw text is `text`, each with its length: `temp_dir()`, and a name that the function
+/// from line `function` bound to /dev/shm, which some tests use as another disk. A name
+/// made in /dev/shm is read as one made in the temporary folder (#303).
+fn temporary_folders_on(
+    lines: &[String],
+    text: &str,
+    function: usize,
+    i: usize,
+) -> Vec<(usize, usize)> {
+    let raw: Vec<&str> = text.lines().collect();
+    let mut roots = vec!["temp_dir()".to_owned()];
+    for (j, line) in lines.iter().enumerate().take(i).skip(function) {
+        let binds_shm = raw.get(j).is_some_and(|l| l.contains("\"/dev/shm\""));
+        if let Some(rest) = line.trim_start().strip_prefix("let ").filter(|_| binds_shm) {
+            let name: String = rest.chars().take_while(|&c| is_word_char(c)).collect();
+            roots.push(name);
+        }
+    }
+    let line = &lines[i];
+    let mut found = Vec::new();
+    for root in roots.iter().filter(|r| !r.is_empty()) {
+        for (at, _) in line.match_indices(root.as_str()) {
+            let after = &line[at + root.len()..];
+            let is_word = root.ends_with(is_word_char)
+                && (line[..at].ends_with(is_word_char) || after.starts_with(is_word_char));
+            // A name of /dev/shm counts where it is joined, not where it is only looked at.
+            if !is_word && (root == "temp_dir()" || after.starts_with(".join(")) {
+                found.push((at, root.len()));
+            }
+        }
+    }
+    found
 }
 
 /// Returns the literal that `let word = …;` gives in the lines `within`, the last such
@@ -2110,44 +2312,57 @@ fn shared_settings_are_changed_only_while_held() {
     ];
     let sources = rust_sources();
     let main = code_lines(&source("main.rs"));
-    let start = (main
-        .iter()
-        .position(|l| function_name(l) == Some("with_config")))
-    .unwrap();
+    let start = (main.iter()).position(|l| function_name(l) == Some("with_config"));
+    let start = start.unwrap();
     let body = main[start..=block_end(&main, start).unwrap()].join("\n");
+    // A call of a free function, by its name alone or by its module's path, and not a method
+    // or a type's function of the same name (`Vec::new`).
+    // shortcut: only the functions that `with_config` calls itself are read for a static of any
+    // name, as deeper ones keep counters and caches (`FOLDERS_MADE`, the translations parsed)
+    // that no rule can tell from a setting; worth a list of what is no setting if a shared
+    // setting is ever found deeper.
+    let called_at_start = |name: &str| {
+        body.match_indices(&format!("{name}(")).any(|(at, _)| {
+            let before = &body[..at];
+            match before.strip_suffix("::") {
+                Some(path) => (path.rsplit(|c: char| !is_word_char(c)).next())
+                    .is_some_and(|module| module.starts_with(|c: char| c.is_lowercase())),
+                None => !before.ends_with(|c: char| c == '.' || is_word_char(c)),
+            }
+        })
+    };
     let mut wrong = Vec::new();
     for (file, text) in &sources {
         if ["support/test_support.rs", "support/source_rules.rs"].contains(&file.as_str()) {
             continue;
         }
         let lines = code_lines(text);
-        for (first, name) in
-            (0..tests_start(&lines)).filter_map(|i| Some((i, function_name(&lines[i])?)))
-        {
-            let Some(last) = block_end(&lines, first) else {
-                continue;
-            };
-            let function = &lines[first..=last];
+        // Each statement whole, so a chain that rustfmt broke before `.store(` is read too.
+        let statements = statements(text);
+        for function in functions_in(file, &lines) {
+            let name = &function.name;
             let writes = |is_shared: &dyn Fn(&str) -> bool| {
-                function
-                    .iter()
-                    .any(|l| static_written(l).is_some_and(is_shared))
+                (statements.iter())
+                    .filter(|(i, _)| function.lines.contains(i))
+                    .any(|(_, s)| static_written(s).is_some_and(is_shared))
             };
-            // A call of a free function, by its name alone or by its module's path, and not a
-            // method or a type's function of the same name (`Vec::new`).
-            let called_at_start = body.match_indices(&format!("{name}(")).any(|(at, _)| {
-                let before = &body[..at];
-                match before.strip_suffix("::") {
-                    Some(path) => (path.rsplit(|c: char| !is_word_char(c)).next())
-                        .is_some_and(|module| module.starts_with(|c: char| c.is_lowercase())),
-                    None => !before.ends_with(|c: char| c == '.' || is_word_char(c)),
-                }
-            });
-            let checks = function.iter().any(|l| l.contains("shared_setting_set("));
+            let run_by_a_new_window = function.owner.is_none() && called_at_start(name);
+            let checks = (function.lines.clone()).any(|i| lines[i].contains("shared_setting_set("));
             if !checks
-                && (writes(&|s| SHARED.contains(&s)) || (called_at_start && writes(&|_| true)))
+                && (writes(&|s| SHARED.contains(&s)) || (run_by_a_new_window && writes(&|_| true)))
             {
-                wrong.push(format!("{file}:{} ({name})", first + 1));
+                wrong.push(format!("{file}:{} ({name})", function.lines.start() + 1));
+            }
+        }
+        // A test changes a shared setting only through its setter, which checks that the test
+        // holds the shared settings (#303).
+        for i in tests_start(&lines)..lines.len() {
+            let carried = match lines[i].trim_start().starts_with('.') {
+                true => format!("{}{}", lines[i - 1].trim(), lines[i].trim()),
+                false => lines[i].clone(),
+            };
+            if static_written(&carried).is_some_and(|s| SHARED.contains(&s)) {
+                wrong.push(format!("{file}:{} (a test)", i + 1));
             }
         }
     }
@@ -2159,7 +2374,9 @@ fn shared_settings_are_changed_only_while_held() {
 }
 
 /// The checks above find a shared setting written in each way: stored, swapped, through its
-/// lock, and a static written by a function that `App::with_config` calls.
+/// lock, also by a method that changes it (`.take()`), and a static written by a function that
+/// `App::with_config` calls. A store on a line of its own after rustfmt broke the chain is read
+/// with the statement it ends (`statements`), as the joined line in the list shows.
 #[test]
 fn finds_a_shared_setting_written() {
     for line in [
@@ -2168,6 +2385,9 @@ fn finds_a_shared_setting_written() {
         "    *write_even_if_poisoned(&CURRENT_TRANSLATION) = chosen;",
         "    let mut given = lock_even_if_poisoned(&GIVEN_NAME);",
         "    *crate::support::threads::lock_even_if_poisoned(&LISTENING_AS) = None;",
+        "    lock_even_if_poisoned(&GIVEN_NAME).take();",
+        "    lock_even_if_poisoned(&GIVEN_NAME).replace(name);",
+        "    VIEW_FILTER.load(Ordering::Relaxed);VIEW_FILTER.store(f, Ordering::Relaxed);",
     ] {
         assert!(static_written(line).is_some(), "{line}");
     }
@@ -2205,7 +2425,21 @@ fn static_written(line: &str) -> Option<&str> {
         let name = line[at..].split(')').next()?;
         is_static(&name).then_some(name)
     };
-    let to_change = line.trim_start().starts_with('*') || line.contains("let mut ");
+    // Changed through the lock: assigned, bound to change, or given to a method that changes
+    // it (`lock_even_if_poisoned(&GIVEN_NAME).take()`, #303).
+    let changed_through = |lock: &str| {
+        let Some(at) = line.find(lock) else {
+            return false;
+        };
+        let after = line[at..].split_once(')').map_or("", |(_, rest)| rest);
+        let method: String = (after.strip_prefix('.').unwrap_or_default().chars())
+            .take_while(|&c| is_word_char(c))
+            .collect();
+        CHANGING_METHODS.contains(&method.as_str())
+    };
+    let to_change = line.trim_start().starts_with('*')
+        || line.contains("let mut ")
+        || changed_through("lock_even_if_poisoned(&");
     (locked("write_even_if_poisoned(&"))
         .or_else(|| locked("lock_even_if_poisoned(&").filter(|_| to_change))
 }
@@ -3610,10 +3844,11 @@ fn settings_change_through_their_setters() {
 /// Returns the lines of `text` outside the tests that replace every setting at once:
 /// `self.config` assigned, or given to `mem::replace`, `swap` or `take`.
 fn whole_config_writes(text: &str) -> Vec<usize> {
-    let lines = code_lines(text);
-    let end = tests_start(&lines);
     let mut found = Vec::new();
-    for (i, line) in lines[..end].iter().enumerate() {
+    // A call that rustfmt broke over lines is read whole (`statements`), as a `mem::replace`
+    // with `&mut self.config` on a line of its own passed before (#165).
+    for (i, line) in statements(text) {
+        let line = &line;
         let assigned = (line.match_indices("self.config")).any(|(at, name)| {
             let after = line[at + name.len()..].trim_start();
             after.starts_with('=') && !after.starts_with("==") && !after.starts_with("=>")
@@ -3639,8 +3874,9 @@ fn finds_every_setting_replaced_at_once() {
     let text = "fn a(&mut self) {\n    self.config = edited;\n    \
         *self.config = edited;\n    std::mem::swap(&mut self.config, &mut other);\n    \
         self.config.thumbnails = true;\n    if self.config == old {}\n    \
-        let c = &mut self.config;\n}\n";
-    assert_eq!(whole_config_writes(text), [2, 3, 4]);
+        let c = &mut self.config;\n    let old = std::mem::replace(\n        \
+        &mut self.config,\n        edited,\n    );\n}\n";
+    assert_eq!(whole_config_writes(text), [2, 3, 4, 8]);
 }
 
 /// Every setting of `config!` has a control in Preferences, so a user can find it there, or is
@@ -3858,6 +4094,28 @@ fn a_setting_is_seen_written_in_each_spelling_it_knows() {
             ("fields", 28, "dd"),
         ]
     );
+    // A parameter with a lifetime, the settings inside another type or given back, and a name
+    // bound again from a name of the settings, which passed before (#165).
+    let code = "fn e<'a>(c: &'a mut Config) {\n    c.gg = 1;\n}\n\
+         fn f(c: Option<&mut Config>) {}\n\
+         fn g(&mut self) -> &mut crate::files::config::Config {\n    &mut self.config\n}\n\
+         fn h(&mut self) {\n    let c = &mut self.config;\n    let d = c;\n    d.hh = 2;\n    \
+         let e = &mut *d;\n    e.ii = 3;\n}\n";
+    let found = config_writes(code);
+    let found: Vec<_> = found
+        .iter()
+        .map(|(f, l, s)| (f.as_str(), *l, s.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("e", 2, "gg"),
+            ("f", 4, ALL_SETTINGS),
+            ("g", 5, ALL_SETTINGS),
+            ("h", 11, "hh"),
+            ("h", 13, "ii"),
+        ]
+    );
 }
 
 /// Returns each place outside the tests in `text` where a setting is written, as the function,
@@ -3875,54 +4133,6 @@ fn a_setting_is_seen_written_in_each_spelling_it_knows() {
 /// nor a setting written by a macro.
 fn config_writes(text: &str) -> Vec<(String, usize, String)> {
     let ident = |c: char| c.is_alphanumeric() || c == '_';
-    // The methods of the standard library's types that change their value (`&mut self`).
-    const CHANGING: &[&str] = &[
-        "append",
-        "as_mut",
-        "clear",
-        "clone_from",
-        "dedup",
-        "drain",
-        "entry",
-        "extend",
-        "extend_from_slice",
-        "fill",
-        "get_mut",
-        "get_or_insert",
-        "get_or_insert_with",
-        "first_mut",
-        "insert",
-        "insert_str",
-        "iter_mut",
-        "last_mut",
-        "pop",
-        "pop_back",
-        "pop_front",
-        "push",
-        "push_back",
-        "push_front",
-        "push_str",
-        "remove",
-        "replace",
-        "replace_range",
-        "resize",
-        "retain",
-        "retain_mut",
-        "reverse",
-        "rotate_left",
-        "rotate_right",
-        "sort",
-        "sort_by",
-        "sort_by_key",
-        "sort_unstable",
-        "sort_unstable_by",
-        "sort_unstable_by_key",
-        "split_off",
-        "swap",
-        "swap_remove",
-        "take",
-        "truncate",
-    ];
     let mut function = String::new();
     let mut prefixes = Vec::new();
     let mut writes = Vec::new();
@@ -3957,9 +4167,14 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
                 }
             }
         }
+        prefixes.extend(name_bound_again(line, &prefixes));
         // A parameter of a function or closure that is handed the settings is the settings
-        // too, so what a function writes through it is seen in that function.
+        // too, so what a function writes through it is seen in that function. One handed them
+        // inside another type, or a function that gives them back, hands them on whole.
         prefixes.extend(config_parameters(line).map(|name| format!("{name}.")));
+        if config_inside_another_type(line) {
+            writes.push((function.clone(), i + 1, ALL_SETTINGS.to_owned()));
+        }
         for prefix in &prefixes {
             for (at, _) in line.match_indices(prefix.as_str()) {
                 if line[..at].ends_with(|c: char| ident(c) || c == '.') {
@@ -3971,7 +4186,7 @@ fn config_writes(text: &str) -> Vec<(String, usize, String)> {
                 let method: String = (after.strip_prefix('.').unwrap_or_default().chars())
                     .take_while(|&c| ident(c))
                     .collect();
-                let changes = CHANGING.contains(&method.as_str())
+                let changes = CHANGING_METHODS.contains(&method.as_str())
                     && after[1 + method.len()..].starts_with('(');
                 // `Config::set` changes the setting its key names, any of them.
                 if name == "set" && after.starts_with('(') {
@@ -4031,8 +4246,14 @@ fn statements(text: &str) -> Vec<(usize, String)> {
 /// function or of a closure.
 fn config_parameters(line: &str) -> impl Iterator<Item = &str> {
     let ident = |c: char| c.is_alphanumeric() || c == '_';
-    (line.match_indices(": &mut ")).filter_map(move |(at, typed)| {
+    (line.match_indices(": &")).filter_map(move |(at, typed)| {
+        // A lifetime may stand between the `&` and the `mut` (`&'a mut Config`).
         let ty = &line[at + typed.len()..];
+        let ty = match ty.strip_prefix('\'') {
+            Some(lifetime) => lifetime.trim_start_matches(ident).trim_start(),
+            None => ty,
+        };
+        let ty = ty.strip_prefix("mut ")?;
         let ty = ["crate::files::config::", "config::"]
             .iter()
             .find_map(|path| ty.strip_prefix(path))
@@ -4043,6 +4264,46 @@ fn config_parameters(line: &str) -> impl Iterator<Item = &str> {
         let name = line[..at].trim_end_matches(ident);
         let name = &line[name.len()..at];
         (is_config && !name.is_empty()).then_some(name)
+    })
+}
+
+/// Returns the name that `line` binds again from a name of the settings (`let d = c;`,
+/// `let d = &mut *c;`), as a prefix such as `d.`, when `prefixes` hold `c.`. Such a name is the
+/// settings too (#165). Returns `None` when `line` binds no such name.
+fn name_bound_again(line: &str, prefixes: &[String]) -> Option<String> {
+    let rest = line.trim().strip_prefix("let ")?.strip_suffix(';')?;
+    let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+    let (name, value) = rest.split_once(" = ")?;
+    let value = value.trim_start_matches("&mut ").trim_start_matches('*');
+    let is_settings = prefixes.iter().any(|p| p.strip_suffix('.') == Some(value));
+    (is_settings && name.chars().all(is_word_char) && value != "self.config")
+        .then(|| format!("{name}."))
+}
+
+/// Returns whether `line` writes a `&mut Config` inside another type (`Option<&mut Config>`,
+/// `Vec<&'a mut Config>`) or gives one back (`-> &mut Config`). The settings are then handed on
+/// whole, where no write through the name is seen (#165).
+fn config_inside_another_type(line: &str) -> bool {
+    (line.match_indices("mut ")).any(|(at, typed)| {
+        let ty = &line[at + typed.len()..];
+        let ty = ["crate::files::config::", "config::"]
+            .iter()
+            .find_map(|path| ty.strip_prefix(path))
+            .unwrap_or(ty);
+        let is_config = ty
+            .strip_prefix("Config")
+            .is_some_and(|after| !after.starts_with(is_word_char));
+        let before = line[..at].trim_end();
+        let before = match before.rfind('\'') {
+            Some(lifetime) if before[lifetime + 1..].chars().all(is_word_char) => {
+                &before[..lifetime]
+            }
+            _ => before,
+        };
+        let Some(before) = before.strip_suffix('&') else {
+            return false;
+        };
+        is_config && !before.trim_end().ends_with(':')
     })
 }
 
@@ -4826,16 +5087,44 @@ fn sidecars_are_written_through_write_sidecars() {
 /// languages from the packet its shown text was read from, which is the image when the sidecar
 /// lacks the field. Before, the comment took them from the sidecar alone, so the first sidecar
 /// of a photo whose comment had several languages kept only the one shown. A new writer of such
-/// a field goes through one of these, or chooses its packet as they do.
+/// a field goes through one of these, or chooses its packet as they do. `comment_element` is
+/// handed its packet, so the writers that hand it on are called only by `write_keywords`, which
+/// chooses the packet the comment was read from. Before, a caller that passed the sidecar for
+/// both packets passed the rule (#165).
 #[test]
 fn language_fields_keep_the_languages_read() {
-    const HOMES: &[(&str, &[(&str, &str)])] = &[(
-        "language_alternative(",
-        &[
-            ("metadata/xmp.rs", "set_alt_text"),
-            ("metadata/xmp.rs", "comment_element"),
-        ],
-    )];
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        (
+            "language_alternative(",
+            &[
+                ("metadata/xmp.rs", "set_alt_text"),
+                ("metadata/xmp.rs", "comment_element"),
+            ],
+        ),
+        (
+            "comment_element(",
+            &[
+                ("metadata/xmp.rs", "set_keywords_and_comment"),
+                ("metadata/xmp.rs", "set_comment"),
+            ],
+        ),
+        (
+            "set_keywords_and_comment(",
+            &[
+                ("metadata/xmp.rs", "write_keywords"),
+                ("metadata/xmp.rs", "set_keywords"),
+            ],
+        ),
+        ("set_keywords(", &[("metadata/xmp.rs", "write_keywords")]),
+        ("set_comment(", &[("metadata/xmp.rs", "write_keywords")]),
+    ];
+    // A new keyword writer that passes the sidecar for both packets is found.
+    let new_writer =
+        "fn write_alone(x: &str) {\n    set_keywords_and_comment(x, x, &m, false);\n}\n";
+    assert_eq!(
+        outside_homes_in("metadata/xmp.rs", new_writer, HOMES).len(),
+        1
+    );
     let wrong = outside_their_homes(HOMES);
     assert!(
         wrong.is_empty(),
@@ -6189,18 +6478,21 @@ fn paths_through_a_descriptor_are_shown_by_their_names() {
 }
 
 /// Returns the places in `text`, of `file`, where a whole path is made into text outside
-/// `shown_path` and the tests: through `.display()`, `.to_string_lossy()`, `.to_str()` or
-/// `.into_string()`, or as Debug (`:?}`) in a format string. A path has no Display, so `{}`
-/// takes one only through these, and an `OsStr` from `as_os_str()` becomes text only through
-/// them too. The text of a last name alone (`file_name()`, `file_stem()`, `extension()`) is
-/// not counted, as no path through a descriptor shows in it. A chain of calls over several
-/// lines is read as one.
+/// `shown_path` and the tests: through `display`, `to_string_lossy`, `to_str` or
+/// `into_string`, called or named by a type's path (`.map(Path::display)`, `methods_named`),
+/// through its bytes made into text (`from_utf8_lossy(p.as_os_str().as_bytes())`), or as
+/// Debug in a format string, with or without flags (`{:?}`, `{p:#?}`, `{:5?}`, `{:x?}`). A
+/// path has no Display, so `{}` takes one only through these, and an `OsStr` from
+/// `as_os_str()` becomes text only through them too. The text of a last name alone
+/// (`file_name()`, `file_stem()`, `extension()`) is not counted, as no path through a
+/// descriptor shows in it. A chain of calls over several lines is read as one.
 fn paths_made_into_text(file: &str, text: &str) -> Vec<String> {
-    const TO_TEXT: [&str; 4] = [
-        ".display()",
-        ".to_string_lossy()",
-        ".to_str()",
-        ".into_string()",
+    const TO_TEXT: [&str; 4] = ["display", "to_string_lossy", "to_str", "into_string"];
+    const BYTES: [&str; 4] = [
+        "as_os_str",
+        "into_os_string",
+        "as_encoded_bytes",
+        "into_encoded_bytes",
     ];
     let code = code_lines(text);
     let comments = comment_lines(text);
@@ -6240,10 +6532,17 @@ fn paths_made_into_text(file: &str, text: &str) -> Vec<String> {
         let this_line = line.trim();
         let before_this_line = chain.len() - this_line.len();
         for call in TO_TEXT {
-            for (at, _) in this_line.match_indices(call) {
-                if !is_last_name(&chain[..before_this_line + at]) {
+            for at in methods_named(this_line, call) {
+                let receiver = chain[..before_this_line + at].trim_end_matches('.');
+                if !is_last_name(receiver) {
                     wrong.push(format!("{file}:{} ({call})", i + 1));
                 }
+            }
+        }
+        for (at, utf8) in this_line.match_indices("from_utf8") {
+            let bytes = &this_line[at + utf8.len()..];
+            if BYTES.iter().any(|b| bytes.contains(b)) {
+                wrong.push(format!("{file}:{} (from_utf8)", i + 1));
             }
         }
         // The text of the line's literals, with its code and its comments blanked.
@@ -6254,7 +6553,12 @@ fn paths_made_into_text(file: &str, text: &str) -> Vec<String> {
             .zip(comment.chars().chain(blank))
             .map(|((r, c), m)| if c == ' ' && m == ' ' { r } else { ' ' })
             .collect();
-        if literals.contains(":?}") || literals.contains(":#?}") {
+        // Debug is asked for by a `?` at the end of a placeholder's spec, after its `:`.
+        let is_debug = (literals.match_indices("?}")).any(|(at, _)| {
+            let placeholder = &literals[literals[..at].rfind('{').map_or(at, |o| o + 1)..at];
+            placeholder.contains(':') && !placeholder.contains('}')
+        });
+        if is_debug {
             wrong.push(format!("{file}:{} (:?}})", i + 1));
         }
     }
@@ -6264,7 +6568,8 @@ fn paths_made_into_text(file: &str, text: &str) -> Vec<String> {
 /// The rule of `paths_through_a_descriptor_are_shown_by_their_names` finds a whole path made
 /// into text in each spelling outside `shown_path`. It finds none inside `shown_path`, in the
 /// tests, in a comment, or of a last name alone, also through a chain of calls over several
-/// lines.
+/// lines. Before, `.map(Path::display)`, a path's bytes made into text and Debug with flags
+/// (`{:5?}`) passed (#165).
 #[test]
 fn finds_a_path_shown_without_its_name() {
     let text = "fn shown_path(path: &Path) -> String {\n    path.display().to_string()\n}\n\
@@ -6278,18 +6583,28 @@ fn finds_a_path_shown_without_its_name() {
         fn name(path: &Path) -> String {\n    path.file_name()?.to_string_lossy().into()\n}\n\
         fn chained(path: &Path) -> String {\n    path.file_name()\n    .unwrap_or_default()\n\
         .to_string_lossy()\n    .into_owned()\n}\n\
+        fn mapped(paths: &[PathBuf]) {\n    paths.iter().map(Path::display);\n}\n\
+        fn utf8(path: &Path) -> String {\n    \
+        String::from_utf8_lossy(path.as_os_str().as_bytes()).into()\n}\n\
+        fn width(path: &Path) -> String {\n    format!(\"{:5?}\", path)\n}\n\
+        fn hex(path: &Path) -> String {\n    format!(\"{path:x?} {}?\", 1)\n}\n\
+        fn asked(n: usize) -> String {\n    format!(\"{{a?}} {n}\")\n}\n\
         // Debug ({:?}) of a path is no text for the user.\n\
         mod tests {\n    fn t() { p.display(); format!(\"{p:?}\"); }\n}\n";
     assert_eq!(
         paths_made_into_text("files/trash.rs", text),
         [
-            "files/trash.rs:5 (.display())",
+            "files/trash.rs:5 (display)",
             "files/trash.rs:8 (:?})",
             "files/trash.rs:11 (:?})",
-            "files/trash.rs:14 (.to_string_lossy())",
-            "files/trash.rs:17 (.to_str())",
-            "files/trash.rs:20 (.to_string_lossy())",
-            "files/trash.rs:23 (.into_string())",
+            "files/trash.rs:14 (to_string_lossy)",
+            "files/trash.rs:17 (to_str)",
+            "files/trash.rs:20 (to_string_lossy)",
+            "files/trash.rs:23 (into_string)",
+            "files/trash.rs:35 (display)",
+            "files/trash.rs:38 (from_utf8)",
+            "files/trash.rs:41 (:?})",
+            "files/trash.rs:44 (:?})",
         ]
     );
 }
@@ -6770,7 +7085,71 @@ fn looks_that_guess(text: &str) -> Vec<usize> {
             || drops_the_error_of_a_look(&statement_from(&lines, i))
             || asks_a_path_its_kind(line, carried)
     };
-    (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
+    let mut found: Vec<usize> = (0..end).filter(|&i| guesses(i)).collect();
+    found.extend(kept_looks_that_guess(&lines[..end]));
+    found.sort_unstable();
+    found.dedup();
+    found.into_iter().map(|i| i + 1).collect()
+}
+
+/// Returns the lines (from 0) of `lines` that ask a look kept in a name, on a later line, its
+/// kind or a value of its own in the place of a failed look's, in a way that takes every failed
+/// look for an answer, as `drops_the_error_of_a_look` reads it: `let m = metadata(p).ok();` and
+/// then `m.is_some_and(|m| m.is_dir())` or `m.map_or(0, |m| m.len())`. A look whose error goes
+/// on with `?`, or that a `match` or a let-else takes apart, is no guess. The name is followed
+/// to the end of the block that binds it.
+// shortcut: a kept look asked only whether it is there (`d.is_some()`) is not found, as
+// file_list's sizes ask it whether the size is known, which no rule can tell from "the file is
+// there"; worth a type for an answer that may be unknown if such a guess is found.
+fn kept_looks_that_guess(lines: &[String]) -> Vec<usize> {
+    const ASKS: [&str; 6] = [
+        ".is_dir()",
+        ".is_file()",
+        ".is_symlink()",
+        ".map_or(",
+        ".unwrap_or(",
+        ".unwrap_or_default()",
+    ];
+    let mut found = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let Some(rest) = line.trim_start().strip_prefix("let ") else {
+            continue;
+        };
+        let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+        let name: String = rest.chars().take_while(|&c| is_word_char(c)).collect();
+        let statement = statement_from(lines, i);
+        let looks = ["metadata(", "try_exists(", "exists("].iter().any(|look| {
+            (statement.match_indices(look)).any(|(at, _)| {
+                let before = &statement[..at];
+                !before.ends_with(is_word_char) || before.ends_with("symlink_")
+            })
+        });
+        let taken_apart = ["?", "match ", " else", "Err("]
+            .iter()
+            .any(|t| statement.contains(t));
+        if name.is_empty() || !looks || taken_apart {
+            continue;
+        }
+        let ends = (i + 1..lines.len())
+            .find(|&j| !lines[j].trim().is_empty() && indent(&lines[j]) < indent(line));
+        for j in i + 1..ends.unwrap_or(lines.len()) {
+            let asked = (lines[j].match_indices(name.as_str())).any(|(at, _)| {
+                let before = &lines[j][..at];
+                let after = statement_from(lines, j)[at + name.len()..]
+                    .trim_start()
+                    .to_owned();
+                // The look's place taken by the name, as `drops_the_error_of_a_look` reads it.
+                !before.ends_with(|c: char| is_word_char(c) || c == '.')
+                    && after.starts_with('.')
+                    && ASKS.iter().any(|ask| after.contains(ask))
+                    && drops_the_error_of_a_look(&format!("metadata(p){after}"))
+            });
+            if asked {
+                found.push(j);
+            }
+        }
+    }
+    found
 }
 
 /// Returns line `at` of `lines` with the lines after it that go on with a method, and, when it
@@ -6912,6 +7291,20 @@ fn finds_a_look_that_guesses() {
     assert_eq!(looks_that_guess(text), [2, 3, 5, 6, 10, 11, 12, 14]);
 }
 
+/// The check above finds a look kept in a name and asked on a later line its kind, or given a
+/// value of its own, in a way that takes a failed look for an answer. It passes the name kept
+/// as an `Option` or passed on, a look whose error goes on with `?`, and the same name after
+/// its block. Before, such a look passed (#165).
+#[test]
+fn finds_a_kept_look_that_guesses() {
+    let text = "fn a() {\n    let m = std::fs::metadata(p).ok();\n    x();\n    \
+        if m.is_some_and(|m| m.is_dir()) {}\n    let n = std::fs::symlink_metadata(q);\n    \
+        let size = n\n        .map_or(0, |m| m.len());\n    let size = m.map(|m| m.len());\n    \
+        let meta = std::fs::metadata(r)?;\n    let d = meta.is_dir();\n    {\n        \
+        let t = std::fs::metadata(p);\n    }\n    let o = t.is_ok();\n}\n";
+    assert_eq!(looks_that_guess(text), [4, 6]);
+}
+
 /// The check above finds a look whose failure is taken for "no link" or "neither a file nor a
 /// folder", also when its default comes first (`map_or`) or it is filtered (`.ok().filter`),
 /// and in any other spelling that does not pass the error on (`.ok().is_some_and`, `unwrap_or`,
@@ -7027,19 +7420,8 @@ fn functions_that_lock(text: &str) -> Vec<String> {
         if let Some(name) = function_name(line) {
             function = name.to_owned();
         }
-        let takes = |at: usize, name: &str| {
-            let (before, after) = (&line[..at], &line[at + name.len()..]);
-            // The segment before `::`, which names a type when it starts with a capital.
-            let owner = before.strip_suffix("::");
-            let owner = owner.map(|b| &b[b.trim_end_matches(is_word_char).len()..]);
-            let is_by_type = owner.is_some_and(|o| o.starts_with(char::is_uppercase));
-            !before.ends_with(is_word_char)
-                && ((before.ends_with('.') && after.starts_with('('))
-                    || (is_by_type && !after.starts_with(is_word_char)))
-        };
         // A lock of the C library counts also as a value (`let take = libc::flock;`).
-        let locks = (LOCKS.iter())
-            .any(|name| (line.match_indices(name)).any(|(at, _)| takes(at, name)))
+        let locks = (LOCKS.iter()).any(|name| !methods_named(line, name).is_empty())
             || (C_LOCKS.iter()).any(|call| {
                 let name = call.trim_end_matches('(');
                 (line.match_indices(name)).any(|(at, _)| {
@@ -7054,11 +7436,39 @@ fn functions_that_lock(text: &str) -> Vec<String> {
     found
 }
 
+/// Returns where `line` names the method `name`, in each spelling: called on a value
+/// (`x.name(`), or named by the path of a type, called or as a value (`Type::name(`,
+/// `.map(Type::name)`, `let f = std::fs::File::name;`), also by a qualified path
+/// (`<File as Trait>::name`). A free function or a module's function of the same name
+/// (`config::name()`), a field (`x.name`) and a longer name are not the method. The guards that
+/// look for a method by its name find it through this one function, so that each sees every
+/// spelling (#165).
+fn methods_named(line: &str, name: &str) -> Vec<usize> {
+    (line.match_indices(name))
+        .map(|(at, _)| at)
+        .filter(|&at| {
+            let (before, after) = (&line[..at], &line[at + name.len()..]);
+            // The segment before `::`, which names a type when it starts with a capital, or a
+            // qualified path when it ends with `>`.
+            let owner = before.strip_suffix("::");
+            let is_qualified = owner.is_some_and(|o| o.ends_with('>'));
+            let owner = owner.map(|b| &b[b.trim_end_matches(is_word_char).len()..]);
+            let is_by_type =
+                is_qualified || owner.is_some_and(|o| o.starts_with(char::is_uppercase));
+            let is_method_call = before.trim_end().ends_with('.') && after.starts_with('(');
+            !before.ends_with(is_word_char)
+                && !after.starts_with(is_word_char)
+                && (is_method_call || is_by_type)
+        })
+        .collect()
+}
+
 /// The check above finds a `try_lock`, a `flock` and a shared lock, a lock called by the path
-/// of its type or passed as a value, and `lockf`. It leaves a lock taken through
-/// `open_and_lock`, a function of a module that shares the name, and a longer name. Before, a
-/// lock was found only as a method, so `File::try_lock(&f)` and `libc::lockf` passed unseen,
-/// and a lock bound by `let` (`let take = File::try_lock;`) passed until 0.87.
+/// of its type, also a qualified one, or passed as a value, and `lockf`. It leaves a lock taken
+/// through `open_and_lock`, a function of a module that shares the name, and a longer name.
+/// Before, a lock was found only as a method, so `File::try_lock(&f)` and `libc::lockf` passed
+/// unseen, a lock bound by `let` (`let take = File::try_lock;`) passed until 0.87, and
+/// `<File as Trait>::lock(&f)` until 0.99.
 #[test]
 fn finds_a_lock_taken_by_hand() {
     let text = "fn a() {\n    let f = open_regular(p)?;\n    f.try_lock()?;\n}\n\
@@ -7072,9 +7482,14 @@ fn finds_a_lock_taken_by_hand() {
         fn j() {\n    crate::files::config::lock();\n    xmp::lock_sidecar(p);\n    \
         f.unlock()?;\n    update_locked_sidecar(&lock, p);\n}\n\
         fn k() {\n    let take = std::fs::File::try_lock;\n}\n\
-        fn l() {\n    let take = libc::flock;\n}\n";
+        fn l() {\n    let take = libc::flock;\n}\n\
+        fn m() {\n    <File as FileExt>::lock(&f)?;\n}\n\
+        fn n() {\n    f\n        .try_lock()?;\n}\n";
     let found = functions_that_lock(text);
-    assert_eq!(found, ["a", "c", "d", "e", "g", "h", "i", "k", "l"]);
+    assert_eq!(
+        found,
+        ["a", "c", "d", "e", "g", "h", "i", "k", "l", "m", "n"]
+    );
 }
 
 /// The functions of the C library are called through the `libc` crate, never declared by hand
@@ -7122,9 +7537,11 @@ fn finds_a_foreign_declaration() {
 /// where a pipe named x.jpg would then block the thread that opens it for good.
 #[test]
 fn c_flags_come_from_libc() {
+    let sources = rust_sources();
+    let takers = flag_takers(&sources);
     let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        let found = flags_written_by_hand(&text);
+    for (file, text) in &sources {
+        let found = flags_written_by_hand(text, &takers);
         wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
     }
     assert!(
@@ -7134,27 +7551,128 @@ fn c_flags_come_from_libc() {
     );
 }
 
-/// Returns the lines (from 1) of `text` outside the tests that define a constant named as the C
-/// library's open flags are (`O_…`).
-fn flags_written_by_hand(text: &str) -> Vec<usize> {
+/// Returns the calls that take the C library's flags, each as `name(` with the place of its
+/// flags among its arguments, counted from 0: `custom_flags`, the libc calls that take flags,
+/// and every function of `sources` that hands its own parameter on to the flags of one of
+/// them, however deep (such as `decode::open_regular_with_flags`).
+fn flag_takers(sources: &[(String, String)]) -> Vec<(String, usize)> {
+    let mut takers: Vec<(String, usize)> = [
+        ("custom_flags(", 0),
+        ("libc::open(", 1),
+        ("libc::openat(", 2),
+        ("libc::fcntl(", 2),
+    ]
+    .map(|(call, at)| (call.to_owned(), at))
+    .to_vec();
+    loop {
+        let known = takers.len();
+        for (file, text) in sources {
+            let code = code_lines(text);
+            for f in functions_in(file, &code) {
+                let call = format!("{}(", f.name);
+                let body = code[f.lines.clone()].join("\n");
+                let flags = flag_arguments(&body, &takers);
+                for (at, parameter) in parameters(&f, &code).iter().enumerate() {
+                    let hands_on = (flags.iter())
+                        .any(|a| a.split(|c: char| !is_word_char(c)).any(|w| w == parameter));
+                    if hands_on && !takers.contains(&(call.clone(), at)) {
+                        takers.push((call.clone(), at));
+                    }
+                }
+            }
+        }
+        if takers.len() == known {
+            return takers;
+        }
+    }
+}
+
+/// Returns the flags given, as written, to each call of `takers` in `code`. A call of a longer
+/// name, and a function's own definition, are left out.
+fn flag_arguments(code: &str, takers: &[(String, usize)]) -> Vec<String> {
+    let mut arguments = Vec::new();
+    for (taker, flags_at) in takers {
+        for (at, _) in code.match_indices(taker.as_str()) {
+            let before = &code[..at];
+            if before.ends_with(is_word_char) || before.ends_with("fn ") {
+                continue;
+            }
+            let spans = call_arguments(code, at + taker.len());
+            arguments.extend(
+                spans
+                    .get(*flags_at)
+                    .map(|span| code[span.clone()].to_owned()),
+            );
+        }
+    }
+    arguments
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that write a flag of the C library by
+/// hand. That is a constant named as the open flags are (`O_…`), or a number given to a call of
+/// `takers` (`flag_takers`), written in the call or bound by a `let` before it. A flag taken
+/// from libc, passed on as a parameter, or 0 for none, is no number written by hand. A file's mode
+/// (`.mode(0o600)`) is the same on every processor, and is no flag. A call broken over lines is
+/// read whole, from its first line (`statements`).
+fn flags_written_by_hand(text: &str, takers: &[(String, usize)]) -> Vec<usize> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let defines_flag = |line: &String| {
         let words: Vec<&str> = line.split_whitespace().collect();
         (words.windows(2)).any(|w| w[0] == "const" && w[1].starts_with("O_"))
     };
-    (0..end)
-        .filter(|&i| defines_flag(&lines[i]))
-        .map(|i| i + 1)
-        .collect()
+    // A 0 is no flag at all, on every processor.
+    let is_number = |word: &str| word.starts_with(|c: char| c.is_ascii_digit()) && word != "0";
+    // The value that the last `let` before line `i` binds to `word`.
+    let bound_before = |i: usize, word: &str| {
+        (lines[..i].iter().rev()).find_map(|l| {
+            let rest = l.trim_start().strip_prefix("let ")?;
+            let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+            let (name, value) = rest.split_once('=')?;
+            let name = name.split(':').next()?.trim();
+            (name == word).then(|| value.trim().to_owned())
+        })
+    };
+    let defined = (0..end).filter(|&i| defines_flag(&lines[i]));
+    let mut found: Vec<usize> = defined.map(|i| i + 1).collect();
+    for (i, statement) in statements(text) {
+        let numbers = flag_arguments(&statement, takers).iter().any(|argument| {
+            (argument.split(|c: char| !is_word_char(c))).any(|word| {
+                is_number(word) || bound_before(i, word).is_some_and(|value| is_number(&value))
+            })
+        });
+        if numbers && !found.contains(&(i + 1)) {
+            found.push(i + 1);
+        }
+    }
+    found.sort_unstable();
+    found
 }
 
-/// The check above finds a flag defined by hand, and leaves one taken from libc.
+/// The check above finds a flag defined by hand, and a number given to `custom_flags` or to a
+/// function that hands its parameter on to it, also through a `let` and over lines. It leaves
+/// a flag taken from libc, a parameter passed on, and a file's mode. Before, only a `const O_…`
+/// was found, so `.custom_flags(0o4000)` passed (#213).
 #[test]
 fn finds_a_flag_written_by_hand() {
-    let text =
-        "fn open() {\n    const O_NONBLOCK: i32 = 0o4000;\n    let f = libc::O_NONBLOCK;\n}\n";
-    assert_eq!(flags_written_by_hand(text), [2]);
+    let text = "fn open() {\n    const O_NONBLOCK: i32 = 0o4000;\n    let f = libc::O_NONBLOCK;\n}\n\
+        fn with_flags(path: &Path, flags: i32) {\n    o.custom_flags(libc::O_NONBLOCK | flags);\n}\n\
+        fn a() {\n    o.custom_flags(0o4000);\n    with_flags(p, 0x800);\n    \
+        let nonblocking = 2048;\n    with_flags(p, libc::O_NOFOLLOW | nonblocking);\n    \
+        with_flags(p, libc::O_NOFOLLOW);\n    o.mode(0o600);\n    with_flags(p, 0);\n    \
+        with_flags(\n        p,\n        \
+        4,\n    );\n}\n";
+    let sources = [("a.rs".to_owned(), text.to_owned())];
+    let takers = flag_takers(&sources);
+    assert!(
+        takers.contains(&("with_flags(".to_owned(), 1)),
+        "{takers:?}"
+    );
+    assert!(
+        !takers.contains(&("with_flags(".to_owned(), 0)),
+        "{takers:?}"
+    );
+    assert_eq!(flags_written_by_hand(text, &takers), [2, 9, 10, 12, 16]);
 }
 
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
@@ -8328,7 +8846,9 @@ fn finds_every_thread_without_the_busy_pointer() {
 /// `THE_GATE` too, itself or through a function it calls. Before, only the walk of a tree
 /// waited, and the folder watcher, the thumbnails, the images read ahead and the other readers
 /// held a slideshow's next image on gvfs for many seconds. The threads that need no gate are
-/// listed with the reason.
+/// listed with the reason. A thread that someone waits for (it holds a `Working` or answers
+/// through an `AnswerSender`, so its comment says "Its busy pointer:") is not read at all: its
+/// reads are the ones the window waits for (#294).
 #[test]
 fn background_reads_on_a_share_go_through_the_gate() {
     let found = ungated_background_readers(&rust_sources());
@@ -8390,9 +8910,7 @@ fn finds_a_background_reader_without_the_gate() {
 #[test]
 fn work_through_the_gate_is_judged_wanted() {
     let sources = rust_sources();
-    let callees: Vec<String> = (sources.iter())
-        .flat_map(|(_, text)| functions_taking_is_wanted(text))
-        .collect();
+    let callees = functions_taking_is_wanted(&sources);
     let mut wrong = Vec::new();
     for (file, text) in &sources {
         wrong.extend(
@@ -8407,39 +8925,64 @@ fn work_through_the_gate_is_judged_wanted() {
     );
 }
 
-/// Returns the names of the functions of `text` whose parameters include one named
-/// `is_wanted`: the gate itself and the helpers that pass the check on to it, such as
-/// `size_through`. A `|| true` given to a helper reaches the gate as surely as one given to it.
-fn functions_taking_is_wanted(text: &str) -> Vec<String> {
-    let code = code_lines(text);
-    let mut names = Vec::new();
-    for (i, line) in code.iter().enumerate() {
-        let Some(at) = line.find("fn ") else { continue };
-        if at > 0 && line[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
-            continue;
+/// Returns the names of the functions of `sources` that take whether their work is wanted:
+/// those with a parameter named `is_wanted` (the gate itself), and every helper that passes a
+/// parameter of its own, of any name, on to one of them, however deep, such as `size_through`.
+/// A `|| true` given to a helper reaches the gate as surely as one given to it. Before, a name
+/// `is_wanted` anywhere in a signature counted, and a helper whose parameter had another name
+/// did not (#294).
+fn functions_taking_is_wanted(sources: &[(String, String)]) -> Vec<String> {
+    let functions: Vec<(Function, Vec<String>, String)> = (sources.iter())
+        .flat_map(|(file, text)| {
+            let code = code_lines(text);
+            (functions_in(file, &code).into_iter())
+                .map(|f| {
+                    let parameters = parameters(&f, &code);
+                    let body = code[f.lines.clone()].join("\n");
+                    (f, parameters, body)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    // Each taker with the place of the check among its arguments, counted without `self`.
+    let mut takers: Vec<(String, usize)> = (functions.iter())
+        .filter_map(|(f, parameters, _)| {
+            let at = parameters.iter().position(|p| p == "is_wanted")?;
+            Some((f.name.clone(), at))
+        })
+        .collect();
+    loop {
+        let known = takers.len();
+        for (f, parameters, body) in &functions {
+            let mut passed = Vec::new();
+            for (name, check_at) in &takers {
+                for (at, call) in body.match_indices(&format!("{name}(")) {
+                    let before = &body[..at];
+                    if before.ends_with(is_word_char) || before.ends_with("fn ") {
+                        continue;
+                    }
+                    let arguments = call_arguments(body, at + call.len());
+                    let Some(check) = arguments.get(*check_at) else {
+                        continue;
+                    };
+                    let words: Vec<&str> = body[check.clone()]
+                        .split(|c: char| !is_word_char(c))
+                        .collect();
+                    passed.extend(parameters.iter().position(|p| words.contains(&p.as_str())));
+                }
+            }
+            for check_at in passed {
+                if !takers.contains(&(f.name.clone(), check_at)) {
+                    takers.push((f.name.clone(), check_at));
+                }
+            }
         }
-        let rest = &line[at + 3..];
-        let name: String = (rest.chars())
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        if name.is_empty() {
-            continue;
-        }
-        let signature = (code[i..].iter())
-            .take_while(|l| !l.contains('{') && !l.ends_with(';'))
-            .chain(
-                code[i..]
-                    .iter()
-                    .find(|l| l.contains('{') || l.ends_with(';')),
-            )
-            .take(12)
-            .map(|l| l.split('{').next().unwrap_or(""))
-            .collect::<String>();
-        if signature.contains("is_wanted") {
-            names.push(name);
+        if takers.len() == known {
+            let mut names: Vec<String> = takers.into_iter().map(|(name, _)| name).collect();
+            names.dedup();
+            return names;
         }
     }
-    names
 }
 
 /// Returns the lines of `text` outside the tests where a call of one of `callees` (the
@@ -8467,7 +9010,22 @@ fn work_not_judged_wanted(text: &str, callees: &[String]) -> Vec<usize> {
             let text: String = (call_text(&code[..end], i, at).0)
                 .split_whitespace()
                 .collect();
-            let is_constant = ["||true", "||{true}"].iter().any(|c| text.contains(c));
+            // A `|| true` given through a name bound to it before the call counts too (#294).
+            let bound_to_true = (code[..i].iter().rev()).take_while(|l| function_name(l).is_none());
+            let names_true: Vec<String> = bound_to_true
+                .filter_map(|l| {
+                    let rest = l.trim().strip_prefix("let ")?;
+                    let (name, value) = rest.split_once('=')?;
+                    let value: String = value.split_whitespace().collect();
+                    let value = value.trim_start_matches("move").trim_end_matches(';');
+                    ["||true", "||{true}"]
+                        .contains(&value)
+                        .then(|| name.trim().to_owned())
+                })
+                .collect();
+            let words: Vec<&str> = text.split(|c: char| !is_word_char(c)).collect();
+            let is_constant = ["||true", "||{true}"].iter().any(|c| text.contains(c))
+                || names_true.iter().any(|n| words.contains(&n.as_str()));
             if is_constant && !comment_above(&code, &comments, i).contains("Always wanted:") {
                 found.push(i + 1);
             }
@@ -8491,10 +9049,19 @@ fn finds_work_through_the_gate_not_judged_wanted() {
         let _turn = gate.before_work_nobody_waits_for(p, || true);\n}\n\
         fn size_through(\n    gate: &mut ReadsFirst,\n    is_wanted: &dyn Fn() -> bool,\n) {}\n\
         fn e() {\n    size_through(&mut gate, &|| true);\n}\n\
-        fn f() {\n    other_size_through(&mut gate, &|| true);\n}\n";
-    let callees = functions_taking_is_wanted(text);
-    assert_eq!(callees, ["before_work_nobody_waits_for", "size_through"]);
-    assert_eq!(work_not_judged_wanted(text, &callees), [3, 6, 23]);
+        fn f() {\n    other_size_through(&mut gate, &|| true);\n}\n\
+        fn total(gate: &mut ReadsFirst, wanted: &dyn Fn() -> bool) {\n    \
+        size_through(gate, wanted);\n}\n\
+        fn g() {\n    total(&mut gate, &|| true);\n}\n\
+        fn h() {\n    let always = || true;\n    gate.before_work_nobody_waits_for(p, always);\n}\n\
+        fn is_wanted() -> bool {\n    true\n}\n\
+        fn k(path: &Path) {\n    gate.before_work_nobody_waits_for(path, &wanted);\n}\n";
+    let callees = functions_taking_is_wanted(&[("x.rs".into(), text.into())]);
+    assert_eq!(
+        callees,
+        ["before_work_nobody_waits_for", "size_through", "total"]
+    );
+    assert_eq!(work_not_judged_wanted(text, &callees), [3, 6, 23, 32, 36]);
 }
 
 /// Returns, as (file, function), the functions of `sources` outside the tests that start a
@@ -8545,6 +9112,11 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
             let whole = own_lines(function);
             let opens = (function.lines.clone()).find(|&k| code[k].ends_with('{'));
             let signature = code[*function.lines.start()..=opens.unwrap_or(i)].join(" ");
+            // shortcut: a thread counts as gated when its work reaches the gate anywhere, not
+            // when every read comes after it. Read in order, three threads read first (the
+            // watcher's first modification times, a tool's files still listed, a thumbnail's
+            // folder set aside), each a change of its own (#294); worth reading in order once
+            // those go through the gate first.
             let callees: Vec<usize> = (i..=last)
                 .flat_map(|k| graph.callees(function, &whole, &signature, &code[k]))
                 .map(|(callee, _)| callee)
@@ -8610,6 +9182,74 @@ pub(crate) fn functions_reaching(owner: &str, name: &str) -> HashSet<String> {
             Some(owner) => format!("{owner}::{}", f.name),
             None => f.name.clone(),
         })
+        .collect()
+}
+
+/// Returns the calls, as written (`name(`), that the function `owner::name` of `sources` makes
+/// in its own thread whose callee reaches, however deep, a function that `marks` marks. `marks`
+/// is given each function's owner ("" for a free function), its name and its code. The
+/// functions in `passed_over`, by owner and name, are not followed into. A guard that must see
+/// a call through every helper finds it through this one function. Returns
+/// "no fn owner::name" when there is no such function, so a guard of one renamed fails.
+pub(crate) fn calls_reaching(
+    sources: &[(String, String)],
+    owner: &str,
+    name: &str,
+    marks: impl Fn(&str, &str, &str) -> bool,
+    passed_over: &HashSet<(String, String)>,
+) -> Vec<String> {
+    let graph = CallGraph::new(sources);
+    let key = |f: &Function| (f.owner.clone().unwrap_or_default(), f.name.clone());
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| match passed_over.contains(&key(f)) {
+            true => Vec::new(),
+            false => graph.calls_of(f),
+        })
+        .collect();
+    let own = (graph.functions.iter())
+        .map(|f| {
+            let code = graph.lines[&f.file][f.lines.clone()].join("\n");
+            let owner = f.owner.as_deref().unwrap_or("");
+            marks(owner, &f.name, &code) && !passed_over.contains(&key(f))
+        })
+        .collect();
+    let reaches = reaching(&calls, own);
+    let start =
+        (graph.functions.iter()).position(|f| f.owner.as_deref() == Some(owner) && f.name == name);
+    let Some(start) = start else {
+        return vec![format!("no fn {owner}::{name}")];
+    };
+    (calls[start].iter())
+        .filter(|c| c.callee.is_some_and(|g| reaches[g]))
+        .map(|c| c.text.clone())
+        .collect()
+}
+
+/// Returns the functions of `sources` that the function `owner::name` reaches in its own thread,
+/// however deep, itself among them, each as its owner ("" for a free function) and its name.
+pub(crate) fn functions_reached_from(
+    sources: &[(String, String)],
+    owner: &str,
+    name: &str,
+) -> HashSet<(String, String)> {
+    let graph = CallGraph::new(sources);
+    let start =
+        (graph.functions.iter()).position(|f| f.owner.as_deref() == Some(owner) && f.name == name);
+    let (mut seen, mut next): (HashSet<usize>, Vec<usize>) = (HashSet::new(), Vec::new());
+    next.extend(start);
+    while let Some(f) = next.pop() {
+        if seen.insert(f) {
+            next.extend(
+                graph
+                    .calls_of(&graph.functions[f])
+                    .iter()
+                    .filter_map(|c| c.callee),
+            );
+        }
+    }
+    (seen.into_iter())
+        .map(|f| &graph.functions[f])
+        .map(|f| (f.owner.clone().unwrap_or_default(), f.name.clone()))
         .collect()
 }
 
@@ -9863,6 +10503,28 @@ fn finds_a_search_for_an_xmp_property_in_every_spelling() {
     );
 }
 
+/// The check above finds a property's name searched for through a closure's argument, through
+/// the array of a `for` loop that rustfmt broke over lines, and compared with `==` to a part of
+/// the packet in a walk by index. It passes an RDF name searched for in each of these ways.
+/// Before, each of these passed (#165).
+#[test]
+fn finds_a_property_searched_for_in_any_spelling() {
+    let a = "fn closure(xmp: &str) -> bool {\n    \
+        [\"<dc:subject\", \"<rdf:li\"].iter().any(|n| xmp.contains(n))\n}\n\
+        fn named(xmp: &str) -> bool {\n    NAMES.iter().any(|&n| xmp.contains(n))\n}\n\
+        const NAMES: [&str; 1] = [\"xmp:Rating\"];\n\
+        fn broken(xmp: &str) {\n    for name in [\n        \"<rdf:li\",\n        \
+        \"tiff:Orientation\",\n    ] {\n        xmp.find(name);\n    }\n}\n\
+        fn walk(xmp: &[u8], i: usize) -> bool {\n    &xmp[i..i + 11] == b\"<dc:subject\"\n}\n\
+        fn turned(xmp: &[u8], i: usize) -> bool {\n    b\"xmp:Rating\" == &xmp[i..]\n}\n\
+        fn other(xmp: &[u8], i: usize) -> bool {\n    &xmp[i..i + 7] == b\"<rdf:li\"\n}\n\
+        fn rdf(xmp: &str) -> bool {\n    [\"<rdf:li\"].iter().any(|n| xmp.contains(n))\n}\n";
+    assert_eq!(
+        searches_for_xmp_properties(&[("a.rs".into(), a.into())]),
+        ["a.rs:13", "a.rs:17", "a.rs:2", "a.rs:20", "a.rs:5"]
+    );
+}
+
 /// The check above follows a name to a `const` or `static` of any file, also by its path, and
 /// finds a search by a path (`str::find`) and a regular expression made from a property's name.
 /// A constant of the function's own file hides one of the same name in another, and a path may
@@ -9973,7 +10635,10 @@ fn searches_in(
             }
         }
     }
-    for (at, needle) in window_needles(&code_text, &raw_text) {
+    for (at, needle) in window_needles(&code_text, &raw_text)
+        .into_iter()
+        .chain(slice_needles(&code_text, &raw_text))
+    {
         found.push((needle, line_of(at), None));
     }
     found
@@ -10067,6 +10732,56 @@ fn window_needles(code: &str, raw: &[char]) -> Vec<(usize, String)> {
             .map(text)
             .find(|side| side.trim().trim_start_matches(['*', '&']) != variable);
         out.extend(other.map(|needle| (at, needle.trim().to_owned())));
+    }
+    out
+}
+
+/// Returns each part of a text compared with `==` in `code`, the code of a function whose text
+/// as written is `raw` (`function_texts`), with where it is and what the part is compared with,
+/// as written: the `name` of `&xmp[i..i + n] == name` or `name == xmp[i..]`, as in a walk by
+/// index. A part is an index by a range (`[a..b]`, `[a..]`).
+fn slice_needles(code: &str, raw: &[char]) -> Vec<(usize, String)> {
+    let is_range = |part: &str| {
+        part.ends_with(']') && part.rsplit('[').next().is_some_and(|r| r.contains(".."))
+    };
+    // The end of the other side, at the first `)`, `;`, `{`, `,`, `&&`, `||` or line's end
+    // outside its brackets.
+    let side_end = |from: usize| {
+        let mut depth = 0i32;
+        for (i, c) in code[from..].char_indices() {
+            match c {
+                '(' | '[' => depth += 1,
+                ')' | ']' if depth > 0 => depth -= 1,
+                ')' | ';' | '{' | ',' | '\n' => return from + i,
+                '&' | '|' if depth == 0 && code[from + i + 1..].starts_with(c) => return from + i,
+                _ => {}
+            }
+        }
+        code.len()
+    };
+    let side_start = |to: usize| {
+        let mut depth = 0i32;
+        for (i, c) in code[..to].char_indices().rev() {
+            match c {
+                ')' | ']' => depth += 1,
+                '(' | '[' if depth > 0 => depth -= 1,
+                '(' | ';' | '{' | ',' | '\n' | '=' | '!' => return i + 1,
+                '&' | '|' if depth == 0 && code[..i].ends_with(c) => return i + 1,
+                _ => {}
+            }
+        }
+        0
+    };
+    let text = |r: std::ops::Range<usize>| raw[r].iter().collect::<String>().trim().to_owned();
+    let mut out = Vec::new();
+    for (at, _) in code.match_indices("==") {
+        let (left, right) = (side_start(at)..at, at + 2..side_end(at + 2));
+        let (left_code, right_code) = (code[left.clone()].trim(), code[right.clone()].trim());
+        if is_range(left_code) {
+            out.push((at, text(right)));
+        } else if is_range(right_code) {
+            out.push((at, text(left)));
+        }
     }
     out
 }
@@ -10172,7 +10887,21 @@ fn bound_value(
     if let Some(at) = parameters(f, code).iter().position(|p| p == word) {
         return Searched::Parameter(at);
     }
-    let in_function = (f.lines.clone()).filter_map(|i| raw.get(i).copied());
+    let in_function: Vec<&str> = (f.lines.clone())
+        .filter_map(|i| raw.get(i).copied())
+        .collect();
+    // A `for` line that rustfmt broke before its `{`, as it does a long array, is read with
+    // the lines up to the `{`.
+    let whole_for = |k: usize| {
+        let mut joined = in_function[k].trim().to_owned();
+        for next in &in_function[k + 1..] {
+            if joined.ends_with('{') {
+                break;
+            }
+            joined = format!("{joined} {}", next.trim());
+        }
+        joined
+    };
     // A name bound by a `for` loop is each item of what the loop goes through, so an array
     // of names is read item by item.
     let looped = |l: &str| {
@@ -10183,13 +10912,16 @@ fn bound_value(
             items.to_owned(),
         ))
     };
-    let bound = (in_function.filter_map(|l| match l.trim_start().starts_with("let ") {
-        true => Some(let_bindings(l)),
-        false => looped(l).map(|binding| vec![binding]),
+    let bound = ((0..in_function.len()).filter_map(|k| {
+        match in_function[k].trim_start().starts_with("let ") {
+            true => Some(let_bindings(in_function[k])),
+            false => looped(&whole_for(k)).map(|binding| vec![binding]),
+        }
     }))
     .flatten()
     .find(|(name, _)| name == word)
-    .map(|(_, value)| value);
+    .map(|(_, value)| value)
+    .or_else(|| in_function.iter().find_map(|l| closure_items(l, word)));
     if let Some(value) = bound {
         return searched_for(&value, f, raw, code, constants, depth + 1);
     }
@@ -10206,6 +10938,43 @@ fn bound_value(
         true => Searched::Property,
         false => Searched::Other,
     }
+}
+
+/// Returns what the items come from that a closure on `line` takes as its argument `word`, as
+/// written, as in `NAMES.iter().any(|name| xmp.contains(name))` or
+/// `["dc:subject", "xmp:Rating"].iter().any(|&n| …)`: an array, or the path of a constant.
+/// Returns `None` when `line` has no such closure, or what it goes through is something else.
+fn closure_items(line: &str, word: &str) -> Option<String> {
+    let opens = ["|", "|&", "|&&"]
+        .iter()
+        .find_map(|bar| line.find(&format!("{bar}{word}|")))?;
+    let before = line[..opens].trim_end();
+    let before = before.strip_suffix("move").unwrap_or(before).trim_end();
+    // The method that takes the closure, such as `.any(`, and what it is called on.
+    let called = before.strip_suffix('(')?;
+    let method = called.trim_end_matches(is_word_char);
+    let mut items = method.strip_suffix('.')?;
+    while let Some(shorter) = [".iter()", ".into_iter()", ".copied()", ".cloned()"]
+        .iter()
+        .find_map(|s| items.strip_suffix(s))
+    {
+        items = shorter;
+    }
+    if items.ends_with(']') {
+        let mut depth = 0i32;
+        let open = items.char_indices().rev().find(|&(_, c)| {
+            depth += match c {
+                ']' => 1,
+                '[' => -1,
+                _ => 0,
+            };
+            depth == 0
+        })?;
+        return Some(items[open.0..].to_owned());
+    }
+    let path = items.trim_end_matches(|c: char| is_word_char(c) || c == ':');
+    let path = &items[path.len()..];
+    (!path.is_empty()).then(|| path.to_owned())
 }
 
 /// Returns the `const` and `static` items of `sources` written on one line, each as its file,

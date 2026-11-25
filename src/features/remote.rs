@@ -1276,7 +1276,7 @@ pub fn set_name(name: String) {
 }
 
 /// Keeps `name` as the name this Glimt was given (`--name`, or `--remote name`), or none.
-fn keep_given_name(name: Option<String>) {
+pub(crate) fn keep_given_name(name: Option<String>) {
     let mut given = lock_even_if_poisoned(&GIVEN_NAME);
     #[cfg(test)]
     crate::support::test_support::shared_setting_set(*given != name);
@@ -1284,7 +1284,7 @@ fn keep_given_name(name: Option<String>) {
 }
 
 /// Keeps `id` as the ID this Glimt listens as, or none while it does not listen.
-fn keep_listening_as(id: Option<String>) {
+pub(crate) fn keep_listening_as(id: Option<String>) {
     let mut listening = lock_even_if_poisoned(&LISTENING_AS);
     #[cfg(test)]
     crate::support::test_support::shared_setting_set(*listening != id);

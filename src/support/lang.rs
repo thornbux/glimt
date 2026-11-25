@@ -722,6 +722,11 @@ msgstr[1] "bilder"
                   #, fuzzy, c-format\n#: src/b.rs\nmsgid \"Two\"\nmsgstr \"Zwei\"\n";
         assert_eq!(wrongly_marked(po, false), ["msgid \"\""]);
         assert_eq!(wrongly_marked(po, true), ["msgid \"Two\""]);
+        // Indented lines, which `parse` reads as they are trimmed, are read so too (#303).
+        let indented = "msgid \"\"\nmsgstr \"\"\n\n  #, fuzzy\n  msgid \"Three\"\n  msgstr \"Drei\"\n\n\
+                        \tmsgid \"Four\"\nmsgstr \"Vier\"\n";
+        assert_eq!(wrongly_marked(indented, true), ["msgid \"Three\""]);
+        assert_eq!(wrongly_marked(indented, false), ["msgid \"Four\""]);
     }
 
     /// Every translation has every text and noun of the Norwegian one, which each new text
@@ -917,8 +922,10 @@ msgstr[1] "bilder"
             "radio_choice(",
             "RichText::new(",
             "ProgressBar::new(",
-            // A window's title, which the taskbar, the window list and a screen reader show.
+            // A window's title, which the taskbar, the window list and a screen reader show, when
+            // the window is made and when it is changed.
             ".with_title(",
+            "ViewportCommand::Title(",
         ];
         // Words, not a {value} or a %field% of a template.
         let words = |t: &str| {
@@ -1071,6 +1078,10 @@ msgstr[1] "bilder"
                 "x.rs",
                 "fn f() {\n    let b = ViewportBuilder::default().with_title(\"Projector\");\n}\n",
             ),
+            (
+                "x.rs",
+                "fn f() {\n    ctx.send_viewport_cmd(ViewportCommand::Title(\"Projector\".into()));\n}\n",
+            ),
         ];
         for (file, text) in samples {
             assert_eq!(check(file, text, &mut used).len(), 1, "{text}");
@@ -1111,7 +1122,8 @@ msgstr[1] "bilder"
     /// continued lines, is no text and is left out. The mark is found among all the comment
     /// lines above the msgid, also with other flags beside it.
     fn wrongly_marked(po: &str, read_by_native: bool) -> Vec<&str> {
-        let lines: Vec<&str> = po.lines().collect();
+        // Trimmed, as `parse` trims each line, so an indented mark or msgid is read too (#303).
+        let lines: Vec<&str> = po.lines().map(str::trim).collect();
         let is_header = |i: usize| {
             lines[i] == "msgid \"\"" && !lines.get(i + 1).is_some_and(|l| l.starts_with('"'))
         };

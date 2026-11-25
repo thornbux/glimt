@@ -1383,10 +1383,20 @@ pub(crate) fn sync_file_system_of(folder: &Path) -> std::io::Result<()> {
     sync_folder_or_its_file_system(folder, true)
 }
 
+/// Returns whether one sync of the whole file system that holds `folder` puts every file written
+/// to it on disk as surely as a sync of each file, as `sync_file_system_of` counts on. It reads
+/// the type the mount itself has here (`file_ops::mounted_type_or_test`), so that no caller can
+/// hand it the type udev found on the disk (`file_system_type`), which an obvious saving would
+/// pass on (#165). Returns false when the type cannot be read.
+pub(crate) fn is_put_on_disk_by_one_sync(folder: &Path) -> bool {
+    crate::files::file_ops::mounted_type_or_test(folder)
+        .is_some_and(|kind| sync_of_the_whole_commits(&kind))
+}
+
 /// Returns whether one sync of a whole file system of type `kind` puts every file written to it
-/// on disk as surely as a sync of each file, as `sync_file_system_of` counts on. `kind` is the
-/// type the mount itself has (`mounted_type`), so that a disk through FUSE is "fuseblk", never
-/// the type udev found on it: the sync of the whole does not reach the program behind a FUSE
+/// on disk as surely as a sync of each file. `kind` is the type the mount itself has
+/// (`mounted_type`), so that a disk through FUSE is "fuseblk", never the type udev found on
+/// it: the sync of the whole does not reach the program behind a FUSE
 /// mount (ntfs-3g, exfat-fuse, fuse2fs, gocryptfs, rclone), which keeps its own state until a
 /// sync of a file asks for it. Only the types named here count. Every other type, an unknown one
 /// among them, gets a sync of each file, which is slower but reaches the disk. Of those left out:
@@ -1398,7 +1408,7 @@ pub(crate) fn sync_file_system_of(folder: &Path) -> std::io::Result<()> {
 ///   files' moves reach it. A sync of a file does empty the cache there.
 /// - exFAT, HFS+ and ZFS may well empty it too, but that is not sure enough to count on.
 /// - SMB and NFS ask the server for no flush, and virtiofs passes it on only from Linux 5.15.
-pub(crate) fn is_put_on_disk_by_one_sync(kind: &str) -> bool {
+fn sync_of_the_whole_commits(kind: &str) -> bool {
     matches!(
         kind,
         // Their sync of the whole commits their journal or log (ext3, ext4, xfs, bcachefs), their
@@ -3717,7 +3727,7 @@ mod tests {
     /// not known get a sync of each file.
     #[test]
     fn only_a_file_system_whose_sync_commits_is_put_on_disk_by_one_sync() {
-        let one_sync = super::is_put_on_disk_by_one_sync;
+        let one_sync = super::sync_of_the_whole_commits;
         for kind in [
             "ext3", "ext4", "xfs", "btrfs", "f2fs", "bcachefs", "tmpfs", "ramfs",
         ] {
@@ -3770,6 +3780,22 @@ mod tests {
         }
         let home = super::mounted_type_in(mounts, std::path::Path::new("/home/me"));
         assert!(one_sync(&home.unwrap()));
+    }
+
+    /// Whether a folder's file system is put on disk by one sync is asked of the folder, and
+    /// answered by the type its mount has, which a test gives its folder with `test_mount`. Before,
+    /// each caller passed a type, and passing udev's type of the disk ("ntfs" under ntfs-3g)
+    /// would have trusted one sync of a FUSE mount (#165).
+    #[test]
+    fn the_one_sync_is_asked_of_a_folder_by_its_mounts_type() {
+        use crate::files::file_ops::test_mount;
+        let folder =
+            std::env::temp_dir().join(format!("glimt-test-one-sync-asked-{}", std::process::id()));
+        test_mount(&folder, Some("fuseblk"));
+        assert!(!super::is_put_on_disk_by_one_sync(&folder.join("info")));
+        test_mount(&folder, Some("ext4"));
+        assert!(super::is_put_on_disk_by_one_sync(&folder.join("info")));
+        test_mount(&folder, None);
     }
 
     /// In a chroot, the top mounts are those whose parents are outside it. One that alone
