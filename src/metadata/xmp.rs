@@ -401,19 +401,127 @@ pub(crate) struct TopLevelProperty {
     /// and end tags, which is nothing for an empty element.
     pub(crate) value: std::ops::Range<usize>,
     pub(crate) is_attribute: bool,
+    /// The place in the packet of the URI of the namespace that the name's prefix is bound to
+    /// where the name is written (`Scope`), or `None` when it is bound to none there.
+    namespace: Option<std::ops::Range<usize>>,
 }
 
 impl TopLevelProperty {
     /// Returns whether this property of the packet `xmp` is `local` in one of the namespaces
-    /// `uris`, by the prefixes that `declared` binds (`is_in_namespace`).
+    /// `uris`. Its prefix is read as it is bound where the property is written (`Scope`). Only
+    /// a prefix bound to nothing there is looked up in `declared_elsewhere`
+    /// (`is_in_namespace`), the declarations of another packet that may bind it, as a JPEG's
+    /// extended XMP may use a prefix that its main packet declares. Before, a prefix was
+    /// looked up in the whole packet, so a prefix that two Descriptions bind to two namespaces
+    /// was read in both as the first of them binds it.
     pub(crate) fn is_in(
         &self,
         xmp: &[u8],
-        declared: &std::collections::HashSet<(&str, &str)>,
+        declared_elsewhere: &std::collections::HashSet<(&str, &str)>,
         uris: &[&str],
         local: &str,
     ) -> bool {
-        is_in_namespace(&xmp[self.name.clone()], declared, uris, local)
+        let name = &xmp[self.name.clone()];
+        let Some(uri) = &self.namespace else {
+            return is_in_namespace(name, declared_elsewhere, uris, local);
+        };
+        let own_local = name
+            .iter()
+            .position(|&c| c == b':')
+            .map_or(name, |colon| &name[colon + 1..]);
+        own_local == local.as_bytes() && uris.iter().any(|u| xmp[uri.clone()] == *u.as_bytes())
+    }
+}
+
+/// The namespaces in force at a place of a packet, as a walk over it opens and closes its
+/// elements: those that the start tags of the elements open around the place declare. A name
+/// is read by the namespace its prefix is bound to where it is written, so a prefix that two
+/// Descriptions bind to two namespaces is read in each as that Description binds it.
+#[derive(Default)]
+struct Scope<'a> {
+    /// The declarations of each element open, outermost first, each as its prefix ("" for a
+    /// default namespace) and the place of its URI in the packet.
+    open: Vec<Vec<(&'a [u8], std::ops::Range<usize>)>>,
+    /// The places of the URIs that the elements open bind each prefix to, the innermost last.
+    bound: std::collections::HashMap<&'a [u8], Vec<std::ops::Range<usize>>>,
+}
+
+impl<'a> Scope<'a> {
+    /// Opens the element whose start tag has its attributes at `head` in `xmp`, with the
+    /// namespaces that they declare.
+    fn open(&mut self, xmp: &'a [u8], head: std::ops::Range<usize>) {
+        let declared: Vec<(&[u8], std::ops::Range<usize>)> = (tag_attributes(xmp, head)
+            .into_iter())
+        .filter_map(|(name, value)| match &xmp[name] {
+            b"xmlns" => Some((&b""[..], value)),
+            name => {
+                let prefix = name.strip_prefix(b"xmlns:")?;
+                (!prefix.is_empty() && !prefix.contains(&b':')).then_some((prefix, value))
+            }
+        })
+        .collect();
+        for (prefix, uri) in &declared {
+            self.bound.entry(prefix).or_default().push(uri.clone());
+        }
+        self.open.push(declared);
+    }
+
+    /// Closes the innermost element open, and with it the namespaces it declares.
+    fn close(&mut self) {
+        for (prefix, _) in self.open.pop().into_iter().flatten() {
+            if let Some(uris) = self.bound.get_mut(prefix) {
+                uris.pop();
+            }
+        }
+    }
+
+    /// Returns the place of the URI that `prefix` is bound to, or `None` when it is bound to
+    /// none.
+    fn uri(&self, prefix: &[u8]) -> Option<std::ops::Range<usize>> {
+        self.bound.get(prefix)?.last().cloned()
+    }
+
+    /// Opens and closes the elements whose tags are in `xmp` from `from` up to `to`, the
+    /// markup before a Description or between two of them. Comments, CDATA sections and
+    /// processing instructions are passed over whole (`not_element_length`). It stops at a tag
+    /// or such markup that does not end before `to`.
+    fn walk(&mut self, xmp: &'a [u8], mut from: usize, to: usize) {
+        while let Some(found) = xmp[from..to].iter().position(|&c| c == b'<') {
+            let at = from + found;
+            if let Some(length) = not_element_length(&xmp[at..]) {
+                match length.map(|length| at + length) {
+                    Some(end) if end <= to => from = end,
+                    _ => return,
+                }
+                continue;
+            }
+            let Some(gt) = start_tag_end(xmp, at).filter(|&gt| gt < to) else {
+                return;
+            };
+            let name_end = at
+                + 1
+                + (xmp[at + 1..gt].iter())
+                    .take_while(|&&c| is_name_byte(c))
+                    .count();
+            match xmp[at + 1] {
+                b'/' => self.close(),
+                b'!' => {}
+                _ if xmp[gt - 1] == b'/' => {}
+                _ => self.open(xmp, name_end..gt),
+            }
+            from = gt + 1;
+        }
+    }
+
+    /// Returns the namespaces in force with a prefix, each as (prefix, URI), outermost first,
+    /// so that a later one of a prefix is the one in force, as `prefix_in_force` reads them.
+    fn in_force(&self, xmp: &'a str) -> Vec<(&'a str, &'a str)> {
+        (self.open.iter().flatten())
+            .filter(|(prefix, _)| !prefix.is_empty())
+            .filter_map(|(prefix, uri)| {
+                Some((std::str::from_utf8(prefix).ok()?, xmp.get(uri.clone())?))
+            })
+            .collect()
     }
 }
 
@@ -1462,11 +1570,16 @@ fn language_text(xmp: &str, tag: &str) -> String {
 }
 
 /// The items of the language alternative `tag` in `xmp` (`items_with_languages`), one for each
-/// language. When it is written twice, the text of the first that has a language is the one
-/// read, edited and written.
+/// language. An item without a language is the x-default one, as `language_alternative`
+/// writes it so. When a language is written twice, the text of the first is the one read,
+/// edited and written. Before, an item without a language and an x-default item were read as
+/// two languages and written as one, so an edit read back as the old text.
 fn languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    for item in items_with_languages(xmp, tag) {
+    for mut item in items_with_languages(xmp, tag) {
+        if item.0.is_empty() {
+            item.0 = "x-default".into();
+        }
         if !out.iter().any(|(language, _)| *language == item.0) {
             out.push(item);
         }
@@ -1504,11 +1617,6 @@ fn language_alternative(
     }
     let mut out = format!("\n   <{written_as}>\n    <rdf:Alt>\n");
     for (language, text) in items {
-        let language = if language.is_empty() {
-            "x-default".into()
-        } else {
-            language
-        };
         out += &format!(
             "     <rdf:li xml:lang=\"{}\">{}</rdf:li>\n",
             escape(&language),
@@ -1860,32 +1968,95 @@ pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
 }
 
 /// Reads the top-level properties of every rdf:Description of `xmp` (`top_level_properties`),
-/// written as attributes or as elements, and every namespace it declares. An attribute is given
-/// as the element it stands for, so a packet written of them holds only elements. A property is
-/// named by its namespace (`property_name`).
+/// written as attributes or as elements. An attribute is given as the element it stands for,
+/// so a packet written of them holds only elements. A property is named by the namespace its
+/// prefix is bound to where it is written (`name_in_namespace`). Each is given the namespaces in
+/// force where it is written for the prefixes it uses. The Descriptions share them while they
+/// bind no prefix two ways, and one that binds a prefix otherwise than those before it starts
+/// namespaces of its own, which `packet` writes in a Description of their own. Before, every
+/// prefix was read as the first declaration of the packet binds it, so a property of another
+/// namespace written with the same prefix was copied into the first one.
 pub(crate) fn properties(xmp: &str) -> Properties {
-    let mut out = Properties::default();
-    let mut namespaces: Vec<(String, String)> = Vec::new();
-    for (prefix, uri) in namespace_declarations(xmp) {
-        if !namespaces.iter().any(|(p, _)| p == prefix) {
-            namespaces.push((prefix.to_owned(), uri.to_owned()));
-        }
-    }
-    let namespaces = Namespaces::new(namespaces);
-    for found in top_level_properties(xmp.as_bytes()) {
+    let mut groups: Vec<Vec<(String, String)>> = Vec::new();
+    let mut bound: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    let mut found_in_group: Vec<(String, String, usize)> = Vec::new();
+    each_description(xmp.as_bytes(), |scope, found| {
         // The places are at ASCII characters, so each slice is whole UTF-8.
-        let name = &xmp[found.name.clone()];
-        if !name.contains(':') {
-            continue;
+        let uses = (found.iter()).flat_map(|f| prefixes_in(&xmp[f.whole.clone()]));
+        let needed: Vec<(&str, &str)> = uses
+            .filter_map(|prefix| Some((prefix, &xmp[scope.uri(prefix.as_bytes())?])))
+            .collect();
+        let binds_otherwise = (needed.iter()).any(|(p, u)| bound.get(p).is_some_and(|b| b != u));
+        if groups.is_empty() || binds_otherwise {
+            groups.push(Vec::new());
+            bound.clear();
         }
-        let element = match found.is_attribute {
-            true => format!("<{name}>{}</{name}>", &xmp[found.value]),
-            false => xmp[found.whole].to_owned(),
-        };
-        let name = property_name(name, &namespaces);
-        out.list.push((name, element, namespaces.clone()));
+        let group = groups.len() - 1;
+        for (prefix, uri) in needed {
+            if bound.insert(prefix, uri).is_none() {
+                groups[group].push((prefix.to_owned(), uri.to_owned()));
+            }
+        }
+        for found in found {
+            let name = &xmp[found.name.clone()];
+            let Some((prefix, local)) = name.split_once(':') else {
+                continue;
+            };
+            let element = match found.is_attribute {
+                true => format!("<{name}>{}</{name}>", &xmp[found.value]),
+                false => xmp[found.whole].to_owned(),
+            };
+            let uri = found.namespace.map(|uri| &xmp[uri]);
+            found_in_group.push((name_in_namespace(prefix, local, uri), element, group));
+        }
+    });
+    let groups: Vec<Namespaces> = groups.into_iter().map(Namespaces::new).collect();
+    let list = (found_in_group.into_iter())
+        .map(|(name, element, group)| (name, element, groups[group].clone()))
+        .collect();
+    Properties { list }
+}
+
+/// Returns the prefixes that `text`, a property as written, may use: each run of the letters
+/// of a name before a ':'. It may give a word of a value too, which no namespace in force binds
+/// as a rule, or binds to no harm.
+fn prefixes_in(text: &str) -> Vec<&str> {
+    let (mut out, mut start) = (Vec::new(), 0);
+    for (i, &c) in text.as_bytes().iter().enumerate() {
+        if c == b':' && start < i {
+            out.push(&text[start..i]);
+        }
+        if c == b':' || !is_name_byte(c) {
+            start = i + 1;
+        }
     }
     out
+}
+
+/// Calls `each` with the namespaces in force in each rdf:Description of `xmp` (`Scope`) and
+/// its top-level properties (`top_level_properties`), in the order they are written.
+fn each_description<'a>(xmp: &'a [u8], mut each: impl FnMut(&Scope<'a>, Vec<TopLevelProperty>)) {
+    let (mut scope, mut from) = (Scope::default(), 0);
+    while let Some(start) = next_description(xmp, from) {
+        scope.walk(xmp, from, start);
+        let Some(gt) = start_tag_end(xmp, start) else {
+            break;
+        };
+        let head = start + DESCRIPTION.len()..gt;
+        scope.open(xmp, head.clone());
+        let mut found = Vec::new();
+        attribute_properties(xmp, head, &scope, &mut found);
+        let end = match xmp[gt - 1] == b'/' {
+            true => Some(gt + 1),
+            false => element_properties(xmp, gt + 1, DESCRIPTION_END, &mut scope, &mut found),
+        };
+        each(&scope, found);
+        scope.close();
+        match end {
+            Some(end) => from = end,
+            None => break,
+        }
+    }
 }
 
 /// Returns the top-level properties of every rdf:Description of `xmp`, in the order they are
@@ -1897,52 +2068,35 @@ pub(crate) fn properties(xmp: &str) -> Properties {
 /// stops there, because what follows cannot be told apart from the inside of a property.
 /// Comments, CDATA sections and processing instructions are passed over whole, also inside a
 /// property (`not_element_length`). Each step goes on from where the last one ended, so a
-/// hostile packet takes linear time.
+/// hostile packet takes linear time. Each property's prefix is read as it is bound where the
+/// property is written (`Scope`).
 pub(crate) fn top_level_properties(xmp: &[u8]) -> Vec<TopLevelProperty> {
-    let (mut out, mut from) = (Vec::new(), 0);
-    while let Some(start) = next_description(xmp, from) {
-        let Some(gt) = start_tag_end(xmp, start) else {
-            break;
-        };
-        attribute_properties(xmp, start + DESCRIPTION.len()..gt, &mut out);
-        if xmp[gt - 1] == b'/' {
-            from = gt + 1;
-            continue;
-        }
-        match element_properties(xmp, gt + 1, DESCRIPTION_END, &mut out) {
-            Some(end) => from = end,
-            None => break,
-        }
-    }
+    let mut out = Vec::new();
+    each_description(xmp, |_, found| out.extend(found));
     out
 }
 
 /// Returns the top-level properties of `xmp` (`top_level_properties`) that are `tag`, a name
 /// with the prefix of its namespace in `KNOWN_NAMESPACES`, such as "dc:subject". A property
-/// counts when the packet binds its prefix to that namespace, whatever the prefix is, as a
-/// tool that writes `ns1:subject` binds it. It counts too when it is written as `tag` and the
-/// packet binds that prefix to nothing, as a broken packet may have it. A `tag` whose prefix
-/// is not in `KNOWN_NAMESPACES` is found as it is written. It is the one way the readers and
-/// editors find a property by its name. Before, they compared the prefix as written, so they
-/// read no keywords of a packet that wrote `ns1:subject` and wrote a second `dc:subject` beside
-/// it, which exiv2 refuses.
+/// counts when its prefix is bound to that namespace where it is written, whatever the prefix
+/// is, as a tool that writes `ns1:subject` binds it. It counts too when it is written as `tag`
+/// and its prefix is bound to nothing there, as a broken packet may have it. A `tag` whose
+/// prefix is not in `KNOWN_NAMESPACES` is found as it is written. It is the one way the
+/// readers and editors find a property by its name. Before, they compared the prefix as
+/// written, so they read no keywords of a packet that wrote `ns1:subject` and wrote a second
+/// `dc:subject` beside it, which exiv2 refuses.
 pub(crate) fn properties_named(xmp: &[u8], tag: &str) -> Vec<TopLevelProperty> {
-    let text = String::from_utf8_lossy(xmp);
-    let declared: std::collections::HashSet<(&str, &str)> =
-        namespace_declarations_with_default(&text)
-            .into_iter()
-            .collect();
     let (prefix, local) = tag.split_once(':').unwrap_or(("", tag));
     let uris: Vec<&str> = (KNOWN_NAMESPACES.iter())
         .filter(|(known, _)| *known == prefix)
         .map(|(_, uri)| *uri)
         .collect();
-    let is_bound = declared.iter().any(|(p, _)| *p == prefix);
-    let as_written = uris.is_empty() || !is_bound;
+    let nowhere_else = std::collections::HashSet::new();
     (top_level_properties(xmp).into_iter())
         .filter(|found| {
+            let as_written = uris.is_empty() || found.namespace.is_none();
             (as_written && xmp[found.name.clone()] == *tag.as_bytes())
-                || found.is_in(xmp, &declared, &uris, local)
+                || found.is_in(xmp, &nowhere_else, &uris, local)
         })
         .collect()
 }
@@ -1981,8 +2135,43 @@ fn not_element_length(rest: &[u8]) -> Option<Option<usize>> {
 }
 
 /// Adds the properties written as attributes in `head`, the place of a Description's start tag
-/// after its name, to `out`. It reads up to what does not read as an attribute.
-fn attribute_properties(xmp: &[u8], head: std::ops::Range<usize>, out: &mut Vec<TopLevelProperty>) {
+/// after its name, to `out`, each with the namespace its prefix is bound to in `scope`. It reads
+/// up to what does not read as an attribute (`tag_attributes`).
+fn attribute_properties(
+    xmp: &[u8],
+    head: std::ops::Range<usize>,
+    scope: &Scope,
+    out: &mut Vec<TopLevelProperty>,
+) {
+    for (name, value) in tag_attributes(xmp, head) {
+        let written = &xmp[name.clone()];
+        let Some(colon) = written.iter().position(|&c| c == b':') else {
+            continue;
+        };
+        if [&b"xmlns:"[..], b"rdf:", b"xml:"]
+            .iter()
+            .any(|p| written.starts_with(p))
+        {
+            continue;
+        }
+        out.push(TopLevelProperty {
+            namespace: scope.uri(&written[..colon]),
+            whole: name.start..value.end + 1,
+            name,
+            value,
+            is_attribute: true,
+        });
+    }
+}
+
+/// Returns the attributes written in `head`, the place of a start tag after its name, each as
+/// the places of its name and of its value between its quotes. It reads up to what does not
+/// read as an attribute.
+fn tag_attributes(
+    xmp: &[u8],
+    head: std::ops::Range<usize>,
+) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    let mut out = Vec::new();
     let blanks_from = |i: usize| {
         let i = i.min(head.end);
         i + (xmp[i..head.end].iter())
@@ -1998,41 +2187,32 @@ fn attribute_properties(xmp: &[u8], head: std::ops::Range<usize>, out: &mut Vec<
                 .count();
         let equals = blanks_from(name_end);
         if name_end == name_start || equals >= head.end || xmp[equals] != b'=' {
-            return;
+            return out;
         }
         let open = blanks_from(equals + 1);
         let quote = xmp[open..head.end].first().copied();
         let Some(quote) = quote.filter(|&q| q == b'"' || q == b'\'') else {
-            return;
+            return out;
         };
         let Some(close) = (xmp[open + 1..head.end].iter()).position(|&c| c == quote) else {
-            return;
+            return out;
         };
         let close = open + 1 + close;
-        let name = &xmp[name_start..name_end];
-        let is_property = name.contains(&b':')
-            && !(name.starts_with(b"xmlns:") || name.starts_with(b"rdf:"))
-            && !name.starts_with(b"xml:");
-        if is_property {
-            out.push(TopLevelProperty {
-                name: name_start..name_end,
-                whole: name_start..close + 1,
-                value: open + 1..close,
-                is_attribute: true,
-            });
-        }
+        out.push((name_start..name_end, open + 1..close));
         at = close + 1;
     }
 }
 
 /// Adds the elements in `xmp` from `from` on, the properties inside a Description or the
 /// fields inside a structure's item, to `out`. They end at the end tag `end`, such as
-/// `DESCRIPTION_END`. Returns the place just after that end tag, or `None` when something else
-/// stops the reading.
-fn element_properties(
-    xmp: &[u8],
+/// `DESCRIPTION_END`. Each is given the namespace its prefix is bound to in `scope` with the
+/// declarations of its own start tag. Returns the place just after that end tag, or `None` when
+/// something else stops the reading.
+fn element_properties<'a>(
+    xmp: &'a [u8],
     mut from: usize,
     end_tag: &[u8],
+    scope: &mut Scope<'a>,
     out: &mut Vec<TopLevelProperty>,
 ) -> Option<usize> {
     loop {
@@ -2063,11 +2243,20 @@ fn element_properties(
                 (gt + 1..end - name_length - 3, end)
             }
         };
+        let written = &xmp[name.clone()];
+        let prefix = written
+            .iter()
+            .position(|&c| c == b':')
+            .map_or(&b""[..], |colon| &written[..colon]);
+        scope.open(xmp, name.end..gt);
+        let namespace = scope.uri(prefix);
+        scope.close();
         out.push(TopLevelProperty {
             name,
             whole: from..end,
             value,
             is_attribute: false,
+            namespace,
         });
         from = end;
     }
@@ -2121,7 +2310,9 @@ pub(crate) fn structure_items(
 /// elements inside it (rdf:parseType="Resource", as ExifTool writes them), and as the
 /// attributes and elements of an rdf:Description just inside it. The elements are read up to
 /// what does not read as one. Returns the place just past the item's end tag, or `None` when
-/// it does not end.
+/// it does not end. A field's prefix is read by the declarations of the item and of the tags
+/// inside it around the field. One that they bind to nothing is looked up by the caller
+/// (`TopLevelProperty::is_in`).
 fn item_fields(
     xmp: &[u8],
     start: usize,
@@ -2129,7 +2320,9 @@ fn item_fields(
     gt: usize,
     out: &mut Vec<TopLevelProperty>,
 ) -> Option<usize> {
-    attribute_properties(xmp, name_end..gt, out);
+    let scope = &mut Scope::default();
+    scope.open(xmp, name_end..gt);
+    attribute_properties(xmp, name_end..gt, scope, out);
     if xmp[gt - 1] == b'/' {
         return Some(gt + 1);
     }
@@ -2139,7 +2332,7 @@ fn item_fields(
     let mut inside = Vec::new();
     // What follows a field that does not read as one is not read, and the fields before it
     // count, as at the top of a Description.
-    element_properties(xmp, gt + 1, &xmp[end_tag..end], &mut inside);
+    element_properties(xmp, gt + 1, &xmp[end_tag..end], scope, &mut inside);
     for field in inside {
         if xmp[field.name.clone()] != DESCRIPTION[1..] {
             out.push(field);
@@ -2148,10 +2341,13 @@ fn item_fields(
         let Some(description_gt) = start_tag_end(xmp, field.whole.start) else {
             continue;
         };
-        attribute_properties(xmp, field.name.end..description_gt, out);
+        let head = field.name.end..description_gt;
+        scope.open(xmp, head.clone());
+        attribute_properties(xmp, head, scope, out);
         if xmp[description_gt - 1] != b'/' {
-            element_properties(xmp, description_gt + 1, DESCRIPTION_END, out);
+            element_properties(xmp, description_gt + 1, DESCRIPTION_END, scope, out);
         }
+        scope.close();
     }
     Some(end)
 }
@@ -2171,19 +2367,11 @@ fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {
     hay.windows(what.len()).position(|w| w == what)
 }
 
-/// The namespaces that `xmp` declares with a prefix, each as (prefix, URI), in the order they
-/// are written. It is the reading of them for `properties` and for the writers
-/// (`first_description`), which write only names with a prefix. It is
-/// `namespace_declarations_with_default` without the default namespaces.
-pub(crate) fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
-    let mut out = namespace_declarations_with_default(xmp);
-    out.retain(|(prefix, _)| !prefix.is_empty());
-    out
-}
-
-/// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written. A
-/// default namespace (`xmlns="…"`) has the prefix "". It is the one reading of them, also for
-/// `namespace_declarations` and for `is_in_namespace`. A declaration inside a comment, a CDATA
+/// The namespaces that `xmp` declares anywhere, each as (prefix, URI), in the order they are
+/// written. A default namespace (`xmlns="…"`) has the prefix "". It is only for a name that
+/// another packet may bind, as a JPEG's extended XMP may use a prefix that its main packet
+/// declares (`TopLevelProperty::is_in`). A property of a packet is read by the namespaces in
+/// force where it is written (`Scope`), never by these. A declaration inside a comment, a CDATA
 /// section or a processing instruction declares nothing, so these are passed over whole
 /// (`not_element_length`), and the reading stops at one that does not end. Before, a
 /// Description commented out declared its prefixes for the one after it, and the writers wrote
@@ -2267,13 +2455,19 @@ pub(crate) fn is_in_namespace(
 }
 
 /// Returns where the start tag of the first rdf:Description in `xmp` ends, at its '>' past any
-/// '>' in its quoted values, and the namespaces declared before that, on it or above it. The
-/// writers put what they add into this Description, and read it as `properties` does, so a
-/// declaration written `xmlns:dc = "…"` is not declared twice. Returns `None` when `xmp` has no
-/// Description or its start tag does not end.
+/// '>' in its quoted values, and the namespaces with a prefix in force there (`Scope::in_force`):
+/// those declared on it and on the elements around it, outermost first. The writers put what
+/// they add into this Description, and read it as `properties` does, so a declaration written
+/// `xmlns:dc = "…"` is not declared twice. Before, a declaration on an element that had ended
+/// before it counted too, and a property was written with a prefix bound to nothing there.
+/// Returns `None` when `xmp` has no Description or its start tag does not end.
 pub(crate) fn first_description(xmp: &str) -> Option<(usize, Vec<(&str, &str)>)> {
-    let end = start_tag_end(xmp.as_bytes(), first_description_start(xmp)?)?;
-    Some((end, namespace_declarations(&xmp[..end])))
+    let start = first_description_start(xmp)?;
+    let end = start_tag_end(xmp.as_bytes(), start)?;
+    let mut scope = Scope::default();
+    scope.walk(xmp.as_bytes(), 0, start);
+    scope.open(xmp.as_bytes(), start + DESCRIPTION.len()..end);
+    Some((end, scope.in_force(xmp)))
 }
 
 /// Returns where the first rdf:Description of `xmp` starts, at its '<', past the comments,
@@ -2283,30 +2477,26 @@ pub(crate) fn first_description_start(xmp: &str) -> Option<usize> {
     next_description(xmp.as_bytes(), 0)
 }
 
-/// Returns the name of the property written `name` in a packet that binds its prefixes as
-/// `namespaces` says. It has the prefix of its namespace in `KNOWN_NAMESPACES`, or else the
-/// prefix as written. A known prefix bound to another namespace, or to none, is replaced by
-/// that namespace in braces ("{urn:other}Make"), so the name cannot pass for a known one. The
-/// namespace's control characters are replaced (`without_control_characters`), as the name is
-/// saved in Copy for Sharing's choice, one name to a line.
-fn property_name(name: &str, namespaces: &[(String, String)]) -> String {
-    let Some((prefix, local)) = name.split_once(':') else {
-        return name.to_owned();
-    };
-    let uri = namespaces
-        .iter()
-        .find(|(p, _)| p == prefix)
-        .map(|(_, u)| u.as_str());
-    name_in_namespace(prefix, local, uri)
-}
-
 /// Returns the name of the property `local` written with `prefix`, which is bound to the
-/// namespace `uri`, or to none, as `property_name` says. An empty prefix is a default
-/// namespace's, and a property in an unknown default namespace is named by it in braces too.
+/// namespace `uri`, or to none, where it is written. It has the prefix of its namespace in
+/// `KNOWN_NAMESPACES`, or else the prefix as written. A known prefix bound to another
+/// namespace, or to none, is replaced by that namespace in braces ("{urn:other}Make"), so the
+/// name cannot pass for a known one. An empty prefix is a default namespace's, and a property
+/// in an unknown default namespace is named by it in braces too, as is one whose name would
+/// start like a word of Copy for Sharing's choice that is no tag ("group:x",
+/// `shared_copy::GROUP_KEY_START`). Saved, such a name was read back as a later group word,
+/// which leaves out no block, while in the dialog it left out every block. The namespace's
+/// control characters are replaced (`without_control_characters`), as the name is saved in
+/// Copy for Sharing's choice, one name to a line.
 fn name_in_namespace(prefix: &str, local: &str, uri: Option<&str>) -> String {
+    let is_group_word =
+        crate::images::shared_copy::GROUP_KEY_START.strip_suffix(':') == Some(prefix);
     match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| *known == u)) {
         Some((known, _)) => format!("{known}:{local}"),
-        None if prefix.is_empty() || KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) => {
+        None if prefix.is_empty()
+            || is_group_word
+            || KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) =>
+        {
             format!(
                 "{{{}}}{local}",
                 without_control_characters(uri.unwrap_or(""))
@@ -2407,13 +2597,14 @@ pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
 /// Returns the property element `element` with only its own value. Every property written
 /// inside it, as an element or as an attribute, is left out unless `keeps` keeps its name. A
 /// name is read by the namespace its prefix is bound to there (`name_inside`): by a declaration
-/// inside the element, by a default namespace, or else by the packet's namespaces `namespaces`,
-/// as `property_name` reads the properties themselves. The RDF and XML names that give the
-/// value its form (rdf:Seq, rdf:li, rdf:parseType, xml:lang) stay, and comments go. Without
-/// it, a kept property could carry a value the user left out, such as a GPS position written
-/// inside a gain map's property. Returns an empty text when the element does not read as
-/// balanced XML (an element that never ends, a start tag without its '>'), so that a property
-/// that cannot be read is left out whole rather than written into a packet broken.
+/// inside the element, by a default namespace, or else by the namespaces `namespaces` in force
+/// where the element is written, as `properties` reads the properties themselves. The RDF and
+/// XML names that give the value its form (rdf:Seq, rdf:li, rdf:parseType, xml:lang) stay,
+/// and comments go. Without it, a kept property could carry a value the user left out, such
+/// as a GPS position written inside a gain map's property. Returns an empty text when the
+/// element does not read as balanced XML (an element that never ends, a start tag without its
+/// '>'), so that a property that cannot be read is left out whole rather than written into a
+/// packet broken.
 pub(crate) fn with_own_value_only(
     element: &str,
     namespaces: &[(String, String)],
@@ -2505,12 +2696,13 @@ pub(crate) fn with_own_value_only(
 }
 
 /// Returns the property name of the element or attribute `name` inside a property element, as
-/// `property_name` gives it. Its prefix is looked up in `declared`, the declarations of its own
-/// element, then in those of the elements `open` around it, innermost first, and last in the
-/// packet's `namespaces`. An element without a prefix is in the default namespace, if one is
-/// declared. Returns `None` for what is no property: a name in the RDF or XML namespace, a
-/// namespace declaration, an attribute without a prefix, and an element without a namespace.
-/// The rdf and xml prefixes bound to nothing count as theirs, as before the namespaces were read.
+/// `name_in_namespace` gives it. Its prefix is looked up in `declared`, the declarations of its
+/// own element, then in those of the elements `open` around it, innermost first, and last in
+/// the `namespaces` in force where the property is written. An element without a prefix is in
+/// the default namespace, if one is declared. Returns `None` for what is no property: a name in
+/// the RDF or XML namespace, a namespace declaration, an attribute without a prefix, and an
+/// element without a namespace. The rdf and xml prefixes bound to nothing count as theirs, as
+/// before the namespaces were read.
 fn name_inside(
     name: &str,
     is_attribute: bool,
@@ -3476,6 +3668,23 @@ mod tests {
             [pair("de", "Ein Hund am Strand"), pair("en-US", "A dgo")]
         );
         assert_eq!(parse(&written).comment, "Hello");
+    }
+
+    /// A comment written as an attribute, which is an item without a language, and an
+    /// x-default item are one language. An edit replaces the text shown, and the next read
+    /// shows the new text. Before, both were written as x-default, and it showed the old one.
+    #[test]
+    fn an_item_without_a_language_is_the_default_one() {
+        let xmp = r#"<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"
+    dc:description="Old"><dc:description><rdf:Alt><rdf:li xml:lang="x-default">Shown</rdf:li>
+    <rdf:li xml:lang="de">Alt</rdf:li></rdf:Alt></dc:description></rdf:Description>"#;
+        let edited = set_comment(xmp, xmp, "New", false).unwrap();
+        assert_eq!(parse(&edited).comment, "New", "{edited}");
+        let pair = |l: &str, t: &str| (l.to_owned(), t.to_owned());
+        assert_eq!(
+            languages(&edited, "dc:description"),
+            [pair("x-default", "New"), pair("de", "Alt")]
+        );
     }
 
     /// The writers read the first Description's start tag as the reader does: a namespace
@@ -4725,6 +4934,64 @@ mod tests {
         assert!(written.contains("xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\""));
     }
 
+    /// A prefix is read as it is bound where the property is written. A second Description that
+    /// binds dc to DCMI's terms keeps its subject out of the keywords, and an edit leaves it
+    /// there. A third that binds dc to nothing has its dc:subject read as written. A copy for
+    /// sharing names each by its own namespace and writes it under that one. Before, every
+    /// prefix was read as the first declaration of the packet binds it.
+    #[test]
+    fn a_prefix_is_read_as_its_own_description_binds_it() {
+        const DC: &str = "http://purl.org/dc/elements/1.1/";
+        const TERMS: &str = "http://purl.org/dc/terms/";
+        let xmp = format!(
+            "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF>\
+             <rdf:Description xmlns:dc='{DC}'><dc:subject><rdf:Bag><rdf:li>Beach</rdf:li>\
+             </rdf:Bag></dc:subject></rdf:Description>\
+             <rdf:Description xmlns:dc='{TERMS}'><dc:subject>Geography</dc:subject>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>"
+        );
+        assert_eq!(parse(&xmp).keywords, ["Beach"]);
+        let meta = KeywordsAndComment {
+            keywords: vec!["Sea".into()],
+            comment: String::new(),
+        };
+        let edited = set_keywords_and_comment(&xmp, &xmp, &meta, false).unwrap();
+        assert_eq!(parse(&edited).keywords, ["Sea"]);
+        assert!(
+            edited.contains("<dc:subject>Geography</dc:subject>"),
+            "{edited}"
+        );
+        let read = properties(&xmp);
+        let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
+        assert_eq!(names, ["dc:subject", "{http://purl.org/dc/terms/}subject"]);
+        let copy = String::from_utf8(packet(&read)).unwrap();
+        let terms = copy.find(TERMS).unwrap();
+        assert!(copy.find("Geography").unwrap() > terms, "{copy}");
+        assert!(
+            copy[terms..].find(DC).is_none() && copy.find(DC) < Some(terms),
+            "{copy}"
+        );
+        // A dc:subject whose prefix its Description binds to nothing is read as written.
+        let unbound = xmp.replace(&format!(" xmlns:dc='{DC}'"), "");
+        let unbound = unbound.replace(TERMS, "urn:other");
+        assert_eq!(parse(&unbound).keywords, ["Beach"]);
+    }
+
+    /// The writers declare a prefix by the namespaces in force in the first Description: those
+    /// of the elements around it, not those of an element that ended before it.
+    #[test]
+    fn a_writer_reads_only_the_declarations_around_the_description() {
+        let xmp = "<x:xmpmeta xmlns:x='adobe:ns:meta/'><x:other xmlns:dc='urn:other'/>\
+                   <rdf:RDF><rdf:Description rdf:about=''/></rdf:RDF></x:xmpmeta>";
+        let meta = KeywordsAndComment {
+            keywords: vec!["Sea".into()],
+            comment: String::new(),
+        };
+        let written = set_keywords_and_comment(xmp, xmp, &meta, false).unwrap();
+        assert!(written.contains("<dc:subject>"), "{written}");
+        assert_eq!(parse(&written).keywords, ["Sea"]);
+    }
+
     /// A name made from a namespace holds no control character, so it cannot add a line, and
     /// with it a word, to Copy for Sharing's saved choice.
     #[test]
@@ -4745,7 +5012,8 @@ mod tests {
                     dc:format='image/jpeg'><!--c--><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
                     <rdf:li><rdf:Description dc:x='1' dc:y=\"2\"/></rdf:li><dc:z><dc:z>3\
                     </dc:z></dc:z></rdf:Bag></dc:subject><dc:rights/></rdf:Description>\
-                    <rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+                    <rdf:Description rdf:about=\"\" xmlns:dc='urn:terms'><dc:subject \
+                    xmlns:dc='urn:dc'>b</dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
         // A text of letters of two, three and four bytes, longer than the 1 KB that a namespace
         // is read in, so a cut lands inside a letter.
         let text = "Ålesund bæt 東京 \u{1f30a} ".repeat(80);
@@ -4757,8 +5025,13 @@ mod tests {
         for bytes in crate::support::test_support::broken(seed.as_bytes())
             .chain(crate::support::test_support::broken(long.as_bytes()))
         {
-            let read = super::properties(&String::from_utf8_lossy(&bytes));
+            let text = String::from_utf8_lossy(&bytes);
+            let read = super::properties(&text);
             super::packet(&read);
+            super::properties_named(&bytes, "dc:subject");
+            if let Some((_, declared)) = super::first_description(&text) {
+                super::prefix_in_force(&declared, "dc", "http://purl.org/dc/elements/1.1/");
+            }
             for (name, element, namespaces) in &read.list {
                 super::with_own_value_only(element, namespaces, &|n| n != name);
             }
@@ -4967,7 +5240,7 @@ mod tests {
             <!-- <a xmlns='urn:hidden'/> --></rdf:Description>";
         let all = super::namespace_declarations_with_default(xmp);
         assert_eq!(all, [("p", "urn:p"), ("", "urn:d")]);
-        assert_eq!(super::namespace_declarations(xmp), [("p", "urn:p")]);
+        assert_eq!(super::first_description(xmp).unwrap().1, [("p", "urn:p")]);
         let all = all.into_iter().collect();
         let is = |name: &[u8], uri: &str| super::is_in_namespace(name, &all, &[uri], "Directory");
         assert!(is(b"Directory", "urn:d"));
