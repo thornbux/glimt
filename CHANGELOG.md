@@ -39,6 +39,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
   no longer taken for the Stop (#304).
 - On NFSv3, a rename whose link the server made but answered "already there" no longer leaves
   a second name or a second copy, such as two copies of an image cropped (#307).
+- The start after Glimt was stopped no longer takes another card or stick in the same reader
+  or port, in the same boot, for the one a job worked on: not a card cloned with dd, which has
+  the same volume (#272), nor in the Flatpak a second ext4 stick (#314). Their marks are kept
+  until the right one is back.
+- A job stopped on a card whose volume was noted is finished at a start in a later boot where
+  no volume can be read, as after a switch to the Flatpak, instead of keeping its log for good
+  (#278).
+- A folder behind a bind mount of the same disk that is not mounted yet at the start no longer
+  counts as deleted, so the marks of its files are kept (#270).
+- In the Flatpak, a file on the host's bind mount of a folder from another disk goes into the
+  trash at the mount's top, as on the host, instead of being offered for deletion for good
+  (#161). A bind mount of a folder of the same disk no longer gets a trash at its top, which
+  the host's file managers do not list (#162).
+- A Flatpak window and a native window now keep each other out of a sidecar while one edits
+  it. The Flatpak asks for the host's Glimt runtime folder for this (#170).
 
 ## [0.98.0] - 2026-11-24
 
