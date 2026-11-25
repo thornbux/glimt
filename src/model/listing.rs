@@ -1594,7 +1594,9 @@ fn wait_for_reads_that_go_first(
 // the folders the walk reads if that leaves a tree's sizes uncounted for nothing.
 pub(crate) fn is_on_a_share(dir: &Path, with_subfolders: bool) -> bool {
     use crate::files::{file_io::is_network, file_ops};
-    file_ops::file_system_type_or_test(dir).is_some_and(|kind| is_network(&kind))
+    // The mount table's own type is enough. Only a disk through FUSE has its file system read
+    // from udev as well, and no disk is a share, so that read would only come before the gate.
+    file_ops::mounted_type_or_test(dir).is_some_and(|kind| is_network(&kind))
         || (with_subfolders
             && (file_ops::mounted_types_below_or_test(dir).iter()).any(|kind| is_network(kind)))
 }
