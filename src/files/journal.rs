@@ -988,8 +988,10 @@ fn written_anew_without(path: &Path, applied: &[PathBuf]) -> std::io::Result<()>
 
 /// Returns `records` without the steps on the files `applied`, or in folders among them, and
 /// without the records of those steps. The other steps are numbered anew in their order. An
-/// `old-log` record is kept, as the start may have failed to remove the log it names, which
-/// would then be read again as a log of its own and give its marks and places a second time.
+/// `old-log` record is kept while its log is there, as the start may have failed to remove the
+/// log it names, which would then be read again as a log of its own and give its marks and
+/// places a second time. One whose log is surely gone is left out, so that a log written anew
+/// again and again does not grow by one record each time (#302).
 fn records_without_steps(records: Vec<Record>, applied: &[PathBuf]) -> Vec<Record> {
     let applied: HashSet<&Path> = applied.iter().map(PathBuf::as_path).collect();
     let mut new_numbers = HashMap::new();
@@ -1001,6 +1003,7 @@ fn records_without_steps(records: Vec<Record>, applied: &[PathBuf]) -> Vec<Recor
         }
     }
     (records.into_iter())
+        .filter(|record| !matches!(record, Record::OldLog(log) if is_surely_gone(log)))
         .filter_map(|mut record| {
             if let Some(number) = record.step_number_mut() {
                 *number = *new_numbers.get(number)?;
@@ -1461,9 +1464,11 @@ fn steps_left(
         ];
         records.extend(marks.into_iter().filter(|(is, _)| *is).map(|(_, r)| r));
     }
-    // The logs that the old log names stay named, as the start may have failed to remove one,
-    // which would then be read again as a log of its own.
-    records.extend(r.old_logs.iter().cloned().map(Record::OldLog));
+    // The logs that the old log names stay named while they are there, as the start may have
+    // failed to remove one, which would then be read again as a log of its own. One surely gone
+    // is named no more, so a log that stays for many starts does not grow at each (#302).
+    let still_there = (r.old_logs.iter()).filter(|log| !is_surely_gone(log));
+    records.extend(still_there.cloned().map(Record::OldLog));
     // The `old-log` record of the old log comes last, so that a new log cut off by a kill while
     // it is written never names the old log, which then stays and is read again.
     records.push(Record::OldLog(old.to_path_buf()));
@@ -4970,6 +4975,9 @@ mod tests {
             to: None,
             fingerprint: None,
         };
+        // The older log is still there, as the start failed to remove it.
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("older"), "").unwrap();
         for job in crate::files::job_log::JOB_KINDS {
             assert!(super::read_at_start(job).is_some(), "{job}");
             let jobs = dir.join(job);
@@ -5014,35 +5022,47 @@ mod tests {
 
     /// A delete's log that a start writes anew for the names it could not tell about still names
     /// the logs that it was itself written anew from, before the one it takes the place of, as
-    /// the start may have failed to remove them (#279).
+    /// the start may have failed to remove them (#279). A log that is gone is named no more.
     #[test]
     fn a_delete_log_written_anew_keeps_naming_its_older_logs() {
+        use super::Record;
         let p = std::path::PathBuf::from;
-        let read = super::delete_records(
-            "trash",
-            &[
-                super::Record::Step {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-older-logs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (older, gone) = (dir.join("older"), dir.join("gone"));
+        std::fs::write(&older, "").unwrap();
+        let records = || {
+            vec![
+                Record::Step {
                     number: 0,
                     from: p("/x/a.jpg"),
                     to: None,
                     fingerprint: None,
                 },
-                super::Record::OldLog(p("/jobs/older")),
-            ],
-        );
+                Record::OldLog(older.clone()),
+                Record::OldLog(gone.clone()),
+            ]
+        };
+        let named = |records: Vec<Record>| -> Vec<std::path::PathBuf> {
+            (records.into_iter())
+                .filter_map(|r| match r {
+                    Record::OldLog(log) => Some(log),
+                    _ => None,
+                })
+                .collect()
+        };
+        let read = super::delete_records("trash", &records());
         let untold = [p("/x/a.jpg")].into_iter().collect();
         let none = Default::default();
-        let records = super::steps_left(&read, &untold, &none, &none, &p("/jobs/old"));
-        let named: Vec<&super::Record> = (records.iter())
-            .filter(|r| matches!(r, super::Record::OldLog(_)))
-            .collect();
-        assert_eq!(
-            named,
-            [
-                &super::Record::OldLog(p("/jobs/older")),
-                &super::Record::OldLog(p("/jobs/old"))
-            ]
-        );
+        let left = super::steps_left(&read, &untold, &none, &none, &p("/jobs/old"));
+        // A log that the start removed is named no more, so a log that stays for many starts
+        // does not grow by one record at each (#302).
+        assert_eq!(named(left), [older.clone(), p("/jobs/old")]);
+        // So with a log that the window writes anew without the steps it applied.
+        let anew = super::records_without_steps(records(), &[]);
+        assert_eq!(named(anew), [older]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// An Undo from the trash whose rename a share did and lost the answer of, with the look at
