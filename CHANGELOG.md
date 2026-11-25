@@ -5,6 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An XMP prefix is read as the Description that writes it binds it. A `dc:subject` that another
+  Description writes in another namespace with the same prefix is no longer shown among the
+  keywords, taken out by an edit or written back as a keyword, and Copy for Sharing names and
+  writes it in its own namespace (#173).
+- A comment or alt text written without a language beside one written as x-default no longer
+  reads back as the old text after an edit (#181).
+- Copy for Sharing names an XMP tag written with the prefix `group` by its namespace, so
+  leaving it out leaves out the same parts of the file before and after the choice is saved
+  (#215).
+- A listing of a tree can no longer be made to leave out an image until its end by names made
+  to share a hash (#288).
+
 ## [0.98.0] - 2026-11-24
 
 ### Added
