@@ -637,9 +637,16 @@ impl crate::App {
             let (dir, running) = (self.folder.dir().to_path_buf(), self.tools_running.clone());
             let report_tx = self.file_operations.report_sender();
             let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
+            let awaited = self.decoding.images_awaited().clone();
             // No busy pointer: a tool may be an editor that stays open for hours, so it is not
             // waited for at closing either, as for Open With.
             std::thread::spawn(move || {
+                // Each file is looked at on a share only after the images the window waits
+                // for, as every other look in the background is (#294).
+                let mut gate = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited);
+                for file in &listed {
+                    gate.before_a_look(file.path());
+                }
                 // A file whose name another file has taken since the list was read is not given
                 // to the tool, which may change it.
                 let (targets, refused) = crate::files::file_io::still_listed(listed);

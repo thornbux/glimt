@@ -8988,9 +8988,11 @@ fn background_reads_on_a_share_go_through_the_gate() {
     );
 }
 
-/// The check above finds a thread nobody waits for that reads through a function, and a worker
-/// pool whose work reads, and passes one that goes through the gate, itself or in a function it
-/// calls, a thread with a busy pointer, and one that reads nothing.
+/// The check above finds a thread nobody waits for that reads through a function, a worker
+/// pool whose work reads, and a thread that reads before it passes the gate. It passes one that
+/// goes through the gate first, itself or in a function it calls, a thread with a busy pointer,
+/// one that reads nothing, and one that reads only the mount table before the gate, but not a
+/// path through a folder opened. Before, a gate anywhere in the work passed it (#294).
 #[test]
 fn finds_a_background_reader_without_the_gate() {
     let text = "fn look(p: &Path) {\n    std::fs::metadata(p);\n}\n\
@@ -9002,12 +9004,20 @@ fn finds_a_background_reader_without_the_gate() {
         fn d() {\n    // Its busy pointer: the listing.\n    std::thread::spawn(move || look(p));\n}\n\
         fn e() {\n    // No busy pointer: a reaper.\n    std::thread::spawn(move || drop(p));\n}\n\
         fn f() {\n    spawn_worker_pool(\n        1,\n        move |p| {\n            \
-        let m = p.metadata();\n        },\n    );\n}\n";
+        let m = p.metadata();\n        },\n    );\n}\n\
+        fn g() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        look(p);\n        gate.before_a_look(p);\n    });\n}\n\
+        fn read_all(p: &str) -> Vec<u8> {\n    std::fs::read(p)\n}\n\
+        fn mounts() -> Vec<u8> {\n    read_all(\"/proc/self/mountinfo\")\n}\n\
+        fn h() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        mounts();\n        gate.before_a_look(p);\n        look(p);\n    });\n}\n\
+        fn k() {\n    // No busy pointer: a look-up.\n    std::thread::spawn(move || {\n        \
+        read_all(\"/proc/self/fd/7/a.jpg\");\n        gate.before_a_look(p);\n    });\n}\n";
     let sources = [("x.rs".to_owned(), text.to_owned())];
     let found: Vec<String> = (ungated_background_readers(&sources).into_iter())
         .map(|(_, function)| function)
         .collect();
-    assert_eq!(found, ["a", "f"]);
+    assert_eq!(found, ["a", "f", "g", "k"]);
 }
 
 /// Work that goes through the gate for work nobody waits for
@@ -9197,7 +9207,31 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
     let gates: Vec<bool> = (graph.functions.iter())
         .map(|f| THE_GATE.iter().any(|g| own_lines(f).contains(g)))
         .collect();
-    let (reads, gates) = (reaching(&calls, reads), reaching(&calls, gates));
+    // A read of the mount table, the system's own file, is no read of the user's files on a
+    // share, so a call that names it does not carry its reads on. A path through a folder
+    // opened (`/proc/self/fd/N/…`) is the user's, and counts.
+    let raw: std::collections::HashMap<&str, Vec<&str>> = (sources.iter())
+        .map(|(file, text)| (file.as_str(), text.lines().collect()))
+        .collect();
+    let of_the_system = |f: &Function, c: &Call| {
+        let line = raw[f.file.as_str()].get(c.line - 1).copied().unwrap_or("");
+        ["\"/proc/self/mountinfo\"", "\"/proc/mounts\""]
+            .iter()
+            .any(|p| line.contains(p))
+    };
+    let users_calls: Vec<Vec<Call>> = (graph.functions.iter().zip(&calls))
+        .map(|(f, calls)| {
+            (calls.iter())
+                .filter(|c| !of_the_system(f, c))
+                .map(|c| Call {
+                    callee: c.callee,
+                    text: c.text.clone(),
+                    line: c.line,
+                })
+                .collect()
+        })
+        .collect();
+    let (reads, gates) = (reaching(&users_calls, reads), reaching(&calls, gates));
     let mut found = Vec::new();
     for (file, text) in sources {
         let (code, comments) = (code_lines(text), comment_lines(text));
@@ -9218,24 +9252,38 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
                 continue;
             };
             let function = &graph.functions[f];
-            let (work, last) = call_text(&code[..end], i, at);
+            let (_, last) = call_text(&code[..end], i, at);
             let whole = own_lines(function);
             let opens = (function.lines.clone()).find(|&k| code[k].ends_with('{'));
             let signature = code[*function.lines.start()..=opens.unwrap_or(i)].join(" ");
-            // shortcut: a thread counts as gated when its work reaches the gate anywhere, not
-            // when every read comes after it. Read in order, three threads read first (the
-            // watcher's first modification times, a tool's files still listed, a thumbnail's
-            // folder set aside), each a change of its own (#294); worth reading in order once
-            // those go through the gate first.
-            let callees: Vec<usize> = (i..=last)
-                .flat_map(|k| graph.callees(function, &whole, &signature, &code[k]))
-                .map(|(callee, _)| callee)
-                .collect();
-            let reads_here = BACKGROUND_READS.iter().any(|r| work.contains(r))
-                || callees.iter().any(|&g| reads[g]);
-            let gated =
-                THE_GATE.iter().any(|g| work.contains(g)) || callees.iter().any(|&g| gates[g]);
-            if reads_here && !gated {
+            // Each line of the work, from the thread's start, is read for what it does: whether
+            // it reads and whether it passes the gate, itself or through what it calls. A read
+            // on a line before the first that passes the gate goes around it, also when the gate
+            // comes later. A line that does both passes, as its call orders them. Before, a gate
+            // anywhere in the work passed it (#294).
+            let (mut first_read, mut first_gate) = (None, None);
+            for (k, line) in code.iter().enumerate().take(last + 1).skip(i) {
+                let part = if k == i { &line[at..] } else { &line[..] };
+                let callees: Vec<usize> = (graph.callees(function, &whole, &signature, part))
+                    .into_iter()
+                    .map(|(callee, _)| callee)
+                    .collect();
+                let gates_here =
+                    THE_GATE.iter().any(|g| part.contains(g)) || callees.iter().any(|&g| gates[g]);
+                let reads_here = BACKGROUND_READS.iter().any(|r| part.contains(r))
+                    || callees.iter().any(|&g| reads[g]);
+                if gates_here {
+                    first_gate = first_gate.or(Some(k));
+                } else if reads_here {
+                    first_read = first_read.or(Some(k));
+                }
+            }
+            let around_the_gate = match (first_read, first_gate) {
+                (Some(read), Some(gate)) => read < gate,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            if around_the_gate {
                 found.push((file.clone(), function.name.clone()));
             }
         }

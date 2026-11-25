@@ -2006,12 +2006,25 @@ impl crate::App {
         );
         // No busy pointer: it follows the folder's changes, and nobody waits for it.
         std::thread::spawn(move || {
-            if times_unknown {
-                read.iter_mut()
-                    .for_each(|(path, time)| *time = modified(path));
-            }
-            let on_a_share = is_any_on_a_share(&places, with_subfolders);
+            // Whether the places are on a share is asked through a gate for files anywhere, as
+            // each later look goes through the gate made from its answer (#294).
+            let mut asks_first = listing::ReadsFirst::for_files_anywhere(&awaited);
+            let on_a_share = (places.iter()).any(|place| {
+                asks_first.before_a_look(place);
+                listing::is_on_a_share(place, with_subfolders)
+            });
             let mut gate = listing::ReadsFirst::new(Arc::default(), awaited, on_a_share);
+            // The first modification times go through the gate too, as every look after them
+            // does, so that on a share the image the window waits for goes first (#294).
+            if times_unknown {
+                let is_wanted = || watcher_generation.load(Ordering::Relaxed) == generation;
+                for (path, time) in read.iter_mut() {
+                    let Some(_turn) = gate.before_work_nobody_waits_for(path, is_wanted) else {
+                        break;
+                    };
+                    *time = modified(path);
+                }
+            }
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
