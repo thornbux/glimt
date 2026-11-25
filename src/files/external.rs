@@ -150,15 +150,18 @@ pub fn ffmpeg_frame(
 }
 
 /// Returns an ffmpeg filter that shrinks to fit `max`, keeping the shape, and never enlarges. A
-/// thumbnail of a 48 MP phone photo or an 8K video frame needs no 150 MB picture first. A side
-/// of 0, such as that of an image area with no width yet, is taken as 1, because ffmpeg reads a
-/// 0 as the frame's own size, and that frame is larger than `ffmpeg_ppm` takes for the box.
-/// Before, every video, HEIC and AVIF failed then as too large, and stayed failed in the list.
+/// thumbnail of a 48 MP phone photo or an 8K video frame needs no 150 MB picture first. Both
+/// sides are worked out here, each cut down to whole pixels and never below 1, so that no frame
+/// asks swscale for a side of 0, which it refuses. A side of 0 in the box, such as that of an
+/// image area with no width yet, is taken as 1. ffmpeg's own `force_original_aspect_ratio`
+/// rounded the short side of a frame more than twice as wide as a box of 1 to 0, and so that of
+/// a 10000×10 strip in any box below 500, and the decode failed and stayed failed in the list.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
 fn ffmpeg_scale_filter(max: Option<[u32; 2]>) -> Option<String> {
     let [w, h] = max?.map(|side| side.max(1));
+    let fit = format!("min(1,min({w}/iw,{h}/ih))");
     Some(format!(
-        "scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease"
+        "scale='max(1,trunc(iw*{fit}))':'max(1,trunc(ih*{fit}))'"
     ))
 }
 
@@ -1319,17 +1322,26 @@ mod tests {
     }
 
     /// A thumbnail's size as ffmpeg's filter is shrunk to fit and never enlarged. The view gets
-    /// none.
+    /// none. Each side is at least 1, as swscale refuses a side of 0, which ffmpeg's own
+    /// `force_original_aspect_ratio` gave the short side of a strip 8,000 wide in a box of 256.
+    /// The release tests show such a strip's thumbnail made by a real ffmpeg.
     #[test]
     fn fits_ffmpeg_frames() {
+        let fit = "min(1,min(256/iw,256/ih))";
         assert_eq!(
             super::ffmpeg_scale_filter(Some([256, 256])).unwrap(),
-            "scale='min(256,iw)':'min(256,ih)':force_original_aspect_ratio=decrease"
+            format!("scale='max(1,trunc(iw*{fit}))':'max(1,trunc(ih*{fit}))'")
         );
         assert_eq!(super::ffmpeg_scale_filter(None), None);
+        let fit = "min(1,min(1/iw,1/ih))";
         assert_eq!(
             super::ffmpeg_scale_filter(Some([0, 0])).unwrap(),
-            "scale='min(1,iw)':'min(1,ih)':force_original_aspect_ratio=decrease"
+            format!("scale='max(1,trunc(iw*{fit}))':'max(1,trunc(ih*{fit}))'")
+        );
+        assert!(
+            !super::ffmpeg_scale_filter(Some([1, 1]))
+                .unwrap()
+                .contains("force_")
         );
     }
 

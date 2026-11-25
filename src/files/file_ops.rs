@@ -6191,6 +6191,47 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A Move to Trash whose gio fails on one photo, after it trashed the others and that
+    /// photo's sidecar, counts the others as gone, so that Undo puts them back, and takes the
+    /// sidecar of the photo that stayed back beside it. Before, every file counted as one that
+    /// may have gone, so nothing could be undone and the sidecar stayed in the trash (#308).
+    #[test]
+    fn a_failed_gio_leaves_the_files_that_went_to_undo() {
+        use crate::files::trash::GIO_REFUSES_IN_A_TEST;
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-gio-partway-{pid}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let names = ["a", "stuck-b", "c"].map(|n| format!("{n}-{pid}.jpg"));
+        let photos = names.clone().map(|n| dir.join(n));
+        for p in &photos {
+            std::fs::write(p, "photo").unwrap();
+            std::fs::write(crate::metadata::xmp::sidecar(p), "keywords").unwrap();
+        }
+        let picked = crate::files::file_io::PickedFiles::new(photos.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        GIO_REFUSES_IN_A_TEST.set(Some(vec![photos[1].clone()]));
+        let mut errors = Vec::new();
+        let (went, _, _) = super::delete_chunk(&photos, &picked, (true, None), &mut errors);
+        assert_eq!(went, [photos[0].clone(), photos[2].clone()], "{errors:?}");
+        assert!(photos[1].exists());
+        assert_eq!(
+            std::fs::read_to_string(crate::metadata::xmp::sidecar(&photos[1])).unwrap(),
+            "keywords"
+        );
+        assert!(errors[0].contains(&names[1]), "{errors:?}");
+        let home = crate::files::config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
+        let home = home.unwrap();
+        for name in [&names[0], &names[2]]
+            .map(|n| [n.clone(), format!("{n}.xmp")])
+            .concat()
+        {
+            std::fs::remove_file(home.join("files").join(&name)).unwrap();
+            std::fs::remove_file(home.join("info").join(format!("{name}.trashinfo"))).unwrap();
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A Move to Trash that takes a photo's sidecar but not the photo takes the sidecar back
     /// out of the trash, so that the photo keeps its keywords.
     #[test]

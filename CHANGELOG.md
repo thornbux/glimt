@@ -8,7 +8,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A video, HEIC or AVIF asked for while the image area has no width or height yet is decoded,
-  instead of failing as too large and staying failed for the folder (#211).
+  instead of failing as too large and staying failed for the folder, and so is one much wider
+  or taller than its box, such as a panorama's thumbnail (#211).
 - When the reading of the `exif:` search's index ends unexpectedly, it is told once and not
   started again for the whole folder at once, round after round (#186).
 - A decode that keeps the processor busy for over two minutes on a slow machine no longer makes
@@ -26,14 +27,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A listing of a tree can no longer be made to leave out an image until its end by names made
   to share a hash (#288).
 - A sidecar that another window wrote at a photo's new name while Rename Many ran now goes with
-  the photo when the next start puts the names back or finishes them after Glimt was stopped,
-  as the window's own undo moves it. So does one that an undo cut short left at the old name
+  the photo when the next start puts the names back, finishes them or leaves them as they are
+  after Glimt was stopped, as the window's own undo moves it. So does one that an undo cut short left at the old name
   or at a hidden name of a swap (#310).
 - Marks and stars that another window set on a photo under its new name while Rename Many ran
-  now stay with the photo: under its new name when the renames go through, and back under its
-  old name when they are stopped or fail, also when the next start puts them right after Glimt
-  was stopped. Before, the photo's earlier marks were put over them, or they stayed behind at
-  the new name. An old mark that a file deleted outside Glimt left at the new name still never
+  now stay with the photo, added to its own marks and stars: under its new name when the
+  renames go through, and back under its old name when they are stopped or fail, also when the
+  next start puts them right after Glimt was stopped. Before, the photo's earlier marks were put
+  over them, or they stayed behind at the new name. An old mark that a file deleted outside Glimt left at the new name still never
   goes on the photo (#311).
 - A share's error that broke off a Move at the very moment the user pressed Stop is now told,
   no longer taken for the Stop (#304).
@@ -43,7 +44,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   piled up until the window was shown again (#188).
 - A Move to Trash or a Move Folder to Trash whose trash failed is judged by what each file's
   move answered, not by a look at its old name, which a share's cache may still show. A file
-  that may have gone all the same keeps its marks until the next start puts them right (#308).
+  that may have gone all the same keeps its marks until the next start puts them right. When
+  gio fails partway, each file on a local disk is judged by its own name, so the files that
+  went can be undone and a photo that stayed gets its sidecar back (#308).
 - On a share, the folder watcher's first look at its folders and a tool's look at the files
   it is given wait for the image the window waits for, as every other look in the background
   does (#294).

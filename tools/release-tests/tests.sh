@@ -2371,6 +2371,25 @@ for v in new old; do
     else note "old: Ctrl+click $ctrl; click $alone|$shown; Shift+click $range; right $right"; fi
 done
 
+section "a video 8,000 wide and 8 high gets its thumbnail: ffmpeg is asked for no side of 0"
+for v in new old; do
+    as_version $v
+    d=/tmp/strip-video-$v
+    mkdir -p $d
+    ffmpeg -v error -f lavfi -i color=c=red:s=8000x8:d=2 -pix_fmt yuv420p $d/strip.mp4
+    convert -size 300x200 xc:red $d/a.png
+    rm -rf $XDG_CACHE_HOME/thumbnails
+    # The thumbnails saved to the shared cache, not the markers of those that failed.
+    saved() { find $XDG_CACHE_HOME/thumbnails -path '*/fail' -prune -o -type f -print 2>/dev/null | wc -l | tr -d ' '; }
+    config
+    start $d
+    until_ok '[ "$(saved)" -ge 2 ]' 15
+    made=$(saved)
+    quit
+    if [ $v = new ]; then expect "the strip's thumbnail and the PNG's saved" "$made" 2
+    else note "old: $made saved"; fi
+done
+
 section "a video that is a playlist: ffmpeg opens no file it names"
 for v in new old; do
     as_version $v

@@ -754,31 +754,39 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[&Path], change: Change) 
 /// names a `to` is another pair's `from`.
 ///
 /// `marks_when_begun` holds the marks that the window saw at the new names of a Rename Many
-/// when it began. Where a pair's new name holds other marks now, they were set there while the
-/// job ran, on the photo shown under that name, and they are the photo's: they stay at the new
-/// name, and go back with the photo whose rename was undone (a pair from its new name, in
-/// `marks_when_begun`, to its old one). Where they are as they were, they are an old mark that a
-/// file gone from the name left behind, and never go on the photo: a rename gives the photo its
-/// own marks, as any move does, and an undo leaves both names as they are. Before, a mark set
-/// during the job was lost (#311).
+/// when it began. Where a pair's new name holds other marks now, they were changed there while
+/// the job ran, on the photo shown under that name. Those changes are the photo's: they are made
+/// to the photo's own marks at the new name, and to the marks it kept at its old name when its
+/// rename was undone (a pair from its new name, in `marks_when_begun`, to its old one). Where
+/// the marks are as they were, they are an old mark that a file gone from the name left behind,
+/// and never go on the photo: a rename gives the photo its own marks, as any move does, and an
+/// undo leaves both names as they are. Before, a mark set during the job was lost (#311), and
+/// then it took the place of the photo's own marks and stars.
 fn follow_pairs(
     map: &mut HashMap<PathBuf, (u8, u8)>,
     pairs: &[(PathBuf, PathBuf)],
     is_copy: bool,
     marks_when_begun: &MarksAtNewNames,
 ) {
-    // The marks set at the new name `name` while the job ran, `None` when it holds the marks
-    // it held when the job began or is no new name of one.
+    // The marks at the new name `name` when the job began and now, `None` when they are the
+    // same or it is no new name of one.
     let set_meanwhile = |map: &HashMap<PathBuf, (u8, u8)>, name: &PathBuf| {
-        let now = map.get(name).copied();
-        let then = marks_when_begun.get(name)?;
-        (now.unwrap_or_default() != *then).then_some(now)
+        let now = map.get(name).copied().unwrap_or_default();
+        let then = *marks_when_begun.get(name)?;
+        (now != then).then_some((then, now))
     };
+    // Each pair, with the changes made meanwhile and, for an undo, the marks the photo kept at
+    // its old name. Those are read before any marks are taken.
     let pairs: Vec<_> = (pairs.iter())
         .filter_map(|(from, to)| match marks_when_begun.contains_key(from) {
-            // An undo: only a mark set during the job goes back.
-            true => Some((from, to, Some(set_meanwhile(map, from)?))),
-            false => Some((from, to, set_meanwhile(map, to))),
+            // An undo: only a change made during the job goes back.
+            true => Some((
+                from,
+                to,
+                Some(set_meanwhile(map, from)?),
+                Some(map.get(to).copied()),
+            )),
+            false => Some((from, to, set_meanwhile(map, to), None)),
         })
         .collect();
     let taken: Vec<Option<(u8, u8)>> = (pairs.iter())
@@ -787,12 +795,34 @@ fn follow_pairs(
             false => map.remove(*from),
         })
         .collect();
-    for ((_, to, meanwhile), marks) in pairs.into_iter().zip(taken) {
-        match meanwhile.unwrap_or(marks) {
+    for ((_, to, meanwhile, kept_at_old_name), marks) in pairs.into_iter().zip(taken) {
+        // A rename gives the photo the marks taken from its old name.
+        let own = kept_at_old_name.unwrap_or(marks);
+        let new = match meanwhile {
+            Some(changed) => with_changes_made_meanwhile(own, changed),
+            None => own,
+        };
+        match new {
             Some(v) => drop(map.insert(to.clone(), v)),
             None => drop(map.remove(to)),
         }
     }
+}
+
+/// Returns the marks `own` of a photo with the changes made to it while a job ran, under a name
+/// whose marks were `then` when the job began and are `now`. Each mark set or cleared meanwhile
+/// is set or cleared, and stars given meanwhile take the place of the photo's own. Every other
+/// mark and the stars stay the photo's own. Returns `None` for no marks and no stars.
+fn with_changes_made_meanwhile(
+    own: Option<(u8, u8)>,
+    (then, now): ((u8, u8), (u8, u8)),
+) -> Option<(u8, u8)> {
+    let (bits, stars) = own.unwrap_or_default();
+    let set = now.0 & !then.0;
+    let cleared = then.0 & !now.0;
+    let bits = (bits | set) & !cleared;
+    let stars = if now.1 != then.1 { now.1 } else { stars };
+    ((bits, stars) != (0, 0)).then_some((bits, stars))
 }
 
 /// Makes `edit` to the marks `map`, leaving out the files in `taken`, whose names other files
@@ -1161,6 +1191,30 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 #[cfg(test)]
 mod tests {
     use crate::support::threads::lock_even_if_poisoned;
+
+    /// A mark set during Rename Many at the photo's new name is added to the photo's own marks
+    /// and stars, at the new name and back at the old one when the rename is undone. A mark
+    /// that the old file of the new name left behind stays off the photo. Before, the new
+    /// name's whole value took the place of the photo's own, and its 3 stars were lost.
+    #[test]
+    fn a_mark_set_meanwhile_is_added_to_the_photos_own() {
+        use std::path::PathBuf;
+        let (a, c) = (PathBuf::from("/p/a.jpg"), PathBuf::from("/p/c.jpg"));
+        // c.jpg held 4 stars of an older file when the job began, and mark 1 was set there.
+        let begun = std::collections::HashMap::from([(c.clone(), (0, 4))]);
+        let map = || std::collections::HashMap::from([(a.clone(), (0, 3)), (c.clone(), (1, 4))]);
+        let mut renamed = map();
+        super::follow_pairs(&mut renamed, &[(a.clone(), c.clone())], false, &begun);
+        assert_eq!(renamed.get(&c), Some(&(1, 3)));
+        assert_eq!(renamed.get(&a), None);
+        let mut undone = map();
+        super::follow_pairs(&mut undone, &[(c.clone(), a.clone())], false, &begun);
+        assert_eq!(undone.get(&a), Some(&(1, 3)));
+        assert_eq!(undone.get(&c), None);
+        // Stars given meanwhile take the place of the photo's own, and a mark cleared goes.
+        let changed = super::with_changes_made_meanwhile(Some((3, 3)), ((1, 4), (0, 5)));
+        assert_eq!(changed, Some((2, 5)));
+    }
 
     /// The marks file of Glimt 0.95 and older is moved to its new place when only it is there,
     /// also to another disk. When both are there, both are kept as they are and the user is
