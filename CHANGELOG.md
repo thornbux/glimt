@@ -39,6 +39,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
   no longer taken for the Stop (#304).
 - On NFSv3, a rename whose link the server made but answered "already there" no longer leaves
   a second name or a second copy, such as two copies of an image cropped (#307).
+- A notice that comes in the same moment as a failed write, such as Add to Collection's
+  "added" when the collection could not be saved, is shown above the failure, no longer taken
+  away by it (#301).
+- The EXIF window draws the fields kept of the image before as unavailable while the next
+  image is read, as the info panel does, so a screen reader no longer reads them as the new
+  image's (#192).
+- A network mount through FUSE without a type of its own, such as davfs2, is named "fuse" in
+  the delete question and the other messages, no longer by its address, which can hold a user
+  name (#312).
+- A file or folder name with line breaks, other control characters or a mark that turns the
+  text around is shown with them as escapes (`\n`, `\u{202e}`) in every question, notice and
+  label, so a planted name can no longer add a sentence of its own to the delete question
+  (#189).
+- Check Images' Select Them no longer selects a file that another program wrote anew in place
+  since the check, which may now be a good photo (#202).
 
 ## [0.98.0] - 2026-11-24
 
