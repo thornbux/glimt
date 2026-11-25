@@ -229,6 +229,8 @@ fn remove_orphaned_thumbnails_in(
 ) -> (usize, usize) {
     let (mut removed, mut seen) = (0, 0);
     let mut gate = crate::model::listing::ReadsFirst::for_files_anywhere(awaited);
+    // A home on a share holds the cache too, and its folders are read after the images awaited.
+    gate.before_a_look(cache);
     let own = Path::new(FAILED_DIR).file_name();
     for entry in (std::fs::read_dir(cache.join("fail")).into_iter().flatten()).flatten() {
         let name = entry.file_name();
