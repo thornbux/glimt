@@ -2380,11 +2380,11 @@ for v in new old; do
     convert -size 300x200 xc:red $d/a.png
     rm -rf $XDG_CACHE_HOME/thumbnails
     # The thumbnails saved to the shared cache, not the markers of those that failed.
-    saved() { find $XDG_CACHE_HOME/thumbnails -path '*/fail' -prune -o -type f -print 2>/dev/null | wc -l | tr -d ' '; }
+    thumbnails_saved() { find $XDG_CACHE_HOME/thumbnails -path '*/fail' -prune -o -type f -print 2>/dev/null | wc -l | tr -d ' '; }
     config
     start $d
-    until_ok '[ "$(saved)" -ge 2 ]' 15
-    made=$(saved)
+    until_ok '[ "$(thumbnails_saved)" -ge 2 ]' 15
+    made=$(thumbnails_saved)
     quit
     if [ $v = new ]; then expect "the strip's thumbnail and the PNG's saved" "$made" 2
     else note "old: $made saved"; fi
