@@ -1715,18 +1715,29 @@ fn mount_holding<'a>(mounts: &'a [Mount<'a>], path: &Path) -> Option<&'a Mount<'
     found
 }
 
-/// Returns whether the mount that holds `path` is one that the host may have made itself, so
-/// that the host's gio finds the same top there: a whole file system, a whole btrfs subvolume,
-/// or a folder mounted at a place of another name. Returns `false` for the mount that a Flatpak
-/// makes of a host's folder at its own path, and also when /proc/self/mountinfo cannot be read
-/// or does not tell. The path is taken as it is, as in `file_system_type`.
+/// Returns whether the mount that holds `path` is one at whose top the host's gio puts a trash
+/// too: a whole file system, a whole btrfs subvolume, or a folder that the host mounted on a
+/// folder of another disk. gio walks up from a file while the folder above is on the same
+/// device, so it stops at such a mount's top. Returns `false` for a mount of a folder that the
+/// Flatpak made of a host's folder at its own path, and also when /proc/self/mountinfo cannot be
+/// read or does not tell. The path is taken as it is, as in `file_system_type`.
 pub(crate) fn is_mounted_whole(path: &Path) -> bool {
     let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").unwrap_or_default();
     is_mounted_whole_in(&mounts, path)
 }
 
 /// Returns whether the mount in `mountinfo`, the bytes of /proc/self/mountinfo, that holds
-/// `path` is one that the host may have made itself (`is_mounted_whole`).
+/// `path` is one at whose top the host's gio puts a trash too (`is_mounted_whole`).
+///
+/// A mount of a folder is told by the mount that holds the folder above its mount point. The
+/// Flatpak's own mounts are on the top mount of its sandbox, a tmpfs the host does not have, so
+/// the host's folder above is not seen, and the mount is refused. A mount on a mount seen is the
+/// host's, carried into the sandbox, as is one on the Flatpak's mount of a host's folder: gio
+/// stops at its top when the folder above is on another device, and walks on past it when it is
+/// on the same one. Before, a folder mounted at a place of the same name counted as the
+/// Flatpak's, so the host's bind of /photos at ~/photos got no trash (#161), and one of another
+/// name on the sandbox's top counted as the host's, so a bind of /srv/photos at /pictures got
+/// a trash at /pictures where gio, on the host, walks up to / (#162).
 fn is_mounted_whole_in(mountinfo: &[u8], path: &Path) -> bool {
     let mounts = mounts_in(mountinfo);
     let Some(mount) = mount_holding(&mounts, path) else {
@@ -1739,11 +1750,15 @@ fn is_mounted_whole_in(mountinfo: &[u8], path: &Path) -> bool {
         .flatten()
         .map(unescape_mount);
     let folder = (subvol.as_deref()).and_then(|subvol| root.strip_prefix(subvol).ok());
-    // A Flatpak shows a host's folder at the folder's own path, so the folder it shows always
-    // ends with the name it is mounted at: /srv at /srv, /root/srv at /srv on a btrfs root
-    // subvolume, /u at /home/u when /home is a disk of its own. A folder that the host mounted
-    // at a place of the same name is refused too, and the window asks to delete for good.
-    (folder.unwrap_or(&root).file_name()).is_none_or(|name| Some(name) != mount.at.file_name())
+    if folder.unwrap_or(&root).file_name().is_none() {
+        return true;
+    }
+    let ids: std::collections::HashSet<&[u8]> = mounts.iter().map(|m| m.id).collect();
+    let above = (mount.at.parent()).and_then(|above| mount_holding(&mounts, above));
+    above.is_some_and(|above| {
+        let is_top = !ids.contains(above.parent) || above.parent == above.id;
+        !is_top && above.dev != mount.dev
+    })
 }
 
 /// Returns a line of /proc/self/mountinfo as a `Mount`. Returns `None` for a line that is not
@@ -3669,6 +3684,26 @@ mod tests {
         assert_eq!(place(b"", "/home/u/photos"), None);
         // The real table places its own top.
         assert!(super::path_in_file_system(std::path::Path::new("/")).is_some());
+    }
+
+    /// A host's mount of a folder that the Flatpak shows through its mount of a host's folder
+    /// gets a trash at its top where it is on another device than the folder above, as gio
+    /// stops there, also at a place of the same name (#161). One on the same device as the
+    /// folder above, where gio walks on, and one on the sandbox's own top, whose folder above on
+    /// the host is not seen, get none, also at a place of another name (#162).
+    #[test]
+    fn tells_a_hosts_mount_of_a_folder_by_the_folder_above_it() {
+        let whole =
+            |mounts: &[u8], p: &str| super::is_mounted_whole_in(mounts, std::path::Path::new(p));
+        let mounts = b"1 0 0:30 / / rw - tmpfs tmpfs rw\n\
+            2 1 8:2 /u /home/u rw - ext4 /dev/sda2 rw\n\
+            3 2 8:1 /photos /home/u/photos rw - ext4 /dev/sda1 rw\n\
+            4 2 8:2 /u/old /home/u/older rw - ext4 /dev/sda2 rw\n\
+            5 1 8:1 /srv/photos /pictures rw - ext4 /dev/sda1 rw\n";
+        assert!(whole(mounts, "/home/u/photos/2024"));
+        assert!(!whole(mounts, "/home/u/older"));
+        assert!(!whole(mounts, "/pictures"));
+        assert!(!whole(mounts, "/home/u"));
     }
 
     /// The mount that holds a path is the one the kernel finds going down through the mounts:
