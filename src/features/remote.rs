@@ -4,8 +4,9 @@
 //! and the one that gets the focus writes its process ID to `focused` there. A Glimt started
 //! with `--name left` listens as `left` instead, and `glimt --name left --remote next` reaches
 //! only it. In a Flatpak the folder is in the app's own runtime folder, the part of
-//! `$XDG_RUNTIME_DIR` its instances share. Both ends are here: `client` sends, and `listen`
-//! receives.
+//! `$XDG_RUNTIME_DIR` its instances share, and its sidecar locks are in the host's, which
+//! native windows share (`sidecar_locks_runtime_dir`). Both ends are here: `client` sends, and
+//! `listen` receives.
 
 use crate::features::remote;
 use crate::images::decode::{copy_limited, read_line_limited};
@@ -1191,20 +1192,61 @@ fn is_cut_in_a_path(command: &str, answer: &[u8]) -> bool {
     has_paths && answer.last().is_some_and(|&byte| byte != 0)
 }
 
-/// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
-/// locks.
+/// Glimt's runtime folder, which only the user can reach. It holds the sockets, and the sidecar
+/// locks outside a Flatpak (`sidecar_locks_runtime_dir`).
 pub(crate) fn runtime_dir() -> Option<PathBuf> {
     // Tests have a runtime folder of their own under their home, as they have for Glimt's other
     // folders (`config::xdg_dir`). Before, a test made its sockets beside those of the Glimt
     // that the user ran.
     #[cfg(test)]
-    let mut dir = crate::files::config::test_home().join("runtime");
+    let runtime = crate::files::config::test_home().join("runtime");
     #[cfg(not(test))]
-    let mut dir = runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR"))?;
-    if let Some(id) = std::env::var_os("FLATPAK_ID") {
-        dir = dir.join("app").join(id);
+    let runtime = runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR"))?;
+    let flatpak_id = std::env::var_os("FLATPAK_ID");
+    own_glimt_folder(glimt_folder_for(&runtime, flatpak_id.as_deref(), |_| false))
+}
+
+/// Glimt's runtime folder for the sidecar locks, which native windows and Flatpak windows share,
+/// so that neither writes over the other's edit of a sidecar. The Flatpak is given the host's
+/// folder, `$XDG_RUNTIME_DIR/glimt`, by its manifest (`--filesystem=xdg-run/glimt:create`), and
+/// takes its locks there where the sandbox shows it, a mount of the host's folder. Elsewhere it
+/// takes them in its own runtime folder, as before, which only its own windows share (#170).
+pub(crate) fn sidecar_locks_runtime_dir() -> Option<PathBuf> {
+    let own = runtime_dir()?;
+    let Some(flatpak_id) = std::env::var_os("FLATPAK_ID") else {
+        return Some(own);
+    };
+    // The Flatpak's own folder is in app/ID of the runtime folder (`glimt_folder_for`), which
+    // `runtime_dir` alone reads.
+    let runtime = own.ancestors().nth(3)?;
+    // The sandbox's mounts do not change while Glimt runs, so the mount table is read once.
+    static IS_SHOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let is_shown_from_host = |folder: &std::path::Path| {
+        *IS_SHOWN.get_or_init(|| {
+            crate::files::file_io::mount_point_of(folder).is_some_and(|at| at == folder)
+        })
+    };
+    let folder = glimt_folder_for(runtime, Some(&flatpak_id), is_shown_from_host);
+    own_glimt_folder(folder)
+}
+
+/// Returns Glimt's folder in the runtime folder `runtime`: the app's own one in a Flatpak of id
+/// `flatpak_id`, where its instances share it, unless `is_shown_from_host` says that the sandbox
+/// shows the host's Glimt folder, which native windows use too.
+fn glimt_folder_for(
+    runtime: &std::path::Path,
+    flatpak_id: Option<&std::ffi::OsStr>,
+    is_shown_from_host: impl Fn(&std::path::Path) -> bool,
+) -> PathBuf {
+    let hosts = glimt_folder_in(runtime);
+    match flatpak_id {
+        Some(id) if !is_shown_from_host(&hosts) => glimt_folder_in(&runtime.join("app").join(id)),
+        _ => hosts,
     }
-    let dir = glimt_folder_in(&dir);
+}
+
+/// Returns `dir`, Glimt's runtime folder, when it is this user's own or not there yet.
+fn own_glimt_folder(dir: PathBuf) -> Option<PathBuf> {
     // A folder of this name may be another user's, where $XDG_RUNTIME_DIR is not private as it
     // should be (/tmp). Its sockets would be theirs to answer, and its locks theirs to hold.
     let uid = std::fs::metadata("/proc/self").ok()?.uid();
@@ -2549,6 +2591,22 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A Flatpak window takes its sidecar locks in the host's Glimt folder where the sandbox
+    /// shows it, as a native window does, and in its app's own folder only where it does not.
+    /// Before, a Flatpak window and a native window on the same photos never kept each other
+    /// out of a sidecar (#170).
+    #[test]
+    fn a_flatpak_takes_the_sidecar_locks_where_a_native_window_does() {
+        let runtime = std::path::Path::new("/run/user/1000");
+        let id = Some(std::ffi::OsStr::new("io.github.thornbux.Glimt"));
+        let native = super::glimt_folder_for(runtime, None, |_| false);
+        assert_eq!(native, runtime.join("glimt"));
+        let shown = |folder: &std::path::Path| folder == runtime.join("glimt");
+        assert_eq!(super::glimt_folder_for(runtime, id, shown), native);
+        let apps = runtime.join("app/io.github.thornbux.Glimt/glimt");
+        assert_eq!(super::glimt_folder_for(runtime, id, |_| false), apps);
+    }
+
     /// An empty or relative $XDG_RUNTIME_DIR is not used, so nothing goes into ./glimt.
     #[test]
     fn a_relative_runtime_dir_is_ignored() {
@@ -2570,6 +2628,8 @@ mod tests {
             dir.as_ref().is_some_and(|d| d.starts_with(&home)),
             "{dir:?}"
         );
+        // Outside a Flatpak, the sidecar locks are in the same folder.
+        assert_eq!(super::sidecar_locks_runtime_dir(), dir);
     }
 
     /// The windows that share a --name are found by their sockets, the first one's and the

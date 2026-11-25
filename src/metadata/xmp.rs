@@ -1070,7 +1070,7 @@ fn lock_dir() -> Option<PathBuf> {
     #[cfg(test)]
     return None;
     #[cfg(not(test))]
-    return locks_in(crate::features::remote::runtime_dir());
+    return locks_in(crate::features::remote::sidecar_locks_runtime_dir());
 }
 
 /// Returns the folder of the sidecar locks in Glimt's runtime folder `runtime`. Without one

@@ -23,6 +23,9 @@ finish-args:
   - --device=dri
   - --filesystem=host
   - --filesystem=xdg-run/gvfs
+  # The host's runtime folder of Glimt, where native and Flatpak windows take the same locks
+  # of sidecars.
+  - --filesystem=xdg-run/glimt:create
   # The screen's colour profile.
   - --system-talk-name=org.freedesktop.ColorManager
 modules:
