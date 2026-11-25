@@ -782,6 +782,20 @@ impl std::fmt::Display for ProgramFailed {
 
 impl std::error::Error for ProgramFailed {}
 
+/// The error by which `copy_until_stopped` says that the user's Stop cut a copy short. Only
+/// that function makes it, so that no error of a share, numbered or turned into a text of
+/// file_io's own by one of its wrappers, is taken for the Stop (`StepError::is_interrupted`).
+#[derive(Debug)]
+struct StoppedByTheUser;
+
+impl std::fmt::Display for StoppedByTheUser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stopped")
+    }
+}
+
+impl std::error::Error for StoppedByTheUser {}
+
 /// The error of a step on a name: a rename (`rename_never_over`), a move or a copy given its
 /// name (`put_file` and the functions built on it), or the unlink of a second name
 /// (`journal::rename_step`). A share may have done such a step and lost its answer, which only
@@ -857,11 +871,12 @@ impl StepError {
         self.error.kind() == std::io::ErrorKind::CrossesDevices
     }
 
-    /// Returns whether a Stop cut the step short (`put_file_until_stopped`). That error has no
-    /// number. An EINTR that a share gives has one, and is a failure of the step like any other,
-    /// to be told also when it comes at the moment of a Stop (#304).
+    /// Returns whether the user's Stop cut the step short (`put_file_until_stopped`). That error
+    /// holds a `StoppedByTheUser`, which nothing else makes. An EINTR that a share gives, with
+    /// its number or turned into a text of file_io's own (`unlink_linked`), is a failure of the
+    /// step like any other, to be told also when it comes at the moment of a Stop (#304).
     pub(crate) fn is_interrupted(&self) -> bool {
-        self.error.kind() == std::io::ErrorKind::Interrupted && self.error.raw_os_error().is_none()
+        (self.error.get_ref()).is_some_and(|inner| inner.is::<StoppedByTheUser>())
     }
 
     /// Returns whether a name was too long for its file system, so that no file can be there.
@@ -2042,7 +2057,11 @@ fn copy_until_stopped(
     const PART: u64 = if cfg!(test) { 4 << 10 } else { 8 << 20 };
     loop {
         if is_stopped() {
-            return Err(std::io::ErrorKind::Interrupted.into());
+            let stopped = StoppedByTheUser;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                stopped,
+            ));
         }
         if crate::images::decode::copy_limited(from, to, PART)? == 0 {
             return Ok(());
@@ -4683,6 +4702,10 @@ mod tests {
         let eintr = std::io::Error::from_raw_os_error(libc::EINTR);
         let share = super::StepError::new(eintr, &a, &dir.join("to/a.mp4"));
         assert!(!share.is_interrupted());
+        // Nor is one that a wrapper of file_io gave a text of its own, with no number.
+        let wrapped = std::io::Error::new(std::io::ErrorKind::Interrupted, "under both names");
+        let wrapped = super::StepError::new(wrapped, &a, &dir.join("to/a.mp4"));
+        assert!(!wrapped.is_interrupted());
         assert_eq!(std::fs::read_dir(dir.join("to")).unwrap().count(), 0);
         assert_eq!(std::fs::read(&a).unwrap().len(), 1 << 20);
         std::fs::remove_dir_all(dir).unwrap();
