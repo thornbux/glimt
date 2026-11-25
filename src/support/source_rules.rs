@@ -6937,9 +6937,11 @@ fn finds_a_foreign_declaration() {
 /// where a pipe named x.jpg would then block the thread that opens it for good.
 #[test]
 fn c_flags_come_from_libc() {
+    let sources = rust_sources();
+    let takers = flag_takers(&sources);
     let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        let found = flags_written_by_hand(&text);
+    for (file, text) in &sources {
+        let found = flags_written_by_hand(text, &takers);
         wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
     }
     assert!(
@@ -6949,27 +6951,128 @@ fn c_flags_come_from_libc() {
     );
 }
 
-/// Returns the lines (from 1) of `text` outside the tests that define a constant named as the C
-/// library's open flags are (`O_…`).
-fn flags_written_by_hand(text: &str) -> Vec<usize> {
+/// Returns the calls that take the C library's flags, each as `name(` with the place of its
+/// flags among its arguments, counted from 0: `custom_flags`, the libc calls that take flags,
+/// and every function of `sources` that hands its own parameter on to the flags of one of
+/// them, however deep (such as `decode::open_regular_with_flags`).
+fn flag_takers(sources: &[(String, String)]) -> Vec<(String, usize)> {
+    let mut takers: Vec<(String, usize)> = [
+        ("custom_flags(", 0),
+        ("libc::open(", 1),
+        ("libc::openat(", 2),
+        ("libc::fcntl(", 2),
+    ]
+    .map(|(call, at)| (call.to_owned(), at))
+    .to_vec();
+    loop {
+        let known = takers.len();
+        for (file, text) in sources {
+            let code = code_lines(text);
+            for f in functions_in(file, &code) {
+                let call = format!("{}(", f.name);
+                let body = code[f.lines.clone()].join("\n");
+                let flags = flag_arguments(&body, &takers);
+                for (at, parameter) in parameters(&f, &code).iter().enumerate() {
+                    let hands_on = (flags.iter())
+                        .any(|a| a.split(|c: char| !is_word_char(c)).any(|w| w == parameter));
+                    if hands_on && !takers.contains(&(call.clone(), at)) {
+                        takers.push((call.clone(), at));
+                    }
+                }
+            }
+        }
+        if takers.len() == known {
+            return takers;
+        }
+    }
+}
+
+/// Returns the flags given, as written, to each call of `takers` in `code`. A call of a longer
+/// name, and a function's own definition, are left out.
+fn flag_arguments(code: &str, takers: &[(String, usize)]) -> Vec<String> {
+    let mut arguments = Vec::new();
+    for (taker, flags_at) in takers {
+        for (at, _) in code.match_indices(taker.as_str()) {
+            let before = &code[..at];
+            if before.ends_with(is_word_char) || before.ends_with("fn ") {
+                continue;
+            }
+            let spans = call_arguments(code, at + taker.len());
+            arguments.extend(
+                spans
+                    .get(*flags_at)
+                    .map(|span| code[span.clone()].to_owned()),
+            );
+        }
+    }
+    arguments
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that write a flag of the C library by
+/// hand. That is a constant named as the open flags are (`O_…`), or a number given to a call of
+/// `takers` (`flag_takers`), written in the call or bound by a `let` before it. A flag taken
+/// from libc, passed on as a parameter, or 0 for none, is no number written by hand. A file's mode
+/// (`.mode(0o600)`) is the same on every processor, and is no flag. A call broken over lines is
+/// read whole, from its first line (`statements`).
+fn flags_written_by_hand(text: &str, takers: &[(String, usize)]) -> Vec<usize> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let defines_flag = |line: &String| {
         let words: Vec<&str> = line.split_whitespace().collect();
         (words.windows(2)).any(|w| w[0] == "const" && w[1].starts_with("O_"))
     };
-    (0..end)
-        .filter(|&i| defines_flag(&lines[i]))
-        .map(|i| i + 1)
-        .collect()
+    // A 0 is no flag at all, on every processor.
+    let is_number = |word: &str| word.starts_with(|c: char| c.is_ascii_digit()) && word != "0";
+    // The value that the last `let` before line `i` binds to `word`.
+    let bound_before = |i: usize, word: &str| {
+        (lines[..i].iter().rev()).find_map(|l| {
+            let rest = l.trim_start().strip_prefix("let ")?;
+            let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+            let (name, value) = rest.split_once('=')?;
+            let name = name.split(':').next()?.trim();
+            (name == word).then(|| value.trim().to_owned())
+        })
+    };
+    let defined = (0..end).filter(|&i| defines_flag(&lines[i]));
+    let mut found: Vec<usize> = defined.map(|i| i + 1).collect();
+    for (i, statement) in statements(text) {
+        let numbers = flag_arguments(&statement, takers).iter().any(|argument| {
+            (argument.split(|c: char| !is_word_char(c))).any(|word| {
+                is_number(word) || bound_before(i, word).is_some_and(|value| is_number(&value))
+            })
+        });
+        if numbers && !found.contains(&(i + 1)) {
+            found.push(i + 1);
+        }
+    }
+    found.sort_unstable();
+    found
 }
 
-/// The check above finds a flag defined by hand, and leaves one taken from libc.
+/// The check above finds a flag defined by hand, and a number given to `custom_flags` or to a
+/// function that hands its parameter on to it, also through a `let` and over lines. It leaves
+/// a flag taken from libc, a parameter passed on, and a file's mode. Before, only a `const O_…`
+/// was found, so `.custom_flags(0o4000)` passed (#213).
 #[test]
 fn finds_a_flag_written_by_hand() {
-    let text =
-        "fn open() {\n    const O_NONBLOCK: i32 = 0o4000;\n    let f = libc::O_NONBLOCK;\n}\n";
-    assert_eq!(flags_written_by_hand(text), [2]);
+    let text = "fn open() {\n    const O_NONBLOCK: i32 = 0o4000;\n    let f = libc::O_NONBLOCK;\n}\n\
+        fn with_flags(path: &Path, flags: i32) {\n    o.custom_flags(libc::O_NONBLOCK | flags);\n}\n\
+        fn a() {\n    o.custom_flags(0o4000);\n    with_flags(p, 0x800);\n    \
+        let nonblocking = 2048;\n    with_flags(p, libc::O_NOFOLLOW | nonblocking);\n    \
+        with_flags(p, libc::O_NOFOLLOW);\n    o.mode(0o600);\n    with_flags(p, 0);\n    \
+        with_flags(\n        p,\n        \
+        4,\n    );\n}\n";
+    let sources = [("a.rs".to_owned(), text.to_owned())];
+    let takers = flag_takers(&sources);
+    assert!(
+        takers.contains(&("with_flags(".to_owned(), 1)),
+        "{takers:?}"
+    );
+    assert!(
+        !takers.contains(&("with_flags(".to_owned(), 0)),
+        "{takers:?}"
+    );
+    assert_eq!(flags_written_by_hand(text, &takers), [2, 9, 10, 12, 16]);
 }
 
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
