@@ -835,9 +835,11 @@ impl StepError {
         self.error.kind() == std::io::ErrorKind::CrossesDevices
     }
 
-    /// Returns whether the step was cut short, as a Stop does (`put_file_until_stopped`).
+    /// Returns whether a Stop cut the step short (`put_file_until_stopped`). That error has no
+    /// number. An EINTR that a share gives has one, and is a failure of the step like any other,
+    /// to be told also when it comes at the moment of a Stop (#304).
     pub(crate) fn is_interrupted(&self) -> bool {
-        self.error.kind() == std::io::ErrorKind::Interrupted
+        self.error.kind() == std::io::ErrorKind::Interrupted && self.error.raw_os_error().is_none()
     }
 
     /// Returns whether a name was too long for its file system, so that no file can be there.
@@ -4464,6 +4466,10 @@ mod tests {
         let stopped = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), true, &is_stopped);
         assert!(stopped.unwrap_err().is_interrupted());
         assert_eq!(asked.get(), 2, "not stopped inside the file");
+        // A share's EINTR is no Stop, also when it comes as the user presses Stop (#304).
+        let eintr = std::io::Error::from_raw_os_error(libc::EINTR);
+        let share = super::StepError::new(eintr, &a, &dir.join("to/a.mp4"));
+        assert!(!share.is_interrupted());
         assert_eq!(std::fs::read_dir(dir.join("to")).unwrap().count(), 0);
         assert_eq!(std::fs::read(&a).unwrap().len(), 1 << 20);
         std::fs::remove_dir_all(dir).unwrap();
