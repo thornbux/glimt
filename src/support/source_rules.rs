@@ -1189,6 +1189,11 @@ impl CallGraph {
         name: &str,
     ) -> Vec<usize> {
         let receiver = &before[..before.len() - 1];
+        // What a function of the crate gives back as `impl Trait` (an iterator) has no method of
+        // the crate, so `self.x.places().next()` calls none.
+        if self.gives_an_opaque_type(receiver) {
+            return Vec::new();
+        }
         // A receiver that ends in a call or an index (`self.folder.current().x(`) starts after
         // it here, so its first word is empty and its type is not found.
         let receiver_start =
@@ -1215,6 +1220,39 @@ impl CallGraph {
                 .collect(),
             None => methods.collect(),
         }
+    }
+
+    /// Returns whether `receiver` ends in a call of a function of the crate that gives back an
+    /// `impl Trait`, for every function of the crate of that name. Returns false when the call
+    /// is of no function of the crate, or one of them gives back another type.
+    fn gives_an_opaque_type(&self, receiver: &str) -> bool {
+        let Some(inside) = receiver.strip_suffix(')') else {
+            return false;
+        };
+        let mut depth = 1;
+        let open = inside.char_indices().rev().find(|&(_, c)| {
+            depth += match c {
+                ')' => 1,
+                '(' => -1,
+                _ => 0,
+            };
+            depth == 0
+        });
+        let called = &inside[..open.map_or(0, |(at, _)| at)];
+        let name = &called[called.trim_end_matches(is_word_char).len()..];
+        let all = (self.methods.get(name).into_iter().flatten())
+            .chain(self.free.get(name).into_iter().flatten());
+        let returns: Vec<String> = all
+            .map(|&g| {
+                let g = &self.functions[g];
+                let lines = &self.lines[&g.file][g.lines.clone()];
+                let opens = lines.iter().position(|l| l.ends_with('{')).unwrap_or(0);
+                let signature = lines[..=opens].join(" ");
+                let returned = signature.rsplit_once("->").map_or("", |(_, r)| r);
+                returned.trim_start().to_owned()
+            })
+            .collect();
+        !returns.is_empty() && returns.iter().all(|r| r.starts_with("impl "))
     }
 
     /// Returns whether function `g` takes `self` (`self`, `&self`, `&mut self`, `mut self`).
@@ -8762,6 +8800,74 @@ pub(crate) fn functions_reaching(owner: &str, name: &str) -> HashSet<String> {
             Some(owner) => format!("{owner}::{}", f.name),
             None => f.name.clone(),
         })
+        .collect()
+}
+
+/// Returns the calls, as written (`name(`), that the function `owner::name` of `sources` makes
+/// in its own thread whose callee reaches, however deep, a function that `marks` marks. `marks`
+/// is given each function's owner ("" for a free function), its name and its code. The
+/// functions in `passed_over`, by owner and name, are not followed into. A guard that must see
+/// a call through every helper finds it through this one function. Returns
+/// "no fn owner::name" when there is no such function, so a guard of one renamed fails.
+pub(crate) fn calls_reaching(
+    sources: &[(String, String)],
+    owner: &str,
+    name: &str,
+    marks: impl Fn(&str, &str, &str) -> bool,
+    passed_over: &HashSet<(String, String)>,
+) -> Vec<String> {
+    let graph = CallGraph::new(sources);
+    let key = |f: &Function| (f.owner.clone().unwrap_or_default(), f.name.clone());
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| match passed_over.contains(&key(f)) {
+            true => Vec::new(),
+            false => graph.calls_of(f),
+        })
+        .collect();
+    let own = (graph.functions.iter())
+        .map(|f| {
+            let code = graph.lines[&f.file][f.lines.clone()].join("\n");
+            let owner = f.owner.as_deref().unwrap_or("");
+            marks(owner, &f.name, &code) && !passed_over.contains(&key(f))
+        })
+        .collect();
+    let reaches = reaching(&calls, own);
+    let start =
+        (graph.functions.iter()).position(|f| f.owner.as_deref() == Some(owner) && f.name == name);
+    let Some(start) = start else {
+        return vec![format!("no fn {owner}::{name}")];
+    };
+    (calls[start].iter())
+        .filter(|c| c.callee.is_some_and(|g| reaches[g]))
+        .map(|c| c.text.clone())
+        .collect()
+}
+
+/// Returns the functions of `sources` that the function `owner::name` reaches in its own thread,
+/// however deep, itself among them, each as its owner ("" for a free function) and its name.
+pub(crate) fn functions_reached_from(
+    sources: &[(String, String)],
+    owner: &str,
+    name: &str,
+) -> HashSet<(String, String)> {
+    let graph = CallGraph::new(sources);
+    let start =
+        (graph.functions.iter()).position(|f| f.owner.as_deref() == Some(owner) && f.name == name);
+    let (mut seen, mut next): (HashSet<usize>, Vec<usize>) = (HashSet::new(), Vec::new());
+    next.extend(start);
+    while let Some(f) = next.pop() {
+        if seen.insert(f) {
+            next.extend(
+                graph
+                    .calls_of(&graph.functions[f])
+                    .iter()
+                    .filter_map(|c| c.callee),
+            );
+        }
+    }
+    (seen.into_iter())
+        .map(|f| &graph.functions[f])
+        .map(|f| (f.owner.clone().unwrap_or_default(), f.name.clone()))
         .collect()
 }
 

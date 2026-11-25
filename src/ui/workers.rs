@@ -88,6 +88,7 @@ impl crate::App {
         #[cfg(feature = "marks")]
         self.receive_marks(ctx);
         self.folder.receive_sort_folders();
+        self.folder.receive_changes();
         self.info_panel.receive_keyword_tree();
         self.receive_decoded(ctx);
         self.receive_thumbs(ctx);
@@ -474,50 +475,74 @@ mod tests {
         assert!(logic.contains("self.receive_remote(ctx);"));
         let remote = body_of(include_str!("../features/remote.rs"), "receive_remote");
         assert!(remote.contains("self.receive_answers(ctx);"));
-        let poll = body_of(include_str!("workers.rs"), "poll_background");
-        assert_eq!(
-            answers_taken_in(&poll),
-            ["        self.receive_answers(ctx);"]
-        );
+        let sources = crate::support::source_rules::rust_sources();
+        assert_eq!(answers_taken_in(&sources), Vec::<String>::new());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// The check above finds an answer taken in each way a `Receiving` gives one, and through a
-    /// `take_` method of a part, but not the takes that need the frame.
+    /// The check above finds an answer taken by type, not by the name of the call: through a
+    /// part's method of any name that takes from a `Receiving`, or from a `Receiver` with
+    /// `try_iter`, however deep, but not through a method that takes nothing or a take that
+    /// needs the frame. Before, a take was found by a few names on `poll_background`'s own lines,
+    /// so `self.x.answer()` or `.try_iter()` passed (#188).
     #[test]
     fn finds_every_spelling_of_an_answer_taken() {
-        let body = "self.a.receive(x);\nlet b = self.b.take();\nself.c.wait(t);\n\
-            while let Some(d) = self.d.next() {}\nlet e = self.e.take_answer();\n\
-            if let Some(i) = self.f.take_image() {}\nif self.g.take_list_is_old() {}\n";
-        assert_eq!(
-            answers_taken_in(body),
-            [
-                "self.a.receive(x);",
-                "let b = self.b.take();",
-                "self.c.wait(t);",
-                "while let Some(d) = self.d.next() {}",
-                "let e = self.e.take_answer();",
-            ]
+        let text = "pub(crate) struct Receiving {\n    x: u8,\n}\n\
+            impl Receiving {\n    fn take(&mut self) {}\n}\n\
+            struct Part {\n    rx: Receiving,\n}\n\
+            impl Part {\n    fn poll(&mut self) {\n        self.deeper();\n    }\n    \
+            fn deeper(&mut self) {\n        self.rx.take();\n    }\n    \
+            fn answer(&mut self) {\n        let x = self.other.try_iter();\n    }\n    \
+            fn other(&mut self) {}\n    fn take_image(&mut self) {\n        self.rx.take();\n    }\n}\n\
+            struct App {\n    part: Part,\n}\n\
+            impl App {\n    fn poll_background(&mut self) {\n        self.receive_answers();\n        \
+            self.part.poll();\n        self.part.answer();\n        self.part.other();\n        \
+            self.part.take_image();\n    }\n    fn receive_answers(&mut self) {\n        \
+            self.part.poll();\n    }\n}\n";
+        let sources = [("x.rs".to_owned(), text.to_owned())];
+        assert_eq!(answers_taken_in(&sources), ["answer("]);
+        // The same take reached from another call than `receive_answers` is found.
+        let text = text.replace(
+            "self.part.poll();\n    }\n}",
+            "self.part.other();\n    }\n}",
         );
+        let sources = [("x.rs".to_owned(), text)];
+        assert_eq!(answers_taken_in(&sources), ["poll(", "answer("]);
     }
 
-    /// Returns the lines of `body` that take an answer of background work. The takes that need
-    /// the frame are left out: the clipboard's image, a listing started for a list gone old,
-    /// the folders opened together, and the failed writes shown last.
-    fn answers_taken_in(body: &str) -> Vec<&str> {
-        const TAKES: [&str; 6] = [
-            ".receive", "try_recv", ".take()", ".wait(", ".next()", ".take_",
-        ];
+    /// Returns the calls of `App::poll_background` in `sources` that take an answer of
+    /// background work, however deep: a call that reaches a take of a `Receiving` or of a
+    /// standard `Receiver`. The takes that need the frame are left out: the clipboard's image,
+    /// a listing started for a list gone old, the folders opened together, and the failed
+    /// writes shown last.
+    fn answers_taken_in(sources: &[(String, String)]) -> Vec<String> {
+        const RECEIVERS_TAKES: [&str; 4] = [".recv(", "try_recv(", ".recv_timeout(", ".try_iter("];
         const THE_FRAMES_OWN: [&str; 4] = [
-            ".take_image()",
-            ".take_list_is_old()",
-            ".take_together()",
-            ".take_failed_writes_to_show()",
+            "take_image(",
+            "take_list_is_old(",
+            "take_together(",
+            "take_failed_writes_to_show(",
         ];
-        (body.lines())
-            .filter(|l| TAKES.iter().any(|take| l.contains(take)))
-            .filter(|l| !THE_FRAMES_OWN.iter().any(|own| l.contains(own)))
-            .collect()
+        let takes = |owner: &str, name: &str, code: &str| {
+            (owner == "Receiving" && ["take", "next", "wait", "wait_next"].contains(&name))
+                || RECEIVERS_TAKES.iter().any(|t| code.contains(t))
+        };
+        // What `receive_answers` reaches takes its answers in `logic` too, so it is not
+        // followed into from another call.
+        use crate::support::source_rules::{calls_reaching, functions_reached_from};
+        let mut in_receive_answers = functions_reached_from(sources, "App", "receive_answers");
+        in_receive_answers.retain(|(owner, name)| !takes(owner, name, ""));
+        in_receive_answers.remove(&("App".to_owned(), "receive_answers".to_owned()));
+        let mut taken = calls_reaching(
+            sources,
+            "App",
+            "poll_background",
+            takes,
+            &in_receive_answers,
+        );
+        taken.retain(|call| !THE_FRAMES_OWN.contains(&call.as_str()));
+        taken.dedup();
+        taken
     }
 
     /// A failed write stays on screen when another notice comes in the same frame. Before, the

@@ -138,6 +138,8 @@ pub(crate) struct Folder {
     /// client writes into every second does not grow it during a long rest. Before, each
     /// folder seen was kept, also every time again, until the next listing.
     changes_seen: Option<PathBuf>,
+    /// Whether the watcher saw a change that `changed_on_disk` has not yet told.
+    change_not_told: bool,
     /// The folder is to be read whole when it is read again, as something other than the
     /// watcher asked for it (`relist_later`).
     relist_whole: bool,
@@ -224,6 +226,7 @@ impl Folder {
             relist_when_done: false,
             change_waits: false,
             changes_seen: None,
+            change_not_told: false,
             relist_whole: false,
             next_listing_from: PathBuf::new(),
             listing_from: PathBuf::new(),
@@ -484,7 +487,15 @@ impl Folder {
     /// Whether the folder watcher saw the folder change since this was last asked. The folders
     /// it saw change are kept for the next listing (`App::relist_changes`).
     pub(crate) fn changed_on_disk(&mut self) -> bool {
-        let mut changed = false;
+        self.receive_changes();
+        std::mem::take(&mut self.change_not_told)
+    }
+
+    /// Takes what the folder watcher saw change, keeping the folders for the next listing, so
+    /// that a minimized window, which draws no frame, takes them too (`App::receive_answers`).
+    /// Before, only a drawn frame took them, and they piled up in the channel while the window
+    /// was minimized (#188).
+    pub(crate) fn receive_changes(&mut self) {
         for folder in self.changed_rx.try_iter().flatten() {
             let common = match self.changes_seen.take() {
                 None => folder,
@@ -494,9 +505,8 @@ impl Folder {
                     .collect(),
             };
             self.changes_seen = Some(common);
-            changed = true;
+            self.change_not_told = true;
         }
-        changed
     }
 
     /// Returns the subfolder of the tree, relative to it, that holds every change the watcher
@@ -3977,6 +3987,25 @@ mod tests {
         app.folder.changed_on_disk();
         let seen: Vec<&std::path::PathBuf> = app.folder.changes_seen.iter().collect();
         assert!(seen.len() == 1 && !seen[0].starts_with(&dir), "{seen:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The changes that the watcher sees are taken by `receive_answers`, which a minimized
+    /// window runs without a frame, and told once by the next `changed_on_disk`. Before, only a
+    /// drawn frame took them, and they piled up while the window was minimized (#188).
+    #[test]
+    fn the_watchers_changes_are_taken_without_a_frame() {
+        let dir = contract_folder("changes-without-a-frame");
+        let (mut app, ctx) = app_on(&dir);
+        (app.folder.watcher_generation).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        app.folder.changed_tx.send(vec![dir.join("sub")]).unwrap();
+        app.receive_answers(&ctx);
+        assert!(
+            app.folder.changed_rx.try_recv().is_err(),
+            "left in the channel"
+        );
+        assert!(app.folder.changed_on_disk());
+        assert!(!app.folder.changed_on_disk());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
