@@ -1869,6 +1869,7 @@ impl crate::App {
         // This listing reads every change seen before it.
         self.folder.change_waits = false;
         self.folder.changes_seen = None;
+        self.folder.change_not_told = false;
         self.folder.relist_whole = false;
     }
 
@@ -4020,6 +4021,25 @@ mod tests {
         );
         assert!(app.folder.changed_on_disk());
         assert!(!app.folder.changed_on_disk());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A change taken before a listing starts is read by that listing, so `changed_on_disk` no
+    /// longer tells it. Before, it still told it after the listing had forgotten which folder
+    /// changed, and the whole tree was read again, as when a minimized window took a change and
+    /// a `--remote` command then started a listing.
+    #[test]
+    fn a_listing_reads_the_changes_taken_before_it() {
+        let dir = contract_folder("changes-before-a-listing");
+        let (mut app, ctx) = app_on(&dir);
+        (app.folder.watcher_generation).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        app.folder.changed_tx.send(vec![dir.join("sub")]).unwrap();
+        app.receive_answers(&ctx);
+        app.start_listing(&ctx);
+        assert!(
+            !app.folder.changed_on_disk(),
+            "told after the listing read it"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
