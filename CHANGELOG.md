@@ -19,9 +19,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   writes it in its own namespace (#173).
 - A comment or alt text written without a language beside one written as x-default no longer
   reads back as the old text after an edit (#181).
-- Copy for Sharing names an XMP tag written with the prefix `group` by its namespace, so
-  leaving it out leaves out the same parts of the file before and after the choice is saved
-  (#215).
+- Copy for Sharing names an XMP tag written with the prefix `group` by its namespace, and a
+  PNG keyword that starts with `group:` as "PNG text group:…", so leaving either out leaves
+  out the same parts of the file before and after the choice is saved. A keyword left out in
+  an older saved choice stays left out (#215).
 - A listing of a tree can no longer be made to leave out an image until its end by names made
   to share a hash (#288).
 - A sidecar that another window wrote at a photo's new name while Rename Many ran now goes with
