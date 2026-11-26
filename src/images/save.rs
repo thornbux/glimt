@@ -3101,6 +3101,52 @@ mod tests {
         assert!(kept.iter().all(|(_, k)| *k == Ok(true)), "{kept:?}");
     }
 
+    /// The keywords of a TIFF or DNG whose first image is raw sensor data (CFA), which the tiff
+    /// crate does not decode, are shown, and a copy keeps them. Before, its XMP was read as
+    /// none, so a keyword edit started a sidecar that hid the file's own keywords.
+    #[test]
+    fn a_tiff_whose_first_image_is_raw_sensor_data_keeps_its_xmp() {
+        let dir = std::env::temp_dir().join(format!("glimt-cfa-tiff-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let xmp = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:subject><rdf:Bag><rdf:li>KeptWord</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let entry = |tag: u16, kind: u16, count: u32, value: u32| {
+            [
+                &tag.to_le_bytes()[..],
+                &kind.to_le_bytes(),
+                &count.to_le_bytes(),
+                &value.to_le_bytes(),
+            ]
+            .concat()
+        };
+        // One pixel of CFA (Photometric 32803) at 134, after IFD0, and the XMP after it.
+        let mut tiff = b"II*\0\x08\0\0\0\x0a\0".to_vec();
+        for (tag, value) in [(256, 1), (257, 1), (258, 8), (259, 1), (262, 32803)] {
+            tiff.extend(entry(tag, 3, 1, value));
+        }
+        tiff.extend(entry(273, 4, 1, 134));
+        tiff.extend(entry(277, 3, 1, 1));
+        tiff.extend(entry(278, 3, 1, 1));
+        tiff.extend(entry(279, 4, 1, 1));
+        tiff.extend(entry(700, 7, xmp.len() as u32, 135));
+        tiff.extend([0; 4 + 1]);
+        tiff.extend(xmp);
+        let mut kept = Vec::new();
+        for name in ["a.tif", "a.dng"] {
+            let file = dir.join(name);
+            std::fs::write(&file, &tiff).unwrap();
+            let shown = crate::metadata::xmp::read(&file).keywords;
+            let source = &crate::images::decode::Source::read(&file).unwrap();
+            let copied = super::derived_metadata(source, true, 0, (4, 4), super::Derived::Copy)
+                .map(|(_, xmp, _)| xmp.is_some_and(|x| x.windows(8).any(|w| w == b"KeptWord")));
+            kept.push((name, shown, copied));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        for (name, shown, copied) in kept {
+            assert_eq!(shown, ["KeptWord"], "{name}");
+            assert_eq!(copied, Ok(true), "{name}");
+        }
+    }
+
     /// A copy of a file too large to be read whole, of a format the image crate does not know
     /// (a PSB that an added format reads), has no metadata it could keep, and is made. Before,
     /// the refusal by its size was taken for a failed read, and Save As and Crop refused it.

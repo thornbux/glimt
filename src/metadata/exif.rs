@@ -85,6 +85,10 @@ const DNG_FIELDS: std::ops::RangeInclusive<u16> = 0xc612..=0xcd3f;
 /// cap, a crafted block of 1,500 fields all naming the same megabyte would take gigabytes.
 const MAX_TEXT: usize = 4096;
 
+/// The most entries of an IFD that are read. A real one has far fewer, and a broken count
+/// would otherwise make each read of it walk 65,535 of them.
+const MAX_IFD_ENTRIES: usize = 500;
+
 /// The name Copy for Sharing gives the EXIF thumbnail (IFD1), a small JPEG of the whole photo.
 pub const EXIF_THUMBNAIL: &str = "EXIF thumbnail";
 
@@ -167,13 +171,11 @@ impl Tiff<'_> {
     /// The entries of the IFD at `offset`, by tag.
     fn ifd(&self, offset: usize) -> Vec<(u16, Entry)> {
         let n = self.u16(offset).unwrap_or(0) as usize;
-        (0..n.min(500))
+        (0..n.min(MAX_IFD_ENTRIES))
             .filter_map(|i| {
                 let e = offset + 2 + i * 12;
                 let (tag, kind, count) = (self.u16(e)?, self.u16(e + 2)?, self.u32(e + 4)?);
-                let size = type_size(kind);
-                // Values of up to four bytes are stored in the entry itself.
-                let at = if size * count as usize <= 4 {
+                let at = if value_is_in_the_entry(kind, count) {
                     e + 8
                 } else {
                     self.u32(e + 8)? as usize
@@ -282,6 +284,21 @@ struct Entry {
     field_type: u16,
     count: u32,
     value_offset: usize,
+}
+
+/// What `first_ifd_entry` found of an entry of a TIFF's first IFD.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum FirstIfdEntry {
+    /// The file is no classic TIFF: a BigTIFF, or no TIFF at all, which another reader judges.
+    NotClassicTiff,
+    /// The first IFD has no such entry.
+    Missing,
+    /// The entry's type and count, and where in the file its value starts.
+    Found {
+        field_type: u16,
+        count: u32,
+        at: u64,
+    },
 }
 
 /// What a PNG's metadata chunk holds (`PNG_METADATA_TEXT`).
@@ -912,6 +929,65 @@ pub fn jpeg_app1<'a>(file: impl ImageBytes<'a>, prefix: &[u8]) -> Option<Option<
         Some(&(_, start, len)) => Some(Some(head.get(start..start + len)?.to_vec())),
         None => done.then_some(None),
     }
+}
+
+/// Finds the entry `tag` in the first IFD of a classic TIFF, from the file's header and the
+/// IFD's entries alone. A first image whose pixels no decoder makes out, such as a DNG's raw
+/// sensor data, so does not hide the entry. Returns an error when the IFD could not be read or
+/// is cut short.
+pub(crate) fn first_ifd_entry(
+    reader: &mut (impl std::io::Read + std::io::Seek),
+    tag: u16,
+) -> std::io::Result<FirstIfdEntry> {
+    let mut head = [0; 8];
+    reader.rewind()?;
+    match reader.read_exact(&mut head) {
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            return Ok(FirstIfdEntry::NotClassicTiff);
+        }
+        read => read?,
+    }
+    let is_little_endian = match &head[..4] {
+        b"II*\0" => true,
+        b"MM\0*" => false,
+        _ => return Ok(FirstIfdEntry::NotClassicTiff),
+    };
+    let cut_short = || std::io::Error::from(std::io::ErrorKind::UnexpectedEof);
+    let header = Tiff {
+        data: &head,
+        is_little_endian,
+    };
+    let ifd_at = header.u32(4).ok_or_else(cut_short)?;
+    // The IFD is read as it stands in the file: its count, then the entries `Tiff::ifd` reads.
+    let mut ifd = vec![0; 2];
+    reader.seek(std::io::SeekFrom::Start(ifd_at.into()))?;
+    reader.read_exact(&mut ifd)?;
+    let count = Tiff {
+        data: &ifd,
+        is_little_endian,
+    }
+    .u16(0)
+    .ok_or_else(cut_short)?;
+    ifd.resize(2 + 12 * usize::from(count).min(MAX_IFD_ENTRIES), 0);
+    reader.read_exact(&mut ifd[2..])?;
+    let entries = Tiff {
+        data: &ifd,
+        is_little_endian,
+    }
+    .ifd(0);
+    let Some(entry) = find(&entries, tag) else {
+        return Ok(FirstIfdEntry::Missing);
+    };
+    // A value in the entry itself has its place in the IFD read, and the IFD's in the file.
+    let at = match value_is_in_the_entry(entry.field_type, entry.count) {
+        true => u64::from(ifd_at) + entry.value_offset as u64,
+        false => entry.value_offset as u64,
+    };
+    Ok(FirstIfdEntry::Found {
+        field_type: entry.field_type,
+        count: entry.count,
+        at,
+    })
 }
 
 /// Add an orientation field to an EXIF block that has none: a copy of IFD0 with the field is
@@ -1684,6 +1760,12 @@ pub(crate) fn raw_profile_bytes(text: &str) -> Option<Vec<u8>> {
 }
 
 /// The size in bytes of one value of the TIFF type `kind`.
+/// Returns whether a value of `count` items of the type `kind` is stored in its IFD entry
+/// itself, as one of up to four bytes is, rather than at the offset the entry gives.
+fn value_is_in_the_entry(kind: u16, count: u32) -> bool {
+    type_size(kind) * count as usize <= 4
+}
+
 fn type_size(kind: u16) -> usize {
     match kind {
         SHORT | 8 => 2,
@@ -1858,6 +1940,29 @@ mod tests {
             let _ = super::read_exif_block(&file);
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A TIFF's first IFD read for one entry (`first_ifd_entry`), broken in thousands of ways,
+    /// is read without a panic. The good one gives its value's place: in the entry itself for
+    /// four bytes, and at its offset for more.
+    #[test]
+    fn survives_broken_tiff_heads() {
+        // IFD0 at 8 with two entries, then no next IFD, then "<x:xmp/>" at 38.
+        let seed = b"II*\0\x08\0\0\0\x02\0\xbc\x02\x07\0\x04\0\0\0<x/>\xbd\x02\x07\0\x08\0\0\0\x26\0\0\0\0\0\0\0<x:xmp/>";
+        for bytes in crate::support::test_support::broken(seed) {
+            let _ = super::first_ifd_entry(&mut std::io::Cursor::new(&bytes), 700);
+        }
+        let found = |tag| super::first_ifd_entry(&mut std::io::Cursor::new(seed), tag).unwrap();
+        let at = |count, at| super::FirstIfdEntry::Found {
+            field_type: 7,
+            count,
+            at,
+        };
+        assert_eq!(found(700), at(4, 18));
+        assert_eq!(found(701), at(8, 38));
+        assert_eq!(found(1), super::FirstIfdEntry::Missing);
+        let not_tiff = super::first_ifd_entry(&mut std::io::Cursor::new(b"II+\0"), 700);
+        assert_eq!(not_tiff.unwrap(), super::FirstIfdEntry::NotClassicTiff);
     }
 
     /// A RAW whose preview is not in its first MB is read whole for its EXIF, and that read

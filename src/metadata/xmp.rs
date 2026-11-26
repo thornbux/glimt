@@ -833,38 +833,61 @@ fn read_embedded(path: &Path) -> Result<Option<String>, String> {
 }
 
 /// Reads the XMP packet of a TIFF, or of a RAW read as one such as a DNG (tag 700 of its first
-/// image), for the info panel, the search and a copy alike. The packet is counted in the decodes'
-/// budget before it is read, and a count that claims more bytes than the file holds, or more
-/// than the read cap of a decode (`MAX_DECODE_BYTES`), is refused as a limit before anything is
-/// allocated. Returns `None` when the TIFF has no XMP.
+/// image), for the info panel, the search and a copy alike. A classic TIFF's first IFD is read
+/// without its image (`exif::first_ifd_entry`), because a first image of a kind the tiff crate
+/// does not decode, such as a DNG's raw sensor data, made its XMP look absent. A BigTIFF is read
+/// by the tiff crate. The packet is counted in the decodes' budget before it is read, and a
+/// count that claims more bytes than the file holds, or more than the read cap of a decode
+/// (`MAX_DECODE_BYTES`), is refused as a limit before anything is allocated. Returns `None` when
+/// the TIFF has no XMP.
 pub(crate) fn tiff_xmp<'a>(
     file: impl crate::images::decode::ImageBytes<'a>,
 ) -> image::ImageResult<Option<Vec<u8>>> {
-    use std::io::Seek;
+    use crate::metadata::exif::FirstIfdEntry;
+    use std::io::{Read, Seek};
     use tiff::tags::{Tag, Type};
+    let xmp_tag = Tag::Unknown(700);
     let read = || -> tiff::TiffResult<Option<Vec<u8>>> {
         let mut reader = file.open_reader()?;
         let length = reader.seek(std::io::SeekFrom::End(0))?;
-        reader.rewind()?;
-        let mut decoder = tiff::decoder::Decoder::new(reader)?;
-        let mut ifd = decoder.image_ifd();
-        let Some(entry) = ifd.find_entry(Tag::Unknown(700)) else {
-            return Ok(None);
+        // Returns the bytes to read the packet into, with their reservation in the budget.
+        let room_for = |kind: Option<Type>, count: u64| {
+            if !matches!(kind, Some(Type::BYTE | Type::UNDEFINED)) {
+                return Err(tiff::TiffError::FormatError(
+                    tiff::TiffFormatError::InvalidTypeForTag,
+                ));
+            }
+            if count > length.min(crate::images::decode::MAX_DECODE_BYTES) {
+                return Err(tiff::TiffError::LimitsExceeded);
+            }
+            let counted = crate::images::decode::reserve_from_budget(count)
+                .map_err(|_| tiff::TiffError::LimitsExceeded)?;
+            Ok((counted, vec![0u8; usize::try_from(count)?]))
         };
-        if !matches!(entry.field_type(), Type::BYTE | Type::UNDEFINED) {
-            return Err(tiff::TiffError::FormatError(
-                tiff::TiffFormatError::InvalidTypeForTag,
-            ));
+        match crate::metadata::exif::first_ifd_entry(&mut reader, xmp_tag.to_u16())? {
+            FirstIfdEntry::Missing => Ok(None),
+            FirstIfdEntry::Found {
+                field_type,
+                count,
+                at,
+            } => {
+                let (_counted, mut packet) = room_for(Type::from_u16(field_type), count.into())?;
+                reader.seek(std::io::SeekFrom::Start(at))?;
+                reader.read_exact(&mut packet)?;
+                Ok(Some(packet))
+            }
+            FirstIfdEntry::NotClassicTiff => {
+                reader.rewind()?;
+                let mut decoder = tiff::decoder::Decoder::new(reader)?;
+                let mut ifd = decoder.image_ifd();
+                let Some(entry) = ifd.find_entry(xmp_tag) else {
+                    return Ok(None);
+                };
+                let (_counted, mut packet) = room_for(Some(entry.field_type()), entry.count())?;
+                ifd.find_tag_bytes(xmp_tag, &mut packet, 0)?;
+                Ok(Some(packet))
+            }
         }
-        let count = entry.count();
-        if count > length.min(crate::images::decode::MAX_DECODE_BYTES) {
-            return Err(tiff::TiffError::LimitsExceeded);
-        }
-        let _counted = crate::images::decode::reserve_from_budget(count)
-            .map_err(|_| tiff::TiffError::LimitsExceeded)?;
-        let mut packet = vec![0; usize::try_from(count)?];
-        ifd.find_tag_bytes(Tag::Unknown(700), &mut packet, 0)?;
-        Ok(Some(packet))
     };
     read().map_err(|e| match e {
         tiff::TiffError::IoError(e) => image::ImageError::IoError(e),
