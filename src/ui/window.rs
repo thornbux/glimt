@@ -341,9 +341,10 @@ impl crate::App {
         self.window.keep_failed_write(failure);
     }
 
-    /// Answers the close that `guard_close` saw. A kiosk cancels it. Otherwise it waits while
-    /// files are written. `is_sent_again` tells a close that `guard_close` sent itself when the
-    /// work it waited for ended.
+    /// Answers the close that `guard_close` saw. A kiosk cancels it. Otherwise it starts the
+    /// writes the close needs, and waits while files are written. A write that has already failed
+    /// cancels the close, so that its failure stays on the screen. `is_sent_again` tells a close
+    /// that `guard_close` sent itself when the work it waited for ended.
     fn refuse_or_delay_close(&mut self, ctx: &egui::Context, is_sent_again: bool) {
         if self.window.is_kiosk && !self.window.kiosk_may_quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
