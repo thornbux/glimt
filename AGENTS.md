@@ -811,6 +811,10 @@ The limits decided:
 - In the same boot, a card or stick that cannot be told from the one a job cut short worked on
   (a card cloned with `dd`, a second ext4 stick in the Flatpak) is not taken for it. The job's
   marks wait until the right one is back.
+- On NFSv3, a hard link that another program makes at the new name between Glimt's look and its
+  rename counts as the rename done. Both names are then one file, so nothing is lost.
+- On NFS, the attribute cache can make Glimt refuse once to write a sidecar or collection that
+  nobody changed, as changed after its read. The next edit takes a new look and goes through.
 
 ### Fix the root, once, and right the first time
 
