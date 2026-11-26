@@ -12,10 +12,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   lost or cached answer there no longer counts as a step that did nothing, Delete offers to
   delete for good instead of making a trash there, background reads go through the share's
   gate, and the status bar does not sum the sizes there (#322).
-- Save As, Crop, a turned PNG or WebP and Copy for Sharing are refused with the photo's name
-  when its EXIF or XMP cannot be read. Before, they wrote the copy, or the turned photo's own
-  file, without its keywords, comment, stars, camera, date and place, untold. A copy with its
-  metadata stripped is still made (#325).
+- Save As, Crop, a turned PNG or WebP and Copy for Sharing read the photo's file once, and are
+  refused with the photo's name when it or its EXIF or XMP cannot be read. Before, they wrote
+  the copy, or the turned photo's own file, without its keywords, comment, stars, camera, date
+  and place, and a turned PNG or WebP without its text, DPI, gamma or colour profile, untold. A
+  copy with its metadata stripped is still made (#325).
 
 ## [0.99.0] - 2026-11-26
 
