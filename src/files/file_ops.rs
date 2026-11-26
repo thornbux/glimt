@@ -3922,10 +3922,9 @@ fn rename_files_planned_in(
         };
         // A step is counted in the plan once done. When the middle of a swap cannot be
         // counted, because its names did not reach the disk, it is undone with the rest.
-        let is_middle_of_swap = swap && k + 1 == moves.len() / 2;
         let step = step
             .map_err(|e| (e, k))
-            .and_then(|()| (plan.count_rename_done(is_middle_of_swap)).map_err(|e| (e, k + 1)));
+            .and_then(|()| (plan.count_rename_done()).map_err(|e| (e, k + 1)));
         if let Err((e, done)) = step {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();

@@ -229,6 +229,10 @@ pub struct Journal {
     /// One name in each folder that the renames touch. Those folders are synced before the
     /// plan is removed, so that the plan never goes before the renames are on disk.
     one_name_per_folder: Vec<PathBuf>,
+    /// The number of the step that puts the last file of a swap under its hidden name, which is
+    /// counted with the disk synced (`count_middle_of_swap_done`), or `None` when the renames
+    /// are no swap. It is taken from the renames themselves (`middle_of_swap`).
+    middle_of_swap: Option<usize>,
 }
 
 impl Journal {
@@ -260,10 +264,11 @@ impl Journal {
         Ok(())
     }
 
-    /// Counts one more rename done, through `count_middle_of_swap_done` when `is_middle_of_swap`
-    /// and otherwise `count_step_done`. Returns an error when the middle did not reach the disk.
-    pub fn count_rename_done(&mut self, is_middle_of_swap: bool) -> std::io::Result<()> {
-        if is_middle_of_swap {
+    /// Counts one more rename done, the next of the plan's steps in their order: through
+    /// `count_middle_of_swap_done` when it is the middle of a swap, and otherwise through
+    /// `count_step_done`. Returns an error when the middle did not reach the disk.
+    pub fn count_rename_done(&mut self) -> std::io::Result<()> {
+        if self.middle_of_swap == Some(self.done) {
             return self.count_middle_of_swap_done();
         }
         self.count_step_done();
@@ -1823,7 +1828,22 @@ pub fn start_journal_with_marks(
         log: JobLog::start(dir, "rename", &records)?,
         done: 0,
         one_name_per_folder: names,
+        middle_of_swap: middle_of_swap(moves),
     })
+}
+
+/// Returns the number of the step of `moves` that puts the last file of a swap under its hidden
+/// name: the last of the first half, when each step of the second half takes its file from the
+/// name that the step half a plan before gave it (`file_ops::steps_of_the_renames`). Returns
+/// `None` for renames that are no swap, where no new name is an old name of the renames, so no
+/// step takes a file from another's new name.
+fn middle_of_swap(moves: &[(PathBuf, PathBuf)]) -> Option<usize> {
+    let half = moves.len() / 2;
+    let (first, second) = moves.split_at(half);
+    let is_swap = half > 0
+        && first.len() == second.len()
+        && (first.iter().zip(second)).all(|((_, hidden), (from, _))| hidden == from);
+    is_swap.then(|| half - 1)
 }
 
 /// Returns the `step` records of the renames `moves`, each with the fingerprint at its place
@@ -3778,6 +3798,24 @@ mod tests {
         plan.keep_on_disk();
         assert_eq!(super::cut_short_plans(&dir)[0].2, Some(0));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The plan finds the middle of a swap from its renames alone, so that it is counted with the
+    /// disk synced, and finds none in renames that are no swap.
+    #[test]
+    fn the_plan_finds_the_middle_of_a_swap_by_its_renames() {
+        let p = |s: &str| std::path::PathBuf::from(s);
+        let swap = [
+            (p("/d/a"), p("/d/.t0")),
+            (p("/d/b"), p("/d/.t1")),
+            (p("/d/.t0"), p("/d/b")),
+            (p("/d/.t1"), p("/d/a")),
+        ];
+        assert_eq!(super::middle_of_swap(&swap), Some(1));
+        let plain = [(p("/d/a"), p("/d/A")), (p("/d/b"), p("/d/B"))];
+        assert_eq!(super::middle_of_swap(&plain), None);
+        assert_eq!(super::middle_of_swap(&plain[..1]), None);
+        assert_eq!(super::middle_of_swap(&[]), None);
     }
 
     /// The middle of a swap whose count cannot be written (a full state disk) is not taken as
