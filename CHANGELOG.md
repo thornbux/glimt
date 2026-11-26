@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A name that holds a backslash is shown with the backslash doubled, so the text "\n" in a name
+  is no longer taken for a line break. A FUSE mount whose source is one plain word, which can be
+  a user's name, is shown as "fuse" in a notice, not by that word.
+
 ## [0.101.0] - 2026-11-26
 
 ### Fixed
