@@ -669,9 +669,9 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
 }
 
 /// Reads the file at `path` that a copy is made of, once (`Source`). Returns `None` for a file
-/// too large to be read whole, such as a PSB that an added format reads, as it has no metadata
-/// that a copy could keep. Returns an error that names it when it could not be read, so that no
-/// copy is made without its metadata.
+/// too large to be read whole, such as a large scan, whose copy is read from the file. Returns
+/// an error that names it when it could not be read, so that no copy is made without its
+/// metadata.
 fn source_of_copy(path: &Path) -> Result<Option<Source>, String> {
     match Source::read(path) {
         Ok(source) => Ok(Some(source)),
@@ -680,8 +680,9 @@ fn source_of_copy(path: &Path) -> Result<Option<Source>, String> {
     }
 }
 
-/// `copy_bytes` of `file`, whose metadata is taken from `source`, the same file read. Without a
-/// source, for a file too large to be read whole, the copy has no metadata.
+/// `copy_bytes` of `file`, whose PNG chunks are taken from `source`, the same file read.
+/// Without a source, for a file too large to be read whole, the metadata is read from the file
+/// as the panel reads it, and a PNG's chunks after its pixels are not kept.
 fn copy_from<'a>(
     file: impl ImageBytes<'a>,
     source: Option<&Source>,
@@ -702,9 +703,9 @@ fn copy_from<'a>(
     // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
     // are dropped when stripped, because the text chunks may say where and by whom.
     let source = source.filter(|_| !how.strip);
-    let (exif, xmp, quarter) = match source {
-        None => (None, None, false),
-        Some(source) => derived_metadata(source, how.rotate, how.turns, size, Derived::Copy)?,
+    let (exif, xmp, quarter) = match how.strip {
+        true => (None, None, false),
+        false => derived_metadata(file, how.rotate, how.turns, size, Derived::Copy)?,
     };
     let out = encode(
         source,
@@ -1307,34 +1308,38 @@ fn animated<'a>(file: impl ImageBytes<'a>) -> Result<bool, String> {
     })
 }
 
-/// Reads the EXIF block and XMP of `source` and makes them what a file of new pixels of `size`
+/// Reads the EXIF block and XMP of `file` and makes them what a file of new pixels of `size`
 /// keeps of them, as the image turned or as a copy (`how`). The pixels are the stored ones
 /// turned upright by EXIF with Auto Rotate (`rotate`) and then `turns` quarters by the view.
 /// Both writers take the quarter flag from here, because a copy once passed none, and a PNG
-/// copied a quarter turned kept its DPI across and down unswapped. The metadata is taken from
-/// the file read once, so no read fails here that the file's own read did not. Returns an error
-/// that names the file when its metadata could not be made out of what was read.
-fn derived_metadata(
-    source: &Source,
+/// copied a quarter turned kept its DPI across and down unswapped. `file` is the file read once
+/// (`Source`), from which no read fails, or for a copy of a file too large to be read whole,
+/// its path, read as the panel reads it. Returns an error that names the file when its metadata
+/// could not be read, so that no file is written without it.
+fn derived_metadata<'a>(
+    file: impl ImageBytes<'a>,
     rotate: bool,
     turns: u8,
     size: (u32, u32),
     how: Derived,
 ) -> Result<Metadata, String> {
-    let path = source.path();
+    let path = file.path();
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
-    let mut exif = exif::derived(source, how).map_err(|e| metadata_not_read(path, e))?;
+    let mut exif = exif::derived(file, how).map_err(|e| metadata_not_read(path, e))?;
     let is_raw = has_ext(path, crate::images::raw::EXTS);
-    let reader = source
-        .image_reader()
-        .map_err(|e| metadata_not_read(path, e))?;
-    let decoder = match reader.into_decoder() {
-        Ok(decoder) => Some(decoder),
-        Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
-        // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP that
-        // Glimt reads.
-        Err(_) => None,
+    let decoder = match file.image_reader() {
+        Ok(reader) => match reader.into_decoder() {
+            Ok(decoder) => Some(decoder),
+            Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
+            // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP
+            // that Glimt reads.
+            Err(_) => None,
+        },
+        // A file too large to be read whole (a JPEG, or one of no format the image crate
+        // knows, such as a PSB that an added format reads) has no XMP that it could give.
+        Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => None,
+        Err(e) => return Err(metadata_not_read(path, e)),
     };
     let (mut xmp, stored) = match decoder {
         Some(mut d) => {
@@ -1355,7 +1360,15 @@ fn derived_metadata(
     // may drop (`png_with_chunks`). Their orientation was not shown, so `stored` is read
     // without it.
     if has_ext(path, &["png"]) && (xmp.is_none() || exif.is_none()) {
-        let found = exif::png_metadata(source);
+        let found = match file.all_bytes() {
+            Ok(bytes) => exif::png_metadata(&bytes),
+            // A copy of a PNG too large to be read whole has no chunks after its pixels that
+            // it could keep. A turn reads its file whole first, and refuses one too large.
+            Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge && how != Derived::Turned => {
+                Default::default()
+            }
+            Err(e) => return Err(metadata_not_read(path, e)),
+        };
         exif = exif.or_else(|| exif::derived_of(&found.exif?, how));
         xmp = xmp.or(found.xmp);
     }
@@ -3014,6 +3027,62 @@ mod tests {
         assert!(!super::is_failed_read(&decoding, true));
     }
 
+    /// A copy of a TIFF too large to be read whole, such as a large scan, keeps the XMP at its
+    /// start (its keywords), read from the file as Glimt 0.99 read it. Before, such a copy was
+    /// made without its metadata, untold.
+    #[test]
+    fn a_copy_of_a_tiff_too_large_to_be_read_whole_keeps_its_xmp() {
+        let dir = std::env::temp_dir().join(format!("glimt-large-tiff-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let xmp = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:subject><rdf:Bag><rdf:li>KeptWord</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
+        // A grey TIFF of 128×128 pixels at 134, after IFD0, and its XMP (tag 700) after them.
+        // The image crate reads no XMP of more bytes than a 32nd of the pixels' bytes.
+        let entry = |tag: u16, kind: u16, count: u32, value: [u8; 4]| {
+            [
+                &tag.to_le_bytes()[..],
+                &kind.to_le_bytes(),
+                &count.to_le_bytes(),
+                &value,
+            ]
+            .concat()
+        };
+        let short = |tag: u16, value: u16| entry(tag, 3, 1, [value as u8, 0, 0, 0]);
+        let mut tiff = b"II*\0\x08\0\0\0\x0a\0".to_vec();
+        for (tag, value) in [(256, 128), (257, 128), (258, 8), (259, 1), (262, 1)] {
+            tiff.extend(short(tag, value));
+        }
+        tiff.extend(entry(273, 4, 1, 134u32.to_le_bytes()));
+        tiff.extend(short(277, 1));
+        tiff.extend(short(278, 128));
+        tiff.extend(entry(279, 4, 1, 16384u32.to_le_bytes()));
+        tiff.extend(entry(700, 1, xmp.len() as u32, 16518u32.to_le_bytes()));
+        tiff.extend([0; 4 + 16384]);
+        tiff.extend(xmp);
+        let mut kept = Vec::new();
+        for (name, length) in [
+            ("small.tif", tiff.len() as u64),
+            ("large.tif", crate::images::decode::MAX_DECODE_BYTES + 1),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, &tiff).unwrap();
+            // The rest of a large one is a hole, which takes no room on the disk.
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_len(length)
+                .unwrap();
+            let how = copy_as(Some(super::Format::Jpeg), false);
+            let copy = super::copy_bytes(&path, &how).map(|(out, _)| out);
+            kept.push((
+                name,
+                copy.map(|out| out.windows(8).any(|w| w == b"KeptWord")),
+            ));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(kept.iter().all(|(_, k)| *k == Ok(true)), "{kept:?}");
+    }
+
     /// A copy of a file too large to be read whole, of a format the image crate does not know
     /// (a PSB that an added format reads), has no metadata it could keep, and is made. Before,
     /// the refusal by its size was taken for a failed read, and Save As and Crop refused it.
@@ -3035,6 +3104,9 @@ mod tests {
             .set_len(crate::images::decode::MAX_DECODE_BYTES + 1)
             .unwrap();
         assert!(super::source_of_copy(&file).unwrap().is_none());
+        let (exif, xmp, _) =
+            super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Copy).unwrap();
+        assert!(exif.is_none() && xmp.is_none());
     }
 
     /// A photo whose XMP cannot be read (here compressed, with its data broken) is neither turned
