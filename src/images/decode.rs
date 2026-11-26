@@ -89,6 +89,10 @@ thread_local! {
 thread_local! {
     static TEST_BUDGET: std::cell::Cell<Option<&'static DecodeBudget>> =
         const { std::cell::Cell::new(None) };
+    /// The path whose opens `open_regular_with_flags` counts on this thread, and how many there
+    /// were, so that a test sees how often a turn or a copy reads its file.
+    pub(crate) static OPENS: std::cell::RefCell<Option<(PathBuf, usize)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// The page of a multi-page file, counted from 0, as a decode job and its result carry it. It
@@ -407,6 +411,185 @@ impl Drop for DecodeInput {
     }
 }
 
+/// An image's file read whole once, for a turn or a copy made of it. Every step of the turn or
+/// copy takes the pixels, the profile, the EXIF block, the XMP, a PNG's chunks and whether the
+/// image is animated from these bytes (`ImageBytes`). So the file is read once, and that read
+/// either fails and is told, or every step sees all of the file. Before, each step read the
+/// file again, and a share that failed one of those reads made that step's part none, untold.
+/// A turned PNG then lost its text and DPI, and a turned WebP its colour profile (#325). Its
+/// bytes count in the decodes' budget while it lives, so it is dropped before a lock is
+/// waited for.
+pub(crate) struct Source {
+    path: PathBuf,
+    input: DecodeInput,
+}
+
+impl Source {
+    /// Reads `path` whole (`DecodeInput::read`). Returns its error, of the kind `FileTooLarge`
+    /// when the file is larger than a decode may read.
+    pub(crate) fn read(path: &Path) -> std::io::Result<Source> {
+        let input = DecodeInput::read(path)?;
+        Ok(Source {
+            path: path.to_owned(),
+            input,
+        })
+    }
+}
+
+impl std::ops::Deref for Source {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.input
+    }
+}
+
+/// Where a reader of an image takes its bytes from. That is the file at a path, opened by each
+/// read as the view, the panel and the sort by date read it, or a `Source` read once for a turn
+/// or a copy, whose reads cannot fail. The readers of pixels and metadata take either, so that
+/// a turn or a copy reads its file through the same readers as the view, and never twice.
+pub(crate) trait ImageBytes<'a>: Copy {
+    /// The reader of the bytes: the file, or a `Cursor` over the bytes read.
+    type Reader: std::io::BufRead + std::io::Seek;
+
+    /// Returns the image's path. It is for the image's name and extension, and for the
+    /// programs that read the file themselves (ffmpeg, the SVG drawer, an added format).
+    fn path(self) -> &'a Path;
+
+    /// Opens the bytes to be read from their start.
+    fn open_reader(self) -> std::io::Result<Self::Reader>;
+
+    /// Returns the first `max` bytes, or all of them when there are fewer (`read_head`).
+    fn first_bytes(self, max: u64) -> std::io::Result<std::borrow::Cow<'a, [u8]>>;
+
+    /// Returns all of the bytes (`read_limited`).
+    fn all_bytes(self) -> std::io::Result<std::borrow::Cow<'a, [u8]>>;
+
+    /// Returns an image crate reader of the bytes, of the format `image_reader` guesses.
+    fn image_reader(self) -> std::io::Result<image::ImageReader<Self::Reader>>;
+
+    /// Returns the format of the image, as `image_reader` guesses it, without decoding it.
+    fn image_format(self) -> std::io::Result<Option<image::ImageFormat>>;
+
+    /// Decodes the image that `dec`, a decoder of these bytes, reads (`from_decoder`).
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String>;
+
+    /// Calls `then` with all of the bytes, counted in the decodes' budget beside the pixels
+    /// that `then` makes of them (`DecodeInput`).
+    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String>;
+}
+
+impl<'a> ImageBytes<'a> for &'a Path {
+    type Reader = std::io::BufReader<std::fs::File>;
+
+    fn path(self) -> &'a Path {
+        self
+    }
+
+    fn open_reader(self) -> std::io::Result<Self::Reader> {
+        open_regular(self).map(std::io::BufReader::new)
+    }
+
+    fn first_bytes(self, max: u64) -> std::io::Result<std::borrow::Cow<'a, [u8]>> {
+        read_head(self, max).map(std::borrow::Cow::Owned)
+    }
+
+    fn all_bytes(self) -> std::io::Result<std::borrow::Cow<'a, [u8]>> {
+        read_limited(self).map(std::borrow::Cow::Owned)
+    }
+
+    fn image_reader(self) -> std::io::Result<image::ImageReader<Self::Reader>> {
+        image_reader(self)
+    }
+
+    fn image_format(self) -> std::io::Result<Option<image::ImageFormat>> {
+        image_format(self)
+    }
+
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String> {
+        from_decoder(dec)
+    }
+
+    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+        then(&DecodeInput::read(self).map_err(|e| e.to_string())?)
+    }
+}
+
+impl<'a> ImageBytes<'a> for &'a PathBuf {
+    type Reader = std::io::BufReader<std::fs::File>;
+
+    fn path(self) -> &'a Path {
+        self
+    }
+
+    fn open_reader(self) -> std::io::Result<Self::Reader> {
+        self.as_path().open_reader()
+    }
+
+    fn first_bytes(self, max: u64) -> std::io::Result<std::borrow::Cow<'a, [u8]>> {
+        self.as_path().first_bytes(max)
+    }
+
+    fn all_bytes(self) -> std::io::Result<std::borrow::Cow<'a, [u8]>> {
+        self.as_path().all_bytes()
+    }
+
+    fn image_reader(self) -> std::io::Result<image::ImageReader<Self::Reader>> {
+        self.as_path().image_reader()
+    }
+
+    fn image_format(self) -> std::io::Result<Option<image::ImageFormat>> {
+        self.as_path().image_format()
+    }
+
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String> {
+        self.as_path().decode(dec)
+    }
+
+    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+        self.as_path().with_counted(then)
+    }
+}
+
+impl<'a> ImageBytes<'a> for &'a Source {
+    type Reader = std::io::Cursor<&'a [u8]>;
+
+    fn path(self) -> &'a Path {
+        &self.path
+    }
+
+    fn open_reader(self) -> std::io::Result<Self::Reader> {
+        Ok(std::io::Cursor::new(&self.input[..]))
+    }
+
+    fn first_bytes(self, max: u64) -> std::io::Result<std::borrow::Cow<'a, [u8]>> {
+        let length = usize::try_from(max).unwrap_or(usize::MAX).min(self.len());
+        Ok(std::borrow::Cow::Borrowed(&self.input[..length]))
+    }
+
+    fn all_bytes(self) -> std::io::Result<std::borrow::Cow<'a, [u8]>> {
+        Ok(std::borrow::Cow::Borrowed(&self.input[..]))
+    }
+
+    fn image_reader(self) -> std::io::Result<image::ImageReader<Self::Reader>> {
+        with_format_guessed(image::ImageReader::new(self.open_reader()?), &self.path)
+    }
+
+    fn image_format(self) -> std::io::Result<Option<image::ImageFormat>> {
+        self.image_reader().map(|reader| reader.format())
+    }
+
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String> {
+        // The bytes lie in the source's `DecodeInput`, which the budget counts.
+        is_counted_input(&self.input[..])?;
+        decode_within_limits(dec)
+    }
+
+    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+        then(&self.input[..])
+    }
+}
+
 /// Returns the budget that this thread's decodes take their bytes from, the shared `BUDGET`.
 /// In tests, each test's own thread has a budget of its own (`TEST_BUDGET`).
 fn budget() -> &'static DecodeBudget {
@@ -552,33 +735,33 @@ pub fn pages(path: &Path) -> usize {
 }
 
 /// Page `page` (from 1) of a multi-page TIFF with its ICC profile, or the next size of an ICO.
-pub fn page_of(path: &Path, page: usize) -> Result<Page, String> {
+pub fn page_of<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, String> {
     let _job = start_decode_job();
-    match has_ext(path, &["ico"]) {
-        true => Ok((ico_size(path, page)?, None)),
-        false => tiff_page(path, page),
+    match has_ext(file.path(), &["ico"]) {
+        true => Ok((ico_size(file, page)?, None)),
+        false => tiff_page(file, page),
     }
 }
 
-/// Page `page` of `path` whole, with its ICC profile: the image itself turned upright by EXIF
+/// Page `page` of `file` whole, with its ICC profile: the image itself turned upright by EXIF
 /// if `rotate` for the first page, as the view shows it, and `page_of` for a later one. It is
 /// the one way a copy or an exported frame reads a page. Before, a later page of a TIFF was
 /// read without its profile, so its copy and exported frame lost their colours.
-pub fn load_page(path: &Path, page: usize, rotate: bool) -> Result<Page, String> {
+pub fn load_page<'a>(file: impl ImageBytes<'a>, page: usize, rotate: bool) -> Result<Page, String> {
     let _job = start_decode_job();
     match page {
-        0 => load_icc(path, rotate),
-        page => page_of(path, page),
+        0 => load_icc(file, rotate),
+        page => page_of(file, page),
     }
 }
 
 /// An ICO's images, as their directory entries, in the order they are shown. The first is the
 /// one the image crate shows first (most bits per pixel, then the largest, and the last of
 /// equals), and the others follow in the same way. It reads only the directory.
-fn ico_sizes(path: &Path) -> Result<Vec<[u8; 16]>, String> {
+fn ico_sizes<'a>(file: impl ImageBytes<'a>) -> Result<Vec<[u8; 16]>, String> {
     // It reads as many entries as the count can say (1 MB at most), because the image crate
     // picks among all of them.
-    let head = read_head(path, 6 + 16 * u64::from(u16::MAX)).map_err(|e| e.to_string())?;
+    let head = (file.first_bytes(6 + 16 * u64::from(u16::MAX))).map_err(|e| e.to_string())?;
     let le16 = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
     if head.len() < 6 || le16(&head, 0) != 0 || le16(&head, 2) != 1 {
         return Err("not an ICO".into());
@@ -598,13 +781,13 @@ fn ico_sizes(path: &Path) -> Result<Vec<[u8; 16]>, String> {
 
 /// Image `k` of an ICO in the order of `ico_sizes`, given to the image crate (which shows only
 /// one) as an ICO of that image alone.
-fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
+fn ico_size<'a>(file: impl ImageBytes<'a>, k: usize) -> Result<image::DynamicImage, String> {
     use std::io::{Read, Seek};
-    let mut entry = *ico_sizes(path)?.get(k).ok_or("no such size in the ICO")?;
+    let mut entry = *ico_sizes(file)?.get(k).ok_or("no such size in the ICO")?;
     let le32 =
         |e: &[u8; 16], at: usize| u32::from_le_bytes([e[at], e[at + 1], e[at + 2], e[at + 3]]);
     let (len, offset) = (le32(&entry, 8), le32(&entry, 12));
-    let mut file = open_regular(path).map_err(|e| e.to_string())?;
+    let mut file = file.open_reader().map_err(|e| e.to_string())?;
     let most = u64::from(len).min(1 << 26);
     let input = DecodeInput::reserve(22 + most)?;
     file.seek(std::io::SeekFrom::Start(offset.into()))
@@ -644,13 +827,12 @@ pub fn tiff_pages(path: &Path) -> usize {
 /// colour, which covers faxes and scanned documents. Grey of other kinds, as science writes
 /// it (32-bit floats of a height model or a microscope, signed or 32-bit integers), is
 /// stretched from its lowest value to its highest.
-pub fn tiff_page(path: &Path, page: usize) -> Result<Page, String> {
+pub fn tiff_page<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, String> {
     use image::DynamicImage as D;
     use tiff::ColorType as C;
     use tiff::decoder::DecodingResult as R;
-    let file = open_regular(path).map_err(|e| e.to_string())?;
-    let mut dec =
-        tiff::decoder::Decoder::new(std::io::BufReader::new(file)).map_err(|e| e.to_string())?;
+    let file = file.open_reader().map_err(|e| e.to_string())?;
+    let mut dec = tiff::decoder::Decoder::new(file).map_err(|e| e.to_string())?;
     dec.seek_to_image(page).map_err(|e| e.to_string())?;
     let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
     let color = dec.colortype().map_err(|e| e.to_string())?;
@@ -959,8 +1141,8 @@ pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
 /// Returns `None` when there is none, or when what is found is no ICC profile.
 // shortcut: the first profile is taken, which is the photo's own in phones' files; find the
 // primary item's through iprp/ipma if a file turns up with another before it.
-fn heif_icc(path: &Path) -> Option<Vec<u8>> {
-    let head = read_head(path, 1 << 20).ok()?;
+fn heif_icc<'a>(file: impl ImageBytes<'a>) -> Option<Vec<u8>> {
+    let head = file.first_bytes(1 << 20).ok()?;
     let at = head.windows(8).position(|w| w == b"colrprof")?;
     let size = u32::from_be_bytes(head.get(at.checked_sub(4)?..at)?.try_into().ok()?) as usize;
     let icc = head.get(at + 8..(at - 4).checked_add(size)?)?;
@@ -969,12 +1151,12 @@ fn heif_icc(path: &Path) -> Option<Vec<u8>> {
 
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
 /// ICC profile if it has one.
-pub fn load_icc(
-    path: &Path,
+pub fn load_icc<'a>(
+    file: impl ImageBytes<'a>,
     rotate: bool,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
     let _job = start_decode_job();
-    let (mut img, icc, turn, _) = load_unturned(path, rotate, None)?;
+    let (mut img, icc, turn, _) = load_unturned(file, rotate, None)?;
     // The whole image is wanted (Save As, a copy, a turned save), so it is turned whole.
     img.apply_orientation(turn);
     Ok((img, icc))
@@ -998,10 +1180,15 @@ fn shrunk_upright(
     Ok((img, orig))
 }
 
-/// The image at `path` with its ICC profile, and the EXIF turn returned rather than done, so a
+/// The image of `file` with its ICC profile, and the EXIF turn returned rather than done, so a
 /// caller that shrinks it turns the small image, not a copy of the whole one. The size is given
 /// only where the image came smaller than it is (ffmpeg's formats and SVG at `max`).
-fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unturned, String> {
+fn load_unturned<'a>(
+    file: impl ImageBytes<'a>,
+    rotate: bool,
+    max: Option<[u32; 2]>,
+) -> Result<Unturned, String> {
+    let path = file.path();
     let upright = Orientation::NoTransforms;
     // Only ffmpeg's formats and SVG take `max`, so without them it has no use.
     #[cfg(not(any(feature = "video", feature = "heic", feature = "avif", feature = "svg")))]
@@ -1012,13 +1199,13 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         return Ok((img, None, upright, size));
     }
     if has_ext(path, raw::EXTS) {
-        let (img, turn) = raw::unturned(&DecodeInput::read(path).map_err(|e| e.to_string())?)?;
+        let (img, turn) = file.with_counted(raw::unturned)?;
         return Ok((img, None, if rotate { turn } else { upright }, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::files::external::is_heif(path) {
         let (img, size) = crate::files::external::decode_heif(path, max)?;
-        return Ok((img, icc_profile(path), upright, size));
+        return Ok((img, heif_icc(file), upright, size));
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::model::listing::SVG_EXTS) {
@@ -1027,14 +1214,13 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::model::listing::JXL_EXTS) {
-        let file = open_regular(path).map_err(|e| e.to_string())?;
-        let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
-            .map_err(|e| e.to_string())?;
+        let reader = file.open_reader().map_err(|e| e.to_string())?;
+        let mut dec = jxl_oxide::integration::JxlDecoder::new(reader).map_err(|e| e.to_string())?;
         // jxl-oxide starts with no limit on what it allocates. A lossy JPEG XL needs some 24
         // bytes a pixel while it renders, so a camera photo of 24 MP takes about 600 MB. Four
         // times a decode's limit lets such photos through and stops a render of some 90 MP or
         // more. A header that claims a larger picture than a decode may hold is refused before
-        // that, by `from_decoder`.
+        // that, by its decode (`ImageBytes::decode`).
         let mut limits = image::Limits::default();
         limits.max_alloc = Some(4 * MAX_DECODE_BYTES);
         dec.set_limits(limits).map_err(|e| e.to_string())?;
@@ -1046,20 +1232,20 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let _reserved = reserve_from_budget(render.clamp(64 << 20, 4 * MAX_DECODE_BYTES))?;
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
-        let img = from_decoder(dec)?;
+        let img = file.decode(dec)?;
         return Ok((img, icc, upright, None));
     }
     if let Some(added) = crate::images::added_formats::for_path(path) {
         return Ok((added.decode(path)?, None, upright, None));
     }
-    // The image crate holds a JPEG's bytes while it decodes, and `image_reader` counts them in
-    // this job, beside its pixels.
-    let reader = image_reader(path).map_err(|e| e.to_string())?;
+    // The image crate holds a JPEG's bytes while it decodes, and they count in this job beside
+    // its pixels: `image_reader` counts a file's, and a `Source` is counted already.
+    let reader = file.image_reader().map_err(|e| e.to_string())?;
     let dec = reader.into_decoder().map_err(|e| e.to_string());
     // Grey TIFFs that the image crate does not take (floats, signed) go through the tiff crate.
     let mut dec = match dec {
         Err(e) if has_ext(path, crate::model::listing::TIFF_LIKE) => {
-            return tiff_page(path, 0)
+            return tiff_page(file, 0)
                 .map(|(img, icc)| (img, icc, upright, None))
                 .map_err(|_| e);
         }
@@ -1067,7 +1253,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     };
     // One EXIF block, as the info panel reads it, gives both the turn and the colour space.
     // A block that cannot be read shows the image as stored, unturned.
-    let exif = exif::block_from_decoder(path, &mut dec).ok().flatten();
+    let exif = exif::block_from_decoder(file, &mut dec).ok().flatten();
     let turn = match rotate {
         true => exif::stored_orientation(&mut dec, exif.as_deref()),
         false => upright,
@@ -1077,7 +1263,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let adobe = exif::is_adobe_rgb(exif.as_deref()?);
         adobe.then(|| ADOBE_RGB.clone())
     });
-    let mut img = from_decoder(dec)?;
+    let mut img = file.decode(dec)?;
     // Radiance HDR holds light as it was, far brighter than a screen, so it is brought into the
     // screen's range.
     if has_ext(path, &["hdr"]) {
@@ -1549,6 +1735,14 @@ fn open_regular_with_flags(
     let file = (std::fs::OpenOptions::new().read(true))
         .custom_flags(libc::O_NONBLOCK | flags)
         .open(path)?;
+    #[cfg(test)]
+    OPENS.with_borrow_mut(|opens| {
+        if let Some((counted, n)) = opens
+            && counted == path
+        {
+            *n += 1;
+        }
+    });
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(std::io::Error::new(
@@ -1629,11 +1823,8 @@ fn image_reader_and_whole_read(
     path: &Path,
 ) -> std::io::Result<(image::ImageReader<std::io::BufReader<std::fs::File>>, u64)> {
     let (file, meta) = open_regular_with_metadata(path)?;
-    let mut reader = image::ImageReader::new(std::io::BufReader::new(file));
-    if let Ok(format) = image::ImageFormat::from_path(path) {
-        reader.set_format(format);
-    }
-    let reader = reader.with_guessed_format()?;
+    let reader = image::ImageReader::new(std::io::BufReader::new(file));
+    let reader = with_format_guessed(reader, path)?;
     // The image crate's JPEG decoder reads the whole file before any of its limits apply, so a
     // JPEG larger than a decode may take is refused here, as read_limited refuses it. The format
     // counts as the bytes tell it, so a JPEG named .png is refused too. Other formats are read by
@@ -1645,6 +1836,18 @@ fn image_reader_and_whole_read(
     // A file of no known format is never read: its decoder fails first. Before, its length was
     // counted, up to 512 MB of the budget waited for and given back for nothing.
     Ok((reader, if is_jpeg { meta.len() } else { 0 }))
+}
+
+/// Gives `reader`, of the image at `path`, the format that the bytes tell, or the extension
+/// when they tell nothing, as `image::ImageReader::open` and `with_guessed_format` do.
+fn with_format_guessed<R: std::io::BufRead + std::io::Seek>(
+    mut reader: image::ImageReader<R>,
+    path: &Path,
+) -> std::io::Result<image::ImageReader<R>> {
+    if let Ok(format) = image::ImageFormat::from_path(path) {
+        reader.set_format(format);
+    }
+    reader.with_guessed_format()
 }
 
 /// Scale down to fit within `max`.

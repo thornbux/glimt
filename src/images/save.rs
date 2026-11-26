@@ -2,7 +2,7 @@
 //! XMP is kept, all in the same format. (A lossy WebP gets them back in RIFF chunks.)
 
 use crate::files::file_io::{FileFingerprint, RenameFailed};
-use crate::images::decode::load_icc;
+use crate::images::decode::{ImageBytes, Source, load_icc, start_decode_job};
 use crate::metadata::exif;
 use crate::model::listing::has_ext;
 use crate::support::format::escaped_name;
@@ -172,11 +172,12 @@ impl Format {
         }
     }
 
-    /// The format `path` would be copied in "as the original".
-    pub fn of(path: &Path) -> Format {
+    /// The format `file` would be copied in "as the original".
+    pub fn of<'a>(file: impl ImageBytes<'a>) -> Format {
+        let path = file.path();
         if crate::model::listing::is_jpeg(path) {
             Format::Jpeg
-        } else if has_ext(path, &["webp"]) && webp_lossless(path) == Some(false) {
+        } else if has_ext(path, &["webp"]) && webp_lossless(file) == Some(false) {
             Format::WebPLossy
         } else if has_ext(path, &["webp"]) {
             Format::WebP
@@ -315,26 +316,53 @@ pub fn save_rotated(
     // Taken before any read, so a file changed while it is turned is not written over.
     let read =
         crate::files::file_io::fingerprint_before_reading(path).map_err(|e| e.to_string())?;
-    let png = has_ext(path, &["png"]);
-    if !png && !has_ext(path, &["webp"]) {
+    if !has_ext(path, &["png", "webp"]) {
         return Err(tr("only JPEG, PNG and WebP can store the rotation").into());
     }
-    if animated(path)? {
+    let out = turned_file(path, rotate, turns, mirrored, webp_quality)?;
+    replace_with_sidecar(path, named, read, out, Derived::Turned)
+}
+
+/// The PNG or WebP at `path` turned as `save_rotated` turns it, encoded with its metadata. The
+/// file is read once (`Source`), and every step takes what it needs from that read. A file that
+/// cannot be read, also one too large to be read whole, is refused with its name, because the
+/// turn writes it anew and would lose what it could not read. The read is given back to the
+/// budget before `replace_with_sidecar` waits for the sidecar's lock.
+fn turned_file(
+    path: &Path,
+    rotate: bool,
+    turns: u8,
+    mirrored: bool,
+    webp_quality: u8,
+) -> Result<Vec<u8>, String> {
+    let _job = start_decode_job();
+    let source = &Source::read(path).map_err(|e| metadata_not_read(path, e))?;
+    if animated(source)? {
         return Err(tr("animated images are not turned").into());
     }
+    let png = has_ext(path, &["png"]);
     let encoding = match png {
         true => Encoding::Png,
-        false => Encoding::WebP(webp_lossless(path) == Some(false)),
+        false => Encoding::WebP(webp_lossless(source) == Some(false)),
     };
-    let (img, icc) = load_icc(path, rotate)?;
+    let (img, icc) = load_icc(source, rotate)?;
     let img = turned(img, turns, mirrored);
     let size = (img.width(), img.height());
-    let (exif, xmp, quarter) = derived_metadata(path, rotate, turns, size, Derived::Turned)?;
-    let mut out = encode(path, img, icc, exif, xmp, encoding, quarter, webp_quality)?;
-    if png {
-        out = png_with_photoshop_resources(&out, path)?;
+    let (exif, xmp, quarter) = derived_metadata(source, rotate, turns, size, Derived::Turned)?;
+    let out = encode(
+        Some(source),
+        img,
+        icc,
+        exif,
+        xmp,
+        encoding,
+        quarter,
+        webp_quality,
+    )?;
+    match png {
+        true => png_with_photoshop_resources(&out, source),
+        false => Ok(out),
     }
-    replace_with_sidecar(path, named, read, out, Derived::Turned)
 }
 
 /// Replaces the image at `real` with `out` and makes the sidecar of `named`, the name the list
@@ -632,27 +660,54 @@ fn replace_with_sidecar_locked<'a>(
 /// unless stripped its EXIF (upright) and XMP. JPEG and a lossy WebP are at their quality (the
 /// WebP through ffmpeg), and PNG and lossless WebP are without loss.
 pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String> {
-    if animated(path)? {
+    // The file read counts in the decodes' budget until the copy is made.
+    let _job = start_decode_job();
+    match source_of_copy(path)? {
+        Some(source) => copy_from(&source, Some(&source), how),
+        None => copy_from(path, None, how),
+    }
+}
+
+/// Reads the file at `path` that a copy is made of, once (`Source`). Returns `None` for a file
+/// too large to be read whole, such as a PSB that an added format reads, as it has no metadata
+/// that a copy could keep. Returns an error that names it when it could not be read, so that no
+/// copy is made without its metadata.
+fn source_of_copy(path: &Path) -> Result<Option<Source>, String> {
+    match Source::read(path) {
+        Ok(source) => Ok(Some(source)),
+        Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => Ok(None),
+        Err(e) => Err(metadata_not_read(path, e)),
+    }
+}
+
+/// `copy_bytes` of `file`, whose metadata is taken from `source`, the same file read. Without a
+/// source, for a file too large to be read whole, the copy has no metadata.
+fn copy_from<'a>(
+    file: impl ImageBytes<'a>,
+    source: Option<&Source>,
+    how: &CopyAs,
+) -> Result<(Vec<u8>, Format), String> {
+    if animated(file)? {
         return Err(tr("animated images are not saved as a copy").into());
     }
-    let format = how.format.unwrap_or_else(|| Format::of(path));
+    let format = how.format.unwrap_or_else(|| Format::of(file));
     let encoding = match format {
         Format::Jpeg => Encoding::Jpeg(how.jpeg_quality),
         Format::Png => Encoding::Png,
         Format::WebP => Encoding::WebP(false),
         Format::WebPLossy => Encoding::WebP(true),
     };
-    let (img, icc) = pixels(path, how)?;
+    let (img, icc) = pixels(file, how)?;
     let size = (img.width(), img.height());
-    let (exif, xmp, quarter) = match how.strip {
-        true => (None, None, false),
-        false => derived_metadata(path, how.rotate, how.turns, size, Derived::Copy)?,
-    };
     // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
     // are dropped when stripped, because the text chunks may say where and by whom.
-    let from = if how.strip { Path::new("") } else { path };
+    let source = source.filter(|_| !how.strip);
+    let (exif, xmp, quarter) = match source {
+        None => (None, None, false),
+        Some(source) => derived_metadata(source, how.rotate, how.turns, size, Derived::Copy)?,
+    };
     let out = encode(
-        from,
+        source,
         img,
         icc,
         exif,
@@ -664,14 +719,17 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
     Ok((out, format))
 }
 
-/// The pixels of `path` as `how` asks for them, with its ICC profile. That is the page shown,
+/// The pixels of `file` as `how` asks for them, with its ICC profile. That is the page shown,
 /// turned as shown, the part, and smaller. Every copy of the shown image starts from these,
 /// whether it is saved or put on the clipboard.
-fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    let (img, icc) = crate::images::decode::load_page(path, how.page, how.rotate)?;
+fn pixels<'a>(
+    file: impl ImageBytes<'a>,
+    how: &CopyAs,
+) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
+    let (img, icc) = crate::images::decode::load_page(file, how.page, how.rotate)?;
     // The file is looked at after it was read, so a file that took the name before the read or
     // during it is refused alike.
-    how.is_still_the_file_shown(path)?;
+    how.is_still_the_file_shown(file.path())?;
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
         if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
@@ -691,16 +749,7 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
 /// a 32-bit float page is written in 16 bits.
 pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, String> {
     let img = turned(img, how.turns, how.mirrored);
-    encode(
-        Path::new(""),
-        img,
-        None,
-        None,
-        None,
-        Encoding::Png,
-        false,
-        0,
-    )
+    encode(None, img, None, None, None, Encoding::Png, false, 0)
 }
 
 /// The image as `how` shows it, in sRGB, for Edit → Copy Image. That copied the image
@@ -1237,60 +1286,55 @@ pub fn save_as(
     Ok((to, sidecar_failed))
 }
 
-/// Whether `path` is animated. An animation is refused, because only the first frame would be
+/// Whether `file` is animated. An animation is refused, because only the first frame would be
 /// written back. It asks by what the file is, because it is read by its content. An animated
 /// GIF named a.png is still animated, and a JPEG named so is not. Returns an error when the file
 /// could not be read, which the pixels' read would meet too. Before, it was taken for a file
 /// that is not animated, so an animation read again after a share's answer came back was
 /// turned, and its own file written anew with its first frame only.
-fn animated(path: &Path) -> Result<bool, String> {
-    let format = crate::images::decode::image_format(path).map_err(|e| e.to_string())?;
-    let file = || crate::images::decode::open_regular(path).map(std::io::BufReader::new);
-    let file = || file().map_err(|e| e.to_string());
+fn animated<'a>(file: impl ImageBytes<'a>) -> Result<bool, String> {
+    let format = file.image_format().map_err(|e| e.to_string())?;
+    let open = || file.open_reader().map_err(|e| e.to_string());
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
-        Some(image::ImageFormat::Png) => (image::codecs::png::PngDecoder::new(file()?))
+        Some(image::ImageFormat::Png) => (image::codecs::png::PngDecoder::new(open()?))
             .and_then(|d| d.is_apng())
             .map_err(|e| e.to_string())?,
-        Some(image::ImageFormat::WebP) => (image::codecs::webp::WebPDecoder::new(file()?))
+        Some(image::ImageFormat::WebP) => (image::codecs::webp::WebPDecoder::new(open()?))
             .map_err(|e| e.to_string())?
             .has_animation(),
         _ => false,
     })
 }
 
-/// Reads the EXIF block and XMP of `path` and makes them what a file of new pixels of `size`
+/// Reads the EXIF block and XMP of `source` and makes them what a file of new pixels of `size`
 /// keeps of them, as the image turned or as a copy (`how`). The pixels are the stored ones
 /// turned upright by EXIF with Auto Rotate (`rotate`) and then `turns` quarters by the view.
 /// Both writers take the quarter flag from here, because a copy once passed none, and a PNG
-/// copied a quarter turned kept its DPI across and down unswapped. Returns an error that names
-/// `path` when its metadata could not be read, so that no file is written without it.
+/// copied a quarter turned kept its DPI across and down unswapped. The metadata is taken from
+/// the file read once, so no read fails here that the file's own read did not. Returns an error
+/// that names the file when its metadata could not be made out of what was read.
 fn derived_metadata(
-    path: &Path,
+    source: &Source,
     rotate: bool,
     turns: u8,
     size: (u32, u32),
     how: Derived,
 ) -> Result<Metadata, String> {
-    // A JPEG that the decoder reads whole, and a PNG read whole below, count in the decodes'
-    // budget until the metadata is made.
-    let _job = crate::images::decode::start_decode_job();
+    let path = source.path();
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
-    let mut exif = exif::derived(path, how).map_err(|e| metadata_not_read(path, e))?;
+    let mut exif = exif::derived(source, how).map_err(|e| metadata_not_read(path, e))?;
     let is_raw = has_ext(path, crate::images::raw::EXTS);
-    let decoder = match crate::images::decode::image_reader(path) {
-        Ok(reader) => match reader.into_decoder() {
-            Ok(decoder) => Some(decoder),
-            Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
-            // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP
-            // that Glimt reads.
-            Err(_) => None,
-        },
-        // A file too large to be read whole (a JPEG, or one of no format the image crate
-        // knows, such as a PSB that an added format reads) has no XMP that it could give.
-        Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => None,
-        Err(e) => return Err(metadata_not_read(path, e)),
+    let reader = source
+        .image_reader()
+        .map_err(|e| metadata_not_read(path, e))?;
+    let decoder = match reader.into_decoder() {
+        Ok(decoder) => Some(decoder),
+        Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
+        // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP that
+        // Glimt reads.
+        Err(_) => None,
     };
     let (mut xmp, stored) = match decoder {
         Some(mut d) => {
@@ -1311,15 +1355,7 @@ fn derived_metadata(
     // may drop (`png_with_chunks`). Their orientation was not shown, so `stored` is read
     // without it.
     if has_ext(path, &["png"]) && (xmp.is_none() || exif.is_none()) {
-        let found = match crate::images::decode::read_limited(path) {
-            Ok(bytes) => exif::png_metadata(&bytes),
-            // A copy of a PNG too large to be read whole has no chunks after its pixels that
-            // it could keep. A turn writes the user's own file anew, which would lose them.
-            Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge && how != Derived::Turned => {
-                Default::default()
-            }
-            Err(e) => return Err(metadata_not_read(path, e)),
-        };
+        let found = exif::png_metadata(source);
         exif = exif.or_else(|| exif::derived_of(&found.exif?, how));
         xmp = xmp.or(found.xmp);
     }
@@ -1380,8 +1416,8 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
 /// property of the sidecar, which Glimt writes, wins over one of the same name inside the image,
 /// and IIM only adds what neither has. Returns an error when the sidecar is there but cannot be
 /// read, as a copy of the image without it would leave out the alt text the user wrote for it.
-pub(crate) fn shared_metadata(
-    path: &Path,
+pub(crate) fn shared_metadata<'a>(
+    file: impl ImageBytes<'a>,
     embedded_exif: Option<&[u8]>,
     embedded: Option<&[u8]>,
     iim: crate::metadata::xmp::Properties,
@@ -1389,11 +1425,12 @@ pub(crate) fn shared_metadata(
     use crate::metadata::xmp;
     // A PNG without an eXIf chunk may keep its EXIF in a text chunk, as exiv2 and GIMP write it,
     // which the panel's reader unpacks (`exif::derived`).
+    let path = file.path();
     let is_png = crate::model::listing::has_ext(path, &["png"]);
     let exif = match embedded_exif {
         Some(block) => Some(block.to_vec()),
         None if is_png => {
-            exif::derived(path, Derived::Shared).map_err(|e| metadata_not_read(path, e))?
+            exif::derived(file, Derived::Shared).map_err(|e| metadata_not_read(path, e))?
         }
         None => None,
     };
@@ -1481,13 +1518,15 @@ fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::Dynamic
 }
 
 /// `img` encoded as `encoding` with the profile, EXIF and XMP. A PNG keeps the other chunks of
-/// `path` (`quarter` says it was turned a quarter since). It is encoded in memory, because an
+/// `source`, the PNG it was made of, read once (`quarter` says it was turned a quarter since).
+/// It takes no path, so it cannot read the file again and take a failed read for a PNG without
+/// them. It is encoded in memory, because an
 /// encoder that owns its file flushes it on drop, where a full disk would go unnoticed and a
 /// cut-off file would replace the photo. The pixels and the profile are made to fit `encoding`
 /// first (`writable_pixels`), so every derived file is written from pixels its format holds.
 #[allow(clippy::too_many_arguments)] // what a derived file is made of, each told apart
 fn encode(
-    path: &Path,
+    source: Option<&Source>,
     img: image::DynamicImage,
     icc: Option<Vec<u8>>,
     exif: Option<Vec<u8>>,
@@ -1562,13 +1601,11 @@ fn encode(
     written.map_err(|e| e.to_string())?;
     // The rest of what the PNG said of itself is kept: its text (a comment, an AI tool's
     // prompt), its DPI and its gamma. Otherwise a 300 dpi scan prints at 72 after a turn. It is
-    // only taken from a PNG, which counts in the decodes' budget while it is read.
-    let _job = crate::images::decode::start_decode_job();
+    // only taken from a PNG.
     if let Encoding::Png = encoding
-        && has_ext(path, &["png"])
-        && let Ok(old) = crate::images::decode::read_limited(path)
+        && let Some(old) = source.filter(|source| has_ext(source.path(), &["png"]))
     {
-        out = png_with_chunks(&out, &old, quarter, &carries);
+        out = png_with_chunks(&out, old, quarter, &carries);
     }
     if let Some(xmp) = &xmp {
         out = match encoding {
@@ -1659,18 +1696,15 @@ fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, Stri
     Ok(out)
 }
 
-/// Puts the Photoshop resources ("Raw profile type 8bim") of the PNG at `old` into the turned
+/// Puts the Photoshop resources ("Raw profile type 8bim") of the PNG `old` into the turned
 /// PNG `new`, without their thumbnail and old orientation (`DROPPED_PHOTOSHOP_RESOURCES`). They
 /// hold the IPTC caption, copyright and keywords that ImageMagick writes there. `png_with_chunks`
 /// drops them from every file written with new pixels, because the thumbnail shows the whole
 /// frame, so a crop or copy keeps none of them. Resources whose data is broken stay dropped, as
-/// before. Returns an error that names `old` when the file could not be read, also when it is too
-/// large to be read whole, because the turn writes it anew and would lose its resources.
-fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, String> {
-    // The old PNG counts in the decodes' budget while it is read.
-    let _job = crate::images::decode::start_decode_job();
-    let bytes = crate::images::decode::read_limited(old).map_err(|e| metadata_not_read(old, e))?;
-    let resources = (exif::png_metadata(&bytes).photoshop_resources)
+/// before. They are taken from the file read once, which the turn refuses when it cannot read
+/// it (`turned_file`), so no failed read is taken for a PNG without them.
+fn png_with_photoshop_resources(new: &[u8], old: &Source) -> Result<Vec<u8>, String> {
+    let resources = (exif::png_metadata(old).photoshop_resources)
         .and_then(|bytes| without_dropped_photoshop_resources(&bytes));
     let Some(resources) = resources.filter(|r| !r.is_empty()) else {
         return Ok(new.to_vec());
@@ -1774,9 +1808,9 @@ pub(crate) fn crc32(bytes: &[u8]) -> u32 {
 
 /// Whether a WebP file is lossless (a VP8L image) or lossy (VP8). Returns `None` if neither is
 /// found.
-pub fn webp_lossless(path: &Path) -> Option<bool> {
+pub fn webp_lossless<'a>(file: impl ImageBytes<'a>) -> Option<bool> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = crate::images::decode::open_regular(path).ok()?;
+    let mut file = file.open_reader().ok()?;
     let mut head = [0; 12];
     file.read_exact(&mut head).ok()?;
     if &head[..4] != b"RIFF" || &head[8..] != b"WEBP" {
@@ -2190,8 +2224,7 @@ mod tests {
         let exif_of = |exif: Vec<u8>| {
             let img = image::RgbImage::new(2, 2).into();
             let encoding = super::Encoding::Jpeg(90);
-            let path = std::path::Path::new("");
-            let out = super::encode(path, img, None, Some(exif), None, encoding, false, 90);
+            let out = super::encode(None, img, None, Some(exif), None, encoding, false, 90);
             let reader = image::ImageReader::new(std::io::Cursor::new(out.unwrap()));
             let mut dec = reader
                 .with_guessed_format()
@@ -2212,16 +2245,7 @@ mod tests {
     fn a_derived_file_has_pixels_its_format_holds() {
         use image::ImageDecoder;
         let write = |img: image::DynamicImage, encoding| {
-            let out = super::encode(
-                std::path::Path::new(""),
-                img,
-                None,
-                None,
-                None,
-                encoding,
-                false,
-                90,
-            );
+            let out = super::encode(None, img, None, None, None, encoding, false, 90);
             let out = out.unwrap();
             let reader = image::ImageReader::new(std::io::Cursor::new(out));
             reader
@@ -2264,7 +2288,7 @@ mod tests {
         let (gray, cmyk) = (other(b"GRAY"), other(b"CMYK"));
         let profile = |img: image::DynamicImage, icc: &Vec<u8>, encoding| {
             let out = super::encode(
-                std::path::Path::new(""),
+                None,
                 img,
                 Some(icc.clone()),
                 None,
@@ -2369,14 +2393,14 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A turn of a PNG whose file cannot be read for its Photoshop resources, as on a share that
-    /// stopped answering after the pixels were read, is refused with its name. Before, the failed
-    /// read was taken for a PNG without them, and the turn wrote the photo's own file anew
-    /// without its IPTC caption, copyright and keywords, untold.
+    /// A turn of a PNG whose file cannot be read, so neither for its pixels nor for its
+    /// Photoshop resources, is refused with its name. Before, a failed read of the resources was
+    /// taken for a PNG without them, and the turn wrote the photo's own file anew without its
+    /// IPTC caption, copyright and keywords, untold.
     #[test]
     fn a_turn_is_refused_when_its_photoshop_resources_cannot_be_read() {
         let gone = std::env::temp_dir().join(format!("glimt-8bim-gone-{}.png", std::process::id()));
-        let refused = super::png_with_photoshop_resources(b"", &gone).unwrap_err();
+        let refused = super::turned_file(&gone, false, 1, false, 90).unwrap_err();
         assert!(refused.contains("glimt-8bim-gone"), "{refused}");
     }
 
@@ -2394,6 +2418,39 @@ mod tests {
         let animated = super::animated(path.as_path());
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(animated.is_err(), "{animated:?}");
+    }
+
+    /// A turn and a copy read their file once, and every step takes what it needs from that
+    /// read (`Source`). Before, each step read the file again, so a share that failed one later
+    /// read made that step's part none, untold: a turned PNG lost its text and DPI (`encode`),
+    /// and a turned WebP its colour profile (`load_unturned`).
+    #[test]
+    fn a_turn_or_a_copy_reads_its_file_once() {
+        use crate::images::decode::OPENS;
+        let dir = std::env::temp_dir().join(format!("glimt-read-once-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = b"tEXtComment\0kept";
+        let png = super::png_with_chunk_after_header(&black_png(4, 2), text).unwrap();
+        std::fs::write(dir.join("a.png"), png).unwrap();
+        image::RgbImage::new(4, 2).save(dir.join("a.webp")).unwrap();
+        image::RgbImage::new(4, 2).save(dir.join("a.jpg")).unwrap();
+        let opens = |path: &std::path::Path, work: &dyn Fn()| {
+            OPENS.set(Some((path.to_owned(), 0)));
+            work();
+            OPENS.take().map_or(0, |(_, n)| n)
+        };
+        let mut counted = Vec::new();
+        for name in ["a.png", "a.webp", "a.jpg"] {
+            let path = dir.join(name);
+            let copy = || drop(super::copy_bytes(&path, &copy_as(None, false)).unwrap());
+            counted.push((name, "copy", opens(&path, &copy)));
+            if name != "a.jpg" {
+                let turn = || drop(super::turned_file(&path, true, 1, false, 90).unwrap());
+                counted.push((name, "turn", opens(&path, &turn)));
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(counted.iter().all(|(.., n)| *n == 1), "{counted:?}");
     }
 
     /// Photoshop resources broken in thousands of ways are read without a panic or a loop.
@@ -2901,8 +2958,9 @@ mod tests {
         for (name, bytes) in files {
             let file = dir.join(name);
             std::fs::write(&file, bytes).unwrap();
+            let source = &crate::images::decode::Source::read(&file).unwrap();
             let (exif, _, _) =
-                super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Copy).unwrap();
+                super::derived_metadata(source, true, 0, (4, 4), super::Derived::Copy).unwrap();
             let exif = exif.expect(name);
             assert_eq!(exif.len(), CANON_EXIF.len(), "{name}");
             assert!(
@@ -2926,8 +2984,7 @@ mod tests {
             let gone = dir.join(name);
             let read = crate::metadata::exif::derived(&gone, super::Derived::Copy);
             assert!(read.is_err(), "{name}");
-            let refused =
-                super::derived_metadata(&gone, true, 0, (4, 4), super::Derived::Copy).unwrap_err();
+            let refused = super::source_of_copy(&gone).err().unwrap();
             assert!(refused.contains(name), "{refused}");
         }
     }
@@ -2977,9 +3034,7 @@ mod tests {
         sparse
             .set_len(crate::images::decode::MAX_DECODE_BYTES + 1)
             .unwrap();
-        let (exif, xmp, _) =
-            super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Copy).unwrap();
-        assert!(exif.is_none() && xmp.is_none());
+        assert!(super::source_of_copy(&file).unwrap().is_none());
     }
 
     /// A photo whose XMP cannot be read (here compressed, with its data broken) is neither turned
@@ -3023,8 +3078,9 @@ mod tests {
         let mut enc = image::codecs::png::PngEncoder::new(&mut out);
         enc.set_exif_metadata(block.clone()).unwrap();
         image::RgbImage::new(4, 4).write_with_encoder(enc).unwrap();
+        let source = &crate::images::decode::Source::read(&file).unwrap();
         let (exif, _, _) =
-            super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Turned).unwrap();
+            super::derived_metadata(source, true, 0, (4, 4), super::Derived::Turned).unwrap();
         let exif = exif.unwrap();
         assert_eq!(exif.len(), block.len());
         assert!(exif.ends_with(b"03:04:05\0a SubIFDs directory"));

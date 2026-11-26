@@ -3292,7 +3292,7 @@ fn images_are_turned_after_they_shrink() {
             "load_icc(",
             &[
                 ("images/decode.rs", "load_page"),
-                ("images/save.rs", "save_rotated"),
+                ("images/save.rs", "turned_file"),
             ],
         ),
     ];

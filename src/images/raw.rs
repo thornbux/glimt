@@ -3,8 +3,8 @@
 //! which works for TIFF-based RAW (CR2, NEF, ARW, DNG, ORF, PEF, RW2 …) as well as RAF and CR3
 //! without parsing each format.
 
+use crate::images::decode::ImageBytes;
 use image::ImageDecoder;
-use std::path::Path;
 
 pub const EXTS: &[&str] = &[
     "cr2", "cr3", "crw", "nef", "nrw", "arw", "sr2", "srf", "dng", "orf", "rw2", "raf", "pef",
@@ -45,10 +45,10 @@ pub fn unturned(
 /// The EXIF block: the file itself if it is TIFF-based (its header is enough), else the one
 /// in the preview JPEG. Returns `Ok(None)` when there is none, and an error when the file could
 /// not be read.
-pub fn exif(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    let head = crate::images::decode::read_head(path, 1 << 20)?;
+pub fn exif<'a>(file: impl ImageBytes<'a>) -> std::io::Result<Option<Vec<u8>>> {
+    let head = file.first_bytes(1 << 20)?;
     if matches!(head.get(..2), Some(b"II" | b"MM")) {
-        return Ok(Some(head));
+        return Ok(Some(head.into_owned()));
     }
     // The preview's headers come before its picture, so the first MB has them in most files;
     // the whole file (50 MB and more) only when not: sorting thousands by date reads the heads.
@@ -59,7 +59,7 @@ pub fn exif(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     };
     match from(&head) {
         Some(exif) => Ok(Some(exif)),
-        None => Ok(from(&crate::images::decode::read_limited(path)?)),
+        None => Ok(from(&file.all_bytes()?)),
     }
 }
 

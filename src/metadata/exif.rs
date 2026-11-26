@@ -2,6 +2,7 @@
 //! fields a photographer looks at, every field for the EXIF window, the dates that sorting by
 //! EXIF date reads, and the orientation, which turning a JPEG writes.
 
+use crate::images::decode::ImageBytes;
 use image::metadata::Orientation;
 use std::path::Path;
 
@@ -898,8 +899,8 @@ fn segment<'a>(data: &'a [u8], &(_, start, len): &(u8, usize, usize)) -> &'a [u8
 /// where it is: the decoder would read the whole file, and sorting by EXIF date reads every file
 /// of the folder. `Some(None)` if it has none; `None` if it is no JPEG or that part is not enough
 /// to tell, so the decoder reads the whole file after all.
-pub fn jpeg_app1(path: &Path, prefix: &[u8]) -> Option<Option<Vec<u8>>> {
-    let head = crate::images::decode::read_head(path, 1 << 18).ok()?;
+pub fn jpeg_app1<'a>(file: impl ImageBytes<'a>, prefix: &[u8]) -> Option<Option<Vec<u8>>> {
+    let head = file.first_bytes(1 << 18).ok()?;
     if !head.starts_with(&[0xff, 0xd8]) {
         return None;
     }
@@ -984,34 +985,36 @@ fn add_orientation(
     Ok(())
 }
 
-/// Reads the EXIF block of `path`, as the panel, the date sort and a copy read it. Returns
+/// Reads the EXIF block of `file`, as the panel, the date sort and a copy read it. Returns
 /// `Ok(None)` when the file has none, is of a format whose EXIF Glimt does not read, or is
 /// too large to be read whole where its block is, as such a file has no block a copy could
 /// keep. Returns an error when the file or its metadata could not be read, so that a copy is not
 /// written without it as if it had none.
-fn read_exif_block(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    match read_exif_block_up_to_the_cap(path) {
+fn read_exif_block<'a>(file: impl ImageBytes<'a>) -> std::io::Result<Option<Vec<u8>>> {
+    match read_exif_block_up_to_the_cap(file) {
         Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => Ok(None),
         read => read,
     }
 }
 
-/// `read_exif_block` of `path`, with an error of the kind `FileTooLarge` when the file is too
+/// `read_exif_block` of `file`, with an error of the kind `FileTooLarge` when the file is too
 /// large to be read whole where its block is.
-fn read_exif_block_up_to_the_cap(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+fn read_exif_block_up_to_the_cap<'a>(
+    file: impl ImageBytes<'a>,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let path = file.path();
     // A RAW or HEIC whose EXIF is not in its first MB, or a JPEG under another name, is read
     // whole, and that counts in the decodes' budget while the block is found. The sort by date
     // and the "exif:" search read a folder's files in several threads at once.
     let _job = crate::images::decode::start_decode_job();
     if crate::model::listing::has_ext(path, crate::images::raw::EXTS) {
-        return crate::images::raw::exif(path);
+        return crate::images::raw::exif(file);
     }
     #[cfg(feature = "jxl")]
     if crate::model::listing::has_ext(path, crate::model::listing::JXL_EXTS) {
-        let file = std::io::BufReader::new(crate::images::decode::open_regular(path)?);
-        let mut dec = jxl_oxide::integration::JxlDecoder::new(file)
+        let mut dec = jxl_oxide::integration::JxlDecoder::new(file.open_reader()?)
             .map_err(|e| std::io::Error::other(e.to_string()))?;
-        return block_from_decoder(path, &mut dec);
+        return block_from_decoder(file, &mut dec);
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
     // From the first MB, where it usually is, before the whole file; a MB of it at most.
@@ -1021,7 +1024,7 @@ fn read_exif_block_up_to_the_cap(path: &Path) -> std::io::Result<Option<Vec<u8>>
                 .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
             Some(data[at..data.len().min(at + (1 << 20))].to_vec())
         };
-        let head = crate::images::decode::read_head(path, 1 << 20)?;
+        let head = file.first_bytes(1 << 20)?;
         // Found too near the head's end, it may be cut short (EXIF blocks reach 64 KB).
         let whole = head.len() < 1 << 20;
         let in_head = find(&head).filter(|e| whole || e.len() > 1 << 16);
@@ -1029,11 +1032,11 @@ fn read_exif_block_up_to_the_cap(path: &Path) -> std::io::Result<Option<Vec<u8>>
         return match (in_head, whole) {
             (Some(exif), _) => Ok(Some(exif)),
             (None, true) => Ok(None),
-            (None, false) => Ok(find(&crate::images::decode::read_limited(path)?)),
+            (None, false) => Ok(find(&file.all_bytes()?)),
         };
     }
     if crate::model::listing::is_jpeg(path)
-        && let Some(exif) = jpeg_app1(path, b"Exif\0\0")
+        && let Some(exif) = jpeg_app1(file, b"Exif\0\0")
     {
         return Ok(exif);
     }
@@ -1042,11 +1045,11 @@ fn read_exif_block_up_to_the_cap(path: &Path) -> std::io::Result<Option<Vec<u8>>
     // its text.
     // One the png crate cannot read is read again below, which tells why.
     if crate::model::listing::has_ext(path, &["png"])
-        && let Ok(exif) = png_exif(path)
+        && let Ok(exif) = png_exif(file)
     {
         return Ok(exif);
     }
-    let reader = crate::images::decode::image_reader(path)?;
+    let reader = file.image_reader()?;
     let mut dec = match reader.into_decoder() {
         Ok(dec) => dec,
         Err(image::ImageError::IoError(e)) => return Err(e),
@@ -1054,10 +1057,10 @@ fn read_exif_block_up_to_the_cap(path: &Path) -> std::io::Result<Option<Vec<u8>>
         // Glimt reads.
         Err(_) => return Ok(None),
     };
-    block_from_decoder(path, &mut dec)
+    block_from_decoder(file, &mut dec)
 }
 
-/// Reads the EXIF block of `path` as a file made from its image keeps it (`how`). It is read as the
+/// Reads the EXIF block of `file` as a file made from its image keeps it (`how`). It is read as the
 /// panel reads it (`read_exif_block`), so a copy of a HEIC, AVIF, JPEG XL or RAW photo keeps the
 /// EXIF the panel shows. Before, a copy read it only through the image crate, which cannot open
 /// those, and lost it. The block is made a bare TIFF block, because a JPEG's encoder puts its own
@@ -1067,8 +1070,11 @@ fn read_exif_block_up_to_the_cap(path: &Path) -> std::io::Result<Option<Vec<u8>>
 /// is cut (`derived_block`). A copy for sharing gets the whole block too, because it takes only
 /// the tags the user keeps into a block made new (`shared_block`). Returns `Ok(None)` when there
 /// is no block, and an error when it could not be read (`read_exif_block`).
-pub fn derived(path: &Path, how: crate::images::save::Derived) -> std::io::Result<Option<Vec<u8>>> {
-    Ok(read_exif_block(path)?.and_then(|raw| derived_of(&raw, how)))
+pub fn derived<'a>(
+    file: impl ImageBytes<'a>,
+    how: crate::images::save::Derived,
+) -> std::io::Result<Option<Vec<u8>>> {
+    Ok(read_exif_block(file)?.and_then(|raw| derived_of(&raw, how)))
 }
 
 /// Makes the EXIF block `raw` what a file made as `how` keeps of it, as `derived` does.
@@ -1519,18 +1525,18 @@ pub fn mp_entries(mpf: &[u8]) -> Option<Vec<[u32; 3]>> {
     )
 }
 
-/// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
+/// Reads the EXIF block of `file` through `dec`, the image crate's decoder of it. A PNG keeps
 /// EXIF in an eXIf chunk, which the decoder reads, or in the text chunk that exiv2 (digiKam,
 /// GIMP) and older ImageMagick write (`png_exif`). This is the one reader of an EXIF block the
 /// image crate decodes, so the panel, the date sort and a copy or turned file all see the same.
 /// Returns `Ok(None)` when there is none, and an error when it could not be read.
-pub fn block_from_decoder(
-    path: &Path,
+pub fn block_from_decoder<'a>(
+    file: impl ImageBytes<'a>,
     dec: &mut impl image::ImageDecoder,
 ) -> std::io::Result<Option<Vec<u8>>> {
     let exif = dec.exif_metadata().map_err(std::io::Error::other)?;
     match exif {
-        None if crate::model::listing::has_ext(path, &["png"]) => match png_exif(path) {
+        None if crate::model::listing::has_ext(file.path(), &["png"]) => match png_exif(file) {
             // A file named .png that the decoder read as another format holds no PNG chunks.
             Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Ok(None),
             read => read,
@@ -1559,16 +1565,17 @@ pub fn stored_orientation(dec: &mut impl image::ImageDecoder, exif: Option<&[u8]
 /// "Raw profile type APP1", plain, compressed (zTXt) or international (iTXt). Returns
 /// `Ok(None)` for a PNG without one, and an error when the png crate cannot read the file, of
 /// the kind `InvalidData` when the file is no PNG it reads.
-fn png_exif(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+fn png_exif<'a>(file: impl ImageBytes<'a>) -> std::io::Result<Option<Vec<u8>>> {
     // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it,
     // so the panel and the date sort do not read a whole PNG; read the chunks after IDAT too if
     // users miss EXIF there. A turn or copy reads them all (`png_metadata`), as it drops them.
     const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
-    let file = std::io::BufReader::new(crate::images::decode::open_regular(path)?);
-    let reader = png::Decoder::new(file).read_info().map_err(|e| match e {
-        png::DecodingError::IoError(e) => e,
-        e => std::io::Error::new(std::io::ErrorKind::InvalidData, e),
-    })?;
+    let reader = png::Decoder::new(file.open_reader()?)
+        .read_info()
+        .map_err(|e| match e {
+            png::DecodingError::IoError(e) => e,
+            e => std::io::Error::new(std::io::ErrorKind::InvalidData, e),
+        })?;
     let info = reader.info();
     if let Some(exif) = &info.exif_metadata {
         return Ok(Some(exif.to_vec()));

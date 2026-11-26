@@ -8,7 +8,9 @@
 //! thousands of photos are listed in seconds.
 
 use crate::files::config::fits_on_a_line;
-use crate::images::decode::{MAX_DECODE_BYTES, open_regular_with_metadata, read_head};
+use crate::images::decode::{
+    ImageBytes, MAX_DECODE_BYTES, Source, open_regular_with_metadata, read_head,
+};
 use crate::images::save::{MAX_JPEG_EXIF, SharedMetadata, crc32, shared_metadata};
 use crate::metadata::xmp::Properties;
 use crate::support::format::without_control_characters;
@@ -1385,11 +1387,12 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
         return Ok(None);
     }
     // The file counts in the decodes' budget while its copy is made, as the copies of a
-    // selection are made in a job of their own.
+    // selection are made in a job of their own. It is read once, and its metadata is read
+    // from that read too (`shared_metadata`), never from the file again.
     let _job = crate::images::decode::start_decode_job();
-    let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
+    let source = &Source::read(path).map_err(|e| e.to_string())?;
     let keeps = |tag: &str| kept.contains(tag);
-    with_walked(path, &data, |walked, mut metadata| {
+    with_walked(source, source, |walked, mut metadata| {
         // A copy that leaves out the images after the main one still keeps the gain map.
         let gain_map = match &walked.gain_map {
             Some(gain_map) if !keeps(MPF) => Some(gain_map_copy(gain_map)?),
@@ -1418,11 +1421,11 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
     .transpose()
 }
 
-/// Walks `data`, read of `path`, reads what it may keep of its metadata, and gives both to
+/// Walks `data`, read of `file`, reads what it may keep of its metadata, and gives both to
 /// `then`. The EXIF block is the one found in the walk, so the file is not read again for it.
 /// Returns `None` for a file that is not a JPEG, PNG or WebP.
-fn with_walked<T>(
-    path: &Path,
+fn with_walked<'a, T>(
+    file: impl ImageBytes<'a>,
     data: &[u8],
     then: impl FnOnce(&Walked, SharedMetadata) -> T,
 ) -> Result<Option<T>, String> {
@@ -1430,7 +1433,7 @@ fn with_walked<T>(
         return Ok(None);
     };
     let iim = std::mem::take(&mut walked.iim);
-    let metadata = shared_metadata(path, walked.exif, walked.xmp, iim)?;
+    let metadata = shared_metadata(file, walked.exif, walked.xmp, iim)?;
     Ok(Some(then(&walked, metadata)))
 }
 
