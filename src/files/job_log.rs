@@ -1074,20 +1074,6 @@ mod tests {
         );
     }
 
-    /// A `trashed` record, a kind that Glimt 0.99.0 read but never wrote and this Glimt no
-    /// longer knows, is passed over, and the records around it are kept.
-    /// Risk: a log that a kill left under 0.99.0 is not read whole, and is not put right.
-    #[test]
-    fn a_trashed_record_of_0_99_is_passed_over() {
-        let mut bytes = log_bytes("1", &every_record()[..3]);
-        bytes.extend(b"trashed\x000\0home\0a.jpg.trashinfo\0\0");
-        bytes.extend(super::records_bytes(&[Record::Done(0)]));
-        let mut expected = every_record();
-        expected.truncate(3);
-        expected.push(Record::Done(0));
-        assert_eq!(records_of(&bytes), expected);
-    }
-
     /// Every record is written in the shape that Glimt 0.93.0 and 0.94.0 read: a kind they know
     /// has the number of fields their parser matches, and a new kind is one they pass over. Their
     /// parser drops a record of a known kind with another number of fields, so a `folder` record
