@@ -66,11 +66,9 @@ pub(crate) struct Window {
     /// `guard_close` sent the close again itself, because the work it waited for ended. That
     /// close is no new close by the user, so it does not count in `close_requests`.
     is_close_sent_again: bool,
-    /// The number of the notice that says the close waits for the files, while it waits.
-    close_notice: Option<u64>,
-    /// The number of that notice once a failed write forgot its close, which made the notice
-    /// untrue. `poll_background` takes it away, when it is still shown.
-    forgotten_close_notice: Option<u64>,
+    /// Whether the notice that says the close waits for the files was given, and whether a
+    /// failed write that forgot the close made it untrue.
+    close_notice: CloseNotice,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
     /// A save that worked forgets it, so the same turn made again is saved too.
@@ -108,8 +106,7 @@ impl Window {
             title_template: String::new(),
             close_requests: 0,
             is_close_sent_again: false,
-            close_notice: None,
-            forgotten_close_notice: None,
+            close_notice: CloseNotice::NotGiven,
             turn_tried_at_close: None,
             // A signal that came before the window was made, while it started, closes it too.
             termination_signals_seen: 0,
@@ -193,20 +190,20 @@ impl Window {
         self.last_failed_write = Some(failure.clone());
         self.failed_writes_to_show.push(failure);
         self.close_requests = 0;
-        if let Some(number) = self.close_notice.take() {
-            self.forgotten_close_notice = Some(number);
+        if self.close_notice == CloseNotice::Given {
+            self.close_notice = CloseNotice::MadeUntrue;
         }
     }
 
-    /// Notes `number`, the notice that says the close waits for the files.
-    pub(crate) fn note_close_notice(&mut self, number: Option<u64>) {
-        self.close_notice = number;
+    /// Notes that the notice that says the close waits for the files was given.
+    pub(crate) fn note_close_notice(&mut self) {
+        self.close_notice = CloseNotice::Given;
     }
 
-    /// Returns the number of the close's notice that a failed write made untrue, or `None`
-    /// when there is none. `take_failed_writes_to_show` forgets it.
-    pub(crate) fn forgotten_close_notice(&self) -> Option<u64> {
-        self.forgotten_close_notice
+    /// Whether a failed write forgot the close whose notice was given, which made that notice
+    /// untrue. `take_failed_writes_to_show` forgets it.
+    pub(crate) fn is_close_notice_untrue(&self) -> bool {
+        self.close_notice == CloseNotice::MadeUntrue
     }
 
     /// Returns how many failed writes the window has told.
@@ -222,7 +219,9 @@ impl Window {
     /// Takes the failed writes kept since the last call, each to be shown as a message of its
     /// own, and forgets the close's notice that they made untrue.
     pub(crate) fn take_failed_writes_to_show(&mut self) -> Vec<Failure> {
-        self.forgotten_close_notice = None;
+        if self.close_notice == CloseNotice::MadeUntrue {
+            self.close_notice = CloseNotice::NotGiven;
+        }
         std::mem::take(&mut self.failed_writes_to_show)
     }
 
@@ -243,6 +242,18 @@ impl Window {
     pub(crate) fn close_menus(&mut self, ctx: &egui::Context, bar: egui::Rect) {
         crate::ui::menus::close_menus(ctx, bar, &mut self.pointer_left_menu_at);
     }
+}
+
+/// The notice that says the close waits for the files, as far as the window knows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CloseNotice {
+    /// No such notice was given since a failed write last took one away.
+    NotGiven,
+    /// It was given, and the close it tells of still waits.
+    Given,
+    /// It was given, and a failed write then forgot the close, so it is untrue.
+    /// `poll_background` takes it away, when the notice shown still tells it.
+    MadeUntrue,
 }
 
 impl crate::App {
@@ -370,7 +381,7 @@ impl crate::App {
             }
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        self.notice.give(
+        self.notice.give_close_waiting(
             match self.window.close_requests {
                 1 => crate::support::lang::tr(
                     "Glimt closes when the file operations are done; close again to stop them",
@@ -381,7 +392,7 @@ impl crate::App {
             }
             .into(),
         );
-        self.window.note_close_notice(self.notice.shown_number());
+        self.window.note_close_notice();
     }
 
     /// Saves keywords typed and a setting changed during a drag, and takes the file jobs' last
@@ -877,6 +888,10 @@ mod tests {
         close(&mut app);
         let a = dir.join("a.png");
         assert!(app.file_operations.is_saving(&a));
+        // A warning kept until drawn, such as an edit without its lock, gives the close's
+        // message a new notice. Before, the close's notice was known by its number, so the
+        // notice under the new number kept the close's text above the failure.
+        (app.notice).keep_until_drawn(crate::viewer::view::Failure::from("a lock warning"));
         // Passes of `logic` alone, as while the window is minimized, take the failure before any
         // `poll_background`. The close's notice goes with the close that the failure forgot.
         // Before, it stayed above the failure, though the window stays open, and the test failed
@@ -900,7 +915,7 @@ mod tests {
         }
         let shown = app.notice.text().unwrap_or_default();
         assert!(
-            shown.starts_with("Could not save the orientation"),
+            shown.contains("Could not save the orientation") && !shown.contains("Glimt closes"),
             "{shown}"
         );
         assert_eq!(app.window.close_requests, 0);

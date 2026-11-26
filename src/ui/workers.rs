@@ -66,8 +66,8 @@ impl crate::App {
         // long enough.
         // A failure that forgot a close that waited makes the close's notice untrue, as the
         // window stays open, so that notice goes, also when it came in this frame.
-        if let Some(number) = self.window.forgotten_close_notice() {
-            self.notice.clear_if_shown(number);
+        if self.window.is_close_notice_untrue() {
+            self.notice.clear_if_it_tells_of_a_close();
         }
         let failed = self.window.take_failed_writes_to_show();
         self.notice.show_failed_writes(failed);

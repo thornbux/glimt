@@ -449,7 +449,7 @@ impl Failure {
         NoticeMessage {
             heading: self.heading.clone(),
             detail: self.cause.clone(),
-            is_error: true,
+            kind: MessageKind::Error,
         }
     }
 
@@ -489,26 +489,31 @@ impl From<&str> for Failure {
     }
 }
 
-/// One message of a notice: its heading, the detail drawn smaller under it, and whether it
-/// tells of something that went wrong (a failed write, a refusal or another error). A notice
-/// with an error is drawn with a red stripe and a warning sign, and an ordinary one with a blue
-/// stripe. The caller gives the heading and the detail apart, because a heading cut out of one
-/// text, at its first ": ", was cut inside a file name such as "Trip: Paris.jpg".
+/// One message of a notice: its heading, the detail drawn smaller under it, and its kind. A
+/// notice with an error is drawn with a red stripe and a warning sign, and an ordinary one with
+/// a blue stripe. The caller gives the heading and the detail apart, because a heading cut out
+/// of one text, at its first ": ", was cut inside a file name such as "Trip: Paris.jpg".
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NoticeMessage {
     heading: String,
     detail: String,
-    is_error: bool,
+    kind: MessageKind,
 }
 
 impl NoticeMessage {
-    /// Returns a message of `heading` alone, an error when `is_error`.
-    fn new(heading: String, is_error: bool) -> Self {
+    /// Returns a message of `heading` alone, of the kind `kind`.
+    fn new(heading: String, kind: MessageKind) -> Self {
         NoticeMessage {
             heading,
             detail: String::new(),
-            is_error,
+            kind,
         }
+    }
+
+    /// Whether the message tells of something that went wrong: a failed write, a refusal or
+    /// another error.
+    fn is_error(&self) -> bool {
+        self.kind == MessageKind::Error
     }
 
     /// Returns the message's text as a screen reader reads it: the heading, and the detail on
@@ -519,6 +524,20 @@ impl NoticeMessage {
             false => format!("{}\n{}", self.heading, self.detail),
         }
     }
+}
+
+/// What a message of a notice tells.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MessageKind {
+    /// News, such as a file saved.
+    Ordinary,
+    /// That the window closes when the file operations are done. A failed write that keeps the
+    /// window open makes it untrue, and the message is known by this kind wherever it is shown,
+    /// also in a later notice that a warning kept until drawn made of it (`keep_until_drawn`).
+    /// Before, it was known by its notice's number, which that later notice did not keep.
+    CloseWaiting,
+    /// Something that went wrong or was refused.
+    Error,
 }
 
 /// The message shown over the image until the next image, with the number it was given. A
@@ -563,7 +582,7 @@ impl Notice {
         let errors = errors.into_iter().flatten();
         let errors = errors.map(|e| e.message());
         let notes = old_marks_file_left.into_iter().chain(old_files);
-        let notes = notes.map(|n| NoticeMessage::new(n, false));
+        let notes = notes.map(|n| NoticeMessage::new(n, MessageKind::Ordinary));
         let messages: Vec<NoticeMessage> = errors.chain(notes).collect();
         let mut notice = Notice::default();
         if !messages.is_empty() {
@@ -575,14 +594,22 @@ impl Notice {
     /// Shows `text`, as a new notice, also when the same text is shown already. The warnings
     /// that no frame has drawn yet are shown under it.
     pub(crate) fn give(&mut self, text: String) {
-        self.show(vec![NoticeMessage::new(text, false)]);
+        self.show(vec![NoticeMessage::new(text, MessageKind::Ordinary)]);
+    }
+
+    /// Shows `text`, that the window closes when the file operations are done, as `give` does.
+    /// `clear_if_it_tells_of_a_close` takes it away again.
+    pub(crate) fn give_close_waiting(&mut self, text: String) {
+        self.show(vec![NoticeMessage::new(text, MessageKind::CloseWaiting)]);
     }
 
     /// Shows `texts` and under them `failures`, each a message of its own, as one notice, such
     /// as the files added to a collection and the names refused. Given one after the other,
     /// each would take the place of the one before.
     pub(crate) fn give_all(&mut self, texts: Vec<String>, failures: Vec<Failure>) {
-        let texts = texts.into_iter().map(|t| NoticeMessage::new(t, false));
+        let texts = texts
+            .into_iter()
+            .map(|t| NoticeMessage::new(t, MessageKind::Ordinary));
         self.show(texts.chain(failures.iter().map(Failure::message)).collect());
     }
 
@@ -648,14 +675,15 @@ impl Notice {
         });
     }
 
-    /// Returns the number of the notice shown, or `None` when no notice is shown.
-    pub(crate) fn shown_number(&self) -> Option<u64> {
-        self.shown.as_ref().map(|(_, number)| *number)
-    }
-
-    /// Takes the notice away, as `clear` does, when it is still the one numbered `number`.
-    pub(crate) fn clear_if_shown(&mut self, number: u64) {
-        if self.shown_number() == Some(number) {
+    /// Takes the notice away, as `clear` does, when it still tells that the window closes when
+    /// the file operations are done (`give_close_waiting`). A notice given after that one does
+    /// not, and stays.
+    pub(crate) fn clear_if_it_tells_of_a_close(&mut self) {
+        let kinds = self.messages().iter().map(|m| m.kind);
+        if kinds
+            .into_iter()
+            .any(|kind| kind == MessageKind::CloseWaiting)
+        {
             self.clear();
         }
     }
@@ -676,7 +704,7 @@ impl Notice {
     /// Returns the texts of the errors shown, for a test to tell them from ordinary messages.
     #[cfg(test)]
     pub(crate) fn error_texts(&self) -> Vec<String> {
-        let errors = self.messages().iter().filter(|m| m.is_error);
+        let errors = self.messages().iter().filter(|m| m.is_error());
         errors.map(NoticeMessage::text).collect()
     }
 
@@ -1902,7 +1930,7 @@ impl crate::App {
         if messages.is_empty() {
             return;
         }
-        let is_error = messages.iter().any(|m| m.is_error);
+        let is_error = messages.iter().any(NoticeMessage::is_error);
         let width = notice_text_width(area.width(), is_error);
         let galley = ui.painter().layout_job(notice_layout(messages, width));
         let sign = if is_error { NOTICE_SIGN } else { 0.0 };
@@ -2562,7 +2590,10 @@ mod tests {
         let kept = notice.set_aside();
         notice.put_back(kept.clone());
         assert_eq!(notice.set_aside(), kept);
-        let b = vec![super::NoticeMessage::new("b".into(), false)];
+        let b = vec![super::NoticeMessage::new(
+            "b".into(),
+            super::MessageKind::Ordinary,
+        )];
         notice.put_back(Some((b.clone(), 99)));
         assert_eq!(notice.set_aside(), Some((b, 2)));
     }
@@ -2583,7 +2614,7 @@ mod tests {
             "decoders/ too".to_owned(),
         ];
         let notice = super::Notice::told_at_start(errors, left, &old);
-        let kinds: Vec<bool> = notice.messages().iter().map(|m| m.is_error).collect();
+        let kinds: Vec<bool> = notice.messages().iter().map(|m| m.is_error()).collect();
         assert_eq!(kinds, [true, true, false, false]);
         let text = notice.text().unwrap_or_default();
         assert!(text.ends_with("plugins/ is no longer read; and 1 more (glimt --check-config)"));
@@ -2600,7 +2631,7 @@ mod tests {
     /// of two failed writes of a frame was drawn as the first one's detail.
     #[test]
     fn errors_are_told_from_ordinary_notices() {
-        let is_error = |notice: &super::Notice| notice.messages().iter().any(|m| m.is_error);
+        let is_error = |notice: &super::Notice| notice.messages().iter().any(|m| m.is_error());
         let headings = |notice: &super::Notice| {
             (notice.messages().iter())
                 .map(|m| (m.heading.clone(), m.detail.clone()))
@@ -2636,7 +2667,7 @@ mod tests {
              Read-only file system"
         );
         assert_eq!(notice.messages().len(), 3);
-        assert!(notice.messages()[1..].iter().all(|m| m.is_error));
+        assert!(notice.messages()[1..].iter().all(|m| m.is_error()));
     }
 
     /// A notice's card is at most 70 % of a wide image area and 900 points wide, fits a narrow
