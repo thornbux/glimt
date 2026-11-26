@@ -3674,6 +3674,7 @@ mod tests {
     /// A comment written as an attribute, which is an item without a language, and an
     /// x-default item are one language. An edit replaces the text shown, and the next read
     /// shows the new text. Before, both were written as x-default, and it showed the old one.
+    /// Risk: an edited comment is written beside the old one, and the old text still shows.
     #[test]
     fn an_item_without_a_language_is_the_default_one() {
         let xmp = r#"<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"
@@ -4940,6 +4941,7 @@ mod tests {
     /// there. A third that binds dc to nothing has its dc:subject read as written. A copy for
     /// sharing names each by its own namespace and writes it under that one. Before, every
     /// prefix was read as the first declaration of the packet binds it.
+    /// Risk: a property of another namespace is read, edited or shared as keywords.
     #[test]
     fn a_prefix_is_read_as_its_own_description_binds_it() {
         const DC: &str = "http://purl.org/dc/elements/1.1/";
@@ -4980,6 +4982,7 @@ mod tests {
 
     /// The writers declare a prefix by the namespaces in force in the first Description: those
     /// of the elements around it, not those of an element that ended before it.
+    /// Risk: a writer declares a prefix by a namespace that is no longer in force.
     #[test]
     fn a_writer_reads_only_the_declarations_around_the_description() {
         let xmp = "<x:xmpmeta xmlns:x='adobe:ns:meta/'><x:other xmlns:dc='urn:other'/>\

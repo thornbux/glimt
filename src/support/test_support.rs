@@ -545,6 +545,7 @@ mod tests {
 
     /// A test that does not hold the shared settings cannot change one while another test holds
     /// them. Before, the check asked whether any test held them, so such a change passed (#303).
+    /// Risk: two tests change the shared settings at once, and one fails now and then.
     #[test]
     fn a_change_is_refused_while_another_test_holds_the_settings() {
         use std::sync::atomic::Ordering;
@@ -569,6 +570,7 @@ mod tests {
 
     /// The settings locked, the name given and the name listened as are put back when a test
     /// that changed them lets the shared settings go. Before, they stayed as it left them (#303).
+    /// Risk: a test leaves the shared settings changed for the next one.
     #[test]
     fn the_settings_a_test_changed_are_put_back() {
         {

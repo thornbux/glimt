@@ -4035,6 +4035,7 @@ mod tests {
     /// The changes that the watcher sees are taken by `receive_answers`, which a minimized
     /// window runs without a frame, and told once by the next `changed_on_disk`. Before, only a
     /// drawn frame took them, and they piled up while the window was minimized (#188).
+    /// Risk: a minimized window piles up the watcher's changes in its channel.
     #[test]
     fn the_watchers_changes_are_taken_without_a_frame() {
         let dir = contract_folder("changes-without-a-frame");
@@ -4055,6 +4056,7 @@ mod tests {
     /// longer tells it. Before, it still told it after the listing had forgotten which folder
     /// changed, and the whole tree was read again, as when a minimized window took a change and
     /// a `--remote` command then started a listing.
+    /// Risk: a change already read starts a listing of the whole tree again.
     #[test]
     fn a_listing_reads_the_changes_taken_before_it() {
         let dir = contract_folder("changes-before-a-listing");

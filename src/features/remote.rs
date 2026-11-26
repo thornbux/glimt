@@ -2596,6 +2596,7 @@ mod tests {
     /// shows it, as a native window does, and in its app's own folder only where it does not.
     /// Before, a Flatpak window and a native window on the same photos never kept each other
     /// out of a sidecar (#170).
+    /// Risk: a Flatpak and a native window write one sidecar at once, and one loses its edit.
     #[test]
     fn a_flatpak_takes_the_sidecar_locks_where_a_native_window_does() {
         let runtime = std::path::Path::new("/run/user/1000");

@@ -1797,6 +1797,7 @@ fn reads_literals() {
 }
 
 /// A C raw string is blanked whole, so a quote inside it blanks no code after it.
+/// Risk: a quote in a C raw string hides the code after it from every rule.
 #[test]
 fn reads_c_raw_strings() {
     let code = "let a = cr#\"a \" b\"#; f(x);\nlet b = c\"d\"; g(y);";
@@ -1946,6 +1947,7 @@ fn block_end(lines: &[String], i: usize) -> Option<usize> {
 /// the files below src/ by their own names (`sources`). Every `mod tests` is built only for the
 /// tests (`#[cfg(test)]`), as the rules pass over it as tests (`tests_start`). Before, either
 /// could hold code that no rule read.
+/// Risk: code built from a file that the rules do not read passes every rule.
 #[test]
 fn the_rules_read_all_the_code_that_is_built() {
     let sources = rust_sources();
@@ -1988,6 +1990,7 @@ fn code_the_rules_miss(text: &str) -> Vec<usize> {
 /// The check above finds a module from another path, an `include!`, and a `mod tests` that
 /// is built always. It leaves `include_str!`, and a `mod tests` built for the tests, also with
 /// another attribute between.
+/// Risk: the check above misses a module from another path or a `mod tests` built always.
 #[test]
 fn finds_code_the_rules_miss() {
     let text = "#[path = \"x.rs\"]\nmod x;\ninclude!(\"y.rs\");\nconst A: &str = \
@@ -3179,6 +3182,7 @@ fn panics_caught_outside_threads(sources: &[(String, String)]) -> Vec<String> {
 }
 
 /// Only support/threads.rs may catch a panic, not another file of that name.
+/// Risk: another file named threads.rs catches panics, and a write's panic goes untold.
 #[test]
 fn only_the_threads_module_catches_panics() {
     let text = "fn a() {\n    std::panic::catch_unwind(f);\n}\n".to_owned();
@@ -3568,6 +3572,7 @@ fn notices_borrowed_in(text: &str) -> Vec<usize> {
 
 /// The check above finds a notice borrowed mutably by any path, and leaves another field
 /// whose name only starts with it, a notice borrowed to read, and the tests.
+/// Risk: a notice changed by any other path passes the check above.
 #[test]
 fn finds_a_notice_borrowed_mutably() {
     let text = "fn a() {\n    std::mem::take(&mut app.notice);\n    \
@@ -6795,6 +6800,7 @@ fn paths_through_a_descriptor_are_shown_by_their_names() {
 /// (`names_given_to_the_user_raw`). Before, a file named with line breaks added a sentence of
 /// its own to the delete question, and U+202E showed a name reversed (#189). Until 0.99, a
 /// name's `to_string_lossy` given to a label or a `tf!` passed.
+/// Risk: a name from the disk reaches the user unescaped.
 #[test]
 fn names_are_shown_through_one_function() {
     let mut wrong = outside_their_homes(&[(".display(", &[]), ("::display", &[])]);
@@ -7283,6 +7289,7 @@ fn lossy_names_shown_in(
 /// takes `ui` first through a text made with it by name, to a failure and to a hover text. It
 /// leaves one made into a lock file's name or given to a field to edit, and the one in
 /// `escaped_name`. Before, only `display` was found, so each of these passed (audit 0.99.0).
+/// Risk: a lossy name given to a widget, a `tf!` or a failure passes the check above.
 #[test]
 fn finds_a_lossy_name_shown() {
     let text = "fn label(ui: &mut Ui, p: &Path) {\n    \
@@ -7763,6 +7770,7 @@ fn copies_by_its_flag(line: &str, call: &str) -> bool {
 }
 
 /// The copy flag is read from each call's own third argument.
+/// Risk: a call's copy flag is read from another call, and a move is taken for a copy.
 #[test]
 fn finds_the_copy_flag_of_a_call() {
     assert!(copies_by_its_flag("put_file(&a, &b, true)?;", "put_file("));
@@ -8206,6 +8214,7 @@ fn finds_a_look_that_guesses() {
 /// value of its own, in a way that takes a failed look for an answer. It passes the name kept
 /// as an `Option` or passed on, a look whose error goes on with `?`, and the same name after
 /// its block. Before, such a look passed (#165).
+/// Risk: a failed look kept in a name and asked later is taken for "gone".
 #[test]
 fn finds_a_kept_look_that_guesses() {
     let text = "fn a() {\n    let m = std::fs::metadata(p).ok();\n    x();\n    \
@@ -11637,6 +11646,7 @@ fn finds_a_search_for_an_xmp_property_in_every_spelling() {
 /// the array of a `for` loop that rustfmt broke over lines, and compared with `==` to a part of
 /// the packet in a walk by index. It passes an RDF name searched for in each of these ways.
 /// Before, each of these passed (#165).
+/// Risk: an XMP property searched for in the whole packet, in another spelling, passes.
 #[test]
 fn finds_a_property_searched_for_in_any_spelling() {
     let a = "fn closure(xmp: &str) -> bool {\n    \

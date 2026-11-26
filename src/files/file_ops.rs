@@ -6221,6 +6221,7 @@ mod tests {
     /// photo's sidecar, counts the others as gone, so that Undo puts them back, and takes the
     /// sidecar of the photo that stayed back beside it. Before, every file counted as one that
     /// may have gone, so nothing could be undone and the sidecar stayed in the trash (#308).
+    /// Risk: after gio fails on one photo, the others lose their Undo and a sidecar stays trashed.
     #[test]
     fn a_failed_gio_leaves_the_files_that_went_to_undo() {
         use crate::files::trash::GIO_REFUSES_IN_A_TEST;
@@ -10191,6 +10192,7 @@ mod tests {
     /// failed and was undone. An old mark that a file gone from the new name left behind never
     /// goes on the photo. Before, the photo's own marks were written over the mark set during
     /// the job, and an undo left that mark at the new name (#311).
+    /// Risk: a mark set during Rename Many is lost, or an old one lands on the photo.
     #[cfg(feature = "marks")]
     #[test]
     fn a_mark_set_at_a_new_name_during_rename_many_stays_with_its_photo() {

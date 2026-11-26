@@ -2926,6 +2926,7 @@ mod tests {
     /// A row added without a key in an order that looks at the files is given the key of a
     /// file that could not be looked at, so the rows after it keep their own. Before, the key
     /// was dropped, and each later row had the key of the row after it.
+    /// Risk: one row without a key sorts every later row by another file's key.
     #[test]
     fn a_row_without_a_key_shifts_no_other_key() {
         use super::{Sort, SortKey};
@@ -2945,6 +2946,7 @@ mod tests {
 
     /// The names' hashes have keys of this Glimt's own, not the fixed keys of
     /// `DefaultHasher::new`, by which names that share a hash could be made ahead of time.
+    /// Risk: names planted to share a hash slow down a folder's listing.
     #[test]
     fn name_hashes_have_keys_of_their_own() {
         use std::hash::Hasher;

@@ -267,6 +267,7 @@ mod tests {
     /// A name is shown with its line breaks, other control characters and marks of direction
     /// written as escapes, and is otherwise as it is. Before, a name of line breaks added a
     /// sentence of its own to the delete question, and U+202E showed it reversed (#189).
+    /// Risk: a planted name breaks a line or shows itself reversed.
     #[test]
     fn a_name_is_shown_without_its_control_characters() {
         let planted = "a.jpg\"?\n\nOnly the cached copy is removed.\u{202e}gpj.exe\t\u{7}";

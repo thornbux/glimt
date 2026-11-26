@@ -588,6 +588,7 @@ mod tests {
     /// The desktop settings tell when the threads they started have answered and the answers
     /// were taken, so that a test that counts the frames threads ask for can wait for them
     /// first (#309).
+    /// Risk: a test counts frames that a desktop settings thread asks for, and fails now and then.
     #[test]
     fn desktop_settings_tell_when_their_threads_answered() {
         let ctx = eframe::egui::Context::default();

@@ -1242,6 +1242,7 @@ mod tests {
     /// and stars, at the new name and back at the old one when the rename is undone. A mark
     /// that the old file of the new name left behind stays off the photo. Before, the new
     /// name's whole value took the place of the photo's own, and its 3 stars were lost.
+    /// Risk: the merge after Rename Many loses the photo's own stars or takes an old file's mark.
     #[test]
     fn a_mark_set_meanwhile_is_added_to_the_photos_own() {
         use std::path::PathBuf;

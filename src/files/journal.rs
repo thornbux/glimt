@@ -4327,6 +4327,7 @@ mod tests {
     /// names as they are, which 0.99's first fix missed. Before, the
     /// start undid only the planned steps, and the photo lost its keywords to the next file of
     /// the name (#310).
+    /// Risk: after a kill, the start leaves a photo's sidecar to the next file of its name.
     #[test]
     fn a_sidecar_written_at_a_new_name_follows_its_photo_at_the_start() {
         let dir = std::env::temp_dir().join(format!("glimt-test-plan-xmp-{}", std::process::id()));
@@ -6341,6 +6342,7 @@ mod tests {
     /// folder of every ext4 stick has in the Flatpak's sandbox (#314). The log waits until the
     /// medium noted is back. Before, the volume or the inode alone told the disk, and the marks
     /// of another card's file at the same path were forgotten.
+    /// Risk: a killed delete on one card forgets the marks of another card's file at that path.
     #[test]
     fn another_medium_in_the_same_boot_is_not_taken_for_the_one_noted() {
         let (dir, card, logs) = fat_card("start-another-medium");
@@ -6374,6 +6376,7 @@ mod tests {
     /// volume can be read, as after a switch to the Flatpak, is told by its device, as one
     /// without a volume noted is. Before, only the medium could tell it there, which a new boot
     /// numbers anew, so the log stayed for good, told at every start (#278).
+    /// Risk: a killed delete's log on a FAT card stays for good, told at every start.
     #[test]
     fn a_card_whose_volume_cannot_be_found_in_a_later_boot_is_told_by_its_device() {
         let (dir, card, logs) = fat_card("start-volume-later-boot");
@@ -6409,6 +6412,7 @@ mod tests {
     /// marks only once the bind is back and the folder is surely deleted. Before, the folder
     /// counted as deleted, and the marks of its files, still there behind the bind, were
     /// forgotten (#270).
+    /// Risk: the marks of files behind a bind mount not mounted are forgotten as deleted.
     #[test]
     fn a_folder_behind_a_bind_mount_not_mounted_is_not_taken_for_deleted() {
         let temporary = format!("glimt-test-bind-not-mounted-{}", std::process::id());

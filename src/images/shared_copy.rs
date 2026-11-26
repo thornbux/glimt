@@ -2509,6 +2509,7 @@ mod tests {
     /// never taken for a group word of the saved choice, and leaving it out leaves out the same
     /// blocks in the dialog and once the choice is saved. Before, it was named "group:x", which
     /// left out every block in the dialog and none of them once saved.
+    /// Risk: an XMP property named like a group word leaves out blocks the dialog did not.
     #[test]
     fn an_xmp_tag_named_like_a_group_word_stays_a_tag() {
         let xmp = "<rdf:Description xmlns:group='urn:g' group:x='1'><group:y>2</group:y>\
@@ -3100,6 +3101,7 @@ mod tests {
     /// leaving it out leaves out the same blocks before and after the choice is saved. A
     /// choice saved with its keyword alone, as Glimt 0.98 saved it, still leaves it out, and
     /// unticking it keeps it. Before, it was named "group:x" and read back as a group word.
+    /// Risk: a PNG keyword named like a group word leaves out other blocks once saved.
     #[test]
     fn a_png_keyword_named_like_a_group_word_stays_a_tag() {
         let dir = folder("group-keyword");

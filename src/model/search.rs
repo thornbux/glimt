@@ -980,6 +980,7 @@ mod tests {
     /// names it lacks. Before, the empty index it got lacked every name, so the search started
     /// a reading of every file again at once, and a cause that stayed (too few threads) made
     /// that repeat in every frame, each time with the busy pointer and a notice.
+    /// Risk: a reading of the EXIF index that dies is started again in every frame.
     #[test]
     fn an_index_reading_that_died_is_not_started_again() {
         use std::collections::HashMap;
@@ -1100,6 +1101,7 @@ mod tests {
     /// The check above finds the text typed read in any other way: searched for a term by any
     /// method, through the `Search` of `App`, or kept in a name to be searched later. Before,
     /// only `self.query.` followed by five methods was found (#165).
+    /// Risk: a search term read from the text typed, not from the query's tree, passes unseen.
     #[test]
     fn finds_the_text_typed_read_another_way() {
         let text = "fn a(&self) {\n    parse(&self.query);\n    self.query.clear();\n    \

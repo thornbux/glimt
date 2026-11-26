@@ -3652,6 +3652,7 @@ mod tests {
 
     /// A FUSE mount's type is shown by its program's name, and one named by its source, a URL or
     /// a path, as plain "fuse", as the source can hold a user's name (#312).
+    /// Risk: a notice shows a FUSE mount's source, with the user's name in it.
     #[test]
     fn a_fuse_mounts_source_is_not_shown() {
         for (kind, shown) in [
@@ -3751,6 +3752,7 @@ mod tests {
     /// A folder is placed in its file system by the mount that holds it: a bind mount's folder
     /// below the folder it shows, and the empty mount point under it, while the bind is not
     /// mounted, at its own path on the disk above (#270).
+    /// Risk: a folder behind a bind mount is placed wrongly, and its job log is judged done.
     #[test]
     fn places_a_folder_in_its_file_system() {
         let mounted = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
@@ -3778,6 +3780,7 @@ mod tests {
     /// stops there, also at a place of the same name (#161). One on the same device as the
     /// folder above, where gio walks on, and one on the sandbox's own top, whose folder above on
     /// the host is not seen, get none, also at a place of another name (#162).
+    /// Risk: the Flatpak trashes into a folder that gio does not take for the mount's trash.
     #[test]
     fn tells_a_hosts_mount_of_a_folder_by_the_folder_above_it() {
         let whole =
@@ -3957,6 +3960,7 @@ mod tests {
     /// answered by the type its mount has, which a test gives its folder with `test_mount`. Before,
     /// each caller passed a type, and passing udev's type of the disk ("ntfs" under ntfs-3g)
     /// would have trusted one sync of a FUSE mount (#165).
+    /// Risk: one sync is trusted on a FUSE mount, and a kill loses a file written there.
     #[test]
     fn the_one_sync_is_asked_of_a_folder_by_its_mounts_type() {
         use crate::files::file_ops::test_mount;
@@ -4296,6 +4300,7 @@ mod tests {
     /// Before, it was taken for a name in the way, and a new file (`create_file`) was left
     /// under its hidden name and its own name both (#307). A name that holds another file is
     /// still refused.
+    /// Risk: a lost answer of NFSv3 leaves a new file under two names.
     #[test]
     fn a_link_made_and_answered_already_there_is_a_rename_done() {
         use super::{LINK_ANSWERS_EXISTS, RENAME_WAYS_MISSING};

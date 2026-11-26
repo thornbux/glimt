@@ -321,6 +321,7 @@ mod tests {
     /// that another program wrote anew in place since (`cp -f`, the same inode) is neither
     /// selected nor marked broken. Before, the marks were kept by name, and Select Them selected
     /// the good photo, ready to be deleted (#202).
+    /// Risk: Select Them picks a good photo that took a broken one's name, ready to be deleted.
     #[test]
     fn select_them_leaves_out_a_file_written_anew_since_the_check() {
         let name = format!("glimt-test-check-rewritten-{}", std::process::id());

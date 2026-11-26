@@ -1335,6 +1335,7 @@ mod tests {
     /// The EXIF window's fields kept of the image before while the next one is read are
     /// disabled, as the panel's rows are, so that a screen reader reads them as unavailable.
     /// Before, the window titled with the new image's name drew them as its own (#192).
+    /// Risk: a screen reader reads the image before's EXIF as the new image's.
     #[cfg(feature = "accessibility")]
     #[test]
     fn the_exif_windows_fields_kept_of_the_image_before_are_disabled() {

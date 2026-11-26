@@ -1656,6 +1656,7 @@ mod tests {
     /// them back, as the window's own end of the job does. An old mark left at the new name by
     /// a file gone from it never goes on the photo, and a plan of Glimt 0.98, which did not
     /// write down the marks known at the new names, is put right as before (#311).
+    /// Risk: the start's repair after a kill loses a mark set during Rename Many.
     #[cfg(feature = "marks")]
     #[test]
     fn the_start_gives_a_photo_the_mark_set_at_its_new_name_during_rename_many() {

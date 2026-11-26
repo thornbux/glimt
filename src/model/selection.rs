@@ -476,6 +476,7 @@ mod tests {
     /// shown with them written as escapes, in the list, the title and the delete question,
     /// which all take the name from `name_shown`. Before, the name added a sentence of its own
     /// to the delete question (#189).
+    /// Risk: a planted name adds words of its own to the list, the title or the delete question.
     #[test]
     fn a_name_is_shown_with_its_control_characters_escaped() {
         let dir =

@@ -976,6 +976,7 @@ mod tests {
     /// `may_have_been_done`. A file that nothing was at went. Before, the trash told only a text,
     /// and its callers judged each file by a look at its old name alone, which a share's cache
     /// may still show (#308).
+    /// Risk: a share's cached name makes a file that went to the trash count as one that stayed.
     #[test]
     fn a_trash_that_lost_its_answer_is_told_as_one_that_may_have_gone() {
         use crate::files::file_io::{ANSWER_LOST_AT, LOOKS_FAIL_ONCE_DONE_AT};
@@ -1400,6 +1401,7 @@ mod tests {
     /// that went is no failure and keeps its Undo, one still there on a local disk surely stayed
     /// and is told first, and one on a share may have gone. Before, all of them counted as files
     /// that may have gone.
+    /// Risk: after gio fails, the files that went lose their Undo.
     #[test]
     fn a_failed_program_leaves_each_file_judged_by_its_own_name() {
         use crate::files::file_io::ON_A_SHARE_IN_A_TEST;
