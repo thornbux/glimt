@@ -5224,8 +5224,11 @@ mod tests {
             super::Transfer::Copy,
         );
         assert!(app.file_operations.jobs.is_empty());
+        // The job copies the sidecar after the photo, so the folder is removed only after the
+        // job has ended. Before, it was removed as the photo came, beside the sidecar's write.
         let copied = dir.join("sub/a.png");
-        assert!(run_background_until(&mut app, &ctx, |_| copied.exists()));
+        let over = |app: &crate::App| copied.exists() && !app.working();
+        assert!(run_background_until(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
