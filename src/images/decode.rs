@@ -657,6 +657,27 @@ pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
     Ok(BudgetReservation { _job: job })
 }
 
+/// Returns `cap`, or less when the input that this thread's decode holds (`DecodeInput`) leaves
+/// less of the budget. A decoder whose own limit is set to it never needs more than the budget
+/// can give beside that input. Before, a JPEG XL copied from the file it held asked for the
+/// whole budget on top of the file, and Save As refused it as too large.
+#[cfg(feature = "jxl")]
+fn room_beside_input(cap: u64) -> u64 {
+    cap.min(budget().total.saturating_sub(INPUT_HOLDS.get()))
+}
+
+/// Returns the bytes of the budget that the render of a JPEG XL of `w`×`h` pixels takes, at
+/// most what jxl-oxide's limit lets it allocate (`room_beside_input`).
+/// shortcut: 40 bytes a pixel is an estimate above the 24 that a lossy file needs, not what
+/// jxl-oxide counts; tie it to jxl-oxide's own limit if a file needs more.
+#[cfg(feature = "jxl")]
+fn jxl_render_reservation(w: u32, h: u32) -> u64 {
+    let render = (u64::from(w) * u64::from(h)).saturating_mul(40);
+    render
+        .max(64 << 20)
+        .min(room_beside_input(4 * MAX_DECODE_BYTES))
+}
+
 /// Makes this thread's later decodes take their bytes of the budget before every other decode
 /// that waits, or in their turn again. The view's decoders set it for the shown image, so that
 /// it does not wait behind the thumbnails and the images read ahead.
@@ -1221,15 +1242,14 @@ fn load_unturned<'a>(
         // times a decode's limit lets such photos through and stops a render of some 90 MP or
         // more. A header that claims a larger picture than a decode may hold is refused before
         // that, by its decode (`ImageBytes::decode`).
+        // The file that a copy holds (`Source`) leaves less of the budget for the render, so
+        // jxl-oxide's limit is lowered by it too.
         let mut limits = image::Limits::default();
-        limits.max_alloc = Some(4 * MAX_DECODE_BYTES);
+        limits.max_alloc = Some(room_beside_input(4 * MAX_DECODE_BYTES));
         dec.set_limits(limits).map_err(|e| e.to_string())?;
         // The render is taken from the budget before it starts, for the job that called this.
-        // shortcut: 40 bytes a pixel is an estimate above the 24 that a lossy file needs, not
-        // what jxl-oxide counts; tie it to jxl-oxide's own limit if a file needs more.
         let (w, h) = dec.dimensions();
-        let render = (u64::from(w) * u64::from(h)).saturating_mul(40);
-        let _reserved = reserve_from_budget(render.clamp(64 << 20, 4 * MAX_DECODE_BYTES))?;
+        let _reserved = reserve_from_budget(jxl_render_reservation(w, h))?;
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
         let img = file.decode(dec)?;
@@ -2192,6 +2212,15 @@ mod tests {
         input.grow_to(600, 1000).unwrap();
         input.grow_to(601, 1000).unwrap();
         assert_eq!(input.reserved, 1000);
+    }
+
+    /// The render of a large JPEG XL fits beside the file that a copy holds. Before, it asked
+    /// for the whole budget on top of the file, and Save As of a 61 MP photo was refused.
+    #[cfg(feature = "jxl")]
+    #[test]
+    fn a_jpeg_xl_render_fits_beside_the_file_held() {
+        let _file = counted(vec![0; 1 << 20]);
+        assert!(super::reserve_from_budget(super::jxl_render_reservation(9504, 6336)).is_ok());
     }
 
     fn counted(bytes: Vec<u8>) -> super::DecodeInput {
