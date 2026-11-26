@@ -5142,6 +5142,14 @@ fn derived_files_take_metadata_in_one_place() {
                 ("metadata/xmp.rs", "embedded"),
             ],
         ),
+        ("Tag::Unknown(700)", &[("metadata/xmp.rs", "tiff_xmp")]),
+        (
+            "tiff_xmp(",
+            &[
+                ("images/save.rs", "derived_metadata"),
+                ("metadata/xmp.rs", "embedded"),
+            ],
+        ),
         (
             ".orientation()",
             &[

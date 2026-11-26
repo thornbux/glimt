@@ -789,10 +789,61 @@ fn embedded(path: &Path) -> Option<String> {
             // A JPEG under another name is read whole, which counts in the decodes' budget.
             let _job = crate::images::decode::start_decode_job();
             let reader = crate::images::decode::image_reader(path).ok()?;
-            reader.into_decoder().ok()?.xmp_metadata().ok()??
+            match reader.format() {
+                // The image crate reads no TIFF's XMP of more than a 32nd of its pixels' bytes,
+                // and a DNG's first image is a small preview, so their keywords were not shown.
+                Some(image::ImageFormat::Tiff) => tiff_xmp(path).ok()??,
+                _ => reader.into_decoder().ok()?.xmp_metadata().ok()??,
+            }
         }
     };
     String::from_utf8(bytes).ok()
+}
+
+/// Reads the XMP packet of a TIFF, or of a RAW read as one such as a DNG (tag 700 of its first
+/// image), for the info panel, the search and a copy alike. The packet is counted in the decodes'
+/// budget before it is read, and a count that claims more bytes than the file holds, or more
+/// than the read cap of a decode (`MAX_DECODE_BYTES`), is refused as a limit before anything is
+/// allocated. Returns `None` when the TIFF has no XMP.
+pub(crate) fn tiff_xmp<'a>(
+    file: impl crate::images::decode::ImageBytes<'a>,
+) -> image::ImageResult<Option<Vec<u8>>> {
+    use std::io::Seek;
+    use tiff::tags::{Tag, Type};
+    let read = || -> tiff::TiffResult<Option<Vec<u8>>> {
+        let mut reader = file.open_reader()?;
+        let length = reader.seek(std::io::SeekFrom::End(0))?;
+        reader.rewind()?;
+        let mut decoder = tiff::decoder::Decoder::new(reader)?;
+        let mut ifd = decoder.image_ifd();
+        let Some(entry) = ifd.find_entry(Tag::Unknown(700)) else {
+            return Ok(None);
+        };
+        if !matches!(entry.field_type(), Type::BYTE | Type::UNDEFINED) {
+            return Err(tiff::TiffError::FormatError(
+                tiff::TiffFormatError::InvalidTypeForTag,
+            ));
+        }
+        let count = entry.count();
+        if count > length.min(crate::images::decode::MAX_DECODE_BYTES) {
+            return Err(tiff::TiffError::LimitsExceeded);
+        }
+        let _counted = crate::images::decode::reserve_from_budget(count)
+            .map_err(|_| tiff::TiffError::LimitsExceeded)?;
+        let mut packet = vec![0; usize::try_from(count)?];
+        ifd.find_tag_bytes(Tag::Unknown(700), &mut packet, 0)?;
+        Ok(Some(packet))
+    };
+    read().map_err(|e| match e {
+        tiff::TiffError::IoError(e) => image::ImageError::IoError(e),
+        tiff::TiffError::LimitsExceeded => image::ImageError::Limits(
+            image::error::LimitError::from_kind(image::error::LimitErrorKind::InsufficientMemory),
+        ),
+        e => image::ImageError::Decoding(image::error::DecodingError::new(
+            image::ImageFormat::Tiff.into(),
+            e,
+        )),
+    })
 }
 
 /// Writes the fields that were edited (`None` means as it is on disk). The keywords' change is
@@ -5250,5 +5301,77 @@ mod tests {
         assert!(is(b"Directory", "urn:d"));
         assert!(is(b"p:Directory", "urn:p"));
         assert!(!is(b"Directory", "urn:p"));
+    }
+
+    /// Returns a grey TIFF of one pixel whose XMP (tag 700) claims `claimed` bytes, followed by
+    /// `xmp`. The image crate reads no XMP of more than a 32nd of one pixel's byte.
+    fn tiff_of_one_pixel(xmp: &[u8], claimed: u32) -> Vec<u8> {
+        let entry = |tag: u16, kind: u16, count: u32, value: u32| {
+            [
+                &tag.to_le_bytes()[..],
+                &kind.to_le_bytes(),
+                &count.to_le_bytes(),
+                &value.to_le_bytes(),
+            ]
+            .concat()
+        };
+        let mut tiff = b"II*\0\x08\0\0\0\x0a\0".to_vec();
+        for (tag, value) in [(256, 1), (257, 1), (258, 8), (259, 1), (262, 1)] {
+            tiff.extend(entry(tag, 3, 1, value));
+        }
+        // IFD0 ends at 134, where the pixel is, and the XMP follows it.
+        tiff.extend(entry(273, 4, 1, 134));
+        tiff.extend(entry(277, 3, 1, 1));
+        tiff.extend(entry(278, 3, 1, 1));
+        tiff.extend(entry(279, 4, 1, 1));
+        tiff.extend(entry(700, 1, claimed, 135));
+        tiff.extend([0; 4 + 1]);
+        tiff.extend(xmp);
+        tiff
+    }
+
+    /// The panel and the search show the keywords of a TIFF or a DNG whose XMP is long for its
+    /// first image's pixels, as a DNG's small preview makes it. Before, the image crate's read
+    /// refused such an XMP, and the panel showed no keywords.
+    #[test]
+    fn a_tiffs_xmp_long_for_its_pixels_is_shown() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tiff-xmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let xmp = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:subject><rdf:Bag><rdf:li>KeptWord</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let tiff = tiff_of_one_pixel(xmp, xmp.len() as u32);
+        let mut shown = Vec::new();
+        for name in ["a.tif", "a.dng"] {
+            let path = dir.join(name);
+            std::fs::write(&path, &tiff).unwrap();
+            shown.push(super::embedded(&path).is_some_and(|x| x.contains("KeptWord")));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(shown, [true, true]);
+    }
+
+    /// A TIFF's XMP is counted in the decodes' budget, and a count that claims more than the
+    /// file holds is refused before anything is allocated. Before, a file of 1 KB that claimed
+    /// 511 MB made the tiff crate zero-fill them outside the budget before its read failed.
+    #[test]
+    fn a_tiffs_xmp_is_counted_and_a_count_past_its_file_refused() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-tiff-count-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (counted, lying) = (dir.join("counted.tif"), dir.join("lying.tif"));
+        std::fs::write(&counted, tiff_of_one_pixel(&[b' '; 1000], 1000)).unwrap();
+        std::fs::write(&lying, tiff_of_one_pixel(&[b' '; 1000], 511 << 20)).unwrap();
+        let job = crate::images::decode::start_decode_job();
+        let before = crate::images::decode::free_in_this_threads_budget();
+        let read = super::tiff_xmp(counted.as_path()).map(|x| x.map(|x| x.len()));
+        let taken = before - crate::images::decode::free_in_this_threads_budget();
+        drop(job);
+        let refused = super::tiff_xmp(lying.as_path());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(read.unwrap(), Some(1000));
+        assert_eq!(taken, 1000);
+        assert!(
+            matches!(refused, Err(image::ImageError::Limits(_))),
+            "{refused:?}"
+        );
     }
 }

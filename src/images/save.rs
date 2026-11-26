@@ -1347,10 +1347,9 @@ fn derived_metadata<'a>(
     let stored = (decoder.as_mut())
         .filter(|_| rotate)
         .map(|d| exif::stored_orientation(d, exif.as_deref()));
-    // The image crate reads no TIFF's XMP of more than a 32nd of its pixels' bytes, so a
-    // Photoshop file's long history refused the copy. A TIFF's is read up to Glimt's own cap.
+    // A TIFF's XMP is read by the panel's reader of it, as the image crate's refuses a long one.
     let read = match (format, &mut decoder) {
-        (Some(image::ImageFormat::Tiff), _) => tiff_xmp(file),
+        (Some(image::ImageFormat::Tiff), _) => crate::metadata::xmp::tiff_xmp(file),
         (_, Some(d)) => d.xmp_metadata(),
         (_, None) => Ok(None),
     };
@@ -1400,42 +1399,6 @@ fn is_failed_read(e: &image::ImageError, is_raw: bool) -> bool {
         image::ImageError::Limits(_) => !is_raw,
         _ => false,
     }
-}
-
-/// Reads the XMP packet of a TIFF (tag 700) up to the read cap of a decode
-/// (`MAX_DECODE_BYTES`). The image crate's own read refuses a packet longer than a 32nd of the
-/// pixels' bytes. Returns `None` when the TIFF has no XMP.
-fn tiff_xmp<'a>(file: impl ImageBytes<'a>) -> image::ImageResult<Option<Vec<u8>>> {
-    use tiff::tags::{Tag, Type, ValueBuffer};
-    let read = || -> tiff::TiffResult<Option<Vec<u8>>> {
-        let mut limits = tiff::decoder::Limits::default();
-        limits.decoding_buffer_size =
-            usize::try_from(crate::images::decode::MAX_DECODE_BYTES).unwrap_or(usize::MAX);
-        let mut decoder = tiff::decoder::Decoder::new(file.open_reader()?)?.with_limits(limits);
-        let mut packet = ValueBuffer::empty(Type::BYTE);
-        match decoder
-            .image_ifd()
-            .find_tag_buf(Tag::Unknown(700), &mut packet)?
-        {
-            None => Ok(None),
-            Some(_) if matches!(packet.data_type(), Type::BYTE | Type::UNDEFINED) => {
-                Ok(Some(packet.as_bytes().to_vec()))
-            }
-            Some(_) => Err(tiff::TiffError::FormatError(
-                tiff::TiffFormatError::InvalidTypeForTag,
-            )),
-        }
-    };
-    read().map_err(|e| match e {
-        tiff::TiffError::IoError(e) => image::ImageError::IoError(e),
-        tiff::TiffError::LimitsExceeded => image::ImageError::Limits(
-            image::error::LimitError::from_kind(image::error::LimitErrorKind::InsufficientMemory),
-        ),
-        e => image::ImageError::Decoding(image::error::DecodingError::new(
-            image::ImageFormat::Tiff.into(),
-            e,
-        )),
-    })
 }
 
 /// Returns why a file derived from `path` is not written: its metadata could not be read
