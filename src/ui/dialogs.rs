@@ -313,7 +313,7 @@ impl Dialogs {
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
         self.ask(Prompt::RenameFolder, name.into_owned());
         self.folder_target = Some(dir.to_path_buf());
-        self.picked_folder = Some(PickedFiles::folder(dir.to_path_buf()));
+        self.picked_folder = Some(PickedFiles::new(vec![dir.to_path_buf()]));
     }
 
     /// Asks for the name of a new folder in the folder `dir`.
@@ -338,7 +338,7 @@ impl Dialogs {
     /// Asks whether to move the folder `dir` to the trash.
     pub(crate) fn ask_trash_folder(&mut self, dir: &Path) {
         self.folder_target = Some(dir.to_path_buf());
-        self.picked_folder = Some(PickedFiles::folder(dir.to_path_buf()));
+        self.picked_folder = Some(PickedFiles::new(vec![dir.to_path_buf()]));
         self.is_confirming_folder_trash = true;
     }
 
@@ -366,7 +366,7 @@ impl Dialogs {
     /// The folder an answer acts on, without a dialog, for a test of the answer alone.
     #[cfg(test)]
     pub(crate) fn act_on_folder(&mut self, dir: PathBuf) {
-        self.picked_folder = Some(PickedFiles::folder(dir.clone()));
+        self.picked_folder = Some(PickedFiles::new(vec![dir.clone()]));
         self.folder_target = Some(dir);
     }
 }
