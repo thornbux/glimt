@@ -17,6 +17,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the copy, or the turned photo's own file, without its keywords, comment, stars, camera, date
   and place, and a turned PNG or WebP without its text, DPI, gamma or colour profile, untold. A
   copy with its metadata stripped is still made (#325).
+- The info panel and the search show the keywords, comment and alt text inside a TIFF or a DNG
+  whose XMP is long for its first image, such as a Photoshop TIFF with a long history or a DNG
+  with a small preview. Before, they showed none, and a keyword added then started a sidecar
+  that hid the file's own keywords.
 
 ## [0.99.0] - 2026-11-26
 
