@@ -90,6 +90,10 @@ thread_local! {
     // none of them, and gets no place.
     pub(crate) static TEST_MOUNTS_SHOWING: std::cell::RefCell<Vec<(PathBuf, PathBuf)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // What a start on this thread does once after it looked at the folders and before it looks
+    // at the first name (`name_seen`), as a stick pulled out at that moment.
+    pub(crate) static BEFORE_THE_NAMES: std::cell::Cell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::Cell::new(None) };
 }
 
 /// The volumes that /dev/disk/by-uuid names now, by their devices. A test gives them by folder
@@ -1633,12 +1637,10 @@ fn volume_of(folder: &Path, device: u64) -> Option<std::ffi::OsString> {
 }
 
 /// Looks once at everything a start needs to decide about a log that noted the folders `noted`:
-/// the `folders`, the folders of the `names`, above a folder that is gone each folder up to the
-/// first that is not (`job_decisions::is_gone`), and then the `names`. The folders are looked at
-/// before the names, so that a stick mounted between the two looks counts as not there yet. The
-/// volumes are read once for the log, and a volume found is looked up afresh for each folder
-/// (`VolumesNow::is_still_on_device`), so that a card swapped meanwhile under the same device
-/// number is not taken for the one noted (#284). It waits for the disk.
+/// the `folders`, the folders of the `names` and the `names`, in the order of
+/// `Observations::look`. The volumes are read once for the log, and a volume found is looked up
+/// afresh for each folder (`VolumesNow::is_still_on_device`), so that a card swapped meanwhile
+/// under the same device number is not taken for the one noted (#284). It waits for the disk.
 fn observe(
     noted: HashMap<PathBuf, FolderNoted>,
     names: &[&Path],
@@ -1646,33 +1648,23 @@ fn observe(
 ) -> Observations {
     // A log that noted no folder is read by the names alone, and needs no look at a disk.
     let volumes = (!noted.is_empty()).then(VolumesNow::read);
-    let mut seen: HashMap<PathBuf, FolderSeen> = HashMap::new();
-    let wanted = (folders.iter().copied()).chain(names.iter().filter_map(|name| name.parent()));
-    for folder in wanted {
-        let mut at = Some(folder);
-        while let Some(folder) = at.filter(|folder| !seen.contains_key(*folder)) {
-            let looked = look_at_folder(folder, volumes.as_ref());
-            at = if looked.is_gone {
-                folder.parent()
-            } else {
-                None
-            };
-            seen.insert(folder.to_path_buf(), looked);
-        }
-    }
-    let names = (names.iter())
-        .map(|name| (name.to_path_buf(), name_seen(name)))
-        .collect();
-    Observations {
+    Observations::look(
         noted,
-        folders: seen,
+        folders.iter().copied(),
         names,
-        boot: boot_now().map(str::to_owned),
-    }
+        |folder| look_at_folder(folder, volumes.as_ref()),
+        name_seen,
+        boot_now().map(str::to_owned),
+    )
 }
 
-/// Looks at the name `path`, not through a link. Only NotFound is `Gone`.
+/// Looks at the name `path`, not through a link. Only NotFound is `Gone`. A test can run
+/// `BEFORE_THE_NAMES` before the first name is looked at.
 fn name_seen(path: &Path) -> Seen {
+    #[cfg(test)]
+    if let Some(between) = BEFORE_THE_NAMES.take() {
+        between();
+    }
     match crate::files::file_io::fingerprint_if_there(path) {
         Ok(Some(fingerprint)) => Seen::There(fingerprint),
         Ok(None) => Seen::Gone,
@@ -5441,6 +5433,56 @@ mod tests {
         assert_eq!(found[0].1, std::slice::from_ref(&a));
         assert_eq!(let_go(found), 1);
         assert!(super::delete_jobs_cut_short(&logs).is_empty());
+        remove_fat_card(&dir, &card);
+    }
+
+    /// A card pulled out while a start looks at the names of a killed Move to Trash on it, after
+    /// it looked at the card's folder, keeps the log and the files' marks: the folder, looked at
+    /// again after the names, is then an empty mount point on another device. Before, the first
+    /// look at the folder stood for all its names, which then answered NotFound, so their
+    /// marks were forgotten and the log was removed. A trashed folder's own look that changed
+    /// so keeps its log too, where its name's look alone took it for trashed.
+    #[test]
+    fn a_card_pulled_out_while_a_start_looks_at_its_names_keeps_the_log() {
+        let (dir, card, logs) = fat_card("start-card-pulled");
+        let (a, b) = (card.join("a.png"), card.join("b.png"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        card_volume(&card, Some("1111-AAAA"));
+        let mut log = super::start_delete_log(&logs, "trash", None).unwrap();
+        log.note(&[a.clone(), b.clone()]);
+        drop(log);
+        let pulled = card.clone();
+        super::BEFORE_THE_NAMES.set(Some(Box::new(move || {
+            std::fs::remove_file(pulled.join("a.png")).unwrap();
+            std::fs::remove_file(pulled.join("b.png")).unwrap();
+            card_volume(&pulled, None);
+            super::ON_ANOTHER_DEVICE.with_borrow_mut(|moved| moved.push(pulled));
+        })));
+        let found = super::delete_jobs_cut_short(&logs);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        assert!(found[0].1.is_empty(), "marks forgotten: {:?}", found[0].1);
+        assert_eq!(let_go(found), 1);
+        assert_eq!(
+            super::delete_jobs_cut_short(&logs).len(),
+            1,
+            "the log was removed"
+        );
+        std::fs::remove_dir_all(&logs).unwrap();
+        // A Move Folder to Trash of a folder on the card, whose folder answers from another
+        // device after its first look while its name is still there, is not taken as trashed.
+        let album = card.join("album");
+        std::fs::create_dir(&album).unwrap();
+        card_volume(&card, Some("1111-AAAA"));
+        drop(super::start_folder_log(&logs, &album, None, None).unwrap());
+        let pulled = album.clone();
+        super::BEFORE_THE_NAMES.set(Some(Box::new(move || {
+            super::ON_ANOTHER_DEVICE.with_borrow_mut(|moved| moved.push(pulled));
+        })));
+        let (_, _, found) = super::jobs_cut_short(&logs);
+        super::ON_ANOTHER_DEVICE.with_borrow_mut(Vec::clear);
+        assert!(found.is_empty(), "taken as trashed");
+        assert_eq!(std::fs::read_dir(&logs).unwrap().count(), 1);
         remove_fat_card(&dir, &card);
     }
 

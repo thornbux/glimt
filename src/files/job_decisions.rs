@@ -84,22 +84,64 @@ pub(crate) struct FolderNoted {
     pub(crate) noted_in_file_system: Option<PathBuf>,
 }
 
-/// Everything a start saw on the disk for one log, gathered once before any decision
-/// (`journal::observe`).
+/// Everything a start saw on the disk for one log, gathered once before any decision. Only
+/// `Observations::look` makes it, so that each folder's look holds for the whole time its names
+/// were looked at.
 #[derive(Debug, Default)]
 pub(crate) struct Observations {
     /// The folders that the log's records noted.
-    pub(crate) noted: HashMap<PathBuf, FolderNoted>,
+    noted: HashMap<PathBuf, FolderNoted>,
     /// The folders looked at: those of the log's names, and above a folder that is gone, each
     /// folder up to the first that is not.
-    pub(crate) folders: HashMap<PathBuf, FolderSeen>,
+    folders: HashMap<PathBuf, FolderSeen>,
     /// The names looked at.
-    pub(crate) names: HashMap<PathBuf, Seen>,
+    names: HashMap<PathBuf, Seen>,
     /// The id of this boot, where it is known.
-    pub(crate) boot: Option<String>,
+    boot: Option<String>,
 }
 
 impl Observations {
+    /// Looks at everything a start needs to decide about a log that noted the folders `noted`,
+    /// with `look_at_folder` and `look_at_name`. It looks first at the `folders` and at the
+    /// folders of the `names`, and above a folder that is gone at each folder up to the first
+    /// that is not (`is_gone`). Then it looks at the `names`, and then at each of those folders
+    /// again. A folder whose two looks differ counts as one whose look failed. So a stick
+    /// mounted during the looks does not count as there yet. A stick pulled out or a share
+    /// ejected during them does not count as the folder that its names, which then answer
+    /// NotFound, were deleted from.
+    pub(crate) fn look<'a>(
+        noted: HashMap<PathBuf, FolderNoted>,
+        folders: impl Iterator<Item = &'a Path>,
+        names: &[&'a Path],
+        mut look_at_folder: impl FnMut(&Path) -> FolderSeen,
+        look_at_name: impl Fn(&Path) -> Seen,
+        boot: Option<String>,
+    ) -> Self {
+        let mut seen: HashMap<PathBuf, FolderSeen> = HashMap::new();
+        for folder in folders.chain(names.iter().filter_map(|name| name.parent())) {
+            let mut at = Some(folder);
+            while let Some(folder) = at.filter(|folder| !seen.contains_key(*folder)) {
+                let looked = look_at_folder(folder);
+                at = folder.parent().filter(|_| looked.is_gone);
+                seen.insert(folder.to_path_buf(), looked);
+            }
+        }
+        let names = (names.iter())
+            .map(|name| (name.to_path_buf(), look_at_name(name)))
+            .collect();
+        for (folder, first) in &mut seen {
+            if look_at_folder(folder) != *first {
+                *first = FolderSeen::default();
+            }
+        }
+        Observations {
+            noted,
+            folders: seen,
+            names,
+            boot,
+        }
+    }
+
     /// Returns what the look at the name `path` saw. A name that was not looked at counts as one
     /// whose look failed, which keeps the log rather than decide on nothing.
     pub(crate) fn name(&self, path: &Path) -> Seen {
@@ -454,8 +496,8 @@ pub(crate) fn is_another_folder(obs: &Observations, path: &Path) -> Decided<bool
 /// noted no folder at all is of Glimt 0.92, or written anew from one, and only the folder's
 /// being there is asked of it.
 ///
-/// The folder is looked at before the name (`journal::observe`), so that a stick mounted between
-/// the two looks counts as not there yet.
+/// The folder is looked at before the name and again after it (`Observations::look`), so that a
+/// stick mounted or pulled out between the looks counts as not there.
 pub(crate) fn is_gone(obs: &Observations, path: &Path) -> Decided<bool> {
     if let Seen::There(_) = obs.name(path) {
         return Ok(false);
@@ -791,20 +833,28 @@ pub(crate) fn folder_done(records: &[Record], obs: &Observations) -> Decided<Fol
 
 /// Returns whether the folder that the log noted, `noted`, is at `path` (`folder_of`). A folder of
 /// another card at the same path, or of a disk that cannot be told, cannot tell, and neither can a
-/// failed look. Where the log noted nothing, or the file system gives no inode, any folder counts.
+/// failed look at the name or at the folder. Where the log noted nothing, or the file system gives
+/// no inode, any folder counts.
 fn holds_the_folder(obs: &Observations, noted: Option<&FolderNoted>, path: &Path) -> Decided<bool> {
-    let key = match obs.name(path) {
+    match obs.name(path) {
         Seen::CannotTell => return Err(Why::LookFailed),
         Seen::Gone => return Ok(false),
-        Seen::There((key, _, _)) => key,
-    };
+        Seen::There(_) => {}
+    }
+    // The device, the inode and the disk all come from the one look at the folder, so that a
+    // stick pulled out between two looks cannot pair one folder's inode with another's disk.
     let seen = obs.folder(path);
-    match (key, noted) {
-        (Some((device, inode)), Some(noted)) if seen.is_dir => {
-            let KeySeen::Key { disk, .. } = &seen.key else {
-                return Err(Why::LookFailed);
-            };
-            let key = (device, Some(inode));
+    match (&seen.key, noted) {
+        (KeySeen::Failed, _) if !seen.is_gone => Err(Why::LookFailed),
+        (
+            KeySeen::Key {
+                device,
+                inode,
+                disk,
+            },
+            Some(noted),
+        ) if seen.is_dir => {
+            let key = (*device, Some(*inode));
             let boot = obs.boot.as_deref();
             // Another card at the path does not tell where the folder noted went.
             if !disk_of(path, noted, key, disk, boot).answer()? {
