@@ -109,8 +109,9 @@ A record kind it does not know, in a version it knows, it passes over, so a late
 kinds within version 1 when an older reader may safely ignore them. A record that changes the
 meaning of others raises the version.
 
-The kinds of job: `rename`, `move`, `delete`, `trash`, `undo-move`, `undo-trash`,
-`rename-folder`, `trash-folder`. Each has a reader at the start (`journal::read_at_start`, held by
+The kinds of job: `rename`, `move` (also for an Undo of a Move, which Glimt 0.99.0 wrote as
+`undo-move`, still read as `move`), `delete`, `trash`, `undo-trash`, `rename-folder`,
+`trash-folder`. Each has a reader at the start (`journal::read_at_start`, held by
 `every_job_kind_is_read_at_start`). A log of a kind the start has no reader for is kept on disk
 and told once, as one of a higher version is.
 
@@ -125,7 +126,6 @@ The record kinds:
 | `step` | number, from, to or `-`, fingerprint or `-` | before the step | every job |
 | `done` | number | after the step is done | #225, Rename Many's count |
 | `tree` | from, to or `-` | before a folder is renamed or trashed | #248 |
-| `trashed` | number, trash top or `home`, `.trashinfo` name | after the file is in the trash | #235 |
 | `marks` | number, bits, stars | before the marks file forgets them | #235 |
 | `place` | number, index in the collection | with `marks` | #235 |
 | `aside` | number, sidecar, hidden name | synced before the sidecar is renamed | now `aside/` |
@@ -218,9 +218,9 @@ A log no window holds locked was cut short. For each step, the start looks at th
   be read either and no lasting inode tells the folder, the device tells it, as in Glimt 0.97,
   so that such a log does not stay for good. Otherwise, without a medium that tells, the log
   stays for a later start, with its files' marks. A share's or tmpfs's device number
-  is its own, and is compared as before. One function, `journal::is_on_the_volume_noted`, answers whether a
+  is its own, and is compared as before. One function, `job_decisions::disk_of`, answers whether a
   folder is on the disk noted (surely, surely not, or cannot tell), and
-  `journal::is_the_folder_noted`, on top of it, whether it is the folder noted
+  `job_decisions::folder_of`, on top of it, whether it is the folder noted
   (`source_rules::one_rule_tells_the_folder_a_log_noted`). The
   volume is a record of its own, not a fourth field of `folder`, because Glimt 0.93.0 and 0.94.0
   pass over a kind they do not know but drop a `folder` record with four fields.
@@ -239,7 +239,7 @@ A log no window holds locked was cut short. For each step, the start looks at th
 - **`tree`:** the marks and collection entries under the old path follow the new one, or are
   forgotten for a trashed folder, once the start sees the folder at its new place by its inode
   (#248).
-- **`undo-trash` with `trashed` and `marks`:** each file that is back at its original name with
+- **`undo-trash` with `written`, `marks` and `place`:** each file that is back at its original name with
   its fingerprint gets its marks and its place back. One still in the trash keeps its records,
   and the log stays, so a later start can finish (#235). Undo itself is not offered after a
   restart for now (decision 4).
@@ -305,9 +305,6 @@ untrusted text:
 - Every path must be absolute and have no `..` part. A step whose number is not one the log has
   is passed over. A field that does not parse makes its record be passed over, never the start
   stop.
-- A `trashed` record names a trash by its top's path and a `.trashinfo` name with no `/`, and the
-  trash is opened through `open_folder_not_through_link` as now, so a log cannot send a restore
-  outside a trash.
 - `survives_broken_job_logs` feeds the parser `broken(sample)` of a log with every record kind,
   and the weekly fuzz run takes it too. The old parsers keep their tests.
 

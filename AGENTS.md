@@ -324,6 +324,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/external.rs` | Starting programs (`command`, `host_command`), and ffmpeg, gio and Open With |
 | `src/files/portal.rs` | The desktop portals through zbus (feature `portals`) |
 | `src/files/job_log.rs` | The job log in `jobs/`: one file for each job that changes files, with a header, a version and typed records, its writer and its parser |
+| `src/files/job_decisions.rs` | What a start decides about a job log that a kill left, as pure functions without I/O: from the log's records and what the start saw on the disk (`Observations`, gathered by `journal::observe`) to what is done, and the one rule that tells the disk and folder a log noted (`disk_of`, `folder_of`) |
 | `src/files/journal.rs` | Rename Many's steps on disk, put right at the next start after a crash, a Move's log, by which the marks and collections follow the files moved before a kill, a delete's log, by which the marks of the files deleted before a kill are forgotten, and the old logs' folders of Glimt 0.92, removed when empty (`clear_old_log_folders`) |
 | `src/support.rs` | **The support/ folder:** what the rest is built on |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget was drawn (`noted`) |

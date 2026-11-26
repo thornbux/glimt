@@ -16,10 +16,14 @@
 use crate::files::file_io::{
     FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there, may_have_been_done,
 };
+use crate::files::job_decisions;
+use crate::files::job_decisions::{
+    DeleteRecords, DeleteSorted, DiskNow, FolderDone, FolderNoted, FolderSeen, KeySeen,
+    Observations, Seen, Tell, delete_records, folders_noted,
+};
 use crate::files::job_log::{AtStart, CannotTell, Direction, JobLog, Record, Sure, remove_job_log};
 use crate::images::save::{same_file, same_file_by_opening};
 use crate::support::format::escaped_name;
-use crate::support::threads;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
@@ -86,31 +90,6 @@ thread_local! {
     // none of them, and gets no place.
     pub(crate) static TEST_MOUNTS_SHOWING: std::cell::RefCell<Vec<(PathBuf, PathBuf)>> =
         const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// What the `folder`, `volume` and `medium` records of a log noted of a folder: its device, its
-/// inode (0 where its file system keeps none), the volume it is on where its device has a name in
-/// /dev/disk/by-uuid, the medium in its block device, and where it is in its file system. Only
-/// `is_on_the_volume_noted` and
-/// `is_the_folder_noted` compare them with a folder now
-/// (`source_rules::one_rule_tells_the_folder_a_log_noted`).
-#[derive(Debug, Clone)]
-struct FolderNoted {
-    noted_device: u64,
-    noted_inode: u64,
-    noted_volume: Option<std::ffi::OsString>,
-    noted_medium: Option<String>,
-    /// The folder noted, whose path the place below compares with a folder above it.
-    noted_folder: PathBuf,
-    noted_in_file_system: Option<PathBuf>,
-    /// Where each folder looked at is in its file system now, shared by every folder of the
-    /// log, so that the mount table is read once for each folder, not once for each file.
-    places_now: std::sync::Arc<std::sync::Mutex<HashMap<PathBuf, Option<PathBuf>>>>,
-    /// The volumes found now, shared by every folder of the log. /dev/disk/by-uuid is read once
-    /// for the start that reads the log, not once for each folder or file, and its answer is
-    /// kept whatever it is: a volume, no volume for a device, or a read that failed (`None`).
-    /// A volume found there is looked up afresh before it counts (`is_still_on_device`).
-    volumes_now: std::sync::Arc<std::sync::OnceLock<Option<VolumesNow>>>,
 }
 
 /// The volumes that /dev/disk/by-uuid names now, by their devices. A test gives them by folder
@@ -354,7 +333,8 @@ impl MoveLog {
         }
         let mut records = Vec::new();
         // The folder it leaves is noted too, so that a start can tell a file at its old name on
-        // another card at the same path from the one that stayed (`moves_that_went`).
+        // another card at the same path from the one that stayed
+        // (`job_decisions::moves_that_went`).
         for path in [from, to] {
             let folder = path.parent().unwrap_or(Path::new("/"));
             if self.folders.insert(folder.to_path_buf()) {
@@ -660,38 +640,11 @@ impl DeleteLog {
     }
 }
 
-/// What a delete's log says, read at the start (`put_right_a_delete`).
-#[derive(Default)]
-struct DeleteRecords {
-    /// The kind of the log's job, "delete" or "trash".
-    job: &'static str,
-    /// The files the log names, in its order.
-    names: Vec<PathBuf>,
-    /// The fingerprint of each of `names`, taken before it went.
-    known: Vec<Option<FileFingerprint>>,
-    /// The collection shown during the delete.
-    collection: Option<PathBuf>,
-    /// The sidecars put aside, as (photo, sidecar, hidden name).
-    aside: Vec<[PathBuf; 3]>,
-    /// The photos kept while their sidecar may still be hidden.
-    kept: HashSet<PathBuf>,
-    /// The files written down as gone (`done`). A log written anew from one of Glimt 0.92 or
-    /// older has a `done` for each name, as the old logs read a name that is gone as a file that
-    /// went.
-    done: HashSet<PathBuf>,
-    /// The files of a delete for good without `done` that an earlier start found gone.
-    found: HashSet<PathBuf>,
-    /// The folders of the files, each with its device and inode as the log saw it.
-    folders: HashMap<PathBuf, FolderNoted>,
-    /// The logs that the log's `old-log` records name, which it was written anew from.
-    old_logs: Vec<PathBuf>,
-}
-
-/// Makes a new job log in `dir` of a Move, or of the Undo of one, as `job` says ("move" or
-/// "undo-move"), locked and with its header on disk.
-pub fn start_move_log(dir: &Path, job: &str) -> std::io::Result<MoveLog> {
+/// Makes a new job log in `dir` of a Move, or of the Undo of one, which a start reads the same
+/// way, locked and with its header on disk.
+pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
     Ok(MoveLog {
-        log: JobLog::start(dir, job, &[])?,
+        log: JobLog::start(dir, "move", &[])?,
         steps: 0,
         is_found_at_start: false,
         folders: HashSet::new(),
@@ -797,7 +750,7 @@ pub fn start_folder_log(
         .into_iter()
         .collect();
     // The folders that hold it before and after too, so that a start can tell them from an
-    // empty mount point at their path (`is_gone_at_start`).
+    // empty mount point at their path (`job_decisions::is_gone`).
     let mut noted: Vec<&Path> = vec![folder];
     for path in std::iter::once(folder).chain(to) {
         noted.extend(path.parent().filter(|p| !noted.contains(p)));
@@ -816,65 +769,25 @@ pub fn start_folder_log(
 }
 
 /// Returns what a Rename Folder or a Move Folder to Trash whose log says `records` had done when
-/// Glimt was killed, and `CannotTell` when a look or the write to the collection shown failed,
-/// so that the log stays for a later start.
-/// The folder counts as still where it was when its old path holds a folder with the inode the
-/// log noted (or any folder, where the log could note none). A renamed folder counts as renamed
-/// only when its old path is surely free and its new one holds it. A new path that cannot be
-/// told, as on a stick not mounted at this start, keeps the log. A trashed folder counts as
-/// trashed when its old path holds another folder, or is free in a folder that surely is there
-/// (`is_gone_at_start`), and its files leave the collection shown here.
+/// Glimt was killed (`job_decisions::folder_done`). The files of a folder trashed leave the
+/// collection shown here. Returns `CannotTell` when a look cannot tell or the write to the
+/// collection shown failed, so that the log stays for a later start.
 fn folder_job_done(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
-    let (mut tree, mut collection) = (None, None);
-    for record in records {
-        match record {
-            Record::Tree { from, to } => tree = Some((from.clone(), to.clone())),
-            Record::Shown(c) => collection = Some(c.clone()),
-            _ => {}
-        }
-    }
-    let Some((from, to)) = tree else {
-        return Ok(JobDoneBeforeAKill::NothingToFollow);
-    };
-    let folders = folders_noted(records);
-    let noted = folders.get(&from);
-    // Whether the folder noted is at `path` (`is_the_folder_noted`). A failed look, or a folder
-    // of another card at the same path or of a disk that cannot be told, cannot tell.
-    let holds_the_folder = |path: &Path| -> AtStart<bool> {
-        let found = crate::files::file_io::fingerprint_if_there(path).map_err(|_| CannotTell)?;
-        let Some((key, _, _)) = found else {
-            return Ok(false);
-        };
-        match (key, noted) {
-            (Some((device, inode)), Some(noted)) if is_surely_dir(path) => {
-                // Another card at the path does not tell where the folder noted went.
-                if !is_on_the_volume_noted(path, noted, device, Some(inode))? {
-                    return Err(CannotTell);
-                }
-                is_the_folder_noted(path, noted, device, Some(inode))
-            }
-            _ => Ok(is_surely_dir(path)),
-        }
-    };
-    if holds_the_folder(&from)? {
-        return Ok(JobDoneBeforeAKill::NothingToFollow);
-    }
-    Ok(match to {
-        Some(_) if !is_gone_at_start(&from, &folders)? => JobDoneBeforeAKill::NothingToFollow,
-        Some(to) if holds_the_folder(&to)? => JobDoneBeforeAKill::FolderRenamed(from, to),
-        Some(to) => {
-            // A stick not mounted at this start would else lose the marks of every file under
-            // the folder.
-            is_gone_at_start(&to, &folders)?;
-            JobDoneBeforeAKill::NothingToFollow
-        }
-        None => {
-            // A free path counts only in a folder that surely is there. A stick or share not
-            // mounted at this start would else have every file under the folder taken for
-            // trashed.
-            is_gone_at_start(&from, &folders)?;
-            forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&from))?;
-            JobDoneBeforeAKill::FolderTrashed(from)
+    let tree = records.iter().rev().find_map(|record| match record {
+        Record::Tree { from, to } => Some((from.as_path(), to.as_deref())),
+        _ => None,
+    });
+    let paths: Vec<&Path> = (tree.into_iter())
+        .flat_map(|(from, to)| std::iter::once(from).chain(to))
+        .collect();
+    let obs = observe(folders_noted(records), &paths, &paths);
+    let done = job_decisions::folder_done(records, &obs).map_err(|_| CannotTell)?;
+    Ok(match done {
+        FolderDone::NothingToFollow => JobDoneBeforeAKill::NothingToFollow,
+        FolderDone::Renamed(from, to) => JobDoneBeforeAKill::FolderRenamed(from, to),
+        FolderDone::Trashed { folder, collection } => {
+            forget_in_the_collection_shown(collection.as_deref(), std::slice::from_ref(&folder))?;
+            JobDoneBeforeAKill::FolderTrashed(folder)
         }
     })
 }
@@ -887,69 +800,38 @@ pub fn remove_once_written(log: JobLog) {
 }
 
 /// Returns what an Undo from the trash whose log says `records` had put back when Glimt was
-/// killed: the files whose step is done, or that are in a folder whose step is done, each with
-/// its marks and stars. The places of those files in the collection shown are given back there
-/// first. A step without its `done` counts as done too when its path holds a file with the
-/// fingerprint it had in the trash, which came back in the moment between its rename and its
-/// record (the rule of a Move, `moves_that_went`). Any other step not done keeps no marks: its
-/// file is still in the trash, or another file has its name. Returns `CannotTell` when a step's
-/// path cannot be told (`is_gone_at_start`), or the places cannot be written to the collection,
-/// so that the log stays for a later start.
+/// killed (`job_decisions::back_from_the_trash`), each file with its marks and stars. The places
+/// of those files in the collection shown are given back there first. Returns `CannotTell` when
+/// a step's path cannot be told, or the places cannot be written to the collection, so that the
+/// log stays for a later start.
 fn back_from_the_trash(records: &[Record]) -> AtStart<JobDoneBeforeAKill> {
-    let (mut paths, mut done, mut marks, mut places) =
-        (Vec::new(), HashSet::new(), Vec::new(), Vec::new());
-    let mut coming = Vec::new();
-    let mut collection = None;
-    for record in records {
-        match record {
-            Record::Shown(c) => collection = Some(c.clone()),
-            Record::Step { from, .. } => paths.push(from.clone()),
-            Record::Done(number) => {
-                done.insert(paths[*number].clone());
-            }
-            Record::Marks {
-                number,
-                bits,
-                stars,
-            } => marks.push((*number, (*bits, *stars))),
-            Record::Place { number, index } => places.push((*index, *number)),
-            Record::Written {
-                number,
-                fingerprint,
-            } => coming.push((*number, *fingerprint)),
-            _ => {}
-        }
-    }
-    let folders = folders_noted(records);
-    for (number, fingerprint) in coming {
-        let path = &paths[number];
-        if !done.contains(path)
-            && !is_gone_at_start(path, &folders)?
-            && is_as_known(path, Some(fingerprint))
-        {
-            done.insert(path.clone());
-        }
-    }
-    let is_back = |path: &PathBuf| path.ancestors().any(|a| done.contains(a));
-    let places: Vec<(usize, PathBuf)> = (places.into_iter())
-        .map(|(index, number)| (index, paths[number].clone()))
-        .filter(|(_, path)| is_back(path))
+    let steps: Vec<&Path> = (records.iter())
+        .filter_map(|record| match record {
+            Record::Step { from, .. } => Some(from.as_path()),
+            _ => None,
+        })
         .collect();
-    if let Some(collection) = collection.filter(|_| !places.is_empty())
+    // Only the steps with a fingerprint from the trash are looked at.
+    let coming: Vec<&Path> = (records.iter())
+        .filter_map(|record| match record {
+            Record::Written { number, .. } => steps.get(*number).copied(),
+            _ => None,
+        })
+        .collect();
+    let obs = observe(folders_noted(records), &coming, &[]);
+    let back = job_decisions::back_from_the_trash(records, &obs).map_err(|_| CannotTell)?;
+    if let Some(collection) = back.collection.filter(|_| !back.places.is_empty())
         && !is_surely_gone(&collection)
     {
-        let put_back = |all: &mut Vec<PathBuf>| crate::files::file_ops::put_back(all, &places);
+        let places = &back.places;
+        let put_back = |all: &mut Vec<PathBuf>| crate::files::file_ops::put_back(all, places);
         if let Err(e) = crate::model::collections::edit_open_collection(&collection, put_back) {
             crate::files::file_io::save_failed(e);
             // The log stays, so that a later start gives the places back.
             return Err(CannotTell);
         }
     }
-    let marks = (marks.into_iter())
-        .map(|(number, value)| (paths[number].clone(), value))
-        .filter(|(path, _)| is_back(path))
-        .collect();
-    Ok(JobDoneBeforeAKill::BackFromTrash(marks))
+    Ok(JobDoneBeforeAKill::BackFromTrash(back.marks))
 }
 
 /// Removes the job log `log`, held locked, after the writes the window has sent
@@ -1054,49 +936,6 @@ fn found_move_log(log: JobLog, sure: Sure) -> MoveLog {
     }
 }
 
-/// Returns the pairs of a Move's log, `pairs`, whose files went before Glimt was killed: those
-/// whose old name is surely not there any more and whose new one is and holds the file that
-/// went (`is_the_file_that_went`, by the fingerprints `known`, one for each pair). A file that
-/// had not gone yet is still at its old name, and a pair cut off by the kill has names that are
-/// not there, so both are left out. A sidecar that the kill left at a file's old name is moved
-/// to the file (`sidecars_follow_the_files_that_went`). Returns `CannotTell` when a file may
-/// have left its old name and its new one cannot be told (`is_gone_at_start`), as on a stick
-/// not mounted at this start, and when its new name holds a file while its old name cannot be
-/// told (`has_left`), so that the log stays for a later start.
-fn moves_that_went(
-    pairs: Moves,
-    known: &[Option<FileFingerprint>],
-    folders: &HashMap<PathBuf, FolderNoted>,
-) -> AtStart<Moves> {
-    let mut went = Vec::new();
-    for (step, (from, to)) in pairs.into_iter().enumerate() {
-        let left = has_left(&from);
-        // A file at the old name in another folder than the log noted there, as on another card
-        // at the same mount path, says nothing about the file that went: only its new name tells.
-        let is_still_there = left == Ok(false) && !is_another_folder(folders, &from)?;
-        if is_still_there || is_gone_at_start(&to, folders)? {
-            continue;
-        }
-        left?;
-        if is_the_file_that_went(&to, known, step)? {
-            went.push((from, to));
-        }
-    }
-    sidecars_follow_the_files_that_went(&went);
-    Ok(went)
-}
-
-/// Returns whether a file left the old name `from` of a Move's step, which a failed look cannot
-/// tell. A name in a folder that is gone counts as left, as a folder emptied by a Move is often
-/// removed after it, and only the new name tells where the file went.
-fn has_left(from: &Path) -> AtStart<bool> {
-    match (is_surely_there(from), is_surely_gone(from)) {
-        (true, _) => Ok(false),
-        (_, true) => Ok(true),
-        _ => Err(CannotTell),
-    }
-}
-
 /// The job logs in `dir` that Glimt was killed during, which are those no running window holds
 /// locked: the Moves (as `move_jobs_cut_short` gives them) and the deletes (as
 /// `put_right_a_delete` gives them). A log in `dir` that another log there names in its
@@ -1179,7 +1018,7 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
 /// reader for. `every_job_kind_is_read_at_start` fails when a kind of `JOB_KINDS` has none.
 pub(crate) fn read_at_start(job: &str) -> Option<ReadAtStart> {
     match job {
-        "move" | "undo-move" => Some(ReadAtStart::Move),
+        "move" => Some(ReadAtStart::Move),
         "delete" | "trash" => Some(ReadAtStart::Delete),
         "undo-trash" => Some(ReadAtStart::UndoTrash),
         "rename-folder" | "trash-folder" => Some(ReadAtStart::Folder),
@@ -1203,8 +1042,9 @@ pub fn delete_jobs_cut_short(dir: &Path) -> Vec<(DeleteLog, Vec<PathBuf>)> {
 }
 
 /// Returns the Move's log `found`, with the files that went: each step whose new name holds
-/// the file with the step's fingerprint (`moves_that_went`). Returns `None` when the start
-/// cannot tell, and the log stays.
+/// the file with the step's fingerprint (`job_decisions::moves_that_went`). A sidecar that the
+/// kill left at a file's old name is moved to the file (`sidecars_follow_the_files_that_went`).
+/// Returns `None` when the start cannot tell, and the log stays.
 fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> Option<(MoveLog, Moves)> {
     let (pairs, known): (Moves, Vec<Option<FileFingerprint>>) = (found.records.iter())
         .filter_map(|record| match record {
@@ -1217,9 +1057,40 @@ fn move_job_cut_short(found: crate::files::job_log::FoundLog) -> Option<(MoveLog
             _ => None,
         })
         .unzip();
-    let went = moves_that_went(pairs, &known, &folders_noted(&found.records));
+    let names: Vec<&Path> = (pairs.iter())
+        .flat_map(|(from, to)| [from.as_path(), to.as_path()])
+        .collect();
+    let obs = observe(folders_noted(&found.records), &names, &[]);
+    let (went, tells) = job_decisions::moves_that_went(&pairs, &known, &obs);
+    tell(&tells);
     let sure = Sure::of(&went)?;
-    Some((found_move_log(found.log, sure), went.ok()?))
+    let went = went.ok()?;
+    sidecars_follow_the_files_that_went(&went);
+    Some((found_move_log(found.log, sure), went))
+}
+
+/// Tells the user each of `tells`, which a start's decision gave, as a failed write.
+fn tell(tells: &[Tell]) {
+    use crate::files::file_io::{changed_meanwhile, gone_meanwhile, save_failed};
+    for told in tells {
+        let text = match told {
+            Tell::ChangedAtNewName(to) => format!("{}: {}", escaped_name(to), changed_meanwhile()),
+            Tell::GoneFromNewName(to) => format!("{}: {}", escaped_name(to), gone_meanwhile()),
+            Tell::FoundGone(photo) => crate::tf!(
+                "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start.",
+                photo = escaped_name(photo)
+            ),
+            Tell::StillGone(photo) => crate::tf!(
+                "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted.",
+                photo = escaped_name(photo)
+            ),
+            Tell::ThereAgain(photo) => crate::tf!(
+                "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back.",
+                photo = escaped_name(photo)
+            ),
+        };
+        save_failed(text);
+    }
 }
 
 /// Returns whether `path`, which a job log in `jobs` names in its `old-log` record, is a log of
@@ -1280,50 +1151,12 @@ fn is_named_anew(written_anew: &HashSet<PathBuf>, path: &Path) -> AtStart<()> {
     written_anew.contains(path).then_some(()).ok_or(CannotTell)
 }
 
-/// Returns what the records of a delete's job log, of kind `job`, say. The parser leaves out a
-/// record about a step that the log does not have before it, so each number is a step's.
-fn delete_records(job: &'static str, records: &[Record]) -> DeleteRecords {
-    let mut read = DeleteRecords {
-        job,
-        ..Default::default()
-    };
-    for record in records {
-        match record {
-            Record::Step {
-                from, fingerprint, ..
-            } => {
-                read.names.push(from.clone());
-                read.known.push(*fingerprint);
-            }
-            Record::Shown(collection) => read.collection = Some(collection.clone()),
-            Record::Aside {
-                number,
-                sidecar,
-                hidden,
-            } => (read.aside).push([read.names[*number].clone(), sidecar.clone(), hidden.clone()]),
-            Record::Kept(number) => {
-                read.kept.insert(read.names[*number].clone());
-            }
-            Record::Done(number) => {
-                read.done.insert(read.names[*number].clone());
-            }
-            Record::Found(number) => {
-                read.found.insert(read.names[*number].clone());
-            }
-            Record::OldLog(path) => read.old_logs.push(path.clone()),
-            _ => {}
-        }
-    }
-    read.folders = folders_noted(records);
-    read
-}
-
 /// Puts right the delete whose log `log` says `records`, found at the start, last written at
 /// `time`. Returns the log, held locked until it is removed or written anew in `jobs`, with the
 /// files whose marks and stars are to be forgotten: those whose name is surely not there any
-/// more in a folder that surely is (`is_gone_at_start`). Returns also whether the log stays for
-/// a name that this start could not finish, other than a photo found gone for the first time,
-/// which is told on its own.
+/// more in a folder that surely is (`job_decisions::sort_deleted`). Returns also whether the log
+/// stays for a name that this start could not finish, other than a photo found gone for the
+/// first time, which is told on its own.
 ///
 /// A file that had not gone yet is still at its name, and keeps them. A file still there as
 /// the log knew it takes back its sidecars, from a hidden name that a delete for good put them
@@ -1344,53 +1177,19 @@ fn put_right_a_delete(
     time: Option<std::time::SystemTime>,
     jobs: PathBuf,
 ) -> (DeleteLog, Vec<PathBuf>, bool) {
-    use crate::files::file_io::save_failed;
     let r = &records;
-    let is_unfinished = |name: &PathBuf| r.job == "delete" && !r.done.contains(name);
-    let (mut gone, mut stayed, mut not_as_left) = (Vec::new(), Vec::new(), Vec::new());
-    let (mut untold, mut found_now) = (HashSet::new(), HashSet::new());
-    for (name, known) in r.names.iter().zip(&r.known) {
-        let was_found = r.found.contains(name);
-        // Another card at the same mount path holds none of this log's files, and a folder that
-        // cannot be told may be such a card.
-        if is_another_folder(&r.folders, name) != Ok(false) {
-            untold.insert(name.clone());
-            continue;
-        }
-        match is_gone_at_start(name, &r.folders) {
-            Ok(true) if r.kept.contains(name) => not_as_left.push(name.clone()),
-            Ok(true) if is_unfinished(name) && !was_found => {
-                save_failed(crate::tf!(
-                    "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start.",
-                    photo = escaped_name(name)
-                ));
-                untold.insert(name.clone());
-                found_now.insert(name.clone());
-            }
-            Ok(true) => {
-                if is_unfinished(name) {
-                    save_failed(crate::tf!(
-                        "{photo} is still gone, so its delete is finished: its marks and stars are forgotten, and its sidecar put aside is deleted.",
-                        photo = escaped_name(name)
-                    ));
-                }
-                gone.push(name.clone());
-            }
-            Ok(false) if is_as_known(name, *known) => {
-                if is_unfinished(name) && was_found {
-                    save_failed(crate::tf!(
-                        "{photo} is there again, so it keeps its marks and stars, and its sidecar put aside gets its name back.",
-                        photo = escaped_name(name)
-                    ));
-                }
-                stayed.push(name.clone());
-            }
-            Ok(false) => not_as_left.push(name.clone()),
-            Err(CannotTell) => {
-                untold.insert(name.clone());
-            }
-        }
-    }
+    let names: Vec<&Path> = r.names.iter().map(PathBuf::as_path).collect();
+    let obs = observe(r.folders.clone(), &names, &[]);
+    let sorted = job_decisions::sort_deleted(r, &obs);
+    tell(&sorted.tells);
+    let DeleteSorted {
+        gone,
+        stayed,
+        not_as_left,
+        mut untold,
+        found_now,
+        ..
+    } = sorted;
     // The files that went stay in the log while the collection cannot be written, so that a
     // later start takes them out of it.
     if forget_in_the_collection_shown(r.collection.as_deref(), &gone).is_err() {
@@ -1679,14 +1478,6 @@ pub(crate) fn may_be_hidden(
     ))
 }
 
-/// Returns whether the file at `path` has the size and time of the fingerprint `known`, which a
-/// delete's log took before the file was to go. The device is left out, as after a reboot.
-/// Returns false when there is no fingerprint or the look fails.
-fn is_as_known(path: &Path, known: Option<FileFingerprint>) -> bool {
-    let now = crate::files::file_io::fingerprint_or_error(path);
-    now.is_ok_and(|(_, size, time)| known.is_some_and(|(_, was, at)| (size, time) == (was, at)))
-}
-
 /// Takes back from the trash the sidecars of the files `stayed`, which a delete's log names and
 /// which are still there as they were, when they went to the trash about the time `since`, when
 /// the log was last written. A Move to Trash sends each photo's sidecars just before the photo,
@@ -1841,200 +1632,94 @@ fn volume_of(folder: &Path, device: u64) -> Option<std::ffi::OsString> {
     }
 }
 
-/// Returns the folders that the `folder` records among `records` noted, each with the volume
-/// the medium and the place in its file system that the `volume`, `medium` and `in-file-system`
-/// records of the same folder noted.
-fn folders_noted(records: &[Record]) -> HashMap<PathBuf, FolderNoted> {
-    let volumes_now = std::sync::Arc::new(std::sync::OnceLock::new());
-    let places_now = std::sync::Arc::default();
-    let mut folders: HashMap<PathBuf, FolderNoted> = (records.iter())
-        .filter_map(|record| match record {
-            Record::Folder {
-                path,
-                device,
-                inode,
-            } => Some((
-                path.clone(),
-                FolderNoted {
-                    noted_device: *device,
-                    noted_inode: *inode,
-                    noted_volume: None,
-                    noted_medium: None,
-                    noted_folder: path.clone(),
-                    noted_in_file_system: None,
-                    places_now: std::sync::Arc::clone(&places_now),
-                    volumes_now: volumes_now.clone(),
-                },
-            )),
-            _ => None,
-        })
+/// Looks once at everything a start needs to decide about a log that noted the folders `noted`:
+/// the `folders`, the folders of the `names`, above a folder that is gone each folder up to the
+/// first that is not (`job_decisions::is_gone`), and then the `names`. The folders are looked at
+/// before the names, so that a stick mounted between the two looks counts as not there yet. The
+/// volumes are read once for the log, and a volume found is looked up afresh for each folder
+/// (`VolumesNow::is_still_on_device`), so that a card swapped meanwhile under the same device
+/// number is not taken for the one noted (#284). It waits for the disk.
+fn observe(
+    noted: HashMap<PathBuf, FolderNoted>,
+    names: &[&Path],
+    folders: &[&Path],
+) -> Observations {
+    // A log that noted no folder is read by the names alone, and needs no look at a disk.
+    let volumes = (!noted.is_empty()).then(VolumesNow::read);
+    let mut seen: HashMap<PathBuf, FolderSeen> = HashMap::new();
+    let wanted = (folders.iter().copied()).chain(names.iter().filter_map(|name| name.parent()));
+    for folder in wanted {
+        let mut at = Some(folder);
+        while let Some(folder) = at.filter(|folder| !seen.contains_key(*folder)) {
+            let looked = look_at_folder(folder, volumes.as_ref());
+            at = if looked.is_gone {
+                folder.parent()
+            } else {
+                None
+            };
+            seen.insert(folder.to_path_buf(), looked);
+        }
+    }
+    let names = (names.iter())
+        .map(|name| (name.to_path_buf(), name_seen(name)))
         .collect();
-    for record in records {
-        match record {
-            Record::Volume { path, volume } => {
-                if let Some(noted) = folders.get_mut(path) {
-                    noted.noted_volume = Some(volume.clone());
-                }
-            }
-            Record::Medium { path, medium } => {
-                if let Some(noted) = folders.get_mut(path) {
-                    noted.noted_medium = Some(medium.clone());
-                }
-            }
-            Record::InFileSystem {
-                path,
-                in_file_system,
-            } => {
-                if let Some(noted) = folders.get_mut(path) {
-                    noted.noted_in_file_system = Some(in_file_system.clone());
-                }
-            }
-            _ => {}
-        }
-    }
-    folders
-}
-
-/// Returns whether `folder`, on the device `device` now and with the inode `inode`, is on the
-/// disk or card that its records `noted` saw: the one rule by which a start tells a volume.
-/// `inode` is `None` for a folder above the one noted, whose own inode was never noted. Returns
-/// `Ok(false)` only for surely another disk, and `CannotTell` where it cannot be told, so that
-/// the log and the marks stay for a later start, never forgotten on a guess.
-///
-/// A noted volume decides, not the device, as a stick plugged in again may get another device
-/// number and another card in the same reader gets the same one. It is surely the same only
-/// when its block device is looked up afresh and is the folder's now. The volumes were read once
-/// for the log, so a card swapped since under the same device number would else pass for the
-/// one noted (#284). A volume not found now, or volumes that cannot be read now, leave it to the
-/// medium noted. In a later boot, where no volume can be read at all, the folder's lasting inode
-/// or its device tells it, as without a volume. Before, such a log stayed for good after a
-/// switch to the Flatpak or where udev is not running (#278).
-///
-/// Within the boot that noted it, a medium that is known now and is another one decides before
-/// the volume and the inode: it is surely another card, or the one noted plugged in again, which
-/// cannot be told apart. A card cloned with dd has the volume of the one noted (#272), and every
-/// ext4 stick's top folder has the inode 2 (#314), so either alone took another card at the same
-/// path for the one noted. Such a log waits for a later start.
-///
-/// A folder whose place in its file system is not the one noted, or above it, is not told
-/// either: a bind mount of another folder of the same disk, not mounted yet, leaves an empty
-/// mount point there with the volume, the medium and the device noted (#270).
-///
-/// Without a volume, another device cannot tell, as then the folder noted is not here (an empty
-/// mount point) or came back under another device number. On the noted device, the folder's own
-/// lasting inode, when it is the one noted, tells the disk. Without it, the device number tells
-/// it only off a block device: a share's or tmpfs's number is its own, while a block device's
-/// is given to the next card in the same reader or stick at the same port, so that it alone
-/// cannot tell (#179, #266, #270). There the medium noted tells it, looked up afresh, which the
-/// kernel gives no other card in the same boot. It tells the card where no volume can be read,
-/// as in the Flatpak's sandbox, which has no /dev/disk/by-uuid (#305), or where an entry there
-/// could not be read (#306). Before, the device alone told it there, as in Glimt 0.96. Within
-/// one boot, the medium noted decides there. A medium noted in an earlier boot, or none noted
-/// (before Linux 5.15, or a log of Glimt 0.97), cannot tell, as the kernel's numbers start again
-/// at each boot, and a job killed by a power cut is read in a new boot. Where then no volume can
-/// be read either and no lasting inode tells the folder (FAT, exFAT, or a folder above the one
-/// noted), the device tells it, as in Glimt 0.97. Else such a log would stay for good, told at
-/// every start, and its files' marks would never follow them.
-fn is_on_the_volume_noted(
-    folder: &Path,
-    noted: &FolderNoted,
-    device: u64,
-    inode: Option<u64>,
-) -> AtStart<bool> {
-    // A folder at the place noted, or above it, is somewhere else in its file system while a
-    // mount that held it is not mounted, as an empty mount point is, on the same disk (#270).
-    if let Some(noted_place) = &noted.noted_in_file_system
-        && let Ok(below) = noted.noted_folder.strip_prefix(folder)
-    {
-        let looked = threads::lock_even_if_poisoned(&noted.places_now)
-            .get(folder)
-            .cloned();
-        let place = looked.unwrap_or_else(|| {
-            let place = place_in_file_system(folder);
-            let mut places = threads::lock_even_if_poisoned(&noted.places_now);
-            places.insert(folder.to_path_buf(), place.clone());
-            place
-        });
-        if place.is_some_and(|place| place.join(below) != *noted_place) {
-            return Err(CannotTell);
-        }
-    }
-    let is_of_another_boot = || {
-        let noted_boot = (noted.noted_medium.as_deref()).and_then(|m| m.rsplit_once(':'));
-        noted_boot.is_none_or(|(boot, _)| Some(boot) != boot_now())
-    };
-    let is_another_medium = || {
-        let noted_medium = noted.noted_medium.as_deref();
-        let differs = |noted| medium_of(folder, device).is_some_and(|now| now != noted);
-        !is_of_another_boot() && noted_medium.is_some_and(differs)
-    };
-    if let Some(volume) = &noted.noted_volume {
-        let volumes = noted.volumes_now.get_or_init(VolumesNow::read).as_ref();
-        if let Some(found) = volumes.and_then(|volumes| volumes.volume_of_folder(folder, device)) {
-            if found != *volume {
-                return Ok(false);
-            }
-            if is_another_medium() {
-                return Err(CannotTell);
-            }
-            if VolumesNow::is_still_on_device(volume, folder, device) {
-                return Ok(true);
-            }
-        }
-    }
-    let is_the_inode_noted = noted.noted_inode != 0 && inode == Some(noted.noted_inode);
-    let is_the_medium_noted = || {
-        let noted_medium = noted.noted_medium.as_deref();
-        noted_medium.is_some_and(|noted| medium_of(folder, device).is_some_and(|now| now == noted))
-    };
-    let has_no_inode_to_tell = noted.noted_inode == 0 || inode.is_none();
-    let has_no_volumes = || noted.volumes_now.get_or_init(VolumesNow::read).is_none();
-    let is_told = match noted.noted_volume {
-        // A disk whose volume was noted is told by its medium within the boot, as its folders'
-        // inodes may be another stick's at the same port, and in a later boot as one without
-        // a volume is, where no volume can be read now.
-        Some(_) => {
-            is_the_medium_noted()
-                || (is_of_another_boot()
-                    && has_no_volumes()
-                    && (is_the_inode_noted || has_no_inode_to_tell))
-        }
-        None => {
-            is_the_inode_noted
-                || !is_on_a_block_device(folder, device)
-                || is_the_medium_noted()
-                || (has_no_inode_to_tell && is_of_another_boot() && has_no_volumes())
-        }
-    };
-    let is_told = is_told && !is_another_medium();
-    match device == noted.noted_device && is_told {
-        true => Ok(true),
-        false => Err(CannotTell),
+    Observations {
+        noted,
+        folders: seen,
+        names,
+        boot: boot_now().map(str::to_owned),
     }
 }
 
-/// Returns whether `folder`, on the device `device` now and with the inode `inode`, is the
-/// folder that its records `noted` saw: the one rule by which a start tells it. `inode` is `None`
-/// for a folder above the one noted, whose own inode was never noted.
-///
-/// It must be on the disk noted (`is_on_the_volume_noted`), and have the inode noted where one
-/// was (not 0), so that a folder made again at the name is not taken for it. Returns `Ok(false)`
-/// for another disk, surely another card at the same path, and for another folder: one with
-/// another lasting inode on the noted volume or device, made at the name after the job. Returns
-/// `CannotTell` where the disk cannot be told.
-fn is_the_folder_noted(
-    folder: &Path,
-    noted: &FolderNoted,
-    device: u64,
-    inode: Option<u64>,
-) -> AtStart<bool> {
-    let is_another_inode = inode.is_some_and(|i| noted.noted_inode != 0 && i != noted.noted_inode);
-    match is_on_the_volume_noted(folder, noted, device, inode) {
-        Ok(is_the_disk) => Ok(is_the_disk && !is_another_inode),
-        // On the noted device, another lasting inode is surely another folder, whichever disk
-        // holds it.
-        Err(CannotTell) if device == noted.noted_device && is_another_inode => Ok(false),
-        Err(e) => Err(e),
+/// Looks at the name `path`, not through a link. Only NotFound is `Gone`.
+fn name_seen(path: &Path) -> Seen {
+    match crate::files::file_io::fingerprint_if_there(path) {
+        Ok(Some(fingerprint)) => Seen::There(fingerprint),
+        Ok(None) => Seen::Gone,
+        Err(_) => Seen::CannotTell,
+    }
+}
+
+/// Looks at the folder `folder`: whether it is surely gone, surely a folder, and its device and
+/// inode with the disk on that device (`disk_now`), seen with the `volumes` read for the log.
+/// `volumes` is `None` for a log that noted no folder, whose disk is never compared.
+fn look_at_folder(folder: &Path, volumes: Option<&Option<VolumesNow>>) -> FolderSeen {
+    let is_gone = is_surely_gone(folder);
+    let is_dir = is_surely_dir(folder);
+    let key = match key_now(folder) {
+        None => KeySeen::Failed,
+        Some(None) => KeySeen::NoKey,
+        Some(Some((device, inode))) => KeySeen::Key {
+            device,
+            inode,
+            disk: volumes
+                .map(|v| disk_now(folder, device, v.as_ref()))
+                .unwrap_or_default(),
+        },
+    };
+    FolderSeen {
+        is_gone,
+        is_dir,
+        key,
+    }
+}
+
+/// Returns what is seen now of the disk on the device `device` of `folder`: where the folder is
+/// in its file system, the medium in the device, the volume that `volumes` (`None` when they
+/// could not be read) name for it with a fresh look whether it is on the device still, and
+/// whether the device is a block device. Only this function looks these up for a start
+/// (`source_rules::one_rule_tells_the_folder_a_log_noted`).
+fn disk_now(folder: &Path, device: u64, volumes: Option<&VolumesNow>) -> DiskNow {
+    let volume = volumes.and_then(|volumes| volumes.volume_of_folder(folder, device));
+    let is_volume_still_on_device = (volume.as_deref())
+        .is_some_and(|volume| VolumesNow::is_still_on_device(volume, folder, device));
+    DiskNow {
+        place: place_in_file_system(folder),
+        medium: medium_of(folder, device),
+        volume,
+        is_volume_still_on_device,
+        are_volumes_readable: volumes.is_some(),
+        is_on_a_block_device: is_on_a_block_device(folder, device),
     }
 }
 
@@ -2055,133 +1740,18 @@ fn is_on_a_block_device(folder: &Path, device: u64) -> bool {
     }
 }
 
-/// Returns the device and the inode that `folder` has now, and `None` when the look fails.
-fn device_and_inode_now(folder: &Path) -> Option<(u64, u64)> {
+/// Returns the device and the inode that `folder` has now, through a link: `None` when the look
+/// fails, and `Some(None)` when its file system gives none.
+fn key_now(folder: &Path) -> Option<Option<(u64, u64)>> {
     let (key, _, _) = crate::files::file_io::fingerprint_of_file_read(folder)?;
-    let (device, inode) = key?;
+    let Some((device, inode)) = key else {
+        return Some(None);
+    };
     #[cfg(test)]
     if ON_ANOTHER_DEVICE.with_borrow(|moved| moved.iter().any(|m| m == folder)) {
-        return Some((device.wrapping_add(1), inode));
+        return Some(Some((device.wrapping_add(1), inode)));
     }
-    Some((device, inode))
-}
-
-/// Returns whether the folder of `path` is another folder than the one that the log's `folders`
-/// saw there, made at its name after the job (`is_the_folder_noted`). A folder the log has no
-/// record of, one that is surely gone, and one whose file system gives no inode, are not counted
-/// as another, and a folder on another volume, another card at the same path, is. Returns
-/// `CannotTell` when the look at the folder fails, when its volume cannot be found, or when it is
-/// on another device without a noted volume, so that the log stays for a later start. Before,
-/// both counted as the same folder, and a file of another card at the path as the one that
-/// stayed.
-fn is_another_folder(folders: &HashMap<PathBuf, FolderNoted>, path: &Path) -> AtStart<bool> {
-    let Some((folder, noted)) = path.parent().and_then(|f| Some((f, folders.get(f)?))) else {
-        return Ok(false);
-    };
-    let Some((now, _, _)) = crate::files::file_io::fingerprint_of_file_read(folder) else {
-        return match is_surely_gone(folder) {
-            true => Ok(false),
-            false => Err(CannotTell),
-        };
-    };
-    Ok(match now {
-        Some((device, inode)) => !is_the_folder_noted(folder, noted, device, Some(inode))?,
-        None => false,
-    })
-}
-
-/// Returns whether nothing is at `path` now, the one rule by which a start reads a path that a
-/// job log names, whose `folder` records noted `folders`. Returns `Ok(true)` when its name is
-/// surely not there while its folder surely is, on the disk the log noted, and `Ok(false)`
-/// when something is at its name. A folder that is gone counts as deleted, and its files as
-/// gone, when the nearest folder above it is on the disk the log noted
-/// (`removed_from_its_device`). Returns `CannotTell` when the looks cannot tell: the folder is
-/// not there, as on a stick or a share not back yet at this start, or it is not surely on the
-/// disk the log noted (`is_on_the_volume_noted`), or the log noted none of it, or a look failed.
-/// Such a log stays for a later start, as a path taken for gone or for not there would lose the
-/// marks of its file.
-///
-/// The device tells the folder that the job wrote to from an empty mount point at its path, such
-/// as `/mnt/nas` while its share is not mounted, which is a folder too. A stick plugged in again
-/// with another device number cannot be told either, and its log waits for a later start: its
-/// marks are kept, never lost. A disk with a volume noted is told by it instead, whatever its
-/// device, and a block device without one only by the folder's own lasting inode. A log that
-/// noted no folder at all is of Glimt 0.92, or written anew from one, and only the folder's
-/// being there is asked of it, as before.
-///
-/// For a delete's log, a file at the name keeps its marks also when it changed since. It may be
-/// the file the kill came before, written by another program since, or a file that another
-/// window marked after the kill. The marks of a deleted file then stay with a later photo that
-/// took its name, as they did before there was a log, which is the lesser harm.
-fn is_gone_at_start(path: &Path, folders: &HashMap<PathBuf, FolderNoted>) -> AtStart<bool> {
-    if is_surely_there(path) {
-        return Ok(false);
-    }
-    if !folders.is_empty() {
-        let folder = path.parent().ok_or(CannotTell)?;
-        let noted = folders.get(folder).ok_or(CannotTell)?;
-        if is_surely_gone(folder) {
-            return removed_from_its_device(folder, noted);
-        }
-        let (device, inode) = device_and_inode_now(folder).ok_or(CannotTell)?;
-        if !is_on_the_volume_noted(folder, noted, device, Some(inode))? {
-            return Err(CannotTell);
-        }
-    }
-    // The folder is looked at first, so that a stick mounted between the two looks counts as
-    // not there yet.
-    let has_folder = path.parent().is_some_and(is_surely_dir);
-    match has_folder && is_surely_gone(path) {
-        true => Ok(true),
-        false => Err(CannotTell),
-    }
-}
-
-/// Tells whether `folder`, which is surely gone, was removed from the disk it was noted on.
-/// Returns `Ok(true)` when the nearest folder above it that surely is there is surely on that
-/// disk (`is_on_the_volume_noted`), as then the folder was deleted, not taken away with a stick
-/// or share. Returns `CannotTell` when that folder is on another device, as an empty mount point
-/// is, on another volume, as another card in the same reader is, on a block device without a
-/// noted volume, which another stick at the same port shares (#270), or when a look fails.
-fn removed_from_its_device(folder: &Path, noted: &FolderNoted) -> AtStart<bool> {
-    let mut above = folder.parent();
-    while let Some(ancestor) = above {
-        if is_surely_dir(ancestor) {
-            let (device, _) = device_and_inode_now(ancestor).ok_or(CannotTell)?;
-            let same = is_on_the_volume_noted(ancestor, noted, device, None)?;
-            return same.then_some(true).ok_or(CannotTell);
-        }
-        if !is_surely_gone(ancestor) {
-            return Err(CannotTell);
-        }
-        above = ancestor.parent();
-    }
-    Err(CannotTell)
-}
-
-/// Returns whether the file at `to` is the file that the pair `step` of a Move's log moved
-/// there, by the fingerprints of its steps, `known`. Another program may have put another photo
-/// there since, and a log that outlived its Move (its removal failed) is found again at the
-/// next start, so the marks and the sidecar of the file that went would else go to a later
-/// photo of that name. A file is told by its size and time, which a move to another disk keeps
-/// (`put_file`) to the resolution of that disk's file system, so the times are compared as any
-/// file system keeps them (`KnownAs::size_and_time_as_kept`). A pair left alone is told.
-/// Returns `CannotTell` when the look at `to` fails, so that the log stays for a later start.
-fn is_the_file_that_went(
-    to: &Path,
-    known: &[Option<FileFingerprint>],
-    step: usize,
-) -> AtStart<bool> {
-    use crate::files::file_io::{KnownAs, changed_meanwhile, is_still_the_file};
-    let is_it = match known.get(step).copied().flatten() {
-        Some(fingerprint) => is_still_the_file(to, KnownAs::size_and_time_as_kept(fingerprint)),
-        None => Err(changed_meanwhile()),
-    };
-    if let Err(e) = &is_it {
-        can_be_looked_at(to)?;
-        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(to)));
-    }
-    Ok(is_it.is_ok())
+    Some(Some((device, inode)))
 }
 
 /// Looks at `path`. Returns `CannotTell` when the look fails: nothing can be told of it,
@@ -2242,7 +1812,7 @@ pub fn start_journal_with_marks(
 ) -> std::io::Result<Journal> {
     let names = one_name_per_folder(moves);
     // The folders of the renames come first, so that a start can tell them from an empty mount
-    // point at their path (`is_gone_at_start`).
+    // point at their path (`job_decisions::is_gone`).
     let mut records: Vec<Record> = (names.iter())
         .filter_map(|name| name.parent())
         .flat_map(folder_record)
@@ -2794,9 +2364,14 @@ pub fn repair_cut_short(
     // A name that the start cannot tell about, as on a stick not mounted or an empty mount point
     // at its folder, keeps the plan. Its file counts as left, and the user is asked again with
     // the names left. A plan of Glimt 0.92, which noted no folders, is read as before.
-    let mut names = moves.iter().flat_map(|(a, b)| [a, b]);
-    if !folders.is_empty() && names.any(|p| is_gone_at_start(p, &folders).is_err()) {
-        return Some((0, 1));
+    if !folders.is_empty() {
+        let names: Vec<&Path> = (moves.iter())
+            .flat_map(|(a, b)| [a.as_path(), b.as_path()])
+            .collect();
+        let obs = observe(folders, &names, &[]);
+        if job_decisions::plan_can_be_put_right(moves, &obs).is_err() {
+            return Some((0, 1));
+        }
     }
     let taken = match (undo_them, done) {
         (_, _) if known.is_empty() => Vec::new(),
@@ -3243,7 +2818,7 @@ mod tests {
             std::fs::write(from.join(n), n).unwrap();
         }
         std::fs::write(to.join("b.jpg.xmp"), "another's").unwrap();
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         // The kill came after each photo went and before its sidecar did.
         for n in ["a.jpg", "b.jpg"] {
             log.note(&from.join(n), &to.join(n));
@@ -3273,7 +2848,7 @@ mod tests {
         std::fs::create_dir_all(&from).unwrap();
         std::fs::create_dir_all(&stick).unwrap();
         std::fs::write(from.join("a.jpg"), "a").unwrap();
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from.join("a.jpg"), &stick.join("a.jpg"));
         std::fs::rename(from.join("a.jpg"), stick.join("a.jpg")).unwrap();
         drop(log);
@@ -3302,7 +2877,7 @@ mod tests {
         for n in ["a.jpg", "b.jpg", "b.jpg.xmp"] {
             std::fs::write(from.join(n), n).unwrap();
         }
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         for n in ["a.jpg", "b.jpg"] {
             log.note(&from.join(n), &to.join(n));
             std::fs::rename(from.join(n), to.join(n)).unwrap();
@@ -3343,7 +2918,7 @@ mod tests {
         for n in ["a.jpg", "b.jpg", "a.jpg.xmp"] {
             std::fs::write(from.join(n), "photo").unwrap();
         }
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         for n in ["a.jpg", "b.jpg"] {
             set_time(&from.join(n), at(1_700_000_001, 234_567_891));
             log.note(&from.join(n), &to.join(n));
@@ -5622,7 +5197,7 @@ mod tests {
         // Move Folder to Trash of nas/Album, and a Move of a.jpg into nas, both done and killed.
         drop(super::start_folder_log(&jobs, &album, None, None).unwrap());
         std::fs::rename(&album, dir.join("in-the-trash")).unwrap();
-        let mut log = super::start_move_log(&jobs, "move").unwrap();
+        let mut log = super::start_move_log(&jobs).unwrap();
         log.note(&a, &moved);
         drop(log);
         std::fs::rename(&a, &moved).unwrap();
@@ -5685,7 +5260,7 @@ mod tests {
         std::fs::create_dir_all(&nas).unwrap();
         std::fs::create_dir(&away).unwrap();
         std::fs::write(&a, "a").unwrap();
-        let mut log = super::start_move_log(&jobs, "move").unwrap();
+        let mut log = super::start_move_log(&jobs).unwrap();
         log.note(&a, &moved);
         drop(log);
         std::fs::rename(&a, &moved).unwrap();
@@ -5969,7 +5544,7 @@ mod tests {
         let (from, moved) = (card.join("a.jpg"), to.join("a.jpg"));
         std::fs::write(&from, "the card's").unwrap();
         card_volume(&card, Some("1111-AAAA"));
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         drop(log);
@@ -5995,7 +5570,7 @@ mod tests {
         let (from, moved, deleted) = (card.join("a.jpg"), to.join("a.jpg"), card.join("b.jpg"));
         std::fs::write(&from, "the card's").unwrap();
         card_volume(&card, Some("1111-AAAA"));
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         drop(log);
@@ -6085,7 +5660,7 @@ mod tests {
         let (from, moved) = (sub.join("a.jpg"), to.join("a.jpg"));
         std::fs::write(&from, "the stick's").unwrap();
         card_volume(&card, Some("aaaa-1111"));
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         drop(log);
@@ -6170,7 +5745,7 @@ mod tests {
         let (stayed, not_moved) = (card.join("d.jpg"), to.join("d.jpg"));
         std::fs::write(&from, "the card's").unwrap();
         std::fs::write(&stayed, "not moved yet").unwrap();
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         // The kill came before this step's file went, so the start must tell its folder.
@@ -6326,12 +5901,23 @@ mod tests {
         let folders = super::folders_noted(&records);
         card_volume(&card, Some("1111-AAAA"));
         let noted = &folders[&card];
-        assert_eq!(
-            super::is_the_folder_noted(&card, noted, device, None),
-            Ok(true)
-        );
+        // The volumes are read once for the log, and the card is looked at after that.
+        let volumes = super::VolumesNow::read();
+        let is_the_folder_noted = || {
+            let seen = super::look_at_folder(&card, Some(&volumes));
+            let super::KeySeen::Key { disk, .. } = seen.key else {
+                panic!("no key");
+            };
+            let judged = super::job_decisions::folder_of(&card, noted, (device, None), &disk, None);
+            match judged {
+                super::job_decisions::Disk::Same => Ok(true),
+                super::job_decisions::Disk::Another => Ok(false),
+                _ => Err(super::CannotTell),
+            }
+        };
+        assert_eq!(is_the_folder_noted(), Ok(true));
         card_volume(&card, Some("2222-BBBB"));
-        let swapped = super::is_the_folder_noted(&card, noted, device, None);
+        let swapped = is_the_folder_noted();
         assert_eq!(swapped, Err(super::CannotTell));
         remove_fat_card(&dir, &card);
     }

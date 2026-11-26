@@ -4668,26 +4668,31 @@ fn a_home_ends_at_the_next_top_level_item() {
 }
 
 /// Which disk and which folder a job log noted (by its volume, its device and inode, or its
-/// device alone where that is not a block device) is decided in two functions:
-/// `journal::is_on_the_volume_noted` for the disk, the only one that reads the volume noted or
-/// asks whether a device is a block device, and `journal::is_the_folder_noted` for the folder,
-/// on top of it. No other function of the logs' files reads what a log noted of a folder, or
-/// looks up a volume to compare, as the start once decided it in four places, four ways, and a
-/// FAT card back under another device number never finished its log. Later, a block device's
-/// number alone, which another card in the same reader gets, still passed for the card noted
-/// (#179, #266, #270), and a volume read once for the log for the card there now (#284).
+/// device alone where that is not a block device) is decided in two pure functions:
+/// `job_decisions::disk_of` for the disk, the only one that reads the volume noted, and
+/// `job_decisions::folder_of` for the folder, on top of it. What they compare with is looked up
+/// in one place, `journal::disk_now`. No other function of the logs' files reads what a log
+/// noted of a folder, or looks up a volume to compare, as the start once decided it in four
+/// places, four ways, and a FAT card back under another device number never finished its log.
+/// Later, a block device's number alone, which another card in the same reader gets, still
+/// passed for the card noted (#179, #266, #270), and a volume read once for the log for the card
+/// there now (#284).
 #[test]
 fn one_rule_tells_the_folder_a_log_noted() {
     let homes = homes_of_the_folder_rule();
-    let files = ["files/journal.rs", "files/job_log.rs", "files/file_ops.rs"];
+    let files = [
+        "files/journal.rs",
+        "files/job_log.rs",
+        "files/job_decisions.rs",
+        "files/file_ops.rs",
+    ];
     let wrong: Vec<String> = (rust_sources().iter())
         .filter(|(file, _)| files.contains(&file.as_str()))
         .flat_map(|(file, text)| outside_homes_in(file, text, &homes))
         .collect();
     assert!(
         wrong.is_empty(),
-        "a log's folder compared outside journal::is_on_the_volume_noted and \
-         is_the_folder_noted:\n{}",
+        "a log's folder compared outside job_decisions::disk_of and folder_of:\n{}",
         wrong.join("\n")
     );
 }
@@ -4724,22 +4729,22 @@ fn the_folder_rule_finds_every_look_at_a_volume() {
 /// functions where it may stand (`one_rule_tells_the_folder_a_log_noted`).
 fn homes_of_the_folder_rule() -> Vec<(&'static str, &'static [(&'static str, &'static str)])> {
     let rule: &[(&str, &str)] = &[
-        ("files/journal.rs", "is_on_the_volume_noted"),
-        ("files/journal.rs", "is_the_folder_noted"),
+        ("files/job_decisions.rs", "disk_of"),
+        ("files/job_decisions.rs", "folder_of"),
     ];
     let volume: &[(&str, &str)] = &[
-        ("files/journal.rs", "is_on_the_volume_noted"),
-        ("files/journal.rs", "folders_noted"),
+        ("files/job_decisions.rs", "disk_of"),
+        ("files/job_decisions.rs", "folders_noted"),
         ("files/journal.rs", "steps_left"),
     ];
     let built: &[(&str, &str)] = &[
-        ("files/journal.rs", "is_on_the_volume_noted"),
-        ("files/journal.rs", "is_the_folder_noted"),
-        ("files/journal.rs", "folders_noted"),
+        ("files/job_decisions.rs", "disk_of"),
+        ("files/job_decisions.rs", "folder_of"),
+        ("files/job_decisions.rs", "folders_noted"),
         ("files/journal.rs", "steps_left"),
     ];
     let looked_up: &[(&str, &str)] = &[
-        ("files/journal.rs", "is_on_the_volume_noted"),
+        ("files/journal.rs", "disk_now"),
         ("files/journal.rs", "folder_record"),
     ];
     vec![
@@ -4994,7 +4999,14 @@ fn finds_a_change_folded_into_a_bool() {
 #[test]
 fn looks_at_the_disk_in_the_logs_can_say_cannot_tell() {
     let wrong: Vec<String> = (rust_sources().iter())
-        .filter(|(file, _)| ["files/journal.rs", "files/job_log.rs"].contains(&file.as_str()))
+        .filter(|(file, _)| {
+            [
+                "files/journal.rs",
+                "files/job_log.rs",
+                "files/job_decisions.rs",
+            ]
+            .contains(&file.as_str())
+        })
         .flat_map(|(file, text)| sure_answers_from_the_disk_in(file, text))
         .collect();
     assert!(
