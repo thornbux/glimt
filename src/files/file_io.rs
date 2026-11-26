@@ -42,6 +42,16 @@ const TIME_NOT_KNOWN: (i64, i64) = (0, 0);
 /// The start of every name that `tmp_path` gives.
 pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
 
+/// The types of file system, as /proc/self/mountinfo or udev names them, that are known to be on
+/// a disk of this computer or in its memory. Every other type counts as a share (`is_remote`).
+/// fuseblk is FUSE on a block device, such as NTFS through ntfs-3g.
+const LOCAL_FILE_SYSTEMS: [&str; 35] = [
+    "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "msdos", "exfat", "ntfs", "ntfs3",
+    "fuseblk", "zfs", "bcachefs", "jfs", "reiserfs", "nilfs2", "hfs", "hfsplus", "apfs", "ufs",
+    "tmpfs", "ramfs", "overlay", "squashfs", "erofs", "iso9660", "udf", "ecryptfs", "cramfs",
+    "romfs", "minix", "hpfs", "affs", "befs",
+];
+
 /// The folder where udev names each volume on a block device by its serial number or UUID.
 const VOLUMES_FOLDER: &str = "/dev/disk/by-uuid";
 
@@ -438,20 +448,6 @@ impl<'a> KnownAs<'a> {
         }
     }
 
-    /// A file known by the size and time of the fingerprint it had before a Move, which may have
-    /// copied it to another disk: a Move's log, read again at the next start. The device is left
-    /// out, as the copy is on another device. A Move to another disk sets the time of the copy,
-    /// which that disk keeps only to its own resolution, so the times are compared as any file
-    /// system keeps them (`same_time_as_kept`).
-    pub(crate) fn size_and_time_as_kept((_, size, time): FileFingerprint) -> KnownAs<'a> {
-        KnownAs {
-            fingerprint: Some((None, size, time)),
-            compared: Compared::TimeAsKept,
-            listed: None,
-            list_is_old: None,
-        }
-    }
-
     /// A file known only by the inode its folder listed, in the list whose flag is
     /// `list_is_old`.
     pub(crate) fn listed(identity: Identity, list_is_old: &'a ListIsOld) -> KnownAs<'a> {
@@ -471,9 +467,6 @@ enum Compared {
     Whole,
     /// The size and time to the nanosecond, without the device (`KnownAs::size_and_time`).
     WithoutDevice,
-    /// The size, and the time as any file system keeps it (`same_time_as_kept`), without the
-    /// device (`KnownAs::size_and_time_as_kept`).
-    TimeAsKept,
 }
 
 /// The identity that the list knew each picked file by, in the order of the files, and the
@@ -1631,17 +1624,21 @@ pub(crate) fn shown_type(kind: &str) -> &str {
     }
 }
 
-/// Returns whether a mount of type `kind` (from `file_system_type`) is on another computer or in a
-/// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not. Every
-/// other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does not call
-/// the folder a network folder.
+/// Returns whether a mount of type `kind` (from `file_system_type`) may be on another computer or
+/// in a cloud. Every type that is not known to be local (`LOCAL_FILE_SYSTEMS`) counts, so ceph,
+/// afs, virtiofs, vboxsf and a type that Glimt does not know yet are judged as shares. Before,
+/// only a list of shares counted, and every other type was judged as a local disk (#322). A
+/// fuseblk mount (NTFS or exFAT on a local disk) is not a share. Every other FUSE mount counts,
+/// also a local one such as gocryptfs, so the delete dialog does not call the folder a network
+/// folder.
 pub(crate) fn is_remote(kind: &str) -> bool {
-    kind.starts_with("fuse.") || matches!(kind, "fuse" | "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
+    !LOCAL_FILE_SYSTEMS.contains(&kind)
 }
 
 /// Returns whether a mount of type `kind` (from `file_system_type`) is a network file system,
-/// where each look at a file is a round trip to another computer or a cloud: SMB, NFS, 9p, or
-/// one of the FUSE file systems named in `NETWORK_FUSE`, or a FUSE mount without a subtype whose
+/// where each look at a file is a round trip to another computer or a cloud: a type other than
+/// FUSE that `is_remote` counts (SMB, NFS, 9p, ceph, virtiofs …), or one of the FUSE file
+/// systems named in `NETWORK_FUSE`, or a FUSE mount without a subtype whose
 /// source is another computer (`names_another_computer`). A local FUSE mount, such as a KDE
 /// Vault (gocryptfs, cryfs), a mergerfs pool, bindfs or the Flatpak's document portal, is not,
 /// although `is_remote` counts it. The FUSE file systems are named one by one, because a network
@@ -2766,9 +2763,8 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// tells, right before a change, that no other file has taken the name since the list showed
 /// it, the user picked it or Glimt read it. Another inode than the one its folder listed is
 /// refused, and an unknown one passes. With a fingerprint, the device, size and time must also
-/// be the same (`same_fingerprint`), for `size_and_time` the size and the time, and for
-/// `size_and_time_as_kept` the size and the time as any file system keeps it
-/// (`same_time_as_kept`). A file that is gone is then refused. Without a fingerprint, a file
+/// be the same (`same_fingerprint`), and for `size_and_time` the size and the time. A file that
+/// is gone is then refused. Without a fingerprint, a file
 /// that is gone is left to the operation to tell. Another file found has the window whose list
 /// it is read its folder again (`ListIsOld`). It waits for the disk, so it is called in the
 /// thread that makes the change. Returns the error to tell. A look that failed returns its own
@@ -2791,7 +2787,6 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
         let is_same = |now: FileFingerprint| match known.compared {
             Compared::Whole => same_fingerprint(before, now),
             Compared::WithoutDevice => (before.1, before.2) == (now.1, now.2),
-            Compared::TimeAsKept => before.1 == now.1 && same_time_as_kept(before.2, now.2),
         };
         match fingerprint_or_error(path) {
             Ok(now) if is_same(now) => return Ok(()),
@@ -2807,7 +2802,7 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
 }
 
 /// Returns the error for a file read or picked that is no longer there.
-fn gone_meanwhile() -> std::io::Error {
+pub(crate) fn gone_meanwhile() -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::NotFound,
         crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
@@ -3167,7 +3162,7 @@ pub(crate) fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
 /// some FUSE file systems. So the time a Move to another disk gave the copy can be up to 2
 /// seconds before the time the file had, and a time within that of the other counts as the
 /// same. Glimt tells a file by this rule only where the fingerprint was taken before such a
-/// Move, in a Move's log (`KnownAs::size_and_time_as_kept`). Everywhere else, a Rename Many's
+/// Move, in a Move's log (`job_decisions::moves_that_went`). Everywhere else, a Rename Many's
 /// plan among them, the file was only renamed or not moved at all, so its time is compared to
 /// the nanosecond, as another file written there in the same 2 seconds would else pass.
 pub(crate) fn same_time_as_kept(a: (i64, i64), b: (i64, i64)) -> bool {
@@ -3856,6 +3851,9 @@ mod tests {
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
+        // A type not known to be local counts as a share, also one Glimt has no name for (#322).
+        assert!(super::is_remote("virtiofs") && super::is_remote("vboxsf"));
+        assert!(!super::is_remote("ext4") && !super::is_remote("exfat"));
     }
 
     /// A FUSE mount of plain type "fuse", with no subtype, is told by its source: one that names

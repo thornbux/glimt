@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A folder on a file system that Glimt does not know to be local, such as virtiofs, VirtualBox's
+  shared folders (vboxsf), Ceph, AFS or Lustre, is treated as a share, as SMB and NFS are. A
+  lost or cached answer there no longer counts as a step that did nothing, Delete offers to
+  delete for good instead of making a trash there, background reads go through the share's
+  gate, and the status bar does not sum the sizes there (#322).
 - Save As, Crop, a turned PNG or WebP and Copy for Sharing are refused with the photo's name
   when its EXIF or XMP cannot be read. Before, they wrote the copy, or the turned photo's own
   file, without its keywords, comment, stars, camera, date and place, untold. A copy with its

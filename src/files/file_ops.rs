@@ -245,6 +245,27 @@ pub(crate) enum Undo {
     Rename(Vec<Moved>),
 }
 
+/// The job that a look at a folder comes before (`App::wait_for_look_up_before_the_job`).
+/// Whether Ctrl+Z waits for the look follows from it, so that no caller can choose wrong (#169).
+#[derive(Clone, Copy)]
+pub(crate) enum JobAfterLookUp {
+    Move,
+    Copy,
+    Rename,
+    CopyForSharing,
+}
+
+impl JobAfterLookUp {
+    /// Returns whether the job leaves an Undo, which Ctrl+Z must wait for while the look runs.
+    /// Before it did, Ctrl+Z during the look undid the operation before it (#156).
+    fn leaves_undo(self) -> bool {
+        match self {
+            Self::Move | Self::Rename => true,
+            Self::Copy | Self::CopyForSharing => false,
+        }
+    }
+}
+
 /// An Undo taken out of `FileOperations::undo` for a job that has not started yet. When it is
 /// dropped before `started` is called, because the job was refused or the look before it was
 /// given up, it goes back as a remainder. So Ctrl+Z can try it again, and does not say that
@@ -1410,11 +1431,11 @@ impl crate::App {
 
     /// Looks up the real path of `folder` and the type of its file system in the background, as
     /// the real path waits for the disk, and then runs `then` with them in the window's thread,
-    /// as `wait_for_look_up_before_the_job` says, with `leaves_undo` when its job leaves an Undo.
+    /// as `wait_for_look_up_before_the_job` says, for the job `job` that `then` starts.
     pub(crate) fn with_real_folder(
         &mut self,
         folder: PathBuf,
-        (held_back_files, leaves_undo): (Vec<PathBuf>, bool),
+        (held_back_files, job): (Vec<PathBuf>, JobAfterLookUp),
         then: impl FnOnce(&mut crate::App, &egui::Context, PathBuf, Option<String>) + Send + 'static,
     ) {
         let (found_tx, found) = mpsc::channel();
@@ -1428,7 +1449,7 @@ impl crate::App {
         });
         self.wait_for_look_up_before_the_job(
             folder,
-            (held_back_files, leaves_undo),
+            (held_back_files, job),
             found,
             move |app, ctx, found| then(app, ctx, found.0, found.1),
         );
@@ -1443,12 +1464,12 @@ impl crate::App {
     /// that sends no answer for `LOOK_UP_GIVEN_UP_AFTER` (a share that stopped answering) is
     /// given up: the files are let go, `then` never runs, and a notice says so. Before, the
     /// files stayed held until Glimt ended, and a delete or rename of them was refused. When the
-    /// job `leaves_undo`, Ctrl+Z waits from now on, as it does while the job runs, so it does not
-    /// undo the operation before it. Before, it waited only from the job's start.
+    /// job `job` leaves an Undo, Ctrl+Z waits from now on, as it does while the job runs, so it
+    /// does not undo the operation before it. Before, it waited only from the job's start.
     pub(crate) fn wait_for_look_up_before_the_job<T: Send + 'static>(
         &mut self,
         folder: PathBuf,
-        (held_back_files, leaves_undo): (Vec<PathBuf>, bool),
+        (held_back_files, job): (Vec<PathBuf>, JobAfterLookUp),
         found: mpsc::Receiver<T>,
         then: impl FnOnce(&mut crate::App, &egui::Context, T) + Send + 'static,
     ) {
@@ -1460,7 +1481,7 @@ impl crate::App {
         let tx = self.file_operations.real_folder_tx.clone();
         let (pointer, ctx) = (Working::new(&self.busy), self.ctx.clone());
         let awaited = Working::new(&self.file_operations.real_folders_awaited);
-        let undo_on_the_way = leaves_undo.then(|| self.file_operations.undo_on_the_way());
+        let undo_on_the_way = (job.leaves_undo()).then(|| self.file_operations.undo_on_the_way());
         let wait = move || {
             let found = found.recv_timeout(LOOK_UP_GIVEN_UP_AFTER);
             // The close waits until `then` has run, and the job it starts holds the close
@@ -1504,14 +1525,13 @@ impl crate::App {
         // through a link is seen as one. It is looked up in the background, because it waits
         // for the disk, and checked before the files leave the list, so a refused move keeps
         // the view.
-        let leaves_undo = !is_copy;
-        self.with_real_folder(
-            dest,
-            (paths, leaves_undo),
-            move |app, ctx, dest, file_system| {
-                app.transfer_into_real_folder(ctx, picked, (dest, file_system), is_copy)
-            },
-        );
+        let job = match is_copy {
+            true => JobAfterLookUp::Copy,
+            false => JobAfterLookUp::Move,
+        };
+        self.with_real_folder(dest, (paths, job), move |app, ctx, dest, file_system| {
+            app.transfer_into_real_folder(ctx, picked, (dest, file_system), is_copy)
+        });
     }
 
     /// Copies or moves the files `picked` into `dest`, a folder by its real path, as `transfer`
@@ -1552,7 +1572,7 @@ impl crate::App {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let started = (move_log_dir.as_deref()).map(|d| journal::start_move_log(d, "move"));
+            let started = (move_log_dir.as_deref()).map(journal::start_move_log);
             let (mut move_log, start_failure) = match started.transpose() {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
@@ -1706,7 +1726,7 @@ impl crate::App {
         });
         self.wait_for_look_up_before_the_job(
             folder,
-            (held_back_files, true),
+            (held_back_files, JobAfterLookUp::Rename),
             found,
             move |app, ctx, refused| match refused {
                 Some(refused) => app.notice.give_error(not_renamed(refused)),
@@ -2280,9 +2300,7 @@ impl crate::App {
                 // A log as a Move's, for the marks and collections at the next start after a
                 // kill. A log that cannot be started is told, and the files go back all the same.
                 let log_dir = pairs.first().and_then(|(from, _, _)| job_log_dir(from));
-                let started = log_dir
-                    .as_deref()
-                    .map(|d| journal::start_move_log(d, "undo-move"));
+                let started = log_dir.as_deref().map(journal::start_move_log);
                 let started = started.transpose();
                 let (mut move_log, start_failure) = match started {
                     Ok(log) => (log, None),
@@ -5750,7 +5768,7 @@ mod tests {
         std::fs::rename(&before, &moved).unwrap();
         std::fs::rename(dir.join("a.png.xmp"), dir.join("sub/a.png.xmp")).unwrap();
         let now = crate::files::file_io::fingerprint(&moved).unwrap();
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         let (back, _, errors) =
             super::move_back(vec![(before.clone(), moved.clone(), now)], Some(&mut log));
         assert_eq!(back, vec![(moved.clone(), before.clone())], "{errors:?}");
@@ -6043,7 +6061,7 @@ mod tests {
         std::fs::write(&moved, "photo").unwrap();
         std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
         std::fs::write(to.join("a.jpg.xmp"), "other").unwrap();
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         log.note(&photo, &moved);
         ANSWER_LOST_AT.set(Some(moved.clone()));
         LOOK_FAILS.set(Some((photo.clone(), 0)));
@@ -6081,7 +6099,7 @@ mod tests {
         std::fs::write(&photo, "photo").unwrap();
         std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
         std::fs::write(to.join("a.jpg.xmp"), "other").unwrap();
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         log.note(&photo, &moved);
         std::fs::rename(&photo, &moved).unwrap();
         ON_A_SHARE_IN_A_TEST.set(Some(to.clone()));
@@ -8049,7 +8067,7 @@ mod tests {
         );
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Moving", 2, false, Vec::new());
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let moved = super::put_files(
@@ -8143,7 +8161,7 @@ mod tests {
         let dir = contract_folder("move-cannot-tell");
         let (to, logs, a) = (dir.join("sub"), dir.join("logs"), dir.join("a.png"));
         let job = super::Job::new("Moving", 1, false, Vec::new());
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         ANSWER_LOST_AT.set(Some(a.clone()));
@@ -8204,7 +8222,7 @@ mod tests {
         let (gqv, logs) = (dir.join("col.gqv"), dir.join("logs"));
         let (a, moved) = (dir.join("a.png"), dir.join("sub/a.png"));
         let (mut app, ctx) = app_on(&gqv);
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         log.note(&a, &moved);
         std::fs::rename(&a, &moved).unwrap();
         drop(log);
@@ -8997,7 +9015,7 @@ mod tests {
         let then = ran.clone();
         app.wait_for_look_up_before_the_job(
             dir.clone(),
-            (vec![a.clone()], true),
+            (vec![a.clone()], super::JobAfterLookUp::Move),
             found,
             move |_, _, ()| then.store(true, SeqCst),
         );
@@ -9040,7 +9058,8 @@ mod tests {
         for _ in 0..300 {
             let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let then = ran.clone();
-            app.with_real_folder(dir.clone(), (Vec::new(), false), move |_, _, _, _| {
+            let job = super::JobAfterLookUp::Copy;
+            app.with_real_folder(dir.clone(), (Vec::new(), job), move |_, _, _, _| {
                 then.store(true, SeqCst)
             });
             // The pending look-up counts as work that a close waits for.

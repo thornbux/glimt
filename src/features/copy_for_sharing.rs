@@ -9,7 +9,7 @@
 
 use crate::files::config::sharing_path;
 use crate::files::file_io::{PickedFiles, create_file, edit_shared, save_failed, write_later};
-use crate::files::file_ops::OperationReport;
+use crate::files::file_ops::{JobAfterLookUp, OperationReport};
 use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
 use crate::support::format::{count, escaped_name};
 use crate::support::lang::tr;
@@ -431,7 +431,8 @@ impl crate::App {
     ) {
         // The folder by its real path, looked up in the background as for a copy (`transfer`).
         let paths = picked.paths().to_vec();
-        self.with_real_folder(folder, (paths, false), move |app, ctx, folder, _| {
+        let job = JobAfterLookUp::CopyForSharing;
+        self.with_real_folder(folder, (paths, job), move |app, ctx, folder, _| {
             app.copy_for_sharing_into_real_folder(ctx, picked, folder, (kept, naming))
         });
     }
