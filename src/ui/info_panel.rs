@@ -1390,7 +1390,7 @@ mod tests {
             |app, ui| app.info_panel(ui, true),
             |app| app.list.decodes_pending().is_empty() && app.info_panel.metadata_edit.is_some(),
         );
-        crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
+        crate::support::test_support::assert_panel_slides(|ui, is_shown| {
             app.info_panel(ui, is_shown)
         });
         std::fs::remove_dir_all(&dir).unwrap();

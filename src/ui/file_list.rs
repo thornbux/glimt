@@ -2610,8 +2610,8 @@ mod tests {
                     && app.status_bar.folder_total().is_some()
             },
         );
-        crate::support::test_support::assert_panel_slides(&ctx, |ui, is_shown| {
-            app.side_panel(&ctx_for_panel, ui, is_shown)
+        crate::support::test_support::assert_panel_slides(|ui, is_shown| {
+            app.side_panel(&ui.ctx().clone(), ui, is_shown)
         });
         std::fs::remove_dir_all(&dir).unwrap();
     }

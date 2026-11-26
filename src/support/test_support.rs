@@ -311,9 +311,8 @@ pub(crate) fn attribute(path: &std::path::Path, name: &str) -> Option<Vec<u8>> {
 }
 
 /// Draws the panel `draw` shown, and runs the window's background until `answered` holds, so
-/// that no answer to the work the panel asked for (a thumbnail, a size, the EXIF read, the
-/// image's decode) asks for a frame while `assert_panel_slides` counts them. Before, an answer
-/// that came late, as under a loaded test run, made the last frame counted ask for another.
+/// that the panel has what it asked for (a thumbnail, a size, the EXIF read, the image's
+/// decode) and asks for no new work while `assert_panel_slides` counts its frames.
 pub(crate) fn draw_until_answered(
     app: &mut crate::App,
     ctx: &eframe::egui::Context,
@@ -338,11 +337,13 @@ pub(crate) fn draw_until_answered(
 /// Checks that the panel `draw` draws slides out over a few frames once it is no longer
 /// shown, then asks for no frame at all, and goes at once when the animation time is zero.
 /// `draw` is given whether the panel is shown.
-pub(crate) fn assert_panel_slides(
-    ctx: &eframe::egui::Context,
-    mut draw: impl FnMut(&mut eframe::egui::Ui, bool),
-) {
+///
+/// The frames are drawn on a context of their own, so that only what the panel asks for counts.
+/// The app's background threads hold its own context, and one that asked it for a frame after
+/// its answer was taken, as under a loaded test run, made the last frame counted ask for another.
+pub(crate) fn assert_panel_slides(mut draw: impl FnMut(&mut eframe::egui::Ui, bool)) {
     use eframe::egui;
+    let ctx = &egui::Context::default();
     // Draws one frame at `seconds` in a window of 800 points, and returns the width left
     // beside the panel and how long egui may wait before the next frame.
     let mut frame_at = |seconds: f64, is_shown: bool| {
