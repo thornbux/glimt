@@ -5,7 +5,7 @@ description: Use when fixing, reviewing or auditing Glimt code, or when planning
 
 # Glimt's bug classes
 
-Audits of 0.53 to 0.99 found the same classes again and again. A fix that closes only the form an
+Audits of 0.53 to 0.101 found the same classes again and again. A fix that closes only the form an
 audit listed leaves the class open (AGENTS.md, *Fix the root, once*). Before a change, find each
 class it touches below. Use that class's one place and check its "ways in".
 
@@ -73,6 +73,10 @@ after a kill, at the next start, and after an Undo cut short.
   - the contract tests in file_ops.rs;
   - the release-test sections that kill with `kill -9` in the middle of the work. They read from
     `/mnt/lossy` with lossy-slow, so the kill lands midway.
+- **Since 0.100** the start's decisions are a pure core: `journal::observe` gathers every look
+  once (each folder, the names, then each folder again; a folder whose two looks differ counts as
+  a failed look), `job_decisions::decide…` decides with no I/O, and the existing steps carry it
+  out. A new start rule goes into `job_decisions.rs` as a case of its table test.
 - **Seen again in 0.99:**
   - The repair ran the sidecar rule but `leave_names` did not.
   - A mark set during the job wiped the photo's stars.
@@ -131,6 +135,8 @@ gvfs serves one call at a time, so a reader nobody waits for must wait its turn.
 - **Seen again in 0.99:**
   - An ordinary notice in the same frame as a failed write was dropped (#301).
   - A close's notice stayed above a failure that forgot the close. A flaky test found it.
+- **Seen again in 0.101:** a close started its writes and then read the writing count without
+  taking the answers, so a save that failed at once closed the window untold. See § 18.
 
 ### 10. Names from the disk are shown escaped
 A control or direction character in a file name can mislead the user, for example in a delete
@@ -143,7 +149,9 @@ question.
 - **Seen again:**
   - `to_string_lossy` given straight to a notice, a print, `speak_*` or a title.
   - A path passed to a program as its lossy text.
-- **For 1.x:** a type for text shown to the user.
+- **In 0.102:** `ShownText`, made only by `tr`/`tf!`, the name functions and named
+  constructors, and taken by every place text reaches the user; clippy.toml refuses egui's own
+  text calls. Until its second branch is in, a `String` cause still passes through `tf!`.
 
 ## Input from outside
 
@@ -197,6 +205,50 @@ another file slips past it. This was the class of three audit rounds in 0.99.
 - **Helper functions of `tests.sh` that two sections share:** `run.sh` refuses the run.
 - **A test that waits for a time instead of an event:** of the three flaky tests of 0.99, two
   were races of the test and one hid a real bug.
+- **A test that fails only on CI's slower runners** is a bug too. In 0.101 the tag's workflow
+  failed on `closing_saves_a_turn_once`, which hid a real race (§ 18); another had already failed
+  on 0.100's release branch unnoticed. Look at the release branch's CI before the tag.
+- In tests each thread counts its own writes (`file_io::WRITING` is `WritesOfThisThread`), so a
+  test's wait for its writes does not wait for other tests'.
+
+## Added in 0.100 and 0.101
+
+### 17. A failed read of the user's file taken as "nothing there"
+A read of a photo's metadata that fails (a share that drops, a crate's limit, a layout the crate
+cannot build) must not become "no metadata" before something is written from it: a copy without
+keywords, a turn that loses chunks or a colour profile, a sidecar started from nothing that then
+hides the photo's own keywords.
+- **Place:**
+  - `decode::Source`: a save reads its source once; every step takes it, none reads the path.
+  - `xmp::read_embedded` returns "none there" apart from "could not be read"; the writers refuse
+    on the second, the panel shows none.
+  - `xmp::tiff_xmp` reads tag 700 through `exif::first_ifd_entry` without building the image,
+    with the count checked and counted in the decode budget.
+  - `save::is_failed_read` is the one judgement (I/O and limits fail, except a RAW cut short; a
+    format the crate does not decode is none; a file only too large is none for a copy, refused
+    for a turn).
+- **Check:** `a_turn_or_a_copy_reads_its_file_once` (counts opens), the tests of each reader.
+- **Seen again in 0.100:** six audit rounds, each finding one more read: a RAW's XMP, a file too
+  large, Photoshop resources, PNG chunks, a WebP's ICC profile, a TIFF's XMP over the crate's
+  limit, a DNG with a CFA first image, the sidecar writers. The root (one read, one judgement)
+  ended it.
+
+### 18. Read the count, then take the answers
+A write tells its failure before it stops counting as writing. So "is anything still written?"
+is answered by reading the count first and taking the answers after. The other order misses a
+failure that came in between.
+- **Place:** `take_saves_and_check_writing` is the only way to ask (`App::is_writing` is gone);
+  the close, `--wait` and the workers use it.
+- **Seen in 0.101:** the close read the count again after starting its own writes.
+
+### 19. A flag the caller must set right
+A `bool` that decides what happens to the user's files is an enum or comes from what the code
+knows: `Removal { Trash, ForGood }`, `file_io::Transfer { Copy, Move }`, `FilesMoved`,
+`ReportedUndo::New(Undo, UndoOnTheWay)` and `RenameOutcome` with the token, `set_new_undo` that
+takes it, `JobWrites`, `Picked` from the look, `IfMissing`, `Pick::wants_folder`, `Opening`.
+- **Check:** the compiler; the Undo check of source_rules was removed for these types.
+- **Left:** `follow` in file_io.rs (`Links`), and a remainder of an Undo without a token (#328).
+  The inventory of the rest is in the 0.100 scratchpad (`a100/inventory-flags.md`, copied to mx).
 
 ## An action acts on the files the user picked
 `Action::target`, `App::targets` (`None` stops the action) and `select_for_action`. A new view of

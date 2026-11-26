@@ -104,6 +104,12 @@ what two parts shared:
 Make it wait for that event. A longer sleep, a retry or a looser `expect` is no fix, and loosening
 an `expect` weakens a check, which needs the maintainer's yes.
 
+The same holds for a unit test that fails only on GitHub's slower runners. In 0.101 the tag's
+release workflow failed on `closing_saves_a_turn_once`: on a loaded runner the save ended before
+the close looked, and the close then let the window go with the failure untold, a real bug. Look
+at the release branch's CI runs before the tag, and reproduce a CI-only failure with a delay
+probe at the suspected point (then remove it).
+
 ## Reading a run
 
 - `PASS` and `FAIL` lines, then `N checks failed` and the run's exit status.

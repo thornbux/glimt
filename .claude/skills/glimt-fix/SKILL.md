@@ -64,9 +64,9 @@ log left by the last release must still be put right.
 - Show that it fails without the fix: take the fix out, run the test alone through
   `tools/check.sh "cargo test -q --locked --profile quick <name>"`, see it fail, and put the fix
   back. "Fails by reasoning" is not shown, so say so in the report.
-- A test waits for the event it needs (a file there, an answer in a channel, a step done), never
-  for a time. A sleep or a longer timeout is no fix of a flaky test. Of the three flaky tests of
-  0.99, one hid a real bug.
+- A test waits for the event it needs (a file there, an answer in a channel, a step done, the job
+  ended with `!app.working()`), never for a time. A sleep or a longer timeout is no fix of a flaky
+  test. Of the three flaky tests of 0.99 one hid a real bug, and so did the one of 0.101.
 - Write a release-test section with `glimt-classes` § Tests in mind. It must fail on the last
   release, so put `note "old: …"` in its `else` branch and check that the old value differs.
   Give each helper function a name that no other section uses, since `run.sh` refuses a shared
@@ -76,6 +76,11 @@ log left by the last release must still be put right.
 
 - Run `tools/check.sh` in your worktree. Read its exit status directly, never through a pipe,
   then run `git diff --quiet` (check.sh runs cargo fmt, and a format change must be amended in).
+  A commit is green only when the full check.sh passed on it as committed; after amending a fix
+  in, run it again, not only the one test.
+- Wait for check.sh in the foreground, or in the background and for its notification. Never with
+  a loop such as `until ! pgrep -f "tools/check.sh"`: its own command line holds that text, so it
+  never ends and stays behind (eight such shells ran for up to 18 hours in 0.99 and 0.100).
   Done means green cargo test, clippy `--all-targets` and fmt, in both builds.
 - One fix or class per commit. Each commit passes on its own. "Fixes #N" goes in the message.
 - Add each new UI text in all 14 `po/*.po` files: `no_nb.po` plain, the others with `#, fuzzy`.

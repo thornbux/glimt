@@ -8,7 +8,8 @@ description: Use when designing or changing Rust types, function signatures, err
 The maintainer's rule is: fix the root in types, the data model or a function's contract, never
 by an `if` or `unwrap_or` that hides the cause. A type is checked by the compiler on every call.
 A `source_rules` guard reads text, and three audit rounds of 0.99 found guards that saw only one
-spelling. So reach for a type first.
+spelling. So reach for a type first. A check that a type now holds is removed only with the
+maintainer's yes, in a commit that says why the type holds it.
 
 ## The patterns Glimt already uses
 
@@ -23,6 +24,12 @@ Read the one nearest to your case before you invent a new one.
 | A type for a failure | `view::Failure`: only `give_error` and `send_error` take it | An error shown as an ordinary notice |
 | A budget held by a value | `decode::DecodeInput`: bytes counted before they are read | A decode that holds more memory than the budget knows |
 | A channel that knows its sender | `threads::Receiving<T>` (never a bare `Option<Receiver>`); `AnswerSender<T>` keeps the busy pointer until the answer is handled; `Working` | A thread gone without telling; `--wait` answering before the work is done |
+| A proof carried with the value | `ReportedUndo::New(Undo, UndoOnTheWay)`, `RenameOutcome.undo: Option<(Vec<Moved>, UndoOnTheWay)>`, `set_new_undo(undo, token)` | An Undo set without Ctrl+Z having waited for it (replaced a source_rules check in 0.101) |
+| An enum in place of a flag | `Removal { Trash, ForGood }`, `file_io::Transfer { Copy, Move }`, `FilesMoved { Nothing, ByTheJob, FromARecord }`, `JobWrites`, `IfMissing`, `Opening` | A wrong `false` that deletes for good or takes a copy's marks away |
+| A kind taken from the look, not from the caller | `PickedFiles` (`Picked { File, Folder }` from `meta.is_dir()`), `Journal::middle_of_swap` from the plan's moves | A caller that states the kind wrong |
+| One read into one value | `decode::Source` (a save reads its file once; the steps take `&Source`, not a path) | A later read of the same file that fails and is swallowed |
+| A result that tells none from failed | `xmp::read_embedded -> Result<Option<String>, String>` | "No keywords" and "could not read the keywords" as one state |
+| A pure core fed by one gathering of looks | `job_decisions` with `journal::observe` (`Observations` made only by `Observations::look`) | A decision made from looks taken at different moments |
 
 ## Rules
 
@@ -58,10 +65,11 @@ Read the one nearest to your case before you invent a new one.
 
 ## When a guard is still right
 
-Use a `source_rules` guard only when no type can say the rule. For example, text for the user:
-`tr`, `tf!`, `format!`, every egui widget and `Failure::from` take any `String`, so a newtype for
-shown names would mean typed text around every egui call. That was weighed in 0.99 and left for
-1.x. A guard follows `glimt-classes` § 15. Name the type it stands in for in its doc comment, so
+Use a `source_rules` guard only when no type can say the rule: house style, a lock held across a
+wait (Rust cannot forbid it), whether a text means an error. Text for the user looked like such a
+case in 0.99, as every egui widget takes any `String`; 0.102 made it `ShownText` with clippy.toml
+refusing egui's own text calls. The 0.100 inventory (`a100/inventory-rules.md`) lists which
+guards a type could replace. A guard follows `glimt-classes` § 15. Name the type it stands in for in its doc comment, so
 the next reader knows what would replace it.
 
 ## In a review
