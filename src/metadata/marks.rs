@@ -62,7 +62,7 @@ pub struct Marks {
     /// change. A change whose write failed is not kept, so when the file cannot be read to show
     /// which did, they are all put back. They follow a move and go with a delete, as `by_path`
     /// does, so that a file that later takes the name does not get them.
-    not_confirmed: MarksByPath,
+    not_confirmed: ValuesToPutBack,
     /// The window's context, asked for a frame when the file has been read again, so that
     /// marks another window set show at once, not at the next input.
     repaint: eframe::egui::Context,
@@ -137,16 +137,16 @@ impl Marks {
         };
         let is_up_to_date = asked_at == self.edits_made;
         match read {
-            ReadAgain::AsHeld if is_up_to_date => self.not_confirmed.clear(),
+            ReadAgain::AsHeld if is_up_to_date => self.not_confirmed.0.clear(),
             ReadAgain::AsHeld => {}
             ReadAgain::Read(by_path) if is_up_to_date => {
                 self.changed |= self.by_path != by_path;
                 self.by_path = by_path;
-                self.not_confirmed.clear();
+                self.not_confirmed.0.clear();
             }
             ReadAgain::Unreadable if is_up_to_date => {
-                self.changed |= !self.not_confirmed.is_empty();
-                for (path, value) in self.not_confirmed.drain() {
+                self.changed |= !self.not_confirmed.0.is_empty();
+                for (path, value) in self.not_confirmed.0.drain() {
                     match value {
                         (0, 0) => drop(self.by_path.remove(&path)),
                         value => drop(self.by_path.insert(path, value)),
@@ -305,7 +305,7 @@ impl Marks {
                 Edit::Change(files, _) => {
                     for file in files {
                         let value = self.by_path.get(file.path()).copied().unwrap_or_default();
-                        self.not_confirmed
+                        (self.not_confirmed.0)
                             .entry(file.path().to_path_buf())
                             .or_insert(value);
                     }
@@ -313,11 +313,32 @@ impl Marks {
                 // The values to put back follow the files, so that they are put back on the
                 // file they were about, not on another file that takes its name later.
                 Edit::Follow(..) | Edit::FollowFolder(..) | Edit::Forget(..) => {
-                    apply_edit(&mut self.not_confirmed, &edit, &[])
+                    self.not_confirmed.follow(&edit)
                 }
             }
             apply_edit(&mut self.by_path, &edit, &[]);
             save(edit);
+        }
+    }
+}
+
+/// The marks and stars that a window's changes replaced, by path, to be put back when their
+/// writes may have failed (`Marks::not_confirmed`). A path without an entry has no change to put
+/// back, which is not a path without marks. So these values follow a move as they are, and are
+/// never merged with the marks changed at a new name while a Rename Many ran, as `follow_pairs`
+/// merges marks. Before, such a name was taken for marks cleared during the job, and the value
+/// to put back on the photo was lost.
+#[derive(Default)]
+struct ValuesToPutBack(MarksByPath);
+
+impl ValuesToPutBack {
+    /// Makes `edit`, a move or a delete, to the values, so that each stays with its file.
+    fn follow(&mut self, edit: &Edit) {
+        match edit {
+            Edit::Follow(pairs, files_were, ..) => {
+                follow_pairs(&mut self.0, pairs, *files_were, &MarksAtNewNames::new())
+            }
+            edit => apply_edit(&mut self.0, edit, &[]),
         }
     }
 }
@@ -833,6 +854,11 @@ fn follow_pairs(
 /// whose marks were `then` when the job began and are `now`. Each mark set or cleared meanwhile
 /// is set or cleared, and stars given meanwhile take the place of the photo's own. Every other
 /// mark and the stars stay the photo's own. Returns `None` for no marks and no stars.
+///
+/// `own` is `None` for a photo without marks: it is read from a map of marks, the marks file
+/// read under its lock or this window's copy of it, where a name with neither marks nor stars
+/// has no entry (`apply`). The values to put back, where a name without an entry means no
+/// change, never come here (`ValuesToPutBack`).
 fn with_changes_made_meanwhile(
     own: Option<(u8, u8)>,
     (then, now): ((u8, u8), (u8, u8)),
@@ -1595,7 +1621,9 @@ mod tests {
     /// The changes put back when the marks file cannot be read follow the files that a delete
     /// or a move changed since, so each is put back on the file it was about. Before, they were
     /// put back by name: a file renamed to the name of a deleted one got that one's stars, and a
-    /// file moved kept stars that its write may not have saved.
+    /// file moved kept stars that its write may not have saved. A Rename Many moves them as any
+    /// move does: a name without a change to put back holds no marks of its own there. Before,
+    /// such a name was read as a photo's marks cleared during the job, and its change was lost.
     #[test]
     fn changes_put_back_follow_their_files() {
         let id = std::process::id();
@@ -1603,7 +1631,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("marks");
         let [a, b, c, d] = ["a.png", "b.png", "c.png", "d.png"].map(|n| dir.join(n));
-        let text = format!("0\t2\t{}\n0\t1\t{}\n", a.display(), c.display());
+        let [e, f] = ["e.png", "f.png"].map(|n| dir.join(n));
+        let text = format!(
+            "0\t2\t{}\n0\t1\t{}\n0\t1\t{}\n1\t4\t{}\n",
+            a.display(),
+            c.display(),
+            e.display(),
+            f.display()
+        );
         std::fs::write(&file, text).unwrap();
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let mut marks = super::read_marks();
@@ -1623,6 +1658,14 @@ mod tests {
             super::FilesWere::Moved,
             super::MovesKnownFrom::TheJob,
         );
+        // e.png is rated and renamed by Rename Many to f.png, which held an old mark.
+        marks.rate(&unlisted(std::slice::from_ref(&e)), 5);
+        let begun = std::collections::HashMap::from([(f.clone(), (1, 4))]);
+        marks.follow_renames(
+            vec![(e.clone(), f.clone())],
+            super::MovesKnownFrom::TheJob,
+            begun,
+        );
         // None of it is written, and the file cannot be read. The reads that the moves asked
         // for are taken first, as the read below would otherwise wait for them.
         super::SENT.with(|sent| sent.take());
@@ -1633,8 +1676,12 @@ mod tests {
         settled(&mut marks);
         crate::files::file_io::take_saves_failed();
         lock_even_if_poisoned(&super::UNREADABLE_IN_TEST).retain(|f| *f != file);
-        let shown = [&a, &c, &d].map(|p| marks.get(p));
-        assert_eq!(shown, [(0, 0), (0, 0), (0, 1)], "put back on other files");
+        let shown = [&a, &c, &d, &f].map(|p| marks.get(p));
+        assert_eq!(
+            shown,
+            [(0, 0), (0, 0), (0, 1), (0, 1)],
+            "put back on other files"
+        );
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
