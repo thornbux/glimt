@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Save As, Crop, a turned PNG or WebP and Copy for Sharing are refused with the photo's name
+  when its EXIF or XMP cannot be read. Before, they wrote the copy, or the turned photo's own
+  file, without its keywords, comment, stars, camera, date and place, untold. A copy with its
+  metadata stripped is still made (#325).
+
 ## [0.99.0] - 2026-11-26
 
 ### Fixed
