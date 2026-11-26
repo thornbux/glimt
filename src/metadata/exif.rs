@@ -985,10 +985,20 @@ fn add_orientation(
 }
 
 /// Reads the EXIF block of `path`, as the panel, the date sort and a copy read it. Returns
-/// `Ok(None)` when the file has none, or is of a format whose EXIF Glimt does not read, and an
-/// error when the file or its metadata could not be read, so that a copy is not written without
-/// it as if it had none.
+/// `Ok(None)` when the file has none, is of a format whose EXIF Glimt does not read, or is
+/// too large to be read whole where its block is, as such a file has no block a copy could
+/// keep. Returns an error when the file or its metadata could not be read, so that a copy is not
+/// written without it as if it had none.
 fn read_exif_block(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match read_exif_block_up_to_the_cap(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => Ok(None),
+        read => read,
+    }
+}
+
+/// `read_exif_block` of `path`, with an error of the kind `FileTooLarge` when the file is too
+/// large to be read whole where its block is.
+fn read_exif_block_up_to_the_cap(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     // A RAW or HEIC whose EXIF is not in its first MB, or a JPEG under another name, is read
     // whole, and that counts in the decodes' budget while the block is found. The sort by date
     // and the "exif:" search read a folder's files in several threads at once.

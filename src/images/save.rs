@@ -1274,15 +1274,19 @@ fn derived_metadata(
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
     let mut exif = exif::derived(path, how).map_err(|e| metadata_not_read(path, e))?;
-    let reader =
-        crate::images::decode::image_reader(path).map_err(|e| metadata_not_read(path, e))?;
     let is_raw = has_ext(path, crate::images::raw::EXTS);
-    let decoder = match reader.into_decoder() {
-        Ok(decoder) => Some(decoder),
-        Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
-        // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP that
-        // Glimt reads.
-        Err(_) => None,
+    let decoder = match crate::images::decode::image_reader(path) {
+        Ok(reader) => match reader.into_decoder() {
+            Ok(decoder) => Some(decoder),
+            Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
+            // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP
+            // that Glimt reads.
+            Err(_) => None,
+        },
+        // A file too large to be read whole (a JPEG, or one of no format the image crate
+        // knows, such as a PSB that an added format reads) has no XMP that it could give.
+        Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => None,
+        Err(e) => return Err(metadata_not_read(path, e)),
     };
     let (mut xmp, stored) = match decoder {
         Some(mut d) => {
@@ -1303,9 +1307,15 @@ fn derived_metadata(
     // may drop (`png_with_chunks`). Their orientation was not shown, so `stored` is read
     // without it.
     if has_ext(path, &["png"]) && (xmp.is_none() || exif.is_none()) {
-        let bytes =
-            crate::images::decode::read_limited(path).map_err(|e| metadata_not_read(path, e))?;
-        let found = exif::png_metadata(&bytes);
+        let found = match crate::images::decode::read_limited(path) {
+            Ok(bytes) => exif::png_metadata(&bytes),
+            // A copy of a PNG too large to be read whole has no chunks after its pixels that
+            // it could keep. A turn writes the user's own file anew, which would lose them.
+            Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge && how != Derived::Turned => {
+                Default::default()
+            }
+            Err(e) => return Err(metadata_not_read(path, e)),
+        };
         exif = exif.or_else(|| exif::derived_of(&found.exif?, how));
         xmp = xmp.or(found.xmp);
     }
@@ -2913,6 +2923,31 @@ mod tests {
         let decoding = image::error::DecodingError::new(format, "no TIFF");
         let decoding = image::ImageError::Decoding(decoding);
         assert!(!super::is_failed_read(&decoding, true));
+    }
+
+    /// A copy of a file too large to be read whole, of a format the image crate does not know
+    /// (a PSB that an added format reads), has no metadata it could keep, and is made. Before,
+    /// the refusal by its size was taken for a failed read, and Save As and Crop refused it.
+    #[test]
+    fn a_file_too_large_to_be_read_whole_is_copied_without_metadata() {
+        struct RemovedAtTheEnd(std::path::PathBuf);
+        impl Drop for RemovedAtTheEnd {
+            fn drop(&mut self) {
+                // Not told: a test's own folder, removed also when the test fails.
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = std::env::temp_dir().join(format!("glimt-too-large-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = RemovedAtTheEnd(dir);
+        let file = dir.0.join("a.psb");
+        let sparse = std::fs::File::create(&file).unwrap();
+        sparse
+            .set_len(crate::images::decode::MAX_DECODE_BYTES + 1)
+            .unwrap();
+        let (exif, xmp, _) =
+            super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Copy).unwrap();
+        assert!(exif.is_none() && xmp.is_none());
     }
 
     /// A photo whose XMP cannot be read (here compressed, with its data broken) is neither turned

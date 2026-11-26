@@ -1522,9 +1522,12 @@ pub(crate) fn copy_limited<W: std::io::Write + ?Sized>(
     std::io::copy(&mut std::io::Read::take(from, most), to)
 }
 
-/// The error of a file larger than a decode may read (`MAX_DECODE_BYTES`).
+/// The error of a file larger than a decode may read (`MAX_DECODE_BYTES`). Its kind is
+/// `FileTooLarge`, by which a reader of metadata tells a file refused only by its size from one
+/// that could not be read.
 fn file_too_large() -> std::io::Error {
-    std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE_BYTES)))
+    let text = format!("file too large ({})", human_size(MAX_DECODE_BYTES));
+    std::io::Error::new(std::io::ErrorKind::FileTooLarge, text)
 }
 
 /// Opens `path` to be read, if it is a regular file, and returns it with its metadata. It is opened
