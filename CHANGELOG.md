@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A folder on a file system that Glimt does not know to be local, such as virtiofs, VirtualBox's
+  shared folders (vboxsf), Ceph, AFS or Lustre, is treated as a share, as SMB and NFS are. A
+  lost or cached answer there no longer counts as a step that did nothing, Delete offers to
+  delete for good instead of making a trash there, background reads go through the share's
+  gate, and the status bar does not sum the sizes there (#322).
+
 ## [0.99.0] - 2026-11-26
 
 ### Fixed

@@ -42,6 +42,16 @@ const TIME_NOT_KNOWN: (i64, i64) = (0, 0);
 /// The start of every name that `tmp_path` gives.
 pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
 
+/// The types of file system, as /proc/self/mountinfo or udev names them, that are known to be on
+/// a disk of this computer or in its memory. Every other type counts as a share (`is_remote`).
+/// fuseblk is FUSE on a block device, such as NTFS through ntfs-3g.
+const LOCAL_FILE_SYSTEMS: [&str; 35] = [
+    "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "msdos", "exfat", "ntfs", "ntfs3",
+    "fuseblk", "zfs", "bcachefs", "jfs", "reiserfs", "nilfs2", "hfs", "hfsplus", "apfs", "ufs",
+    "tmpfs", "ramfs", "overlay", "squashfs", "erofs", "iso9660", "udf", "ecryptfs", "cramfs",
+    "romfs", "minix", "hpfs", "affs", "befs",
+];
+
 /// The folder where udev names each volume on a block device by its serial number or UUID.
 const VOLUMES_FOLDER: &str = "/dev/disk/by-uuid";
 
@@ -1631,17 +1641,21 @@ pub(crate) fn shown_type(kind: &str) -> &str {
     }
 }
 
-/// Returns whether a mount of type `kind` (from `file_system_type`) is on another computer or in a
-/// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not. Every
-/// other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does not call
-/// the folder a network folder.
+/// Returns whether a mount of type `kind` (from `file_system_type`) may be on another computer or
+/// in a cloud. Every type that is not known to be local (`LOCAL_FILE_SYSTEMS`) counts, so ceph,
+/// afs, virtiofs, vboxsf and a type that Glimt does not know yet are judged as shares. Before,
+/// only a list of shares counted, and every other type was judged as a local disk (#322). A
+/// fuseblk mount (NTFS or exFAT on a local disk) is not a share. Every other FUSE mount counts,
+/// also a local one such as gocryptfs, so the delete dialog does not call the folder a network
+/// folder.
 pub(crate) fn is_remote(kind: &str) -> bool {
-    kind.starts_with("fuse.") || matches!(kind, "fuse" | "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
+    !LOCAL_FILE_SYSTEMS.contains(&kind)
 }
 
 /// Returns whether a mount of type `kind` (from `file_system_type`) is a network file system,
-/// where each look at a file is a round trip to another computer or a cloud: SMB, NFS, 9p, or
-/// one of the FUSE file systems named in `NETWORK_FUSE`, or a FUSE mount without a subtype whose
+/// where each look at a file is a round trip to another computer or a cloud: a type other than
+/// FUSE that `is_remote` counts (SMB, NFS, 9p, ceph, virtiofs …), or one of the FUSE file
+/// systems named in `NETWORK_FUSE`, or a FUSE mount without a subtype whose
 /// source is another computer (`names_another_computer`). A local FUSE mount, such as a KDE
 /// Vault (gocryptfs, cryfs), a mergerfs pool, bindfs or the Flatpak's document portal, is not,
 /// although `is_remote` counts it. The FUSE file systems are named one by one, because a network
@@ -3856,6 +3870,9 @@ mod tests {
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
+        // A type not known to be local counts as a share, also one Glimt has no name for (#322).
+        assert!(super::is_remote("virtiofs") && super::is_remote("vboxsf"));
+        assert!(!super::is_remote("ext4") && !super::is_remote("exfat"));
     }
 
     /// A FUSE mount of plain type "fuse", with no subtype, is told by its source: one that names
