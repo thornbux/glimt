@@ -523,8 +523,9 @@ pub(crate) struct FileOperations {
     saved_rx: mpsc::Receiver<(SavedFile, Working)>,
     /// What Edit → Undo puts back. It is the last move to the trash, move or rename.
     undo: Option<Undo>,
-    /// Held by each running operation that will leave an Undo of its own, until it has sent
-    /// its report. While one runs, `undo` is older than the operation the user did last.
+    /// Held by each running operation that will leave an Undo of its own, until the window has
+    /// set that Undo (`set_new_undo`). While one runs, `undo` is older than the operation the user
+    /// did last.
     undo_on_the_way: Arc<()>,
     cut_short: Vec<journal::CutShort>,
     /// The list of the files of `cut_short` not under the names they were to get, after a

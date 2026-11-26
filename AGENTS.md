@@ -463,8 +463,10 @@ arm becomes a method.
   entries at the old names, or `KEEPS_NO_JOB_LOG` says why it needs none
   (`every_operation_in_the_contract_keeps_a_job_log`). An operation that leaves an Undo takes
   `undo_on_the_way` when it starts and hands the token on with its Undo (`ReportedUndo::New`,
-  `RenameOutcome`), and the window sets the Undo only through `FileOperations::set_new_undo`,
-  which takes the token. So Ctrl+Z waits until the Undo is in place, and the types hold it.
+  `RenameOutcome`), and the window sets a new Undo only through `FileOperations::set_new_undo`,
+  which takes the token. So Ctrl+Z waits until the Undo is in place, and the types hold it. The
+  rest of an Undo that Ctrl+Z itself took and could not finish is kept through `keep_remainder`,
+  which needs no token, as nothing waits for it.
 - **State for a feature:** a field in the struct of the part it belongs to (`self.slideshow`,
   `self.folder`, `self.file_operations`, …), or a struct of its own in the feature's module,
   held by one field in `App`. Never loose fields in `App` (`source_rules::app_stays_small`).
