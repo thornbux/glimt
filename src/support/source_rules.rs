@@ -6188,12 +6188,11 @@ fn every_release_in_the_changelog_has_its_link() {
     );
 }
 
-/// Every operation that leaves an Undo takes `undo_on_the_way` when it starts, and its thread
-/// holds it until the report is sent, so Ctrl+Z waits for it instead of undoing the operation
-/// before it. An operation leaves an Undo when it sends an `OperationReport` with an `undo`, or
-/// runs `rename_undoable`. A report whose `undo` is what an Undo could not put back
-/// (`ReportedUndo::Remainder`) is not counted, because it never replaces a newer Undo. Each
-/// report is judged by its own `undo`, so a remainder sent beside a new Undo excuses nothing.
+/// Every Rename Many, which leaves its Undo through `rename_undoable` and not through a report,
+/// takes `undo_on_the_way` when it starts, and its thread holds it until the outcome is sent,
+/// so Ctrl+Z waits for it instead of undoing the operation before it. An `OperationReport`
+/// needs no check: a new Undo in it is a `ReportedUndo::New`, which takes the token itself, and
+/// only `FileOperations::undo_on_the_way` makes one (`UndoOnTheWay`).
 #[test]
 fn operations_that_leave_an_undo_make_undo_wait() {
     let mut missing = Vec::new();
@@ -6207,12 +6206,10 @@ fn operations_that_leave_an_undo_make_undo_wait() {
     );
 }
 
-/// Returns the functions of `text`, the source of `file`, that leave an Undo outside the tests
-/// without holding `undo_on_the_way`, as "file: function". A report is any `OperationReport`
-/// built with an `undo` field, sent at once, bound first or handed to a helper, but not one
-/// taken apart by a `let` or a `for`. The token is held when a `let` binds it to a name that
-/// the function uses again, so a token dropped at once (`drop(self.undo_on_the_way())`) is
-/// not held. Before, only `.send(OperationReport {` was counted, and any mention of the token.
+/// Returns the functions of `text`, the source of `file`, that run `rename_undoable` outside
+/// the tests without holding `undo_on_the_way`, as "file: function". The token is held when a
+/// `let` binds it to a name that the function uses again, so a token dropped at once
+/// (`drop(self.undo_on_the_way())`) is not held.
 fn undo_left_without_waiting(file: &str, text: &str) -> Vec<String> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
@@ -6224,39 +6221,11 @@ fn undo_left_without_waiting(file: &str, text: &str) -> Vec<String> {
     for pair in starts.windows(2) {
         let ((first, function), (next, _)) = (&pair[0], &pair[1]);
         let body = lines[first + 1..*next].join("\n");
-        let leaves_undo = body.contains("rename_undoable(")
-            || (body.match_indices("OperationReport {"))
-                .any(|(at, found)| builds_with_undo(&body, at, found.len()));
-        if leaves_undo && !holds_the_token(&body) {
+        if body.contains("rename_undoable(") && !holds_the_token(&body) {
             missing.push(format!("{file}: {function}"));
         }
     }
     missing
-}
-
-/// Returns whether the `OperationReport {` at `at` in `body` (`length` long) builds a report
-/// with an `undo` field that is not a remainder (`ReportedUndo::Remainder`). A report taken
-/// apart by a `let` or a `for` builds none.
-fn builds_with_undo(body: &str, at: usize, length: usize) -> bool {
-    let before = body[..at].trim_end_matches(|c: char| is_word_char(c) || c == ':');
-    let before = before.trim_end_matches(|c: char| c.is_whitespace() || c == '(');
-    let word = &before[before.trim_end_matches(is_word_char).len()..];
-    // The struct's own definition, read as part of the function before it, builds none either.
-    if ["let", "for", "struct"].contains(&word) {
-        return false;
-    }
-    let fields = &body[at + length..];
-    let fields = &fields[..fields.find('}').unwrap_or(fields.len())];
-    if fields.contains("ReportedUndo::Remainder") {
-        return false;
-    }
-    (fields.match_indices("undo")).any(|(u, _)| {
-        let after = &fields[u + "undo".len()..];
-        !fields[..u].ends_with(is_word_char)
-            && (after.trim_start().is_empty()
-                || after.trim_start().starts_with(',')
-                || (after.starts_with(':') && !after.starts_with("::")))
-    })
 }
 
 /// Returns whether `body` binds `undo_on_the_way()` with a `let` to a name that it uses again,
@@ -6280,33 +6249,20 @@ fn holds_the_token(body: &str) -> bool {
     })
 }
 
-/// The check above finds a report with an Undo, sent at once, bound first, by its path or with
-/// its fields on one line, and a rename that leaves one. It also finds a token dropped at once,
-/// or bound and never used, and a new Undo sent beside a remainder. It passes a function that
-/// holds the token, one that only reads a report (also in a tuple of a `for`), and an Undo's
-/// remainder.
+/// The check above finds a rename that leaves an Undo without the token, also with a token
+/// dropped at once, or bound and never used. It passes a rename that holds the token, and a
+/// report, whose new Undo holds its token by its type.
 #[test]
 fn finds_an_undo_left_without_waiting() {
-    let text = "fn a() {\n    tx.send(OperationReport {\n        undo,\n    });\n}\n\
-        fn b() {\n    let t = self.undo_on_the_way();\n    tx.send(OperationReport {\n        \
-        undo: None,\n    });\n    drop(t);\n}\nfn c() {\n    tx.send(rename_undoable(f, t));\n}\n\
-        fn d() {\n    for (\n        OperationReport {\n            undo,\n        },\n        \
-        x,\n    ) in x {}\n}\n\
-        fn e() {\n    tx.send(OperationReport {\n        undo: undo.map(ReportedUndo::Remainder),\n\
-        });\n}\n\
-        fn f() {\n    let report = OperationReport { undo, ..Default::default() };\n    \
-        tx.send(report);\n}\n\
-        fn g() {\n    tell(crate::files::file_ops::OperationReport {\n        undo,\n    });\n}\n\
-        fn h() {\n    drop(self.undo_on_the_way());\n    tx.send(OperationReport { undo });\n}\n\
-        fn i() {\n    let _t = self.undo_on_the_way();\n    tx.send(OperationReport { undo });\n}\n\
-        fn j() {\n    let OperationReport { undo, .. } = report;\n}\n\
-        fn k() {\n    tx.send(OperationReport { undo: Some(ReportedUndo::Remainder(u)) });\n    \
-        tx.send(OperationReport { undo: Some(ReportedUndo::New(u)) });\n}\n";
+    let text = "fn a() {\n    tx.send(rename_undoable(f, t));\n}\n\
+        fn b() {\n    let t = self.undo_on_the_way();\n    tx.send(rename_undoable(f, n));\n    \
+        drop(t);\n}\n\
+        fn d() {\n    tx.send(OperationReport { undo: Some(ReportedUndo::New(u, t)) });\n}\n\
+        fn h() {\n    drop(self.undo_on_the_way());\n    tx.send(rename_undoable(f, t));\n}\n\
+        fn i() {\n    let _t = self.undo_on_the_way();\n    tx.send(rename_undoable(f, t));\n}\n";
     assert_eq!(
         undo_left_without_waiting("x.rs", text),
-        [
-            "x.rs: a", "x.rs: c", "x.rs: f", "x.rs: g", "x.rs: h", "x.rs: i", "x.rs: k"
-        ]
+        ["x.rs: a", "x.rs: h", "x.rs: i"]
     );
 }
 

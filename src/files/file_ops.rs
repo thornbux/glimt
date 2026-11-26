@@ -292,8 +292,11 @@ pub(crate) enum Undo {
 /// One value says both, so that a report cannot hold a remainder taken for a new Undo, which
 /// would replace a newer one, nor the reverse.
 pub(crate) enum ReportedUndo {
-    /// The Undo of the operation that sends the report. It replaces any older one.
-    New(Undo),
+    /// The Undo of the operation that sends the report, which replaces any older one, with the
+    /// token the operation took when it started. The report holds the token until the window
+    /// has taken the Undo, so Ctrl+Z waits for it, and no report can leave a new Undo without
+    /// one.
+    New(Undo, UndoOnTheWay),
     /// What an Undo from the trash or of a move could not put back. It is kept only when no
     /// operation that finished meanwhile left an Undo of its own, which is newer.
     Remainder(Undo),
@@ -303,9 +306,17 @@ impl ReportedUndo {
     /// Returns the Undo, new or a remainder.
     fn undo(&self) -> &Undo {
         match self {
-            ReportedUndo::New(undo) | ReportedUndo::Remainder(undo) => undo,
+            ReportedUndo::New(undo, _) | ReportedUndo::Remainder(undo) => undo,
         }
     }
+}
+
+/// The mark of an operation that will leave an Undo, taken when it starts. Only
+/// `FileOperations::undo_on_the_way` makes one, and Ctrl+Z waits while one lives. An operation
+/// hands it on in its report's `ReportedUndo::New`, so it lives until the window has taken the
+/// Undo.
+pub(crate) struct UndoOnTheWay {
+    _held: Arc<()>,
 }
 
 /// The job that a look at a folder comes before (`App::wait_for_look_up_before_the_job`).
@@ -604,9 +615,12 @@ impl FileOperations {
     }
 
     /// Marks an operation that will leave an Undo as running. Its thread holds what this
-    /// returns until it has sent its report, and Undo waits for it meanwhile.
-    fn undo_on_the_way(&self) -> Arc<()> {
-        self.undo_on_the_way.clone()
+    /// returns and hands it on in its report (`ReportedUndo::New`), and Undo waits for it
+    /// meanwhile.
+    fn undo_on_the_way(&self) -> UndoOnTheWay {
+        UndoOnTheWay {
+            _held: self.undo_on_the_way.clone(),
+        }
     }
 
     /// Lets go of the jobs and the `run_in_background` work that ended. Returns true when the last
@@ -1159,11 +1173,12 @@ impl crate::App {
                 requested: paths,
                 gone,
                 any_failed: !errors.is_empty() || job.is_stopped(),
-                undo: undo.map(ReportedUndo::New),
+                undo: (undo.zip(undo_on_the_way))
+                    .map(|(undo, token)| ReportedUndo::New(undo, token)),
                 delete_log,
                 ..Default::default()
             });
-            drop((undo_on_the_way, job));
+            drop(job);
             told
         });
     }
@@ -1244,7 +1259,8 @@ impl crate::App {
                 journal::remove_once_written(log);
             }
             match undo {
-                Some(ReportedUndo::New(undo)) => self.file_operations.undo = Some(undo),
+                // The token goes once the Undo is in place.
+                Some(ReportedUndo::New(undo, _token)) => self.file_operations.undo = Some(undo),
                 Some(ReportedUndo::Remainder(undo)) if self.file_operations.undo.is_none() => {
                     self.file_operations.undo = Some(undo)
                 }
@@ -1732,11 +1748,12 @@ impl crate::App {
                 any_failed: failed,
                 moved: FilesMoved::ByTheJob(transfer, put),
                 read_folder_again,
-                undo: undo.map(ReportedUndo::New),
+                undo: (undo.zip(undo_on_the_way))
+                    .map(|(undo, token)| ReportedUndo::New(undo, token)),
                 move_log,
                 ..Default::default()
             });
-            drop((undo_on_the_way, job));
+            drop(job);
             told
         });
     }
@@ -2344,11 +2361,10 @@ impl crate::App {
                 requested: vec![dir],
                 gone,
                 any_failed: error.is_some(),
-                undo: undo.map(ReportedUndo::New),
+                undo: undo.map(|undo| ReportedUndo::New(undo, undo_on_the_way)),
                 job_log: log,
                 ..Default::default()
             });
-            drop(undo_on_the_way);
             error
                 .map(|e| e.reworded(|e| tf!("Could not move the folder to the trash: {e}", e)))
                 .or(forgotten)
