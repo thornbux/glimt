@@ -166,11 +166,9 @@ pub(crate) struct OperationReport {
     /// Whether the folder is to be read again, because a tool edited files in it or a repair
     /// renamed them.
     pub(crate) read_folder_again: bool,
-    /// What Undo puts back, when this was a move to the trash or a move.
-    pub(crate) undo: Option<Undo>,
-    /// Whether `undo` is what an Undo from the trash or of a move could not put back. It is kept
-    /// only when no operation that finished meanwhile left an Undo of its own, which is newer.
-    pub(crate) is_undo_remainder: bool,
+    /// What Undo puts back, when this was a move to the trash or a move, or what an Undo could
+    /// not put back (`ReportedUndo`).
+    pub(crate) undo: Option<ReportedUndo>,
     /// The marks and stars to put back, for files that Undo brought back from the trash.
     pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
     /// The files a tool changed in place. What is shown of them is read again. (A turn that
@@ -266,6 +264,26 @@ pub(crate) enum Undo {
     Rename(Vec<Moved>),
 }
 
+/// An Undo that a report leaves, and whether it is a new one or what an Undo could not put back.
+/// One value says both, so that a report cannot hold a remainder taken for a new Undo, which
+/// would replace a newer one, nor the reverse.
+pub(crate) enum ReportedUndo {
+    /// The Undo of the operation that sends the report. It replaces any older one.
+    New(Undo),
+    /// What an Undo from the trash or of a move could not put back. It is kept only when no
+    /// operation that finished meanwhile left an Undo of its own, which is newer.
+    Remainder(Undo),
+}
+
+impl ReportedUndo {
+    /// Returns the Undo, new or a remainder.
+    fn undo(&self) -> &Undo {
+        match self {
+            ReportedUndo::New(undo) | ReportedUndo::Remainder(undo) => undo,
+        }
+    }
+}
+
 /// The job that a look at a folder comes before (`App::wait_for_look_up_before_the_job`).
 /// Whether Ctrl+Z waits for the look follows from it, so that no caller can choose wrong (#169).
 #[derive(Clone, Copy)]
@@ -308,8 +326,7 @@ impl Drop for UndoUntilStarted {
         if let Some(undo) = self.undo.take() {
             // The send fails only when the window has closed, and the Undo goes with it.
             let _ = self.report_tx.send(OperationReport {
-                undo: Some(undo),
-                is_undo_remainder: true,
+                undo: Some(ReportedUndo::Remainder(undo)),
                 ..Default::default()
             });
         }
@@ -1078,7 +1095,7 @@ impl crate::App {
                 requested: paths,
                 gone,
                 any_failed: !errors.is_empty() || job.is_stopped(),
-                undo,
+                undo: undo.map(ReportedUndo::New),
                 delete_log,
                 ..Default::default()
             });
@@ -1100,7 +1117,6 @@ impl crate::App {
                 moved,
                 read_folder_again,
                 undo,
-                is_undo_remainder,
                 restored_marks,
                 changed,
                 overwritten,
@@ -1150,7 +1166,11 @@ impl crate::App {
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
             self.forget_names(&gone);
-            self.marks_of_files_gone_or_back(&gone, undo.as_ref(), restored_marks);
+            self.marks_of_files_gone_or_back(
+                &gone,
+                undo.as_ref().map(ReportedUndo::undo),
+                restored_marks,
+            );
             // The log of a delete goes once the marks of its files that went are forgotten.
             if let Some(log) = delete_log {
                 log.remove_once_forgotten();
@@ -1159,8 +1179,12 @@ impl crate::App {
             if let Some(log) = job_log {
                 journal::remove_once_written(log);
             }
-            if undo.is_some() && !(is_undo_remainder && self.file_operations.undo.is_some()) {
-                self.file_operations.undo = undo;
+            match undo {
+                Some(ReportedUndo::New(undo)) => self.file_operations.undo = Some(undo),
+                Some(ReportedUndo::Remainder(undo)) if self.file_operations.undo.is_none() => {
+                    self.file_operations.undo = Some(undo)
+                }
+                _ => {}
             }
             if let Some(find_duplicates) = &mut self.find_duplicates {
                 // Those that failed are still there.
@@ -1644,7 +1668,7 @@ impl crate::App {
                 any_failed: failed,
                 moved: FilesMoved::ByTheJob(transfer, put),
                 read_folder_again,
-                undo,
+                undo: undo.map(ReportedUndo::New),
                 move_log,
                 ..Default::default()
             });
@@ -2253,7 +2277,7 @@ impl crate::App {
                 requested: vec![dir],
                 gone,
                 any_failed: error.is_some(),
-                undo,
+                undo: undo.map(ReportedUndo::New),
                 job_log: log,
                 ..Default::default()
             });
@@ -2338,8 +2362,7 @@ impl crate::App {
                 let _ = report_tx.send(OperationReport {
                     moved: FilesMoved::ByTheJob(Transfer::Move, back),
                     read_folder_again: true,
-                    undo: (!left.is_empty()).then_some(Undo::Move(left)),
-                    is_undo_remainder: true,
+                    undo: (!left.is_empty()).then_some(ReportedUndo::Remainder(Undo::Move(left))),
                     move_log,
                     ..Default::default()
                 });
@@ -2376,8 +2399,7 @@ impl crate::App {
                 crate::files::trash::take_forgotten_marks(&trash_move.marks, || job.is_stopped())
             else {
                 let _ = report_tx.send(OperationReport {
-                    undo: Some(Undo::Trash(trash_move)),
-                    is_undo_remainder: true,
+                    undo: Some(ReportedUndo::Remainder(Undo::Trash(trash_move))),
                     ..Default::default()
                 });
                 return Some(Told::Notice(job.stopped_text()));
@@ -2452,8 +2474,7 @@ impl crate::App {
             });
             let _ = report_tx.send(OperationReport {
                 read_folder_again: true,
-                undo,
-                is_undo_remainder: true,
+                undo: undo.map(ReportedUndo::Remainder),
                 restored_marks: marks,
                 job_log: undo_log.map(|log| log.into_log(&back)),
                 ..Default::default()
