@@ -5,12 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.101.0] - 2026-11-26
+
 ### Fixed
 
 - A turn or an edit that Glimt saves at closing, and whose save failed at once, closed the
   window without saying so. The window now stays open with the failure on screen.
-
-## [0.101.0] - 2026-11-26
 
 ### Changed
 
