@@ -154,8 +154,10 @@ pub fn ffmpeg_frame(
 /// sides are worked out here, each cut down to whole pixels and never below 1, so that no frame
 /// asks swscale for a side of 0, which it refuses. A side of 0 in the box, such as that of an
 /// image area with no width yet, is taken as 1. ffmpeg's own `force_original_aspect_ratio`
-/// rounded the short side of a frame more than twice as wide as a box of 1 to 0, and so that of
-/// a 10000×10 strip in any box below 500, and the decode failed and stayed failed in the list.
+/// rounded the short side of a frame more than twice as wide as a box of 1 to 0, and the decode
+/// failed and stayed failed in the list. It did so too for a 10000×10 strip in any box below
+/// 500, where ffmpeg 7.1 then went on with the frame's own height, so the strip's thumbnail was
+/// 128×10 and not 128×1.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
 fn ffmpeg_scale_filter(max: Option<[u32; 2]>) -> Option<String> {
     let [w, h] = max?.map(|side| side.max(1));
@@ -1342,7 +1344,7 @@ mod tests {
     /// A thumbnail's size as ffmpeg's filter is shrunk to fit and never enlarged. The view gets
     /// none. Each side is at least 1, as swscale refuses a side of 0, which ffmpeg's own
     /// `force_original_aspect_ratio` gave the short side of a strip 8,000 wide in a box of 256.
-    /// The release tests show such a strip's thumbnail made by a real ffmpeg.
+    /// The release tests show such a strip's thumbnail 1 high, made by a real ffmpeg.
     #[test]
     fn fits_ffmpeg_frames() {
         let fit = "min(1,min(256/iw,256/ih))";

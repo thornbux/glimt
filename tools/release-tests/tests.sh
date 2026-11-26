@@ -2371,23 +2371,28 @@ for v in new old; do
     else note "old: Ctrl+click $ctrl; click $alone|$shown; Shift+click $range; right $right"; fi
 done
 
-section "a video 8,000 wide and 8 high gets its thumbnail: ffmpeg is asked for no side of 0"
+section "a video 8,000 wide and 8 high gets a thumbnail of its shape: ffmpeg is asked for no side of 0"
+# ffmpeg 7.1's force_original_aspect_ratio gave the strip's short side 0, which swscale refused;
+# ffmpeg then went on with the frame's own height, so 0.98 saved a thumbnail 8 high, not 1.
 for v in new old; do
     as_version $v
     d=/tmp/strip-video-$v
     mkdir -p $d
     ffmpeg -v error -f lavfi -i color=c=red:s=8000x8:d=2 -pix_fmt yuv420p $d/strip.mp4
-    convert -size 300x200 xc:red $d/a.png
     rm -rf $XDG_CACHE_HOME/thumbnails
-    # The thumbnails saved to the shared cache, not the markers of those that failed.
-    thumbnails_saved() { find $XDG_CACHE_HOME/thumbnails -path '*/fail' -prune -o -type f -print 2>/dev/null | wc -l | tr -d ' '; }
+    # The sizes of the thumbnails saved to the shared cache, not of the markers of failures.
+    strip_thumbnail_sizes() {
+        find $XDG_CACHE_HOME/thumbnails -path '*/fail' -prune -o -type f -name '*.png' -print \
+            2>/dev/null | xargs -r identify -format '%wx%h ' 2>/dev/null
+    }
     config
     start $d
-    until_ok '[ "$(thumbnails_saved)" -ge 2 ]' 15
-    made=$(thumbnails_saved)
+    until_ok '[ -n "$(strip_thumbnail_sizes)" ]' 15
+    made=$(strip_thumbnail_sizes)
     quit
-    if [ $v = new ]; then expect "the strip's thumbnail and the PNG's saved" "$made" 2
-    else note "old: $made saved"; fi
+    # 128 or 256 wide, by the thumbnail size; the height is what the fix changed.
+    if [ $v = new ]; then expect "the strip's thumbnail is 1 high" "${made#*x}" "1 "
+    else note "old: $made"; fi
 done
 
 section "a video that is a playlist: ffmpeg opens no file it names"
