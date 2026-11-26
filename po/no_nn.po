@@ -4142,3 +4142,8 @@ msgstr "Skriv inn ein sti"
 #, fuzzy
 msgid "Folders before {folder}"
 msgstr "Mapper før {folder}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr "metadataa til {name} kunne ikkje lesast, og biletet blir ikkje skrive utan dei: {e}"

@@ -4131,3 +4131,8 @@ msgstr "Digita un percorso"
 #, fuzzy
 msgid "Folders before {folder}"
 msgstr "Cartelle prima di {folder}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr "non è stato possibile leggere i metadati di {name}, e l'immagine non viene scritta senza di essi: {e}"

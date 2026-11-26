@@ -4142,3 +4142,8 @@ msgstr "Wpisz ścieżkę"
 #, fuzzy
 msgid "Folders before {folder}"
 msgstr "Foldery przed {folder}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr "nie udało się odczytać metadanych pliku {name}, a obraz nie jest zapisywany bez nich: {e}"

@@ -1272,7 +1272,7 @@ fn derived_metadata(
     let _job = crate::images::decode::start_decode_job();
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
-    let mut exif = exif::derived(path, how);
+    let mut exif = exif::derived(path, how).map_err(|e| metadata_not_read(path, e))?;
     let (mut xmp, stored) = crate::images::decode::image_reader(path)
         .ok()
         .and_then(|r| r.into_decoder().ok())
@@ -1301,6 +1301,17 @@ fn derived_metadata(
     }
     let stored_quarter = stored.is_some_and(crate::images::decode::is_quarter_turn);
     Ok((exif, xmp, (turns % 2 == 1) != stored_quarter))
+}
+
+/// Returns why a file derived from `path` is not written: its metadata could not be read
+/// (`e`), and a copy or turned image without it would lose the photo's keywords, comment and
+/// stars as if it had none.
+fn metadata_not_read(path: &Path, e: impl std::fmt::Display) -> String {
+    crate::tf!(
+        "the metadata of {name} could not be read, and the image is not written without it: {e}",
+        name = escaped_name(path),
+        e
+    )
 }
 
 /// Makes the XMP packet `xmp` what a file derived from its image as `how` says keeps of it,
@@ -1342,7 +1353,9 @@ pub(crate) fn shared_metadata(
     let is_png = crate::model::listing::has_ext(path, &["png"]);
     let exif = match embedded_exif {
         Some(block) => Some(block.to_vec()),
-        None if is_png => exif::derived(path, Derived::Shared),
+        None if is_png => {
+            exif::derived(path, Derived::Shared).map_err(|e| metadata_not_read(path, e))?
+        }
         None => None,
     };
     let text = |bytes: &[u8]| std::str::from_utf8(bytes).ok().map(xmp::properties);
@@ -2833,6 +2846,23 @@ mod tests {
             assert_eq!(upright, Some(image::metadata::Orientation::NoTransforms));
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy or turn of a photo whose EXIF cannot be read, as when a share stops answering
+    /// between the read of the pixels and that of the metadata, is refused with the photo's
+    /// name. Before, the failed read was taken for a photo without EXIF, and the copy was
+    /// written without its camera, date and place, untold.
+    #[test]
+    fn a_copy_is_refused_when_its_exif_cannot_be_read() {
+        let dir = std::env::temp_dir().join(format!("glimt-exif-gone-{}", std::process::id()));
+        for name in ["a.jpg", "a.png", "a.nef", "a.webp"] {
+            let gone = dir.join(name);
+            let read = crate::metadata::exif::derived(&gone, super::Derived::Copy);
+            assert!(read.is_err(), "{name}");
+            let refused =
+                super::derived_metadata(&gone, true, 0, (4, 4), super::Derived::Copy).unwrap_err();
+            assert!(refused.contains(name), "{refused}");
+        }
     }
 
     /// A PNG turned keeps its whole EXIF block, also what lies past the values its directories

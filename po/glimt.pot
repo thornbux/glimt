@@ -3329,3 +3329,7 @@ msgstr ""
 #: src/ui/file_list.rs
 msgid "Folders before {folder}"
 msgstr ""
+
+#: src/images/save.rs
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr ""

@@ -1066,7 +1066,8 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         dec => dec?,
     };
     // One EXIF block, as the info panel reads it, gives both the turn and the colour space.
-    let exif = exif::block_from_decoder(path, &mut dec);
+    // A block that cannot be read shows the image as stored, unturned.
+    let exif = exif::block_from_decoder(path, &mut dec).ok().flatten();
     let turn = match rotate {
         true => exif::stored_orientation(&mut dec, exif.as_deref()),
         false => upright,
@@ -3152,7 +3153,7 @@ mod tests {
         std::fs::remove_file(&png).unwrap();
         let raf = file.with_extension("raf");
         std::fs::hard_link(&file, &raf).unwrap();
-        assert!(crate::images::raw::exif(&raf).is_none());
+        assert!(crate::images::raw::exif(&raf).is_err());
         std::fs::remove_file(&raf).unwrap();
         f.set_len(10).unwrap();
         let _job = super::start_decode_job();

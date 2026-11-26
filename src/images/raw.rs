@@ -43,11 +43,12 @@ pub fn unturned(
 }
 
 /// The EXIF block: the file itself if it is TIFF-based (its header is enough), else the one
-/// in the preview JPEG.
-pub fn exif(path: &Path) -> Option<Vec<u8>> {
-    let head = crate::images::decode::read_head(path, 1 << 20).ok()?;
+/// in the preview JPEG. Returns `Ok(None)` when there is none, and an error when the file could
+/// not be read.
+pub fn exif(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let head = crate::images::decode::read_head(path, 1 << 20)?;
     if matches!(head.get(..2), Some(b"II" | b"MM")) {
-        return Some(head);
+        return Ok(Some(head));
     }
     // The preview's headers come before its picture, so the first MB has them in most files;
     // the whole file (50 MB and more) only when not: sorting thousands by date reads the heads.
@@ -56,7 +57,10 @@ pub fn exif(path: &Path) -> Option<Vec<u8>> {
         let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg)).ok()?;
         dec.exif_metadata().ok().flatten()
     };
-    from(&head).or_else(|| from(&crate::images::decode::read_limited(path).ok()?))
+    match from(&head) {
+        Some(exif) => Ok(Some(exif)),
+        None => Ok(from(&crate::images::decode::read_limited(path)?)),
+    }
 }
 
 /// The largest JPEG in `data` that the decoder handles: baseline or progressive. Lossless JPEG

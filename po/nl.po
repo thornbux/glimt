@@ -4131,3 +4131,8 @@ msgstr "Typ een pad"
 #, fuzzy
 msgid "Folders before {folder}"
 msgstr "Mappen vóór {folder}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr "de metadata van {name} konden niet worden gelezen, en de afbeelding wordt niet zonder geschreven: {e}"

@@ -4131,3 +4131,8 @@ msgstr "Slá inn slóð"
 #, fuzzy
 msgid "Folders before {folder}"
 msgstr "Möppur á undan {folder}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr "ekki tókst að lesa lýsigögn {name}, og myndin er ekki skrifuð án þeirra: {e}"

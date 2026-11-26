@@ -4131,3 +4131,8 @@ msgstr "Saisir un chemin"
 #, fuzzy
 msgid "Folders before {folder}"
 msgstr "Dossiers avant {folder}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr "les métadonnées de {name} n'ont pas pu être lues, et l'image n'est pas écrite sans elles : {e}"

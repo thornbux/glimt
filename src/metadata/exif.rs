@@ -328,20 +328,25 @@ fn find(ifd: &[(u16, Entry)], tag: u16) -> Option<Entry> {
 
 /// (label, value) rows for the panel, in display order; empty if the file has no EXIF.
 pub fn read(path: &Path) -> Vec<(&'static str, String)> {
-    read_exif_block(path).map_or_else(Vec::new, |raw| parse(&raw))
+    // The panel shows a block it cannot read as none.
+    read_exif_block(path)
+        .ok()
+        .flatten()
+        .map_or_else(Vec::new, |raw| parse(&raw))
 }
 
 /// `read` of `path`, and every field of IFD0, the Exif and the GPS directory for the EXIF
 /// window (unknown tags by number), from one reading of its EXIF block: on a network share
 /// each reading of a large photo costs.
 pub fn read_and_all(path: &Path) -> (Vec<(&'static str, String)>, Vec<Field>) {
-    read_exif_block(path).map_or_else(Default::default, |raw| (parse(&raw), fields(&raw)))
+    (read_exif_block(path).ok().flatten())
+        .map_or_else(Default::default, |raw| (parse(&raw), fields(&raw)))
 }
 
 /// `read` of `path`, and its EXIF orientation (1–8 as stored), from one reading of its EXIF
 /// block. The orientation is `None` when the file has none.
 pub fn read_with_orientation(path: &Path) -> (Vec<(&'static str, String)>, Option<u32>) {
-    let Some(raw) = read_exif_block(path) else {
+    let Some(raw) = read_exif_block(path).ok().flatten() else {
         return Default::default();
     };
     let orientation = ifds(&raw).and_then(|(t, ifd0, _, _)| t.int(find(&ifd0, ORIENTATION)?));
@@ -484,7 +489,8 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
 pub fn date(path: &Path, digitized: bool) -> Option<String> {
     // A decoder panicking on one file must not end the sort or the Pan view that asked.
     crate::support::threads::catch_panic(|| {
-        let raw = read_exif_block(path)?;
+        // A photo whose EXIF cannot be read sorts as one without a date.
+        let raw = read_exif_block(path).ok()??;
         let (t, _, exif, _) = ifds(&raw)?;
         let tag = if digitized { 0x9004 } else { 0x9003 };
         let mut date = t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)?;
@@ -978,7 +984,11 @@ fn add_orientation(
     Ok(())
 }
 
-fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
+/// Reads the EXIF block of `path`, as the panel, the date sort and a copy read it. Returns
+/// `Ok(None)` when the file has none, or is of a format whose EXIF Glimt does not read, and an
+/// error when the file or its metadata could not be read, so that a copy is not written without
+/// it as if it had none.
+fn read_exif_block(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     // A RAW or HEIC whose EXIF is not in its first MB, or a JPEG under another name, is read
     // whole, and that counts in the decodes' budget while the block is found. The sort by date
     // and the "exif:" search read a folder's files in several threads at once.
@@ -988,8 +998,9 @@ fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
     }
     #[cfg(feature = "jxl")]
     if crate::model::listing::has_ext(path, crate::model::listing::JXL_EXTS) {
-        let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
-        let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
+        let file = std::io::BufReader::new(crate::images::decode::open_regular(path)?);
+        let mut dec = jxl_oxide::integration::JxlDecoder::new(file)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         return block_from_decoder(path, &mut dec);
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
@@ -1000,31 +1011,39 @@ fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
                 .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
             Some(data[at..data.len().min(at + (1 << 20))].to_vec())
         };
-        let head = crate::images::decode::read_head(path, 1 << 20).ok()?;
+        let head = crate::images::decode::read_head(path, 1 << 20)?;
         // Found too near the head's end, it may be cut short (EXIF blocks reach 64 KB).
         let whole = head.len() < 1 << 20;
         let in_head = find(&head).filter(|e| whole || e.len() > 1 << 16);
         // Read whole only when the head was not all of it, and never more than a decode would.
-        let rest = || find(&crate::images::decode::read_limited(path).ok()?);
-        return in_head.or_else(|| (!whole).then(rest).flatten());
+        return match (in_head, whole) {
+            (Some(exif), _) => Ok(Some(exif)),
+            (None, true) => Ok(None),
+            (None, false) => Ok(find(&crate::images::decode::read_limited(path)?)),
+        };
     }
     if crate::model::listing::is_jpeg(path)
         && let Some(exif) = jpeg_app1(path, b"Exif\0\0")
     {
-        return exif;
+        return Ok(exif);
     }
     // A PNG is read once, by the png crate, as the date sort and the search read every PNG of
     // a folder. Through the image crate, one without an eXIf chunk was opened a second time for
     // its text.
+    // One the png crate cannot read is read again below, which tells why.
     if crate::model::listing::has_ext(path, &["png"])
-        && let Some(exif) = png_exif(path)
+        && let Ok(exif) = png_exif(path)
     {
-        return exif;
+        return Ok(exif);
     }
-    let mut dec = crate::images::decode::image_reader(path)
-        .ok()?
-        .into_decoder()
-        .ok()?;
+    let reader = crate::images::decode::image_reader(path)?;
+    let mut dec = match reader.into_decoder() {
+        Ok(dec) => dec,
+        Err(image::ImageError::IoError(e)) => return Err(e),
+        // A format the image crate does not decode, such as an SVG or a video, has no EXIF that
+        // Glimt reads.
+        Err(_) => return Ok(None),
+    };
     block_from_decoder(path, &mut dec)
 }
 
@@ -1036,10 +1055,10 @@ fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
 /// keeps the rest of its block whole, because it is the user's own file and the cut would lose what
 /// lies past the values it follows, such as a SubIFDs directory or a maker note's data. Only a copy
 /// is cut (`derived_block`). A copy for sharing gets the whole block too, because it takes only
-/// the tags the user keeps into a block made new (`shared_block`). Returns `None` when there is
-/// no block.
-pub fn derived(path: &Path, how: crate::images::save::Derived) -> Option<Vec<u8>> {
-    derived_of(&read_exif_block(path)?, how)
+/// the tags the user keeps into a block made new (`shared_block`). Returns `Ok(None)` when there
+/// is no block, and an error when it could not be read (`read_exif_block`).
+pub fn derived(path: &Path, how: crate::images::save::Derived) -> std::io::Result<Option<Vec<u8>>> {
+    Ok(read_exif_block(path)?.and_then(|raw| derived_of(&raw, how)))
 }
 
 /// Makes the EXIF block `raw` what a file made as `how` keeps of it, as `derived` does.
@@ -1494,9 +1513,20 @@ pub fn mp_entries(mpf: &[u8]) -> Option<Vec<[u32; 3]>> {
 /// EXIF in an eXIf chunk, which the decoder reads, or in the text chunk that exiv2 (digiKam,
 /// GIMP) and older ImageMagick write (`png_exif`). This is the one reader of an EXIF block the
 /// image crate decodes, so the panel, the date sort and a copy or turned file all see the same.
-pub fn block_from_decoder(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8>> {
-    let png = || crate::model::listing::has_ext(path, &["png"]);
-    (dec.exif_metadata().ok().flatten()).or_else(|| png().then(|| png_exif(path)).flatten()?)
+/// Returns `Ok(None)` when there is none, and an error when it could not be read.
+pub fn block_from_decoder(
+    path: &Path,
+    dec: &mut impl image::ImageDecoder,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let exif = dec.exif_metadata().map_err(std::io::Error::other)?;
+    match exif {
+        None if crate::model::listing::has_ext(path, &["png"]) => match png_exif(path) {
+            // A file named .png that the decoder read as another format holds no PNG chunks.
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Ok(None),
+            read => read,
+        },
+        exif => Ok(exif),
+    }
 }
 
 /// Reads the orientation that the image `dec` decodes is turned upright by. It is the decoder's
@@ -1517,19 +1547,23 @@ pub fn stored_orientation(dec: &mut impl image::ImageDecoder, exif: Option<&[u8]
 /// Reads the EXIF block of a PNG with the png crate: its eXIf chunk, or else the text chunk
 /// that exiv2 (digiKam, GIMP) and older ImageMagick write, named "Raw profile type exif" or
 /// "Raw profile type APP1", plain, compressed (zTXt) or international (iTXt). Returns
-/// `Some(None)` for a PNG without one, and `None` when the png crate cannot read the file.
-fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
+/// `Ok(None)` for a PNG without one, and an error when the png crate cannot read the file, of
+/// the kind `InvalidData` when the file is no PNG it reads.
+fn png_exif(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it,
     // so the panel and the date sort do not read a whole PNG; read the chunks after IDAT too if
     // users miss EXIF there. A turn or copy reads them all (`png_metadata`), as it drops them.
     const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
-    let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
-    let reader = png::Decoder::new(file).read_info().ok()?;
+    let file = std::io::BufReader::new(crate::images::decode::open_regular(path)?);
+    let reader = png::Decoder::new(file).read_info().map_err(|e| match e {
+        png::DecodingError::IoError(e) => e,
+        e => std::io::Error::new(std::io::ErrorKind::InvalidData, e),
+    })?;
     let info = reader.info();
     if let Some(exif) = &info.exif_metadata {
-        return Some(Some(exif.to_vec()));
+        return Ok(Some(exif.to_vec()));
     }
-    Some(png_texts(info, &KEYS).find_map(|text| raw_profile(&text)))
+    Ok(png_texts(info, &KEYS).find_map(|text| raw_profile(&text)))
 }
 
 /// Reads the EXIF block, XMP packet and Photoshop resources of the PNG `data` from every chunk
@@ -1828,7 +1862,7 @@ mod tests {
         bytes.extend(preview);
         std::fs::write(&file, &bytes).unwrap();
         let _job = crate::images::decode::start_decode_job();
-        super::read_exif_block(&file);
+        let _ = super::read_exif_block(&file);
         let held = crate::images::decode::held_by_this_job().unwrap();
         assert!(held >= bytes.len() as u64, "{held}");
         std::fs::remove_dir_all(dir).unwrap();
@@ -1850,7 +1884,7 @@ mod tests {
         ] {
             png_with_raw_profile(&file, chunk, key, block);
             assert_eq!(
-                read_exif_block(&file).as_deref(),
+                read_exif_block(&file).unwrap().as_deref(),
                 Some(CANON_EXIF),
                 "{chunk}"
             );
@@ -1862,10 +1896,10 @@ mod tests {
         let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
         enc.set_exif_metadata(exif.to_vec()).unwrap();
         image::RgbImage::new(2, 2).write_with_encoder(enc).unwrap();
-        assert_eq!(read_exif_block(&file).as_deref(), Some(&exif[..]));
+        assert_eq!(read_exif_block(&file).unwrap().as_deref(), Some(&exif[..]));
         // Another key's text is not taken for EXIF.
         png_with_raw_profile(&file, "zTXt", "Raw profile type iptc", CANON_EXIF);
-        assert_eq!(read_exif_block(&file), None);
+        assert_eq!(read_exif_block(&file).unwrap(), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

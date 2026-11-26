@@ -4131,3 +4131,8 @@ msgstr "Kirjoita polku"
 #, fuzzy
 msgid "Folders before {folder}"
 msgstr "Kansiot ennen kansiota {folder}"
+
+#: src/images/save.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
+msgstr "tiedoston {name} metatietoja ei voitu lukea, eikä kuvaa kirjoiteta ilman niitä: {e}"
