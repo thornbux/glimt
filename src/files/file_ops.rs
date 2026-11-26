@@ -5,16 +5,16 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, StepError, done_after_all,
-    fingerprint, is_surely_gone, put_file, put_file_until_stopped, rename_never_over,
-    same_fingerprint,
+    FileFingerprint, ListedFile, PickedFiles, PickedFingerprints, StepError, Transfer,
+    done_after_all, fingerprint, is_surely_gone, put_file, put_file_until_stopped,
+    rename_never_over, same_fingerprint,
 };
 use crate::files::job_log::Direction;
 use crate::files::trash::{TrashMove, restore, restore_noting, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
 #[cfg(feature = "marks")]
-use crate::metadata::marks::{FilesWere, MovesKnownFrom};
+use crate::metadata::marks::MovesKnownFrom;
 use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
 use crate::support::format::{count, escaped_file_name, escaped_name, thousands};
@@ -161,11 +161,8 @@ pub(crate) struct OperationReport {
     pub(crate) requested: Vec<PathBuf>,
     pub(crate) gone: Vec<PathBuf>,
     pub(crate) any_failed: bool,
-    pub(crate) moved: Vec<(PathBuf, PathBuf)>,
-    pub(crate) is_copy: bool,
-    /// Whether `moved` was read from a record (a plan of Rename Many cut short), not made by
-    /// this report's own job. The marks then follow only to a name where a file is now.
-    pub(crate) is_moved_from_a_record: bool,
+    /// The files moved or copied, and how that is known (`FilesMoved`).
+    pub(crate) moved: FilesMoved,
     /// Whether the folder is to be read again, because a tool edited files in it or a repair
     /// renamed them.
     pub(crate) read_folder_again: bool,
@@ -213,6 +210,30 @@ pub(crate) struct OperationReport {
     /// The photos whose renames a repair undid, as (new name, old name), by which a mark set at
     /// a new name during the job goes back with its photo (`journal::marks_put_back`).
     pub(crate) marks_put_back: Vec<(PathBuf, PathBuf)>,
+}
+
+/// The files a report says were moved or copied, `(from, to)`, and how that is known. One value
+/// says it, so that a copy cannot be reported as a move by a field left at its default, which
+/// took the marks off the originals. A report that moved nothing holds `Nothing`.
+#[derive(Default)]
+pub(crate) enum FilesMoved {
+    #[default]
+    Nothing,
+    /// Copied or moved by the report's own job, so each file is at its new name now.
+    ByTheJob(Transfer, Vec<(PathBuf, PathBuf)>),
+    /// Moved, as read from a record (a plan of Rename Many or a Move's log cut short) rather
+    /// than made by the job. The marks then follow only to a name where a file is now.
+    FromARecord(Vec<(PathBuf, PathBuf)>),
+}
+
+impl FilesMoved {
+    /// Returns the pairs `(from, to)`, however they are known.
+    fn into_pairs(self) -> Vec<(PathBuf, PathBuf)> {
+        match self {
+            FilesMoved::Nothing => Vec::new(),
+            FilesMoved::ByTheJob(_, pairs) | FilesMoved::FromARecord(pairs) => pairs,
+        }
+    }
 }
 
 /// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
@@ -1077,7 +1098,6 @@ impl crate::App {
                 gone,
                 any_failed,
                 moved,
-                is_copy,
                 read_folder_again,
                 undo,
                 is_undo_remainder,
@@ -1092,7 +1112,6 @@ impl crate::App {
                 delete_log,
                 job_log,
                 cut_short_left,
-                is_moved_from_a_record,
                 marks_at_new_names,
                 marks_put_back,
             },
@@ -1126,8 +1145,7 @@ impl crate::App {
             self.marks.forget(&overwritten, None);
             // The moves come before the deleted files, so the marks go along first.
             self.marks_put_back(marks_put_back, &marks_at_new_names);
-            let from_a_record = is_moved_from_a_record.then_some(marks_at_new_names);
-            self.follow_moves_reported(moved, is_copy, move_log, from_a_record);
+            self.follow_moves_reported(moved, move_log, marks_at_new_names);
             self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
@@ -1261,50 +1279,40 @@ impl crate::App {
         self.dialogs.confirm_delete_instead(asked, kind);
     }
 
-    /// Brings along what Glimt keeps about the files a report says were `moved`, or copied
-    /// (`is_copy`), as `follow_moved_paths` does. A Move's log goes once they have followed.
-    /// When `from_a_record` holds the marks noted at the new names, the moves were read from a
-    /// record and not made by the job, so the marks follow only to a name where a file is now. A
+    /// Brings along what Glimt keeps about the files a report says were `moved` or copied, as
+    /// `follow_moved_paths` does. A Move's log goes once they have followed. Moves read from a
+    /// record and not made by the job (`FilesMoved::FromARecord`) take the marks only to a name
+    /// where a file is now, by `marks_at_new_names`, the marks noted there when the job began. A
     /// Move's log found at the start is such a record too.
     fn follow_moves_reported(
         &mut self,
-        moved: Vec<(PathBuf, PathBuf)>,
-        is_copy: bool,
+        moved: FilesMoved,
         move_log: Option<journal::MoveLog>,
-        from_a_record: Option<journal::MarksAtNewNames>,
+        marks_at_new_names: journal::MarksAtNewNames,
     ) {
-        match &move_log {
-            Some(log) if log.is_found_at_start() => {
+        match (&move_log, moved) {
+            (Some(log), moved) if log.is_found_at_start() => {
+                let moved = moved.into_pairs();
                 // The names follow for every file, the open collection's entries among them.
-                self.follow_names_moved(&moved, false);
+                self.follow_names_moved(&moved, Transfer::Move);
                 #[cfg(feature = "marks")]
                 {
                     let not_followed = self.not_followed_before_a_kill(moved);
                     if !not_followed.is_empty() {
                         let known_from = MovesKnownFrom::ARecord;
-                        (self.marks).follow_files(not_followed, FilesWere::Moved, known_from);
+                        (self.marks).follow_files(not_followed, Transfer::Move, known_from);
                     }
                 }
             }
-            _ if let Some(marks_at_new_names) = from_a_record => {
-                self.follow_names_moved(&moved, is_copy);
+            (_, FilesMoved::FromARecord(moved)) => {
+                self.follow_names_moved(&moved, Transfer::Move);
                 #[cfg(feature = "marks")]
-                match is_copy {
-                    true => {
-                        let known_from = MovesKnownFrom::ARecord;
-                        self.marks
-                            .follow_files(moved, FilesWere::Copied, known_from)
-                    }
-                    false => {
-                        let known_from = MovesKnownFrom::ARecord;
-                        self.marks
-                            .follow_renames(moved, known_from, marks_at_new_names)
-                    }
-                }
+                (self.marks).follow_renames(moved, MovesKnownFrom::ARecord, marks_at_new_names);
                 #[cfg(not(feature = "marks"))]
                 let _ = marks_at_new_names;
             }
-            _ => self.follow_moved_paths(moved, is_copy),
+            (_, FilesMoved::ByTheJob(transfer, moved)) => self.follow_moved_paths(moved, transfer),
+            (_, FilesMoved::Nothing) => {}
         }
         if let Some(log) = move_log {
             log.remove_once_followed();
@@ -1341,51 +1349,50 @@ impl crate::App {
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
-    /// `(from, to)`, or copied (`is_copy`). It is the one place every operation reports to. The
+    /// `(from, to)`, or copied (`transfer`). It is the one place every operation reports to. The
     /// marks go along, to a copy too. When the files moved, a collection's entries of them, and
     /// of everything in a moved folder, take the new place, in the list and in its file, and so
     /// do the entries of every saved collection.
-    pub(crate) fn follow_moved_paths(&mut self, pairs: Vec<(PathBuf, PathBuf)>, is_copy: bool) {
+    pub(crate) fn follow_moved_paths(
+        &mut self,
+        pairs: Vec<(PathBuf, PathBuf)>,
+        transfer: Transfer,
+    ) {
         // No message of a delete has pairs, so each one skips the look at every name in the
         // list.
         if pairs.is_empty() {
             return;
         }
-        self.follow_names_moved(&pairs, is_copy);
+        self.follow_names_moved(&pairs, transfer);
+        // The job that reports them has just moved the files, so their new names hold them.
         #[cfg(feature = "marks")]
-        {
-            let files_were = match is_copy {
-                true => FilesWere::Copied,
-                false => FilesWere::Moved,
-            };
-            // The job that reports them has just moved the files, so their new names hold them.
-            (self.marks).follow_files(pairs, files_were, MovesKnownFrom::TheJob);
-        }
+        (self.marks).follow_files(pairs, transfer, MovesKnownFrom::TheJob);
     }
 
     /// Brings along all that `follow_moved_paths` does but the marks.
-    fn follow_names_moved(&mut self, pairs: &[(PathBuf, PathBuf)], is_copy: bool) {
+    fn follow_names_moved(&mut self, pairs: &[(PathBuf, PathBuf)], transfer: Transfer) {
+        let is_move = transfer == Transfer::Move;
         if pairs.is_empty() {
             return;
         }
         // Both names hold another file now, or none, so a moved file's caches would show under
         // the new name what an old file of that name had.
         let names: Vec<PathBuf> = (pairs.iter())
-            .flat_map(|(from, to)| [(!is_copy).then(|| from.clone()), Some(to.clone())])
+            .flat_map(|(from, to)| [is_move.then(|| from.clone()), Some(to.clone())])
             .flatten()
             .collect();
         self.forget_names(&names);
         let moved = moves_by_source(pairs);
         // A turn not saved yet goes with its file, saved under the new name.
-        if !is_copy && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
+        if is_move && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
             self.viewing.turned_file_moved(to);
         }
         // So does an edit in the panel not saved yet.
-        if !is_copy {
+        if is_move {
             let ctx = self.ctx.clone();
             self.follow_metadata_edit(&ctx, &moved);
         }
-        if !is_copy && self.folder.collection().is_some() {
+        if is_move && self.folder.collection().is_some() {
             let renamed: Vec<(usize, OsString)> = (0..self.list.files().len())
                 .filter_map(|i| {
                     let to = new_place(&self.path(i), &moved)?;
@@ -1423,7 +1430,7 @@ impl crate::App {
             // moved brings the old names.
             self.folder.relist_later();
         }
-        if !is_copy {
+        if is_move {
             collections::follow_in_saved_collections(pairs, self.folder.collection());
         }
         self.index_new_names();
@@ -1518,19 +1525,19 @@ impl crate::App {
     /// never overwritten. A move across file systems falls back to a copy and a delete. A file
     /// that is no longer the one picked (Move To and Copy To, while the folder chooser was open)
     /// stays.
-    pub(crate) fn transfer(&mut self, picked: PickedFiles, dest: PathBuf, is_copy: bool) {
+    pub(crate) fn transfer(&mut self, picked: PickedFiles, dest: PathBuf, transfer: Transfer) {
         let paths = picked.paths().to_vec();
         // The folder by its real path (`~/card` → `/media/u/CARD`, `CARD/..` → `/media/u`), so
         // that its file system is the one the files go to, and a move into the folder shown
         // through a link is seen as one. It is looked up in the background, because it waits
         // for the disk, and checked before the files leave the list, so a refused move keeps
         // the view.
-        let job = match is_copy {
-            true => JobAfterLookUp::Copy,
-            false => JobAfterLookUp::Move,
+        let job = match transfer {
+            Transfer::Copy => JobAfterLookUp::Copy,
+            Transfer::Move => JobAfterLookUp::Move,
         };
         self.with_real_folder(dest, (paths, job), move |app, ctx, dest, file_system| {
-            app.transfer_into_real_folder(ctx, picked, (dest, file_system), is_copy)
+            app.transfer_into_real_folder(ctx, picked, (dest, file_system), transfer)
         });
     }
 
@@ -1541,10 +1548,11 @@ impl crate::App {
         ctx: &egui::Context,
         picked: PickedFiles,
         (dest, dest_file_system): (PathBuf, Option<String>),
-        is_copy: bool,
+        transfer: Transfer,
     ) {
         let paths = picked.paths().to_vec();
-        if let Some(text) = refused_transfer(&paths, &dest, is_copy, |_| dest_file_system.clone()) {
+        if let Some(text) = refused_transfer(&paths, &dest, transfer, |_| dest_file_system.clone())
+        {
             self.notice.give_error(text);
             return;
         }
@@ -1552,24 +1560,31 @@ impl crate::App {
         // meanwhile could hand it one photo with another photo's sidecar, and a move or delete
         // could take a file away halfway.
         let held_back_files = paths.clone();
-        let activity = tr(if is_copy { "Copying" } else { "Moving" });
+        let activity = tr(if transfer == Transfer::Copy {
+            "Copying"
+        } else {
+            "Moving"
+        });
         let Some(job) = self.start_job(activity, paths.len(), held_back_files) else {
             return;
         };
         // In a collection, the entries follow the files that got there, in
         // `receive_operation_report`.
-        if !is_copy && self.folder.collection().is_none() {
+        if (transfer == Transfer::Move) && self.folder.collection().is_none() {
             self.moving_out(ctx, &paths, &dest);
         }
         let freed_tx = self.status_bar.freed_sender();
         let report_tx = self.file_operations.report_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir());
         let listed = self.folder.takes_files_put_in(&dest);
-        let undo_on_the_way = (!is_copy).then(|| self.file_operations.undo_on_the_way());
-        let move_log_dir = (!is_copy).then(|| job_log_dir(&dest)).flatten();
+        let undo_on_the_way =
+            (transfer == Transfer::Move).then(|| self.file_operations.undo_on_the_way());
+        let move_log_dir = (transfer == Transfer::Move)
+            .then(|| job_log_dir(&dest))
+            .flatten();
         self.run_in_background(ctx, Vec::new(), move || {
             let (paths, picked) = picked.wait_for_fingerprints();
-            if !is_copy && same_dir {
+            if (transfer == Transfer::Move) && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
             let started = (move_log_dir.as_deref()).map(journal::start_move_log);
@@ -1577,19 +1592,23 @@ impl crate::App {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
             };
-            let how = (is_copy, move_log.as_mut());
+            let how = (transfer, move_log.as_mut());
             let (errors, put) = put_files(&paths, (&picked, &dest), how, &job);
             let log_failure = start_failure.or_else(|| move_log.as_mut()?.take_failure());
             let log_warning = move_log_dir.zip(log_failure).map(log_not_saved);
-            let gone: Vec<PathBuf> = match is_copy {
-                true => Vec::new(),
-                false => put.iter().map(|(from, _)| from.clone()).collect(),
+            let gone: Vec<PathBuf> = match transfer {
+                Transfer::Copy => Vec::new(),
+                Transfer::Move => put.iter().map(|(from, _)| from.clone()).collect(),
             };
             let failed = !errors.is_empty() || job.is_stopped();
             // The log's failure is told as a failed write of its own, beside the Move's text.
             let told = match errors.first() {
                 Some(first) => {
-                    let verb = tr(if is_copy { "Copy" } else { "Move" });
+                    let verb = tr(if transfer == Transfer::Copy {
+                        "Copy"
+                    } else {
+                        "Move"
+                    });
                     let failed = tf!(
                         "{verb} failed ({count}): {first}",
                         verb,
@@ -1601,9 +1620,9 @@ impl crate::App {
                 None => {
                     let moved = job.report(|| {
                         let (files, folder) = (count(paths.len(), "file"), escaped_name(dest));
-                        match is_copy {
-                            true => tf!("{files} copied to {folder}", files, folder),
-                            false => tf!("{files} moved to {folder}", files, folder),
+                        match transfer {
+                            Transfer::Copy => tf!("{files} copied to {folder}", files, folder),
+                            Transfer::Move => tf!("{files} moved to {folder}", files, folder),
                         }
                     });
                     with_failed_write(moved.map(Told::Notice), log_warning)
@@ -1612,15 +1631,18 @@ impl crate::App {
             // A move takes the files out of `deleting`. The folder is read again for files that
             // joined it, or that failed to go, were refused or were not reached after Stop. A
             // copy to another folder does not change the list.
-            let read_folder_again = (listed || !is_copy) && (listed || failed);
-            let undo = (!is_copy && !put.is_empty())
+            let read_folder_again = (listed || (transfer == Transfer::Move)) && (listed || failed);
+            let undo = ((transfer == Transfer::Move) && !put.is_empty())
                 .then(|| Undo::Move(put.iter().filter_map(with_fingerprint).collect()));
             let _ = report_tx.send(OperationReport {
-                requested: if is_copy { Vec::new() } else { paths },
+                requested: if transfer == Transfer::Copy {
+                    Vec::new()
+                } else {
+                    paths
+                },
                 gone,
                 any_failed: failed,
-                moved: put,
-                is_copy,
+                moved: FilesMoved::ByTheJob(transfer, put),
                 read_folder_again,
                 undo,
                 move_log,
@@ -1881,7 +1903,7 @@ impl crate::App {
             self.tell_failed_write(failure);
         }
         // A mark set at a new name while the job ran stays with its photo.
-        self.follow_names_moved(&pairs, false);
+        self.follow_names_moved(&pairs, Transfer::Move);
         #[cfg(feature = "marks")]
         self.marks.follow_renames(
             pairs.clone(),
@@ -2140,7 +2162,7 @@ impl crate::App {
         // name. In a collection, its own file follows the folder it is in, and its images in
         // the folder follow it to the new name, in its file too.
         self.folder.follow_rename(&old, &new);
-        self.follow_moved_paths(vec![(old.clone(), new.clone())], false);
+        self.follow_moved_paths(vec![(old.clone(), new.clone())], Transfer::Move);
         #[cfg(feature = "marks")]
         self.marks.follow_folder(old.clone(), new.clone());
         match self.folder.dir_renamed(&old, &new) {
@@ -2314,7 +2336,7 @@ impl crate::App {
                 let files = count(back.len(), "file");
                 // Those that did not go back stay to be undone again, as the trash's do.
                 let _ = report_tx.send(OperationReport {
-                    moved: back,
+                    moved: FilesMoved::ByTheJob(Transfer::Move, back),
                     read_folder_again: true,
                     undo: (!left.is_empty()).then_some(Undo::Move(left)),
                     is_undo_remainder: true,
@@ -3723,25 +3745,25 @@ fn not_renamed((name, kind): (String, String)) -> Failure {
 }
 
 /// Returns a notice when a file of `paths` has a name that the FAT or exFAT file system of
-/// `dest` refuses, so that a copy (`is_copy`) or a move into it refuses all before the first file.
+/// `dest` refuses, so that a copy or a move (`transfer`) into it refuses all before the first file.
 /// Returns `None` when every name is allowed there. Every file goes into the one folder, so the
 /// first name with such a character decides, and the names after it are not looked at.
 fn refused_transfer(
     paths: &[PathBuf],
     dest: &Path,
-    is_copy: bool,
+    transfer: Transfer,
     file_system_type: impl Fn(&Path) -> Option<String>,
 ) -> Option<Failure> {
     let odd = (paths.iter().filter_map(|p| p.file_name()))
         .find(|n| n.to_string_lossy().contains(NOT_ON_FAT))?;
     let (name, kind) = refused_on_fat(&[dest.join(odd)], file_system_type)?;
-    Some(Failure::from(match is_copy {
-        true => tf!(
+    Some(Failure::from(match transfer {
+        Transfer::Copy => tf!(
             "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied.",
             name,
             kind
         ),
-        false => tf!(
+        Transfer::Move => tf!(
             "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved.",
             name,
             kind
@@ -4138,7 +4160,7 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
         .unwrap_or_default();
     for (log, went) in moves {
         let _ = report_tx.send(OperationReport {
-            moved: went,
+            moved: FilesMoved::FromARecord(went),
             move_log: Some(log),
             ..Default::default()
         });
@@ -4249,7 +4271,7 @@ fn log_not_saved((dir, failure): (PathBuf, std::io::Error)) -> Failure {
 fn put_files(
     paths: &[PathBuf],
     (picked, dest): (&PickedFingerprints, &Path),
-    (is_copy, mut move_log): (bool, Option<&mut journal::MoveLog>),
+    (transfer, mut move_log): (Transfer, Option<&mut journal::MoveLog>),
     job: &Job,
 ) -> (Vec<String>, Vec<(PathBuf, PathBuf)>) {
     let (mut errors, mut put) = (Vec::new(), Vec::new());
@@ -4259,7 +4281,10 @@ fn put_files(
     let mut sidecar_names = xmp::AdobeNames::leaving(paths);
     // The RAW files that leave with this move: those that went and those yet to come. One
     // that could not go is taken out, so that its stem's sidecar stays beside it.
-    let mut moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
+    let mut moving: HashSet<&PathBuf> = paths
+        .iter()
+        .filter(|_| transfer == Transfer::Move)
+        .collect();
     let mut stems_to_come = raw_files_by_stem(moving.iter().copied());
     let none_leaving = HashSet::new();
     let mut folders = xmp::FolderIds::new();
@@ -4277,7 +4302,8 @@ fn put_files(
             // sidecar as a write does, so a write that waited lands on no old name. A copy
             // does not hold it, because the photo stays. A move to another disk holds it
             // while the photo is copied, which only makes writes under the same lock wait.
-            let _lock = (!is_copy).then(|| xmp::lock_sidecar_among(path, &mut folders));
+            let _lock =
+                (transfer == Transfer::Move).then(|| xmp::lock_sidecar_among(path, &mut folders));
             // Another window or program may have given the name to another photo meanwhile.
             if let Err(e) = picked.still_the_one_picked(path) {
                 failed(path, e);
@@ -4291,7 +4317,7 @@ fn put_files(
                 if let Some(log) = move_log.as_deref_mut() {
                     log.note(path, &target);
                 }
-                put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
+                put_file_until_stopped(path, &target, transfer, &|| job.is_stopped())
             } {
                 // A file stopped halfway is not there, and the stop itself is told.
                 let is_stop = e.is_interrupted() && job.is_stopped();
@@ -4312,7 +4338,12 @@ fn put_files(
                     false => &moving,
                 };
                 let log = move_log.as_deref_mut();
-                follow_or_go_back((path, &target), is_copy, leaving, (&mut sidecar_names, log))
+                follow_or_go_back(
+                    (path, &target),
+                    transfer,
+                    leaving,
+                    (&mut sidecar_names, log),
+                )
             } {
                 // The file and its sidecars go together or not at all, so a later file of the
                 // old name never picks up a sidecar left behind.
@@ -4330,7 +4361,7 @@ fn put_files(
         if catch_panic(put_one).is_none() {
             errors.push(format!("{}: {}", escaped_name(path), broke_here()));
             let left = crate::files::file_io::where_a_step_left_the_file(path, &target);
-            match !is_copy && left == crate::files::file_io::StepLeft::AtNewName {
+            match transfer == Transfer::Move && left == crate::files::file_io::StepLeft::AtNewName {
                 true => put.push((path.clone(), target)),
                 false => drop(moving.remove(path)),
             }
@@ -4340,7 +4371,7 @@ fn put_files(
     // A move on one disk is a rename, which is on disk only with its folder. The marks
     // and collections follow the new names once the report arrives, so after a stick
     // pulled out the file and its marks must not be under different names.
-    if !is_copy
+    if transfer == Transfer::Move
         && !put.is_empty()
         && let Err(e) = crate::files::file_io::sync_folder(dest)
     {
@@ -4412,7 +4443,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                 if let Some(log) = move_log.as_deref_mut() {
                     log.note(&to, &from);
                 }
-                let put = put_file(&to, &from, false).map_err(std::io::Error::from);
+                let put = put_file(&to, &from, Transfer::Move).map_err(std::io::Error::from);
                 if let (Some(log), Err(e)) = (move_log.as_deref_mut(), &put) {
                     log.note_last_step_failed(Direction::Forward, e);
                 }
@@ -4427,7 +4458,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
         match result {
             Ok(()) => {
                 let how = (&mut sidecar_names, move_log.as_deref_mut());
-                match follow_or_go_back((&to, &from), false, leaving, how) {
+                match follow_or_go_back((&to, &from), Transfer::Move, leaving, how) {
                     Ok(()) => back.push((to, from)),
                     // The file went back to its sidecars at `to`, and the Undo stays to be tried
                     // again. A look at it that failed is no answer that it is gone, so the Undo
@@ -4480,7 +4511,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
 /// `from`, and its step in `log` keeps the log for the next start, which finds where it is.
 fn follow_or_go_back(
     (from, to): (&Path, &Path),
-    is_copy: bool,
+    transfer: Transfer,
     moving: &HashSet<&PathBuf>,
     (names, log): (&mut xmp::AdobeNames, Option<&mut journal::MoveLog>),
 ) -> Result<(), (bool, Vec<String>)> {
@@ -4489,7 +4520,7 @@ fn follow_or_go_back(
     // this file goes back, not one that another program put at `to` meanwhile. A look that
     // failed tells nothing, and the file stays.
     let at_put = fingerprint_or_error(to);
-    let not = match xmp::follow(from, to, is_copy, moving, names) {
+    let not = match xmp::follow(from, to, transfer, moving, names) {
         Ok(left_behind) if left_behind.is_empty() => return Ok(()),
         Ok(left_behind) => return Err((false, left_behind.iter().map(|l| l.told()).collect())),
         Err(not) => not,
@@ -4497,11 +4528,11 @@ fn follow_or_go_back(
     let file = escaped_name(from);
     let put_back = at_put
         .and_then(|at_put| is_still_the_file(to, KnownAs::fingerprint(at_put)))
-        .and_then(|()| put_file_back(from, to, is_copy).map_err(std::io::Error::from));
+        .and_then(|()| put_file_back(from, to, transfer).map_err(std::io::Error::from));
     let Err(error) = put_back else {
         let mut told = Vec::new();
-        for (side, at, was_copy) in not.followed.into_iter().rev() {
-            if let Err(e) = crate::files::file_io::put_file_back(&side, &at, was_copy) {
+        for (side, at, went) in not.followed.into_iter().rev() {
+            if let Err(e) = crate::files::file_io::put_file_back(&side, &at, went) {
                 let (side, at) = (escaped_name(side), escaped_name(at));
                 told.push(tf!(
                     "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}",
@@ -4516,7 +4547,9 @@ fn follow_or_go_back(
         // then the file is not said to be with its sidecar.
         // Each sidecar is put beside the file, also after one that could not be.
         let beside: Vec<bool> = (not.failed.iter())
-            .map(|(side, at, e)| is_copy || sidecar_where_the_file_is((side, at), e, true))
+            .map(|(side, at, e)| {
+                transfer == Transfer::Copy || sidecar_where_the_file_is((side, at), e, true)
+            })
             .collect();
         let is_whole = told.is_empty() && !beside.contains(&false);
         told.extend(not.failed.iter().map(|(_, at, e)| {
@@ -4540,11 +4573,11 @@ fn follow_or_go_back(
     let is_back = crate::files::file_io::may_have_been_done(&error, to);
     let to = escaped_name(to);
     let told = (not.failed.iter())
-        .filter(|(side, at, e)| is_copy || !sidecar_where_the_file_is((side, at), e, false))
+        .filter(|(side, at, e)| transfer == Transfer::Copy || !sidecar_where_the_file_is((side, at), e, false))
         .map(|(side, at, e)| {
             // A move that may have been done and could not be finished may have left the
             // sidecar at either name, or lost it on the way.
-            let is_in_doubt = !is_copy && crate::files::file_io::may_have_been_done(e, side);
+            let is_in_doubt = transfer == Transfer::Move && crate::files::file_io::may_have_been_done(e, side);
             let (side, at) = (escaped_name(side), escaped_name(at));
             match is_in_doubt {
                 true => tf!(
@@ -5051,7 +5084,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![dir.join("a.png")]),
             dir.join("link"),
-            true,
+            super::Transfer::Copy,
         );
         assert!(app.file_operations.jobs.is_empty());
         let copied = dir.join("sub/a.png");
@@ -5159,11 +5192,16 @@ mod tests {
             .collect();
         let on_ext4 = |_: &Path| Some("ext4".to_owned());
         let start = std::time::Instant::now();
-        assert!(super::refused_transfer(&paths, Path::new("/card"), true, on_ext4).is_none());
+        assert!(
+            super::refused_transfer(&paths, Path::new("/card"), super::Transfer::Copy, on_ext4)
+                .is_none()
+        );
         let took = start.elapsed();
         assert!(took < std::time::Duration::from_millis(50), "{took:?}");
         let on_vfat = |_: &Path| Some("vfat".to_owned());
-        let told = super::refused_transfer(&paths, Path::new("/card"), true, on_vfat).unwrap();
+        let told =
+            super::refused_transfer(&paths, Path::new("/card"), super::Transfer::Copy, on_vfat)
+                .unwrap();
         let told = told.text();
         assert!(told.contains(&format!("{long}0:")), "{told}");
     }
@@ -5184,12 +5222,12 @@ mod tests {
         let files = vec![d.join("a.png"), d.join("12:30.png")];
         let card = d.join("card").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
-        for is_copy in [true, false] {
+        for transfer in [super::Transfer::Copy, super::Transfer::Move] {
             app.notice.clear();
             app.transfer(
                 crate::files::file_io::PickedFiles::new(files.clone()),
                 d.join("card"),
-                is_copy,
+                transfer,
             );
             // Refused before the files left the list, so the view stays where it was.
             assert!(listed(&app), "the refused files left the list");
@@ -5210,7 +5248,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(files),
             d.join("card"),
-            true,
+            super::Transfer::Copy,
         );
         assert!(run_background_until(&mut app, &ctx, |_| d
             .join("card/12:30.png")
@@ -5240,12 +5278,12 @@ mod tests {
         let card = d.join("media/CARD").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
         let files = vec![d.join("a.png"), d.join("12:30.png")];
-        for is_copy in [true, false] {
+        for transfer in [super::Transfer::Copy, super::Transfer::Move] {
             app.notice.clear();
             app.transfer(
                 crate::files::file_io::PickedFiles::new(files.clone()),
                 d.join("card"),
-                is_copy,
+                transfer,
             );
             assert!(listed(&app), "the refused files left the list");
             assert!(run_background_until(&mut app, &ctx, |a| a
@@ -5263,7 +5301,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(files),
             d.join("media/CARD/.."),
-            true,
+            super::Transfer::Copy,
         );
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         super::test_mount(&card, None);
@@ -5306,14 +5344,14 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![tree.join("a.png")]),
             tree.join("in"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()
             && names(a) == ["b.png", "inner/a.png"]));
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![tree.join("b.png")]),
             tree.join("out"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()
             && names(a) == ["inner/a.png"]));
@@ -5648,7 +5686,7 @@ mod tests {
         use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
         let dir = std::env::temp_dir().join(format!("glimt-test-split-{}", std::process::id()));
         let (from, to) = (dir.join("from"), dir.join("to"));
-        for is_copy in [true, false] {
+        for transfer in [super::Transfer::Copy, super::Transfer::Move] {
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&from).unwrap();
             std::fs::create_dir_all(&to).unwrap();
@@ -5663,18 +5701,18 @@ mod tests {
             let paths = [from.join("a.cr2")];
             let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
             let (_, picked) = picked.wait_for_fingerprints();
-            let (errors, put) = super::put_files(&paths, (&picked, &to), (is_copy, None), &job);
+            let (errors, put) = super::put_files(&paths, (&picked, &to), (transfer, None), &job);
             UNLINK_FAILS.set(None);
             RENAME_WAYS_MISSING.set(0);
-            assert!(put.is_empty(), "{is_copy}");
-            assert_eq!(errors.len(), 1, "{is_copy}");
+            assert!(put.is_empty(), "{transfer:?}");
+            assert_eq!(errors.len(), 1, "{transfer:?}");
             assert!(errors[0].contains("stays where it was"), "{}", errors[0]);
             assert_eq!(std::fs::read_to_string(from.join("a.cr2")).unwrap(), "raw");
             assert_eq!(
                 std::fs::read_to_string(from.join("a.cr2.xmp")).unwrap(),
                 "own"
             );
-            assert_eq!(std::fs::read_dir(&to).unwrap().count(), 0, "{is_copy}");
+            assert_eq!(std::fs::read_dir(&to).unwrap().count(), 0, "{transfer:?}");
         }
         // The Undo of a Move: the file stays with its sidecars, and the Undo is left to try
         // again.
@@ -5728,7 +5766,8 @@ mod tests {
         let (_, picked) = picked.wait_for_fingerprints();
         RENAME_WAYS_MISSING.set(1);
         UNLINK_FAILS.set(Some((from.join("a.cr2.xmp"), libc::EPERM)));
-        let (errors, put) = super::put_files(&paths, (&picked, &to), (false, None), &job);
+        let (errors, put) =
+            super::put_files(&paths, (&picked, &to), (super::Transfer::Move, None), &job);
         UNLINK_FAILS.set(None);
         assert_eq!(put, [(from.join("a.nef"), to.join("a.nef"))], "{errors:?}");
         assert!(errors[0].contains("stays where it was"), "{errors:?}");
@@ -5797,7 +5836,8 @@ mod tests {
         let picked = crate::files::file_io::PickedFiles::new(paths.clone());
         let (_, picked) = picked.wait_for_fingerprints();
         MOUNT_TABLES_PARSED.set(0);
-        let (errors, put) = super::put_files(&paths, (&picked, &to), (false, None), &job);
+        let (errors, put) =
+            super::put_files(&paths, (&picked, &to), (super::Transfer::Move, None), &job);
         assert_eq!(put.len(), paths.len(), "{errors:?}");
         assert!(
             MOUNT_TABLES_PARSED.get() <= 2,
@@ -5856,7 +5896,7 @@ mod tests {
             UNLINK_FAILS.set(Some((to.join("a.xmp"), libc::EPERM)));
             let result = super::follow_or_go_back(
                 (&photo, &to.join("a.cr2")),
-                false,
+                super::Transfer::Move,
                 &moving,
                 (&mut Default::default(), None),
             );
@@ -5911,7 +5951,7 @@ mod tests {
             UNLINK_FAILS.set(Some((from.join("a.jpg.xmp"), libc::EIO)));
             let result = super::follow_or_go_back(
                 (&photo, &to.join("a.jpg")),
-                false,
+                super::Transfer::Move,
                 &moving,
                 (&mut Default::default(), None),
             );
@@ -5960,7 +6000,7 @@ mod tests {
         LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![at.clone()])));
         let result = super::follow_or_go_back(
             (&photo, &to.join("a.jpg")),
-            false,
+            super::Transfer::Move,
             &moving,
             (&mut Default::default(), None),
         );
@@ -5996,7 +6036,7 @@ mod tests {
         UNLINK_FAILS.set(Some((from.join("a.jpg.xmp"), libc::EPERM)));
         let result = super::follow_or_go_back(
             (&photo, &to.join("a.jpg")),
-            false,
+            super::Transfer::Move,
             &std::collections::HashSet::from([&photo]),
             (&mut Default::default(), None),
         );
@@ -6028,7 +6068,7 @@ mod tests {
         let photo = from.join("a.jpg");
         let result = super::follow_or_go_back(
             (&photo, &to.join("a.jpg")),
-            false,
+            super::Transfer::Move,
             &std::collections::HashSet::from([&photo]),
             (&mut Default::default(), None),
         );
@@ -6067,7 +6107,7 @@ mod tests {
         LOOK_FAILS.set(Some((photo.clone(), 0)));
         let result = super::follow_or_go_back(
             (&photo, &moved),
-            false,
+            super::Transfer::Move,
             &std::collections::HashSet::from([&photo]),
             (&mut Default::default(), Some(&mut log)),
         );
@@ -6106,7 +6146,7 @@ mod tests {
         LOOK_NOT_FOUND_AT.set(Some(moved.clone()));
         let result = super::follow_or_go_back(
             (&photo, &moved),
-            false,
+            super::Transfer::Move,
             &std::collections::HashSet::from([&photo]),
             (&mut Default::default(), Some(&mut log)),
         );
@@ -6624,7 +6664,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     )
                 },
                 |app, d| {
@@ -6643,7 +6683,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]),
                         d.join("sub"),
-                        true,
+                        super::Transfer::Copy,
                     )
                 },
                 |app, d| {
@@ -6762,7 +6802,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     );
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
@@ -7027,7 +7067,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join(f)]),
                         d.join("sub"),
-                        true,
+                        super::Transfer::Copy,
                     )
                 },
                 Some("sub/r"),
@@ -7078,7 +7118,7 @@ mod tests {
             app.transfer(
                 crate::files::file_io::PickedFiles::new(vec![d.join(f)]),
                 d.join("sub"),
-                false,
+                super::Transfer::Move,
             );
         }
         fn rename_to_s(app: &mut crate::App, ctx: &Context, d: &Path, f: &str) {
@@ -7183,7 +7223,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(paths),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     )
                 },
                 &[],
@@ -7199,7 +7239,7 @@ mod tests {
                             d.join("r.cr2"),
                         ]),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     )
                 },
                 &[],
@@ -7226,7 +7266,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join("r.cr2")]),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     )
                 },
                 &[],
@@ -7239,7 +7279,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join("r.cr2")]),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     )
                 },
                 &["r.nef", "r.xmp"],
@@ -7252,7 +7292,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join("r.CR2")]),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     )
                 },
                 &["r.Nef", "r.xmp"],
@@ -7265,7 +7305,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![d.join("r.cr2")]),
                         d.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     );
                     undo(app, ctx);
                 },
@@ -7394,7 +7434,7 @@ mod tests {
             app.transfer(
                 crate::files::file_io::PickedFiles::new(paths),
                 d.join("sub"),
-                false,
+                super::Transfer::Move,
             );
             let moved = |app: &crate::App| !app.working() && d.join("sub/r.cr2").exists();
             assert!(run_background_until(&mut app, &ctx, moved), "{order:?}");
@@ -7422,7 +7462,7 @@ mod tests {
             app.transfer(
                 crate::files::file_io::PickedFiles::new(order.map(|f| d.join(f)).to_vec()),
                 d.join("sub"),
-                false,
+                super::Transfer::Move,
             );
             let moved = |app: &crate::App| app.file_operations.undo.is_some() && !app.working();
             assert!(run_background_until(&mut app, &ctx, moved), "{order:?}");
@@ -8073,7 +8113,7 @@ mod tests {
         let moved = super::put_files(
             std::slice::from_ref(&a),
             (&picked, &to),
-            (false, Some(&mut log)),
+            (super::Transfer::Move, Some(&mut log)),
             &job,
         );
         assert_eq!(moved, (Vec::new(), vec![(a.clone(), to.join("a.png"))]));
@@ -8099,7 +8139,7 @@ mod tests {
                 // Another window that starts meanwhile leaves the log alone.
                 assert!(super::journal::move_jobs_cut_short(&logs).is_empty());
                 let report = super::OperationReport {
-                    moved: went,
+                    moved: super::FilesMoved::FromARecord(went),
                     move_log: Some(log),
                     ..Default::default()
                 };
@@ -8169,7 +8209,7 @@ mod tests {
         let (errors, put) = super::put_files(
             std::slice::from_ref(&a),
             (&picked, &to),
-            (false, Some(&mut log)),
+            (super::Transfer::Move, Some(&mut log)),
             &job,
         );
         ANSWER_LOST_AT.set(None);
@@ -8229,7 +8269,7 @@ mod tests {
         for (log, went) in super::journal::move_jobs_cut_short(&logs) {
             assert_eq!(went, vec![(a.clone(), moved.clone())]);
             let report = super::OperationReport {
-                moved: went,
+                moved: super::FilesMoved::FromARecord(went),
                 move_log: Some(log),
                 ..Default::default()
             };
@@ -8258,7 +8298,12 @@ mod tests {
         let paths = [a.clone(), b.clone()];
         let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
-        let moved = super::put_files(&paths, (&picked, &to), (false, Some(&mut log)), &job);
+        let moved = super::put_files(
+            &paths,
+            (&picked, &to),
+            (super::Transfer::Move, Some(&mut log)),
+            &job,
+        );
         let went = vec![(a, to.join("a.png")), (b, to.join("b.png"))];
         assert_eq!(moved, (Vec::new(), went));
         assert!(log.take_failure().is_some());
@@ -8277,7 +8322,7 @@ mod tests {
         super::keep_job_logs_in_a_test(&d);
         let (mut app, ctx) = app_on(&d);
         let picked = crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]);
-        app.transfer(picked, d.join("sub"), false);
+        app.transfer(picked, d.join("sub"), super::Transfer::Move);
         let told = |app: &crate::App| !app.working() && app.window.failed_writes_told() > 0;
         assert!(run_background_until(&mut app, &ctx, told));
         assert!(d.join("sub/a.png").exists(), "moved without its log");
@@ -8298,7 +8343,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         let a = dir.join("a.png");
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
-        app.transfer(picked, dir.join("sub"), false);
+        app.transfer(picked, dir.join("sub"), super::Transfer::Move);
         let moved = |app: &crate::App| app.file_operations.undo.is_some() && !app.working();
         assert!(run_background_until(&mut app, &ctx, moved));
         crate::files::file_io::wait_for_queued_writes();
@@ -8361,7 +8406,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]),
             d.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(!app.are_free_to_change(&[d.join("a.png")]));
         let moved = |app: &crate::App| !app.working() && d.join("sub/a.png").exists();
@@ -8572,7 +8617,8 @@ mod tests {
         let (_, picked) = picked.wait_for_fingerprints();
         let job = super::Job::new("Moving", 1, false, Vec::new());
         ANSWER_LOST_AT.set(Some(from.join("a.jpg")));
-        let (errors, put) = super::put_files(&paths, (&picked, &to), (false, None), &job);
+        let (errors, put) =
+            super::put_files(&paths, (&picked, &to), (super::Transfer::Move, None), &job);
         ANSWER_LOST_AT.set(None);
         assert_eq!(put, [(from.join("a.jpg"), to.join("a.jpg"))], "{errors:?}");
         assert!(errors.is_empty(), "{errors:?}");
@@ -9116,7 +9162,7 @@ mod tests {
                     app.transfer(
                         crate::files::file_io::PickedFiles::new(vec![a.clone()]),
                         dir.join("sub"),
-                        false,
+                        super::Transfer::Move,
                     );
                     dir.join("sub/a.png")
                 }
@@ -9201,7 +9247,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![c.clone()]),
             sub.clone(),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()
             && app.file_operations.undo.is_some()));
@@ -9242,7 +9288,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![c.clone()]),
             sub.clone(),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()
             && app.file_operations.undo.is_some()));
@@ -9326,7 +9372,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![a.clone(), b.clone()]),
             dir.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
@@ -9345,7 +9391,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![b.clone()]),
             dir.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| !b.exists() && !app.working()));
         let saved = dir.join("sub/b.png");
@@ -9369,7 +9415,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         image::RgbImage::new(3, 3).save(&b).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        for is_copy in [true, false] {
+        for transfer in [super::Transfer::Copy, super::Transfer::Move] {
             // The fingerprint is taken before the names swap, as while the chooser is open.
             let picked = (a.clone(), crate::files::file_io::fingerprint(&a).unwrap());
             let at_pick = crate::files::file_io::PickedFiles::recorded(vec![picked]);
@@ -9377,7 +9423,7 @@ mod tests {
             std::fs::rename(&b, &a).unwrap();
             std::fs::rename(dir.join("t"), &b).unwrap();
             app.notice.clear();
-            app.transfer(at_pick, dir.join("sub"), is_copy);
+            app.transfer(at_pick, dir.join("sub"), transfer);
             assert!(run_background_until(&mut app, &ctx, |app| app
                 .notice
                 .text()
@@ -9390,7 +9436,7 @@ mod tests {
         }
         // A file that is still the one picked goes.
         let at_pick = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
-        app.transfer(at_pick, dir.join("sub"), false);
+        app.transfer(at_pick, dir.join("sub"), super::Transfer::Move);
         assert!(run_background_until(&mut app, &ctx, |app| !a.exists() && !app.working()));
         assert!(dir.join("sub/a.png").exists());
         std::fs::remove_dir_all(dir).unwrap();
@@ -9411,7 +9457,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![a.clone(), b.clone()]),
             dir.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
@@ -9462,7 +9508,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![a.clone()]),
             dir.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
@@ -9533,7 +9579,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![a.clone()]),
             dir.join("real/sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
@@ -9563,7 +9609,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![a.clone()]),
             dir.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
@@ -10392,7 +10438,7 @@ mod tests {
             app.transfer(
                 crate::files::file_io::PickedFiles::new(vec![a.clone()]),
                 d.join("sub"),
-                false,
+                super::Transfer::Move,
             )
         });
         assert!(d.join("sub/a.png").exists() && d.join("sub/a.png.xmp").exists());
@@ -10494,7 +10540,10 @@ mod tests {
             app.list.remember_size_and_date(name.into(), (1, 1));
             app.broken_files.insert(name.into());
         }
-        app.follow_moved_paths(vec![(dir.join("a.png"), dir.join("c.png"))], false);
+        app.follow_moved_paths(
+            vec![(dir.join("a.png"), dir.join("c.png"))],
+            super::Transfer::Move,
+        );
         app.forget_names(&[dir.join("b.png")]);
         for name in ["a.png", "b.png", "c.png"] {
             let name = std::ffi::OsStr::new(name);
@@ -10790,7 +10839,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![d.join("c.png")]),
             d.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("sub/c.png")));
@@ -10893,7 +10942,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]),
             d.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
@@ -10931,7 +10980,7 @@ mod tests {
         app.transfer(
             crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]),
             d.join("sub"),
-            false,
+            super::Transfer::Move,
         );
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
@@ -11089,7 +11138,7 @@ mod tests {
             &ctx,
             crate::files::file_io::PickedFiles::new(paths),
             (sub.clone(), None),
-            false,
+            super::Transfer::Move,
         );
         assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
         assert!(a.exists() && sub.join("b.png").exists() && !b.exists());

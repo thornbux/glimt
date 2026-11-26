@@ -845,6 +845,15 @@ impl std::fmt::Display for StoppedByTheUser {
 
 impl std::error::Error for StoppedByTheUser {}
 
+/// Whether files are copied, so the originals stay with their sidecars and marks, or moved, so
+/// these leave the old names. One type for every step of a copy or move, from `put_file` to the
+/// marks that follow, so that no caller passes a bare `bool` that reads the wrong way.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Transfer {
+    Copy,
+    Move,
+}
+
 /// The error of a step on a name: a rename (`rename_never_over`), a move or a copy given its
 /// name (`put_file` and the functions built on it), or the unlink of a second name
 /// (`journal::rename_step`). A share may have done such a step and lost its answer, which only
@@ -1968,14 +1977,14 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Copy (`is_copy`) or move `from` to `to`, never over a file there, also one another window put
+/// Copy or move (`transfer`) `from` to `to`, never over a file there, also one another window put
 /// there a moment ago: a copy is written under a hidden name and then renamed, a move is a
 /// rename, both with `rename_never_over`; a move to another file system is a copy and an unlink.
 /// Only that move syncs the copy's folder, before its source is removed. A copy alone leaves
 /// the source, so nothing is lost when its name does not reach the disk, and a folder sync for
 /// each file would make a copy of many small files to a USB stick up to twice as slow.
-pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> Result<(), StepError> {
-    put_file_until_stopped(from, to, is_copy, &|| false)
+pub(crate) fn put_file(from: &Path, to: &Path, transfer: Transfer) -> Result<(), StepError> {
+    put_file_until_stopped(from, to, transfer, &|| false)
 }
 
 /// Takes back a `put_file` of `from` to `to` whose sidecar could not follow, so that the file
@@ -1983,9 +1992,9 @@ pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> Result<(), Step
 /// window then counts the file as never moved. A copy is removed, but only while `from` is
 /// surely there, so that the copy is never the only one left. The error is judged by `to`, the
 /// name the file is taken back from.
-pub(crate) fn put_file_back(from: &Path, to: &Path, was_copy: bool) -> Result<(), StepError> {
-    if !was_copy {
-        put_file(to, from, false)?;
+pub(crate) fn put_file_back(from: &Path, to: &Path, was: Transfer) -> Result<(), StepError> {
+    if was == Transfer::Move {
+        put_file(to, from, Transfer::Move)?;
         return sync_folder_of(from).map_err(|e| StepError::new(e, to, from));
     }
     // The original that is not there is told as text, of no kind that `found_nothing` reads,
@@ -2005,7 +2014,7 @@ pub(crate) fn put_file_back(from: &Path, to: &Path, was_copy: bool) -> Result<()
 pub(crate) fn put_file_until_stopped(
     from: &Path,
     to: &Path,
-    is_copy: bool,
+    transfer: Transfer,
     is_stopped: &dyn Fn() -> bool,
 ) -> Result<(), StepError> {
     use std::io::ErrorKind::AlreadyExists;
@@ -2055,7 +2064,7 @@ pub(crate) fn put_file_until_stopped(
                 #[allow(clippy::disallowed_methods)] // the copy's time, as mv keeps it
                 out.set_modified(meta.modified()?)?;
                 // A copy leaves the ACL, as cp does without -p, and a move keeps it, as mv does.
-                copy_extended_attributes(from, &out, !is_copy);
+                copy_extended_attributes(from, &out, transfer == Transfer::Move);
                 out.sync_all().map(|()| at_open)
             })
             .and_then(|at_open| {
@@ -2068,7 +2077,7 @@ pub(crate) fn put_file_until_stopped(
         let _ = std::fs::remove_file(&part);
         copied
     };
-    if is_copy {
+    if transfer == Transfer::Copy {
         return copy().map(|_| ()).map_err(|e| StepError::new(e, from, to));
     }
     #[cfg(test)]
@@ -4629,7 +4638,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (from, to) = (dir.join("a.jpg"), dir.join("b.jpg"));
         std::fs::write(&to, "copy").unwrap();
-        let kept = super::put_file_back(&from, &to, true).unwrap_err();
+        let kept = super::put_file_back(&from, &to, super::Transfer::Copy).unwrap_err();
         assert!(!kept.found_nothing());
         assert!(super::is_surely_there(&to));
         std::fs::remove_dir_all(dir).unwrap();
@@ -4680,8 +4689,14 @@ mod tests {
         };
         let made = synced(&|| super::create_file(&dir.join("a.jpg"), "a").unwrap());
         assert_eq!(made, [dir.as_path()]);
-        let copied =
-            synced(&|| super::put_file(&dir.join("a.jpg"), &dir.join("to/a.jpg"), true).unwrap());
+        let copied = synced(&|| {
+            super::put_file(
+                &dir.join("a.jpg"),
+                &dir.join("to/a.jpg"),
+                super::Transfer::Copy,
+            )
+            .unwrap()
+        });
         assert!(copied.is_empty());
         let replaced = synced(&|| super::replace_name(&dir.join("a.jpg"), "b").unwrap());
         assert_eq!(replaced, [dir.as_path()]);
@@ -4703,7 +4718,7 @@ mod tests {
                 attribute(&a, "user.xdg.tags").as_deref(),
                 Some(&b"holiday"[..])
             );
-            super::put_file(&a, &dir.join("to/a.jpg"), true).unwrap();
+            super::put_file(&a, &dir.join("to/a.jpg"), super::Transfer::Copy).unwrap();
             let copied = attribute(&dir.join("to/a.jpg"), "user.xdg.tags");
             assert_eq!(copied.as_deref(), Some(&b"holiday"[..]));
         } else {
@@ -4755,13 +4770,13 @@ mod tests {
         }
         super::replace_name(&a, "b").unwrap();
         assert!(attribute(&a, ACL).is_some(), "a replaced file lost its ACL");
-        super::put_file(&a, &dir.join("to/a.jpg"), true).unwrap();
+        super::put_file(&a, &dir.join("to/a.jpg"), super::Transfer::Copy).unwrap();
         assert_eq!(attribute(&dir.join("to/a.jpg"), ACL), None);
         let shm = std::path::Path::new("/dev/shm");
         let dev = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.dev()).ok();
         if dev(shm).is_some() && dev(shm) != dev(&dir) {
             let moved = shm.join(format!("glimt-test-acl-{pid}.jpg"));
-            super::put_file(&a, &moved, false).unwrap();
+            super::put_file(&a, &moved, super::Transfer::Move).unwrap();
             let kept = attribute(&moved, ACL);
             std::fs::remove_file(&moved).unwrap();
             assert!(kept.is_some(), "a file moved to another disk lost its ACL");
@@ -4783,7 +4798,12 @@ mod tests {
             asked.set(asked.get() + 1);
             asked.get() > 1
         };
-        let stopped = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), true, &is_stopped);
+        let stopped = super::put_file_until_stopped(
+            &a,
+            &dir.join("to/a.mp4"),
+            super::Transfer::Copy,
+            &is_stopped,
+        );
         assert!(stopped.unwrap_err().is_interrupted());
         assert_eq!(asked.get(), 2, "not stopped inside the file");
         // A share's EINTR is no Stop, also when it comes as the user presses Stop (#304).
@@ -4819,7 +4839,12 @@ mod tests {
             false
         };
         super::MOVES_CROSS_DEVICES.set(true);
-        let moved = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), false, &is_stopped);
+        let moved = super::put_file_until_stopped(
+            &a,
+            &dir.join("to/a.mp4"),
+            super::Transfer::Move,
+            &is_stopped,
+        );
         super::MOVES_CROSS_DEVICES.set(false);
         let e = moved.unwrap_err().to_string();
         assert!(e.contains("under both names"), "{e}");
@@ -4828,7 +4853,7 @@ mod tests {
         // A source that stays as it was is moved.
         std::fs::remove_file(dir.join("to/a.mp4")).unwrap();
         super::MOVES_CROSS_DEVICES.set(true);
-        let moved = super::put_file(&a, &dir.join("to/a.mp4"), false);
+        let moved = super::put_file(&a, &dir.join("to/a.mp4"), super::Transfer::Move);
         super::MOVES_CROSS_DEVICES.set(false);
         moved.unwrap();
         assert!(super::is_surely_gone(&a));
@@ -4843,7 +4868,7 @@ mod tests {
             std::fs::rename(&newer_at_a.0, &newer_at_a.1).unwrap();
         })));
         super::MOVES_CROSS_DEVICES.set(true);
-        let moved = super::put_file(&a, &dir.join("to/a.mp4"), false);
+        let moved = super::put_file(&a, &dir.join("to/a.mp4"), super::Transfer::Move);
         super::MOVES_CROSS_DEVICES.set(false);
         let e = moved.unwrap_err().to_string();
         assert!(e.contains("under both names"), "{e}");
@@ -4964,14 +4989,14 @@ mod tests {
         std::fs::write(&a, "a").unwrap();
         std::fs::write(&b, "b").unwrap();
         std::fs::write(dir.join("to/b.jpg"), "there").unwrap();
-        assert!(super::put_file(&b, &dir.join("to/b.jpg"), true).is_err());
-        assert!(super::put_file(&b, &dir.join("to/b.jpg"), false).is_err());
+        assert!(super::put_file(&b, &dir.join("to/b.jpg"), super::Transfer::Copy).is_err());
+        assert!(super::put_file(&b, &dir.join("to/b.jpg"), super::Transfer::Move).is_err());
         assert_eq!(
             std::fs::read_to_string(dir.join("to/b.jpg")).unwrap(),
             "there"
         );
         assert!(b.exists());
-        super::put_file(&a, &dir.join("to/a.jpg"), true).unwrap();
+        super::put_file(&a, &dir.join("to/a.jpg"), super::Transfer::Copy).unwrap();
         assert!(a.exists());
         assert_eq!(std::fs::read_to_string(dir.join("to/a.jpg")).unwrap(), "a");
         // Copied through a hidden name, which is gone, also after a refused copy.
@@ -4981,7 +5006,7 @@ mod tests {
         names.sort();
         assert_eq!(names, ["a.jpg", "b.jpg"]);
         std::fs::remove_file(dir.join("to/a.jpg")).unwrap();
-        super::put_file(&a, &dir.join("to/a.jpg"), false).unwrap();
+        super::put_file(&a, &dir.join("to/a.jpg"), super::Transfer::Move).unwrap();
         assert!(!a.exists());
         assert_eq!(std::fs::read_to_string(dir.join("to/a.jpg")).unwrap(), "a");
         std::fs::remove_dir_all(dir).unwrap();
@@ -5004,13 +5029,13 @@ mod tests {
             .set_modified(old)
             .unwrap();
         std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o6750)).unwrap();
-        super::put_file(&a, &b, true).unwrap();
+        super::put_file(&a, &b, super::Transfer::Copy).unwrap();
         let meta = std::fs::metadata(&b).unwrap();
         assert_eq!(
             (meta.modified().unwrap(), meta.permissions().mode() & 0o7777),
             (old, 0o750)
         );
-        assert!(super::put_file(&a, &b, true).is_err());
+        assert!(super::put_file(&a, &b, super::Transfer::Copy).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

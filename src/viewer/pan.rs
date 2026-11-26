@@ -1133,7 +1133,10 @@ mod tests {
         app.start_reading_days(&ctx, &mut reading);
         assert!(reading.days_rx.is_some());
         app.pan_view = Some(reading);
-        app.follow_moved_paths(vec![(dir.join("a.png"), dir.join("x.png"))], false);
+        app.follow_moved_paths(
+            vec![(dir.join("a.png"), dir.join("x.png"))],
+            crate::files::file_io::Transfer::Move,
+        );
         let mut reading = app.pan_view.take().unwrap();
         while reading.days_rx.is_some() {
             app.pan_days(&ctx, &mut reading);

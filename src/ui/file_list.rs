@@ -1257,7 +1257,12 @@ impl crate::App {
                                 let files = targets.iter().map(|&i| self.listed_file(i));
                                 let picked =
                                     crate::files::file_io::PickedFiles::listed(files.collect());
-                                self.transfer(picked, dir, !self.config.sort_move);
+                                use crate::files::file_io::Transfer;
+                                let transfer = match self.config.sort_move {
+                                    true => Transfer::Move,
+                                    false => Transfer::Copy,
+                                };
+                                self.transfer(picked, dir, transfer);
                             }
                         });
                     }

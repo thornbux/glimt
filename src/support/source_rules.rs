@@ -6310,9 +6310,10 @@ fn finds_an_undo_left_without_waiting() {
 /// cut leaves the old name or the new one, and nothing after it counts on the new one. A new
 /// rename is synced or added here with its reason. A move through `put_file` counts as a
 /// rename here, because its move on one disk is a rename that it does not sync: its caller does,
-/// once for the folder of all its moves. A copy (`put_file(…, true)`) is not a rename. Copies
-/// go through `put_file`, which syncs before a move to another disk removes the source, and
-/// never through `std::fs::copy`. Clippy refuses that too, but an allow would let it pass there.
+/// once for the folder of all its moves. A copy (`put_file(…, Transfer::Copy)`) is not a
+/// rename. Copies go through `put_file`, which syncs before a move to another disk removes the
+/// source, and never through `std::fs::copy`. Clippy refuses that too, but an allow would let
+/// it pass there.
 #[test]
 fn renames_that_later_steps_count_on_are_synced() {
     const STANDING_ALONE: &[(&str, &str)] = &[
@@ -6712,7 +6713,7 @@ fn on_back(step: Restoring) -> bool {
     matches!(step, Restoring::Failed(a, _, _) if is_followed_to(a))
 }
 fn finish(a: &Path, b: &Path) -> bool {
-    match put_file(a, b, false) {
+    match put_file(a, b, Transfer::Move) {
         Err(_) if !is_surely_there(a) => true,
         Err(_) if is_surely_gone(a) && is_surely_there(b) => true,
         _ => false,
@@ -6722,7 +6723,7 @@ fn back(side: &TrashEntry, e: &StepError) -> bool {
     e.may_have_been_done() && is_surely_gone(&side.from)
 }
 fn quick(a: &Path, b: &Path) -> bool {
-    put_file_back(a, b, false).is_err_and(|_| is_surely_gone(a))
+    put_file_back(a, b, Transfer::Move).is_err_and(|_| is_surely_gone(a))
 }
 fn read(path: &Path) -> std::io::Result<bool> {
     std::fs::read(path).map(|_| is_surely_gone(path))
@@ -7758,10 +7759,10 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
 }
 
 /// Returns whether each call of `call` on `line`, `put_file(` or `put_file_until_stopped(`,
-/// passes `true` as its third argument, `is_copy`, and so copies rather than moves. A call whose
+/// passes `Transfer::Copy` as its third argument, and so copies rather than moves. A call whose
 /// arguments do not end on the line counts as a move. Before, any `, true)` on the line made it
 /// a copy, also one that closed a call inside an argument, as in `put_file(&a, &f(x, true),
-/// false)`.
+/// false)`, when the third argument was a `bool`.
 fn copies_by_its_flag(line: &str, call: &str) -> bool {
     let copies = |from: usize| {
         let (mut depth, mut start, mut arguments) = (0, from, Vec::new());
@@ -7770,7 +7771,8 @@ fn copies_by_its_flag(line: &str, call: &str) -> bool {
                 '(' | '[' | '{' => depth += 1,
                 ')' | ']' | '}' if depth == 0 => {
                     arguments.push(line[start..i].trim());
-                    return arguments.get(2) == Some(&"true");
+                    let third = arguments.get(2).copied().unwrap_or_default();
+                    return third == "Transfer::Copy" || third.ends_with("::Transfer::Copy");
                 }
                 ')' | ']' | '}' => depth -= 1,
                 ',' if depth == 0 => {
@@ -7793,19 +7795,27 @@ fn copies_by_its_flag(line: &str, call: &str) -> bool {
 /// Risk: a call's copy flag is read from another call, and a move is taken for a copy.
 #[test]
 fn finds_the_copy_flag_of_a_call() {
-    assert!(copies_by_its_flag("put_file(&a, &b, true)?;", "put_file("));
     assert!(copies_by_its_flag(
-        "put_file_until_stopped(a, b, true, &stop)",
+        "put_file(&a, &b, Transfer::Copy)?;",
+        "put_file("
+    ));
+    assert!(copies_by_its_flag(
+        "put_file(&a, &b, crate::files::file_io::Transfer::Copy)?;",
+        "put_file("
+    ));
+    assert!(copies_by_its_flag(
+        "put_file_until_stopped(a, b, Transfer::Copy, &stop)",
         "put_file_until_stopped("
     ));
     assert!(!copies_by_its_flag(
-        "put_file(&a, &dest(x, true), false)",
+        "put_file(&a, &dest(x, Transfer::Copy), Transfer::Move)",
         "put_file("
     ));
     assert!(!copies_by_its_flag(
-        "put_file(&a, &b, is_copy)",
+        "put_file(&a, &b, transfer)",
         "put_file("
     ));
+    assert!(!copies_by_its_flag("put_file(&a, &b, true)", "put_file("));
     assert!(!copies_by_its_flag("put_file(&a,", "put_file("));
     assert!(!copies_by_its_flag("f(a, b, true)", "put_file("));
 }
@@ -7831,14 +7841,14 @@ fn finds_a_destructive_act_without_its_check() {
         fn d() {\n    is_still_the_file(x, f)\n}\n\
         fn e() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: a socket\n    \
         std::fs::remove_file(x)\n}\n\
-        fn f() {\n    put_file(x, y, true)\n}\n\
-        fn g() {\n    put_file(x, y, false)\n}\n\
+        fn f() {\n    put_file(x, y, Transfer::Copy)\n}\n\
+        fn g() {\n    put_file(x, y, Transfer::Move)\n}\n\
         fn h() {\n    let sides = xmp::sidecars_of(&[x]);\n    trash::trash(&[x])\n}\n\
         fn i() {\n    for (side, to) in xmp::sidecars_moving_with(x, y) {\n        \
         rename_never_over(&side, &to)?;\n    }\n}\n\
         fn j() {\n    file_io::rename_never_over(x, y)\n}\n\
         fn k() {\n    journal::rename_step(x, y)\n}\n\
-        fn l() {\n    file_io::put_file_back(x, y, false)\n}\n\
+        fn l() {\n    file_io::put_file_back(x, y, Transfer::Move)\n}\n\
         fn m() {\n    // Glimt's own: a plan made just now\n    rename_never_over(tmp, plan)\n}\n\
         fn n() {\n    let files_beside = xmp::sidecars_of(&[x]);\n    \
         trash::trash(&files_beside)\n}\n\
@@ -8685,11 +8695,11 @@ fn renames_in(text: &str) -> Vec<(String, bool)> {
 fn finds_a_rename_without_its_folder_synced() {
     let text = "fn a() {\n    rename_never_over(x, y)?;\n}\nfn b() {\n    std::fs::rename(x, y)?;\n\
         sync_folder_of(y)?;\n}\nfn c() {\n    write_beside(t, p, w, |t| std::fs::rename(t, p))\n}\n\
-        fn d() {\n    rename_noreplace(x, y)\n}\nfn e() {\n    put_file(x, y, true)\n}\n\
+        fn d() {\n    rename_noreplace(x, y)\n}\nfn e() {\n    put_file(x, y, Transfer::Copy)\n}\n\
         fn f() {\n    write_beside_without_folder_sync(t, p, w, |t| std::fs::rename(t, p))\n}\n\
         fn g() {\n    std::fs::rename(x, y)?;\n    sync_folder(z)?;\n}\n\
-        fn h() {\n    put_file(x, y, is_copy)\n}\n\
-        fn i() {\n    put_file_until_stopped(x, y, true, &stop)\n}\n";
+        fn h() {\n    put_file(x, y, transfer)\n}\n\
+        fn i() {\n    put_file_until_stopped(x, y, Transfer::Copy, &stop)\n}\n";
     let found = renames_in(text);
     let names: Vec<(&str, bool)> = found.iter().map(|(f, s)| (f.as_str(), *s)).collect();
     assert_eq!(
@@ -9404,15 +9414,15 @@ fn write_results_are_not_dropped() {
 #[test]
 fn finds_a_dropped_write() {
     let text = "fn a() {\n    let _ = replace_file(p, b);\n    _ = create_file(p, b);\n    \
-        put_file(a, b,\n        true).ok();\n    let _ =\n        crate::files::file_io::\
+        put_file(a, b,\n        Transfer::Copy).ok();\n    let _ =\n        crate::files::file_io::\
         rename_never_over(a, b);\n    if let Err(e) = replace_name(p, b) {\n        say(e);\n    \
         }\n    replace_file(p, b)?;\n    let made = create_file(p, b).ok();\n    \
-        let _ = tx.send(1);\n    drop(file_io::put_file(a, b, true));\n    \
-        let _copied = put_file(a, b, true);\n    let _kept = put_file(a, b, true);\n    \
+        let _ = tx.send(1);\n    drop(file_io::put_file(a, b, Transfer::Copy));\n    \
+        let _copied = put_file(a, b, Transfer::Copy);\n    let _kept = put_file(a, b, Transfer::Copy);\n    \
         say(_kept);\n    let _held = file_lock(p);\n    match x {\n        \
         A => drop(sync_folder(p)),\n        B => drop(thumbnail(p)),\n    }\n    \
         if let Ok(_) = replace_name(p, b) {\n        noted();\n    }\n    \
-        put_file(a, b, true).unwrap_or_default();\n    \
+        put_file(a, b, Transfer::Copy).unwrap_or_default();\n    \
         let _: std::io::Result<()> = create_file(p, b);\n    \
         if let Ok(()) = replace_file(p, b) {\n        noted();\n    } else {\n        \
         say();\n    }\n    let n = text.len().unwrap_or_default();\n}\n";
@@ -9458,7 +9468,7 @@ fn finds_a_dropped_write() {
 #[test]
 fn finds_a_write_dropped_through_a_wrapper() {
     let library = "pub fn trash(p: &[PathBuf]) -> Result<(), String> {\n    \
-        put_file(a, b, false).map_err(|e| e.to_string())\n}\nfn thumb(p: &Path)\n    \
+        put_file(a, b, Transfer::Move).map_err(|e| e.to_string())\n}\nfn thumb(p: &Path)\n    \
         -> std::io::Result<()> {\n    write_beside_without_folder_sync(p, b)\n}\n\
         fn outer() -> std::io::Result<()> {\n    thumb(p)\n}\n\
         fn count() -> Result<usize, ()> {\n    Ok(1)\n}\n\
@@ -9466,7 +9476,7 @@ fn finds_a_write_dropped_through_a_wrapper() {
         fn locked() -> Result<File> {\n    let f = open(p, o.create(true))?;\n    Ok(f)\n}\n\
         fn saved() -> io::Result<Option<String>> {\n    \
         replace_name(p, b).map_err(|e| e.to_string())?;\n    Ok(None)\n}\n\
-        fn copied() -> io::Result<u64> {\n    if a {\n        return put_file(a, b, true);\n    \
+        fn copied() -> io::Result<u64> {\n    if a {\n        return put_file(a, b, Transfer::Copy);\n    \
         }\n    Ok(0)\n}\n";
     let wrappers = writers_through_wrappers(&[("lib.rs".to_string(), library.to_string())]);
     let names: Vec<(&str, bool)> = wrappers.iter().map(|(w, v)| (w.as_str(), *v)).collect();

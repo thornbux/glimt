@@ -4552,7 +4552,7 @@ mod tests {
         app.update_search(&ctx);
         assert_eq!(app.list.matches().map(<[usize]>::len), Some(1));
         std::fs::rename(&a, &b).unwrap();
-        app.follow_moved_paths(vec![(a, b)], false);
+        app.follow_moved_paths(vec![(a, b)], crate::files::file_io::Transfer::Move);
         assert_eq!(app.list.matches().map(<[usize]>::len), Some(0));
         // The collection follows in the writer thread, which is let finish before the folder goes.
         crate::files::file_io::wait_for_queued_writes();
@@ -4720,7 +4720,7 @@ mod tests {
             .folder
             .listing_rx
             .is_none()));
-        app.follow_moved_paths(vec![(a, c)], false);
+        app.follow_moved_paths(vec![(a, c)], crate::files::file_io::Transfer::Move);
         let has_c = |app: &crate::App| {
             (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };
@@ -6445,7 +6445,10 @@ mod tests {
                         for s in subfolders.iter_mut().filter(|s| below(s)) {
                             *s = format!("{new}{}", &s[from.len()..]);
                         }
-                        app.follow_moved_paths(vec![(old, dir.join(&new))], false);
+                        app.follow_moved_paths(
+                            vec![(old, dir.join(&new))],
+                            crate::files::file_io::Transfer::Move,
+                        );
                         app.start_listing(&ctx);
                     }
                 }

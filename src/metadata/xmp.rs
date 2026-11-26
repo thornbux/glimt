@@ -6,7 +6,7 @@
 //! when their files move.
 
 use crate::files::config::fits_on_a_line;
-use crate::files::file_io::ListedFile;
+use crate::files::file_io::{ListedFile, Transfer, put_file};
 use crate::images::save::FileId;
 use crate::support::format::{escaped_name, without_control_characters};
 use crate::support::threads::lock_even_if_poisoned;
@@ -346,9 +346,9 @@ pub struct NotFollowed {
     /// Each sidecar that could not follow, by its name where it stays and by its new name, where
     /// it could not be put, with the error.
     pub failed: Vec<(PathBuf, PathBuf, std::io::Error)>,
-    /// Each sidecar that followed, `(from, to, was_copy)`. The caller takes these back only
-    /// once the file itself is back, so that they never part from it.
-    pub followed: Vec<(PathBuf, PathBuf, bool)>,
+    /// Each sidecar that followed, `(from, to, how)`, copied or moved. The caller takes these
+    /// back only once the file itself is back, so that they never part from it.
+    pub followed: Vec<(PathBuf, PathBuf, Transfer)>,
     /// Each sidecar among those that followed that was copied, as it could not be moved.
     pub left_behind: Vec<LeftBehind>,
 }
@@ -1577,23 +1577,23 @@ pub(crate) fn sidecars_of(paths: &[PathBuf]) -> Vec<PathBuf> {
 pub fn follow(
     from: &Path,
     to: &Path,
-    is_copy: bool,
+    transfer: Transfer,
     moving: &std::collections::HashSet<&PathBuf>,
     names: &mut AdobeNames,
 ) -> Result<Vec<LeftBehind>, NotFollowed> {
     // Each sidecar is found here, at the move, not picked before it, so it is the photo's
     // sidecar by what it is now. They are all found before the first of them moves.
     let sidecars = sidecars_moving_with(from, to, moving, names);
-    // Each step returns whether the sidecar was copied, with the error of the move when it was
-    // copied as it could not be moved, or `None` when nothing was put at its new name.
-    type Followed = Option<(bool, Option<std::io::Error>)>;
+    // Each step returns how the sidecar went, copied or moved, with the error of the move when
+    // it was copied as it could not be moved, or `None` when nothing was put at its new name.
+    type Followed = Option<(Transfer, Option<std::io::Error>)>;
     let follow_one = |side: &Path, to: &Path| -> std::io::Result<Followed> {
         // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays
         // and the caller tells it (`LeftBehind` without a copy). The photo's move goes on.
         // One that cannot be looked at may be a link, so it is not copied, and its failure is
         // told as the sidecar's.
         let is_link = crate::files::file_io::is_link(side)?;
-        if is_link && is_copy {
+        if is_link && transfer == Transfer::Copy {
             return Ok(None);
         }
         // The sidecar goes as the file went. It is on disk before the original goes, and never
@@ -1605,36 +1605,36 @@ pub fn follow(
         // names or at neither, and hide the lost answer. Its caller settles where it is (#282).
         let moved = match is_link {
             true => crate::files::file_io::rename_never_over(side, to),
-            false => crate::files::file_io::put_file(side, to, is_copy),
+            false => crate::files::file_io::put_file(side, to, transfer),
         };
         match moved {
-            Err(e) if !is_copy && e.may_have_been_done() => Err(e.into()),
-            Err(error) if is_link => Ok(Some((false, Some(error.into())))),
-            Err(error) if !is_copy => (crate::files::file_io::put_file(side, to, true))
-                .map(|()| Some((true, Some(error.into()))))
+            Err(e) if transfer == Transfer::Move && e.may_have_been_done() => Err(e.into()),
+            Err(error) if is_link => Ok(Some((Transfer::Move, Some(error.into())))),
+            Err(error) if transfer == Transfer::Move => (put_file(side, to, Transfer::Copy))
+                .map(|()| Some((Transfer::Copy, Some(error.into()))))
                 .map_err(std::io::Error::from),
             done => done
-                .map(|()| Some((is_copy, None)))
+                .map(|()| Some((transfer, None)))
                 .map_err(std::io::Error::from),
         }
     };
     let (mut followed, mut failed, mut left_behind) = (Vec::new(), Vec::new(), Vec::new());
     for (side, to) in sidecars {
         match follow_one(&side, &to) {
-            Ok(Some((was_copy, not_moved))) => {
+            Ok(Some((went, not_moved))) => {
                 let Some(error) = not_moved else {
-                    followed.push((side, to, was_copy));
+                    followed.push((side, to, went));
                     continue;
                 };
                 // A link that stayed was not copied, so nothing of it is at `to`.
-                let copy = was_copy.then(|| to.clone());
+                let copy = (went == Transfer::Copy).then(|| to.clone());
                 left_behind.push(LeftBehind {
                     sidecar: side.clone(),
                     copy,
                     error,
                 });
-                if was_copy {
-                    followed.push((side, to, was_copy));
+                if went == Transfer::Copy {
+                    followed.push((side, to, went));
                 }
             }
             Ok(None) => {}
@@ -3232,11 +3232,11 @@ mod tests {
             std::thread::spawn(move || super::add_keywords(&from, &["Oslo".to_owned()]))
         };
         std::thread::sleep(std::time::Duration::from_millis(50));
-        crate::files::file_io::put_file(&from, &to, false).unwrap();
+        crate::files::file_io::put_file(&from, &to, crate::files::file_io::Transfer::Move).unwrap();
         super::follow(
             &from,
             &to,
-            false,
+            super::Transfer::Move,
             &Default::default(),
             &mut Default::default(),
         )
@@ -4695,10 +4695,24 @@ mod tests {
         write_changed(&a, adding(&meta.keywords), Some(meta.comment.clone())).unwrap();
         assert_eq!(read(&a), meta);
         std::fs::rename(&a, &b).unwrap();
-        follow(&a, &b, false, &Default::default(), &mut Default::default()).unwrap();
+        follow(
+            &a,
+            &b,
+            super::Transfer::Move,
+            &Default::default(),
+            &mut Default::default(),
+        )
+        .unwrap();
         assert_eq!(read(&b), meta);
         std::fs::copy(&b, &c).unwrap();
-        follow(&b, &c, true, &Default::default(), &mut Default::default()).unwrap();
+        follow(
+            &b,
+            &c,
+            super::Transfer::Copy,
+            &Default::default(),
+            &mut Default::default(),
+        )
+        .unwrap();
         assert_eq!(read(&c), meta);
         // A sidecar at the target belongs to another file, so it is kept, not replaced.
         image::RgbaImage::new(2, 2).save(&a).unwrap();
@@ -4707,7 +4721,16 @@ mod tests {
             comment: String::new(),
         };
         write_changed(&a, adding(&other.keywords), Some(other.comment.clone())).unwrap();
-        assert!(follow(&b, &a, true, &Default::default(), &mut Default::default()).is_err());
+        assert!(
+            follow(
+                &b,
+                &a,
+                super::Transfer::Copy,
+                &Default::default(),
+                &mut Default::default()
+            )
+            .is_err()
+        );
         assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -4812,7 +4835,14 @@ mod tests {
         image::RgbaImage::new(2, 2).save(&a).unwrap();
         std::os::unix::fs::symlink(&secret, sidecar(&a)).unwrap();
         std::fs::copy(&a, &b).unwrap();
-        follow(&a, &b, true, &Default::default(), &mut Default::default()).unwrap();
+        follow(
+            &a,
+            &b,
+            super::Transfer::Copy,
+            &Default::default(),
+            &mut Default::default(),
+        )
+        .unwrap();
         assert!(
             std::fs::symlink_metadata(sidecar(&b)).is_err(),
             "copied through the link"
@@ -4826,7 +4856,7 @@ mod tests {
         follow(
             &a,
             &dir.join("d.png"),
-            false,
+            super::Transfer::Move,
             &Default::default(),
             &mut Default::default(),
         )
@@ -4857,7 +4887,7 @@ mod tests {
         let followed = follow(
             &a,
             &moved,
-            false,
+            super::Transfer::Move,
             &Default::default(),
             &mut Default::default(),
         );

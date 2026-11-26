@@ -5,8 +5,8 @@ use crate::features::copy_for_sharing::SharingDialog;
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::Login;
-use crate::files::file_io::{FileFingerprint, PickedFiles, fingerprint, save_failed};
-use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
+use crate::files::file_io::{FileFingerprint, PickedFiles, Transfer, fingerprint, save_failed};
+use crate::files::file_ops::{FilesMoved, NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::{count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
@@ -602,8 +602,8 @@ impl crate::App {
                         )),
                     }
                 }
-                (Pick::CopyTo(picked), Some(dest)) => self.transfer(picked, dest, true),
-                (Pick::MoveTo(picked), Some(dest)) => self.transfer(picked, dest, false),
+                (Pick::CopyTo(picked), Some(dest)) => self.transfer(picked, dest, Transfer::Copy),
+                (Pick::MoveTo(picked), Some(dest)) => self.transfer(picked, dest, Transfer::Move),
                 (Pick::SavePdf(job), Some(file)) => {
                     self.print(ctx, job, PrintTo::File(file, at_pick))
                 }
@@ -1340,8 +1340,7 @@ fn put_cut_short_right(
     // list would show the names of the middle.
     let _ = report_tx.send(OperationReport {
         read_folder_again: true,
-        moved,
-        is_moved_from_a_record: true,
+        moved: FilesMoved::FromARecord(moved),
         cut_short_left: (!left_plans.is_empty())
             .then(|| (left_plans, format!("{header}\n{names_left}"))),
         marks_at_new_names,
@@ -1381,8 +1380,7 @@ fn leave_names_as_they_are(
     }
     let _ = report_tx.send(OperationReport {
         read_folder_again: true,
-        moved: left.iter().flatten().cloned().collect(),
-        is_moved_from_a_record: true,
+        moved: FilesMoved::FromARecord(left.iter().flatten().cloned().collect()),
         marks_at_new_names,
         ..Default::default()
     });

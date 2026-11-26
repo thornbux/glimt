@@ -4,7 +4,7 @@
 //! files renamed or moved outside Glimt lose them.
 
 use crate::files::config::fits_on_a_line;
-use crate::files::file_io::ListedFile;
+use crate::files::file_io::{ListedFile, Transfer};
 use crate::files::journal::MarksAtNewNames;
 use crate::files::trash::ForgottenMarks;
 use crate::support::format::escaped_name;
@@ -231,7 +231,7 @@ impl Marks {
         }
     }
 
-    /// Files copied or moved and renamed `(from, to)`, as `files_were` says: the new ones get
+    /// Files copied or moved and renamed `(from, to)`, as `transfer` says: the new ones get
     /// the marks. A folder renamed goes through `follow_folder`, so a report of files never
     /// stats them on the UI thread to find a folder among them. When the moves are known from a
     /// record (`known_from`), they were not made just now, and the writer gives the marks only
@@ -239,7 +239,7 @@ impl Marks {
     pub fn follow_files(
         &mut self,
         pairs: Vec<(PathBuf, PathBuf)>,
-        files_were: FilesWere,
+        transfer: Transfer,
         known_from: MovesKnownFrom,
     ) {
         // From the file as it is: stars set in another window since this one last read it were
@@ -250,7 +250,7 @@ impl Marks {
         if !pairs.is_empty() {
             self.edit(Edit::Follow(
                 pairs,
-                files_were,
+                transfer,
                 known_from,
                 Default::default(),
             ));
@@ -272,7 +272,7 @@ impl Marks {
         if !pairs.is_empty() {
             self.edit(Edit::Follow(
                 pairs,
-                FilesWere::Moved,
+                Transfer::Move,
                 known_from,
                 marks_at_new_names,
             ));
@@ -335,8 +335,8 @@ impl ValuesToPutBack {
     /// Makes `edit`, a move or a delete, to the values, so that each stays with its file.
     fn follow(&mut self, edit: &Edit) {
         match edit {
-            Edit::Follow(pairs, files_were, ..) => {
-                follow_pairs(&mut self.0, pairs, *files_were, &MarksAtNewNames::new())
+            Edit::Follow(pairs, transfer, ..) => {
+                follow_pairs(&mut self.0, pairs, *transfer, &MarksAtNewNames::new())
             }
             edit => apply_edit(&mut self.0, edit, &[]),
         }
@@ -393,7 +393,7 @@ enum Edit {
     /// it began, empty for any other move (`follow_pairs`).
     Follow(
         Vec<(PathBuf, PathBuf)>,
-        FilesWere,
+        Transfer,
         MovesKnownFrom,
         MarksAtNewNames,
     ),
@@ -402,14 +402,6 @@ enum Edit {
     /// Files or folders deleted, with every file in the folders. The marks that the file held
     /// under them are added to the second field, for Undo.
     Forget(Vec<PathBuf>, Option<ForgottenMarks>),
-}
-
-/// Whether the files that marks follow were moved, so the marks leave their old names, or
-/// copied, so the marks stay there too.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum FilesWere {
-    Moved,
-    Copied,
 }
 
 /// Where the moves that marks follow are known from: the job that just made them, so each file
@@ -709,7 +701,7 @@ fn move_own_file(old: &Path, new: &Path) -> std::io::Result<()> {
     #[cfg(not(test))]
     let renamed = rename_never_over(old, new);
     match renamed {
-        Err(e) if e.crosses_devices() => (put_file(old, new, true))
+        Err(e) if e.crosses_devices() => (put_file(old, new, Transfer::Copy))
             .map_err(std::io::Error::from)
             .and_then(|()| sync_folder_of(new))
             .and_then(|()| remove_own(old)),
@@ -731,20 +723,20 @@ fn refuse_names_with_line_breaks(edit: Edit, map: &HashMap<PathBuf, (u8, u8)>) -
             let edits = (!paths.is_empty()).then_some(Edit::Change(paths, change));
             (edits.into_iter().collect(), left_out)
         }
-        Edit::Follow(pairs, files_were, known_from, marks_when_begun) => {
+        Edit::Follow(pairs, transfer, known_from, marks_when_begun) => {
             let (kept, refused): (Vec<_>, Vec<_>) =
                 (pairs.into_iter()).partition(|(_, to)| fits_on_a_line(to));
             let left_out = (refused.iter())
                 .filter(|(from, _)| map.contains_key(from))
                 .count();
             let gone: Vec<PathBuf> = (refused.into_iter())
-                .filter(|_| files_were == FilesWere::Moved)
+                .filter(|_| transfer == Transfer::Move)
                 .map(|(from, _)| from)
                 .collect();
             let edits = [
                 (!kept.is_empty()).then_some(Edit::Follow(
                     kept,
-                    files_were,
+                    transfer,
                     known_from,
                     marks_when_begun,
                 )),
@@ -791,7 +783,7 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[&Path], change: Change) 
 }
 
 /// Gives the marks of each `from` to its `to`, and keeps them on `from` too for a copy
-/// (`files_were`). All are taken before any is given, because in a Rename Many that swaps or shifts
+/// (`transfer`). All are taken before any is given, because in a Rename Many that swaps or shifts
 /// names a `to` is another pair's `from`.
 ///
 /// `marks_when_begun` holds the marks that the window saw at the new names of a Rename Many
@@ -806,7 +798,7 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[&Path], change: Change) 
 fn follow_pairs(
     map: &mut HashMap<PathBuf, (u8, u8)>,
     pairs: &[(PathBuf, PathBuf)],
-    files_were: FilesWere,
+    transfer: Transfer,
     marks_when_begun: &MarksAtNewNames,
 ) {
     // The marks at the new name `name` when the job began and now, `None` when they are the
@@ -831,9 +823,9 @@ fn follow_pairs(
         })
         .collect();
     let taken: Vec<Option<(u8, u8)>> = (pairs.iter())
-        .map(|(from, ..)| match files_were {
-            FilesWere::Copied => map.get(*from).copied(),
-            FilesWere::Moved => map.remove(*from),
+        .map(|(from, ..)| match transfer {
+            Transfer::Copy => map.get(*from).copied(),
+            Transfer::Move => map.remove(*from),
         })
         .collect();
     for ((_, to, meanwhile, kept_at_old_name), marks) in pairs.into_iter().zip(taken) {
@@ -882,8 +874,8 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: &[&Liste
                 .collect();
             apply(map, &paths, *change)
         }
-        Edit::Follow(pairs, files_were, _, marks_when_begun) => {
-            follow_pairs(map, pairs, *files_were, marks_when_begun)
+        Edit::Follow(pairs, transfer, _, marks_when_begun) => {
+            follow_pairs(map, pairs, *transfer, marks_when_begun)
         }
         Edit::FollowFolder(from, to) => {
             let pairs = [(from.clone(), to.clone())];
@@ -894,7 +886,7 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: &[&Liste
                     Some((k.clone(), dir.join(k.file_name()?)))
                 })
                 .collect();
-            follow_pairs(map, &inside, FilesWere::Moved, &MarksAtNewNames::new());
+            follow_pairs(map, &inside, Transfer::Move, &MarksAtNewNames::new());
         }
         Edit::Forget(paths, _) => {
             let gone: std::collections::HashSet<&Path> =
@@ -1254,7 +1246,7 @@ mod tests {
         super::follow_pairs(
             &mut renamed,
             &[(a.clone(), c.clone())],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             &begun,
         );
         assert_eq!(renamed.get(&c), Some(&(1, 3)));
@@ -1263,7 +1255,7 @@ mod tests {
         super::follow_pairs(
             &mut undone,
             &[(c.clone(), a.clone())],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             &begun,
         );
         assert_eq!(undone.get(&a), Some(&(1, 3)));
@@ -1649,14 +1641,14 @@ mod tests {
         marks.forget(std::slice::from_ref(&a), None);
         marks.follow_files(
             vec![(b.clone(), a.clone())],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         // c.png is rated and moved to d.png.
         marks.rate(&unlisted(std::slice::from_ref(&c)), 4);
         marks.follow_files(
             vec![(c.clone(), d.clone())],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         // e.png is rated and renamed by Rename Many to f.png, which held an old mark.
@@ -1777,7 +1769,7 @@ mod tests {
         );
         marks.follow_files(
             vec![(a.clone(), odd.join("a.png"))],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         marks.follow_folder(dir.join("sub"), odd.clone());
@@ -1820,7 +1812,7 @@ mod tests {
         std::fs::write(&file, text).unwrap();
         marks.follow_files(
             vec![(a.clone(), c.clone())],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         // The file read before the move lacks it, so it is read again once the move is written.
@@ -1929,7 +1921,7 @@ mod tests {
         super::SENT.with(|sent| sent.borrow_mut().clear());
         marks.follow_files(
             vec![(a.clone(), c.clone())],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         marks.forget(std::slice::from_ref(&b), None);
@@ -2149,7 +2141,7 @@ mod tests {
             &file,
             vec![super::Edit::Follow(
                 swap,
-                super::FilesWere::Moved,
+                super::Transfer::Move,
                 super::MovesKnownFrom::TheJob,
                 Default::default(),
             )],
@@ -2298,7 +2290,7 @@ mod tests {
             &file,
             vec![super::Edit::Follow(
                 pairs,
-                super::FilesWere::Moved,
+                super::Transfer::Move,
                 super::MovesKnownFrom::TheJob,
                 Default::default(),
             )],
@@ -2350,19 +2342,19 @@ mod tests {
         let edits = vec![
             super::Edit::Follow(
                 moves,
-                super::FilesWere::Moved,
+                super::Transfer::Move,
                 super::MovesKnownFrom::ARecord,
                 Default::default(),
             ),
             super::Edit::Follow(
                 on,
-                super::FilesWere::Moved,
+                super::Transfer::Move,
                 super::MovesKnownFrom::TheJob,
                 Default::default(),
             ),
             super::Edit::Follow(
                 made,
-                super::FilesWere::Moved,
+                super::Transfer::Move,
                 super::MovesKnownFrom::TheJob,
                 Default::default(),
             ),
@@ -2407,7 +2399,7 @@ mod tests {
             &file,
             vec![super::Edit::Follow(
                 swap,
-                super::FilesWere::Moved,
+                super::Transfer::Move,
                 super::MovesKnownFrom::ARecord,
                 Default::default(),
             )],
@@ -2436,7 +2428,7 @@ mod tests {
             &file,
             vec![super::Edit::Follow(
                 moved,
-                super::FilesWere::Moved,
+                super::Transfer::Move,
                 super::MovesKnownFrom::TheJob,
                 Default::default(),
             )],
@@ -2612,7 +2604,7 @@ mod tests {
         m.toggle(&crate::support::test_support::unlisted(&[p("/a.jpg")]), 1);
         m.follow_files(
             vec![(p("/a.jpg"), p("/to/a.jpg"))],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         assert_eq!(
@@ -2621,7 +2613,7 @@ mod tests {
         );
         m.follow_files(
             vec![(p("/b.jpg"), p("/b copy.jpg"))],
-            super::FilesWere::Copied,
+            super::Transfer::Copy,
             super::MovesKnownFrom::TheJob,
         );
         assert_eq!(
@@ -2643,7 +2635,7 @@ mod tests {
         // An old entry where an unmarked file lands is cleared.
         m.follow_files(
             vec![(p("/c.jpg"), p("/b copy.jpg"))],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
@@ -2652,13 +2644,13 @@ mod tests {
         m.rate(&crate::support::test_support::unlisted(&[p("/y.jpg")]), 2);
         m.follow_files(
             vec![(p("/x.jpg"), p("/y.jpg")), (p("/y.jpg"), p("/x.jpg"))],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/y.jpg")).1), (2, 1));
         m.follow_files(
             vec![(p("/x.jpg"), p("/z.jpg")), (p("/y.jpg"), p("/x.jpg"))],
-            super::FilesWere::Moved,
+            super::Transfer::Move,
             super::MovesKnownFrom::TheJob,
         );
         assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/z.jpg")).1), (1, 2));

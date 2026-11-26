@@ -3,8 +3,8 @@
 
 #[cfg(feature = "video")]
 use crate::files::external::is_video;
-use crate::files::file_io::{FileFingerprint, PickedFiles};
-use crate::files::file_ops::OperationReport;
+use crate::files::file_io::{FileFingerprint, PickedFiles, Transfer};
+use crate::files::file_ops::{FilesMoved, OperationReport};
 use crate::images::decode;
 use crate::images::save;
 use crate::images::save::{CopyAs, Format};
@@ -248,11 +248,13 @@ impl crate::App {
                     let _ = report_tx.send(OperationReport {
                         read_folder_again: true,
                         overwritten: vec![new.clone()],
-                        moved: (!copy_as.strip)
-                            .then(|| (path.clone(), new.clone()))
-                            .into_iter()
-                            .collect(),
-                        is_copy: true,
+                        moved: FilesMoved::ByTheJob(
+                            Transfer::Copy,
+                            (!copy_as.strip)
+                                .then(|| (path.clone(), new.clone()))
+                                .into_iter()
+                                .collect(),
+                        ),
                         ..Default::default()
                     });
                     save::told_saved(&new, sidecar_failed)

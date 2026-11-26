@@ -1768,7 +1768,13 @@ fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
         let _lock = xmp::lock_sidecar_among(from, &mut folders);
         // The file stays at `to`, so the sidecars that followed stay with it. One copied, as it
         // could not be moved, is still at the old name too, and is told.
-        let (failed, left_behind) = match xmp::follow(from, to, false, &moving, &mut names) {
+        let (failed, left_behind) = match xmp::follow(
+            from,
+            to,
+            crate::files::file_io::Transfer::Move,
+            &moving,
+            &mut names,
+        ) {
             Ok(left_behind) => (Vec::new(), left_behind),
             Err(not) => (not.failed, not.left_behind),
         };
@@ -2124,7 +2130,7 @@ pub fn rename_step(a: &Path, b: &Path) -> Result<(), crate::files::file_io::Step
         let removed = std::fs::remove_file(a);
         return removed.map_err(|e| crate::files::file_io::StepError::new(e, a, b));
     }
-    crate::files::file_io::put_file(a, b, false)
+    crate::files::file_io::put_file(a, b, crate::files::file_io::Transfer::Move)
 }
 
 /// Finishes a step from `a` to `b` that failed in a way that may have been done (a share that

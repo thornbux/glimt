@@ -2,7 +2,8 @@
 
 #[cfg(feature = "video")]
 use crate::files::external::is_video;
-use crate::files::file_ops::OperationReport;
+use crate::files::file_io::Transfer;
+use crate::files::file_ops::{FilesMoved, OperationReport};
 use crate::support::lang::tr;
 use crate::tf;
 use eframe::egui;
@@ -174,11 +175,13 @@ impl crate::App {
                     // sidecar, unless it was stripped.
                     let _ = report_tx.send(OperationReport {
                         read_folder_again: true,
-                        moved: (!copy_as.strip)
-                            .then(|| (path.clone(), new.clone()))
-                            .into_iter()
-                            .collect(),
-                        is_copy: true,
+                        moved: FilesMoved::ByTheJob(
+                            Transfer::Copy,
+                            (!copy_as.strip)
+                                .then(|| (path.clone(), new.clone()))
+                                .into_iter()
+                                .collect(),
+                        ),
                         ..Default::default()
                     });
                     crate::images::save::told_saved(&new, sidecar_failed)
