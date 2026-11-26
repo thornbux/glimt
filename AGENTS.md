@@ -769,13 +769,48 @@ features, a third of them fixes of fixes, none reported by a user.
 - **Should fix** — goes into the next minor release: slowness at the scale in *Goals* (500,000
   files), a risky piece of logic without its check, debt that makes the next bug of a known
   kind likely (see the classes in *How to add things*).
-- **Hardening** — goes into the next minor release, never a dot release: what needs something
-  planted in Glimt's own folders, a deliberate race between two windows at the same moment,
-  scale far past the goals, or a stalled share that only delays. Noted as a GitHub issue
-  labelled `hardening` until then.
+- **Hardening** — never in a dot release: what needs something planted in Glimt's own
+  folders, a deliberate race between two windows at the same moment, scale far past the goals,
+  or a stalled share that only delays. Noted as a GitHub issue labelled `hardening`, where it
+  waits (*Hardening waits for a reason*).
 
 An audit or review ranks each finding against this bar and says why; one it cannot place is
 should fix.
+
+### Hardening waits for a reason
+
+A hardening issue goes into a release only for one of two reasons: a user in ordinary use can
+meet it, and then it is ranked again as must or should fix, or a fix of its class at the root
+(*Fix the root, once*) closes it on the way. Otherwise it waits, also when a release has room
+for it. A release is never made of hardening issues alone. Its audit reads only hardening code,
+finds more hardening in it, and those findings become the next release: 0.97.0 and 0.99.0 were
+spent this way, and nearly none of their issues came from a user.
+
+### Limits that are decided, not chased
+
+Some questions have no sure answer, such as which card is in the reader after a restart, or
+whether a rename went through when a share lost its answer. A guess for each finding (a path, a
+serial number, a UUID, a boot id) closes that finding and opens the next one, and the edge only
+moves. Such a question gets a limit that the maintainer decides: what Glimt does when it cannot
+tell, chosen so that no file or mark is lost or put on another file. Glimt then keeps both
+names, keeps the log, lets the marks wait for a later start, and tells the user. The limit is
+written in a `shortcut:` comment where the code decides it, and as a line in the list below.
+
+An audit does not report a case that a listed limit covers. A finding that shows the limit
+itself loses a file or a mark, or puts one on another file, is a must fix of the limit. A new
+limit, or a change to one, is the maintainer's to decide (*What an agent decides, and what it
+asks*).
+
+The limits decided:
+
+- All windows that run at once are one version of Glimt. A race between two versions is not
+  chased.
+- After a restart, a card whose volume cannot be read (in the Flatpak, or when its entry in
+  `/dev/disk/by-uuid` cannot be read) is told apart by its device alone. The number the kernel
+  gave it when it was put in holds only until the restart.
+- In the same boot, a card or stick that cannot be told from the one a job cut short worked on
+  (a card cloned with `dd`, a second ext4 stick in the Flatpak) is not taken for it. The job's
+  marks wait until the right one is back.
 
 ### Fix the root, once, and right the first time
 
@@ -912,6 +947,7 @@ It asks the maintainer before it:
 
 - changes `main`, tags, bumps the version or changes the website (*Releases*); a branch of its
   own may be pushed for CI at any time;
+- decides or changes a limit (*Limits that are decided, not chased*);
 - weakens a check: removes or loosens an assertion, takes a line out of `src/frozen-1.0.txt`
   or `src/keys-1.0.txt`, raises a limit of the tests, changes `clippy.toml`, or adds an entry to
   a check's list of exceptions (`OUTSIDE`, a `source_rules` list, `#[allow(…)]`). A new
