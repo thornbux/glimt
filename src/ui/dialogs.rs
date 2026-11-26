@@ -6,7 +6,9 @@ use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::Login;
 use crate::files::file_io::{FileFingerprint, PickedFiles, Transfer, fingerprint, save_failed};
-use crate::files::file_ops::{FilesMoved, NOT_ON_FAT, OperationReport, fat_file_system_type};
+use crate::files::file_ops::{
+    FilesMoved, NOT_ON_FAT, OperationReport, Removal, fat_file_system_type,
+};
 use crate::model::listing::pattern_name;
 use crate::support::format::{count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
@@ -164,8 +166,8 @@ pub(crate) struct Dialogs {
     /// replacement character, and the answer is trimmed of the spaces a name may start or end
     /// with.
     opened_with: String,
-    /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
-    confirm_delete: Option<bool>,
+    /// The delete confirmation is open, for a move to the trash or a delete for good.
+    confirm_delete: Option<Removal>,
     /// The type of the network or cloud mount whose files the trash refused, when the delete
     /// for good asked about is instead of a move to the trash.
     trash_refused: Option<String>,
@@ -269,10 +271,10 @@ impl Dialogs {
         self.files_to_open = files;
     }
 
-    /// Asks whether to delete the files `asked`: to the trash when `trash`, else for good.
-    pub(crate) fn confirm_delete(&mut self, asked: Asked, trash: bool) {
+    /// Asks whether to delete the files `asked`, to the trash or for good as `removal` says.
+    pub(crate) fn confirm_delete(&mut self, asked: Asked, removal: Removal) {
         self.asked = Some(asked);
-        self.confirm_delete = Some(trash);
+        self.confirm_delete = Some(removal);
         self.trash_refused = None;
         self.delete_dialog_opened_at = None;
     }
@@ -281,7 +283,7 @@ impl Dialogs {
     /// network or cloud mount of type `kind`.
     pub(crate) fn confirm_delete_instead(&mut self, asked: Asked, kind: String) {
         self.asked = Some(asked);
-        self.confirm_delete = Some(false);
+        self.confirm_delete = Some(Removal::ForGood);
         self.trash_refused = Some(kind);
         self.delete_dialog_opened_at = None;
     }
@@ -1064,7 +1066,7 @@ impl crate::App {
 
     /// Asks before files go to the trash or are deleted for good.
     pub(crate) fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
-        if let Some(trash) = self.dialogs.confirm_delete {
+        if let Some(removal) = self.dialogs.confirm_delete {
             let what = self.delete_dialog_subject();
             let left_out = self.dialogs.asked_left_out().map(str::to_owned);
             let mut delete = false;
@@ -1074,7 +1076,7 @@ impl crate::App {
                 self.dialogs.trash_refused.is_none() || now - shown >= ENTER_IGNORED_FOR;
             let enter = enter_answers && self.answers(ctx, egui::Key::Enter);
             let modal = egui::Modal::new(egui::Id::unique("confirm-delete")).show(ctx, |ui| {
-                if trash {
+                if removal == Removal::Trash {
                     // Noted, so the release tests see how many files the dialog names.
                     let question = tf!("Move {what} to the trash?", what);
                     crate::support::test_hooks::noted(&ui.label(question.as_str()), &question);
@@ -1105,7 +1107,7 @@ impl crate::App {
             if delete {
                 self.dialogs.confirm_delete = None;
                 if let Some((targets, picked)) = self.asked_targets() {
-                    self.delete_now(ctx, trash, targets, picked);
+                    self.delete_now(ctx, removal, targets, picked);
                 }
             } else if modal.should_close() {
                 self.dialogs.confirm_delete = None;
@@ -2175,7 +2177,7 @@ mod tests {
             .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
         app.list.select([0].into());
         app.config.confirm_trash = true;
-        app.request_delete(&ctx, true);
+        app.request_delete(&ctx, crate::files::file_ops::Removal::Trash);
         app.list.select([1, 2].into());
         assert_eq!(app.delete_dialog_subject(), "\"a.png\"");
         assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![0]));

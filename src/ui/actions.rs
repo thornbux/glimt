@@ -4,6 +4,7 @@
 use crate::features::duplicates::FindDuplicates;
 #[cfg(feature = "marks")]
 use crate::files::file_io::ListedFile;
+use crate::files::file_ops::Removal;
 use crate::images::colour::FILTERS;
 use crate::images::decode::{catch_panic_as_error, color_image};
 #[cfg(feature = "marks")]
@@ -1263,8 +1264,11 @@ impl crate::App {
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::PlayVideo => self.play_video(ctx),
-            Action::Delete => self.request_delete(ctx, self.config.delete_to_trash),
-            Action::DeletePermanently => self.request_delete(ctx, false),
+            Action::Delete => {
+                let removal = Removal::by_setting(self.config.delete_to_trash);
+                self.request_delete(ctx, removal)
+            }
+            Action::DeletePermanently => self.request_delete(ctx, Removal::ForGood),
             Action::Undo => self.undo(ctx),
             Action::CloseWindow | Action::Quit => self.ask_to_close(ctx),
             Action::First | Action::Previous | Action::Next | Action::Last => {

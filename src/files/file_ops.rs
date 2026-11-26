@@ -349,6 +349,26 @@ impl HeldBackFiles {
     }
 }
 
+/// Where a delete takes the files: to the trash, from which Undo brings them back, or away for
+/// good. The `delete_to_trash` setting stays a `bool` in the settings file and is turned into
+/// this where it is read, so that no `false` passed along deletes a file for good.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Removal {
+    Trash,
+    ForGood,
+}
+
+impl Removal {
+    /// Returns the removal that the `delete_to_trash` setting asks for, `delete_to_trash`
+    /// being its value.
+    pub(crate) fn by_setting(delete_to_trash: bool) -> Removal {
+        match delete_to_trash {
+            true => Removal::Trash,
+            false => Removal::ForGood,
+        }
+    }
+}
+
 /// What a job writes: the files themselves (a copy, move, delete or rename), or only their
 /// sidecars (keywords, comments, stars, a Lightroom import). It is named where the job starts,
 /// so that no `bool` can say the one for the other.
@@ -763,8 +783,8 @@ impl FileOperations {
 
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
-    pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
-        self.request_delete_as_seen(ctx, trash, None);
+    pub(crate) fn request_delete(&mut self, ctx: &egui::Context, removal: Removal) {
+        self.request_delete_as_seen(ctx, removal, None);
     }
 
     /// `request_delete`, of files whose fingerprints `seen` a search took when it found them
@@ -773,22 +793,21 @@ impl crate::App {
     pub(crate) fn request_delete_as_seen(
         &mut self,
         ctx: &egui::Context,
-        trash: bool,
+        removal: Removal,
         seen: Option<&crate::files::file_io::AsSeen>,
     ) {
         if self.list.files().is_empty() {
             return;
         }
-        if if trash {
-            self.config.confirm_trash
-        } else {
-            self.config.confirm_delete
+        if match removal {
+            Removal::Trash => self.config.confirm_trash,
+            Removal::ForGood => self.config.confirm_delete,
         } {
             if let Some(asked) = self.ask_about_targets_as_seen(seen) {
-                self.dialogs.confirm_delete(asked, trash);
+                self.dialogs.confirm_delete(asked, removal);
             }
         } else if let Some(targets) = self.targets() {
-            self.delete_targets(ctx, trash, targets, seen);
+            self.delete_targets(ctx, removal, targets, seen);
         }
     }
 
@@ -1004,12 +1023,12 @@ impl crate::App {
     pub(crate) fn delete_targets(
         &mut self,
         ctx: &egui::Context,
-        trash: bool,
+        removal: Removal,
         targets: Vec<usize>,
         seen: Option<&crate::files::file_io::AsSeen>,
     ) {
         let picked = self.picked_targets(&targets, seen);
-        self.delete_now(ctx, trash, targets, picked);
+        self.delete_now(ctx, removal, targets, picked);
     }
 
     /// Deletes the files at `targets` in the background, to the trash or for good, as a job
@@ -1019,7 +1038,7 @@ impl crate::App {
     pub(crate) fn delete_now(
         &mut self,
         ctx: &egui::Context,
-        trash: bool,
+        removal: Removal,
         targets: Vec<usize>,
         picked: PickedFiles,
     ) {
@@ -1034,12 +1053,16 @@ impl crate::App {
         let freed_tx = self.status_bar.freed_sender();
         let (repaint, report_tx) = (ctx.clone(), self.file_operations.report_sender());
         let collection = self.folder.collection().map(Path::to_path_buf);
-        let undo_on_the_way = trash.then(|| self.file_operations.undo_on_the_way());
+        let is_trash = removal == Removal::Trash;
+        let undo_on_the_way = is_trash.then(|| self.file_operations.undo_on_the_way());
         let delete_log_dir = paths.first().and_then(|p| job_log_dir(p));
         self.run_in_background(ctx, Vec::new(), move || {
             let since = std::time::SystemTime::now();
             let (_, picked) = picked.wait_for_fingerprints();
-            let job_kind = if trash { "trash" } else { "delete" };
+            let job_kind = match removal {
+                Removal::Trash => "trash",
+                Removal::ForGood => "delete",
+            };
             let started = (delete_log_dir.as_deref())
                 .map(|d| journal::start_delete_log(d, job_kind, collection.as_deref()));
             let (mut delete_log, start_failure) = match started.transpose() {
@@ -1050,7 +1073,7 @@ impl crate::App {
             let _ = freed_tx.send(total_size(&paths));
             repaint.request_repaint();
             let mut errors = Vec::new();
-            let how = (trash, delete_log.as_mut());
+            let how = (removal, delete_log.as_mut());
             let (gone, sides, changed) = delete_in_chunks(&paths, &picked, how, &job, &mut errors);
             let told = match errors.first() {
                 Some(first) => Some(Told::FailedWrite(
@@ -1062,12 +1085,14 @@ impl crate::App {
                     .into(),
                 )),
                 None => job
-                    .report(|| match trash {
-                        true => tf!(
+                    .report(|| match removal {
+                        Removal::Trash => tf!(
                             "{count} moved to the trash",
                             count = count(paths.len(), "file")
                         ),
-                        false => tf!("{count} deleted", count = count(paths.len(), "file")),
+                        Removal::ForGood => {
+                            tf!("{count} deleted", count = count(paths.len(), "file"))
+                        }
                     })
                     .map(Told::Notice),
             };
@@ -1083,7 +1108,7 @@ impl crate::App {
                 });
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
                 (sides.into_iter()).partition(|s| is_surely_gone(s));
-            let undo = (trash && !gone.is_empty()).then(|| {
+            let undo = (removal == Removal::Trash && !gone.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
                     out_without_answer: Default::default(),
                     files: gone.clone(),
@@ -1096,7 +1121,7 @@ impl crate::App {
                     collection: collection.zip(Some(removed)),
                 })
             });
-            let refused = trash && !errors.is_empty() && !job.is_stopped();
+            let refused = removal == Removal::Trash && !errors.is_empty() && !job.is_stopped();
             // Those not reached after Stop are still there, as after a failure. A file left
             // alone is another file now, and the question to delete it for good is not asked.
             let refused_paths: Vec<PathBuf> = (paths.iter())
@@ -3190,7 +3215,7 @@ fn left_by_trash_as_picked(
 fn delete_in_chunks(
     paths: &[PathBuf],
     picked: &PickedFingerprints,
-    (trash, mut delete_log): (bool, Option<&mut journal::DeleteLog>),
+    (removal, mut delete_log): (Removal, Option<&mut journal::DeleteLog>),
     job: &Job,
     errors: &mut Vec<String>,
 ) -> (Vec<PathBuf>, Vec<PathBuf>, HashSet<PathBuf>) {
@@ -3211,7 +3236,7 @@ fn delete_in_chunks(
         // which the Undo and the marks need. What of the chunk went is still reported.
         let log = delete_log.as_deref_mut();
         let (went, side, left_alone) =
-            catch_panic(|| delete_chunk(chunk, picked, (trash, log), errors)).unwrap_or_else(
+            catch_panic(|| delete_chunk(chunk, picked, (removal, log), errors)).unwrap_or_else(
                 || {
                     errors.push(format!("{}: {}", escaped_name(&chunk[0]), broke_here()));
                     let went: Vec<PathBuf> = (chunk.iter())
@@ -3223,7 +3248,10 @@ fn delete_in_chunks(
                 },
             );
         // A delete for good writes each file down as gone itself, as it goes.
-        if let Some(log) = delete_log.as_deref_mut().filter(|_| trash) {
+        if let Some(log) = delete_log
+            .as_deref_mut()
+            .filter(|_| removal == Removal::Trash)
+        {
             log.note_done(&went);
         }
         gone.extend(went);
@@ -3247,15 +3275,15 @@ fn with_failed_write(told: Option<Told>, failed: Option<Failure>) -> Option<Told
     })
 }
 
-/// Deletes the files of `chunk` that are still the ones `picked`, to the trash when `trash` or
-/// for good, and then their sidecars, for `delete_now`'s thread. A delete for good notes the
+/// Deletes the files of `chunk` that are still the ones `picked`, to the trash or for good as
+/// `removal` says, and then their sidecars, for `delete_now`'s thread. A delete for good notes the
 /// sidecars it puts aside in the delete's `log`, when there is one. Each failure is added to
 /// `errors`. Returns the files gone, their sidecars, and the files left alone because they are
 /// no longer the ones picked.
 fn delete_chunk(
     chunk: &[PathBuf],
     picked: &PickedFingerprints,
-    (trash, log): (bool, Option<&mut journal::DeleteLog>),
+    (removal, log): (Removal, Option<&mut journal::DeleteLog>),
     errors: &mut Vec<String>,
 ) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     #[cfg(test)]
@@ -3267,7 +3295,7 @@ fn delete_chunk(
     // held only for the chunk, so a sidecar write in another window waits for one chunk rather
     // than the whole job.
     let _locks = xmp::lock_sidecars(chunk);
-    if !trash {
+    if removal == Removal::ForGood {
         return delete_for_good(chunk, picked, log, errors);
     }
     let since = std::time::SystemTime::now();
@@ -5145,7 +5173,7 @@ mod tests {
         crate::support::test_support::open_now(&mut app, &ctx, d.join("show.m3u"));
         assert!(app.folder.is_listing() && app.list.files().len() == 2);
         let sub = (app.list.files().iter()).position(|f| std::path::Path::new(f).ends_with("sub"));
-        app.delete_targets(&ctx, false, vec![sub.unwrap()], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![sub.unwrap()], None);
         assert!(app.notice.text().is_some() && app.list.files().len() == 2);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -5613,7 +5641,7 @@ mod tests {
             .renaming
             .is_none()));
         assert!(!c.exists(), "the other photo was renamed");
-        delete.delete_targets(&delete_ctx, false, vec![0], None);
+        delete.delete_targets(&delete_ctx, super::Removal::ForGood, vec![0], None);
         assert!(run_background_until(&mut delete, &delete_ctx, idle));
         assert!(a.exists() && b.exists(), "the other photo was deleted");
         drop(first);
@@ -6280,7 +6308,7 @@ mod tests {
         let (went, _, _) = super::delete_chunk(
             std::slice::from_ref(&photo),
             &picked,
-            (true, None),
+            (super::Removal::Trash, None),
             &mut errors,
         );
         UNLINK_FAILS.set(None);
@@ -6311,7 +6339,9 @@ mod tests {
         lock_even_if_poisoned(&BREAKING_FILES).push(side.clone());
         let mut errors = Vec::new();
         let photos = std::slice::from_ref(&photo);
-        let cut = catch_panic(|| super::delete_chunk(photos, &picked, (true, None), &mut errors));
+        let cut = catch_panic(|| {
+            super::delete_chunk(photos, &picked, (super::Removal::Trash, None), &mut errors)
+        });
         lock_even_if_poisoned(&BREAKING_FILES).retain(|p| *p != side);
         assert!(cut.is_none(), "the kill came");
         assert!(
@@ -6343,7 +6373,8 @@ mod tests {
         let (_, picked) = picked.wait_for_fingerprints();
         GIO_REFUSES_IN_A_TEST.set(Some(vec![photos[1].clone()]));
         let mut errors = Vec::new();
-        let (went, _, _) = super::delete_chunk(&photos, &picked, (true, None), &mut errors);
+        let (went, _, _) =
+            super::delete_chunk(&photos, &picked, (super::Removal::Trash, None), &mut errors);
         assert_eq!(went, [photos[0].clone(), photos[2].clone()], "{errors:?}");
         assert!(photos[1].exists());
         assert_eq!(
@@ -6386,7 +6417,7 @@ mod tests {
         let (went, _, _) = super::delete_chunk(
             std::slice::from_ref(&photo),
             &picked,
-            (true, None),
+            (super::Removal::Trash, None),
             &mut errors,
         );
         UNLINK_FAILS.set(None);
@@ -6427,7 +6458,8 @@ mod tests {
             RENAME_WAYS_MISSING.set(1);
             UNLINK_FAILS.set(Some((stays.clone(), libc::EPERM)));
             let mut errors = Vec::new();
-            let (went, _, _) = super::delete_chunk(&both, &picked, (true, None), &mut errors);
+            let (went, _, _) =
+                super::delete_chunk(&both, &picked, (super::Removal::Trash, None), &mut errors);
             UNLINK_FAILS.set(None);
             RENAME_WAYS_MISSING.set(0);
             assert_eq!(went, std::slice::from_ref(goes), "{errors:?}");
@@ -6637,7 +6669,7 @@ mod tests {
             let _ = wait.recv();
             None
         }));
-        app.delete_targets(&ctx, false, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
         assert!(a.exists() && app.notice.text().is_some());
         assert_eq!(app.list.files().len(), 2);
         app.file_operations.undo = Some(super::Undo::Move(vec![(
@@ -6667,7 +6699,7 @@ mod tests {
         });
         assert!(free);
         app.file_operations.undo = None;
-        app.delete_targets(&ctx, false, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
         assert!(wait_for(&|| !a.exists()));
         // Thousands against thousands are answered at once, not path against path (10^8
         // comparisons froze the window for seconds).
@@ -6808,7 +6840,7 @@ mod tests {
             ),
             (
                 "delete",
-                |app, ctx, _| app.delete_targets(ctx, false, vec![0], None),
+                |app, ctx, _| app.delete_targets(ctx, super::Removal::ForGood, vec![0], None),
                 |app, d| {
                     !d.join("a.png").exists()
                         && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
@@ -6913,7 +6945,7 @@ mod tests {
             ),
             (
                 "trash",
-                |app, ctx, _| app.delete_targets(ctx, true, vec![0], None),
+                |app, ctx, _| app.delete_targets(ctx, super::Removal::Trash, vec![0], None),
                 |app, d| {
                     !d.join("a.png").exists()
                         && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
@@ -6924,7 +6956,7 @@ mod tests {
             (
                 "undo a trash",
                 |app, ctx, _| {
-                    app.delete_targets(ctx, true, vec![0], None);
+                    app.delete_targets(ctx, super::Removal::Trash, vec![0], None);
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.text().is_none() {
@@ -7138,8 +7170,16 @@ mod tests {
                 },
                 Some("x1"),
             ),
-            ("delete", |app, ctx, _, f| delete(app, ctx, f, false), None),
-            ("trash", |app, ctx, _, f| delete(app, ctx, f, true), None),
+            (
+                "delete",
+                |app, ctx, _, f| delete(app, ctx, f, super::Removal::ForGood),
+                None,
+            ),
+            (
+                "trash",
+                |app, ctx, _, f| delete(app, ctx, f, super::Removal::Trash),
+                None,
+            ),
             (
                 "undo a move",
                 |app, ctx, d, f| {
@@ -7159,7 +7199,7 @@ mod tests {
             (
                 "undo a trash",
                 |app, ctx, _, f| {
-                    delete(app, ctx, f, true);
+                    delete(app, ctx, f, super::Removal::Trash);
                     undo(app, ctx);
                 },
                 Some("r"),
@@ -7181,9 +7221,9 @@ mod tests {
                 crate::files::file_io::PickedFiles::new(vec![d.join(f)]),
             );
         }
-        fn delete(app: &mut crate::App, ctx: &Context, f: &str, trash: bool) {
+        fn delete(app: &mut crate::App, ctx: &Context, f: &str, removal: super::Removal) {
             let at = (app.list.files().iter()).position(|n| *n == *f);
-            app.delete_targets(ctx, trash, at.into_iter().collect(), None);
+            app.delete_targets(ctx, removal, at.into_iter().collect(), None);
         }
         fn undo(app: &mut crate::App, ctx: &Context) {
             run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
@@ -7399,7 +7439,7 @@ mod tests {
                 "undo a trash",
                 &["r.cr2", "r.nef", "r.xmp"],
                 |app, ctx, _| {
-                    app.delete_targets(ctx, true, [0].into_iter().collect(), None);
+                    app.delete_targets(ctx, super::Removal::Trash, [0].into_iter().collect(), None);
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -7409,7 +7449,12 @@ mod tests {
                 "undo a trash of both",
                 &["r.cr2", "r.nef", "r.xmp"],
                 |app, ctx, _| {
-                    app.delete_targets(ctx, true, [0, 1].into_iter().collect(), None);
+                    app.delete_targets(
+                        ctx,
+                        super::Removal::Trash,
+                        [0, 1].into_iter().collect(),
+                        None,
+                    );
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -7556,7 +7601,7 @@ mod tests {
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let mut errors = Vec::new();
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let (gone, _, _) =
             super::delete_in_chunks(std::slice::from_ref(&a), &picked, how, &job, &mut errors);
         assert_eq!(gone, std::slice::from_ref(&a), "{errors:?}");
@@ -7686,7 +7731,7 @@ mod tests {
         let mut errors = Vec::new();
         for p in &both {
             let photo = std::slice::from_ref(p);
-            let how = (false, Some(&mut log));
+            let how = (super::Removal::ForGood, Some(&mut log));
             let cut = catch_panic(|| super::delete_chunk(photo, &picked, how, &mut errors));
             assert!(cut.is_none(), "the kill came");
         }
@@ -7755,7 +7800,7 @@ mod tests {
         lock_even_if_poisoned(&BREAKING_FILES).extend(sides.clone());
         let mut errors = Vec::new();
         for p in &both {
-            let how = (false, Some(&mut log));
+            let how = (super::Removal::ForGood, Some(&mut log));
             let photo = std::slice::from_ref(p);
             let cut = catch_panic(|| super::delete_chunk(photo, &picked, how, &mut errors));
             assert!(cut.is_none(), "the kill came");
@@ -7801,7 +7846,7 @@ mod tests {
         let (_, picked) = picked.wait_for_fingerprints();
         ANSWER_LOST_AT.set(Some(side.clone()));
         let mut errors = Vec::new();
-        let how = (false, None);
+        let how = (super::Removal::ForGood, None);
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
         ANSWER_LOST_AT.set(None);
         assert_eq!(gone, std::slice::from_ref(&a));
@@ -7826,7 +7871,7 @@ mod tests {
         log.note(std::slice::from_ref(&a));
         ANSWER_LOST_AT.set(Some(a.clone()));
         let mut errors = Vec::new();
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
         ANSWER_LOST_AT.set(None);
         assert_eq!(gone, std::slice::from_ref(&a));
@@ -7873,7 +7918,7 @@ mod tests {
         ANSWER_LOST_AT.set(Some(side.clone()));
         LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![side.clone()])));
         let mut errors = Vec::new();
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
         ANSWER_LOST_AT.set(None);
@@ -7917,7 +7962,7 @@ mod tests {
         RENAME_WAYS_MISSING.set(2);
         LOOKS_FAIL_ONCE_DONE_AT.set(Some((side.clone(), vec![side.clone()])));
         let mut errors = Vec::new();
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
         RENAME_WAYS_MISSING.set(0);
@@ -7956,7 +8001,7 @@ mod tests {
         RENAME_WAYS_MISSING.set(2);
         LOOKS_FAIL_ONCE_DELETED.set(vec![a.clone(), side.clone()]);
         let mut errors = Vec::new();
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a && *p != side);
         RENAME_WAYS_MISSING.set(0);
@@ -8001,7 +8046,7 @@ mod tests {
         log.note(std::slice::from_ref(&a));
         LOOKS_FAIL_ONCE_DELETED.set(vec![a.clone()]);
         let mut errors = Vec::new();
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
         assert!(gone.is_empty() && !a.exists(), "{errors:?}");
@@ -8031,7 +8076,7 @@ mod tests {
         LOOKS_FAIL_ONCE_DELETED.set(vec![a.clone()]);
         FOLDERS_SYNCED.take();
         let mut errors = Vec::new();
-        let how = (false, None);
+        let how = (super::Removal::ForGood, None);
         let (gone, _, _) = super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
         let synced = FOLDERS_SYNCED.take();
@@ -8070,7 +8115,7 @@ mod tests {
         LOG_FILES_SYNCED.take();
         log.note(&all);
         let mut errors = Vec::new();
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let (gone, _, _) = super::delete_chunk(&all, &picked, how, &mut errors);
         assert_eq!(gone, all, "{errors:?}");
         // a.png and b.png have a sidecar each, and c.png none.
@@ -8107,7 +8152,7 @@ mod tests {
         let mut errors = Vec::new();
         LOG_FILES_SYNCED.take();
         log.note(std::slice::from_ref(&b));
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let went = super::delete_chunk(std::slice::from_ref(&b), &picked, how, &mut errors);
         assert_eq!(went.0, std::slice::from_ref(&b), "{errors:?}");
         assert!(
@@ -8117,7 +8162,7 @@ mod tests {
         log.note(std::slice::from_ref(&a));
         FOLDERS_SYNCED.take();
         lock_even_if_poisoned(&BREAKING_FILES).push(side.clone());
-        let how = (false, Some(&mut log));
+        let how = (super::Removal::ForGood, Some(&mut log));
         let cut = catch_panic(|| {
             super::delete_chunk(std::slice::from_ref(&a), &picked, how, &mut errors)
         });
@@ -8632,7 +8677,12 @@ mod tests {
         // c.nef's sidecar cannot be renamed: its old name cannot be unlinked.
         RENAME_WAYS_MISSING.set(1);
         UNLINK_FAILS.set(Some((p("c.nef.xmp"), libc::EPERM)));
-        let (went, _, _) = super::delete_chunk(&paths, &picked, (false, None), &mut errors);
+        let (went, _, _) = super::delete_chunk(
+            &paths,
+            &picked,
+            (super::Removal::ForGood, None),
+            &mut errors,
+        );
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
         assert_eq!(went, [p("a.png"), p("b.png"), p("c.cr2")], "{errors:?}");
@@ -8696,7 +8746,12 @@ mod tests {
         let (_, picked) = picked.wait_for_fingerprints();
         let mut errors = Vec::new();
         ANSWER_LOST_AT.set(Some(from.join("a.jpg")));
-        let (went, _, _) = super::delete_chunk(&paths, &picked, (false, None), &mut errors);
+        let (went, _, _) = super::delete_chunk(
+            &paths,
+            &picked,
+            (super::Removal::ForGood, None),
+            &mut errors,
+        );
         ANSWER_LOST_AT.set(None);
         assert_eq!(went, paths, "{errors:?}");
         assert_eq!(errors.len(), 1, "{errors:?}");
@@ -9304,7 +9359,7 @@ mod tests {
             && app.file_operations.undo.is_some()));
         // The delete waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
         let lock = crate::metadata::xmp::lock_sidecar(&a);
-        app.delete_targets(&ctx, true, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::Trash, vec![0], None);
         app.undo(&ctx);
         assert!(
             sub.join("c.png").exists() && !c.exists(),
@@ -9837,7 +9892,7 @@ mod tests {
         let (found, picked) = app.asked_targets().unwrap();
         assert_eq!(found, vec![0]);
         app.notice.clear();
-        app.delete_now(&ctx, false, found, picked);
+        app.delete_now(&ctx, super::Removal::ForGood, found, picked);
         let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("changed"));
         assert!(
             run_background_until(&mut app, &ctx, told),
@@ -9960,7 +10015,7 @@ mod tests {
         // Move to Trash.
         let at = (0..app.list.files().len()).find(|&i| app.path(i) == a);
         let release = hold_the_remover();
-        app.delete_targets(&ctx, true, vec![at.unwrap()], None);
+        app.delete_targets(&ctx, super::Removal::Trash, vec![at.unwrap()], None);
         assert!(run_background_until(&mut app, &ctx, |app| over(app)
             && app.file_operations.undo.is_some()));
         assert!(!a.exists());
@@ -10510,7 +10565,7 @@ mod tests {
             let at = (app.list.files().iter())
                 .position(|f| f == "c.png")
                 .unwrap();
-            app.delete_targets(&ctx, false, vec![at], None);
+            app.delete_targets(&ctx, super::Removal::ForGood, vec![at], None);
         });
         assert!(!d.join("c.png.xmp").exists());
         // With many files, they are held a chunk at a time, so a file held up by a sidecar
@@ -10545,7 +10600,7 @@ mod tests {
             .collect();
         assert_eq!(all.len(), 400);
         let lock = crate::metadata::xmp::lock_sidecar(&y);
-        app.delete_targets(&ctx, false, all, None);
+        app.delete_targets(&ctx, super::Removal::ForGood, all, None);
         let others_gone = |_: &crate::App| paths.iter().all(|p| held_up.contains(p) || !p.exists());
         assert!(
             run_background_until(&mut app, &ctx, others_gone),
@@ -10634,7 +10689,7 @@ mod tests {
             .folder
             .is_listing()));
         app.notice.clear();
-        app.delete_targets(&ctx, false, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
         let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("a.png.xmp"));
         assert!(run_background_until(&mut app, &ctx, told));
         assert!(!a.exists());
@@ -10652,7 +10707,7 @@ mod tests {
         let side = crate::metadata::xmp::sidecar(&a);
         std::os::unix::fs::symlink(dir.join("nowhere"), &side).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.delete_targets(&ctx, false, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
         let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
         assert!(run_background_until(&mut app, &ctx, |_| gone(&a) && gone(&side)));
         std::fs::remove_dir_all(dir).unwrap();
@@ -10709,7 +10764,7 @@ mod tests {
             .folder
             .is_listing()));
         lock_even_if_poisoned(&LOOKS_FAIL).push(a.clone());
-        app.delete_targets(&ctx, false, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
         let done = run_background_until(&mut app, &ctx, |app| !app.working());
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
         assert!(done);
@@ -10911,7 +10966,7 @@ mod tests {
             .iter()
             .position(|f| std::path::Path::new(f).ends_with("b.png"))
             .unwrap();
-        app.delete_targets(&ctx, false, vec![b], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![b], None);
         assert!(run_background_until(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -11018,7 +11073,7 @@ mod tests {
         ) && at(app)
             .is_some()));
         let a = at(&app).unwrap();
-        app.delete_targets(&ctx, true, vec![a], None);
+        app.delete_targets(&ctx, super::Removal::Trash, vec![a], None);
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["b.png"]
@@ -11168,7 +11223,7 @@ mod tests {
         let a = dir.join("a.png");
         lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).push(a.clone());
         let (mut app, ctx) = app_on(&dir);
-        app.delete_targets(&ctx, false, vec![0, 1], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, vec![0, 1], None);
         assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
@@ -11307,14 +11362,14 @@ mod tests {
     /// whatever had the name when the dialog closed.
     #[test]
     fn a_delete_confirmed_leaves_another_file_at_the_name_alone() {
-        for trash in [false, true] {
-            let (dir, picked) = picked_then_swapped(&format!("delete-swapped-{trash}"));
+        for removal in [super::Removal::ForGood, super::Removal::Trash] {
+            let (dir, picked) = picked_then_swapped(&format!("delete-swapped-{removal:?}"));
             let (mut app, ctx) = app_on(&dir);
             let asked =
                 super::Asked::new(app.opened_folder_hash(), vec!["a.png".into()], None, picked);
-            app.dialogs.confirm_delete(asked, trash);
+            app.dialogs.confirm_delete(asked, removal);
             let (targets, picked) = app.asked_targets().unwrap();
-            app.delete_now(&ctx, trash, targets, picked);
+            app.delete_now(&ctx, removal, targets, picked);
             assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
             assert_eq!(image::image_dimensions(dir.join("a.png")).unwrap(), (3, 3));
             assert!(dir.join("b.png").exists());

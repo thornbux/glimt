@@ -2,6 +2,7 @@
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
 use crate::files::file_io::{AsSeen, FileFingerprint, fingerprint, fingerprint_of_file_read};
+use crate::files::file_ops::Removal;
 use crate::support::format::{count, escaped_file_name, escaped_name, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
@@ -422,7 +423,7 @@ impl crate::App {
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
         if self.list.selected().len() == checked.len() {
-            self.request_delete_as_seen(ctx, true, Some(&as_seen));
+            self.request_delete_as_seen(ctx, Removal::Trash, Some(&as_seen));
         } else {
             self.notice
                 .give_error(tr("The checked files are no longer all in the list"));
@@ -1012,7 +1013,7 @@ mod tests {
         // The original is edited while the question is open.
         std::fs::write(&a, "edited").unwrap();
         let (found, picked) = app.asked_targets().unwrap();
-        app.delete_now(&ctx, true, found, picked);
+        app.delete_now(&ctx, crate::files::file_ops::Removal::Trash, found, picked);
         let told = |app: &crate::App| {
             (app.notice.text()).is_some_and(|n| n.contains("another file of its group"))
         };

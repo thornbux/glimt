@@ -571,7 +571,7 @@ mod tests {
         let left_out = app.hidden_selection_notice().unwrap();
         assert!(left_out.contains("2 files"), "{left_out}");
         app.config.confirm_trash = true;
-        app.request_delete(&ctx, true);
+        app.request_delete(&ctx, crate::files::file_ops::Removal::Trash);
         app.list.select([0, 2].into());
         assert_eq!(app.dialogs.asked_left_out(), Some(left_out.as_str()));
         assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![2]));
@@ -579,7 +579,7 @@ mod tests {
         app.list.select([2, 3].into());
         assert_eq!(app.targets(), Some(vec![2, 3]));
         assert_eq!(app.hidden_selection_notice(), None);
-        app.request_delete(&ctx, true);
+        app.request_delete(&ctx, crate::files::file_ops::Removal::Trash);
         assert_eq!(app.dialogs.asked_left_out(), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
