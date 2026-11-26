@@ -231,9 +231,10 @@ pub(crate) fn without_control_characters(text: &str) -> String {
 /// Returns `name`, a file's or folder's name or path, as a text for the user: a label, a
 /// question, a notice or a line printed. Each control character, such as a line break, and each
 /// character that turns the direction of the text around it, such as U+202E, is written as an
-/// escape ("\n", "\u{202e}"). So a planted name cannot add lines of its own to a question, push
-/// its buttons off the screen, or show itself reversed. It is the one way such a name is shown
-/// (`source_rules::names_are_shown_through_one_function`).
+/// escape ("\n", "\u{202e}"). A backslash is written as two, so a name that holds the text
+/// "\n" is not taken for one with a line break. So a planted name cannot add lines of its own
+/// to a question, push its buttons off the screen, or show itself reversed. It is the one way
+/// such a name is shown (`source_rules::names_are_shown_through_one_function`).
 pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> String {
     let is_hidden_mark = |c: char| {
         c.is_control()
@@ -247,7 +248,7 @@ pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> String {
     let mut shown = String::new();
     for c in name.as_ref().to_string_lossy().chars() {
         match c {
-            '\n' | '\r' | '\t' => shown.extend(c.escape_default()),
+            '\n' | '\r' | '\t' | '\\' => shown.extend(c.escape_default()),
             c if is_hidden_mark(c) => shown.extend(c.escape_unicode()),
             c => shown.push(c),
         }
@@ -281,6 +282,8 @@ mod tests {
         );
         let path = std::path::Path::new("/tmp/a\u{2066}b");
         assert_eq!(super::escaped_name(path), "/tmp/a\\u{2066}b");
+        // A backslash is written as two, so the text "\n" in a name is no line break shown (#320).
+        assert_eq!(super::escaped_name("a\\nb\n"), "a\\\\nb\\n");
         // A path's name alone, and the whole path when it ends in no name.
         assert_eq!(super::escaped_file_name(path), "a\\u{2066}b");
         let up = std::path::Path::new("/tmp/..");

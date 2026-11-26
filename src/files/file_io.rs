@@ -42,6 +42,31 @@ const TIME_NOT_KNOWN: (i64, i64) = (0, 0);
 /// The start of every name that `tmp_path` gives.
 pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
 
+/// The FUSE file systems that serve a network folder (`is_network`). Each name is the subtype
+/// its program gives the mount: libfuse's default, the program's own name, or the one it sets
+/// itself (onedriver, goofys, juicefs). blobfuse2 and go-mtpfs mount as plain "fuse" with their
+/// name as the source, which `type_of` takes as the subtype.
+const NETWORK_FUSE: [&str; 18] = [
+    "blobfuse2",
+    "go-mtpfs",
+    "sshfs",
+    "rclone",
+    "gvfsd-fuse",
+    "kio-fuse",
+    "s3fs",
+    "gcsfuse",
+    "curlftpfs",
+    "smbnetfs",
+    "glusterfs",
+    "ceph-fuse",
+    "simple-mtpfs",
+    "jmtpfs",
+    "onedriver",
+    "google-drive-ocamlfuse",
+    "goofys",
+    "juicefs",
+];
+
 /// The types of file system, as /proc/self/mountinfo or udev names them, that are known to be on
 /// a disk of this computer or in its memory. Every other type counts as a share (`is_remote`).
 /// fuseblk is FUSE on a block device, such as NTFS through ntfs-3g. autofs only holds the place
@@ -1750,29 +1775,6 @@ pub(crate) fn is_remote(kind: &str) -> bool {
 /// one left out only has its sizes summed, as before 0.86.0, while a local one taken for a
 /// network one would lose them and be called a network folder.
 pub(crate) fn is_network(kind: &str) -> bool {
-    // Each name is the subtype its program gives the mount: libfuse's default, the program's
-    // own name, or the one it sets itself (onedriver, goofys, juicefs). blobfuse2 and go-mtpfs
-    // mount as plain "fuse" with their name as the source, which `type_of` takes as the subtype.
-    const NETWORK_FUSE: [&str; 18] = [
-        "blobfuse2",
-        "go-mtpfs",
-        "sshfs",
-        "rclone",
-        "gvfsd-fuse",
-        "kio-fuse",
-        "s3fs",
-        "gcsfuse",
-        "curlftpfs",
-        "smbnetfs",
-        "glusterfs",
-        "ceph-fuse",
-        "simple-mtpfs",
-        "jmtpfs",
-        "onedriver",
-        "google-drive-ocamlfuse",
-        "goofys",
-        "juicefs",
-    ];
     (kind.strip_prefix("fuse.")).map_or(is_remote(kind) && kind != "fuse", |name| {
         NETWORK_FUSE.contains(&name) || names_another_computer(name)
     })
@@ -1843,10 +1845,14 @@ fn file_system_type_among(
 /// Returns the type of `mount` as Glimt names it: the type that /proc/self/mountinfo gives, and
 /// for a FUSE mount without a subtype, plain "fuse", "fuse." with the mount's source. Such a
 /// program gives its own name as the source (blobfuse2, go-mtpfs) or what it serves (davfs2's
-/// URL), so that `is_network` can tell a network one from a local one (#257).
+/// URL), so that `is_network` can tell a network one from a local one (#257). Any other source,
+/// also one plain word, is left out, as it can be a user's name or a folder of theirs, and the
+/// type is then plain "fuse" (#320).
 fn type_of(mount: &Mount) -> String {
-    match mount.kind == b"fuse" && !mount.source.is_empty() {
-        true => format!("fuse.{}", String::from_utf8_lossy(mount.source)),
+    let source = String::from_utf8_lossy(mount.source);
+    let tells = NETWORK_FUSE.contains(&&*source) || names_another_computer(&source);
+    match mount.kind == b"fuse" && tells {
+        true => format!("fuse.{source}"),
         false => String::from_utf8_lossy(mount.kind).into_owned(),
     }
 }
@@ -4006,6 +4012,8 @@ mod tests {
             assert!(!super::is_network(&found), "{local}: {found}");
             assert!(super::is_remote(&found), "{local}: {found}");
         }
+        // A source of one plain word may be a user's name, and is not shown (#320).
+        assert_eq!(super::shown_type(&kind("/mnt/vault")), "fuse");
         let below = super::mounted_types_below_in(mounts, std::path::Path::new("/mnt"));
         assert_eq!(below.iter().filter(|k| super::is_network(k)).count(), 4);
         assert!(super::is_remote("fuse") && !super::is_network("fuse"));
