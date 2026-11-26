@@ -2380,6 +2380,22 @@ mod tests {
         assert!(refused.contains("glimt-8bim-gone"), "{refused}");
     }
 
+    /// A file that says it is a PNG but whose decoder cannot be made is not taken for a still
+    /// image. Before, such a failure counted as "not animated", so an animation whose read
+    /// failed once was turned and written anew with its first frame only.
+    #[test]
+    fn a_png_whose_decoder_cannot_be_made_is_not_called_still() {
+        let dir = std::env::temp_dir().join(format!("glimt-animated-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.png");
+        // An IHDR of 0×0 pixels with a CRC of zeros, which the png crate refuses.
+        let header = [&b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR"[..], &[0; 17]].concat();
+        std::fs::write(&path, header).unwrap();
+        let animated = super::animated(path.as_path());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(animated.is_err(), "{animated:?}");
+    }
+
     /// Photoshop resources broken in thousands of ways are read without a panic or a loop.
     #[test]
     fn survives_broken_photoshop_resources() {
