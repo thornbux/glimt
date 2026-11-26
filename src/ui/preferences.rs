@@ -732,7 +732,7 @@ impl crate::App {
                 format!("{}…", escaped_name(n))
             });
             if radio(ui, own_file, &label).clicked() {
-                self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
+                self.pick(&ui.ctx().clone(), Pick::InputProfile);
             }
             let mut desktop = self.config.desktop_profile;
             if checkbox(ui, &mut desktop, tr("Use the desktop's screen profile"))
@@ -756,7 +756,7 @@ impl crate::App {
                 ui.label(name)
                     .on_hover_text(escaped_name(&self.config.screen_profile));
                 if crate::ui::menus::button(ui, tr("Choose…")).clicked() {
-                    self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
+                    self.pick(&ui.ctx().clone(), Pick::ScreenProfile);
                 }
                 if !self.config.screen_profile.is_empty()
                     && crate::ui::menus::button(ui, tr("None")).clicked()

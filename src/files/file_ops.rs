@@ -2926,7 +2926,7 @@ impl crate::App {
             Action::CopyTo => Pick::CopyTo(paths),
             _ => Pick::MoveTo(paths),
         };
-        self.pick(ctx, true, purpose);
+        self.pick(ctx, purpose);
     }
 
     /// File → Set as Wallpaper. It sets the shown image through the desktop portal, in the

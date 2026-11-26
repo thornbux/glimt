@@ -38,7 +38,10 @@ static CHOOSER_PICKS: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(
 
 /// What a file dialog (zenity or kdialog) was opened for.
 pub(crate) enum Pick {
-    Open,
+    /// A file to show, in its folder.
+    OpenFile,
+    /// A folder to show.
+    OpenFolder,
     /// Several folders to show as one list.
     Folders,
     /// A folder with the images of every folder below it.
@@ -77,6 +80,33 @@ pub(crate) enum Pick {
     /// Where to save this list of the files that a Rename Many cut short left not under the
     /// names they were to get (`journal::names_left`).
     SaveNamesLeft(String),
+}
+
+impl Pick {
+    /// Returns whether the dialog picks a folder, not a file. It follows from what the dialog is
+    /// for, so that no caller can open a dialog of files for a folder, or the reverse.
+    fn wants_folder(&self) -> bool {
+        match self {
+            Pick::OpenFolder
+            | Pick::Folders
+            | Pick::Recursive
+            | Pick::CopyTo(_)
+            | Pick::MoveTo(_)
+            | Pick::SortFolder
+            | Pick::BackUp
+            | Pick::ExportFrames(..)
+            | Pick::CopyForSharing(..) => true,
+            Pick::OpenFile
+            | Pick::Collection
+            | Pick::SavePdf(_)
+            | Pick::ScreenProfile
+            | Pick::InputProfile
+            | Pick::Lightroom
+            | Pick::SaveFrame(..)
+            | Pick::SaveAs(..)
+            | Pick::SaveNamesLeft(_) => false,
+        }
+    }
 }
 
 /// What a file dialog answers: the path picked, or `None` when it was cancelled. A name to save
@@ -395,7 +425,7 @@ impl crate::App {
     }
 
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
-    pub(crate) fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
+    pub(crate) fn pick(&mut self, ctx: &egui::Context, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
         // One at a time: only one answer is waited for, and a second dialog's would replace the
         // first's, whose copy or move would then never happen.
@@ -411,10 +441,11 @@ impl crate::App {
             Pick::SavePdf(_) | Pick::SaveFrame(..) | Pick::SaveAs(..) | Pick::SaveNamesLeft(_)
         );
         let several = matches!(purpose, Pick::Folders);
+        let folder = purpose.wants_folder();
         let ctx = ctx.clone();
         let title = match purpose {
-            Pick::Open if folder => tr("Open Folder"),
-            Pick::Open => tr("Open File"),
+            Pick::OpenFolder => tr("Open Folder"),
+            Pick::OpenFile => tr("Open File"),
             Pick::Folders => tr("Open Folders (Ctrl+click for several)"),
             Pick::Recursive => tr("Open Folder with Its Subfolders"),
             Pick::Collection => tr("Open Collection"),
@@ -587,7 +618,9 @@ impl crate::App {
             };
             match (purpose, picked) {
                 (_, None) => {}
-                (Pick::Open | Pick::Collection, Some(path)) => self.visit(ctx, path),
+                (Pick::OpenFile | Pick::OpenFolder | Pick::Collection, Some(path)) => {
+                    self.visit(ctx, path)
+                }
                 // As View → Include Subfolders, which turns it off again.
                 (Pick::Recursive, Some(path)) => {
                     self.config.show_subfolders = true;
@@ -971,7 +1004,7 @@ impl crate::App {
             );
         }
         if let Some(list) = list().filter(|_| save) {
-            self.pick(ctx, false, Pick::SaveNamesLeft(list));
+            self.pick(ctx, Pick::SaveNamesLeft(list));
         }
         if leave {
             return self.work_on_cut_short(ctx, CutShortWork::LeaveNames);
@@ -1732,7 +1765,7 @@ mod tests {
         *lock_even_if_poisoned(&CHOOSER_PICKS) = Some(dir.join("sub"));
         *lock_even_if_poisoned(&FINGERPRINT_STALLS) = Some(a.clone());
         let picked = PickedFiles::new(vec![a.clone(), b.clone()]);
-        app.pick(&ctx, true, Pick::MoveTo(picked));
+        app.pick(&ctx, Pick::MoveTo(picked));
         let answered =
             run_background_until(&mut app, &ctx, |app| app.dialogs.file_dialog.is_none());
         assert!(answered, "the chooser's answer never came");
@@ -1742,7 +1775,7 @@ mod tests {
         assert!(a.exists() && b.exists());
         let told = app.notice.text().unwrap_or_default().to_owned();
         assert!(told.contains("changed"), "{told}");
-        app.pick(&ctx, true, Pick::MoveTo(PickedFiles::new(vec![b.clone()])));
+        app.pick(&ctx, Pick::MoveTo(PickedFiles::new(vec![b.clone()])));
         assert!(run_background_until(&mut app, &ctx, |app| {
             app.dialogs.file_dialog.is_none() && !app.working() && !b.exists()
         }));
