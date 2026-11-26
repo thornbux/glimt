@@ -784,10 +784,24 @@ or review, the findings are grouped by what lets them happen before anything is 
 held in two places, a way in that goes around the one function for it, a setting of the view
 that reaches what is written to a file, an action that does not say which file it acts on, a
 new view of the list that misses what every view needs. Each class is then fixed where it
-starts, in the one shared place, with a test or a `source_rules` check that fails when new
-code opens the class again. The branches of a release follow the classes, not the findings.
+starts, in the one shared place. The branches of a release follow the classes, not the findings.
 New features are built the same way: what they share with the rest goes through the shared
 place from the start.
+
+The root is fixed in the types, the data model or a function's contract, so that the wrong
+state cannot be written at all, and never hidden where it showed with an `if` check or
+`unwrap_or`:
+
+- an `enum` in place of a `bool` flag or of an `Option` that means two things;
+- a newtype that only the checked way in can make, such as `file_io::StepError` and
+  `file_io::PickedFiles`, taken by every function that needs the check done;
+- a core without I/O that the rest calls, so that its rule is tested on values.
+
+A test or a `source_rules` check that fails when new code opens the class again is the fix only
+where no type can hold the rule, and the commit says why. A check that reads the source as text
+is slipped past by a spelling it does not know, and its gaps came back as findings in release
+after release. A class that such a check holds today moves into a type as structural work in a
+minor release, when its code is changed.
 
 A fix is right the first time when it closes every way in. Before the change, list each path
 that reaches the code it guards (its callers, the actions and `--remote` commands that end
