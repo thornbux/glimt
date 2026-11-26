@@ -19,8 +19,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   copy with its metadata stripped is still made (#325).
 - The info panel and the search show the keywords, comment and alt text inside a TIFF or a DNG
   whose XMP is long for its first image, such as a Photoshop TIFF with a long history or a DNG
-  with a small preview. Before, they showed none, and a keyword added then started a sidecar
-  that hid the file's own keywords.
+  with a small preview, or a DNG whose first image is the raw sensor data. Before, they showed
+  none, and a keyword added then started a sidecar that hid the file's own keywords. A copy of
+  such a DNG keeps its XMP.
 - A keyword, comment or alt text is not saved, and the failure is told, when the XMP inside the
   photo cannot be read, such as on a share that stopped answering or in a file cut short.
   Before, a sidecar was started without the photo's own keywords and hid them from then on.
