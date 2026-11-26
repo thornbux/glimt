@@ -5,10 +5,12 @@
 use crate::files::config::fits_on_a_line;
 use crate::files::file_io::IfMissing;
 use crate::model::listing::real_dir;
+use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, lock_even_if_poisoned};
 use crate::ui::actions::Action;
+use crate::ui::menus::DrawShown;
 use crate::ui::menus::{icon_button, menu_item, scroll_menu, submenu, with_icon};
 use crate::viewer::view::Failure;
 use crate::{tf, ui::theme};
@@ -276,7 +278,8 @@ impl crate::App {
                 .map_err(|e| e.to_string())
                 .and_then(|()| {
                     let failed = crate::files::trash::trash(std::slice::from_ref(&file));
-                    crate::files::trash::told_failure(&failed).map_or(Ok(()), Err)
+                    let told = crate::files::trash::told_failure(&failed);
+                    told.map_or(Ok(()), |t| Err(t.to_string()))
                 });
             Some(match trashed {
                 Ok(()) => crate::support::threads::Told::Notice(tf!(
@@ -319,6 +322,7 @@ impl crate::App {
                 CollectionAddedTo::New(name) => match new_file(&name) {
                     Ok(file) => (file, IfMissing::Create),
                     Err(why) => {
+                        let why = ShownText::from_cause(why);
                         return Some(crate::support::threads::Told::FailedWrite(why.into()));
                     }
                 },
@@ -365,10 +369,10 @@ impl crate::App {
             |ui| {
                 let all = self.folder.saved_collections().listed(ui.ctx());
                 if all.as_ref().is_some_and(Vec::is_empty) {
-                    ui.label(tr("No collections yet"));
+                    ui.show_label(tr("No collections yet"));
                 }
                 for (name, file) in all.into_iter().flatten() {
-                    if icon_button(ui, theme::icon::STACK, &name).clicked() {
+                    if icon_button(ui, theme::icon::STACK, escaped_name(&name)).clicked() {
                         open = Some(file);
                     }
                 }
@@ -381,10 +385,10 @@ impl crate::App {
                 |ui| {
                     let all = self.folder.saved_collections().listed(ui.ctx());
                     if all.as_ref().is_some_and(Vec::is_empty) {
-                        ui.label(tr("No collections yet"));
+                        ui.show_label(tr("No collections yet"));
                     }
                     for (name, file) in all.into_iter().flatten() {
-                        if icon_button(ui, theme::icon::STACK, &name).clicked() {
+                        if icon_button(ui, theme::icon::STACK, escaped_name(&name)).clicked() {
                             self.add_to_collection(ui.ctx(), CollectionAddedTo::Saved(file));
                         }
                     }
@@ -507,7 +511,7 @@ pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Op
 fn valid_collection_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
     match crate::model::listing::refused_name(name, false).is_some() {
-        true => Err(tf!("Not a valid collection name: \"{name}\"", name)),
+        true => Err(tf!("Not a valid collection name: \"{name}\"", name).to_string()),
         false => Ok(name),
     }
 }
@@ -516,10 +520,10 @@ fn valid_collection_name(name: &str) -> Result<&str, String> {
 pub fn new_file(name: &str) -> Result<PathBuf, String> {
     let name = valid_collection_name(name)?;
     let file = collections_dir()
-        .ok_or(tr("no data folder ($HOME is not set)"))?
+        .ok_or(tr("no data folder ($HOME is not set)").to_string())?
         .join(format!("{name}.gqv"));
     match !crate::files::file_io::is_surely_gone(&file) {
-        true => Err(tf!("There is a collection called \"{name}\" already", name)),
+        true => Err(tf!("There is a collection called \"{name}\" already", name).to_string()),
         false => Ok(file),
     }
 }
@@ -538,16 +542,16 @@ pub fn rename(
     let _held = crate::files::file_io::file_lock(file);
     // Another program may have put another file at the name while the question was open.
     (picked.still_the_one_picked(file))
-        .map_err(|e| tf!("Could not rename the collection: {e}", e))?;
+        .map_err(|e| tf!("Could not rename the collection: {e}", e).to_string())?;
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
     // rename.
     match crate::files::file_io::rename_never_over(file, &new) {
         Ok(()) => Ok(new),
         Err(e) if e.is_name_taken() => {
-            Err(tf!("There is a collection called \"{name}\" already", name))
+            Err(tf!("There is a collection called \"{name}\" already", name).to_string())
         }
-        Err(e) => Err(tf!("Could not rename the collection: {e}", e)),
+        Err(e) => Err(tf!("Could not rename the collection: {e}", e).to_string()),
     }
 }
 
@@ -1784,7 +1788,7 @@ mod tests {
         assert_eq!(order(&app), names);
         let hides =
             crate::support::lang::tr("The search hides files this would act on: clear it first");
-        assert_eq!(app.notice.text(), Some(hides));
+        assert_eq!(app.notice.text(), Some(hides.as_str()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

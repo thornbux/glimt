@@ -8,12 +8,13 @@ use crate::files::file_ops::{FilesMoved, OperationReport};
 use crate::images::decode;
 use crate::images::save;
 use crate::images::save::{CopyAs, Format};
-use crate::support::format::{escaped_file_name, escaped_name};
+use crate::support::format::{ShownText, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::dialogs::Pick;
+use crate::ui::menus::{DrawShown, ShownChoice};
 use eframe::egui;
 #[cfg(feature = "video")]
 use std::path::Path;
@@ -175,7 +176,7 @@ impl crate::App {
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("save as")).show(ctx, |ui| {
             ui.strong(tr("Save As"));
-            ui.label(escaped_file_name(&dialog.path));
+            ui.show_label(escaped_file_name(&dialog.path));
             save_as_fields(ui, &mut dialog);
             crate::ui::menus::checkbox(
                 ui,
@@ -271,21 +272,21 @@ impl crate::App {
 fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
     // "…" while the original's format is still looked up.
     let original_format = dialog.original_format;
-    let original = original_format.map_or("…", format_name);
+    let original = original_format.map_or_else(|| ShownText::untranslated("…"), format_name);
     let [w, h] = dialog.original_size;
     let c = &mut dialog.choice;
     egui::Grid::new("save as grid")
         .num_columns(2)
         .show(ui, |ui| {
-            ui.label(tr("Format:"));
+            ui.show_label(tr("Format:"));
             let shown = match c.format {
-                None => tf!("As the original ({format})", format = original),
-                Some(f) => format_name(f).to_owned(),
+                None => tf!("As the original ({format})", format = &original),
+                Some(f) => format_name(f),
             };
             let combo = egui::ComboBox::from_id_salt("save as format")
-                .selected_text(&shown)
+                .selected(&shown)
                 .show_ui(ui, |ui| {
-                    let text = tf!("As the original ({format})", format = original);
+                    let text = tf!("As the original ({format})", format = &original);
                     crate::ui::menus::choice(ui, &mut c.format, None, &text);
                     for f in [Format::Jpeg, Format::Png, Format::WebP, Format::WebPLossy] {
                         crate::ui::menus::choice(ui, &mut c.format, Some(f), format_name(f));
@@ -293,7 +294,7 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
                 });
             noted(&combo.response, &shown);
             ui.end_row();
-            ui.label(tr("Size:"));
+            ui.show_label(tr("Size:"));
             ui.vertical(|ui| {
                 crate::ui::menus::radio_choice(
                     ui,
@@ -317,7 +318,7 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
                 });
             });
             ui.end_row();
-            ui.label("");
+            ui.show_label(ShownText::default());
             let (nw, nh) = match c.long_side(w.max(h)) {
                 Some(long) => {
                     let s = long as f64 / w.max(h) as f64;
@@ -326,11 +327,11 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
                 }
                 None => (w, h),
             };
-            ui.weak(tf!("Saved {w} × {h}; never enlarged", w = nw, h = nh));
+            ui.show_weak(tf!("Saved {w} × {h}; never enlarged", w = nw, h = nh));
             ui.end_row();
             let format = c.format.or(original_format);
             if matches!(format, Some(Format::Jpeg | Format::WebPLossy)) {
-                ui.label(tr("Quality:"));
+                ui.show_label(tr("Quality:"));
                 ui.add(egui::Slider::new(&mut c.quality, 50..=100));
                 ui.end_row();
             }
@@ -338,10 +339,10 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
 }
 
 /// A format's name in Save As.
-fn format_name(f: Format) -> &'static str {
+fn format_name(f: Format) -> ShownText {
     match f {
-        Format::Jpeg => "JPEG",
-        Format::Png => "PNG",
+        Format::Jpeg => ShownText::untranslated("JPEG"),
+        Format::Png => ShownText::untranslated("PNG"),
         Format::WebP => tr("WebP, lossless"),
         Format::WebPLossy => tr("WebP, lossy"),
     }

@@ -3337,3 +3337,27 @@ msgstr ""
 #: src/metadata/xmp.rs
 msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
 msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "\"{name}\""
+msgstr ""
+
+#: src/files/file_ops.rs
+msgid "{name}: {e}"
+msgstr ""
+
+#: src/files/file_ops.rs
+msgid "{done}; {failed}"
+msgstr ""
+
+#: src/ui/menus.rs
+msgid "{label} ({keys})"
+msgstr ""
+
+#: src/features/print.rs
+msgid "{n} ({cols} × {rows})"
+msgstr ""
+
+#: src/ui/file_list.rs
+msgid "{w} × {h}"
+msgstr ""

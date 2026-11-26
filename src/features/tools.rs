@@ -63,6 +63,11 @@ pub struct Tool {
 }
 
 impl Tool {
+    /// Returns the tool's name, from its desktop file, as the menu shows it: on one line.
+    pub fn shown_name(&self) -> crate::support::format::ShownText {
+        crate::support::format::ShownText::from_file_text_on_one_line(&self.name)
+    }
+
     /// Returns whether the tool accepts `path`: every file when its desktop file names no
     /// MimeType, otherwise a file whose extension has one of those types in the desktop's
     /// MIME database. A file of a type the database does not know is not accepted then.
@@ -144,7 +149,7 @@ impl Tool {
             let mut now = lock_even_if_poisoned(running);
             match now.iter().position(|r| r.1 == pid) {
                 Some(at) => drop(now.remove(at)),
-                None => return Err(crate::support::lang::tr("stopped").into()),
+                None => return Err(crate::support::lang::tr("stopped").to_string()),
             }
             drop(now);
             let status = status.map_err(|e| format!("{}: {e}", escaped_name(&program)))?;
@@ -396,7 +401,7 @@ fn file_code_only_in_quotes(words: &[CommandWord], file_codes: &[&str]) -> bool 
 /// because its file code is only inside a "quoted" word (`file_code_only_in_quotes`). Such a
 /// format is not loaded, and such a tool runs without files. Each line names the desktop file
 /// and the form to write instead. Glimt tells them at start, and `glimt --check-config` too.
-pub fn desktop_file_problems() -> Vec<String> {
+pub fn desktop_file_problems() -> Vec<crate::support::format::ShownText> {
     let given_no_file = |kind: &str, file_codes: &'static [&'static str]| {
         desktop_files(kind)
             .into_iter()
@@ -426,7 +431,7 @@ pub fn desktop_file_problems() -> Vec<String> {
 /// finds them in the user's Glimt folder and in the tools and added formats found. Glimt tells
 /// them at start, as an ordinary notice, and `glimt --check-config` too. Nothing is moved or
 /// removed, as they are the user's.
-pub fn old_desktop_files() -> Vec<String> {
+pub fn old_desktop_files() -> Vec<crate::support::format::ShownText> {
     let home = crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
     let mut found = desktop_files("formats");
     found.extend(desktop_files("tools"));
@@ -436,7 +441,10 @@ pub fn old_desktop_files() -> Vec<String> {
 /// Returns a line for each folder of the old names, plugins and decoders, in `glimt_home` that
 /// holds desktop files, which line names the folder to move them to, and a line for each
 /// desktop file of `found` with the header that added formats had before 0.76.0.
-fn old_desktop_files_in(glimt_home: Option<&Path>, found: &[(PathBuf, String)]) -> Vec<String> {
+fn old_desktop_files_in(
+    glimt_home: Option<&Path>,
+    found: &[(PathBuf, String)],
+) -> Vec<crate::support::format::ShownText> {
     let old_folders = [("plugins", "tools"), ("decoders", "formats")];
     let folders = old_folders.into_iter().filter_map(|(old, new)| {
         let (folder, new_folder) = (glimt_home?.join(old), glimt_home?.join(new));

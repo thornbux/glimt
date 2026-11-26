@@ -171,10 +171,10 @@ struct ReadAtStart {
     desktop_file_problem: Option<crate::viewer::view::Failure>,
     /// The old folders of tools and added formats, and the desktop files with an old header,
     /// that Glimt no longer reads (`tools::old_desktop_files`), as the window tells them.
-    old_desktop_files: Vec<String>,
+    old_desktop_files: Vec<crate::support::format::ShownText>,
     /// That the marks file of Glimt 0.95 and older was left in its place, as the marks file is
     /// in its new place too (`marks::move_old_marks_file`), as the window tells it.
-    old_marks_file_left: Option<String>,
+    old_marks_file_left: Option<crate::support::format::ShownText>,
     #[cfg(feature = "marks")]
     marks: crate::metadata::marks::Marks,
     /// The window state file's text, read once for both Remember Window and Remember Last
@@ -534,8 +534,9 @@ fn config_notice(problems: &[String]) -> Option<crate::viewer::view::Failure> {
         .filter(|p| !p.contains(": there is no setting "))
         .collect();
     let first = problems.first()?;
+    let first = crate::support::format::ShownText::from_cause(first.to_string());
     let more = match problems.len() - 1 {
-        0 => String::new(),
+        0 => crate::support::format::ShownText::default(),
         n => tf!("; and {n} more (glimt --check-config)", n),
     };
     Some(tf!("Settings file: {first}{more}", first, more).into())
@@ -556,9 +557,8 @@ fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
     let old_marks_file_left = crate::metadata::marks::move_old_marks_file();
     #[cfg(not(feature = "marks"))]
     let old_marks_file_left = None;
-    for problem in
-        (desktop_file_problems.iter().chain(&old_desktop_files)).chain(&old_marks_file_left)
-    {
+    let told = (old_desktop_files.iter()).chain(&old_marks_file_left);
+    for problem in (desktop_file_problems.iter()).chain(told) {
         eprintln!("glimt: {problem}");
     }
     // Parsed by `WindowState::parse`, which config's survives_broken_files feeds broken input.
@@ -714,7 +714,10 @@ mod tests {
         assert_eq!(super::config_notice(std::slice::from_ref(&unknown)), None);
         assert_eq!(
             super::config_notice(&[unknown, wrong.clone()]),
-            Some(format!("Settings file: {wrong}").into())
+            Some(
+                crate::support::format::ShownText::from_cause(format!("Settings file: {wrong}"))
+                    .into()
+            )
         );
         // The problems as parse_checked words them for a file that a 0.73 Glimt saved last.
         let (_, problems) =

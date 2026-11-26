@@ -642,7 +642,11 @@ impl DeleteLog {
         let (path, file) = self.log.into_path_and_file();
         crate::files::file_io::write_later(move || {
             if let Err(e) = write_anew(&dir, job, time, &records, &path) {
-                crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(dir)));
+                crate::files::file_io::save_failed(crate::tf!(
+                    "{name}: {e}",
+                    name = escaped_name(dir),
+                    e
+                ));
             }
             drop(file);
         });
@@ -868,7 +872,11 @@ fn remove_after_the_writes(mut log: JobLog) {
                 }
                 None => {
                     if let Err(e) = written_anew_without(&path, &applied) {
-                        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(path)));
+                        crate::files::file_io::save_failed(crate::tf!(
+                            "{name}: {e}",
+                            name = escaped_name(path),
+                            e
+                        ));
                     }
                 }
             }
@@ -1083,8 +1091,14 @@ fn tell(tells: &[Tell]) {
     use crate::files::file_io::{changed_meanwhile, gone_meanwhile, save_failed};
     for told in tells {
         let text = match told {
-            Tell::ChangedAtNewName(to) => format!("{}: {}", escaped_name(to), changed_meanwhile()),
-            Tell::GoneFromNewName(to) => format!("{}: {}", escaped_name(to), gone_meanwhile()),
+            Tell::ChangedAtNewName(to) => crate::tf!(
+                "{name}: {e}",
+                name = escaped_name(to),
+                e = changed_meanwhile()
+            ),
+            Tell::GoneFromNewName(to) => {
+                crate::tf!("{name}: {e}", name = escaped_name(to), e = gone_meanwhile())
+            }
             Tell::FoundGone(photo) => crate::tf!(
                 "{photo} was being deleted for good when Glimt stopped. It is gone, but its marks and stars, and any sidecar put aside under a hidden name beside it, are kept until the next start.",
                 photo = escaped_name(photo)
@@ -1424,7 +1438,7 @@ fn sidecars_back_from_hiding(
             continue;
         };
         if let Err(e) = put_right {
-            save_failed(format!("{}: {e}", escaped_name(side)));
+            save_failed(crate::tf!("{name}: {e}", name = escaped_name(side), e));
         }
     }
     (still_hidden, unseen)
@@ -1460,12 +1474,12 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
         Err(e) => {
             let may_have_been_done = e.may_have_been_done();
             let e = may_be_hidden(e, photo, hidden);
-            save_failed(format!("{}: {e}", escaped_name(side)));
+            save_failed(crate::tf!("{name}: {e}", name = escaped_name(side), e));
             return may_have_been_done;
         }
     };
     if let Err(e) = given_back {
-        save_failed(format!("{}: {e}", escaped_name(side)));
+        save_failed(crate::tf!("{name}: {e}", name = escaped_name(side), e));
     }
     false
 }
@@ -1475,7 +1489,7 @@ fn give_back_from_hiding(photo: &Path, side: &Path, hidden: &Path) -> bool {
 /// may mean that the rename was done all the same, on a share that lost its answer, so the
 /// sidecar may be under either name, and nothing guesses which.
 pub(crate) fn may_be_hidden(
-    e: impl std::fmt::Display,
+    e: impl crate::support::format::Shown,
     photo: &Path,
     hidden: &Path,
 ) -> std::io::Error {
@@ -1784,7 +1798,11 @@ fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
             Err(not) => (not.failed, not.left_behind),
         };
         for (_, at, error) in failed {
-            crate::files::file_io::save_failed(format!("{}: {error}", escaped_name(at)));
+            crate::files::file_io::save_failed(crate::tf!(
+                "{name}: {e}",
+                name = escaped_name(at),
+                e = error
+            ));
         }
         for left in left_behind {
             crate::files::file_io::save_failed(left.told());
@@ -2317,7 +2335,11 @@ fn unplanned_sidecars_follow_their_photos<'a>(
             let both = [name.to_path_buf(), at.to_path_buf()];
             let _locks = xmp::lock_sidecars_among(&both, &mut folders);
             if let Err((side, e)) = unplanned_sidecar_follows(name, at, &mut names) {
-                crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(side)));
+                crate::files::file_io::save_failed(crate::tf!(
+                    "{name}: {e}",
+                    name = escaped_name(side),
+                    e
+                ));
             }
         }
     }
@@ -2379,7 +2401,11 @@ pub fn repair_cut_short(
     let (known, folders) = match read_plan_known(plan, moves.len()) {
         Ok(read) => read,
         Err(e) => {
-            crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(plan)));
+            crate::files::file_io::save_failed(crate::tf!(
+                "{name}: {e}",
+                name = escaped_name(plan),
+                e
+            ));
             return Some((0, 1));
         }
     };
@@ -2406,7 +2432,7 @@ pub fn repair_cut_short(
             .collect(),
     };
     if let Some((name, e)) = another_file_at(taken.into_iter()) {
-        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(name)));
+        crate::files::file_io::save_failed(crate::tf!("{name}: {e}", name = escaped_name(name), e));
         return Some((0, 1));
     }
     let mut first = 0;

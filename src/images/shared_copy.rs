@@ -1000,7 +1000,7 @@ impl Group {
     ];
 
     /// The group's name in the dialog.
-    pub(crate) fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> crate::support::format::ShownText {
         match self {
             Group::Place => tr("Place"),
             Group::Camera => tr("Camera and lens"),

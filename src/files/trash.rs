@@ -3,6 +3,7 @@
 //! reading the trash folders' own files.
 
 use crate::files::file_io::{FileFingerprint, StepError, rename_never_over, shown_path};
+use crate::support::format::ShownText;
 use crate::{files::config, model::collections, tf};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -121,7 +122,7 @@ pub(crate) fn take_forgotten_marks(
 pub(crate) fn restore(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
-) -> (Vec<PathBuf>, Option<String>) {
+) -> (Vec<PathBuf>, Option<ShownText>) {
     restore_noting(trash_move, dirs_of, &mut |_: Restoring| {})
 }
 
@@ -132,7 +133,7 @@ pub(crate) fn restore_noting(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
     on_back: &mut dyn FnMut(Restoring),
-) -> (Vec<PathBuf>, Option<String>) {
+) -> (Vec<PathBuf>, Option<ShownText>) {
     restore_between(trash_move, dirs_of, std::time::SystemTime::now(), on_back)
 }
 
@@ -144,7 +145,7 @@ pub(crate) fn restore_until(
     trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
     latest: std::time::SystemTime,
-) -> (Vec<PathBuf>, Option<String>) {
+) -> (Vec<PathBuf>, Option<ShownText>) {
     restore_between(trash_move, dirs_of, latest, &mut |_: Restoring| {})
 }
 
@@ -155,7 +156,7 @@ fn restore_between(
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::File>)>,
     latest: std::time::SystemTime,
     on_back: &mut dyn FnMut(Restoring),
-) -> (Vec<PathBuf>, Option<String>) {
+) -> (Vec<PathBuf>, Option<ShownText>) {
     // Each trash folder is read, and its files put back, through the folder that `dirs_of`
     // opened and checked, which stays open until the end.
     type Read = (Option<std::fs::File>, HashMap<PathBuf, TrashEntry>);
@@ -227,7 +228,7 @@ fn restore_between(
         first
     };
     // A file that cannot come back is told, and left to be undone again with its sidecar.
-    let (mut found, mut error): (Vec<TrashEntry>, Option<String>) = (Vec::new(), None);
+    let (mut found, mut error): (Vec<TrashEntry>, Option<ShownText>) = (Vec::new(), None);
     let left: HashSet<&PathBuf> = trash_move.sidecars_left.iter().collect();
     let mut came_out = HashSet::new();
     let mut names = crate::metadata::xmp::AdobeNames::arriving(trash_move.files.iter().cloned());
@@ -316,14 +317,14 @@ fn sidecars_by_file<'a>(
 fn put_back(
     steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
     came_out: &HashSet<PathBuf>,
-    error: &mut Option<String>,
+    error: &mut Option<ShownText>,
     on_back: &mut dyn FnMut(Restoring),
 ) -> Vec<PathBuf> {
     let rename = |t: &TrashEntry, on_back: &mut dyn FnMut(Restoring)| {
         rename_never_over(&t.file, &t.from).map_err(|e| {
             let e = std::io::Error::from(e);
             on_back(Restoring::Failed(&t.file, &t.from, &e));
-            format!("{shown}: {e}", shown = shown_path(&t.from))
+            crate::tf!("{name}: {e}", name = shown_path(&t.from), e)
         })
     };
     let (mut back, mut renamed) = (Vec::new(), Vec::new());
@@ -342,7 +343,7 @@ fn put_back(
         let mut out = vec![t];
         for side in sides {
             if let Err(e) = rename_never_over(&side.file, &side.from) {
-                let told = format!("{shown}: {e}", shown = shown_path(&side.from));
+                let told = crate::tf!("{name}: {e}", name = shown_path(&side.from), e);
                 match sidecar_back_after_all(&side, &e) {
                     Some(true) => {
                         out.push(side);
@@ -409,7 +410,7 @@ fn put_back(
         let is_on_disk = *synced.entry(folder).or_insert_with(|| {
             let result = crate::files::file_io::sync_folder_of(&t.from);
             if let Err(e) = &result {
-                error.get_or_insert(format!("{}: {e}", shown_path(folder)));
+                error.get_or_insert(crate::tf!("{name}: {e}", name = shown_path(folder), e));
             }
             result.is_ok()
         });
@@ -576,9 +577,9 @@ fn left_by_a_program(paths: &[PathBuf], said: &str) -> Vec<(PathBuf, StepError)>
 
 /// Returns the failures of `trash`, each with the name of its file, as one text to tell, or
 /// `None` when every file went.
-pub(crate) fn told_failure(failed: &[(PathBuf, StepError)]) -> Option<String> {
+pub(crate) fn told_failure(failed: &[(PathBuf, StepError)]) -> Option<ShownText> {
     let (path, e) = failed.first()?;
-    Some(format!("{}: {e}", shown_path(path)))
+    Some(crate::tf!("{name}: {e}", name = shown_path(path), e))
 }
 
 /// Moves `paths` into a trash by hand, the one that gio would choose for each. A file on the file

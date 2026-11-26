@@ -547,16 +547,17 @@ pub fn colour_source(path: &Path) -> String {
                 l.first().map_or(String::new(), |s| s.value.clone())
             }
             Some(ProfileText::Description(d)) => d.ascii_string.clone(),
-            None => tr("unnamed").to_owned(),
+            None => tr("unnamed").to_string(),
         }
     }
     let c = crate::support::threads::read_even_if_poisoned(&COLOUR);
     let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
-    match own {
+    let source = match own {
         Some(own) if c.use_image_profile => own,
         Some(own) => crate::tf!("{own}; {input} used instead", own, input),
         None => crate::tf!("none: taken as {input}", input),
-    }
+    };
+    source.to_string()
 }
 
 /// The desktop's screen profile file, read from colord in the background.
@@ -746,7 +747,7 @@ pub(crate) fn set_up_colour(config: &Config) -> Option<crate::viewer::view::Fail
         .err();
     set_colour(|c| c.use_image_profile = config.use_image_profile);
     set_intent(&config.rendering_intent);
-    error.map(Into::into)
+    error.map(|e| crate::support::format::ShownText::from_cause(e).into())
 }
 
 /// Makes the images for the screen wait a moment for the desktop's screen profile, when colour

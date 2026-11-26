@@ -11,10 +11,11 @@ use crate::model::listing::{
     FolderReadWhole, FoldersRead, ListedName, NameHashes, ReadWhole, Rows, SortKey, Types, Unread,
     is_listed, list_folder, walk, walk_tree,
 };
-use crate::support::format::{NOT_COUNTED_ON_A_SHARE, escaped_name};
+use crate::support::format::{NOT_COUNTED_ON_A_SHARE, ShownText, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
+use crate::ui::menus::DrawShown;
 use crate::ui::menus::{scroll_menu, with_icon};
 use crate::viewer::view::{Failure, Viewing};
 use crate::{files::config, files::external, model::collections, model::listing, tf, ui::theme};
@@ -89,7 +90,7 @@ pub(crate) struct Folder {
     looking_up_since: Option<(Instant, PathBuf)>,
     /// The notice that the place is still opening, as given. It is taken away when the look-up
     /// answers or another one replaces it.
-    still_opening_notice: Option<String>,
+    still_opening_notice: Option<ShownText>,
     /// The place that Remember Last Folder keeps while the one shown cannot be kept: the place
     /// remembered at the start, until the first look-up answers, and the folder or collection
     /// shown before several folders were shown together.
@@ -1426,7 +1427,7 @@ impl crate::App {
             entries: Err(e),
         } = &found
         {
-            let failure = Failure::because(escaped_name(file), e.to_string());
+            let failure = Failure::because(escaped_name(file), ShownText::of(e));
             return self.notice.give_error(failure);
         }
         self.step_history(opening.history);
@@ -1478,7 +1479,7 @@ impl crate::App {
             return;
         };
         // A warning kept under the notice adds lines after its own, which stay after the clear.
-        let is_shown = |text: &str| text == told || text.starts_with(&format!("{told}\n"));
+        let is_shown = |text: &str| text == told.as_str() || text.starts_with(&format!("{told}\n"));
         if self.notice.text().is_some_and(is_shown) {
             self.notice.clear();
         }
@@ -1589,7 +1590,7 @@ impl crate::App {
             |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 if self.folder.recent.is_empty() {
-                    ui.weak(tr("Nothing opened yet"));
+                    ui.show_weak(tr("Nothing opened yet"));
                     return;
                 }
                 let mut chosen = None;
@@ -2243,7 +2244,7 @@ impl crate::App {
         let (path, e) = unread;
         let heading = tf!("Could not open {name}", name = escaped_name(path));
         self.notice
-            .give_error(Failure::because(heading, e.to_string()));
+            .give_error(Failure::because(heading, ShownText::of(&e)));
         if !read.is_empty() {
             self.watch_folders_read(ctx, read, false);
         }
@@ -2305,7 +2306,7 @@ impl crate::App {
         let Some((path, e)) = new.first() else {
             return;
         };
-        let mut cause = e.to_string();
+        let mut cause = ShownText::of(e);
         if new.len() > 1 {
             let n = new.len() - 1;
             cause += &tf!(", and {n} more", n);
@@ -5105,7 +5106,11 @@ mod tests {
         .unwrap();
         app.folder.recent = vec![gone.clone()];
         app.visit_if_there(&ctx, gone.clone(), |p| {
-            format!("{} is gone", p.display()).into()
+            crate::tf!(
+                "{name} is gone",
+                name = crate::support::format::escaped_name(p)
+            )
+            .into()
         });
         assert!(app.notice.text().is_none());
         assert!(run_background_until(&mut app, &ctx, |a| a

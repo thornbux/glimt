@@ -3,9 +3,12 @@
 
 use crate::files::file_io::{AsSeen, FileFingerprint, fingerprint, fingerprint_of_file_read};
 use crate::files::file_ops::Removal;
-use crate::support::format::{count, escaped_file_name, escaped_name, human_size, thousands};
+use crate::support::format::{
+    ShownText, count, escaped_file_name, escaped_name, human_size, thousands,
+};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
+use crate::ui::menus::{DrawShown, ShownChoice};
 use crate::{features::duplicates, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -128,7 +131,7 @@ impl FindDuplicates {
     /// click on a name sets `show`. Returns whether Move to Trash was clicked.
     fn results(&mut self, ui: &mut egui::Ui, show: &mut Option<PathBuf>) -> bool {
         let files: usize = self.groups.iter().map(Vec::len).sum();
-        ui.label(tf!(
+        ui.show_label(tf!(
             "{groups}, {files}, among {images}",
             groups = count(self.groups.len(), "group"),
             files = count(files, "file"),
@@ -156,7 +159,7 @@ impl FindDuplicates {
                     && self.may_trash_without_warning();
         });
         if self.is_warning_before_trash {
-            ui.label(tf!(
+            ui.show_label(tf!(
                 "These groups were found by {by}, so the checked files may be different images, not copies.",
                 by = tr(label_of(self.found_by))
             ));
@@ -187,7 +190,7 @@ impl FindDuplicates {
                     let path = &group[f];
                     ui.horizontal(|ui| {
                         let mut on = self.checked.contains(path);
-                        if crate::ui::menus::checkbox(ui, &mut on, "").changed() {
+                        if crate::ui::menus::checkbox(ui, &mut on, ShownText::default()).changed() {
                             match on {
                                 true => self.checked.insert(path.clone()),
                                 false => self.checked.remove(path),
@@ -200,11 +203,11 @@ impl FindDuplicates {
                         let size = self
                             .sizes
                             .get(path)
-                            .map_or_else(String::new, |&s| human_size(s));
-                        ui.weak(format!(
-                            "{}  {}",
-                            size,
-                            escaped_name(path.parent().unwrap_or(path))
+                            .map_or_else(ShownText::default, |&s| human_size(s));
+                        let folder = escaped_name(path.parent().unwrap_or(path));
+                        ui.show_weak(ShownText::join(
+                            [&size, &folder],
+                            &ShownText::untranslated("  "),
                         ));
                     });
                 }
@@ -302,12 +305,12 @@ impl crate::App {
             .default_size([620.0, 480.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(tf!(
+                    ui.show_label(tf!(
                         "Among the {count} in the list, compare by",
                         count = count(self.list.files().len(), "image")
                     ));
                     egui::ComboBox::from_id_salt("compare by")
-                        .selected_text(tr(label_of(find_duplicates.by)))
+                        .selected(tr(label_of(find_duplicates.by)))
                         .show_ui(ui, |ui| {
                             for (by, label) in ALL {
                                 crate::ui::menus::choice(
@@ -332,7 +335,7 @@ impl crate::App {
                         find_duplicates.progress.done.load(Ordering::Relaxed),
                         find_duplicates.progress.total.load(Ordering::Relaxed),
                     );
-                    ui.label(tf!(
+                    ui.show_label(tf!(
                         "Comparing… {done} of {total}",
                         done = thousands(done),
                         total = thousands(total)
@@ -342,7 +345,7 @@ impl crate::App {
                 }
                 if find_duplicates.searched == 0 {
                     if !self.folder.recursive() {
-                        ui.weak(tr(
+                        ui.show_weak(tr(
                             "Include Subfolders in the View menu searches the folders below too.",
                         ));
                     }
@@ -888,7 +891,10 @@ mod tests {
         find_duplicates.checked = [dir.join("a.png"), dir.join("b.png")].into();
         app.trash_checked(&ctx, &find_duplicates);
         let hides = "The search hides files this would act on: clear it first";
-        assert_eq!(app.notice.text(), Some(crate::support::lang::tr(hides)));
+        assert_eq!(
+            app.notice.text(),
+            Some(crate::support::lang::tr(hides).as_str())
+        );
         assert_eq!(app.list.selected(), &[2].into());
         assert!(!app.asking_about_selection());
         std::fs::remove_dir_all(dir).unwrap();

@@ -289,6 +289,10 @@ fn check_config(file: Option<PathBuf>) -> ! {
     };
     let mut desktop_file_problems = crate::features::tools::desktop_file_problems();
     desktop_file_problems.extend(crate::features::tools::old_desktop_files());
+    let desktop_file_problems: Vec<String> = desktop_file_problems
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     let (out, err, code) = config_report(config_check(&path, given), &desktop_file_problems);
     out.iter().for_each(|line| println!("{line}"));
     // The marks file of Glimt 0.95 and older left beside the new one, which the window tells
@@ -314,7 +318,7 @@ fn config_report(
         Err(problems) => (Vec::new(), problems, CHECK_CONFIG_PROBLEMS),
     };
     if !desktop_file_problems.is_empty() {
-        out.push(crate::support::lang::tr("Added formats and tools:").to_owned());
+        out.push(crate::support::lang::tr("Added formats and tools:").to_string());
         out.extend(desktop_file_problems.iter().cloned());
     }
     (out, err, code)

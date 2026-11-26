@@ -4,6 +4,7 @@
 use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
 use crate::model::listing;
+use crate::support::format::ShownText;
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{
@@ -236,7 +237,7 @@ impl crate::App {
             Took::Nothing => {}
             Took::Gone => self.tell_background_stopped(tr("Reading the Lightroom catalog")),
             Took::Answer((Ok(import), _pointer)) => self.lightroom = Some(import),
-            Took::Answer((Err(e), _pointer)) => self.notice.give_error(e),
+            Took::Answer((Err(e), _pointer)) => self.notice.give_error(ShownText::from_cause(e)),
         }
     }
 
@@ -265,7 +266,7 @@ impl crate::App {
 
     /// A background thread ended without its answer (it panicked on something): told, so the
     /// user knows why `what` did not come, instead of a pointer or a dialog waiting for ever.
-    pub(crate) fn tell_background_stopped(&mut self, what: &str) {
+    pub(crate) fn tell_background_stopped(&mut self, what: ShownText) {
         self.notice
             .give_error(tf!("{what} stopped unexpectedly", what));
     }

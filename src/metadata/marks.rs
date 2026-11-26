@@ -7,6 +7,7 @@ use crate::files::config::fits_on_a_line;
 use crate::files::file_io::{ListedFile, Transfer};
 use crate::files::journal::MarksAtNewNames;
 use crate::files::trash::ForgottenMarks;
+use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
@@ -378,7 +379,7 @@ enum MarksMove {
     Done,
     /// Both files are there. The new one is used, and the old one is left as it is, which the
     /// text tells the user.
-    BothKept(String),
+    BothKept(crate::support::format::ShownText),
     /// The old file could not be moved, which was told, and is used where it is.
     Failed,
 }
@@ -529,7 +530,7 @@ fn old_marks_file() -> Option<PathBuf> {
 /// for the disk, so `main` calls it before the window opens and before the marks are read. A
 /// move that failed leaves this window with the old file, where it is. Returns the notice that
 /// both files are there, when they are.
-pub fn move_old_marks_file() -> Option<String> {
+pub fn move_old_marks_file() -> Option<crate::support::format::ShownText> {
     let (old, new) = (old_marks_file()?, marks_file()?);
     match move_marks_file(&old, &new) {
         MarksMove::Done => None,
@@ -567,7 +568,7 @@ fn move_marks_file_by(
     if is_surely_gone(old) || is_one_file(old, new) {
         return MarksMove::Done;
     }
-    let failed = |e: &dyn std::fmt::Display| {
+    let failed = |e: &dyn crate::support::format::Shown| {
         crate::files::file_io::save_failed(crate::tf!(
             "Could not move the marks file {from} to {to}: {e}. The marks are kept where they are.",
             from = escaped_name(old),
@@ -662,7 +663,7 @@ fn marks_lock(file: &Path) -> Option<PathBuf> {
 /// Returns that the marks file of Glimt 0.95 and older is left beside the marks file in its
 /// place now, for `--check-config`, which moves nothing. Returns `None` when they are not both
 /// there.
-pub fn old_marks_file_left() -> Option<String> {
+pub fn old_marks_file_left() -> Option<ShownText> {
     old_file_left_beside(&old_marks_file()?, &marks_file()?)
 }
 
@@ -670,7 +671,7 @@ pub fn old_marks_file_left() -> Option<String> {
 /// is there too, or `None` when either is gone. A file that could not be looked at counts as
 /// there, so that the old one is left alone. The link the move leaves at `old` is no file left
 /// beside the new one.
-fn old_file_left_beside(old: &Path, new: &Path) -> Option<String> {
+fn old_file_left_beside(old: &Path, new: &Path) -> Option<ShownText> {
     use crate::files::file_io::is_surely_gone;
     (!is_surely_gone(old) && !is_surely_gone(new) && !is_one_file(old, new)).then(|| {
         crate::tf!(
@@ -921,7 +922,7 @@ fn apply_edit_to_file(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: 
 /// the thread of Glimt's own files, so an NFS share that stopped answering holds the settings
 /// behind a mark set there; move the marks to the thread of the user's folders (keeping
 /// `read_file_again` in the same thread) if that is seen.
-fn names_taken(edits: &[Edit]) -> (Vec<&ListedFile>, Option<String>) {
+fn names_taken(edits: &[Edit]) -> (Vec<&ListedFile>, Option<ShownText>) {
     let files = edits.iter().flat_map(|edit| match edit {
         Edit::Change(files, _) => files.as_slice(),
         _ => &[],
@@ -930,7 +931,9 @@ fn names_taken(edits: &[Edit]) -> (Vec<&ListedFile>, Option<String>) {
     let taken: Vec<&ListedFile> = files
         .filter(|f| {
             f.check()
-                .map_err(|e| first.get_or_insert(format!("{}: {e}", escaped_name(f.path()))))
+                .map_err(|e| {
+                    first.get_or_insert(crate::tf!("{name}: {e}", name = escaped_name(f.path()), e))
+                })
                 .is_err()
         })
         .collect();
@@ -1218,16 +1221,18 @@ fn set_rating(xmp: &str, stars: u8) -> Option<String> {
 }
 
 /// "★★★" for the stars and "1 4" for the marks, for the file list and overlay.
-pub fn text((bits, stars): (u8, u8)) -> String {
-    let marks: Vec<String> = (1..=6)
+pub fn text((bits, stars): (u8, u8)) -> ShownText {
+    let marks: Vec<ShownText> = (1..=6u8)
         .filter(|n| bits & (1 << (n - 1)) != 0)
-        .map(|n| n.to_string())
+        .map(ShownText::number)
         .collect();
-    let stars = "★".repeat(stars as usize);
+    let star = ShownText::untranslated("★");
+    let stars = ShownText::concat((0..stars).map(|_| &star));
+    let marks = ShownText::join(&marks, &ShownText::untranslated(" "));
     match (marks.is_empty(), stars.is_empty()) {
         (true, _) => stars,
-        (false, true) => marks.join(" "),
-        (false, false) => format!("{stars}  {}", marks.join(" ")),
+        (false, true) => marks,
+        (false, false) => ShownText::join([&stars, &marks], &ShownText::untranslated("  ")),
     }
 }
 

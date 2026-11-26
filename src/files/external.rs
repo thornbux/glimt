@@ -181,7 +181,7 @@ pub fn decode_heif(
         .args(FILES_ONLY)
         .arg(path)
         .spawn()
-        .map_err(|e| crate::tf!("HEIC and AVIF need ffprobe (ffmpeg): {e}", e))?;
+        .map_err(|e| crate::tf!("HEIC and AVIF need ffprobe (ffmpeg): {e}", e).to_string())?;
     let (probe, _, _) = output_of(&mut child, 1 << 20, PROGRAM_TIME_LIMIT);
     let probe = probe.unwrap_or_default();
     let probe = String::from_utf8_lossy(&probe);
@@ -528,7 +528,7 @@ pub fn ffmpeg_ppm(
         .args(after)
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .spawn()
-        .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e))?;
+        .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e).to_string())?;
     let (frame, err, ok) = output_of(&mut child, limit, PROGRAM_TIME_LIMIT);
     let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {
@@ -558,10 +558,9 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     // An option is not a place, and -u or -e would unmount or eject. It is not given to gio at
     // all, because `gio mount` takes no -- before its places. `gio info` does, and gets one.
     if uri.starts_with('-') {
-        return Err(Some(crate::tf!(
-            "Could not mount {uri}: not an address",
-            uri
-        )));
+        return Err(Some(
+            crate::tf!("Could not mount {uri}: not an address", uri).to_string(),
+        ));
     }
     // This has the usual limit, because asked before the mount, it would otherwise wait on a
     // server that never answers, with no watchdog yet.
@@ -580,7 +579,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .args(["mount", uri])
         .stdin(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| Some(crate::tf!("Could not run gio: {e}", e)))?;
+        .map_err(|e| Some(crate::tf!("Could not run gio: {e}", e).to_string()))?;
     // When a server never answers (a NAS asleep, a VPN down), gio is ended after a minute and
     // the mount is told as failed, instead of "Connecting…" and the busy pointer for ever.
     let watchdog = Watchdog::new(child.id(), PROGRAM_TIME_LIMIT * 2);
@@ -608,10 +607,10 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
             if passwords > 1 {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(Some(crate::tf!(
-                    "Could not mount {uri}: wrong user name or password",
-                    uri
-                )));
+                return Err(Some(
+                    crate::tf!("Could not mount {uri}: wrong user name or password", uri)
+                        .to_string(),
+                ));
             }
             &login.password
         } else if prompt.contains("domain") {
@@ -628,7 +627,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     let out = child.wait_with_output().map_err(|e| Some(e.to_string()))?;
     if watchdog.gave_up() {
         return Err(Some(
-            crate::support::lang::tr("No answer from the server in a minute").into(),
+            crate::support::lang::tr("No answer from the server in a minute").to_string(),
         ));
     }
     local().ok_or_else(|| {
@@ -639,19 +638,22 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
             .strip_prefix("gio: ")
             .and_then(|e| e.split_once(": "))
             .map_or(err, |e| e.1);
-        Some(crate::tf!(
-            "Could not mount {uri}: {err}{hint}",
-            uri,
-            err,
-            hint = unknown_host(uri)
-        ))
+        Some(
+            crate::tf!(
+                "Could not mount {uri}: {err}{hint}",
+                uri,
+                err,
+                hint = unknown_host(uri)
+            )
+            .to_string(),
+        )
     })
 }
 
 /// A hint for when the system's name lookup does not find the server's name in `uri`. A NAS is
 /// often known only as name.local (mDNS) or by its address, and Samba then fails with "Invalid
 /// argument" after the login rather than saying so.
-fn unknown_host(uri: &str) -> String {
+fn unknown_host(uri: &str) -> crate::support::format::ShownText {
     use std::net::ToSocketAddrs;
     let host = uri_host(uri);
     if host.is_empty()
@@ -659,7 +661,7 @@ fn unknown_host(uri: &str) -> String {
             .to_socket_addrs()
             .is_ok_and(|mut a| a.next().is_some())
     {
-        return String::new();
+        return crate::support::format::ShownText::default();
     }
     match host.contains('.') {
         true => crate::tf!(" (the name {host} is not found)", host),

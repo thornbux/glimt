@@ -7,14 +7,15 @@ use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{ImagesAwaited, ReadsFirst, SORTS, Types, list_folder};
 use crate::support::format::{
-    NOT_COUNTED_ON_A_SHARE, count, escaped_file_name, escaped_name, human_size, local_time,
-    middle_cut, size_text, thousands,
+    NOT_COUNTED_ON_A_SHARE, ShownText, count, escaped_file_name, escaped_name, human_size,
+    middle_cut, shown_time, size_text, thousands,
 };
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{Pick, entered};
+use crate::ui::menus::{DrawShown, PaintShown, ShownTip};
 use crate::ui::menus::{button, checkbox, radio_choice, scroll_menu, selectable, submenu};
 use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{Failure, broken_mark, pane_map};
@@ -452,7 +453,7 @@ pub(crate) struct StatusBar {
     /// status bar is drawn before the image area, so it tells about the frame before.
     panes_drawn: Option<PanesDrawn>,
     /// The position "[n/m]" of an image in another pane than the first, by image and list length.
-    position_text: Option<(usize, usize, String)>,
+    position_text: Option<(usize, usize, ShownText)>,
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
@@ -590,8 +591,8 @@ impl StatusBar {
         &mut self,
         idx: usize,
         total: usize,
-        make: impl FnOnce() -> String,
-    ) -> String {
+        make: impl FnOnce() -> ShownText,
+    ) -> ShownText {
         if let Some((i, t, text)) = &self.position_text
             && (*i, *t) == (idx, total)
         {
@@ -828,20 +829,20 @@ impl crate::App {
             name_rect.max.x -= DETAILS_WIDTH;
             // They are blank until the file is looked at in the background.
             let (bytes, mtime) = match self.file_details(i) {
-                Some((bytes, mtime)) => (thousands(bytes as usize), local_time(mtime)),
-                None => (String::new(), String::new()),
+                Some((bytes, mtime)) => (thousands(bytes as usize), shown_time(mtime)),
+                None => (ShownText::default(), ShownText::default()),
             };
             let y = rect.center().y;
             let size_right = name_rect.max.x + DETAILS_WIDTH - DATE_WIDTH - 8.0;
             let p = ui.painter();
-            p.text(
+            p.show_text(
                 egui::pos2(size_right, y),
                 egui::Align2::RIGHT_CENTER,
                 bytes,
                 font.clone(),
                 text_color,
             );
-            p.text(
+            p.show_text(
                 egui::pos2(rect.max.x - DATE_WIDTH, y),
                 egui::Align2::LEFT_CENTER,
                 mtime,
@@ -854,9 +855,9 @@ impl crate::App {
         if !marks.is_empty() {
             let gold = egui::Color32::from_rgb(255, 190, 40);
             let at = egui::pos2(name_rect.max.x - 6.0, rect.center().y);
-            let r = ui
-                .painter()
-                .text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
+            let r =
+                ui.painter()
+                    .show_text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
             name_rect.max.x = r.left() - 8.0;
         }
         // A file Check Images found broken gets a warning sign at the right.
@@ -875,7 +876,7 @@ impl crate::App {
                 <= width
         };
         let name = middle_cut(&self.name(i), fits);
-        p.with_clip_rect(name_rect).text(
+        p.with_clip_rect(name_rect).show_text(
             egui::pos2(name_rect.min.x, rect.center().y),
             egui::Align2::LEFT_CENTER,
             name,
@@ -906,7 +907,7 @@ impl crate::App {
         let response = ui.interact(rect, ui.scope_id().with(("cell", i)), egui::Sense::click());
         let go_to =
             order.and_then(|order| self.select_on_click(ui.ctx(), &response, i, Some(order)));
-        let name = self.name(i).into_owned();
+        let name = self.name(i);
         speak_item(&response, marked, &name);
         let visuals = ui.visuals();
         if marked || response.hovered() {
@@ -917,7 +918,7 @@ impl crate::App {
         self.paint_thumb(ui, i, frame);
         if self.config.grid_names {
             let font = egui::TextStyle::Small.resolve(ui.style());
-            let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
+            let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font, color);
             job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
             let galley = ui.painter().layout_job(job);
             let at = egui::pos2(
@@ -939,7 +940,8 @@ impl crate::App {
         if !marks.is_empty() {
             let p = ui.painter();
             let gold = egui::Color32::from_rgb(255, 190, 40);
-            let galley = p.layout_no_wrap(marks, egui::TextStyle::Small.resolve(ui.style()), gold);
+            let small = egui::TextStyle::Small.resolve(ui.style());
+            let galley = p.layout_no_wrap(marks.to_string(), small, gold);
             let at = egui::Rect::from_min_size(
                 frame.right_top() + egui::vec2(-galley.size().x - 4.0, 3.0),
                 galley.size(),
@@ -949,7 +951,7 @@ impl crate::App {
         }
         let response = response.on_hover_text_at_pointer(match self.folder.collection() {
             Some(_) => escaped_name(self.path(i)),
-            None => self.name(i).into_owned(),
+            None => self.name(i),
         });
         (response, go_to)
     }
@@ -1144,14 +1146,16 @@ impl crate::App {
                 ui.horizontal(|ui| {
                     ui.add_space(depth as f32 * ui.spacing().indent);
                     if path.as_os_str().is_empty() {
-                        return drop(ui.label("…"));
+                        return drop(ui.show_label(ShownText::untranslated("…")));
                     }
                     let open = self.tree.expanded.contains(path);
-                    let name = path.file_name().map_or("/".into(), escaped_name);
+                    let name = path
+                        .file_name()
+                        .map_or_else(|| ShownText::untranslated("/"), escaped_name);
                     if crate::ui::menus::caret(ui, open, &name).clicked() {
                         toggled = Some(path.to_path_buf());
                     }
-                    let label = selectable(ui, path == self.folder.dir(), name.as_ref());
+                    let label = selectable(ui, path == self.folder.dir(), &name);
                     if label.clicked() {
                         *open_dir = Some(path.to_path_buf());
                     }
@@ -1240,9 +1244,12 @@ impl crate::App {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (k, dir) in self.folder.sort_folders().to_vec().into_iter().enumerate() {
                         ui.horizontal(|ui| {
-                            if crate::ui::menus::small_button(ui, theme::icon::CLOSE)
-                                .on_hover_text(tr("Remove"))
-                                .clicked()
+                            if crate::ui::menus::small_button(
+                                ui,
+                                ShownText::untranslated(theme::icon::CLOSE),
+                            )
+                            .tip(tr("Remove"))
+                            .clicked()
                             {
                                 remove = Some(k);
                             }
@@ -1250,8 +1257,8 @@ impl crate::App {
                             let here = dir == self.folder.dir();
                             let on = !here && !self.list.files().is_empty();
                             let button =
-                                crate::ui::menus::button_enabled(ui, on, &escaped_name(name));
-                            if button.on_hover_text(escaped_name(&dir)).clicked()
+                                crate::ui::menus::button_enabled(ui, on, escaped_name(name));
+                            if button.tip(escaped_name(&dir)).clicked()
                                 && let Some(targets) = self.targets()
                             {
                                 let files = targets.iter().map(|&i| self.listed_file(i));
@@ -1347,18 +1354,21 @@ impl crate::App {
     /// menu.
     pub(crate) fn types_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let c = &mut self.config;
-        let mut all = vec![(tr("Images"), &mut c.list_images), ("RAW", &mut c.list_raw)];
+        let mut all = vec![
+            (tr("Images"), &mut c.list_images),
+            (ShownText::untranslated("RAW"), &mut c.list_raw),
+        ];
         if cfg!(feature = "video") {
             all.push((tr("Videos"), &mut c.list_videos));
         }
-        let on: Vec<&str> = all.iter().filter(|t| *t.1).map(|t| t.0).collect();
+        let on: Vec<&ShownText> = all.iter().filter(|t| *t.1).map(|t| &t.0).collect();
         let title = match on.len() {
-            n if n == all.len() => tr("All types").to_owned(),
-            0 => tr("No types").to_owned(),
-            _ => on.join(", "),
+            n if n == all.len() => tr("All types"),
+            0 => tr("No types"),
+            _ => ShownText::join(on, &ShownText::untranslated(", ")),
         };
         let mut changed = false;
-        submenu(ui, format!("{title} {}", theme::icon::CARET_DOWN), |ui| {
+        submenu(ui, with_caret(&title), |ui| {
             for (label, on) in all {
                 changed |= checkbox(ui, on, label).changed();
             }
@@ -1373,11 +1383,7 @@ impl crate::App {
     /// Geeqie's sort menu in the status bar.
     pub(crate) fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut changed = false;
-        let title = format!(
-            "{} {}",
-            tr(self.config.sort.row().2),
-            theme::icon::CARET_DOWN
-        );
+        let title = with_caret(&tr(self.config.sort.row().2));
         scroll_menu(ui, title, |ui| {
             for (sort, _, label) in SORTS {
                 if selectable(ui, self.config.sort == sort, tr(label)).clicked() {
@@ -1557,13 +1563,18 @@ impl crate::App {
                 for row in range {
                     let is_up = row == 0 && up.is_some();
                     let (label, target) = match (row, &up) {
-                        (0, Some(parent)) => (format!("{}  ..", theme::icon::UP), parent),
+                        (0, Some(parent)) => (
+                            ShownText::concat([
+                                &ShownText::untranslated(theme::icon::UP),
+                                &ShownText::untranslated("  .."),
+                            ]),
+                            parent,
+                        ),
                         _ => {
                             let d = &self.folder.subdirs()[row - up.is_some() as usize];
-                            (
-                                format!("{}  {}", theme::icon::FOLDER, escaped_file_name(d)),
-                                d,
-                            )
+                            let icon = ShownText::untranslated(theme::icon::FOLDER);
+                            let gap = ShownText::untranslated("  ");
+                            (ShownText::concat([&icon, &gap, &escaped_file_name(d)]), d)
                         }
                     };
                     let target = target.clone();
@@ -1673,7 +1684,11 @@ impl crate::App {
                     if marks.is_empty() {
                         selectable(ui, marked, &name)
                     } else {
-                        selectable(ui, marked, &format!("{name}   {marks}"))
+                        selectable(
+                            ui,
+                            marked,
+                            ShownText::join([&name, &marks], &ShownText::untranslated("   ")),
+                        )
                     }
                 };
                 // The release tests click a row by its file's name.
@@ -1996,7 +2011,7 @@ impl crate::App {
                         .then_some(self.status_bar.total_size),
                 );
                 let mut left = match self.list.matches() {
-                    _ if self.folder.is_listing() => tr("Reading folder…").to_owned(),
+                    _ if self.folder.is_listing() => tr("Reading folder…"),
                     // A search shows the matches, with the count and size of what the list
                     // shows.
                     Some(found) => {
@@ -2010,14 +2025,19 @@ impl crate::App {
                             size
                         )
                     }
-                    None => format!("{count} ({size})", count = count(n, "image")),
+                    None => ShownText::concat([
+                        &count(n, "image"),
+                        &ShownText::untranslated(" ("),
+                        &size,
+                        &ShownText::untranslated(")"),
+                    ]),
                 };
                 if !self.list.selected().is_empty() {
                     let m = thousands(self.list.selected().len());
                     let size = size_text(self.status_bar.selected_size);
-                    left += &tf!(", {m} selected ({size})", m, size);
+                    left.push(&tf!(", {m} selected ({size})", m, size));
                 }
-                let mut hidden = String::new();
+                let mut hidden = ShownText::default();
                 if !self.list.hidden_selected().is_empty() {
                     let h = thousands(self.list.hidden_selected().len());
                     hidden = tf!(", {h} selected but hidden by the search", h);
@@ -2027,16 +2047,16 @@ impl crate::App {
                 self.types_menu(ctx, ui);
                 ui.separator();
                 // The release tests look for the hidden count on its own.
-                crate::support::test_hooks::noted(&ui.label(left), &hidden);
+                crate::support::test_hooks::noted(&ui.show_label(left), &hidden);
                 if let Some((job, jobs)) = self.file_operations.first_job_and_count() {
                     ui.separator();
                     let more = match jobs - 1 {
-                        0 => String::new(),
+                        0 => ShownText::default(),
                         n => tf!(", and {n} more", n),
                     };
-                    ui.label(tf!(
+                    ui.show_label(tf!(
                         "{doing} {done} of {total}…{more}",
-                        doing = tr(job.activity),
+                        doing = &job.activity,
                         done = thousands(job.done.load(Ordering::Relaxed)),
                         total = thousands(job.total),
                         more
@@ -2065,14 +2085,18 @@ impl crate::App {
         // it is known.
         let bytes = self.file_details(idx).map(|(bytes, _)| bytes);
         let position = if idx == self.list.shown() {
-            self.position_text()
+            self.status_position()
         } else {
-            self.position_text_of(idx)
+            self.status_position_of(idx)
         };
         match self.list.loaded_images().get(&idx) {
             Some(loaded) => {
                 if let Some(scale) = scale {
-                    ui.label(format!("{} %", (scale * 100.0).round()));
+                    let percent = ShownText::number((scale * 100.0).round());
+                    ui.show_label(ShownText::concat([
+                        &percent,
+                        &ShownText::untranslated(" %"),
+                    ]));
                     ui.separator();
                 }
                 let page = if loaded.pages > 1 && idx == self.list.shown() {
@@ -2088,9 +2112,9 @@ impl crate::App {
                         frames = loaded.frames.len()
                     )
                 } else {
-                    String::new()
+                    ShownText::default()
                 };
-                ui.label(status_line(
+                ui.show_label(status_line(
                     Some(loaded.original_size),
                     bytes,
                     &position,
@@ -2098,7 +2122,7 @@ impl crate::App {
                 ));
             }
             None => {
-                ui.label(status_line(None, bytes, &position, ""));
+                ui.show_label(status_line(None, bytes, &position, &ShownText::default()));
             }
         }
         if self.status_bar.pane_layout != [1, 1] {
@@ -2202,8 +2226,8 @@ pub(crate) fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
 
 /// Tells a screen reader what a file's row or cell is: an item of the list with the file's name,
 /// and whether it is selected. The rows of names get this from egui's own widget.
-pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &str) {
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
+pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &ShownText) {
+    response.widget_info(|| crate::ui::menus::spoken(egui::Role::ListItem, true, name));
     (response.ctx).accesskit_node_builder(response.id, |node| node.set_selected(marked));
 }
 
@@ -2295,17 +2319,17 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
     // already parts them from the "/". So the folder above the open one fits beside the empty
     // part at the panel's default width.
     let padding = ui.spacing().button_padding.x / 2.0;
-    let width = |text: String| {
-        let galley = ui
-            .painter()
-            .layout_no_wrap(text, font.clone(), egui::Color32::PLACEHOLDER);
+    let width = |text: ShownText| {
+        let galley =
+            ui.painter()
+                .layout_no_wrap(text.to_string(), font.clone(), egui::Color32::PLACEHOLDER);
         galley.size().x + 2.0 * padding
     };
     // Each folder with the "/" before it, and room left over for the empty part to click.
-    let separator = width("/".to_owned()) - 2.0 * padding;
+    let separator = width(ShownText::untranslated("/")) - 2.0 * padding;
     let widths: Vec<f32> = folders.iter().map(|p| width(name(p)) + separator).collect();
     let room = ui.available_width() - room_to_click(ui);
-    let first = first_folder_that_fits(&widths, room, width("…".to_owned()));
+    let first = first_folder_that_fits(&widths, room, width(ShownText::untranslated("…")));
     let mut chosen = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -2317,24 +2341,24 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
         ui.allocate_ui_with_layout(size, layout, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             if first > 0 {
-                let more = submenu(ui, "…", |ui| {
+                let more = submenu(ui, ShownText::untranslated("…"), |ui| {
                     for folder in &folders[..first] {
-                        if button(ui, &name(folder)).clicked() {
+                        if button(ui, name(folder)).clicked() {
                             chosen = Some(folder.to_path_buf());
                         }
                     }
                 });
                 // "…" alone says nothing to a screen reader, nor that the row is a path.
                 let said = tf!("Folders before {folder}", folder = name(folders[first]));
-                more.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &said));
-                more.on_hover_text(said);
+                more.widget_info(|| crate::ui::menus::spoken(egui::Role::Button, true, &said));
+                more.tip(said);
             }
             for (i, folder) in folders.iter().enumerate().skip(first) {
                 // The root, "/", has no "/" after it.
                 if i > 0 && folders[i - 1].file_name().is_some() {
-                    ui.weak("/");
+                    ui.show_weak(ShownText::untranslated("/"));
                 }
-                if selectable(ui, i + 1 == folders.len(), &name(folder)).clicked() {
+                if selectable(ui, i + 1 == folders.len(), name(folder)).clicked() {
                     chosen = Some(folder.to_path_buf());
                 }
             }
@@ -2342,9 +2366,9 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
         let empty = ui.available_rect_before_wrap();
         let response = ui.interact(empty, field, egui::Sense::click());
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::Role::TextInput, true, tr("Type a path"))
+            crate::ui::menus::spoken(egui::Role::TextInput, true, &tr("Type a path"))
         });
-        let response = crate::support::test_hooks::noted(&response, tr("Type a path"))
+        let response = crate::support::test_hooks::noted(&response, &tr("Type a path"))
             .on_hover_cursor(egui::CursorIcon::Text);
         if response.clicked() {
             ui.memory_mut(|m| m.request_focus(field));
@@ -2382,19 +2406,32 @@ fn first_folder_that_fits(widths: &[f32], room: f32, more: f32) -> usize {
 /// The status bar's text about an image: "1800 × 1200 · 920.0 kB · 5 / 16", then the page or
 /// frame. The dimensions and the size are left out while they are not known, and the position
 /// comes as `position_text` gives it ("[5/16]").
-fn status_line(size: Option<[usize; 2]>, bytes: Option<u64>, position: &str, page: &str) -> String {
-    let position = position.trim_matches(['[', ']']).replace('/', " / ");
-    [
-        size.map(|[w, h]| format!("{w} × {h}")),
+fn status_line(
+    size: Option<[usize; 2]>,
+    bytes: Option<u64>,
+    position: &ShownText,
+    page: &ShownText,
+) -> ShownText {
+    let parts = [
+        size.map(|[w, h]| tf!("{w} × {h}", w, h)),
         bytes.map(human_size),
-        Some(position),
-        Some(page.trim().to_owned()),
-    ]
-    .into_iter()
-    .flatten()
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join(" · ")
+        Some(position.clone()),
+        Some(page.trimmed()),
+    ];
+    let parts: Vec<ShownText> = parts
+        .into_iter()
+        .flatten()
+        .filter(|p| !p.is_empty())
+        .collect();
+    ShownText::join(&parts, &ShownText::untranslated(" · "))
+}
+
+/// Returns `text` with the caret that opens a menu after it.
+fn with_caret(text: &ShownText) -> ShownText {
+    ShownText::join(
+        [text, &ShownText::untranslated(theme::icon::CARET_DOWN)],
+        &ShownText::untranslated(" "),
+    )
 }
 
 /// Says which edges of a scrolled view, `[top, bottom]`, have more content beyond them.
@@ -2626,15 +2663,23 @@ mod tests {
     #[test]
     fn the_status_line_is_compact() {
         use super::status_line;
+        let (position, none) = (
+            super::ShownText::from("5 / 16"),
+            super::ShownText::default(),
+        );
         assert_eq!(
-            status_line(Some([1800, 1200]), Some(920_000), "[5/16]", ""),
+            status_line(Some([1800, 1200]), Some(920_000), &position, &none),
             "1800 × 1200 · 920.0 kB · 5 / 16"
         );
         assert_eq!(
-            status_line(Some([1800, 1200]), None, "[5/16]", " page 2/3"),
+            status_line(Some([1800, 1200]), None, &position, &" page 2/3".into()),
             "1800 × 1200 · 5 / 16 · page 2/3"
         );
-        assert_eq!(status_line(None, Some(512), "[–/12]", ""), "512 B · – / 12");
+        let hidden = super::ShownText::from("– / 12");
+        assert_eq!(
+            status_line(None, Some(512), &hidden, &none),
+            "512 B · – / 12"
+        );
     }
 
     /// A selected row or cell is a soft tint of the selection colour, outlined in the full

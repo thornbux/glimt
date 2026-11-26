@@ -121,7 +121,8 @@ impl AddedFormat {
                     name,
                     mb,
                     error
-                ));
+                )
+                .to_string());
             }
             return Err(format!("{}: {error}", self.name));
         }

@@ -4,6 +4,7 @@
 //! the feature, none of this is in Glimt.
 
 use crate::App;
+use crate::support::format::ShownText;
 use eframe::egui;
 
 impl App {
@@ -14,43 +15,46 @@ impl App {
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.image_area_id = Some(response.id);
         let text = if self.list.files().is_empty() {
-            crate::support::lang::tr("No images").to_owned()
+            crate::support::lang::tr("No images")
         } else {
             // Read in the background, as for the info panel: here once for each image.
             self.request_and_take_exif(ui.ctx());
             let path = self.path(self.list.shown());
             let place = self.spoken_place();
             // The name the list shows, not the whole path a collection's entry holds.
-            let mut text = format!("{}, {place}", self.name(self.list.shown()));
+            let (comma, stop) = (ShownText::untranslated(", "), ShownText::untranslated(". "));
+            let mut text = ShownText::join([&self.name(self.list.shown()), &place], &comma);
             if let Some(e) = self.list.decode_errors().get(&self.list.shown()) {
-                text += &crate::tf!(", could not be shown: {e}", e);
+                text.push(&crate::tf!(", could not be shown: {e}", e));
             }
             #[cfg(feature = "marks")]
             if let stars @ 1.. = self.marks.get(&path).1 {
-                text += &format!(
-                    ", {}",
-                    crate::support::format::count(stars as usize, "star")
-                );
+                text.push(&comma);
+                text.push(&crate::support::format::count(stars as usize, "star"));
             }
             if let Some(meta) = self.info_panel.metadata_edit_of(&path) {
+                // What the files say is read whole, as the info panel shows it.
+                let said = ShownText::from_file_text;
                 if !meta.saved.keywords.is_empty() {
-                    let keywords = meta.saved.keywords.join(", ");
-                    text += &crate::tf!(", keywords: {keywords}", keywords);
+                    let keywords = said(&meta.saved.keywords.join(", "));
+                    text.push(&crate::tf!(", keywords: {keywords}", keywords));
                 }
                 if !meta.saved.comment.is_empty() {
-                    text += &format!(". {}", meta.saved.comment);
+                    text.push(&stop);
+                    text.push(&said(&meta.saved.comment));
                 }
                 if !meta.saved_alt_text.extended_description.is_empty() {
-                    text += &format!(". {}", meta.saved_alt_text.extended_description);
+                    text.push(&stop);
+                    text.push(&said(&meta.saved_alt_text.extended_description));
                 }
                 // The IPTC alt text is written for this: read first, before the file name.
                 if !meta.saved_alt_text.text.is_empty() {
-                    text = format!("{}. {text}", meta.saved_alt_text.text);
+                    text = ShownText::join([&said(&meta.saved_alt_text.text), &text], &stop);
                 }
             }
             text
         };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &text));
+        response.widget_info(|| crate::ui::menus::spoken(egui::Role::Image, true, &text));
         // A dialog's text field takes the focus when nothing has it: never the image's then.
         if self.dialog_open() {
             response.surrender_focus();
@@ -71,7 +75,7 @@ impl App {
     /// The shown image's place in the list as a screen reader says it, such as "3 of 16". A
     /// search can hide the shown image, which then has no row, so the reader hears that it is
     /// not among the matches instead of the dash the status bar shows.
-    pub(crate) fn spoken_place(&self) -> String {
+    pub(crate) fn spoken_place(&self) -> ShownText {
         use crate::support::format::thousands;
         let (row, total) = match self.list.matches() {
             Some(m) => (self.shown_row(m), m.len()),
@@ -83,7 +87,7 @@ impl App {
                 done = thousands(row + 1),
                 total = thousands(total)
             ),
-            None => crate::support::lang::tr("not among the matches").to_owned(),
+            None => crate::support::lang::tr("not among the matches"),
         }
     }
 }
@@ -100,17 +104,19 @@ pub(crate) fn speak_notice(ui: &egui::Ui, area: egui::Rect, notice: &crate::view
     // already read out, also when the text is the same.
     let number = notice.number();
     let (last_number, last_status) = (ui.ctx())
-        .data(|d| d.get_temp::<(Option<u64>, String)>(id))
+        .data(|d| d.get_temp::<(Option<u64>, ShownText)>(id))
         .unwrap_or_default();
-    let text = notice.text().unwrap_or_default();
-    let status = if last_status.trim_end() != text {
-        text.to_owned()
+    let text = notice.shown_text().cloned().unwrap_or_default();
+    let status = if last_status.trim_end() != text.as_str() {
+        text
     } else if number == last_number {
         last_status
     } else if last_status.ends_with(' ') {
-        text.to_owned()
+        text
     } else {
-        format!("{text} ")
+        let mut text = text;
+        text.push(&ShownText::untranslated(" "));
+        text
     };
     (ui.ctx()).data_mut(|d| d.insert_temp(id, (number, status.clone())));
     // A line along the area's foot, where the notice shows, and not an empty box, which a
@@ -120,7 +126,7 @@ pub(crate) fn speak_notice(ui: &egui::Ui, area: egui::Rect, notice: &crate::view
         area.right_bottom(),
     );
     let response = ui.interact(at, id, egui::Sense::hover());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Status, true, &status));
+    response.widget_info(|| crate::ui::menus::spoken(egui::Role::Status, true, &status));
     (ui.ctx()).accesskit_node_builder(id, |node| node.set_live(egui::accesskit::Live::Polite));
 }
 

@@ -10,9 +10,10 @@ use crate::files::file_ops::{
     FilesMoved, NOT_ON_FAT, OperationReport, Removal, fat_file_system_type,
 };
 use crate::model::listing::pattern_name;
-use crate::support::format::{count, escaped_file_name, escaped_name};
+use crate::support::format::{ShownText, count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{AnswerSender, Receiving, Told, Took, Working, answer_channel};
+use crate::ui::menus::DrawShown;
 use crate::{files::journal, images::save, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::ffi::OsString;
@@ -147,7 +148,7 @@ pub(crate) enum Prompt {
 pub(crate) struct Asked {
     opened_folder_hash: u64,
     names: Vec<OsString>,
-    left_out: Option<String>,
+    left_out: Option<ShownText>,
     picked: PickedFiles,
 }
 
@@ -158,7 +159,7 @@ impl Asked {
     pub(crate) fn new(
         opened_folder_hash: u64,
         names: Vec<OsString>,
-        left_out: Option<String>,
+        left_out: Option<ShownText>,
         picked: PickedFiles,
     ) -> Asked {
         Asked {
@@ -325,8 +326,8 @@ impl Dialogs {
 
     /// Returns how many selected files the search hid and the question leaves out, as said when
     /// it was asked, or `None` when it leaves none out.
-    pub(crate) fn asked_left_out(&self) -> Option<&str> {
-        self.asked.as_ref()?.left_out.as_deref()
+    pub(crate) fn asked_left_out(&self) -> Option<&ShownText> {
+        self.asked.as_ref()?.left_out.as_ref()
     }
 
     /// Returns the names of the files asked about, which the dialog names while it is open.
@@ -477,7 +478,7 @@ impl crate::App {
                 true => Path::new(SYSTEM_PROFILES).join(""),
                 false => start,
             };
-            let output = run_chooser(title, &start, (save, folder, several));
+            let output = run_chooser(&title, &start, (save, folder, several));
             let picked = match output {
                 Err(e) => {
                     let _ = notices
@@ -578,7 +579,7 @@ impl crate::App {
                         std::io::ErrorKind::AlreadyExists => {
                             tf!("{text} exists already: choose another name", text)
                         }
-                        _ => e.to_string(),
+                        _ => ShownText::from_cause(e.to_string()),
                     }
                 )),
             }
@@ -682,7 +683,7 @@ impl crate::App {
             self.notice.clear();
             match done {
                 (Ok(path), _) => self.visit(ctx, path),
-                (Err(Some(e)), _) => self.notice.give_error(e),
+                (Err(Some(e)), _) => self.notice.give_error(ShownText::from_cause(e)),
                 // Ask for the login; the user name defaults to this one, as gio's does.
                 (Err(None), login) => {
                     let user = std::env::var("USER").unwrap_or_default();
@@ -732,13 +733,13 @@ impl crate::App {
             let mut answer = None;
             let mut field = None;
             let modal = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
-                ui.label(title);
+                ui.show_label(title);
                 let edit = ui.text_edit_singleline(&mut text);
                 let enter = entered(&edit);
                 field = Some(edit.id);
                 if let (Prompt::RenameMany, Some(first)) = (prompt, &first) {
                     let name = pattern_name(text.trim(), first, 1);
-                    ui.weak(tf!("First: {name}", name = escaped_name(&name)));
+                    ui.show_weak(tf!("First: {name}", name = escaped_name(&name)));
                     if let Some(warning) = fat_warning(&name, fat.as_deref()) {
                         ui.colored_label(ui.visuals().warn_fg_color, warning);
                     }
@@ -783,7 +784,7 @@ impl crate::App {
                     collection_renamed: Some((old, new)),
                     ..Default::default()
                 })),
-                Err(e) => crate::files::file_io::save_failed(e),
+                Err(e) => crate::files::file_io::save_failed(ShownText::from_cause(e)),
             }
             drop(pointer);
             ctx.request_repaint();
@@ -899,7 +900,7 @@ impl crate::App {
                 let report_tx = self.file_operations.report_sender();
                 self.run_in_background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
-                        let told = format!("{shown}: {e}", shown = escaped_name(target));
+                        let told = tf!("{name}: {e}", name = escaped_name(target), e);
                         return Some(Told::FailedWrite(told.into()));
                     }
                     let _ = report_tx.send(OperationReport {
@@ -946,12 +947,12 @@ impl crate::App {
         let folder = (cut_short.iter())
             .find_map(|c| c.1.first())
             .and_then(|m| m.0.parent())
-            .map_or(String::new(), escaped_name);
+            .map_or_else(ShownText::default, escaped_name);
         let is_list_kept = self.file_operations.names_left().map(|(_, kept)| kept);
         let (mut choice, mut save, mut copy, mut leave) = (None, false, false, false);
         egui::Modal::new(egui::Id::unique("cut short")).show(ctx, |ui| {
             ui.strong(tr("Rename Many was cut short"));
-            ui.label(tf!(
+            ui.show_label(tf!(
                 "A crash or a power cut stopped it in {folder}. Some files may have their new \
                  names, some their old ones, and some hidden temporary names ({steps} to put \
                  right).",
@@ -959,7 +960,7 @@ impl crate::App {
                 steps = count(files, "step")
             ));
             if let Some(is_list_kept) = is_list_kept {
-                ui.label(tr(
+                ui.show_label(tr(
                     "The names could not all be put right. Save or copy the list of the files \
                      that are not under the names they were to get. Then the names can be left \
                      as they are, and those files renamed by hand.",
@@ -997,13 +998,10 @@ impl crate::App {
                 kept.store(true, std::sync::atomic::Ordering::Relaxed);
             }
             // Nothing confirms that the clipboard took the list, so the notice says to paste it.
-            self.notice.give(
-                tr(
-                    "The list was copied to the clipboard. Paste it into a file before the names \
+            self.notice.give(tr(
+                "The list was copied to the clipboard. Paste it into a file before the names \
                     are left as they are.",
-                )
-                .into(),
-            );
+            ));
         }
         if let Some(list) = list().filter(|_| save) {
             self.pick(ctx, Pick::SaveNamesLeft(list));
@@ -1050,19 +1048,19 @@ impl crate::App {
             let mut connect = false;
             let mut password = None;
             let modal = egui::Modal::new(egui::Id::unique("asks login")).show(ctx, |ui| {
-                ui.label(tf!("Log in to {uri}", uri = login.uri));
+                ui.show_label(tf!("Log in to {uri}", uri = login.uri));
                 egui::Grid::new("login fields").show(ui, |ui| {
                     // Sized outright: in the grid of a modal, desired_width left them a few
                     // letters wide.
                     let size = egui::vec2(220.0, ui.spacing().interact_size.y);
                     let field = |text| egui::TextEdit::singleline(text);
-                    ui.label(tr("User:"));
+                    ui.show_label(tr("User:"));
                     ui.add_sized(size, field(&mut login.user));
                     ui.end_row();
-                    ui.label(tr("Domain:"));
+                    ui.show_label(tr("Domain:"));
                     ui.add_sized(size, field(&mut login.domain));
                     ui.end_row();
-                    ui.label(tr("Password:"));
+                    ui.show_label(tr("Password:"));
                     let edit = ui.add_sized(size, field(&mut login.password).password(true));
                     // The password field first, as the rest has defaults.
                     if login.password.is_empty() {
@@ -1090,9 +1088,9 @@ impl crate::App {
     /// Returns what the delete dialog names: the one file it asks about, or how many. These are
     /// the files asked about, not the selection now, which a refresh or a script may have
     /// changed while the dialog was open.
-    fn delete_dialog_subject(&self) -> String {
+    fn delete_dialog_subject(&self) -> ShownText {
         match self.dialogs.asked_names() {
-            [name] => format!("\"{}\"", self.name_shown(name)),
+            [name] => tf!("\"{name}\"", name = self.name_shown(name)),
             many => count(many.len(), "file"),
         }
     }
@@ -1101,7 +1099,7 @@ impl crate::App {
     pub(crate) fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
         if let Some(removal) = self.dialogs.confirm_delete {
             let what = self.delete_dialog_subject();
-            let left_out = self.dialogs.asked_left_out().map(str::to_owned);
+            let left_out = self.dialogs.asked_left_out().cloned();
             let mut delete = false;
             let now = ctx.input(|i| i.time);
             let shown = *self.dialogs.delete_dialog_opened_at.get_or_insert(now);
@@ -1112,19 +1110,19 @@ impl crate::App {
                 if removal == Removal::Trash {
                     // Noted, so the release tests see how many files the dialog names.
                     let question = tf!("Move {what} to the trash?", what);
-                    crate::support::test_hooks::noted(&ui.label(question.as_str()), &question);
+                    crate::support::test_hooks::noted(&ui.show_label(&question), &question);
                 } else {
                     if let Some(kind) = &self.dialogs.trash_refused {
-                        ui.label(tf!(
+                        ui.show_label(tf!(
                             "The trash does not take files in this folder ({kind}), as on network and cloud folders.",
                             kind
                         ));
                     }
-                    ui.label(tf!("Permanently delete {what}?", what));
-                    ui.weak(tr("This cannot be undone."));
+                    ui.show_label(tf!("Permanently delete {what}?", what));
+                    ui.show_weak(tr("This cannot be undone."));
                 }
                 if let Some(left_out) = &left_out {
-                    crate::support::test_hooks::noted(&ui.weak(left_out), left_out);
+                    crate::support::test_hooks::noted(&ui.show_weak(left_out), left_out);
                 }
                 ui.horizontal(|ui| {
                     delete = crate::ui::menus::button(ui, tr("Delete (Enter)")).clicked() || enter;
@@ -1157,7 +1155,7 @@ impl crate::App {
             let enter = self.answers(ctx, egui::Key::Enter);
             let modal =
                 egui::Modal::new(egui::Id::unique("is confirming folder trash")).show(ctx, |ui| {
-                    ui.label(tf!(
+                    ui.show_label(tf!(
                         "Move the folder \"{name}\" and all in it to the trash?",
                         name
                     ));
@@ -1194,7 +1192,7 @@ impl crate::App {
         let mut trash = false;
         let enter = self.answers(ctx, egui::Key::Enter);
         let modal = egui::Modal::new(egui::Id::unique("confirm-collection")).show(ctx, |ui| {
-            ui.label(question.as_str());
+            ui.show_label(&question);
             ui.horizontal(|ui| {
                 trash =
                     crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked() || enter;
@@ -1226,7 +1224,7 @@ impl crate::App {
         let mut open = false;
         let enter = self.answers(ctx, egui::Key::Enter);
         let modal = egui::Modal::new(egui::Id::unique("files-to-open")).show(ctx, |ui| {
-            ui.label(question.as_str());
+            ui.show_label(&question);
             ui.horizontal(|ui| {
                 open = crate::ui::menus::button(ui, tr("Open (Enter)")).clicked() || enter;
                 if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
@@ -1432,12 +1430,11 @@ fn leave_names_as_they_are(
     }
     // Another window had every plan, so nothing was left as it is here.
     if left.is_empty() {
-        return Some(Told::Notice(
-            tr("Another window has put these renames right already. Nothing was changed here.")
-                .into(),
-        ));
+        return Some(Told::Notice(tr(
+            "Another window has put these renames right already. Nothing was changed here.",
+        )));
     }
-    Some(Told::Notice(tr("The names were left as they are").into()))
+    Some(Told::Notice(tr("The names were left as they are")))
 }
 
 /// Saves `list`, the files that a Rename Many cut short left not under the names they were to
@@ -1490,7 +1487,7 @@ pub(crate) fn entered(field: &egui::Response) -> bool {
 /// Returns a warning for Rename Many's preview when `name`, the first new name, has a
 /// character that the FAT or exFAT file system `fat` of its folder refuses. Returns `None` when
 /// the folder is on another file system, or when the name is allowed there.
-fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<String> {
+fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<ShownText> {
     let kind = fat.filter(|_| name.to_string_lossy().contains(NOT_ON_FAT))?;
     Some(tf!(
         "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name.",
@@ -2174,7 +2171,7 @@ mod tests {
         app.act_on_prompt_answer(&ctx, super::Prompt::NewCollection, &other);
         let hides =
             crate::support::lang::tr("The search hides files this would act on: clear it first");
-        assert_eq!(app.notice.text(), Some(hides));
+        assert_eq!(app.notice.text(), Some(hides.as_str()));
         assert_eq!(app.list.selected_with_hidden(), [0, 1].into());
         let dir_of = crate::model::collections::collections_dir().unwrap();
         assert!(!dir_of.join(format!("{other}.gqv")).exists());

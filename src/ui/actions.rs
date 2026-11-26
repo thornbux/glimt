@@ -9,6 +9,7 @@ use crate::images::colour::FILTERS;
 use crate::images::decode::{catch_panic_as_error, color_image};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
+use crate::support::format::ShownText;
 #[cfg(feature = "marks")]
 use crate::support::format::count;
 use crate::support::lang::tr;
@@ -706,7 +707,7 @@ impl Action {
     }
 
     /// The name shown in menus and in the help window.
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> ShownText {
         crate::support::lang::tr(self.english())
     }
 
@@ -1781,9 +1782,12 @@ fn shortcuts_with(own: &[Shortcut]) -> Vec<Shortcut> {
 }
 
 /// The first shortcut of an action, as shown in menus ("Ctrl+K").
-pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
+pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<ShownText> {
     let (_, mods, key) = shortcuts().iter().copied().find(|s| s.0 == action)?;
-    Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
+    Some(ShownText::keys_of(
+        ctx,
+        &egui::KeyboardShortcut::new(mods, key),
+    ))
 }
 
 /// Returns the modifiers and key of a key's name in `keys=`, such as "Ctrl+Shift+N", or `None`

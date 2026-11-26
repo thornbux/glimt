@@ -6,6 +6,7 @@ use crate::files::file_io::Transfer;
 use crate::files::file_ops::{FilesMoved, OperationReport};
 use crate::support::lang::tr;
 use crate::tf;
+use crate::ui::menus::DrawShown;
 use eframe::egui;
 #[cfg(feature = "video")]
 use std::path::Path;
@@ -127,7 +128,7 @@ impl crate::App {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(tr("Drag over the image to choose the part to keep"));
+                        ui.show_label(tr("Drag over the image to choose the part to keep"));
                         save =
                             crate::ui::menus::button_enabled(ui, chosen, tr("Save Copy (Enter)"))
                                 .clicked();

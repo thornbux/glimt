@@ -2,9 +2,10 @@
 //! each day, oldest first, or as a calendar of the months that have images. The days come from
 //! the file dates, or from the EXIF dates.
 
-use crate::support::format::{count, thousands};
+use crate::support::format::{ShownText, count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
+use crate::ui::menus::{DrawShown, PaintShown, ShownTip};
 use crate::{tf, viewer::pan};
 use eframe::egui;
 use std::borrow::Cow;
@@ -124,7 +125,7 @@ impl PanView {
                 Some((days, _)) => {
                     let n = days.iter().filter(|d| d.0 != "No date").count();
                     let total: usize = days.iter().map(|d| d.1.len()).sum();
-                    ui.weak(tf!(
+                    ui.show_weak(tf!(
                         "{images} on {days}",
                         images = count(total, "image"),
                         days = count(n, "day")
@@ -383,13 +384,16 @@ impl crate::App {
                 match row {
                     Row::Heading(d) => {
                         let (day, list) = &days[d];
-                        ui.painter().text(
+                        let day = match day.as_str() {
+                            "No date" => tr("No date"),
+                            day => ShownText::from_file_text_on_one_line(day),
+                        };
+                        ui.painter().show_text(
                             top + egui::vec2(4.0, y + heading - 6.0),
                             egui::Align2::LEFT_BOTTOM,
-                            format!(
-                                "{}   {}",
-                                if day == "No date" { tr("No date") } else { day },
-                                count(list.len(), "image")
+                            ShownText::join(
+                                [&day, &count(list.len(), "image")],
+                                &ShownText::untranslated("   "),
                             ),
                             egui::TextStyle::Body.resolve(ui.style()),
                             ui.visuals().strong_text_color(),
@@ -457,10 +461,14 @@ impl crate::App {
                     }
                     let strong = ui.visuals().strong_text_color();
                     let weak = ui.visuals().weak_text_color();
-                    ui.painter().text(
+                    let month = tr(MONTHS[m.month as usize - 1]);
+                    ui.painter().show_text(
                         top + egui::vec2(4.0, y0 + title - 6.0),
                         egui::Align2::LEFT_BOTTOM,
-                        format!("{} {}", tr(MONTHS[m.month as usize - 1]), m.year),
+                        ShownText::join(
+                            [&month, &ShownText::number(m.year)],
+                            &ShownText::untranslated(" "),
+                        ),
                         egui::TextStyle::Body.resolve(ui.style()),
                         strong,
                     );
@@ -468,7 +476,7 @@ impl crate::App {
                         .iter()
                         .enumerate()
                     {
-                        ui.painter().text(
+                        ui.painter().show_text(
                             top + egui::vec2((k as f32 + 0.5) * w, y0 + title + names - 4.0),
                             egui::Align2::CENTER_BOTTOM,
                             tr(day),
@@ -510,10 +518,10 @@ impl crate::App {
             .and_then(|&(_, d)| Some((d, *days.get(d)?.1.first()?)))
             .filter(|&(_, i)| i < self.list.files().len());
         let Some((d, first)) = found else {
-            ui.painter().text(
+            ui.painter().show_text(
                 rect.min + egui::vec2(4.0, 2.0),
                 egui::Align2::LEFT_TOP,
-                day.to_string(),
+                ShownText::from_file_text_on_one_line(&day.to_string()),
                 font.clone(),
                 weak,
             );
@@ -521,7 +529,14 @@ impl crate::App {
         };
         let r = ui.interact(rect, ui.scope_id().with(("day", d)), egui::Sense::click());
         let images = count(days[d].1.len(), "image");
-        crate::ui::file_list::speak_item(&r, false, &format!("{day}, {images}"));
+        let day = ShownText::from_file_text_on_one_line(&day.to_string());
+        let said = ShownText::join([&day, &images], &ShownText::untranslated(", "));
+        crate::ui::file_list::speak_item(&r, false, &said);
+        crate::ui::file_list::speak_item(
+            &r,
+            false,
+            &ShownText::join([&day, &images], &ShownText::untranslated(", ")),
+        );
         if r.hovered() {
             ui.painter()
                 .rect_filled(rect, 3.0, ui.visuals().widgets.hovered.weak_bg_fill);
@@ -533,7 +548,7 @@ impl crate::App {
         let dark = egui::Color32::from_black_alpha(170);
         for (text, align, corner) in [
             (
-                day.to_string(),
+                ShownText::from_file_text_on_one_line(&day.to_string()),
                 egui::Align2::LEFT_TOP,
                 rect.min + egui::vec2(6.0, 6.0),
             ),
@@ -543,12 +558,12 @@ impl crate::App {
                 rect.max - egui::vec2(6.0, 6.0),
             ),
         ] {
-            let g = p.layout_no_wrap(text, font.clone(), egui::Color32::WHITE);
+            let g = p.layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
             let at = align.anchor_size(corner, g.size());
             p.rect_filled(at.expand(2.0), 3.0, dark);
             p.galley(at.min, g, egui::Color32::WHITE);
         }
-        r.on_hover_text(images).clicked().then_some(d)
+        r.tip(images).clicked().then_some(d)
     }
 }
 

@@ -7,9 +7,11 @@ use crate::files::file_io::{IfMissing, ListedFile};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 use crate::model::listing::{Types, is_listed};
+use crate::support::format::ShownText;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
+use crate::ui::menus::DrawShown;
 use crate::{metadata::xmp, model::collections, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -313,11 +315,11 @@ impl crate::App {
             ui.strong(tr("Import from Lightroom"));
             match &mut lr.plan {
                 None => {
-                    ui.label(tr("Where the catalog's folders are now (empty: left out):"));
+                    ui.show_label(tr("Where the catalog's folders are now (empty: left out):"));
                     egui::Grid::new("lightroom roots").show(ui, |ui| {
                         let roots = lr.catalog.roots.iter().zip(&mut lr.root_folders_now);
                         for (((_, was), now), is_there) in roots.zip(&there) {
-                            ui.label(was);
+                            ui.show_label(ShownText::from_file_text_on_one_line(was));
                             // A size of its own: in the grid the field would be as narrow as
                             // its text.
                             let height = ui.spacing().interact_size.y;
@@ -325,11 +327,11 @@ impl crate::App {
                                 ui.add_sized([360.0, height], egui::TextEdit::singleline(now));
                             // The screenshots click the field by the folder it stands for.
                             crate::support::test_hooks::noted(&field, was);
-                            ui.label(if *is_there { "✓" } else { "" });
+                            ui.show_label(ShownText::untranslated(["", "✓"][*is_there as usize]));
                             ui.end_row();
                         }
                     });
-                    ui.weak(tr(
+                    ui.show_weak(tr(
                         "Collections are added to Glimt's, keywords to the keyword tree and \
                          stars to the marks. Smart collections are left out.",
                     ));
@@ -343,26 +345,29 @@ impl crate::App {
                     });
                 }
                 Some(plan) => {
-                    ui.label(tf!(
+                    ui.show_label(tf!(
                         "{collections}, {keywords} and the stars of {images}.",
                         collections = count(plan.collections.len(), "collection"),
                         keywords = count(plan.keywords.len(), "keyword"),
                         images = count(plan.stars.len(), "image")
                     ));
                     if plan.not_found > 0 {
-                        ui.label(tf!(
+                        ui.show_label(tf!(
                             "Not found and left out: {count}. Import again once their drive is \
                              mounted.",
                             count = count(plan.not_found, "image")
                         ));
                     }
                     if !plan.existing.is_empty() {
-                        let mut names = plan.existing[..plan.existing.len().min(5)].join(", ");
+                        // The names are those the catalog gives.
+                        let mut names = ShownText::from_file_text_on_one_line(
+                            &plan.existing[..plan.existing.len().min(5)].join(", "),
+                        );
                         if plan.existing.len() > 5 {
                             let n = plan.existing.len() - 5;
                             names = tf!("{names} and {n} more", names, n);
                         }
-                        ui.label(tf!(
+                        ui.show_label(tf!(
                             "There already, so they get only the images they lack: {names}.",
                             names
                         ));
@@ -376,7 +381,7 @@ impl crate::App {
                         crate::ui::menus::checkbox(ui, &mut self.config.lightroom_keywords, &what);
                     }
                     if plan.differing_stars > 0 {
-                        ui.label(tf!(
+                        ui.show_label(tf!(
                             "{n} other stars in Glimt:",
                             n = match plan.differing_stars {
                                 1 => tr("1 image has").to_owned(),
@@ -560,10 +565,12 @@ impl crate::App {
                 .map(|(name, _)| name.as_str())
                 .collect();
             done.insert(0, count(all.len() - failed.len(), "collection"));
-            let mut msg = tf!("Imported from Lightroom: {done}", done = done.join(", "));
+            let done = ShownText::join(&done, &ShownText::untranslated(", "));
+            let mut msg = tf!("Imported from Lightroom: {done}", done);
             let any_failed = !failed.is_empty();
             if !failed.is_empty() {
-                msg += &tf!("; not saved: {names}", names = failed.join(", "));
+                let names = ShownText::from_file_text_on_one_line(&failed.join(", "));
+                msg += &tf!("; not saved: {names}", names);
             }
             if dir.is_none() && !all.is_empty() {
                 msg += tr(" (no data folder: $HOME is not set)");
@@ -598,13 +605,10 @@ fn non_table_check() -> String {
 /// Read `file`; an error says why in words for the user.
 pub fn read(file: &Path) -> Result<Catalog, String> {
     if !crate::files::file_io::is_surely_gone(&file.with_extension("lrcat.lock")) {
-        return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
+        return Err(tr("Lightroom has the catalog open: close Lightroom first").to_string());
     }
     if !crate::files::external::has_program("sqlite3") {
-        return Err(tf!(
-            "{needs}, which is not installed",
-            needs = tr(NEEDS_SQLITE3)
-        ));
+        return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS_SQLITE3)).to_string());
     }
     // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
     // in the place of a table it reads would have sqlite3 run what the view says, its writefile
@@ -623,7 +627,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         256 << 20,
         crate::files::external::PROGRAM_TIME_LIMIT,
     );
-    let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
+    let out = out.ok_or_else(|| tr("The catalog is too large to read").to_string())?;
     let catalog = parse(&out);
     if let Some((name, kind)) = catalog.not_tables.first() {
         return Err(sqlite_error_text(&format!(
@@ -642,11 +646,12 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
 fn sqlite_error_text(why: &str) -> String {
     let first = (why.lines().map(str::trim)).find(|l| !l.is_empty());
     match why.contains("unknown option: -safe") {
-        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").into(),
+        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").to_string(),
         false => tf!(
             "Not a Lightroom Classic catalog Glimt can read: {why}",
             why = first.unwrap_or("")
-        ),
+        )
+        .to_string(),
     }
 }
 

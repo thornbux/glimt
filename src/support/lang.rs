@@ -5,6 +5,7 @@
 //! `$LANGUAGE`, `$LC_ALL`, `$LC_MESSAGES` and `$LANG`, unless the `language` setting names one.
 //! Command-line output, `--remote` and the Help Manual stay English.
 
+use crate::support::format::{Shown, ShownText};
 use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -23,7 +24,7 @@ macro_rules! tf {
         );
         $crate::support::lang::fill_placeholders(
             $crate::support::lang::tr($text),
-            &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn ::std::fmt::Display)),*],
+            &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn $crate::support::format::Shown)),*],
         )
     }};
 }
@@ -200,8 +201,15 @@ fn language(locale: &str) -> Option<String> {
         .map(|l| l.0.to_owned())
 }
 
-/// `en` in the language in use, or itself when that has no translation of it.
-pub fn tr(en: &'static str) -> &'static str {
+/// `en` in the language in use, or itself when that has no translation of it. It is the one way
+/// a fixed text becomes a `ShownText`, so every text of the interface is translated; a text that
+/// has no translation says so with `ShownText::untranslated`.
+pub fn tr(en: &'static str) -> ShownText {
+    ShownText::made(translated(en))
+}
+
+/// Returns `en` in the language in use, or itself when that has no translation of it.
+fn translated(en: &'static str) -> &'static str {
     #[cfg(test)]
     if let Some(translation) = LANGUAGE_OF_THIS_TEST.get() {
         return translation.texts.get(en).map_or(en, |t| t.as_str());
@@ -246,9 +254,9 @@ pub fn plural(noun: &'static str, n: usize) -> std::borrow::Cow<'static, str> {
 }
 
 /// `template` with each `{name}` replaced by its value from `values`; others stay as they are.
-pub fn fill_placeholders(template: &str, values: &[(&str, &dyn std::fmt::Display)]) -> String {
+pub fn fill_placeholders(template: ShownText, values: &[(&str, &dyn Shown)]) -> ShownText {
     let mut out = String::with_capacity(template.len());
-    let mut rest = template;
+    let mut rest = template.as_str();
     while let Some(open) = rest.find('{') {
         out.push_str(&rest[..open]);
         let after = &rest[open + 1..];
@@ -266,7 +274,7 @@ pub fn fill_placeholders(template: &str, values: &[(&str, &dyn std::fmt::Display
         }
     }
     out.push_str(rest);
-    out
+    ShownText::made(out)
 }
 
 /// Returns whether the `{name}`s of `text` are exactly `names`: each placeholder is among the
@@ -510,16 +518,16 @@ msgstr[1] "bilder"
     fn fills_in_values() {
         let (n, e) = (3, "full disk");
         assert_eq!(
-            super::fill_placeholders("{n} left: {e}", &[("n", &n), ("e", &e)]),
+            super::fill_placeholders("{n} left: {e}".into(), &[("n", &n), ("e", &e)]),
             "3 left: full disk"
         );
         assert_eq!(
-            super::fill_placeholders("{x} {n} {", &[("n", &n)]),
+            super::fill_placeholders("{x} {n} {".into(), &[("n", &n)]),
             "{x} 3 {"
         );
         let name = "a.jpg";
         assert_eq!(
-            crate::tf!("Could not save {name}: {e}", name, e = e),
+            crate::tf!("Could not save {name}: {e}", name, e),
             "Could not save a.jpg: full disk"
         );
     }

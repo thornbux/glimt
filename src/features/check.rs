@@ -3,9 +3,10 @@
 
 use crate::files::file_io::{FileFingerprint, fingerprint_of_file_read, same_fingerprint};
 use crate::images::decode::DecodeFailure;
-use crate::support::format::{count, escaped_name, thousands};
+use crate::support::format::{ShownText, count, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, background_threads};
+use crate::ui::menus::DrawShown;
 use crate::{images::decode, tf};
 use eframe::egui;
 use std::ffi::OsString;
@@ -61,7 +62,7 @@ impl crate::App {
             .default_size([560.0, 400.0])
             .show(ctx, |ui| {
                 let Some(c) = &check else {
-                    ui.label(tf!(
+                    ui.show_label(tf!(
                         "Opens each of the {count} in the list, as the viewer would, and lists \
                          those that cannot be: broken files, files cut off in copying, and files \
                          that are no image. They are marked in the list too.",
@@ -94,7 +95,7 @@ impl crate::App {
                     }
                 });
                 let found = [c.broken.len(), c.unchecked.len()];
-                ui.label(summary(found, working, done, c.total));
+                ui.show_label(summary(found, working, done, c.total));
                 if !c.broken.is_empty() && crate::ui::menus::button(ui, tr("Select Them")).clicked()
                 {
                     select = true;
@@ -109,7 +110,7 @@ impl crate::App {
                         for i in rows {
                             let (name, text) = match c.broken.get(i) {
                                 Some((name, why, _)) => {
-                                    (name, format!("{}: {why}", escaped_name(name)))
+                                    (name, tf!("{name}: {e}", name = escaped_name(name), e = why))
                                 }
                                 None => {
                                     let (name, why) = &c.unchecked[i - c.broken.len()];
@@ -256,7 +257,12 @@ impl crate::App {
 /// Says what the check found: the files `broken` and those that could not be checked, with
 /// `working` threads still at work after `done` of `total` files. A check that stopped early
 /// says so, and never "None broken.", as Find Duplicates gives no result when it was stopped.
-fn summary([broken, unchecked]: [usize; 2], working: usize, done: usize, total: usize) -> String {
+fn summary(
+    [broken, unchecked]: [usize; 2],
+    working: usize,
+    done: usize,
+    total: usize,
+) -> ShownText {
     let stopped = working == 0 && done < total;
     let mut lines = Vec::new();
     if stopped {
@@ -275,7 +281,7 @@ fn summary([broken, unchecked]: [usize; 2], working: usize, done: usize, total: 
         let n = thousands(unchecked);
         lines.push(tf!("{n} could not be checked:", n));
     }
-    lines.join("\n")
+    ShownText::join(&lines, &ShownText::untranslated("\n"))
 }
 
 #[cfg(test)]

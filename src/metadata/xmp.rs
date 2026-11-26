@@ -368,7 +368,7 @@ pub struct LeftBehind {
 
 impl LeftBehind {
     /// Returns the text that tells the user where the sidecar is still, and why.
-    pub fn told(&self) -> String {
+    pub fn told(&self) -> crate::support::format::ShownText {
         let (sidecar, e) = (escaped_name(&self.sidecar), &self.error);
         let Some(copy) = &self.copy else {
             return crate::tf!(
@@ -797,13 +797,16 @@ fn embedded(path: &Path) -> Option<String> {
 fn read_embedded(path: &Path) -> Result<Option<String>, String> {
     const JPEG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
     let is_raw = crate::model::listing::has_ext(path, crate::images::raw::EXTS);
-    let judged = |e: image::ImageError| match crate::images::save::is_failed_read(&e, is_raw) {
+    let judged = |e: image::ImageError| {
+        match crate::images::save::is_failed_read(&e, is_raw) {
         true => Err(crate::tf!(
             "the metadata of {name} could not be read, and its sidecar is not written without it: {e}",
             name = escaped_name(path),
             e
-        )),
+        )
+        .to_string()),
         false => Ok(None),
+    }
     };
     let bytes = match crate::metadata::exif::jpeg_app1(path, JPEG) {
         Some(found) => found.map(|found| found[JPEG.len()..].to_vec()),
@@ -1354,7 +1357,8 @@ fn update(
     // name is made, and it does not count as done.
     if !crate::files::file_io::is_surely_there(path) {
         return Err(
-            crate::support::lang::tr("the image was moved, renamed or deleted meanwhile").into(),
+            crate::support::lang::tr("the image was moved, renamed or deleted meanwhile")
+                .to_string(),
         );
     }
     // The file the write is for is still the one the list showed, looked at under the lock.
@@ -1375,7 +1379,8 @@ fn update(
         return Err(crate::tf!(
             "{name} is a link: not written through",
             name = escaped_name(&side)
-        ));
+        )
+        .to_string());
     }
     // The sidecar is looked at before it is read, so that one another program writes after the
     // read is not written over with what was read.

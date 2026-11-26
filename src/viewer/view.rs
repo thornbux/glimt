@@ -7,11 +7,12 @@ use crate::files::external::is_video;
 use crate::files::file_io::Identity;
 use crate::images::decode::{Decoded, catch_panic_as_error, decode, histogram};
 use crate::model::list::LoadedImage;
-use crate::support::format::{escaped_name, fill_template};
+use crate::support::format::{ShownText, escaped_name, fill_template};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{STUCK_AFTER, lock_even_if_poisoned};
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
+use crate::ui::menus::{DrawShown, PaintShown, ShownTip};
 use crate::ui::menus::{checkbox, menu_item, scroll_menu, with_icon};
 use crate::viewer::crop::Crop;
 use crate::{app_id, ui::theme};
@@ -429,13 +430,13 @@ impl Viewing {
 /// `Failure::from`, and nothing outside this module turns a failure back into a text.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Failure {
-    heading: String,
-    cause: String,
+    heading: ShownText,
+    cause: ShownText,
 }
 
 impl Failure {
     /// Returns the failure `heading`, with its `cause` drawn smaller under it.
-    pub(crate) fn because(heading: String, cause: String) -> Self {
+    pub(crate) fn because(heading: ShownText, cause: ShownText) -> Self {
         Failure { heading, cause }
     }
 
@@ -455,7 +456,7 @@ impl Failure {
 
     /// Returns the failure with its heading put into other words by `reword`, such as a
     /// failure that says why a folder could not be moved to the trash.
-    pub(crate) fn reworded(self, reword: impl FnOnce(String) -> String) -> Self {
+    pub(crate) fn reworded(self, reword: impl FnOnce(ShownText) -> ShownText) -> Self {
         Failure {
             heading: reword(self.heading),
             ..self
@@ -467,25 +468,27 @@ impl Failure {
     /// again (`source_rules::failures_stay_failures`), so that none is given as an ordinary
     /// notice.
     pub(crate) fn answer_text(&self) -> String {
-        self.message().text()
+        self.message().text().to_string()
     }
 
     /// Returns the failure's text, its cause on a line of its own, for a test to compare.
     #[cfg(test)]
     pub(crate) fn text(&self) -> String {
-        self.message().text()
+        self.message().text().to_string()
     }
 }
 
-impl From<String> for Failure {
-    fn from(heading: String) -> Self {
-        Failure::because(heading, String::new())
+/// A test gives a failure as a literal.
+#[cfg(test)]
+impl From<&'static str> for Failure {
+    fn from(heading: &'static str) -> Self {
+        Failure::from(ShownText::from(heading))
     }
 }
 
-impl From<&str> for Failure {
-    fn from(heading: &str) -> Self {
-        Failure::from(heading.to_owned())
+impl From<ShownText> for Failure {
+    fn from(heading: ShownText) -> Self {
+        Failure::because(heading, ShownText::default())
     }
 }
 
@@ -495,17 +498,17 @@ impl From<&str> for Failure {
 /// of one text, at its first ": ", was cut inside a file name such as "Trip: Paris.jpg".
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NoticeMessage {
-    heading: String,
-    detail: String,
+    heading: ShownText,
+    detail: ShownText,
     kind: MessageKind,
 }
 
 impl NoticeMessage {
     /// Returns a message of `heading` alone, of the kind `kind`.
-    fn new(heading: String, kind: MessageKind) -> Self {
+    fn new(heading: ShownText, kind: MessageKind) -> Self {
         NoticeMessage {
             heading,
-            detail: String::new(),
+            detail: ShownText::default(),
             kind,
         }
     }
@@ -518,10 +521,13 @@ impl NoticeMessage {
 
     /// Returns the message's text as a screen reader reads it: the heading, and the detail on
     /// a line of its own.
-    fn text(&self) -> String {
+    fn text(&self) -> ShownText {
         match self.detail.is_empty() {
             true => self.heading.clone(),
-            false => format!("{}\n{}", self.heading, self.detail),
+            false => ShownText::join(
+                [&self.heading, &self.detail],
+                &ShownText::untranslated("\n"),
+            ),
         }
     }
 }
@@ -548,7 +554,7 @@ pub(crate) struct Notice {
     /// The messages shown, and their number.
     shown: Option<(Vec<NoticeMessage>, u64)>,
     /// The texts of the messages shown, one to a line, which `set_shown` keeps.
-    text: String,
+    text: ShownText,
     /// How many notices were given, so the next one gets a number of its own.
     given: u64,
     /// The warnings that must reach the user, each with when a frame first drew it. Every
@@ -569,15 +575,16 @@ impl Notice {
     /// remembering that they were told would need a new file or setting, which 1.x freezes.
     pub(crate) fn told_at_start(
         errors: [Option<Failure>; 3],
-        old_marks_file_left: Option<String>,
-        old_files: &[String],
+        old_marks_file_left: Option<ShownText>,
+        old_files: &[ShownText],
     ) -> Self {
         let old_files = old_files.first().map(|first| {
-            let more = match old_files.len() - 1 {
-                0 => String::new(),
-                n => crate::tf!("; and {n} more (glimt --check-config)", n),
-            };
-            format!("{first}{more}")
+            let mut first = first.clone();
+            if old_files.len() > 1 {
+                let n = old_files.len() - 1;
+                first.push(&crate::tf!("; and {n} more (glimt --check-config)", n));
+            }
+            first
         });
         let errors = errors.into_iter().flatten();
         let errors = errors.map(|e| e.message());
@@ -593,20 +600,20 @@ impl Notice {
 
     /// Shows `text`, as a new notice, also when the same text is shown already. The warnings
     /// that no frame has drawn yet are shown under it.
-    pub(crate) fn give(&mut self, text: String) {
+    pub(crate) fn give(&mut self, text: ShownText) {
         self.show(vec![NoticeMessage::new(text, MessageKind::Ordinary)]);
     }
 
     /// Shows `text`, that the window closes when the file operations are done, as `give` does.
     /// `clear_if_it_tells_of_a_close` takes it away again.
-    pub(crate) fn give_close_waiting(&mut self, text: String) {
+    pub(crate) fn give_close_waiting(&mut self, text: ShownText) {
         self.show(vec![NoticeMessage::new(text, MessageKind::CloseWaiting)]);
     }
 
     /// Shows `texts` and under them `failures`, each a message of its own, as one notice, such
     /// as the files added to a collection and the names refused. Given one after the other,
     /// each would take the place of the one before.
-    pub(crate) fn give_all(&mut self, texts: Vec<String>, failures: Vec<Failure>) {
+    pub(crate) fn give_all(&mut self, texts: Vec<ShownText>, failures: Vec<Failure>) {
         let texts = texts
             .into_iter()
             .map(|t| NoticeMessage::new(t, MessageKind::Ordinary));
@@ -631,8 +638,8 @@ impl Notice {
     /// Shows `shown`, or no notice for `None`, and joins its texts for `text`.
     fn set_shown(&mut self, shown: Option<(Vec<NoticeMessage>, u64)>) {
         let messages = shown.iter().flat_map(|(messages, _)| messages);
-        let texts: Vec<String> = messages.map(NoticeMessage::text).collect();
-        self.text = texts.join("\n");
+        let texts: Vec<ShownText> = messages.map(NoticeMessage::text).collect();
+        self.text = ShownText::join(&texts, &ShownText::untranslated("\n"));
         self.shown = shown;
     }
 
@@ -692,7 +699,7 @@ impl Notice {
     pub(crate) fn clear(&mut self) {
         self.set_shown(None);
         if !self.kept_until_drawn.is_empty() {
-            self.give(String::new());
+            self.give(ShownText::default());
         }
     }
 
@@ -701,11 +708,17 @@ impl Notice {
         self.shown.as_ref().map(|_| self.text.as_str())
     }
 
+    /// Returns the text shown, as `text` does, as the shown text a screen reader is given.
+    #[cfg(feature = "accessibility")]
+    pub(crate) fn shown_text(&self) -> Option<&ShownText> {
+        self.shown.as_ref().map(|_| &self.text)
+    }
+
     /// Returns the texts of the errors shown, for a test to tell them from ordinary messages.
     #[cfg(test)]
     pub(crate) fn error_texts(&self) -> Vec<String> {
         let errors = self.messages().iter().filter(|m| m.is_error());
-        errors.map(NoticeMessage::text).collect()
+        errors.map(|m| m.text().to_string()).collect()
     }
 
     /// Returns the messages shown, none when no notice is shown.
@@ -722,7 +735,7 @@ impl Notice {
     /// Takes the notice away and returns it, with its number, for `put_back`.
     pub(crate) fn set_aside(&mut self) -> Option<(Vec<NoticeMessage>, u64)> {
         let shown = self.shown.take();
-        self.text.clear();
+        self.text = ShownText::default();
         shown
     }
 
@@ -1150,7 +1163,7 @@ impl crate::App {
                 let text = with_icon(ui, icon, tr(label));
                 #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
                 let radio = ui.radio(self.config.layout == key, text);
-                if noted(&radio, tr(label)).clicked() {
+                if noted(&radio, &tr(label)).clicked() {
                     self.set_layout(key);
                 }
             }
@@ -1161,7 +1174,7 @@ impl crate::App {
             if checkbox(ui, &mut self.config.layout_names, tr("Show File Names")).changed() {
                 self.config.save();
             }
-            ui.weak(tr("Slideshow in this layout:"));
+            ui.show_weak(tr("Slideshow in this layout:"));
             let turns = self.changes_one_pane_at_a_time();
             let mut chosen = turns;
             for (value, icon, label) in [
@@ -1172,9 +1185,9 @@ impl crate::App {
                 ),
                 (true, theme::icon::CURSOR, tr("One Image at a Time")),
             ] {
-                let text = with_icon(ui, icon, label);
+                let text = with_icon(ui, icon, &label);
                 #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted here.
-                noted(&ui.radio_value(&mut chosen, value, text), label);
+                noted(&ui.radio_value(&mut chosen, value, text), &label);
             }
             if chosen != turns {
                 let layout = self.config.layout.clone();
@@ -1247,7 +1260,7 @@ impl crate::App {
     pub(crate) fn paint_name(&self, ui: &egui::Ui, rect: egui::Rect, i: usize) {
         let p = ui.painter();
         let font = egui::TextStyle::Body.resolve(ui.style());
-        let galley = p.layout_no_wrap(self.name(i).into_owned(), font, egui::Color32::WHITE);
+        let galley = p.layout_no_wrap(self.name(i).to_string(), font, egui::Color32::WHITE);
         let text = egui::Rect::from_min_size(rect.left_top() + egui::vec2(8.0, 8.0), galley.size());
         p.rect_filled(text.expand(4.0), 3.0, egui::Color32::from_black_alpha(160));
         p.galley(text.min, galley, egui::Color32::WHITE);
@@ -1301,7 +1314,11 @@ impl crate::App {
             return;
         }
         let p = ui.painter();
-        let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
+        let galley = p.layout_no_wrap(
+            text.to_string(),
+            egui::FontId::proportional(15.0),
+            egui::Color32::WHITE,
+        );
         let at = egui::Rect::from_min_size(
             area.min + egui::vec2(12.0, 12.0),
             galley.size() + egui::vec2(20.0, 12.0),
@@ -1312,32 +1329,38 @@ impl crate::App {
 
     /// Returns the full screen info's text for the image shown, from the template in
     /// Preferences. Its EXIF is asked for here, and its fields fill once it is read.
-    pub(crate) fn full_screen_info_text(&mut self, ctx: &egui::Context) -> String {
+    pub(crate) fn full_screen_info_text(&mut self, ctx: &egui::Context) -> ShownText {
         self.request_and_take_exif(ctx);
         let path = self.path(self.list.shown());
         let meta = self.info_panel.saved_drawn_for(&path);
+        // What the file says is shown on the lines of the template, its line breaks as escapes.
+        let said = ShownText::from_file_text_on_one_line;
         fill_template(
             &self.config.full_screen_info_template,
             |field| match field {
-                "name" => self.name(self.list.shown()).to_string(),
+                "name" => self.name(self.list.shown()),
                 "path" => escaped_name(&path),
                 "position" => self.position_text(),
                 "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
-                    .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
+                    .map(|s| {
+                        let [w, h] = s.original_size;
+                        crate::tf!("{w} × {h}", w, h)
+                    })
                     .unwrap_or_default(),
                 "marks" => self.mark_text(self.list.shown()),
-                "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
-                "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
-                "file_size" => (self
-                    .info_panel
-                    .exif_row(&path, crate::ui::info_panel::FILE_SIZE))
-                .unwrap_or_default()
-                .to_owned(),
+                "keywords" => meta
+                    .map(|m| said(&m.keywords.join(", ")))
+                    .unwrap_or_default(),
+                "comment" => meta.map(|m| said(&m.comment)).unwrap_or_default(),
+                "file_size" => said(
+                    self.info_panel
+                        .exif_row(&path, crate::ui::info_panel::FILE_SIZE)
+                        .unwrap_or_default(),
+                ),
                 field => (crate::metadata::exif::label_of_field(field))
                     .and_then(|label| Some((label, self.info_panel.exif_row(&path, label)?)))
-                    .map(|(label, value)| crate::metadata::exif::shown_value(label, value))
-                    .unwrap_or_default()
-                    .to_owned(),
+                    .map(|(label, value)| said(&crate::metadata::exif::shown_value(label, value)))
+                    .unwrap_or_default(),
             },
         )
     }
@@ -1351,7 +1374,7 @@ impl crate::App {
     pub(crate) fn projector_window(&mut self, ctx: &egui::Context) {
         let id = egui::ViewportId::from_hash_of("glimt projector");
         let builder = egui::ViewportBuilder::default()
-            .with_title(tr("Glimt Projector"))
+            .with_title(tr("Glimt Projector").to_string())
             .with_app_id(app_id())
             .with_inner_size([960.0, 600.0]);
         let mut chosen = None;
@@ -1389,7 +1412,7 @@ impl crate::App {
                 }
                 let response = ui.allocate_rect(area, egui::Sense::click());
                 let name = self.name(self.list.shown());
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &name));
+                response.widget_info(|| crate::ui::menus::spoken(egui::Role::Image, true, &name));
                 if f || response.double_clicked() || (esc && full) {
                     pctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
                 }
@@ -1731,7 +1754,7 @@ impl crate::App {
             // A click makes it the shown image, in the first pane.
             let pane = ui.interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click());
             let name = self.name(i);
-            pane.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &name));
+            pane.widget_info(|| crate::ui::menus::spoken(egui::Role::Image, true, &name));
             if pane.clicked() {
                 clicked_pane = Some(i);
             }
@@ -1899,7 +1922,6 @@ impl crate::App {
                 } else {
                     tr("No images in folder")
                 }
-                .to_owned()
             } else if let Some(e) = self.list.decode_errors().get(&self.list.shown()) {
                 crate::tf!(
                     "Could not open {name}:\n{e}",
@@ -1907,13 +1929,13 @@ impl crate::App {
                     e
                 )
             } else {
-                String::new()
+                ShownText::default()
             };
             // The text is broken into lines that fit, because an error, such as a decoder's
             // message, can be long.
             let (font, grey) = (egui::FontId::proportional(16.0), egui::Color32::GRAY);
             let width = (area.width() - 32.0).max(80.0);
-            let galley = ui.painter().layout(text, font, grey, width);
+            let galley = ui.painter().layout(text.to_string(), font, grey, width);
             let at = area.center() - galley.size() / 2.0;
             ui.painter().galley(at, galley, grey);
         }
@@ -1954,7 +1976,8 @@ impl crate::App {
         let text_at = at + egui::vec2(NOTICE_STRIPE + NOTICE_PADDING, NOTICE_PADDING);
         if is_error {
             let font = egui::FontId::proportional(20.0);
-            painter.text(text_at, egui::Align2::LEFT_TOP, "\u{26a0}", font, colour);
+            let warning = ShownText::untranslated("\u{26a0}");
+            painter.show_text(text_at, egui::Align2::LEFT_TOP, warning, font, colour);
         }
         painter.galley(text_at + egui::vec2(sign, 0.0), galley, NOTICE_HEADING);
     }
@@ -2328,7 +2351,7 @@ pub(crate) fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
                 .rect_stroke(r, 1.0, stroke, egui::StrokeKind::Inside);
         }
     }
-    response.on_hover_text(tr(
+    response.tip(tr(
         "The pane these details are of: the one under the pointer",
     ));
 }
@@ -2464,7 +2487,7 @@ pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
     let button = egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
     let play = ui.interact(button, ui.scope_id().with("play"), egui::Sense::click());
     let text = tr("Video: Enter or click to play");
-    play.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, text));
+    play.widget_info(|| crate::ui::menus::spoken(egui::Role::Button, true, &text));
     let p = ui.painter();
     p.circle_filled(button.center(), 48.0, shade);
     let c = button.center();
@@ -2479,7 +2502,7 @@ pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
         egui::Stroke::NONE,
     ));
     let label = p.layout_no_wrap(
-        text.into(),
+        text.to_string(),
         egui::FontId::proportional(16.0),
         egui::Color32::WHITE,
     );
@@ -2496,10 +2519,10 @@ pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
 pub(crate) fn broken_mark(p: &egui::Painter, centre: egui::Pos2, text_size: f32) {
     p.circle_filled(centre, 7.0, egui::Color32::from_rgb(240, 140, 0));
     let bold = egui::FontId::proportional(text_size * 0.85);
-    p.text(
+    p.show_text(
         centre,
         egui::Align2::CENTER_CENTER,
-        "!",
+        ShownText::untranslated("!"),
         bold,
         egui::Color32::BLACK,
     );
@@ -2608,11 +2631,8 @@ mod tests {
             None,
             Some("t.desktop".into()),
         ];
-        let left = Some("The old marks file is left".to_owned());
-        let old = [
-            "plugins/ is no longer read".to_owned(),
-            "decoders/ too".to_owned(),
-        ];
+        let left = Some("The old marks file is left".into());
+        let old = ["plugins/ is no longer read".into(), "decoders/ too".into()];
         let notice = super::Notice::told_at_start(errors, left, &old);
         let kinds: Vec<bool> = notice.messages().iter().map(|m| m.is_error()).collect();
         assert_eq!(kinds, [true, true, false, false]);

@@ -607,7 +607,9 @@ fn oriented(
     rotate: bool,
 ) -> Result<(Vec<u8>, u8), String> {
     if !data.starts_with(&[0xff, 0xd8]) {
-        return Err(crate::support::lang::tr("only JPEG files can store the orientation").into());
+        return Err(
+            crate::support::lang::tr("only JPEG files can store the orientation").to_string(),
+        );
     }
     let (segments, _) = jpeg_segments(&data).ok_or("cut off")?;
     let exif = segments
@@ -1882,11 +1884,11 @@ pub fn label_of_field(field: &str) -> Option<&'static str> {
 
 /// Returns a row's value as the panel shows it, with the flash's in the language in use. The
 /// rows keep English, which the exif: search and the print caption's %flash% read.
-pub fn shown_value<'a>(label: &str, value: &'a str) -> &'a str {
+pub fn shown_value(label: &str, value: &str) -> crate::support::format::ShownText {
     match (label, value) {
         ("Flash", "Fired") => crate::support::lang::tr("Fired"),
         ("Flash", "No") => crate::support::lang::tr("No"),
-        _ => value,
+        _ => crate::support::format::ShownText::from_file_text(value),
     }
 }
 

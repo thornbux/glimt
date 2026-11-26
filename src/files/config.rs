@@ -1787,7 +1787,7 @@ mod tests {
         let mut full = String::new();
         for _ in 0..250 {
             app.poll_background(&ctx);
-            full = app.full_screen_info_text(&ctx);
+            full = app.full_screen_info_text(&ctx).to_string();
             if ["dimensions:", "iso:", "keywords:"]
                 .iter()
                 .all(|f| full.contains(f))

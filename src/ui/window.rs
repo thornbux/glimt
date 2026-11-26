@@ -1,7 +1,7 @@
 //! The window itself: its size and place remembered, and the screen saver kept off in full screen.
 
 use crate::files::config::WindowState;
-use crate::support::format::{escaped_name, fill_template};
+use crate::support::format::{ShownText, escaped_name, fill_template};
 use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::viewer::view::Failure;
@@ -399,17 +399,15 @@ impl crate::App {
             }
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        self.notice.give_close_waiting(
-            match self.window.close_requests {
+        self.notice
+            .give_close_waiting(match self.window.close_requests {
                 1 => crate::support::lang::tr(
                     "Glimt closes when the file operations are done; close again to stop them",
                 ),
                 _ => crate::support::lang::tr(
                     "Stopping after the files at hand; close once more to end at once",
                 ),
-            }
-            .into(),
-        );
+            });
         self.window.note_close_notice();
     }
 
@@ -548,7 +546,7 @@ impl crate::App {
     }
 
     pub(crate) fn update_window_title(&self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text()));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text().to_string()));
     }
 
     /// Window → Set Window Title: this window's own template, until it closes; empty, the one
@@ -560,13 +558,13 @@ impl crate::App {
 
     /// "image name - Glimt"; the folder when it has no images. Or this window's own template,
     /// else the one in Preferences, unless its fields are all empty.
-    pub(crate) fn title_text(&self) -> String {
+    pub(crate) fn title_text(&self) -> ShownText {
         let (name, path) = match (
             self.list.files().get(self.list.shown()),
             self.folder.collection(),
         ) {
             (Some(_), _) => (
-                self.name(self.list.shown()).into_owned(),
+                self.name(self.list.shown()),
                 escaped_name(self.path(self.list.shown())),
             ),
             (None, Some(file)) => (escaped_name(file), escaped_name(file)),
@@ -587,8 +585,8 @@ impl crate::App {
         let folder = escaped_name(folder.unwrap_or_else(|| self.folder.dir().to_path_buf()));
         // A named Glimt says which it is.
         let app = match remote::given_name() {
-            Some(n) => tf!("Glimt ({n})", n),
-            None => "Glimt".to_owned(),
+            Some(n) => tf!("Glimt ({n})", n = ShownText::from_file_text_on_one_line(&n)),
+            None => ShownText::untranslated("Glimt"),
         };
         let template = match self.window.title_template.as_str() {
             "" => &self.config.window_title,
@@ -599,13 +597,13 @@ impl crate::App {
             "path" => path.clone(),
             "folder" => folder.clone(),
             "app" => app.clone(),
-            "id" => remote::window_id(),
-            _ => String::new(),
+            "id" => ShownText::from_file_text_on_one_line(&remote::window_id()),
+            _ => ShownText::default(),
         });
         if !own.trim().is_empty() {
             own
         } else {
-            format!("{name} - {app}")
+            ShownText::join([&name, &app], &ShownText::untranslated(" - "))
         }
     }
 
@@ -1284,9 +1282,13 @@ mod tests {
         let ctx = eframe::egui::Context::default();
         let pass = |window: bool| {
             let _ = ctx.run_ui(Default::default(), |ui| {
-                eframe::egui::CentralPanel::default().show(ui, |ui| ui.label("image"));
+                eframe::egui::CentralPanel::default().show(ui, |ui| {
+                    crate::ui::menus::DrawShown::show_label(ui, super::ShownText::from("image"))
+                });
                 if window {
-                    eframe::egui::Window::new("Help").show(ui.ctx(), |ui| ui.label("text"));
+                    eframe::egui::Window::new("Help").show(ui.ctx(), |ui| {
+                        crate::ui::menus::DrawShown::show_label(ui, super::ShownText::from("text"))
+                    });
                 }
             });
             super::is_window_visible(&ctx)
@@ -1429,7 +1431,7 @@ mod tests {
         let (go, wait) = std::sync::mpsc::channel::<()>();
         assert!(app.run_in_background(ctx, Vec::new(), move || {
             let _ = wait.recv();
-            let failure = "Could not crop the image: test".to_owned();
+            let failure = "Could not crop the image: test";
             Some(crate::support::threads::Told::FailedWrite(failure.into()))
         }));
         go

@@ -1,7 +1,9 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
+use crate::support::format::ShownText;
 use crate::ui::actions::Action;
 use crate::ui::actions::shortcuts_in_effect;
+use crate::ui::menus::{DrawShown, PaintShown, ShownTip};
 use eframe::egui;
 use egui::Key;
 
@@ -1248,7 +1250,7 @@ pub enum Page {
 }
 
 impl Page {
-    fn title(self) -> &'static str {
+    fn title(self) -> ShownText {
         // The window's title in the interface's language; the pages themselves stay English.
         crate::support::lang::tr(match self {
             Page::Manual => "Help Manual",
@@ -1281,7 +1283,7 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
         });
     // Noted by its title, so the release tests see which help window is open.
     if let Some(drawn) = drawn {
-        crate::support::test_hooks::noted(&drawn.response, shown.title());
+        crate::support::test_hooks::noted(&drawn.response, &shown.title());
     }
     if !open {
         *page = None;
@@ -1291,7 +1293,7 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
 fn manual(ui: &mut egui::Ui) {
     for (heading, text) in MANUAL {
         ui.strong(*heading);
-        ui.label(*text);
+        ui.show_label(english(text));
         // The same lists as glimt --help, so they are never behind.
         if *heading == "Command line" {
             table(ui, "options", crate::cli::START_OPTIONS);
@@ -1307,9 +1309,9 @@ fn manual(ui: &mut egui::Ui) {
             ui.strong("Geeqie");
             ui.end_row();
             for (what, glimt, geeqie) in DIFFERENCES {
-                ui.label(*what);
-                ui.label(*glimt);
-                ui.label(*geeqie);
+                ui.show_label(english(what));
+                ui.show_label(english(glimt));
+                ui.show_label(english(geeqie));
                 ui.end_row();
             }
         });
@@ -1326,11 +1328,11 @@ fn grid(ui: &egui::Ui, id: &str, columns: usize) -> egui::Grid {
 }
 
 /// Two columns, the first in code: options or commands and what they do.
-fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
+fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &'static str)]) {
     grid(ui, id, 2).show(ui, |ui| {
         for (what, does) in rows {
             ui.code(*what);
-            ui.label(*does);
+            ui.show_label(english(does));
             ui.end_row();
         }
     });
@@ -1339,10 +1341,10 @@ fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
 /// Every shortcut of an action on one row, in menu order, then the mouse.
 fn shortcuts(ui: &mut egui::Ui, delete_key: bool) {
     let ctx = ui.ctx().clone();
-    let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
+    let mut rows: Vec<(Action, Vec<ShownText>)> = Vec::new();
     // Remove from Collection is listed also outside a collection, as its key works in one.
     for (action, mods, key) in shortcuts_in_effect(delete_key, true) {
-        let text = ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key));
+        let text = ShownText::keys_of(&ctx, &egui::KeyboardShortcut::new(mods, key));
         match rows.iter_mut().find(|r| r.0 == action) {
             Some(row) => row.1.push(text),
             None => rows.push((action, vec![text])),
@@ -1351,13 +1353,13 @@ fn shortcuts(ui: &mut egui::Ui, delete_key: bool) {
     rows.sort_by_key(|r| r.0 as usize);
     grid(ui, "shortcuts", 2).show(ui, |ui| {
         for (action, keys) in rows {
-            ui.label(keys.join(", "));
-            ui.label(action.label());
+            ui.show_label(ShownText::join(&keys, &english(", ")));
+            ui.show_label(action.label());
             ui.end_row();
         }
         for (what, does) in MOUSE {
-            ui.label(*what);
-            ui.label(*does);
+            ui.show_label(english(what));
+            ui.show_label(english(does));
             ui.end_row();
         }
     });
@@ -1365,23 +1367,25 @@ fn shortcuts(ui: &mut egui::Ui, delete_key: bool) {
 
 /// A keyboard with the keys Glimt uses highlighted; hover a key to see what it does.
 fn keymap(ui: &mut egui::Ui, delete_key: bool) {
-    ui.label("Highlighted keys do something; bright ones also without Ctrl, Shift or Alt.");
-    ui.label("Hover a key to see its actions.");
+    ui.show_label(english(
+        "Highlighted keys do something; bright ones also without Ctrl, Shift or Alt.",
+    ));
+    ui.show_label(english("Hover a key to see its actions."));
     ui.add_space(8.0);
     let unit = 34.0;
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(unit * 19.5, unit * 6.6), egui::Sense::hover());
     // Once for the map, not twice for each of its keys.
     let all = shortcuts_in_effect(delete_key, true);
-    let draw = |ui: &mut egui::Ui, label: &str, key: Option<Key>, at: egui::Rect| {
-        let actions: Vec<String> = key
+    let draw = |ui: &mut egui::Ui, label: &'static str, key: Option<Key>, at: egui::Rect| {
+        let actions: Vec<ShownText> = key
             .map(|k| {
                 all.iter()
                     .copied()
                     .filter(|s| s.2 == k)
                     .map(|(a, m, k)| {
-                        let keys = ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k));
-                        format!("{keys}: {}", a.label())
+                        let keys = ShownText::keys_of(ui.ctx(), &egui::KeyboardShortcut::new(m, k));
+                        ShownText::join([&keys, &a.label()], &english(": "))
                     })
                     .collect()
             })
@@ -1403,10 +1407,10 @@ fn keymap(ui: &mut egui::Ui, delete_key: bool) {
         } else {
             v.strong_text_color()
         };
-        ui.painter().text(
+        ui.painter().show_text(
             r.center(),
             egui::Align2::CENTER_CENTER,
-            label,
+            english(label),
             egui::FontId::proportional(12.0),
             color,
         );
@@ -1415,7 +1419,7 @@ fn keymap(ui: &mut egui::Ui, delete_key: bool) {
                 .scope_id()
                 .with(("key", label, at.min.x as i32, at.min.y as i32));
             ui.interact(r, id, egui::Sense::hover())
-                .on_hover_text(actions.join("\n"));
+                .tip(ShownText::join(&actions, &english("\n")));
         }
     };
     for (y, row) in ROWS.iter().enumerate() {
@@ -1465,10 +1469,10 @@ fn about(ui: &mut egui::Ui) {
             ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(tall, tall)));
         }
         ui.vertical(|ui| {
-            ui.heading(format!("Glimt {}", env!("CARGO_PKG_VERSION")));
-            ui.label("A fast, memory-frugal image viewer for Linux.");
-            ui.label("Glimt is Norwegian for \"glimpse\": a quick look.");
-            ui.weak("Copyright © 2026 Hans-Henry Jakobsen");
+            ui.show_heading(english(concat!("Glimt ", env!("CARGO_PKG_VERSION"))));
+            ui.show_label(english("A fast, memory-frugal image viewer for Linux."));
+            ui.show_label(english("Glimt is Norwegian for \"glimpse\": a quick look."));
+            ui.show_weak(english("Copyright © 2026 Hans-Henry Jakobsen"));
             // Opened by the desktop's browser (gio, xdg-open), as Show on OpenStreetMap.
             ui.horizontal(|ui| {
                 for (text, url) in [
@@ -1478,8 +1482,8 @@ fn about(ui: &mut egui::Ui) {
                         "https://github.com/thornbux/glimt/blob/main/LICENSE",
                     ),
                 ] {
-                    if crate::ui::menus::link(ui, text)
-                        .on_hover_text(url)
+                    if crate::ui::menus::link(ui, english(text))
+                        .tip(english(url))
                         .clicked()
                     {
                         crate::files::external::open_url(url);
@@ -1492,20 +1496,22 @@ fn about(ui: &mut egui::Ui) {
     egui::CollapsingHeader::new("Credits")
         .default_open(true)
         .show(ui, |ui| {
-            ui.label("Inspired by Geeqie (geeqie.org); Glimt shares no code with it.");
-            ui.label("Written with Claude Code (Anthropic).");
+            ui.show_label(english(
+                "Inspired by Geeqie (geeqie.org); Glimt shares no code with it.",
+            ));
+            ui.show_label(english("Written with Claude Code (Anthropic)."));
             ui.add_space(4.0);
             grid(ui, "credits", 3).show(ui, |ui| {
                 for (what, who, license) in CREDITS {
-                    ui.label(*what);
-                    ui.weak(*who);
-                    ui.label(*license);
+                    ui.show_label(english(what));
+                    ui.show_weak(english(who));
+                    ui.show_label(english(license));
                     ui.end_row();
                 }
             });
         });
     egui::CollapsingHeader::new("Licence (MIT)").show(ui, |ui| {
-        ui.label(include_str!("../../LICENSE"));
+        ui.show_label(english(include_str!("../../LICENSE")));
     });
 }
 
@@ -1538,6 +1544,12 @@ fn decode_logo(ctx: &egui::Context) {
     });
     LOGO_PIXELS.get_or_init(|| pixels);
     ctx.request_repaint();
+}
+
+/// Returns `text`, which stays English: the Help Manual, the shortcuts' and keyboard map's pages
+/// and About show the interface's words only in their titles.
+fn english(text: &'static str) -> ShownText {
+    ShownText::untranslated(text)
 }
 
 #[cfg(test)]

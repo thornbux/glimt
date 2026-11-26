@@ -3327,3 +3327,27 @@ msgstr "metadataene til {name} kunne ikke leses, og bildet skrives ikke uten dem
 #: src/metadata/xmp.rs
 msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
 msgstr "metadataene til {name} kunne ikke leses, og sidefilen skrives ikke uten dem: {e}"
+
+#: src/ui/dialogs.rs
+msgid "\"{name}\""
+msgstr "«{name}»"
+
+#: src/files/file_ops.rs
+msgid "{name}: {e}"
+msgstr "{name}: {e}"
+
+#: src/files/file_ops.rs
+msgid "{done}; {failed}"
+msgstr "{done}; {failed}"
+
+#: src/ui/menus.rs
+msgid "{label} ({keys})"
+msgstr "{label} ({keys})"
+
+#: src/features/print.rs
+msgid "{n} ({cols} × {rows})"
+msgstr "{n} ({cols} × {rows})"
+
+#: src/ui/file_list.rs
+msgid "{w} × {h}"
+msgstr "{w} × {h}"

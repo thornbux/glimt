@@ -5,11 +5,12 @@ use crate::files::config::{
     CPU_LEVELS, FADES, FULL_SCREEN_INFO_TEMPLATE, MAX_SLIDESHOW_DELAY, MEMORY_LEVELS,
 };
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
-use crate::support::format::{escaped_file_name, escaped_name, thousands};
+use crate::support::format::{ShownText, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::set_cpu_use;
 use crate::ui::actions::{ALL, Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
+use crate::ui::menus::{DrawShown, ShownChoice, ShownTip};
 use crate::ui::menus::{checkbox, radio, radio_choice};
 use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
 use eframe::egui;
@@ -246,7 +247,7 @@ impl crate::App {
                 let query = self.preferences.query.to_lowercase();
                 let shown = sections_shown(&query, &self.desktop_settings.theme_names(ctx));
                 if !shown.contains(&true) {
-                    ui.weak(tr("No setting has these words"));
+                    ui.show_weak(tr("No setting has these words"));
                 }
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     // Plain settings set `changed`; the config is saved once at the end.
@@ -265,7 +266,7 @@ impl crate::App {
                             });
                         crate::support::test_hooks::noted(
                             &keys.header_response,
-                            tr("Keyboard shortcuts"),
+                            &tr("Keyboard shortcuts"),
                         );
                         keys_drawn = keys.body_returned.is_some();
                     }
@@ -342,7 +343,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             let mut chosen = false;
             egui::ComboBox::from_id_salt("theme")
-                .selected_text(theme::shown_name(&self.config.theme))
+                .selected(theme::shown_name(&self.config.theme))
                 .show_ui(ui, |ui| {
                     for name in names {
                         let c = &mut self.config.theme;
@@ -350,7 +351,7 @@ impl crate::App {
                         chosen |= crate::ui::menus::choice(ui, c, name.clone(), shown).clicked();
                     }
                 });
-            ui.label(tr("Theme"));
+            ui.show_label(tr("Theme"));
             // Chosen again too, so a theme file just edited shows.
             if chosen {
                 changed = true;
@@ -361,7 +362,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             let mut chosen = false;
             egui::ComboBox::from_id_salt("language")
-                .selected_text(language_name(&self.config.language))
+                .selected(language_name(&self.config.language))
                 .show_ui(ui, |ui| {
                     for code in language_codes() {
                         let c = &mut self.config.language;
@@ -369,7 +370,7 @@ impl crate::App {
                         chosen |= crate::ui::menus::choice(ui, c, code.to_owned(), name).clicked();
                     }
                 });
-            ui.label(tr("Language"));
+            ui.show_label(tr("Language"));
             if chosen {
                 changed = true;
                 lang::set_language(&self.config.language);
@@ -404,7 +405,7 @@ impl crate::App {
     /// Preferences: the slideshow's delay, order, subfolders, repeat and fade.
     pub(crate) fn slideshow_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
-        ui.weak(tr(
+        ui.show_weak(tr(
             "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
         ));
         let delay = egui::Slider::new(&mut self.config.slideshow_delay, 1..=MAX_SLIDESHOW_DELAY)
@@ -430,10 +431,10 @@ impl crate::App {
         )
         .changed();
         ui.horizontal(|ui| {
-            ui.label(tr("Fade to the next image:"));
+            ui.show_label(tr("Fade to the next image:"));
             for (k, (_, label, _)) in FADES.iter().enumerate() {
                 changed |= radio_choice(ui, &mut self.config.slideshow_fade, k, tr(label))
-                    .on_hover_text(tr("Not with CPU use Power saving"))
+                    .tip(tr("Not with CPU use Power saving"))
                     .changed();
             }
         });
@@ -494,7 +495,7 @@ impl crate::App {
             changed |= ui
                 .color_edit_button_srgb(&mut self.config.background.0)
                 .changed();
-            ui.label(tr("Background behind the image"));
+            ui.show_label(tr("Background behind the image"));
             if self.config.background.0 != [0, 0, 0]
                 && crate::ui::menus::small_button(ui, tr("Black")).clicked()
             {
@@ -515,8 +516,12 @@ impl crate::App {
     fn histogram_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
         ui.horizontal(|ui| {
-            ui.label(tr("Histogram (K):"));
-            for (n, name) in [(0, tr("Off")), (1, "RGB"), (2, tr("Brightness"))] {
+            ui.show_label(tr("Histogram (K):"));
+            for (n, name) in [
+                (0, tr("Off")),
+                (1, ShownText::untranslated("RGB")),
+                (2, tr("Brightness")),
+            ] {
                 changed |= radio_choice(ui, &mut self.config.histogram, n, name).changed();
             }
             let log = self.config.histogram_log;
@@ -530,7 +535,7 @@ impl crate::App {
     /// Preferences: fuzzy or regular expression search.
     pub(crate) fn search_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
-        ui.label(tr("Search field above the file list:"));
+        ui.show_label(tr("Search field above the file list:"));
         let fuzzy = self.config.fuzzy_search;
         for (on, label) in [
             (true, tr("Fuzzy, best matches first (like fzf)")),
@@ -556,7 +561,7 @@ impl crate::App {
             self.set_thumbnails(show);
         }
         ui.horizontal(|ui| {
-            ui.label(tr("Thumbnail size:"));
+            ui.show_label(tr("Thumbnail size:"));
             self.thumbnail_size_setting(ui);
         });
         let icons = tr("Show the file list as icons (Ctrl+I)");
@@ -600,7 +605,7 @@ impl crate::App {
 
     /// Draws a checkbox of a setting that a View action turns on and off, and changes it
     /// through that action's `toggle_setting`, so it does what the menu does besides.
-    fn toggle_box(&mut self, ui: &mut egui::Ui, on: bool, action: Action, text: &str) {
+    fn toggle_box(&mut self, ui: &mut egui::Ui, on: bool, action: Action, text: ShownText) {
         let mut on = on;
         if checkbox(ui, &mut on, text).changed() {
             self.toggle_setting(action);
@@ -621,13 +626,10 @@ impl crate::App {
             .find(|l| (l.preload, l.decode_threads, l.animation_mb, l.one_arena) == now);
         let (mut chosen, mut custom) = (None, false);
         ui.horizontal(|ui| {
-            ui.label(tr("Memory use:"));
+            ui.show_label(tr("Memory use:"));
             for l in &MEMORY_LEVELS {
                 let on = level.is_some_and(|m| m.name == l.name);
-                if radio(ui, on, tr(l.name))
-                    .on_hover_text(tr(l.tooltip))
-                    .clicked()
-                {
+                if radio(ui, on, tr(l.name)).tip(tr(l.tooltip)).clicked() {
                     chosen = Some(*l);
                 }
             }
@@ -647,7 +649,7 @@ impl crate::App {
             .open((level.is_none() || custom).then_some(true))
             .show(ui, |ui| {
                 let mut n = self.config.preload;
-                ui.label(tr("Preload next and previous images:"));
+                ui.show_label(tr("Preload next and previous images:"));
                 let slider = egui::Slider::new(&mut n, 0..=20).text(tr("images on each side"));
                 if ui.add(slider).changed() {
                     self.set_preload(n);
@@ -655,7 +657,7 @@ impl crate::App {
                 }
                 let [w, h] = self.decoding.view_box();
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
-                ui.weak(tf!("Up to ≈ {mb} MB, each image at most {w}×{h}", mb, w, h));
+                ui.show_weak(tf!("Up to ≈ {mb} MB, each image at most {w}×{h}", mb, w, h));
                 let c = &mut self.config;
                 changed |= ui
                     .add(
@@ -672,7 +674,7 @@ impl crate::App {
                 }
                 let low = tr("One malloc arena: much less memory, decoding up to ~8 % slower");
                 changed |= checkbox(ui, &mut c.one_malloc_arena, low).changed();
-                ui.weak(restart);
+                ui.show_weak(restart);
             });
         let c = &mut self.config;
         let program = egui::Slider::new(&mut c.added_format_memory_mb, 512..=65536)
@@ -683,7 +685,7 @@ impl crate::App {
                             files, gets at most this much memory. Raise it when such a program \
                             runs out of memory.",
         );
-        if ui.add(program).on_hover_text(explained).changed() {
+        if ui.add(program).tip(explained).changed() {
             crate::images::added_formats::set_memory_limit(c.added_format_memory_mb);
             changed = true;
         }
@@ -693,10 +695,10 @@ impl crate::App {
     /// Preferences → CPU use: power saving, balanced or full.
     pub(crate) fn cpu_settings(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label(tr("CPU use:"));
+            ui.show_label(tr("CPU use:"));
             for (k, (name, hover)) in CPU_LEVELS.iter().enumerate() {
                 if radio(ui, self.config.cpu_use == k, tr(name))
-                    .on_hover_text(tr(hover))
+                    .tip(tr(hover))
                     .clicked()
                 {
                     self.config.cpu_use = k;
@@ -719,24 +721,28 @@ impl crate::App {
             if checkbox(ui, &mut own, tr("Use the image's own profile")).changed() {
                 self.set_own_profile(own);
             }
-            ui.label(tr("Images without a profile:"));
+            ui.show_label(tr("Images without a profile:"));
             let current = self.config.input_profile.clone();
             for (value, label, _) in INPUT_PROFILES {
-                if radio(ui, current == value, label).clicked() && current != value {
+                if radio(ui, current == value, ShownText::untranslated(label)).clicked()
+                    && current != value
+                {
                     self.set_input_profile(ui.ctx(), value.to_owned());
                 }
             }
             let own_file = !INPUT_PROFILES.iter().any(|p| p.0 == current);
             let file = Path::new(&current).file_name().filter(|_| own_file);
-            let label = file.map_or(tr("Profile file…").into(), |n| {
-                format!("{}…", escaped_name(n))
+            let label = file.map_or(tr("Profile file…"), |n| {
+                let mut name = escaped_name(n);
+                name.push(&ShownText::untranslated("…"));
+                name
             });
             if radio(ui, own_file, &label).clicked() {
                 self.pick(&ui.ctx().clone(), Pick::InputProfile);
             }
             let mut desktop = self.config.desktop_profile;
             if checkbox(ui, &mut desktop, tr("Use the desktop's screen profile"))
-                .on_hover_text(tr("From colord, which GNOME and KDE set"))
+                .tip(tr("From colord, which GNOME and KDE set"))
                 .changed()
             {
                 self.set_desktop_profile(desktop, ui.ctx());
@@ -744,17 +750,17 @@ impl crate::App {
             let from_desktop = (self.desktop_settings.screen_profile().map(str::to_owned))
                 .filter(|_| self.config.desktop_profile);
             ui.horizontal(|ui| {
-                ui.label(tr("Screen profile:"));
+                ui.show_label(tr("Screen profile:"));
                 if let Some(path) = from_desktop {
                     let name = escaped_file_name(Path::new(&path));
                     let name = tf!("{name}, from the desktop", name);
-                    ui.label(name).on_hover_text(escaped_name(path));
+                    ui.show_label(name).tip(escaped_name(path));
                     return;
                 }
                 let file = Path::new(&self.config.screen_profile).file_name();
-                let name = file.map_or(tr("none, sRGB").into(), escaped_name);
-                ui.label(name)
-                    .on_hover_text(escaped_name(&self.config.screen_profile));
+                let name = file.map_or(tr("none, sRGB"), escaped_name);
+                ui.show_label(name)
+                    .tip(escaped_name(&self.config.screen_profile));
                 if crate::ui::menus::button(ui, tr("Choose…")).clicked() {
                     self.pick(&ui.ctx().clone(), Pick::ScreenProfile);
                 }
@@ -764,7 +770,7 @@ impl crate::App {
                     self.set_screen_profile(ui.ctx(), String::new());
                 }
             });
-            ui.label(tr("Rendering intent:"));
+            ui.show_label(tr("Rendering intent:"));
             let current = self.config.rendering_intent.clone();
             for (value, label, _) in INTENTS {
                 if radio(ui, current == value, tr(label)).clicked() && current != value {
@@ -789,7 +795,7 @@ impl crate::App {
             "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there",
         );
         if checkbox(ui, &mut c.save_thumbnails, save)
-            .on_hover_text(kept)
+            .tip(kept)
             .changed()
         {
             self.thumbs.save_to_cache(c.save_thumbnails);
@@ -797,7 +803,7 @@ impl crate::App {
         }
         // Geeqie's cache maintenance: thumbnails of files that are gone.
         if crate::ui::menus::button(ui, tr("Remove thumbnails of deleted files"))
-            .on_hover_text(tr(
+            .tip(tr(
                 "In ~/.cache/thumbnails; kept for disks that are not plugged in",
             ))
             .clicked()
@@ -834,7 +840,7 @@ impl crate::App {
             }
         }
         ui.horizontal(|ui| {
-            ui.label(tr("Toolbar icons:"));
+            ui.show_label(tr("Toolbar icons:"));
             for (n, label) in [tr("Small"), tr("Medium"), tr("Large")]
                 .into_iter()
                 .enumerate()
@@ -874,7 +880,7 @@ impl crate::App {
             label,
         );
         let c = &mut self.config;
-        ui.label(tr("Image info template:"));
+        ui.show_label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.
         let mut text = c.full_screen_info_template.replace("\\n", "\n");
         let field = egui::TextEdit::multiline(&mut text)
@@ -885,7 +891,7 @@ impl crate::App {
             c.full_screen_info_template = text.replace('\n', "\\n");
             changed = true;
         }
-        ui.weak(tr(
+        ui.show_weak(tr(
             "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, \
              %file_size%, and the EXIF fields %camera%, %lens%, %taken%, %exposure%, \
              %aperture%, %iso%, %focal_length%, %exposure_bias%, %flash% and %gps%. A | starts \
@@ -916,7 +922,7 @@ impl crate::App {
         changed |= checkbox(ui, &mut c.remote_control, remote).changed();
         let inhibit = tr("Keep the screen saver off in full screen");
         changed |= checkbox(ui, &mut c.inhibit_screensaver, inhibit).changed();
-        ui.label(tr("Custom window title (empty: \"image name - Glimt\"):"));
+        ui.show_label(tr("Custom window title (empty: \"image name - Glimt\"):"));
         let field = egui::TextEdit::singleline(&mut self.config.window_title)
             .desired_width(f32::INFINITY)
             .hint_text("%name% - %app%");
@@ -924,7 +930,7 @@ impl crate::App {
             changed = true;
             self.update_window_title(ctx);
         }
-        ui.weak(tr(
+        ui.show_weak(tr(
             "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when \
              its fields are empty.",
         ));
@@ -954,18 +960,17 @@ impl crate::App {
                     };
                     // Said when another action has the key: the new one takes it, and the other
                     // no longer answers to it.
-                    let taken: Vec<&str> = (shortcuts().iter())
+                    let taken: Vec<ShownText> = (shortcuts().iter())
                         .filter(|s| s.0 != action && actions::same_keys(s, &(action, mods, key)))
                         .map(|s| s.0.label())
                         .collect();
                     if !taken.is_empty() {
-                        let keys = ui
-                            .ctx()
-                            .format_shortcut(&egui::KeyboardShortcut::new(mods, key));
+                        let keys =
+                            ShownText::keys_of(ui.ctx(), &egui::KeyboardShortcut::new(mods, key));
                         self.notice.give(tf!(
                             "{keys} was the key of {others} too: now of {label} only",
                             keys,
-                            others = taken.join(", "),
+                            others = ShownText::join(&taken, &ShownText::untranslated(", ")),
                             label = action.label()
                         ));
                     }
@@ -983,23 +988,22 @@ impl crate::App {
         let all = shortcuts();
         let mut actions = key_actions();
         // Those a search finds, or all when it finds none (it found the section's own words).
-        let has = |a: &Action| section_matches(query, &[], &[a.english(), a.label()]);
+        let has = |a: &Action| {
+            section_matches(query, &[], &[a.english().to_owned(), a.label().to_string()])
+        };
         if actions.iter().any(has) {
             actions.retain(has);
         }
         egui::Grid::new("keys").striped(true).show(ui, |ui| {
             for action in actions {
-                ui.label(action.label());
-                let keys: Vec<String> = (all.iter().filter(|s| s.0 == action))
-                    .map(|s| {
-                        ui.ctx()
-                            .format_shortcut(&egui::KeyboardShortcut::new(s.1, s.2))
-                    })
+                ui.show_label(action.label());
+                let keys: Vec<ShownText> = (all.iter().filter(|s| s.0 == action))
+                    .map(|s| ShownText::keys_of(ui.ctx(), &egui::KeyboardShortcut::new(s.1, s.2)))
                     .collect();
                 if self.preferences.key_being_chosen_for == Some(action) {
                     ui.strong(tr("Press a key (Esc cancels)"));
                 } else {
-                    ui.label(keys.join(", "));
+                    ui.show_label(ShownText::join(&keys, &ShownText::untranslated(", ")));
                 }
                 ui.horizontal(|ui| {
                     let change = crate::ui::menus::small_button(ui, tr("Change"));
@@ -1049,18 +1053,18 @@ impl crate::App {
     pub(crate) fn video_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let c = &mut self.config;
-        ui.weak(tr("Previews need ffmpeg"));
+        ui.show_weak(tr("Previews need ffmpeg"));
         if checkbox(ui, &mut c.list_videos, tr("Show videos in the file list")).changed() {
             changed = true;
             self.start_listing(ctx);
         }
         ui.horizontal(|ui| {
-            ui.label(tr("Player (Enter):"));
+            ui.show_label(tr("Player (Enter):"));
             let player = egui::TextEdit::singleline(&mut self.config.video_player)
                 .hint_text(tr("default application"));
             let hint =
                 tr("A command line, such as mpv --fs; a path with spaces goes in \"quotes\"");
-            changed |= ui.add(player).on_hover_text(hint).changed();
+            changed |= ui.add(player).tip(hint).changed();
         });
         changed
     }
@@ -1098,11 +1102,12 @@ fn pressed_key(i: &egui::InputState) -> Option<(egui::Key, egui::Modifiers)> {
 }
 
 /// A section of Preferences: its icon in the accent colour and its title, over a line.
-fn section(ui: &mut egui::Ui, icon: &str, title: &str) {
+fn section(ui: &mut egui::Ui, icon: &'static str, title: ShownText) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         let accent = ui.visuals().selection.bg_fill;
-        ui.label(egui::RichText::new(icon).size(18.0).color(accent));
+        let icon = crate::ui::menus::rich(ShownText::untranslated(icon));
+        ui.add(egui::Label::new(icon.size(18.0).color(accent)));
         ui.strong(title);
     });
     ui.separator();
@@ -1111,7 +1116,7 @@ fn section(ui: &mut egui::Ui, icon: &str, title: &str) {
 /// Whether a section with these texts (English, the title first) and `more` (as shown) has
 /// every word of the lowercase `query`, in English or in the language shown; always without
 /// a search. Only a few hundred short texts, and only while there is a search.
-fn section_matches(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
+fn section_matches(query: &str, texts: &[&'static str], more: &[String]) -> bool {
     if query.trim().is_empty() {
         return true;
     }
@@ -1119,7 +1124,7 @@ fn section_matches(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
     for t in texts {
         all.push_str(t);
         all.push('\n');
-        all.push_str(tr(t));
+        all.push_str(&tr(t));
         all.push('\n');
     }
     for t in more {
@@ -1160,47 +1165,52 @@ fn language_codes() -> impl Iterator<Item = &'static str> {
 /// Returns the name that Preferences shows for the language `code`. Each language is named in
 /// itself, so one can find the way back from a language one does not read. Returns `code`
 /// itself for a code that no language has.
-fn language_name(code: &str) -> &str {
-    language_names(code)[1]
+fn language_name(code: &str) -> ShownText {
+    match code {
+        "" => tr(AUTOMATIC_LANGUAGE),
+        lang::ENGLISH => ShownText::untranslated("English"),
+        code => (lang::LANGUAGES.iter().find(|l| l.0 == code))
+            .map_or_else(|| escaped_name(code), |l| ShownText::untranslated(l.1)),
+    }
 }
 
 /// Returns the name of the language `code` in English and as Preferences shows it, the same
 /// for a language named in itself. The search finds the choice by either.
-fn language_names(code: &str) -> [&str; 2] {
-    match code {
-        "" => [AUTOMATIC_LANGUAGE, tr(AUTOMATIC_LANGUAGE)],
-        lang::ENGLISH => ["English"; 2],
-        code => [(lang::LANGUAGES.iter().find(|l| l.0 == code)).map_or(code, |l| l.1); 2],
-    }
+fn language_names(code: &str) -> [String; 2] {
+    let english = match code {
+        "" => AUTOMATIC_LANGUAGE,
+        lang::ENGLISH => "English",
+        code => (lang::LANGUAGES.iter().find(|l| l.0 == code)).map_or(code, |l| l.1),
+    };
+    [english.to_owned(), language_name(code).to_string()]
 }
 
 /// Which sections of Preferences have a text the search `query` (lower case) finds, in the
 /// order they show: the look, keys, image, slideshow, file list, deleting, colour, memory,
 /// video and start. `theme_names` are the themes that the look offers.
 fn sections_shown(query: &str, theme_names: &[String]) -> [bool; 10] {
-    let shows = |texts: &[&'static str], more: &[&str]| section_matches(query, texts, more);
+    let shows = |texts: &[&'static str], more: &[String]| section_matches(query, texts, more);
     // The search finds a choice of a table by its English name and by the name shown.
-    let both = |t: &'static str| [t, tr(t)];
+    let both = |t: &'static str| [t.to_owned(), tr(t).to_string()];
     // The themes and the languages by the names their boxes show, a built-in theme also by its
     // English name.
     let look: Vec<String> = (theme_names.iter())
-        .flat_map(|n| [n.clone(), theme::shown_name(n).to_owned()])
-        .chain(language_codes().flat_map(language_names).map(str::to_owned))
+        .flat_map(|n| [n.clone(), theme::shown_name(n).to_string()])
+        .chain(language_codes().flat_map(language_names))
         .collect();
-    let look: Vec<&str> = look.iter().map(String::as_str).collect();
-    let slideshow: Vec<&str> = FADES.iter().flat_map(|f| both(f.1)).collect();
-    let colour: Vec<&str> = (INPUT_PROFILES.iter().flat_map(|p| both(p.1)))
+    let slideshow: Vec<String> = FADES.iter().flat_map(|f| both(f.1)).collect();
+    let colour: Vec<String> = (INPUT_PROFILES.iter().flat_map(|p| both(p.1)))
         .chain(INTENTS.iter().flat_map(|i| both(i.1)))
         .collect();
     let levels = |l: &config::MemoryLevel| [l.name, l.tooltip];
-    let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
+    let levels: Vec<String> = (MEMORY_LEVELS.iter().flat_map(levels))
         .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
         .flat_map(both)
         .collect();
     // These are only the actions the section lists. A search for one that is not built in
     // would find none of its rows, and the section would then show every action.
-    let actions: Vec<&str> = (key_actions().iter())
-        .flat_map(|a| [a.english(), a.label()])
+    let actions: Vec<String> = (key_actions().iter())
+        .flat_map(|a| [a.english().to_owned(), a.label().to_string()])
         .collect();
     [
         shows(LOOK, &look),
@@ -1219,7 +1229,7 @@ fn sections_shown(query: &str, theme_names: &[String]) -> [bool; 10] {
 /// Removes the thumbnails of deleted files, and returns the notice that tells how many. A
 /// second click while one removal runs is told too, as nothing else would show it. The looks
 /// on a share wait for the images `awaited` first.
-fn remove_orphaned_thumbnails_told(awaited: &crate::model::listing::ImagesAwaited) -> String {
+fn remove_orphaned_thumbnails_told(awaited: &crate::model::listing::ImagesAwaited) -> ShownText {
     match thumbs::remove_orphaned_thumbnails(awaited) {
         Some((removed, seen)) => tf!(
             "Removed {removed} of {seen} thumbnails",
@@ -1405,21 +1415,21 @@ mod tests {
     /// is told.
     #[test]
     fn texts_finds_the_calls_shown() {
-        let code = r#"if a { return tr("A"); } ui.label(tr("B")); ui.weak(tf!("C {x}", x));
+        let code = r#"if a { return tr("A"); } ui.show_label(tr("B")); ui.show_weak(tf!("C {x}", x));
             let _ = tx.send(tf!("D")); self.notice.give(tf!("E")); attr("F");
         for (n, name) in [(0, tr("G")), (1, "H")] {
-            ui.label(tr(name));
+            ui.show_label(tr(name));
         }
         let mut found = self.desktop_settings.theme_names(ctx);
         for name in found {
-            ui.label(name);
+            ui.show_label(name);
         }
         for (k, (_, label, _)) in config::FADES.iter().enumerate() {
-            ui.label(tr(label));
+            ui.show_label(tr(label));
         }
-        ui.label(tr(text));
+        ui.show_label(tr(text));
         THEMES.iter().for_each(|(theme, _)| choice(ui, tr(theme)));
-        if a { for (k, size) in SIZES { ui.label(tr(size)); } }
+        if a { for (k, size) in SIZES { ui.show_label(tr(size)); } }
         // A comment for each name in a table {
         "#;
         let mut out = Drawn::default();
@@ -1527,7 +1537,11 @@ mod tests {
         assert!(section_matches("theme", LOOK, &[]));
         assert!(section_matches("save theme", LOOK, &[]));
         assert!(!section_matches("theme slideshow", LOOK, &[]));
-        assert!(section_matches("rotate", KEYBOARD, &["Rotate Clockwise"]));
+        assert!(section_matches(
+            "rotate",
+            KEYBOARD,
+            &["Rotate Clockwise".to_owned()]
+        ));
         // The preload estimate, made with tf!: its template's words.
         assert!(section_matches("each image at most", MEMORY, &[]));
     }

@@ -8,12 +8,13 @@ use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 use crate::metadata::xmp::KeywordChange;
-use crate::support::format::{count, human_size, thousands};
+use crate::support::format::{ShownText, count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
     Receiving, STUCK_AFTER, Took, lock_even_if_poisoned, spawn_worker_pool,
 };
 use crate::ui::dialogs::entered;
+use crate::ui::menus::{DrawShown, ShownTip};
 use crate::{files::config, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
@@ -397,12 +398,12 @@ impl crate::App {
             .show_collapsible(ui, &mut { is_shown }, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
-                        ui.weak(tr("File"));
-                        ui.label(self.name(self.list.shown()));
+                        ui.show_weak(tr("File"));
+                        ui.show_label(self.name(self.list.shown()));
                         ui.end_row();
                         if let Some(s) = self.list.loaded_images().get(&self.list.shown()) {
-                            ui.weak(tr("Dimensions"));
-                            ui.label(format!("{} × {}", s.original_size[0], s.original_size[1]));
+                            ui.show_weak(tr("Dimensions"));
+                            ui.show_label(tf!("{w} × {h}", w = s.original_size[0], h = s.original_size[1]));
                             ui.end_row();
                         }
                         // The rows of the image before stay only while the read of this one is
@@ -415,11 +416,12 @@ impl crate::App {
                             .unwrap_or((&[], Drawn::Not));
                         let is_kept = drawn == Drawn::KeptWhileReading;
                         for (label, value) in rows {
-                            ui.add_enabled_ui(!is_kept, |ui| ui.weak(tr(label)));
+                            ui.add_enabled_ui(!is_kept, |ui| ui.show_weak(tr(label)));
                             ui.add_enabled_ui(!is_kept, |ui| {
                                 // The place opens on a map in the browser.
                                 if *label == "GPS" {
-                                    let link = crate::ui::menus::link(ui, value).on_hover_text(tr("Show on OpenStreetMap"));
+                                    let link = crate::ui::menus::link(ui, ShownText::from_file_text(value))
+                                        .tip(tr("Show on OpenStreetMap"));
                                     if link.clicked()
                                         && let Some((lat, lon)) = value.split_once(", ")
                                     {
@@ -428,7 +430,7 @@ impl crate::App {
                                         ));
                                     }
                                 } else {
-                                    ui.label(exif::shown_value(label, value));
+                                    ui.show_label(exif::shown_value(label, value));
                                 }
                             });
                             ui.end_row();
@@ -461,7 +463,7 @@ impl crate::App {
         let Some(edit) = self.info_panel.metadata_edit.as_mut() else {
             return;
         };
-        ui.weak(tr("Keywords"));
+        ui.show_weak(tr("Keywords"));
         let keywords = ui.add(
             egui::TextEdit::singleline(&mut edit.keywords)
                 .hint_text(tr("Separated by commas"))
@@ -470,21 +472,21 @@ impl crate::App {
         if drawn == Drawn::AsRead && std::mem::take(&mut self.info_panel.keywords_take_focus) {
             keywords.request_focus();
         }
-        ui.weak(tr("Comment"));
+        ui.show_weak(tr("Comment"));
         let comment = ui.add(
             egui::TextEdit::multiline(&mut edit.comment)
                 .desired_rows(3)
                 .desired_width(f32::INFINITY),
         );
         // IPTC's accessibility fields, which screen readers and web pages read.
-        ui.weak(tr("Alt text"));
+        ui.show_weak(tr("Alt text"));
         let alt = ui.add(
             egui::TextEdit::multiline(&mut edit.alt_text)
                 .hint_text(tr("What the picture shows, for someone who cannot see it"))
                 .desired_rows(2)
                 .desired_width(f32::INFINITY),
         );
-        ui.weak(tr("Extended description"));
+        ui.show_weak(tr("Extended description"));
         let extended = ui.add(
             egui::TextEdit::multiline(&mut edit.extended_description)
                 .desired_rows(2)
@@ -498,7 +500,7 @@ impl crate::App {
                 ui,
                 &tf!("Add the keywords to the {n} selected", n = thousands(n)),
             )
-            .on_hover_text(tr("Each file keeps its own keywords and gets these too"))
+            .tip(tr("Each file keeps its own keywords and gets these too"))
             .clicked()
         {
             self.add_field_keywords_to_selected(ui.ctx());
@@ -525,7 +527,7 @@ impl crate::App {
             ui.disable();
         }
         ui.separator();
-        ui.weak(tr("Keyword tree"));
+        ui.show_weak(tr("Keyword tree"));
         let (mut tick, mut drop, mut toggled) = (None, None, None);
         let panel = &self.info_panel;
         // shortcut: the open rows are listed again in each frame, without a String for each; keep
@@ -544,12 +546,18 @@ impl crate::App {
                             ui.add_space(ui.spacing().icon_width);
                         } else {
                             let open = panel.open_keywords.contains(&node.path);
-                            if crate::ui::menus::caret(ui, open, name).clicked() {
+                            if crate::ui::menus::caret(ui, open, &ShownText::from_file_text(name))
+                                .clicked()
+                            {
                                 toggled = Some(node.path.clone());
                             }
                         }
                         let mut on = xmp::has_tag(&have, &paths, &node.path);
-                        let response = crate::ui::menus::checkbox(ui, &mut on, name);
+                        let response = crate::ui::menus::checkbox(
+                            ui,
+                            &mut on,
+                            ShownText::from_file_text(name),
+                        );
                         if response.changed() {
                             tick = Some((node.path.clone(), on));
                         }
@@ -741,7 +749,7 @@ impl crate::App {
                 vec![(file, ())],
                 move |p, _| {
                     xmp::write_alt_text(p, &alt_text)
-                        .map_err(|e| tf!("Could not save the alt text: {e}", e))
+                        .map_err(|e| tf!("Could not save the alt text: {e}", e).to_string())
                 },
                 |_, _| None,
             );
@@ -779,7 +787,7 @@ impl crate::App {
             vec![(file, ())],
             move |p, _| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
                 Ok(_) => Ok(()),
-                Err(e) => Err(tf!("Could not save the keywords: {e}", e)),
+                Err(e) => Err(tf!("Could not save the keywords: {e}", e).to_string()),
             },
             |_, _| None,
         );
@@ -858,16 +866,16 @@ impl crate::App {
     /// Stars and marks of file `i` as text ("★★★  1 4"). Returns an empty text without the marks
     /// feature.
     #[cfg(feature = "marks")]
-    pub(crate) fn mark_text(&self, i: usize) -> String {
+    pub(crate) fn mark_text(&self, i: usize) -> crate::support::format::ShownText {
         if !self.config.show_marks {
-            return String::new();
+            return crate::support::format::ShownText::default();
         }
         marks::text(self.marks.get(&self.path(i)))
     }
 
     #[cfg(not(feature = "marks"))]
-    pub(crate) fn mark_text(&self, _: usize) -> String {
-        String::new()
+    pub(crate) fn mark_text(&self, _: usize) -> crate::support::format::ShownText {
+        crate::support::format::ShownText::default()
     }
 
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
@@ -897,7 +905,7 @@ impl crate::App {
                 .vscroll(true)
                 .show(ctx, |ui| {
                     if all.is_empty() {
-                        ui.weak(tr("No EXIF data"));
+                        ui.show_weak(tr("No EXIF data"));
                     }
                     ui.add_enabled_ui(!is_kept, |ui| {
                         egui::Grid::new("exif all")
@@ -905,9 +913,9 @@ impl crate::App {
                             .num_columns(3)
                             .show(ui, |ui| {
                                 for (group, name, value) in all {
-                                    ui.weak(tr(group));
-                                    ui.label(name);
-                                    ui.label(value);
+                                    ui.show_weak(tr(group));
+                                    ui.show_label(ShownText::from_file_text(name));
+                                    ui.show_label(ShownText::from_file_text(value));
                                     ui.end_row();
                                 }
                             });
@@ -951,7 +959,7 @@ pub(crate) fn spawn_exif_reader(
             // A size that could not be looked at is left out, never shown as 0 bytes.
             let size = std::fs::metadata(&path).map(|m| m.len());
             let mut rows: Vec<_> = (size.ok().into_iter())
-                .map(|size| (FILE_SIZE, human_size(size)))
+                .map(|size| (FILE_SIZE, human_size(size).to_string()))
                 .collect();
             let (mut all, mut meta, mut paths, mut alt_text) = Default::default();
             // Not opened unless it is a file: a pipe would block this thread for good. A decoder

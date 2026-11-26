@@ -1,7 +1,7 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::model::folder::total_size_unless_on_a_share;
-use crate::support::format::{count, escaped_file_name, escaped_name, thousands};
+use crate::support::format::{ShownText, count, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::Receiving;
 use crate::tf;
@@ -20,22 +20,23 @@ impl crate::App {
     /// Returns an empty text when there is no image `i`. Every caller only shows the name, and a
     /// frame drawn while the list is empty (an empty folder, the last file just deleted) asks
     /// for the shown image's name too.
-    pub(crate) fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
-        (self.list.files().get(i)).map_or("".into(), |name| self.name_shown(name))
+    pub(crate) fn name(&self, i: usize) -> ShownText {
+        (self.list.files().get(i)).map_or_else(ShownText::default, |name| self.name_shown(name))
     }
 
     /// Returns how the list shows `name`, an entry of the list's files, with its control
     /// characters written as escapes (`escaped_name`).
-    pub(crate) fn name_shown<'a>(&self, name: &'a std::ffi::OsStr) -> std::borrow::Cow<'a, str> {
+    pub(crate) fn name_shown(&self, name: &std::ffi::OsStr) -> ShownText {
         // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
         if !self.folder.folders().is_empty() {
             let path = Path::new(name);
             let folder = path.parent().and_then(Path::file_name).unwrap_or_default();
-            return format!("{}/{}", escaped_name(folder), escaped_file_name(path)).into();
+            let parts = [escaped_name(folder), escaped_file_name(path)];
+            return ShownText::join(&parts, &ShownText::untranslated("/"));
         }
         match self.folder.collection() {
-            Some(_) => escaped_file_name(Path::new(name)).into(),
-            None => escaped_name(name).into(),
+            Some(_) => escaped_file_name(Path::new(name)),
+            None => escaped_name(name),
         }
     }
 
@@ -165,23 +166,33 @@ impl crate::App {
 
     /// The shown image's position in the list as shown: "[3/16]", or "[–/12]" when a search
     /// hides it.
-    pub(crate) fn position_text(&self) -> String {
+    pub(crate) fn position_text(&self) -> ShownText {
+        let (row, total) = self.shown_position();
+        let parts = [ShownText::untranslated("["), position_of(row, total, "/")];
+        let mut text = ShownText::concat(&parts);
+        text.push(&ShownText::untranslated("]"));
+        text
+    }
+
+    /// The shown image's place in the list as the status bar shows it: "3 / 16", or "– / 12"
+    /// when a search hides it.
+    pub(crate) fn status_position(&self) -> ShownText {
+        let (row, total) = self.shown_position();
+        position_of(row, total, " / ")
+    }
+
+    /// Returns the shown image's row in the list as shown, from 1, or `None` when a search
+    /// hides it, and the length of that list.
+    fn shown_position(&self) -> (Option<usize>, usize) {
         match self.list.matches() {
-            Some(m) => match self.shown_row(m) {
-                Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
-                None => format!("[–/{}]", thousands(m.len())),
-            },
-            None => format!(
-                "[{}/{}]",
-                thousands(self.list.shown() + 1),
-                thousands(self.list.files().len())
-            ),
+            Some(m) => (self.shown_row(m).map(|row| row + 1), m.len()),
+            None => (Some(self.list.shown() + 1), self.list.files().len()),
         }
     }
 
-    /// The `position_text` of image `idx` in another pane. The search matches are looked through
+    /// The `status_position` of image `idx` in another pane. The search matches are looked through
     /// once for each image, not in every frame.
-    pub(crate) fn position_text_of(&mut self, idx: usize) -> String {
+    pub(crate) fn status_position_of(&mut self, idx: usize) -> ShownText {
         let total = self
             .list
             .matches()
@@ -192,8 +203,7 @@ impl crate::App {
                 Some(m) => m.iter().position(|&x| x == idx),
                 None => Some(idx),
             };
-            let row = row.map_or("–".into(), |r| thousands(r + 1));
-            format!("[{row}/{}]", thousands(total))
+            position_of(row.map(|r| r + 1), total, " / ")
         })
     }
 
@@ -365,7 +375,7 @@ impl crate::App {
 
     /// Says how many selected files the search hides, which an action on the selection
     /// leaves out. Returns `None` when the search hides none of them.
-    pub(crate) fn hidden_selection_notice(&self) -> Option<String> {
+    pub(crate) fn hidden_selection_notice(&self) -> Option<ShownText> {
         let files = match self.list.hidden_selected().len() {
             0 => return None,
             n => count(n, "file"),
@@ -466,6 +476,16 @@ pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -
         false => (row + delta).clamp(0, n - 1),
     };
     Some(r as usize)
+}
+
+/// Returns "5/16", the place `row` (from 1) of `total` with `separator` between, or "–/16" for
+/// no place.
+fn position_of(row: Option<usize>, total: usize, separator: &'static str) -> ShownText {
+    let row = row.map_or_else(|| ShownText::untranslated("–"), thousands);
+    ShownText::join(
+        [&row, &thousands(total)],
+        &ShownText::untranslated(separator),
+    )
 }
 
 #[cfg(test)]
@@ -573,7 +593,7 @@ mod tests {
         app.config.confirm_trash = true;
         app.request_delete(&ctx, crate::files::file_ops::Removal::Trash);
         app.list.select([0, 2].into());
-        assert_eq!(app.dialogs.asked_left_out(), Some(left_out.as_str()));
+        assert_eq!(app.dialogs.asked_left_out(), Some(&left_out));
         assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![2]));
         assert_eq!(app.dialogs.asked_left_out(), None);
         app.list.select([2, 3].into());

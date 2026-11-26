@@ -7,10 +7,12 @@ use crate::model::folder::size_through;
 use crate::model::folder::{add_sent_sizes, gate_for_sizes, send_sizes_unless_on_a_share};
 use crate::model::list::FileRow;
 use crate::model::listing::{ImagesAwaited, ReadsFirst};
+use crate::support::format::ShownText;
 use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::support::threads::{background_threads, in_parts};
+use crate::ui::menus::ShownTip;
 use crate::{metadata::exif, metadata::xmp};
 use crate::{tf, ui::theme};
 use eframe::egui;
@@ -229,7 +231,8 @@ impl crate::App {
     pub(crate) fn search_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if !self.search.query.is_empty()
-                && crate::ui::menus::small_button(ui, theme::icon::CLOSE).clicked()
+                && crate::ui::menus::small_button(ui, ShownText::untranslated(theme::icon::CLOSE))
+                    .clicked()
             {
                 self.search.query.clear();
                 self.update_search(ui.ctx());
@@ -257,14 +260,14 @@ impl crate::App {
                         &mut self.config.search_case_sensitive,
                         tr("Case"),
                     )
-                    .on_hover_text(tr("Tell upper and lower case apart"))
+                    .tip(tr("Tell upper and lower case apart"))
                     .changed()
                 {
                     self.config.save();
                     changed = true;
                 }
-                if crate::ui::menus::selectable(ui, geeqie, ".*")
-                    .on_hover_text(tr("Regular expression instead of fuzzy search"))
+                if crate::ui::menus::selectable(ui, geeqie, ShownText::untranslated(".*"))
+                    .tip(tr("Regular expression instead of fuzzy search"))
                     .clicked()
                 {
                     self.config.fuzzy_search = geeqie;

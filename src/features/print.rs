@@ -6,10 +6,11 @@
 use crate::files::config::Config;
 use crate::images::decode::catch_panic_as_error;
 use crate::model::listing::ReadsFirst;
-use crate::support::format::{count, escaped_file_name, escaped_name};
+use crate::support::format::{ShownText, count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took};
 use crate::ui::dialogs::Pick;
+use crate::ui::menus::{DrawShown, PaintShown, ShownChoice, ShownTip};
 use crate::{features::print, images::decode, tf};
 use eframe::egui;
 use std::io::Write;
@@ -263,8 +264,8 @@ pub(crate) struct PrintDialog {
     preview_rx: Receiving<(usize, [usize; 2], egui::ColorImage)>,
     decoded: bool,
     /// Their texts, from the template they were made of. They are made again after it changed.
-    captions: Option<(String, Vec<String>)>,
-    captions_rx: Receiving<(String, Vec<String>)>,
+    captions: Option<(String, Vec<ShownText>)>,
+    captions_rx: Receiving<(String, Vec<ShownText>)>,
 }
 
 impl crate::App {
@@ -516,7 +517,7 @@ impl crate::App {
                             chosen = Some(printer);
                             Ok(())
                         }
-                        Ok(None) => return Some(Told::Notice(tr("Printing cancelled").into())),
+                        Ok(None) => return Some(Told::Notice(tr("Printing cancelled"))),
                         Err(e) => Err(e),
                     }
                 }
@@ -684,7 +685,7 @@ pub fn caption(
     k: usize,
     n: usize,
     size: Option<[usize; 2]>,
-) -> String {
+) -> ShownText {
     crate::support::threads::catch_panic(|| caption_of_file(template, path, k, n, size))
         .unwrap_or_default()
 }
@@ -696,39 +697,47 @@ fn caption_of_file(
     k: usize,
     n: usize,
     size: Option<[usize; 2]>,
-) -> String {
+) -> ShownText {
     #[cfg(test)]
     crate::support::threads::panic_in_a_test_at(path);
     let name = escaped_file_name(path);
     let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
+    // What the file says is shown on the caption's one line, its line breaks as escapes.
+    let said = ShownText::from_file_text_on_one_line;
     let text = crate::support::format::fill_template(template, |field| match field {
-        "name" => name.to_string(),
+        "name" => name.clone(),
         "path" => escaped_name(path),
-        "position" => format!("{}/{n}", k + 1),
+        "position" => ShownText::join(
+            [&ShownText::number(k + 1), &ShownText::number(n)],
+            &ShownText::untranslated("/"),
+        ),
         "dimensions" => (size.map(|[w, h]| (w as u32, h as u32)))
             .or_else(|| crate::images::decode::dimensions(path))
-            .map(|(w, h)| format!("{w} × {h}"))
+            .map(|(w, h)| tf!("{w} × {h}", w, h))
             .unwrap_or_default(),
         "file_size" => std::fs::metadata(path)
             .map(|m| crate::support::format::human_size(m.len()))
             .unwrap_or_default(),
-        "keywords" => meta
-            .get_or_init(|| crate::metadata::xmp::read(path))
-            .keywords
-            .join(", "),
-        "comment" => meta
-            .get_or_init(|| crate::metadata::xmp::read(path))
-            .comment
-            .clone(),
+        "keywords" => said(
+            &meta
+                .get_or_init(|| crate::metadata::xmp::read(path))
+                .keywords
+                .join(", "),
+        ),
+        "comment" => said(
+            &meta
+                .get_or_init(|| crate::metadata::xmp::read(path))
+                .comment,
+        ),
         field => (crate::metadata::exif::label_of_field(field))
             .and_then(|label| {
                 let rows = exif.get_or_init(|| crate::metadata::exif::read_and_all(path).0);
                 rows.iter().find(|r| r.0 == label)
             })
-            .map(|r| r.1.clone())
+            .map(|r| said(&r.1))
             .unwrap_or_default(),
     });
-    text.replace('\n', " · ")
+    text.with_line_breaks_as(&ShownText::untranslated(" · "))
 }
 
 /// A caption cut to `width` points of `size` type, with ... at the end. Helvetica is about half
@@ -776,7 +785,7 @@ pub(crate) fn page_text(text: &str, page: usize, pages: usize) -> String {
 /// caption below it if there is one. It is written as it is made, so only one page of images
 /// is ever in memory.
 pub fn pdf(
-    images: impl Iterator<Item = (image::DynamicImage, Option<String>)>,
+    images: impl Iterator<Item = (image::DynamicImage, Option<ShownText>)>,
     layout: &Layout,
     pages: usize,
     out: impl Write,
@@ -802,7 +811,7 @@ pub fn pdf(
         // Each image is written as soon as it is decoded, after the page's two numbers: a
         // printer's watchdog then sees progress while a sheet of videos or RAWs decodes, and
         // only one decoded image is held at a time. Only the page needs all their sizes.
-        let mut on_page: Vec<([u32; 2], Option<String>)> = Vec::new();
+        let mut on_page: Vec<([u32; 2], Option<ShownText>)> = Vec::new();
         for (img, caption) in images.by_ref().take(cols * rows) {
             on_page.push(([img.width(), img.height()], caption));
             pdf.object(contents + on_page.len(), &image_object(img)?)?;
@@ -1027,7 +1036,7 @@ pub fn send(
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if watchdog.gave_up() {
         return Err(
-            crate::support::lang::tr("No answer from the print server in two minutes").into(),
+            crate::support::lang::tr("No answer from the print server in two minutes").to_string(),
         );
     }
     if !out.status.success() {
@@ -1071,12 +1080,12 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Co
     p.rect_filled(rect, 0.0, egui::Color32::WHITE);
     let at = |x: f32, y: f32| egui::pos2(rect.left() + x * f, rect.bottom() - y * f);
     let grey = egui::Color32::from_gray(90);
-    let text = |s: &str, size: f32, [x, y, w]: [f32; 3]| {
+    let text = |s: &ShownText, size: f32, [x, y, w]: [f32; 3]| {
         let font = egui::FontId::proportional((size * f).max(5.0));
-        p.text(
+        p.show_text(
             at(x + w / 2.0, y),
             egui::Align2::CENTER_BOTTOM,
-            fitted(s, w, size),
+            s.cut_to((w / (size * 0.5)) as usize),
             font,
             grey,
         );
@@ -1117,7 +1126,9 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Co
     let pages = dialog.paths.len().div_ceil(layout.per_page.max(1));
     for (line, at) in [(&layout.header, page.header), (&layout.footer, page.footer)] {
         if !line.is_empty() {
-            text(&page_text(line, 1, pages), 9.0, at);
+            // The page's text is the user's own, from the settings.
+            let shown = ShownText::from_file_text_on_one_line(&page_text(line, 1, pages));
+            text(&shown, 9.0, at);
         }
     }
 }
@@ -1126,82 +1137,83 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Co
 /// page, size, margin, copies and both sides.
 fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
     egui::Grid::new("print fields").show(ui, |ui| {
-        ui.label(tr("Printer:"));
-        let shown = |p: &str| {
-            match p {
-                p if saves_pdf(p) => tr("PDF file"),
-                SYSTEM_DIALOG => tr(SYSTEM_DIALOG),
-                p => p,
-            }
-            .to_owned()
+        ui.show_label(tr("Printer:"));
+        let shown = |p: &str| match p {
+            p if saves_pdf(p) => tr("PDF file"),
+            SYSTEM_DIALOG => tr(SYSTEM_DIALOG),
+            // A printer's name, as CUPS gives it.
+            p => ShownText::from_file_text_on_one_line(p),
         };
         egui::ComboBox::from_id_salt("printer")
-            .selected_text(shown(&c.print_printer))
+            .selected(shown(&c.print_printer))
             .show_ui(ui, |ui| {
                 for p in dialog.printers.iter().flatten() {
-                    crate::ui::menus::choice(ui, &mut c.print_printer, p.clone(), &shown(p));
+                    crate::ui::menus::choice(ui, &mut c.print_printer, p.clone(), shown(p));
                 }
                 let pdf = PDF_FILE.to_owned();
                 crate::ui::menus::choice(ui, &mut c.print_printer, pdf, tr("PDF file"));
             });
         match &dialog.printers {
             None => drop(ui.spinner()),
-            Some(p) if p.is_empty() => drop(ui.weak(tr("No printers found"))),
+            Some(p) if p.is_empty() => drop(ui.show_weak(tr("No printers found"))),
             Some(_) => {}
         }
         ui.end_row();
-        ui.label(tr("Paper:"));
+        ui.show_label(tr("Paper:"));
         let paper = (print::PAPERS.iter()).find(|p| p.0 == c.print_paper);
         egui::ComboBox::from_id_salt("paper")
-            .selected_text(paper.unwrap_or(&print::PAPERS[0]).1)
+            .selected(ShownText::untranslated(
+                paper.unwrap_or(&print::PAPERS[0]).1,
+            ))
             .show_ui(ui, |ui| {
                 for (value, label, _) in print::PAPERS {
+                    let label = ShownText::untranslated(label);
                     crate::ui::menus::choice(ui, &mut c.print_paper, value.to_owned(), label);
                 }
             });
         ui.end_row();
-        ui.label(tr("Orientation:"));
+        ui.show_label(tr("Orientation:"));
         let labels = [tr("Automatic"), tr("Portrait"), tr("Landscape")];
-        let turns: Vec<(&str, &str)> = (print::ORIENTATIONS.iter().map(|o| o.0))
+        let turns: Vec<(&str, ShownText)> = (print::ORIENTATIONS.iter().map(|o| o.0))
             .zip(labels)
             .collect();
         let shown = (turns.iter())
             .find(|t| t.0 == c.print_orientation)
-            .map_or(turns[0].1, |t| t.1);
+            .map_or(&turns[0].1, |t| &t.1);
         egui::ComboBox::from_id_salt("orientation")
-            .selected_text(shown)
+            .selected(shown)
             .show_ui(ui, |ui| {
                 for (key, label) in turns {
                     crate::ui::menus::choice(ui, &mut c.print_orientation, key.to_owned(), label);
                 }
             });
         ui.end_row();
-        ui.label(tr("Images per page:"));
+        ui.show_label(tr("Images per page:"));
         egui::ComboBox::from_id_salt("per page")
-            .selected_text(c.print_per_page.to_string())
+            .selected(ShownText::number(c.print_per_page))
             .show_ui(ui, |ui| {
                 for (n, [cols, rows]) in print::PER_PAGE {
                     let label = match n {
-                        1 => "1".to_owned(),
-                        n => format!("{n} ({cols} × {rows})"),
+                        1 => ShownText::number(1),
+                        n => tf!("{n} ({cols} × {rows})", n, cols, rows),
                     };
                     crate::ui::menus::choice(ui, &mut c.print_per_page, n, &label);
                 }
             });
         ui.end_row();
         if c.print_per_page == 1 {
-            ui.label(tr("Image size (%):"));
+            ui.show_label(tr("Image size (%):"));
             ui.add(egui::DragValue::new(&mut c.print_scale).range(10..=100));
             ui.end_row();
         }
-        ui.label(tr("Margin (mm):"));
+        ui.show_label(tr("Margin (mm):"));
         ui.add(egui::DragValue::new(&mut c.print_margin).range(0..=50));
         ui.end_row();
         if !saves_pdf(&c.print_printer) {
-            ui.label(tr("Copies:"));
+            ui.show_label(tr("Copies:"));
             ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
             ui.end_row();
-            ui.label("");
+            ui.show_label(ShownText::default());
             crate::ui::menus::checkbox(ui, &mut c.print_two_sided, tr("Both sides of the paper"));
             ui.end_row();
         }
@@ -1218,7 +1230,7 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
                 .hint_text("%name%")
                 .desired_width(220.0),
         )
-        .on_hover_text(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"));
+        .tip(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"));
     });
     crate::ui::menus::checkbox(
         ui,
@@ -1227,18 +1239,18 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
     );
     let numbers = tr("%page% is the page's number, %pages% how many there are");
     ui.horizontal(|ui| {
-        ui.label(tr("Top of each page:"));
+        ui.show_label(tr("Top of each page:"));
         let header = ui.add(egui::TextEdit::singleline(&mut c.print_header).desired_width(260.0));
-        crate::support::test_hooks::noted(&header, tr("Top of each page:")).on_hover_text(numbers);
+        crate::support::test_hooks::noted(&header, &tr("Top of each page:")).tip(&numbers);
     });
     ui.horizontal(|ui| {
-        ui.label(tr("Bottom of each page:"));
+        ui.show_label(tr("Bottom of each page:"));
         ui.add(
             egui::TextEdit::singleline(&mut c.print_footer)
                 .hint_text("%page% / %pages%")
                 .desired_width(260.0),
         )
-        .on_hover_text(numbers);
+        .tip(numbers);
     });
 }
 
@@ -1746,7 +1758,10 @@ mod tests {
     fn writes_a_contact_sheet() {
         let pages = (0..5u8).map(|k| {
             let img = image::RgbImage::from_pixel(60, 40, image::Rgb([k * 50, 0, 0]));
-            (img.into(), Some(format!("img{k}.jpg")))
+            (
+                img.into(),
+                Some(super::ShownText::from_cause(format!("img{k}.jpg"))),
+            )
         });
         let mut pdf = Vec::new();
         super::pdf(

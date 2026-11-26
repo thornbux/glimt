@@ -287,7 +287,7 @@ pub(crate) type NewFileHook = Box<dyn FnOnce(&Path)>;
 /// first. A replace gives the name a new file, so the other names keep the old version.
 pub(crate) struct OtherNames {
     count: usize,
-    first: Option<String>,
+    first: Option<crate::support::format::ShownText>,
 }
 
 /// The warnings that an edit went on without its lock, not yet shown, and the folders whose
@@ -370,7 +370,7 @@ impl OtherNames {
 
     /// Returns the note for the window, naming the file, or how many there were, and counts
     /// anew. Returns `None` when no such save was counted.
-    pub(crate) fn take_note(&mut self) -> Option<String> {
+    pub(crate) fn take_note(&mut self) -> Option<crate::support::format::ShownText> {
         let note = match (self.count, self.first.take()) {
             (1, Some(name)) => crate::tf!(
                 "{name} has other names (hard links), which keep the old version",
@@ -833,7 +833,7 @@ struct Mount<'a> {
 /// under its new one. The error number is not kept in an error made with a text of its own, so
 /// this type is what tells `may_have_been_done` that the step may have been done.
 #[derive(Debug)]
-struct MayBeUnderBothNames(String);
+struct MayBeUnderBothNames(crate::support::format::ShownText);
 
 impl std::fmt::Display for MayBeUnderBothNames {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2312,14 +2312,14 @@ pub fn take_lock_warnings() -> Vec<Failure> {
 /// written any more. A job over many files then gives one note with their count, rather than a
 /// new one for each file every frame. Returns `None` while files are written, or when there is
 /// nothing to note.
-pub fn take_other_names_note() -> Option<String> {
+pub fn take_other_names_note() -> Option<crate::support::format::ShownText> {
     let is_writing = WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0;
     (!is_writing).then(other_names_note).flatten()
 }
 
 /// Returns the note of the saves over files with other names (hard links), and counts anew.
 /// Returns `None` in tests, which read their own thread's count.
-fn other_names_note() -> Option<String> {
+fn other_names_note() -> Option<crate::support::format::ShownText> {
     #[cfg(not(test))]
     return lock_even_if_poisoned(&OTHER_NAMES).take_note();
     #[cfg(test)]
@@ -2484,7 +2484,7 @@ pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
 
 /// Tells once for the folder of locks `folder` that an edit goes on without its lock, the lock
 /// `name`, which could not be had for the reason `e`.
-pub fn tell_unlocked(folder: PathBuf, name: &str, e: impl std::fmt::Display) {
+pub fn tell_unlocked(folder: PathBuf, name: &str, e: impl crate::support::format::Shown) {
     let warning = Failure::from(crate::tf!(
         "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost.",
         name,
@@ -2605,7 +2605,7 @@ fn named_without_descriptor(path: &Path) -> Option<std::borrow::Cow<'_, Path>> {
 /// descriptor (`named_without_descriptor`). It is the one way file_io and the trash show a path,
 /// as both work in folders through `path_through`
 /// (`source_rules::paths_through_a_descriptor_are_shown_by_their_names`).
-pub(crate) fn shown_path(path: &Path) -> String {
+pub(crate) fn shown_path(path: &Path) -> crate::support::format::ShownText {
     let named = named_without_descriptor(path);
     crate::support::format::escaped_name(named.as_deref().unwrap_or(path))
 }
@@ -2858,7 +2858,13 @@ fn taken_back(
             );
             let text = match undone {
                 Ok(()) => kept,
-                Err(more) => format!("{kept}; {more}"),
+                Err(more) => crate::support::format::ShownText::join(
+                    [
+                        &kept,
+                        &crate::support::format::ShownText::from_cause(more.to_string()),
+                    ],
+                    &crate::support::format::ShownText::untranslated("; "),
+                ),
             };
             Err(std::io::Error::new(e.kind(), MayBeUnderBothNames(text)))
         }
@@ -2952,12 +2958,14 @@ pub(crate) fn identity_from_metadata(path: &Path, meta: &std::fs::Metadata) -> I
 
 /// Returns the paths of those of `files` that no other file has taken the name of since they
 /// were listed (`ListedFile::check`), and an error for each of the others, naming its file.
-pub(crate) fn still_listed(files: Vec<ListedFile>) -> (Vec<PathBuf>, Vec<String>) {
+pub(crate) fn still_listed(
+    files: Vec<ListedFile>,
+) -> (Vec<PathBuf>, Vec<crate::support::format::ShownText>) {
     let (mut kept, mut refused) = (Vec::new(), Vec::new());
     for file in files {
         match file.check() {
             Ok(()) => kept.push(file.path),
-            Err(e) => refused.push(format!("{}: {e}", shown_path(&file.path))),
+            Err(e) => refused.push(crate::tf!("{name}: {e}", name = shown_path(&file.path), e)),
         }
     }
     (kept, refused)
@@ -4646,7 +4654,7 @@ mod tests {
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
         let told = renamed.unwrap_err().to_string();
-        assert!(told.contains(&shown(&dir.join("a.jpg"))), "{told}");
+        assert!(told.contains(shown(&dir.join("a.jpg")).as_str()), "{told}");
         assert!(!told.contains("/proc/self/fd"), "{told}");
         let refused = std::io::Error::from_raw_os_error(libc::EXDEV);
         let told = super::explain_rename_error(refused, &through.join("b.jpg")).to_string();

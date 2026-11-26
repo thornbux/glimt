@@ -455,7 +455,7 @@ impl<J: Send + 'static> Drop for JobNote<J> {
 #[derive(Debug, PartialEq)]
 pub(crate) enum Told {
     /// A text for the notice over the image.
-    Notice(String),
+    Notice(crate::support::format::ShownText),
     /// A text for the notice over the image that tells of something that went wrong, other
     /// than a failed write, such as a program that could not be started.
     Error(Failure),
@@ -497,7 +497,10 @@ impl NoticeSender {
 
     /// Sends `text` to the window and asks it to draw a frame. Returns an error only when the
     /// window is gone, as `mpsc::Sender::send` does.
-    pub(crate) fn send(&self, text: String) -> Result<(), mpsc::SendError<Told>> {
+    pub(crate) fn send(
+        &self,
+        text: crate::support::format::ShownText,
+    ) -> Result<(), mpsc::SendError<Told>> {
         let sent = self.tx.send(Told::Notice(text));
         self.ctx.request_repaint();
         sent

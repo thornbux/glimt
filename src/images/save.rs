@@ -5,7 +5,7 @@ use crate::files::file_io::{FileFingerprint, RenameFailed};
 use crate::images::decode::{ImageBytes, Source, load_icc, start_decode_job};
 use crate::metadata::exif;
 use crate::model::listing::has_ext;
-use crate::support::format::escaped_name;
+use crate::support::format::{ShownText, escaped_name};
 use crate::support::lang::tr;
 use image::ImageDecoder;
 use std::path::Path;
@@ -317,7 +317,7 @@ pub fn save_rotated(
     let read =
         crate::files::file_io::fingerprint_before_reading(path).map_err(|e| e.to_string())?;
     if !has_ext(path, &["png", "webp"]) {
-        return Err(tr("only JPEG, PNG and WebP can store the rotation").into());
+        return Err(tr("only JPEG, PNG and WebP can store the rotation").to_string());
     }
     let out = turned_file(path, rotate, turns, mirrored, webp_quality)?;
     replace_with_sidecar(path, named, read, out, Derived::Turned)
@@ -338,7 +338,7 @@ fn turned_file(
     let _job = start_decode_job();
     let source = &Source::read(path).map_err(|e| metadata_not_read(path, e))?;
     if animated(source)? {
-        return Err(tr("animated images are not turned").into());
+        return Err(tr("animated images are not turned").to_string());
     }
     let png = has_ext(path, &["png"]);
     let encoding = match png {
@@ -414,9 +414,9 @@ fn why_cut_short(data: &[u8], changed_lately: bool) -> Option<String> {
         return None;
     }
     if data.starts_with(&[0xff, 0xd8]) && exif::jpeg_scan_start(data).is_none() {
-        return Some(tr("the file looks incomplete or damaged").into());
+        return Some(tr("the file looks incomplete or damaged").to_string());
     }
-    Some(tr("the file looks incomplete, as if it is still being copied").into())
+    Some(tr("the file looks incomplete, as if it is still being copied").to_string())
 }
 
 /// Returns whether the JPEG, PNG or WebP `data` ends before its own end shows. That is a JPEG
@@ -689,7 +689,7 @@ fn copy_from<'a>(
     how: &CopyAs,
 ) -> Result<(Vec<u8>, Format), String> {
     if animated(file)? {
-        return Err(tr("animated images are not saved as a copy").into());
+        return Err(tr("animated images are not saved as a copy").to_string());
     }
     let format = how.format.unwrap_or_else(|| Format::of(file));
     let encoding = match format {
@@ -734,7 +734,7 @@ fn pixels<'a>(
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
         if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
-            return Err(tr("the part is outside the image").into());
+            return Err(tr("the part is outside the image").to_string());
         }
         img = img.crop_imm(x, y, width, height);
     }
@@ -956,21 +956,24 @@ pub(crate) fn save_copy_with_sidecar(
 fn left_as_it_is(is_set_aside: bool, aside: &Path, side: &Path) -> std::io::Error {
     let marks = marks_left_at_the_name();
     std::io::Error::other(match is_set_aside {
-        true => format!(
-            "{}; {marks}",
-            crate::tf!(
-                "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
-                aside = escaped_name(aside),
-                sidecar = escaped_name(side)
-            )
+        true => ShownText::join(
+            [
+                &crate::tf!(
+                    "it is not known whether the copy took the name, so the sidecar of the file there was left at {aside}; if that file is still there, give its sidecar back its name {sidecar}",
+                    aside = escaped_name(aside),
+                    sidecar = escaped_name(side)
+                ),
+                &marks,
+            ],
+            &ShownText::untranslated("; "),
         ),
-        false => marks.to_owned(),
+        false => marks,
     })
 }
 
 /// Returns what Save As tells when it is not known whether the copy took the name of the file
 /// it replaces, whose marks and stars are then left at that name.
-fn marks_left_at_the_name() -> &'static str {
+fn marks_left_at_the_name() -> crate::support::format::ShownText {
     tr(
         "it is not known whether the copy took the name, so the marks and stars of the file there were left at the name; if the copy took it, they are not the copy's",
     )
@@ -996,7 +999,7 @@ fn log_set_aside(
     #[cfg(test)]
     let dir = ASIDE_LOG_DIR.with_borrow(Clone::clone)?;
     let told = |e: std::io::Error| {
-        crate::files::file_io::save_failed(format!("{}: {e}", escaped_name(&dir)));
+        crate::files::file_io::save_failed(crate::tf!("{name}: {e}", name = escaped_name(&dir), e));
     };
     let mut log = crate::files::journal::start_delete_log(&dir, "delete", None)
         .map_err(told)
@@ -1278,7 +1281,7 @@ pub fn save_as(
         }
     };
     if same_file(path, &to).map_err(|e| format!("{}: {e}", escaped_name(&to)))? {
-        return Err(tr("choose another name: the image itself is not changed").into());
+        return Err(tr("choose another name: the image itself is not changed").to_string());
     }
     let (out, _) = copy_bytes(path, how)?;
     let sidecar_failed =
@@ -1405,12 +1408,13 @@ pub(crate) fn is_failed_read(e: &image::ImageError, is_raw: bool) -> bool {
 /// Returns why a file derived from `path` is not written: its metadata could not be read
 /// (`e`), and a copy or turned image without it would lose the photo's keywords, comment and
 /// stars as if it had none.
-fn metadata_not_read(path: &Path, e: impl std::fmt::Display) -> String {
+fn metadata_not_read(path: &Path, e: impl crate::support::format::Shown) -> String {
     crate::tf!(
         "the metadata of {name} could not be read, and the image is not written without it: {e}",
         name = escaped_name(path),
         e
     )
+    .to_string()
 }
 
 /// Makes the XMP packet `xmp` what a file derived from its image as `how` says keeps of it,
@@ -1493,15 +1497,17 @@ fn derive_sidecar<'a>(
             String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
         })?;
     }
-    Ok(Box::new(move |lock, failed| match (changed, failed) {
+    Ok(Box::new(move |lock, failed| {
+        match (changed, failed) {
         (Some(old), RenameFailed::NotDone) => {
             update_locked_sidecar(lock, path, IfMissing::LeaveMissing, |_| Some(old))
         }
         (Some(_), RenameFailed::MayHaveBeenDone) => Err(crate::tf!(
             "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does",
             sidecar = escaped_name(crate::metadata::xmp::sidecar(path))
-        )),
+        ).to_string()),
         (None, _) => Ok(()),
+    }
     }))
 }
 
@@ -1880,7 +1886,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
         ])
         .stdin(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| crate::tf!("a lossy WebP needs ffmpeg to be saved: {e}", e))?;
+        .map_err(|e| crate::tf!("a lossy WebP needs ffmpeg to be saved: {e}", e).to_string())?;
     // The image is written in a thread of its own while its output is read, so neither pipe
     // fills and stops it.
     let mut stdin = child.stdin.take();
@@ -4019,7 +4025,7 @@ mod tests {
         let damaged = super::why_cut_short(&jpeg[..20], true).unwrap();
         assert_eq!(
             damaged,
-            crate::support::lang::tr("the file looks incomplete or damaged")
+            crate::support::lang::tr("the file looks incomplete or damaged").to_string()
         );
         let copied = super::why_cut_short(&jpeg[..jpeg.len() - 2], true).unwrap();
         assert!(copied.contains("still being copied"), "{copied}");

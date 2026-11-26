@@ -1,6 +1,7 @@
 //! Glimt's look: Inter for text, Phosphor icons, rounder widgets with more room, and the
 //! desktop's light or dark style and accent colour, from the XDG desktop portal (GNOME, KDE).
 
+use crate::support::format::ShownText;
 use crate::support::threads::{Receiving, Took};
 use eframe::egui;
 use std::sync::Arc;
@@ -373,8 +374,12 @@ pub fn is_built_in(name: &str) -> bool {
 }
 
 /// Returns a theme's name as menus show it. A built-in theme's name is in the language in use.
-pub fn shown_name(name: &str) -> &str {
-    (BUILT_IN.iter().find(|b| b.0 == name)).map_or(name, |b| crate::support::lang::tr(b.0))
+pub fn shown_name(name: &str) -> ShownText {
+    // A theme of the user's is named by its file, which is shown escaped (#320).
+    (BUILT_IN.iter().find(|b| b.0 == name)).map_or_else(
+        || crate::support::format::escaped_name(name),
+        |b| crate::support::lang::tr(b.0),
+    )
 }
 
 /// Returns the themes to choose from and the user's own theme files, read from the user's
@@ -578,6 +583,21 @@ fn parse_accent(text: &str) -> Option<egui::Color32> {
 
 #[cfg(test)]
 mod tests {
+    /// A theme of the user's is named by its file, which is shown escaped, and a built-in one
+    /// by its translated name (#320).
+    /// Risk: a theme file's name adds a line of its own to the menu or the notice.
+    #[test]
+    fn an_own_themes_name_is_shown_escaped() {
+        assert_eq!(
+            super::shown_name("Mine\nOnly the cached copy"),
+            "Mine\\nOnly the cached copy"
+        );
+        assert_eq!(
+            super::shown_name(super::BUILT_IN[0].0),
+            crate::support::lang::tr(super::BUILT_IN[0].0)
+        );
+    }
+
     /// Save as Theme takes no built-in theme's name, and any other.
     #[test]
     fn a_built_in_name_is_told_from_an_own_one() {

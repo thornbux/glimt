@@ -11,12 +11,13 @@ use crate::files::config::sharing_path;
 use crate::files::file_io::{PickedFiles, create_file, edit_shared, save_failed, write_later};
 use crate::files::file_ops::{JobAfterLookUp, OperationReport};
 use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
-use crate::support::format::{count, escaped_name};
+use crate::support::format::{ShownText, count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
+use crate::ui::menus::DrawShown;
 use crate::ui::menus::{button, button_enabled, checkbox, small_button};
 use eframe::egui;
 use std::collections::{BTreeSet, HashSet};
@@ -89,7 +90,7 @@ impl SharingDialog {
                 self.read_count.load(Ordering::Relaxed),
                 self.picked.paths().len(),
             );
-            ui.label(tf!("Reading the tags… {done} of {total}", done, total));
+            ui.show_label(tf!("Reading the tags… {done} of {total}", done, total));
             ui.horizontal(|ui| {
                 let _ = button_enabled(ui, false, tr("Copy…"));
                 if button(ui, tr("Cancel (Esc)")).clicked() {
@@ -101,12 +102,12 @@ impl SharingDialog {
         if button(ui, tr("Remove All")).clicked() {
             self.left_out.remove_all();
         }
-        ui.weak(tr("Ticked tags are left out of the copies."));
-        ui.weak(tr(
+        ui.show_weak(tr("Ticked tags are left out of the copies."));
+        ui.show_weak(tr(
             "A block that can hold tags of several groups, such as the extra images or the maker \
              note, is left out when any tag of those groups is.",
         ));
-        ui.weak(tr(
+        ui.show_weak(tr(
             "A tag that Glimt does not know is listed under More tags, and is left out when any \
              group is ticked, unless it is unticked there.",
         ));
@@ -135,7 +136,10 @@ impl SharingDialog {
             "A copy keeps the file's name, which can hold the date, unless File name is ticked: \
              then the copies are named image-1, image-2 and so on.",
         );
-        ui.weak(format!("{always_kept} {name}"));
+        ui.show_weak(ShownText::join(
+            [&always_kept, &name],
+            &ShownText::untranslated(" "),
+        ));
         // Neutral names are never taken, so the clashes of the files' own names matter only
         // while those are kept.
         if !self.left_out.is_file_name_left_out() {
@@ -189,7 +193,13 @@ impl SharingDialog {
         ui.indent(group.name(), |ui| {
             for tag in tags {
                 let mut is_left_out = self.left_out.is_left_out(tag);
-                if checkbox(ui, &mut is_left_out, tag).changed() {
+                if checkbox(
+                    ui,
+                    &mut is_left_out,
+                    ShownText::from_file_text_on_one_line(tag),
+                )
+                .changed()
+                {
                     self.left_out.set_tag(tag, is_left_out);
                 }
             }
@@ -211,7 +221,7 @@ struct SharingOutcome {
     names_taken: usize,
     /// Files whose name was taken, copied under a new name.
     renamed: usize,
-    errors: Vec<String>,
+    errors: Vec<ShownText>,
     /// The number of the last neutral name tried (`Naming::Neutral`), so that each copy of a
     /// job looks on from there. It is `None` until the job's first neutral copy, which starts
     /// past the highest "image-N" in the folder (`highest_neutral_number`).
@@ -244,18 +254,24 @@ impl SharingOutcome {
             match is_name_free(&target, &crate::metadata::xmp::lock_sidecar(&target)) {
                 Ok(true) => {}
                 Ok(false) => return self.names_taken += 1,
-                Err(e) => return self.errors.push(e.to_string()),
+                Err(e) => return self.errors.push(ShownText::from_cause(e.to_string())),
             }
         }
         let made = crate::images::decode::catch_panic_as_error(|| copy(path, kept));
         let bytes = match made {
             Ok(None) => return self.other_formats += 1,
             Ok(Some(bytes)) => bytes,
-            Err(e) => return self.errors.push(format!("{}: {e}", escaped_name(path))),
+            Err(e) => {
+                return self
+                    .errors
+                    .push(tf!("{name}: {e}", name = escaped_name(path), e));
+            }
         };
         // Another window or program may have given the name to another photo meanwhile.
         if let Err(e) = still_the_one_picked(path) {
-            return self.errors.push(format!("{}: {e}", escaped_name(path)));
+            return self
+                .errors
+                .push(tf!("{name}: {e}", name = escaped_name(path), e));
         }
         // Only the looks that fail count against a bound, so a folder whose names cannot be
         // looked at does not keep it trying. Names surely taken do not, as the copies are
@@ -289,7 +305,7 @@ impl SharingOutcome {
                 Err(e) => {
                     failed_looks += 1;
                     if naming == Naming::Own || failed_looks == MOST_FAILED_LOOKS {
-                        return self.errors.push(e.to_string());
+                        return self.errors.push(ShownText::from_cause(e.to_string()));
                     }
                     continue;
                 }
@@ -301,7 +317,11 @@ impl SharingOutcome {
                     return;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return self.errors.push(format!("{}: {e}", escaped_name(target))),
+                Err(e) => {
+                    return self
+                        .errors
+                        .push(tf!("{name}: {e}", name = escaped_name(target), e));
+                }
             }
         }
         self.names_taken += 1;
@@ -309,7 +329,7 @@ impl SharingOutcome {
 
     /// The notice at the end: the first error, or how many were copied into `folder` (or how
     /// far a stopped job got, `stopped`), and how many were not copied and why.
-    fn text(&self, folder: &Path, stopped: Option<String>) -> String {
+    fn text(&self, folder: &Path, stopped: Option<ShownText>) -> ShownText {
         let mut text = match (self.errors.first(), stopped) {
             (Some(first), _) => tf!(
                 "{verb} failed ({count}): {first}",
@@ -401,7 +421,7 @@ impl crate::App {
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("copy for sharing")).show(ctx, |ui| {
             ui.strong(Action::CopyForSharing.label());
-            ui.label(count(dialog.picked.paths().len(), "image"));
+            ui.show_label(count(dialog.picked.paths().len(), "image"));
             go = dialog.draw(ui);
         });
         if go {
@@ -882,7 +902,7 @@ mod tests {
         );
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| !p.starts_with(&out));
         assert_eq!((outcome.copied, outcome.names_taken), (0, 0));
-        let told = outcome.errors.join("\n");
+        let told = super::ShownText::join(&outcome.errors, &super::ShownText::untranslated("\n"));
         assert!(
             told.contains(&format!("{} is a sidecar", leftover.display())),
             "{told}"

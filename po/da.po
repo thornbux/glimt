@@ -4141,3 +4141,33 @@ msgstr "metadataene for {name} kunne ikke læses, og billedet skrives ikke uden 
 #, fuzzy
 msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
 msgstr "metadataene for {name} kunne ikke læses, og sidefilen skrives ikke uden dem: {e}"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "\"{name}\""
+msgstr "»{name}«"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{name}: {e}"
+msgstr "{name}: {e}"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{done}; {failed}"
+msgstr "{done}; {failed}"
+
+#: src/ui/menus.rs
+#, fuzzy
+msgid "{label} ({keys})"
+msgstr "{label} ({keys})"
+
+#: src/features/print.rs
+#, fuzzy
+msgid "{n} ({cols} × {rows})"
+msgstr "{n} ({cols} × {rows})"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "{w} × {h}"
+msgstr "{w} × {h}"

@@ -5,7 +5,7 @@ use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_own_folder, open_url};
 use crate::files::file_ops::OperationReport;
 use crate::images::colour::{FILTERS, ProfileAsked, ProfileSet, set_colour, set_intent};
-use crate::support::format::count;
+use crate::support::format::{ShownText, count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::lock_even_if_poisoned;
@@ -85,6 +85,132 @@ impl OpenWith {
             AppsLookup::Found(apps, _) => Some(apps),
             AppsLookup::Asking(_) => None,
         }
+    }
+}
+
+/// The ways a shown text is drawn other than a button: a label, a weak or a heading label, a
+/// tooltip, a combo box's text, a text painted by hand and what a screen reader says. Each takes
+/// a `ShownText`, so a raw name or a `String` cannot be drawn, and `clippy.toml` refuses the
+/// egui call each of them makes.
+pub(crate) trait DrawShown {
+    /// Draws `text` as a label.
+    fn show_label(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
+    /// Draws `text` as a label in the weak colour.
+    fn show_weak(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
+    /// Draws `text` as a heading.
+    fn show_heading(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
+}
+
+impl DrawShown for egui::Ui {
+    #[allow(clippy::disallowed_methods)] // The one place a label of text is drawn.
+    fn show_label(&mut self, text: impl AsRef<ShownText>) -> egui::Response {
+        self.label(text.as_ref().as_str())
+    }
+    #[allow(clippy::disallowed_methods)] // The one place a label of text is drawn.
+    fn show_weak(&mut self, text: impl AsRef<ShownText>) -> egui::Response {
+        self.weak(text.as_ref().as_str())
+    }
+    #[allow(clippy::disallowed_methods)] // The one place a label of text is drawn.
+    fn show_heading(&mut self, text: impl AsRef<ShownText>) -> egui::Response {
+        self.heading(text.as_ref().as_str())
+    }
+}
+
+/// A tooltip of a shown text, which egui's own `on_hover_text` would take as any `String`.
+pub(crate) trait ShownTip {
+    /// Shows `text` while the pointer is on the widget.
+    fn tip(self, text: impl AsRef<ShownText>) -> egui::Response;
+}
+
+impl ShownTip for egui::Response {
+    #[allow(clippy::disallowed_methods)] // The one place a tooltip of text is drawn.
+    fn tip(self, text: impl AsRef<ShownText>) -> egui::Response {
+        self.on_hover_text(text.as_ref().as_str())
+    }
+}
+
+/// The text a closed combo box shows, as a shown text.
+pub(crate) trait ShownChoice {
+    /// Returns the combo box showing `text` while it is closed.
+    fn selected(self, text: impl AsRef<ShownText>) -> Self;
+}
+
+impl ShownChoice for egui::ComboBox<'_> {
+    #[allow(clippy::disallowed_methods)] // The one place a combo box's text is set.
+    fn selected(self, text: impl AsRef<ShownText>) -> Self {
+        self.selected_text(text.as_ref().as_str())
+    }
+}
+
+/// A text painted by hand, as a shown text.
+pub(crate) trait PaintShown {
+    /// Paints `text` at `at`, placed by `anchor`, in `font` and `colour`, and returns where.
+    fn show_text(
+        &self,
+        at: egui::Pos2,
+        anchor: egui::Align2,
+        text: impl AsRef<ShownText>,
+        font: egui::FontId,
+        colour: egui::Color32,
+    ) -> egui::Rect;
+}
+
+impl PaintShown for egui::Painter {
+    #[allow(clippy::disallowed_methods)] // The one place a text is painted by hand.
+    fn show_text(
+        &self,
+        at: egui::Pos2,
+        anchor: egui::Align2,
+        text: impl AsRef<ShownText>,
+        font: egui::FontId,
+        colour: egui::Color32,
+    ) -> egui::Rect {
+        self.text(at, anchor, text.as_ref().as_str(), font, colour)
+    }
+}
+
+impl From<ShownText> for egui::WidgetText {
+    fn from(text: ShownText) -> Self {
+        text.as_str().into()
+    }
+}
+
+impl From<&ShownText> for egui::WidgetText {
+    fn from(text: &ShownText) -> Self {
+        text.as_str().into()
+    }
+}
+
+impl From<ShownText> for egui::RichText {
+    fn from(text: ShownText) -> Self {
+        rich(text)
+    }
+}
+
+impl From<&ShownText> for egui::RichText {
+    fn from(text: &ShownText) -> Self {
+        rich(text)
+    }
+}
+
+/// The title of a menu or submenu: a shown text, or one with an icon before it (`with_icon`).
+pub(crate) struct MenuTitle(egui::WidgetText);
+
+impl From<ShownText> for MenuTitle {
+    fn from(text: ShownText) -> Self {
+        MenuTitle(text.as_str().into())
+    }
+}
+
+impl From<&ShownText> for MenuTitle {
+    fn from(text: &ShownText) -> Self {
+        MenuTitle(text.as_str().into())
+    }
+}
+
+impl From<egui::text::LayoutJob> for MenuTitle {
+    fn from(text: egui::text::LayoutJob) -> Self {
+        MenuTitle(text.into())
     }
 }
 
@@ -231,7 +357,7 @@ impl crate::App {
             match set {
                 ProfileSet::Screen { answer: Err(e), .. }
                 | ProfileSet::Input { answer: Err(e), .. } => {
-                    self.notice.give_error(e);
+                    self.notice.give_error(ShownText::from_cause(e));
                 }
                 ProfileSet::Screen {
                     path, chosen: true, ..
@@ -440,7 +566,7 @@ impl crate::App {
                 let text = with_icon(ui, icons[f.min(3)], tr(label));
                 #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
                 let radio = ui.radio(self.config.view_filter == f, text);
-                if noted(&radio, tr(label)).clicked() {
+                if noted(&radio, &tr(label)).clicked() {
                     self.set_view_filter(f);
                 }
             }
@@ -553,7 +679,7 @@ impl crate::App {
             |ui| {
                 let all = self.folder.saved_collections().listed(ui.ctx());
                 for (name, file) in all.into_iter().flatten() {
-                    if icon_button(ui, theme::icon::STACK, &name).clicked() {
+                    if icon_button(ui, theme::icon::STACK, escaped_name(&name)).clicked() {
                         let added_to = crate::model::collections::CollectionAddedTo::Saved(file);
                         self.add_to_collection(ui.ctx(), added_to);
                     }
@@ -578,11 +704,11 @@ impl crate::App {
             let glimt_home = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
             let tools = self.tools.listed().to_vec();
             if tools.is_empty() {
-                ui.weak(tr("No tools"));
+                ui.show_weak(tr("No tools"));
             }
             let mut chosen = None;
             for (k, tool) in tools.iter().enumerate() {
-                if icon_button(ui, theme::icon::TOOL, &tool.name).clicked() {
+                if icon_button(ui, theme::icon::TOOL, tool.shown_name()).clicked() {
                     chosen = Some(k);
                 }
             }
@@ -608,7 +734,7 @@ impl crate::App {
             }
             ui.separator();
             if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Tools Folder"))
-                .on_hover_text(tr(
+                .tip(tr(
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
                 ))
                 .clicked()
@@ -679,7 +805,7 @@ impl crate::App {
                     ..Default::default()
                 });
                 if let Err(e) = result {
-                    let _ = tx.send_error(format!("{}: {e}", tool.name));
+                    let _ = tx.send_error(tf!("{name}: {e}", name = tool.shown_name(), e));
                 }
                 ctx.request_repaint();
             });
@@ -711,7 +837,7 @@ impl crate::App {
                 .open_with
                 .apps_for_type(&key, move || apps_for(&path), ui.ctx());
             let Some(apps) = asked else {
-                ui.label("…");
+                ui.show_label(ShownText::untranslated("…"));
                 return;
             };
             #[cfg(feature = "portals")]
@@ -731,7 +857,7 @@ impl crate::App {
                             match crate::files::portal::open_with(&path) {
                                 Ok(true) => {}
                                 Ok(false) => break,
-                                Err(e) => drop(tx.send_error(e)),
+                                Err(e) => drop(tx.send_error(ShownText::from_cause(e))),
                             }
                         }
                     });
@@ -739,11 +865,17 @@ impl crate::App {
                 return;
             }
             if apps.is_empty() {
-                ui.label(tr("No applications found"));
+                ui.show_label(tr("No applications found"));
             }
             let mut chosen = None;
             for (name, desktop) in apps.iter() {
-                if icon_button(ui, theme::icon::APP, name).clicked() {
+                if icon_button(
+                    ui,
+                    theme::icon::APP,
+                    ShownText::from_file_text_on_one_line(name),
+                )
+                .clicked()
+                {
                     chosen = Some(desktop.clone());
                 }
             }
@@ -759,7 +891,7 @@ impl crate::App {
                     let mut gio = external::host_command("gio");
                     gio.arg("launch").arg(&desktop).args(&files);
                     if let Err(told) = external::run_telling("gio", gio) {
-                        let _ = tx.send_error(told);
+                        let _ = tx.send_error(ShownText::from_cause(told));
                     }
                 });
             }
@@ -791,7 +923,7 @@ impl crate::App {
         std::thread::spawn(move || {
             for path in files {
                 if let Err(told) = open_one_in(&words, &path) {
-                    let _ = tx.send_error(told);
+                    let _ = tx.send_error(ShownText::from_cause(told));
                     // In a Flatpak the default application is chosen through the desktop's
                     // portal, and its Cancel is a failure of gio, which ends them all.
                     if words.is_empty() && external::in_flatpak() {
@@ -888,11 +1020,11 @@ impl crate::App {
 /// A menu that scrolls when it is taller than the window, instead of running off it.
 pub(crate) fn scroll_menu<R>(
     ui: &mut egui::Ui,
-    title: impl Into<egui::WidgetText>,
+    title: impl Into<MenuTitle>,
     add: impl FnOnce(&mut egui::Ui) -> R,
 ) {
-    let title: egui::WidgetText = title.into();
-    let name = title.text().to_owned();
+    let title = title.into();
+    let name = title.0.text().to_owned();
     let content = |ui: &mut egui::Ui| {
         // From where it opens to the bottom of the window; submenus open further down. egui
         // limits a menu to its size the frame before, which a scroll area could only keep or
@@ -909,7 +1041,7 @@ pub(crate) fn scroll_menu<R>(
     // A menu of the menu bar. While one of them is open, pointing at another opens that one,
     // as in GNOME and KDE.
     #[allow(clippy::disallowed_methods)] // The one place a menu of the bar is drawn, noted below.
-    let response = egui::containers::menu::MenuButton::new(title)
+    let response = egui::containers::menu::MenuButton::new(title.0)
         .ui(ui, content)
         .0;
     noted(&response, &name);
@@ -971,48 +1103,77 @@ pub(crate) fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Optio
     }
 }
 
+/// Returns `text` as a rich text, which a caller sizes or colours.
+#[allow(clippy::disallowed_methods)] // The one place a rich text is made.
+pub(crate) fn rich(text: impl AsRef<ShownText>) -> egui::RichText {
+    egui::RichText::new(text.as_ref().as_str())
+}
+
+/// Returns what a screen reader says of a widget of `role`: `text`.
+#[allow(clippy::disallowed_methods)] // The one place a widget's spoken text is made.
+pub(crate) fn spoken(role: egui::Role, enabled: bool, text: &ShownText) -> egui::WidgetInfo {
+    egui::WidgetInfo::labeled(role, enabled, text.as_str())
+}
+
 /// Draws a button of `text` and notes it for the release tests, which click it by its text.
 #[allow(clippy::disallowed_methods)] // The one place a plain button is drawn.
-pub(crate) fn button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+pub(crate) fn button(ui: &mut egui::Ui, text: impl AsRef<ShownText>) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.button(text), text)
 }
 
 /// Draws a button of `icon` before `text`, noted by its text as `button` does.
 #[allow(clippy::disallowed_methods)] // The one place a button with an icon is drawn.
-pub(crate) fn icon_button(ui: &mut egui::Ui, icon: &str, text: &str) -> egui::Response {
+pub(crate) fn icon_button(
+    ui: &mut egui::Ui,
+    icon: &str,
+    text: impl AsRef<ShownText>,
+) -> egui::Response {
+    let text = text.as_ref();
     noted(&ui.button(with_icon(ui, icon, text)), text)
 }
 
 /// Draws a button of `text` that can be clicked only when `on`, noted as `button` does.
 #[allow(clippy::disallowed_methods)] // The one place a button that may be off is drawn.
-pub(crate) fn button_enabled(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
+pub(crate) fn button_enabled(
+    ui: &mut egui::Ui,
+    on: bool,
+    text: impl AsRef<ShownText>,
+) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.add_enabled(on, egui::Button::new(text)), text)
 }
 
 /// Draws a small button of `text`, noted as `button` does.
 #[allow(clippy::disallowed_methods)] // The one place a small button is drawn.
-pub(crate) fn small_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+pub(crate) fn small_button(ui: &mut egui::Ui, text: impl AsRef<ShownText>) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.small_button(text), text)
 }
 
 /// Draws the caret that opens or closes `name` in a tree, such as the folder tree. A screen
 /// reader is told the name and whether it is open, not the icon's glyph.
 #[allow(clippy::disallowed_methods)] // The one place a caret is drawn; it has no text to note.
-pub(crate) fn caret(ui: &mut egui::Ui, open: bool, name: &str) -> egui::Response {
+pub(crate) fn caret(ui: &mut egui::Ui, open: bool, name: &ShownText) -> egui::Response {
     let icon = match open {
         true => theme::icon::CARET_DOWN,
         false => theme::icon::CARET_RIGHT,
     };
     let toggle = ui.add(egui::Button::new(icon).frame(false));
     toggle.widget_info(|| {
-        egui::WidgetInfo::selected(egui::Role::DisclosureTriangle, true, open, name)
+        egui::WidgetInfo::selected(egui::Role::DisclosureTriangle, true, open, name.as_str())
     });
     toggle
 }
 
 /// Draws a row of `text` that shows whether it is selected (`on`), noted as `button` does.
 #[allow(clippy::disallowed_methods)] // The one place a selectable row is drawn.
-pub(crate) fn selectable(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
+pub(crate) fn selectable(
+    ui: &mut egui::Ui,
+    on: bool,
+    text: impl AsRef<ShownText>,
+) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.selectable_label(on, text), text)
 }
 
@@ -1023,14 +1184,16 @@ pub(crate) fn choice<T: PartialEq>(
     ui: &mut egui::Ui,
     current: &mut T,
     value: T,
-    text: &str,
+    text: impl AsRef<ShownText>,
 ) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.selectable_value(current, value, text), text)
 }
 
 /// Draws a radio button of `text`, on when `on`, noted as `button` does.
 #[allow(clippy::disallowed_methods)] // The one place a radio button is drawn by its text.
-pub(crate) fn radio(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
+pub(crate) fn radio(ui: &mut egui::Ui, on: bool, text: impl AsRef<ShownText>) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.radio(on, text), text)
 }
 
@@ -1041,7 +1204,7 @@ pub(crate) fn radio_choice<T: PartialEq>(
     ui: &mut egui::Ui,
     current: &mut T,
     value: T,
-    text: &str,
+    text: impl AsRef<ShownText>,
 ) -> egui::Response {
     let mut response = radio(ui, *current == value, text);
     if response.clicked() && *current != value {
@@ -1053,13 +1216,19 @@ pub(crate) fn radio_choice<T: PartialEq>(
 
 /// Draws a checkbox of `text` that turns `on` over when clicked, noted as `button` does.
 #[allow(clippy::disallowed_methods)] // The one place that draws egui's own checkbox.
-pub(crate) fn checkbox(ui: &mut egui::Ui, on: &mut bool, text: &str) -> egui::Response {
+pub(crate) fn checkbox(
+    ui: &mut egui::Ui,
+    on: &mut bool,
+    text: impl AsRef<ShownText>,
+) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.checkbox(on, text), text)
 }
 
 /// Draws a link of `text`, noted as `button` does. The caller opens what it points to.
 #[allow(clippy::disallowed_methods)] // The one place a link is drawn.
-pub(crate) fn link(ui: &mut egui::Ui, text: &str) -> egui::Response {
+pub(crate) fn link(ui: &mut egui::Ui, text: impl AsRef<ShownText>) -> egui::Response {
+    let text = text.as_ref().as_str();
     noted(&ui.link(text), text)
 }
 
@@ -1068,10 +1237,10 @@ pub(crate) fn link(ui: &mut egui::Ui, text: &str) -> egui::Response {
 #[allow(clippy::disallowed_methods)] // The one place egui's own menu button is drawn.
 pub(crate) fn submenu<R>(
     ui: &mut egui::Ui,
-    title: impl Into<egui::WidgetText>,
+    title: impl Into<MenuTitle>,
     add: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::Response {
-    let title: egui::WidgetText = title.into();
+    let title = title.into().0;
     let name = title.text().to_owned();
     noted(&ui.menu_button(title, add).response, &name)
 }
@@ -1079,7 +1248,11 @@ pub(crate) fn submenu<R>(
 /// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the
 /// weak colour, the text in the widget's own (Color32::PLACEHOLDER), so a selected row keeps
 /// its colours. Phosphor's glyphs are all one em wide, so the texts line up.
-pub(crate) fn with_icon(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::LayoutJob {
+pub(crate) fn with_icon(
+    ui: &egui::Ui,
+    icon: &str,
+    text: impl AsRef<ShownText>,
+) -> egui::text::LayoutJob {
     let font = egui::TextStyle::Button.resolve(ui.style());
     let mut job = egui::text::LayoutJob::default();
     let format = |color| egui::TextFormat {
@@ -1088,7 +1261,7 @@ pub(crate) fn with_icon(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::La
         ..Default::default()
     };
     job.append(icon, 0.0, format(ui.visuals().weak_text_color()));
-    job.append(text, 8.0, format(egui::Color32::PLACEHOLDER));
+    job.append(text.as_ref(), 8.0, format(egui::Color32::PLACEHOLDER));
     job
 }
 
@@ -1125,7 +1298,7 @@ pub(crate) fn menu_button(
     if let Some(text) = shortcut_text(ui.ctx(), action) {
         button = button.shortcut_text(text);
     }
-    if noted(&ui.add(button), action.label()).clicked() {
+    if noted(&ui.add(button), &action.label()).clicked() {
         *chosen = Some(action);
     }
 }
@@ -1139,13 +1312,13 @@ pub(crate) fn tool_button(
     on: bool,
 ) {
     let tip = match shortcut_text(ui.ctx(), action) {
-        Some(keys) => format!("{label} ({keys})", label = action.label()),
-        None => action.label().to_owned(),
+        Some(keys) => tf!("{label} ({keys})", label = action.label(), keys),
+        None => action.label(),
     };
     #[allow(clippy::disallowed_methods)] // An icon alone, noted below by the action's label.
     let button = egui::Button::selectable(on, icon);
-    let response = ui.add(button).on_hover_text(tip);
-    if noted(&response, action.label()).clicked() {
+    let response = ui.add(button).tip(tip);
+    if noted(&response, &action.label()).clicked() {
         *chosen = Some(action);
     }
 }

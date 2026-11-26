@@ -3,6 +3,11 @@
 
 use crate::support::lang::{self, tr};
 
+/// Makes each number type a `Number` and a `Shown`.
+macro_rules! numbers {
+    ($($t:ty),*) => { $(impl Number for $t {} impl Shown for $t {})* };
+}
+
 /// The size that a sum of the files of a share gives (`listing::is_on_a_share`). Their sizes
 /// are not summed there, because a look at each file is a round trip over the network, and a
 /// tree of many files kept the share busy for a program the user started on it.
@@ -17,33 +22,240 @@ pub(crate) enum Piece<'a> {
     Code(&'a str),
 }
 
+/// A text that reaches the user: a label, a button, a notice, a failure, a question, the window
+/// title, a screen reader's words or a print's caption. Only these make one, so a text of
+/// another kind, such as a path's `to_string_lossy` or a raw `String`, does not compile where
+/// one is shown:
+/// - `lang::tr` and `tf!`, a translated text (`tf!` takes its values as `Shown`);
+/// - `escaped_name` and `escaped_file_name`, and through them `App::name` and
+///   `file_io::shown_path`, a name or path;
+/// - `thousands`, `count`, `human_size`, `size_text` and `ShownText::number`, a number;
+/// - `ShownText::from_file_text_on_one_line` and `from_file_text`, a text read from a file;
+/// - `ShownText::untranslated`, a text that has no translation, such as "…" or a key's name;
+/// - `join` and `push`, of texts that are shown texts already.
+///
+/// Before, every widget and notice took any `String`, and `source_rules` read the source to find
+/// a name that reached the user unescaped, which a spelling it did not know slipped past (#320,
+/// #323).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct ShownText(std::borrow::Cow<'static, str>);
+
+impl ShownText {
+    /// Returns `text`, which has no translation: a symbol such as "…", a key's name, or a text
+    /// that stays English, such as the About window's credits.
+    pub(crate) const fn untranslated(text: &'static str) -> Self {
+        ShownText(std::borrow::Cow::Borrowed(text))
+    }
+
+    /// Returns `text`, made by one of the ways in that the type's doc lists. Only this module
+    /// and `lang` make a text from a `String`.
+    pub(in crate::support) fn made(text: impl Into<std::borrow::Cow<'static, str>>) -> Self {
+        ShownText(text.into())
+    }
+
+    /// Returns the number `n` as a text, as it is written in code ("12", "2.5"). A count of
+    /// things goes through `count` or `thousands` instead, which group the digits.
+    pub(crate) fn number(n: impl Number) -> Self {
+        ShownText(n.to_string().into())
+    }
+
+    /// Returns `text`, read from a file (an EXIF or XMP value, a template's field), for one
+    /// line: the window title, the full screen info, a print's caption, a notice or a question.
+    /// Its line breaks and marks of direction are written as escapes, as `escaped_name` writes a
+    /// name's, so it cannot add a line of its own.
+    pub(crate) fn from_file_text_on_one_line(text: &str) -> Self {
+        escaped_name(text)
+    }
+
+    /// Returns `text`, read from a file, for a place that shows it whole, as the info panel
+    /// shows a comment or a description: its own line breaks are kept.
+    pub(crate) fn from_file_text(text: &str) -> Self {
+        ShownText(text.to_owned().into())
+    }
+
+    /// Returns the keys of `shortcut` as the menus show them, such as "Ctrl+Shift+N".
+    pub(crate) fn keys_of(
+        ctx: &eframe::egui::Context,
+        shortcut: &eframe::egui::KeyboardShortcut,
+    ) -> Self {
+        ShownText(ctx.format_shortcut(shortcut).into())
+    }
+
+    /// Returns `value` alone as a text, as `tf!` would fill a placeholder with it, such as an
+    /// error's text that is drawn as a failure's cause.
+    pub(crate) fn of(value: &impl Shown) -> Self {
+        ShownText(value.to_string().into())
+    }
+
+    /// Returns `cause`, the text of an error that a function returned as a `String`.
+    // shortcut: about a hundred functions return their error's cause as a `String`, and this
+    // takes it as it is; when they return a `ShownText` (`f102-shown-causes`), this goes.
+    pub(crate) fn from_cause(cause: String) -> Self {
+        ShownText(cause.into())
+    }
+
+    /// Returns `parts` joined by `separator`.
+    pub(crate) fn join<'a>(
+        parts: impl IntoIterator<Item = &'a ShownText>,
+        separator: &ShownText,
+    ) -> Self {
+        let parts: Vec<&str> = parts.into_iter().map(ShownText::as_str).collect();
+        ShownText(parts.join(separator.as_str()).into())
+    }
+
+    /// Returns `parts` one after the other, such as a number and a symbol.
+    pub(crate) fn concat<'a>(parts: impl IntoIterator<Item = &'a ShownText>) -> Self {
+        ShownText::join(parts, &ShownText::default())
+    }
+
+    /// Adds `more` at the end of the text.
+    pub(crate) fn push(&mut self, more: &ShownText) {
+        self.0.to_mut().push_str(more.as_str());
+    }
+
+    /// Returns the text without the white space at its start and end.
+    pub(crate) fn trimmed(&self) -> Self {
+        ShownText(self.0.trim().to_owned().into())
+    }
+
+    /// Returns the text with each line break as `separator`, such as the lines of a template
+    /// on a caption's one line.
+    pub(crate) fn with_line_breaks_as(&self, separator: &ShownText) -> Self {
+        ShownText(self.0.replace('\n', separator.as_str()).into())
+    }
+
+    /// Returns the text cut to `chars` characters, with "..." at the end when it is longer.
+    pub(crate) fn cut_to(&self, chars: usize) -> Self {
+        match self.0.chars().count() > chars {
+            true => {
+                let kept: String = self.0.chars().take(chars.saturating_sub(3)).collect();
+                ShownText((kept + "...").into())
+            }
+            false => self.clone(),
+        }
+    }
+
+    /// Returns the text.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for ShownText {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::AddAssign<&ShownText> for ShownText {
+    fn add_assign(&mut self, more: &ShownText) {
+        self.push(more);
+    }
+}
+
+impl std::ops::AddAssign<ShownText> for ShownText {
+    fn add_assign(&mut self, more: ShownText) {
+        self.push(&more);
+    }
+}
+
+impl std::fmt::Display for ShownText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A shown text is an error's text too, as when a step words why it failed.
+impl std::error::Error for ShownText {}
+
+impl AsRef<ShownText> for ShownText {
+    fn as_ref(&self) -> &ShownText {
+        self
+    }
+}
+
+/// A test gives a text as a literal, which the code itself makes only through `tr`.
+#[cfg(test)]
+impl From<&'static str> for ShownText {
+    fn from(text: &'static str) -> Self {
+        ShownText::untranslated(text)
+    }
+}
+
+impl PartialEq<str> for ShownText {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<String> for ShownText {
+    fn eq(&self, other: &String) -> bool {
+        self.0 == other.as_str()
+    }
+}
+
+impl PartialEq<ShownText> for &str {
+    fn eq(&self, other: &ShownText) -> bool {
+        *self == other.as_str()
+    }
+}
+
+impl PartialEq<&str> for ShownText {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+/// A value that `tf!` may fill a placeholder with: a shown text, a number, or an error's text.
+pub(crate) trait Shown: std::fmt::Display {}
+
+impl Shown for ShownText {}
+impl<T: Shown + ?Sized> Shown for &T {}
+impl Shown for std::io::Error {}
+impl Shown for crate::files::file_io::StepError {}
+impl Shown for image::ImageError {}
+impl Shown for arboard::Error {}
+// shortcut: a `String` or `str` still fills a placeholder, because about a hundred functions
+// return their error's cause as a `String`; when those return a `ShownText`
+// (`f102-shown-causes`), these two go, and a raw name in a placeholder no longer compiles.
+impl Shown for String {}
+impl Shown for str {}
+
+/// A number that `ShownText::number` writes, and that fills a placeholder of `tf!`.
+pub(crate) trait Number: std::fmt::Display {}
+
+numbers!(
+    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64
+);
+
 /// A size for the status bar, or "calculating…" while it is summed (`None`), or that it is not
 /// counted on a share (`NOT_COUNTED_ON_A_SHARE`).
-pub(crate) fn size_text(bytes: Option<u64>) -> String {
+pub(crate) fn size_text(bytes: Option<u64>) -> ShownText {
     match bytes {
-        None => tr("calculating…").to_owned(),
-        Some(NOT_COUNTED_ON_A_SHARE) => tr("not counted on a network folder").to_owned(),
+        None => tr("calculating…"),
+        Some(NOT_COUNTED_ON_A_SHARE) => tr("not counted on a network folder"),
         Some(bytes) => human_size(bytes),
     }
 }
 
 /// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units), with the
 /// decimal mark of the language in use.
-pub(crate) fn human_size(bytes: u64) -> String {
+pub(crate) fn human_size(bytes: u64) -> ShownText {
     // A unit starts where the one below would round to 1000.0, so 999,950 bytes are "1.0 MB".
     let (value, unit) = match bytes {
         b if b >= 999_950_000 => (b as f64 / 1e9, "GB"),
         b if b >= 999_950 => (b as f64 / 1e6, "MB"),
         b if b >= 1_000 => (b as f64 / 1e3, "kB"),
-        b => return format!("{b} B"),
+        b => return ShownText::made(format!("{b} B")),
     };
-    format!("{value:.1} {unit}").replacen('.', lang::number_separators().1, 1)
+    ShownText::made(format!("{value:.1} {unit}").replacen('.', lang::number_separators().1, 1))
 }
 
 /// Integer with its thousands grouped as the language in use writes them: 300000 → "300,000"
 /// in English, "300.000" in German.
-pub(crate) fn thousands(n: usize) -> String {
-    grouped(n, lang::number_separators().0)
+pub(crate) fn thousands(n: usize) -> ShownText {
+    ShownText::made(grouped(n, lang::number_separators().0))
 }
 
 /// Returns `n` with `separator` between each group of three digits.
@@ -60,15 +272,15 @@ fn grouped(n: usize, separator: &str) -> String {
 }
 
 /// `n` and `noun` in the singular or plural, with thousands separated: "1 image", "1,200 images".
-pub(crate) fn count(n: usize, noun: &'static str) -> String {
-    format!("{} {}", thousands(n), lang::plural(noun, n))
+pub(crate) fn count(n: usize, noun: &'static str) -> ShownText {
+    ShownText::made(format!("{} {}", thousands(n), lang::plural(noun, n)))
 }
 
 /// `text` as it is if it `fits`, else its start and end around "…", as long as fits; found by
 /// halving, so a row lays out a few texts, not one for each letter.
-pub(crate) fn middle_cut(text: &str, fits: impl Fn(&str) -> bool) -> String {
+pub(crate) fn middle_cut(text: &ShownText, fits: impl Fn(&str) -> bool) -> ShownText {
     if fits(text) {
-        return text.to_owned();
+        return text.clone();
     }
     let chars: Vec<char> = text.chars().collect();
     let cut = |keep: usize| -> String {
@@ -86,7 +298,7 @@ pub(crate) fn middle_cut(text: &str, fits: impl Fn(&str) -> bool) -> String {
             hi = mid - 1;
         }
     }
-    cut(lo)
+    ShownText::made(cut(lo))
 }
 
 /// Returns the pieces of `text` from left to right: the text, and the codes in it. With
@@ -135,7 +347,7 @@ pub(crate) fn pieces(
 
 /// `template` (see FULL_SCREEN_INFO_TEMPLATE) with each `%field%` replaced by `value(field)`.
 /// A `%%` is a `%` of its own, not a field, so it never takes its part along.
-pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
+pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> ShownText) -> ShownText {
     let lines = template.split("\\n").filter_map(|line| {
         let parts: Vec<String> = (line.split('|'))
             .filter_map(|part| {
@@ -148,7 +360,7 @@ pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> S
                             let v = value(field);
                             fields += 1;
                             filled += !v.is_empty() as usize;
-                            v
+                            v.to_string()
                         }
                     })
                     .collect();
@@ -159,7 +371,12 @@ pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> S
             .collect();
         (!parts.is_empty()).then(|| parts.join(" · "))
     });
-    lines.collect::<Vec<_>>().join("\n")
+    ShownText::made(lines.collect::<Vec<_>>().join("\n"))
+}
+
+/// Seconds since 1970 as local "2026-10-11 00:34:12" (`local_time`), as a text for the user.
+pub(crate) fn shown_time(secs: i64) -> ShownText {
+    ShownText(local_time(secs).into())
 }
 
 /// Seconds since 1970 as local "2026-10-11 00:34:12". Undo compares this form, with a T for
@@ -235,7 +452,7 @@ pub(crate) fn without_control_characters(text: &str) -> String {
 /// "\n" is not taken for one with a line break. So a planted name cannot add lines of its own
 /// to a question, push its buttons off the screen, or show itself reversed. It is the one way
 /// such a name is shown (`source_rules::names_are_shown_through_one_function`).
-pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> String {
+pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> ShownText {
     let is_hidden_mark = |c: char| {
         c.is_control()
             || matches!(
@@ -253,13 +470,13 @@ pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> String {
             c => shown.push(c),
         }
     }
-    shown
+    ShownText(shown.into())
 }
 
 /// Returns the name of the file or folder at `path` as `escaped_name` shows it, or the whole
 /// path, escaped, when it ends in no name, such as "/" or "photos/..". Before, each caller
 /// took the name itself, and such a path was shown as an empty name.
-pub(crate) fn escaped_file_name(path: &std::path::Path) -> String {
+pub(crate) fn escaped_file_name(path: &std::path::Path) -> ShownText {
     escaped_name(path.file_name().unwrap_or(path.as_os_str()))
 }
 
@@ -288,6 +505,25 @@ mod tests {
         assert_eq!(super::escaped_file_name(path), "a\\u{2066}b");
         let up = std::path::Path::new("/tmp/..");
         assert_eq!(super::escaped_file_name(up), "/tmp/..");
+    }
+
+    /// Text read from a file is shown on one line with its line breaks and marks of direction as
+    /// escapes, or whole where a place shows it whole, as the info panel does.
+    /// Risk: an EXIF or XMP text adds a line of its own to the title, a caption or a notice.
+    #[test]
+    fn text_from_a_file_is_shown_on_one_line_or_whole() {
+        let planted = "Nice\nCopy\u{202e}gpj";
+        assert_eq!(
+            super::ShownText::from_file_text_on_one_line(planted),
+            "Nice\\nCopy\\u{202e}gpj"
+        );
+        assert_eq!(super::ShownText::from_file_text(planted), planted);
+        let lines = super::ShownText::from("a\nb");
+        assert_eq!(lines.with_line_breaks_as(&" · ".into()), "a · b");
+        assert_eq!(
+            super::ShownText::from("fjord_sunrise").cut_to(8),
+            "fjord..."
+        );
     }
 
     /// The full screen info's and the print's template broken in thousands of ways: no panic.
@@ -329,7 +565,7 @@ mod tests {
     #[test]
     fn templates_are_filled_as_before() {
         // 0.75.0's fill_template, as it was.
-        let old = |template: &str, value: &dyn Fn(&str) -> String| {
+        let old = |template: &str, value: &dyn Fn(&str) -> super::ShownText| {
             let lines = template.split("\\n").filter_map(|line| {
                 let parts: Vec<String> = (line.split('|'))
                     .filter_map(|part| {
@@ -356,9 +592,9 @@ mod tests {
             lines.collect::<Vec<_>>().join("\n")
         };
         let value = |f: &str| match f {
-            "name" => "a.jpg".to_owned(),
-            "iso" => "200".to_owned(),
-            _ => String::new(),
+            "name" => super::ShownText::from("a.jpg"),
+            "iso" => "200".into(),
+            _ => super::ShownText::default(),
         };
         for template in [
             crate::files::config::FULL_SCREEN_INFO_TEMPLATE,
@@ -368,7 +604,10 @@ mod tests {
             "%ISO",
             "a % b % c %name%",
         ] {
-            assert_eq!(super::fill_template(template, value), old(template, &value));
+            assert_eq!(
+                super::fill_template(template, value).as_str(),
+                old(template, &value)
+            );
         }
     }
 
@@ -376,9 +615,9 @@ mod tests {
     #[test]
     fn fills_templates() {
         let value = |f: &str| match f {
-            "name" => "a.jpg".to_owned(),
-            "iso" => "200".to_owned(),
-            _ => String::new(),
+            "name" => super::ShownText::from("a.jpg"),
+            "iso" => "200".into(),
+            _ => super::ShownText::default(),
         };
         let fill = |t| super::fill_template(t, value);
         assert_eq!(
@@ -420,15 +659,18 @@ mod tests {
         // One letter is one unit wide here.
         let fits = |n: usize| move |s: &str| s.chars().count() <= n;
         assert_eq!(
-            super::middle_cut("fjord_sunrise.jpg", fits(20)),
+            super::middle_cut(&"fjord_sunrise.jpg".into(), fits(20)),
             "fjord_sunrise.jpg"
         );
         assert_eq!(
-            super::middle_cut("fjord_sunrise.jpg", fits(11)),
+            super::middle_cut(&"fjord_sunrise.jpg".into(), fits(11)),
             "fjord…e.jpg"
         );
-        assert_eq!(super::middle_cut("fjørd_sunrise.jpg", fits(5)), "fj…pg");
-        assert_eq!(super::middle_cut("abc", fits(0)), "…");
+        assert_eq!(
+            super::middle_cut(&"fjørd_sunrise.jpg".into(), fits(5)),
+            "fj…pg"
+        );
+        assert_eq!(super::middle_cut(&"abc".into(), fits(0)), "…");
         assert_eq!(super::count(0, "image"), "0 images");
         assert_eq!(super::count(1200, "file"), "1,200 files");
     }

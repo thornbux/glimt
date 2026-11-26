@@ -102,7 +102,9 @@ fn copy_into(
 
 /// Glimt's own folders copied to a new folder glimt-backup-DATE in `dir`: what was done, or
 /// what went wrong.
-pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
+pub(crate) fn back_up_to(
+    dir: &Path,
+) -> Result<crate::support::format::ShownText, crate::support::format::ShownText> {
     // A mistyped or unmounted folder is not made: the backup would land where no one looks.
     if !is_surely_dir(dir) {
         return Err(crate::tf!(
@@ -112,9 +114,9 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     }
     let own = own_folders();
     if own.is_empty() {
-        return Err(
-            tr("Nothing to back up: Glimt has no settings, marks or collections here").into(),
-        );
+        return Err(tr(
+            "Nothing to back up: Glimt has no settings, marks or collections here",
+        ));
     }
     // Inside one of the folders it copies, the backup would copy itself until paths are too long.
     let target = ids_above(dir);

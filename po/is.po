@@ -4141,3 +4141,33 @@ msgstr "ekki tókst að lesa lýsigögn {name}, og myndin er ekki skrifuð án �
 #, fuzzy
 msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
 msgstr "ekki tókst að lesa lýsigögn {name}, og hliðarskrá hennar er ekki skrifuð án þeirra: {e}"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "\"{name}\""
+msgstr "„{name}“"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{name}: {e}"
+msgstr "{name}: {e}"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{done}; {failed}"
+msgstr "{done}; {failed}"
+
+#: src/ui/menus.rs
+#, fuzzy
+msgid "{label} ({keys})"
+msgstr "{label} ({keys})"
+
+#: src/features/print.rs
+#, fuzzy
+msgid "{n} ({cols} × {rows})"
+msgstr "{n} ({cols} × {rows})"
+
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "{w} × {h}"
+msgstr "{w} × {h}"
