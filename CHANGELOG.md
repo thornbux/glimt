@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: choices that each caller had to pass right, such as delete to the trash or for good,
+  copy or move, and whether a job writes sidecars, are now types that the compiler checks, so a
+  wrong value cannot be passed. Nothing changes in use.
+
 ## [0.100.0] - 2026-11-26
 
 ### Fixed
