@@ -1242,9 +1242,9 @@ impl crate::App {
 
     /// Brings along what Glimt keeps about the files a report says were `moved`, or copied
     /// (`is_copy`), as `follow_moved_paths` does. A Move's log goes once they have followed.
-    /// When `is_from_a_record`, the moves were read from a record and not made by the job, so
-    /// the marks follow only to a name where a file is now. A Move's log found at the start is
-    /// such a record too.
+    /// When `from_a_record` holds the marks noted at the new names, the moves were read from a
+    /// record and not made by the job, so the marks follow only to a name where a file is now. A
+    /// Move's log found at the start is such a record too.
     fn follow_moves_reported(
         &mut self,
         moved: Vec<(PathBuf, PathBuf)>,
