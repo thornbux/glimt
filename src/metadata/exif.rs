@@ -1759,13 +1759,13 @@ pub(crate) fn raw_profile_bytes(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// The size in bytes of one value of the TIFF type `kind`.
 /// Returns whether a value of `count` items of the type `kind` is stored in its IFD entry
 /// itself, as one of up to four bytes is, rather than at the offset the entry gives.
 fn value_is_in_the_entry(kind: u16, count: u32) -> bool {
     type_size(kind) * count as usize <= 4
 }
 
+/// The size in bytes of one value of the TIFF type `kind`.
 fn type_size(kind: u16) -> usize {
     match kind {
         SHORT | 8 => 2,

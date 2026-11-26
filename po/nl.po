@@ -4140,4 +4140,4 @@ msgstr "de metadata van {name} konden niet worden gelezen, en de afbeelding word
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
-msgstr "de metadata van {name} konden niet worden gelezen, en het bijbestand wordt niet zonder geschreven: {e}"
+msgstr "de metadata van {name} konden niet worden gelezen, en het sidecar-bestand wordt niet zonder die metadata geschreven: {e}"
