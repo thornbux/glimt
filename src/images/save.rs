@@ -1239,18 +1239,22 @@ pub fn save_as(
 
 /// Whether `path` is animated. An animation is refused, because only the first frame would be
 /// written back. It asks by what the file is, because it is read by its content. An animated
-/// GIF named a.png is still animated, and a JPEG named so is not.
+/// GIF named a.png is still animated, and a JPEG named so is not. Returns an error when the file
+/// could not be read, which the pixels' read would meet too. Before, it was taken for a file
+/// that is not animated, so an animation read again after a share's answer came back was
+/// turned, and its own file written anew with its first frame only.
 fn animated(path: &Path) -> Result<bool, String> {
     let format = crate::images::decode::image_format(path).map_err(|e| e.to_string())?;
     let file = || crate::images::decode::open_regular(path).map(std::io::BufReader::new);
+    let file = || file().map_err(|e| e.to_string());
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
-        Some(image::ImageFormat::Png) => (file().ok())
-            .and_then(|f| image::codecs::png::PngDecoder::new(f).ok())
-            .is_some_and(|d| d.is_apng().unwrap_or(false)),
-        Some(image::ImageFormat::WebP) => (file().ok())
-            .and_then(|f| image::codecs::webp::WebPDecoder::new(f).ok())
-            .is_some_and(|d| d.has_animation()),
+        Some(image::ImageFormat::Png) => (image::codecs::png::PngDecoder::new(file()?))
+            .and_then(|d| d.is_apng())
+            .map_err(|e| e.to_string())?,
+        Some(image::ImageFormat::WebP) => (image::codecs::webp::WebPDecoder::new(file()?))
+            .map_err(|e| e.to_string())?
+            .has_animation(),
         _ => false,
     })
 }
@@ -1659,13 +1663,14 @@ fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, Stri
 /// PNG `new`, without their thumbnail and old orientation (`DROPPED_PHOTOSHOP_RESOURCES`). They
 /// hold the IPTC caption, copyright and keywords that ImageMagick writes there. `png_with_chunks`
 /// drops them from every file written with new pixels, because the thumbnail shows the whole
-/// frame, so a crop or copy keeps none of them. Resources that cannot be read stay dropped, as
-/// before.
+/// frame, so a crop or copy keeps none of them. Resources whose data is broken stay dropped, as
+/// before. Returns an error that names `old` when the file could not be read, also when it is too
+/// large to be read whole, because the turn writes it anew and would lose its resources.
 fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, String> {
     // The old PNG counts in the decodes' budget while it is read.
     let _job = crate::images::decode::start_decode_job();
-    let resources = (crate::images::decode::read_limited(old).ok())
-        .and_then(|bytes| exif::png_metadata(&bytes).photoshop_resources)
+    let bytes = crate::images::decode::read_limited(old).map_err(|e| metadata_not_read(old, e))?;
+    let resources = (exif::png_metadata(&bytes).photoshop_resources)
         .and_then(|bytes| without_dropped_photoshop_resources(&bytes));
     let Some(resources) = resources.filter(|r| !r.is_empty()) else {
         return Ok(new.to_vec());
@@ -2362,6 +2367,17 @@ mod tests {
         let kept = crate::metadata::exif::raw_profile_bytes(&texts[0]).unwrap();
         assert_eq!(kept, photoshop_resource(0x0404, b"COPYRIGHT"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn of a PNG whose file cannot be read for its Photoshop resources, as on a share that
+    /// stopped answering after the pixels were read, is refused with its name. Before, the failed
+    /// read was taken for a PNG without them, and the turn wrote the photo's own file anew
+    /// without its IPTC caption, copyright and keywords, untold.
+    #[test]
+    fn a_turn_is_refused_when_its_photoshop_resources_cannot_be_read() {
+        let gone = std::env::temp_dir().join(format!("glimt-8bim-gone-{}.png", std::process::id()));
+        let refused = super::png_with_photoshop_resources(b"", &gone).unwrap_err();
+        assert!(refused.contains("glimt-8bim-gone"), "{refused}");
     }
 
     /// Photoshop resources broken in thousands of ways are read without a panic or a loop.
