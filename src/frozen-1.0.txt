@@ -490,7 +490,6 @@ job_record job rename
 job_record job move
 job_record job delete
 job_record job trash
-job_record job undo-move
 job_record job undo-trash
 job_record job rename-folder
 job_record job trash-folder

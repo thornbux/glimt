@@ -20,16 +20,20 @@ pub(crate) const HEADER: &str = "glimt-job";
 pub(crate) const VERSION: u32 = 1;
 
 /// The kinds of job a log is written for. They are pinned in src/frozen-1.0.txt.
-pub(crate) const JOB_KINDS: [&str; 8] = [
+pub(crate) const JOB_KINDS: [&str; 7] = [
     "rename",
     "move",
     "delete",
     "trash",
-    "undo-move",
     "undo-trash",
     "rename-folder",
     "trash-folder",
 ];
+
+/// The kinds of job that Glimt 0.99.0 wrote under a word this Glimt no longer writes, each with
+/// the kind it is read as now, so that a log that a kill left under 0.99.0 is put right once. An
+/// Undo of a Move wrote "undo-move", which a start read as a Move.
+const OLD_JOB_KINDS: [(&str, &str); 1] = [("undo-move", "move")];
 
 /// The kinds of record after the header, as `Record::kind` names them. They are pinned in
 /// src/frozen-1.0.txt. "old-log" names the job log that this one was written from
@@ -730,8 +734,9 @@ fn parse_job_log(reader: &mut impl std::io::BufRead) -> std::io::Result<LogRead>
     let [_, _, job, started, instance] = &header[..] else {
         return Ok(LogRead::NotALog);
     };
+    let old = (OLD_JOB_KINDS.iter()).find_map(|(old, now)| (old.as_bytes() == job).then_some(now));
     let (Some(job), Some(started)) = (
-        JOB_KINDS.iter().find(|kind| kind.as_bytes() == job),
+        (JOB_KINDS.iter().find(|kind| kind.as_bytes() == job)).or(old),
         number(started),
     ) else {
         return Ok(LogRead::NotALog);
@@ -1049,6 +1054,24 @@ mod tests {
             expected.push(Record::Done(0));
             assert_eq!(records_of(&bytes), expected, "{}", bad.escape_ascii());
         }
+    }
+
+    /// A log of an Undo of a Move that a kill left under Glimt 0.99.0, of the kind "undo-move",
+    /// is read as a Move's, the kind that this Glimt writes for both.
+    /// Risk: such a log is kept for good as one of a kind this Glimt does not know, and the marks
+    /// of the files that went back stay at their names in the folder they left.
+    #[test]
+    fn an_undo_move_log_of_0_99_is_read_as_a_move() {
+        let mut bytes = b"glimt-job\x001\0undo-move\09\0w1\0\0".to_vec();
+        bytes.extend(super::records_bytes(&every_record()[..3]));
+        let LogRead::Log { job, records, .. } = parsed(&bytes) else {
+            panic!("not read as a log");
+        };
+        assert_eq!((job, records.len()), ("move", 3));
+        assert_eq!(
+            crate::files::journal::read_at_start(job),
+            Some(crate::files::journal::ReadAtStart::Move)
+        );
     }
 
     /// A `trashed` record, a kind that Glimt 0.99.0 read but never wrote and this Glimt no

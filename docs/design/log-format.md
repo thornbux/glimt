@@ -109,8 +109,9 @@ A record kind it does not know, in a version it knows, it passes over, so a late
 kinds within version 1 when an older reader may safely ignore them. A record that changes the
 meaning of others raises the version.
 
-The kinds of job: `rename`, `move`, `delete`, `trash`, `undo-move`, `undo-trash`,
-`rename-folder`, `trash-folder`. Each has a reader at the start (`journal::read_at_start`, held by
+The kinds of job: `rename`, `move` (also for an Undo of a Move, which Glimt 0.99.0 wrote as
+`undo-move`, still read as `move`), `delete`, `trash`, `undo-trash`, `rename-folder`,
+`trash-folder`. Each has a reader at the start (`journal::read_at_start`, held by
 `every_job_kind_is_read_at_start`). A log of a kind the start has no reader for is kept on disk
 and told once, as one of a higher version is.
 

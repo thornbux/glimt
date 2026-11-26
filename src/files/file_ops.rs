@@ -1552,7 +1552,7 @@ impl crate::App {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let started = (move_log_dir.as_deref()).map(|d| journal::start_move_log(d, "move"));
+            let started = (move_log_dir.as_deref()).map(journal::start_move_log);
             let (mut move_log, start_failure) = match started.transpose() {
                 Ok(log) => (log, None),
                 Err(e) => (None, Some(e)),
@@ -2280,9 +2280,7 @@ impl crate::App {
                 // A log as a Move's, for the marks and collections at the next start after a
                 // kill. A log that cannot be started is told, and the files go back all the same.
                 let log_dir = pairs.first().and_then(|(from, _, _)| job_log_dir(from));
-                let started = log_dir
-                    .as_deref()
-                    .map(|d| journal::start_move_log(d, "undo-move"));
+                let started = log_dir.as_deref().map(journal::start_move_log);
                 let started = started.transpose();
                 let (mut move_log, start_failure) = match started {
                     Ok(log) => (log, None),
@@ -5750,7 +5748,7 @@ mod tests {
         std::fs::rename(&before, &moved).unwrap();
         std::fs::rename(dir.join("a.png.xmp"), dir.join("sub/a.png.xmp")).unwrap();
         let now = crate::files::file_io::fingerprint(&moved).unwrap();
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         let (back, _, errors) =
             super::move_back(vec![(before.clone(), moved.clone(), now)], Some(&mut log));
         assert_eq!(back, vec![(moved.clone(), before.clone())], "{errors:?}");
@@ -6043,7 +6041,7 @@ mod tests {
         std::fs::write(&moved, "photo").unwrap();
         std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
         std::fs::write(to.join("a.jpg.xmp"), "other").unwrap();
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         log.note(&photo, &moved);
         ANSWER_LOST_AT.set(Some(moved.clone()));
         LOOK_FAILS.set(Some((photo.clone(), 0)));
@@ -6081,7 +6079,7 @@ mod tests {
         std::fs::write(&photo, "photo").unwrap();
         std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
         std::fs::write(to.join("a.jpg.xmp"), "other").unwrap();
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         log.note(&photo, &moved);
         std::fs::rename(&photo, &moved).unwrap();
         ON_A_SHARE_IN_A_TEST.set(Some(to.clone()));
@@ -8049,7 +8047,7 @@ mod tests {
         );
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Moving", 2, false, Vec::new());
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         let moved = super::put_files(
@@ -8143,7 +8141,7 @@ mod tests {
         let dir = contract_folder("move-cannot-tell");
         let (to, logs, a) = (dir.join("sub"), dir.join("logs"), dir.join("a.png"));
         let job = super::Job::new("Moving", 1, false, Vec::new());
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
         ANSWER_LOST_AT.set(Some(a.clone()));
@@ -8204,7 +8202,7 @@ mod tests {
         let (gqv, logs) = (dir.join("col.gqv"), dir.join("logs"));
         let (a, moved) = (dir.join("a.png"), dir.join("sub/a.png"));
         let (mut app, ctx) = app_on(&gqv);
-        let mut log = super::journal::start_move_log(&logs, "move").unwrap();
+        let mut log = super::journal::start_move_log(&logs).unwrap();
         log.note(&a, &moved);
         std::fs::rename(&a, &moved).unwrap();
         drop(log);

@@ -640,11 +640,11 @@ impl DeleteLog {
     }
 }
 
-/// Makes a new job log in `dir` of a Move, or of the Undo of one, as `job` says ("move" or
-/// "undo-move"), locked and with its header on disk.
-pub fn start_move_log(dir: &Path, job: &str) -> std::io::Result<MoveLog> {
+/// Makes a new job log in `dir` of a Move, or of the Undo of one, which a start reads the same
+/// way, locked and with its header on disk.
+pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
     Ok(MoveLog {
-        log: JobLog::start(dir, job, &[])?,
+        log: JobLog::start(dir, "move", &[])?,
         steps: 0,
         is_found_at_start: false,
         folders: HashSet::new(),
@@ -1018,7 +1018,7 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
 /// reader for. `every_job_kind_is_read_at_start` fails when a kind of `JOB_KINDS` has none.
 pub(crate) fn read_at_start(job: &str) -> Option<ReadAtStart> {
     match job {
-        "move" | "undo-move" => Some(ReadAtStart::Move),
+        "move" => Some(ReadAtStart::Move),
         "delete" | "trash" => Some(ReadAtStart::Delete),
         "undo-trash" => Some(ReadAtStart::UndoTrash),
         "rename-folder" | "trash-folder" => Some(ReadAtStart::Folder),
@@ -2818,7 +2818,7 @@ mod tests {
             std::fs::write(from.join(n), n).unwrap();
         }
         std::fs::write(to.join("b.jpg.xmp"), "another's").unwrap();
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         // The kill came after each photo went and before its sidecar did.
         for n in ["a.jpg", "b.jpg"] {
             log.note(&from.join(n), &to.join(n));
@@ -2848,7 +2848,7 @@ mod tests {
         std::fs::create_dir_all(&from).unwrap();
         std::fs::create_dir_all(&stick).unwrap();
         std::fs::write(from.join("a.jpg"), "a").unwrap();
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from.join("a.jpg"), &stick.join("a.jpg"));
         std::fs::rename(from.join("a.jpg"), stick.join("a.jpg")).unwrap();
         drop(log);
@@ -2877,7 +2877,7 @@ mod tests {
         for n in ["a.jpg", "b.jpg", "b.jpg.xmp"] {
             std::fs::write(from.join(n), n).unwrap();
         }
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         for n in ["a.jpg", "b.jpg"] {
             log.note(&from.join(n), &to.join(n));
             std::fs::rename(from.join(n), to.join(n)).unwrap();
@@ -2918,7 +2918,7 @@ mod tests {
         for n in ["a.jpg", "b.jpg", "a.jpg.xmp"] {
             std::fs::write(from.join(n), "photo").unwrap();
         }
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         for n in ["a.jpg", "b.jpg"] {
             set_time(&from.join(n), at(1_700_000_001, 234_567_891));
             log.note(&from.join(n), &to.join(n));
@@ -5197,7 +5197,7 @@ mod tests {
         // Move Folder to Trash of nas/Album, and a Move of a.jpg into nas, both done and killed.
         drop(super::start_folder_log(&jobs, &album, None, None).unwrap());
         std::fs::rename(&album, dir.join("in-the-trash")).unwrap();
-        let mut log = super::start_move_log(&jobs, "move").unwrap();
+        let mut log = super::start_move_log(&jobs).unwrap();
         log.note(&a, &moved);
         drop(log);
         std::fs::rename(&a, &moved).unwrap();
@@ -5260,7 +5260,7 @@ mod tests {
         std::fs::create_dir_all(&nas).unwrap();
         std::fs::create_dir(&away).unwrap();
         std::fs::write(&a, "a").unwrap();
-        let mut log = super::start_move_log(&jobs, "move").unwrap();
+        let mut log = super::start_move_log(&jobs).unwrap();
         log.note(&a, &moved);
         drop(log);
         std::fs::rename(&a, &moved).unwrap();
@@ -5544,7 +5544,7 @@ mod tests {
         let (from, moved) = (card.join("a.jpg"), to.join("a.jpg"));
         std::fs::write(&from, "the card's").unwrap();
         card_volume(&card, Some("1111-AAAA"));
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         drop(log);
@@ -5570,7 +5570,7 @@ mod tests {
         let (from, moved, deleted) = (card.join("a.jpg"), to.join("a.jpg"), card.join("b.jpg"));
         std::fs::write(&from, "the card's").unwrap();
         card_volume(&card, Some("1111-AAAA"));
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         drop(log);
@@ -5660,7 +5660,7 @@ mod tests {
         let (from, moved) = (sub.join("a.jpg"), to.join("a.jpg"));
         std::fs::write(&from, "the stick's").unwrap();
         card_volume(&card, Some("aaaa-1111"));
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         drop(log);
@@ -5745,7 +5745,7 @@ mod tests {
         let (stayed, not_moved) = (card.join("d.jpg"), to.join("d.jpg"));
         std::fs::write(&from, "the card's").unwrap();
         std::fs::write(&stayed, "not moved yet").unwrap();
-        let mut log = super::start_move_log(&logs, "move").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
         log.note(&from, &moved);
         std::fs::rename(&from, &moved).unwrap();
         // The kill came before this step's file went, so the start must tell its folder.
