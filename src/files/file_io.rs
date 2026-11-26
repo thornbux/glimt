@@ -44,12 +44,68 @@ pub(crate) const TMP_PREFIX: &str = ".glimt-tmp-";
 
 /// The types of file system, as /proc/self/mountinfo or udev names them, that are known to be on
 /// a disk of this computer or in its memory. Every other type counts as a share (`is_remote`).
-/// fuseblk is FUSE on a block device, such as NTFS through ntfs-3g.
-const LOCAL_FILE_SYSTEMS: [&str; 35] = [
-    "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "msdos", "exfat", "ntfs", "ntfs3",
-    "fuseblk", "zfs", "bcachefs", "jfs", "reiserfs", "nilfs2", "hfs", "hfsplus", "apfs", "ufs",
-    "tmpfs", "ramfs", "overlay", "squashfs", "erofs", "iso9660", "udf", "ecryptfs", "cramfs",
-    "romfs", "minix", "hpfs", "affs", "befs",
+/// fuseblk is FUSE on a block device, such as NTFS through ntfs-3g. autofs only holds the place
+/// where another file system is mounted on demand, which has an entry of its own on top of it.
+/// The kernel's own file systems from proc on hold no user's files, and rpc_pipefs and nfsd are
+/// NFS's control files on this computer, not a share.
+const LOCAL_FILE_SYSTEMS: [&str; 57] = [
+    "ext2",
+    "ext3",
+    "ext4",
+    "xfs",
+    "btrfs",
+    "f2fs",
+    "vfat",
+    "msdos",
+    "exfat",
+    "ntfs",
+    "ntfs3",
+    "fuseblk",
+    "zfs",
+    "bcachefs",
+    "jfs",
+    "reiserfs",
+    "nilfs2",
+    "hfs",
+    "hfsplus",
+    "apfs",
+    "ufs",
+    "tmpfs",
+    "ramfs",
+    "overlay",
+    "squashfs",
+    "erofs",
+    "iso9660",
+    "udf",
+    "ecryptfs",
+    "cramfs",
+    "romfs",
+    "minix",
+    "hpfs",
+    "affs",
+    "befs",
+    "autofs",
+    "proc",
+    "sysfs",
+    "devtmpfs",
+    "devpts",
+    "cgroup",
+    "cgroup2",
+    "securityfs",
+    "debugfs",
+    "tracefs",
+    "pstore",
+    "bpf",
+    "mqueue",
+    "hugetlbfs",
+    "configfs",
+    "fusectl",
+    "binfmt_misc",
+    "efivarfs",
+    "nsfs",
+    "selinuxfs",
+    "rpc_pipefs",
+    "nfsd",
 ];
 
 /// The folder where udev names each volume on a block device by its serial number or UUID.
@@ -3863,6 +3919,8 @@ mod tests {
         // A type not known to be local counts as a share, also one Glimt has no name for (#322).
         assert!(super::is_remote("virtiofs") && super::is_remote("vboxsf"));
         assert!(!super::is_remote("ext4") && !super::is_remote("exfat"));
+        // An automount's place and the kernel's own file systems are on this computer.
+        assert!(!super::is_remote("autofs") && !super::is_remote("proc"));
     }
 
     /// A FUSE mount of plain type "fuse", with no subtype, is told by its source: one that names
@@ -3877,7 +3935,8 @@ mod tests {
             4 1 0:62 / /mnt/phone rw - fuse go-mtpfs rw\n\
             5 1 0:63 / /mnt/nas rw - fuse me@nas:/photos rw\n\
             6 1 0:64 / /mnt/pool rw - fuse /mnt/a:/mnt/b rw\n\
-            7 1 0:65 / /mnt/vault rw - fuse vault rw\n";
+            7 1 0:65 / /mnt/vault rw - fuse vault rw\n\
+            8 1 0:66 / /mnt/disk rw - autofs systemd-1 rw\n";
         let kind = |p: &str| {
             let path = std::path::Path::new(p);
             super::file_system_type_in(mounts, path, |_| None).unwrap()
