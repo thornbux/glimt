@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-11-26
+
 ### Fixed
 
 - A write that fails while a close waits for it no longer leaves the notice that Glimt closes
@@ -4853,7 +4855,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.98.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.99.0...HEAD
+[0.99.0]: https://github.com/thornbux/glimt/compare/v0.98.0...v0.99.0
 [0.98.0]: https://github.com/thornbux/glimt/compare/v0.97.0...v0.98.0
 [0.97.0]: https://github.com/thornbux/glimt/compare/v0.96.0...v0.97.0
 [0.96.0]: https://github.com/thornbux/glimt/compare/v0.95.2...v0.96.0
