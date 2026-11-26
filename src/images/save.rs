@@ -1328,32 +1328,38 @@ fn derived_metadata<'a>(
     // cannot open.
     let mut exif = exif::derived(file, how).map_err(|e| metadata_not_read(path, e))?;
     let is_raw = has_ext(path, crate::images::raw::EXTS);
-    let decoder = match file.image_reader() {
-        Ok(reader) => match reader.into_decoder() {
-            Ok(decoder) => Some(decoder),
-            Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
-            // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP
-            // that Glimt reads.
-            Err(_) => None,
-        },
+    let (mut decoder, format) = match file.image_reader() {
+        Ok(reader) => {
+            let format = reader.format();
+            match reader.into_decoder() {
+                Ok(decoder) => (Some(decoder), format),
+                Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
+                // A format the image crate does not decode, such as a HEIC or an SVG, has no
+                // XMP that Glimt reads.
+                Err(_) => (None, format),
+            }
+        }
         // A file too large to be read whole (a JPEG, or one of no format the image crate
         // knows, such as a PSB that an added format reads) has no XMP that it could give.
-        Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => None,
+        Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => (None, None),
         Err(e) => return Err(metadata_not_read(path, e)),
     };
-    let (mut xmp, stored) = match decoder {
-        Some(mut d) => {
-            let stored = rotate.then(|| exif::stored_orientation(&mut d, exif.as_deref()));
-            let xmp = match d.xmp_metadata() {
-                Ok(xmp) => xmp,
-                // A RAW's pixels come from its preview, and the image crate reads it as a TIFF
-                // at best, so what that read cannot make out is no failure of its metadata.
-                Err(e) if is_raw && !is_failed_read(&e, is_raw) => None,
-                Err(e) => return Err(metadata_not_read(path, e)),
-            };
-            (xmp, stored)
-        }
-        None => (None, None),
+    let stored = (decoder.as_mut())
+        .filter(|_| rotate)
+        .map(|d| exif::stored_orientation(d, exif.as_deref()));
+    // The image crate reads no TIFF's XMP of more than a 32nd of its pixels' bytes, so a
+    // Photoshop file's long history refused the copy. A TIFF's is read up to Glimt's own cap.
+    let read = match (format, &mut decoder) {
+        (Some(image::ImageFormat::Tiff), _) => tiff_xmp(file),
+        (_, Some(d)) => d.xmp_metadata(),
+        (_, None) => Ok(None),
+    };
+    let mut xmp = match read {
+        Ok(xmp) => xmp,
+        // A RAW's pixels come from its preview, and the image crate reads it as a TIFF at best,
+        // so what that read cannot make out is no failure of its metadata.
+        Err(e) if is_raw && !is_failed_read(&e, is_raw) => None,
+        Err(e) => return Err(metadata_not_read(path, e)),
     };
     // A PNG's EXIF and XMP that the decoder does not read, after the pixels, compressed or in
     // ImageMagick's raw profiles, are read here, by the reader of every chunk the PNG written
@@ -1383,12 +1389,53 @@ fn derived_metadata<'a>(
 }
 
 /// Returns whether `e`, an error of the image crate's read of a file's metadata, means that the
-/// file could not be read, so that a copy or turn made without its metadata is refused. Only an
-/// I/O error does, such as a share that stopped answering. The end of a RAW's file met early
-/// does not, because the image crate reads a RAW as a TIFF, whose offsets a RAW need not keep.
+/// file could not be read, so that a copy or turn made without its metadata is refused. An I/O
+/// error does, such as a share that stopped answering, and so does a limit of the reader, as
+/// the metadata may be there all the same. The end of a RAW's file met early does not, nor a
+/// limit met in a RAW, because the image crate reads a RAW as a TIFF, whose offsets a RAW need
+/// not keep.
 fn is_failed_read(e: &image::ImageError, is_raw: bool) -> bool {
-    matches!(e, image::ImageError::IoError(e)
-        if !(is_raw && e.kind() == std::io::ErrorKind::UnexpectedEof))
+    match e {
+        image::ImageError::IoError(e) => !(is_raw && e.kind() == std::io::ErrorKind::UnexpectedEof),
+        image::ImageError::Limits(_) => !is_raw,
+        _ => false,
+    }
+}
+
+/// Reads the XMP packet of a TIFF (tag 700) up to the read cap of a decode
+/// (`MAX_DECODE_BYTES`). The image crate's own read refuses a packet longer than a 32nd of the
+/// pixels' bytes. Returns `None` when the TIFF has no XMP.
+fn tiff_xmp<'a>(file: impl ImageBytes<'a>) -> image::ImageResult<Option<Vec<u8>>> {
+    use tiff::tags::{Tag, Type, ValueBuffer};
+    let read = || -> tiff::TiffResult<Option<Vec<u8>>> {
+        let mut limits = tiff::decoder::Limits::default();
+        limits.decoding_buffer_size =
+            usize::try_from(crate::images::decode::MAX_DECODE_BYTES).unwrap_or(usize::MAX);
+        let mut decoder = tiff::decoder::Decoder::new(file.open_reader()?)?.with_limits(limits);
+        let mut packet = ValueBuffer::empty(Type::BYTE);
+        match decoder
+            .image_ifd()
+            .find_tag_buf(Tag::Unknown(700), &mut packet)?
+        {
+            None => Ok(None),
+            Some(_) if matches!(packet.data_type(), Type::BYTE | Type::UNDEFINED) => {
+                Ok(Some(packet.as_bytes().to_vec()))
+            }
+            Some(_) => Err(tiff::TiffError::FormatError(
+                tiff::TiffFormatError::InvalidTypeForTag,
+            )),
+        }
+    };
+    read().map_err(|e| match e {
+        tiff::TiffError::IoError(e) => image::ImageError::IoError(e),
+        tiff::TiffError::LimitsExceeded => image::ImageError::Limits(
+            image::error::LimitError::from_kind(image::error::LimitErrorKind::InsufficientMemory),
+        ),
+        e => image::ImageError::Decoding(image::error::DecodingError::new(
+            image::ImageFormat::Tiff.into(),
+            e,
+        )),
+    })
 }
 
 /// Returns why a file derived from `path` is not written: its metadata could not be read
@@ -3025,18 +3072,25 @@ mod tests {
         let decoding = image::error::DecodingError::new(format, "no TIFF");
         let decoding = image::ImageError::Decoding(decoding);
         assert!(!super::is_failed_read(&decoding, true));
+        // A limit of the reader is no proof that the metadata is not there.
+        let kind = image::error::LimitErrorKind::InsufficientMemory;
+        let limits = image::ImageError::Limits(image::error::LimitError::from_kind(kind));
+        assert!(super::is_failed_read(&limits, false));
+        assert!(!super::is_failed_read(&limits, true));
     }
 
     /// A copy of a TIFF too large to be read whole, such as a large scan, keeps the XMP at its
     /// start (its keywords), read from the file as Glimt 0.99 read it. Before, such a copy was
-    /// made without its metadata, untold.
+    /// made without its metadata, untold. Its XMP is longer than a 32nd of its pixels' bytes, as
+    /// a Photoshop file's history can be, which the image crate's read refused, and the copy
+    /// with it.
     #[test]
     fn a_copy_of_a_tiff_too_large_to_be_read_whole_keeps_its_xmp() {
         let dir = std::env::temp_dir().join(format!("glimt-large-tiff-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let xmp = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:subject><rdf:Bag><rdf:li>KeptWord</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let packet = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:subject><rdf:Bag><rdf:li>KeptWord</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let xmp = [&packet[..], &[b' '; 1024]].concat();
         // A grey TIFF of 128×128 pixels at 134, after IFD0, and its XMP (tag 700) after them.
-        // The image crate reads no XMP of more bytes than a 32nd of the pixels' bytes.
         let entry = |tag: u16, kind: u16, count: u32, value: [u8; 4]| {
             [
                 &tag.to_le_bytes()[..],
@@ -3057,7 +3111,7 @@ mod tests {
         tiff.extend(entry(279, 4, 1, 16384u32.to_le_bytes()));
         tiff.extend(entry(700, 1, xmp.len() as u32, 16518u32.to_le_bytes()));
         tiff.extend([0; 4 + 16384]);
-        tiff.extend(xmp);
+        tiff.extend(&xmp);
         let mut kept = Vec::new();
         for (name, length) in [
             ("small.tif", tiff.len() as u64),
