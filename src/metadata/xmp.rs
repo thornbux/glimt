@@ -560,7 +560,7 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
 pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), String> {
     // The image's own XMP is read before the lock, because its read may wait for the decodes'
     // budget, and every other write of a sidecar under this lock would wait with it.
-    let inside = embedded(path);
+    let inside = read_embedded(path)?;
     let _lock = lock_sidecar(path);
     let own = (inside.as_deref()).is_some_and(|x| parse_alt_text(x) != AltText::default());
     let fields = [&change.text, &change.extended_description];
@@ -779,25 +779,57 @@ pub fn read(path: &Path) -> KeywordsAndComment {
     source(path).map_or_else(KeywordsAndComment::default, |x| parse(&x))
 }
 
-/// The XMP packet inside the image. A JPEG's is read from its first 256 KB, as its EXIF is.
+/// The XMP packet inside the image, for the panel and the search, which show one that could
+/// not be read as none (`read_embedded`).
 fn embedded(path: &Path) -> Option<String> {
+    read_embedded(path).ok().flatten()
+}
+
+/// Reads the XMP packet inside the image. A JPEG's is read from its first 256 KB, as its EXIF
+/// is. Returns `None` when the image has no XMP that Glimt reads. Returns an error that names the
+/// image when its file could not be read, as on a share that stopped answering, or its reader
+/// refused the packet, judged as a copy judges it (`save::is_failed_read`). A sidecar written
+/// then would start without the image's own keywords, and hide them from then on.
+fn read_embedded(path: &Path) -> Result<Option<String>, String> {
     const JPEG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+    let is_raw = crate::model::listing::has_ext(path, crate::images::raw::EXTS);
+    let judged = |e: image::ImageError| match crate::images::save::is_failed_read(&e, is_raw) {
+        true => Err(format!("{}: {e}", escaped_name(path))),
+        false => Ok(None),
+    };
     let bytes = match crate::metadata::exif::jpeg_app1(path, JPEG) {
-        Some(found) => found?[JPEG.len()..].to_vec(),
+        Some(found) => found.map(|found| found[JPEG.len()..].to_vec()),
         None => {
             use image::ImageDecoder;
             // A JPEG under another name is read whole, which counts in the decodes' budget.
             let _job = crate::images::decode::start_decode_job();
-            let reader = crate::images::decode::image_reader(path).ok()?;
-            match reader.format() {
+            let reader = match crate::images::decode::image_reader(path) {
+                Ok(reader) => reader,
+                // A write refuses an image that is gone by itself, and a file too large to be
+                // read whole has no XMP that it could give, as a copy of it has none.
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::FileTooLarge
+                    ) =>
+                {
+                    return Ok(None);
+                }
+                Err(e) => return judged(image::ImageError::IoError(e)),
+            };
+            let read = match reader.format() {
                 // The image crate reads no TIFF's XMP of more than a 32nd of its pixels' bytes,
                 // and a DNG's first image is a small preview, so their keywords were not shown.
-                Some(image::ImageFormat::Tiff) => tiff_xmp(path).ok()??,
-                _ => reader.into_decoder().ok()?.xmp_metadata().ok()??,
+                Some(image::ImageFormat::Tiff) => tiff_xmp(path),
+                _ => (reader.into_decoder()).and_then(|mut decoder| decoder.xmp_metadata()),
+            };
+            match read {
+                Ok(bytes) => bytes,
+                Err(e) => return judged(e),
             }
         }
     };
-    String::from_utf8(bytes).ok()
+    Ok(bytes.and_then(|bytes| String::from_utf8(bytes).ok()))
 }
 
 /// Reads the XMP packet of a TIFF, or of a RAW read as one such as a DNG (tag 700 of its first
@@ -907,7 +939,7 @@ fn write_keywords(
     edit: impl FnOnce(&mut KeywordsAndComment, &mut Vec<String>),
 ) -> Result<KeywordsAndComment, String> {
     // The image's own XMP is read before the lock, as `write_alt_text` reads it.
-    let inside = embedded(path);
+    let inside = read_embedded(path)?;
     let _lock = lock_sidecar(path);
     let own = inside
         .as_deref()
@@ -4490,7 +4522,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-lock-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.png");
-        std::fs::write(&path, b"").unwrap();
+        image::RgbaImage::new(2, 2).save(&path).unwrap();
         std::thread::scope(|s| {
             for k in 0..8 {
                 let path = &path;
@@ -4642,7 +4674,7 @@ mod tests {
         follow(&b, &c, true, &Default::default(), &mut Default::default()).unwrap();
         assert_eq!(read(&c), meta);
         // A sidecar at the target belongs to another file, so it is kept, not replaced.
-        std::fs::write(&a, b"").unwrap();
+        image::RgbaImage::new(2, 2).save(&a).unwrap();
         let other = KeywordsAndComment {
             keywords: vec!["other".into()],
             comment: String::new(),
@@ -5373,5 +5405,34 @@ mod tests {
             matches!(refused, Err(image::ImageError::Limits(_))),
             "{refused:?}"
         );
+    }
+
+    /// A keyword or alt text added to an image whose own XMP could not be read is refused and
+    /// told, and no sidecar is started, as one without the image's keywords would hide them from
+    /// then on. The panel shows that image as without keywords, as before. Before, the sidecar
+    /// was written.
+    #[test]
+    fn no_sidecar_is_started_when_the_images_xmp_cannot_be_read() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-xmp-unread-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.tif");
+        std::fs::write(&path, tiff_of_one_pixel(&[b' '; 1000], 511 << 20)).unwrap();
+        let keyword = super::add_keywords(&path, &["Oslo".into()]);
+        let alt_text = super::AltTextChange {
+            text: Some("A bridge".into()),
+            extended_description: None,
+        };
+        let alt_text = super::write_alt_text(&path, &alt_text);
+        let started = crate::files::file_io::is_surely_there(&super::sidecar(&path));
+        let shown = super::read(&path);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            keyword.as_ref().is_err_and(|e| e.contains("a.tif")),
+            "{keyword:?}"
+        );
+        assert!(alt_text.is_err(), "{alt_text:?}");
+        assert!(!started);
+        assert_eq!(shown, super::KeywordsAndComment::default());
     }
 }

@@ -1388,12 +1388,13 @@ fn derived_metadata<'a>(
 }
 
 /// Returns whether `e`, an error of the image crate's read of a file's metadata, means that the
-/// file could not be read, so that a copy or turn made without its metadata is refused. An I/O
+/// file could not be read, so that a copy or turn made without its metadata is refused, and a
+/// sidecar is not started without the image's own XMP (`xmp::read_embedded`). An I/O
 /// error does, such as a share that stopped answering, and so does a limit of the reader, as
 /// the metadata may be there all the same. The end of a RAW's file met early does not, nor a
 /// limit met in a RAW, because the image crate reads a RAW as a TIFF, whose offsets a RAW need
 /// not keep.
-fn is_failed_read(e: &image::ImageError, is_raw: bool) -> bool {
+pub(crate) fn is_failed_read(e: &image::ImageError, is_raw: bool) -> bool {
     match e {
         image::ImageError::IoError(e) => !(is_raw && e.kind() == std::io::ErrorKind::UnexpectedEof),
         image::ImageError::Limits(_) => !is_raw,

@@ -5139,7 +5139,7 @@ fn derived_files_take_metadata_in_one_place() {
             "xmp_metadata(",
             &[
                 ("images/save.rs", "derived_metadata"),
-                ("metadata/xmp.rs", "embedded"),
+                ("metadata/xmp.rs", "read_embedded"),
             ],
         ),
         ("Tag::Unknown(700)", &[("metadata/xmp.rs", "tiff_xmp")]),
@@ -5147,7 +5147,7 @@ fn derived_files_take_metadata_in_one_place() {
             "tiff_xmp(",
             &[
                 ("images/save.rs", "derived_metadata"),
-                ("metadata/xmp.rs", "embedded"),
+                ("metadata/xmp.rs", "read_embedded"),
             ],
         ),
         (
