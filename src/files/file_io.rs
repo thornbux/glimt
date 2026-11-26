@@ -1158,6 +1158,10 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> Result<(), StepError>
             // the first one made it. The new name then opens as the file itself, and the step
             // goes on: taken as a name in the way, it left a second name that a caller trying
             // another name never removed (#307).
+            // shortcut: a hard link that another program makes at `to` between the look and the
+            // LINK also opens as the file, so it counts as the step done. That is a limit decided
+            // in AGENTS.md: both names are one file, so nothing is lost. Do more only if a share
+            // answers whether a LINK sent again was the one that made the name.
             Err(e)
                 if e.kind() == AlreadyExists
                     && crate::images::save::same_file_by_opening(from, to) =>
@@ -2590,6 +2594,11 @@ pub fn write_picked_name(
 /// (`fingerprint_before_reading`). When `read` is `None`, nothing was there, and a file put at
 /// the name since is never written over. A sidecar or a collection is written so, because
 /// another program may write it between Glimt's read and its write, and its edit would be lost.
+///
+/// shortcut: on NFS the first look may come from the attribute cache and the one after the read
+/// from the server, so a file nobody changed can be refused once as changed. That is a limit
+/// decided in AGENTS.md: the next edit takes a new look and goes through. Do more only if users
+/// meet it often.
 pub(crate) fn replace_what_was_read(
     path: &Path,
     read: Option<FileFingerprint>,
