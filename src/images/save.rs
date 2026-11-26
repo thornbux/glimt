@@ -1259,7 +1259,8 @@ fn animated(path: &Path) -> Result<bool, String> {
 /// keeps of them, as the image turned or as a copy (`how`). The pixels are the stored ones
 /// turned upright by EXIF with Auto Rotate (`rotate`) and then `turns` quarters by the view.
 /// Both writers take the quarter flag from here, because a copy once passed none, and a PNG
-/// copied a quarter turned kept its DPI across and down unswapped.
+/// copied a quarter turned kept its DPI across and down unswapped. Returns an error that names
+/// `path` when its metadata could not be read, so that no file is written without it.
 fn derived_metadata(
     path: &Path,
     rotate: bool,
@@ -1273,22 +1274,37 @@ fn derived_metadata(
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
     let mut exif = exif::derived(path, how).map_err(|e| metadata_not_read(path, e))?;
-    let (mut xmp, stored) = crate::images::decode::image_reader(path)
-        .ok()
-        .and_then(|r| r.into_decoder().ok())
-        .map(|mut d| {
+    let reader =
+        crate::images::decode::image_reader(path).map_err(|e| metadata_not_read(path, e))?;
+    // A RAW's pixels come from its preview, and the image crate reads it as a TIFF at best, so
+    // what that read cannot give is no failure of the photo's metadata.
+    let is_raw = has_ext(path, crate::images::raw::EXTS);
+    let decoder = match reader.into_decoder() {
+        Ok(decoder) => Some(decoder),
+        Err(image::ImageError::IoError(e)) if !is_raw => return Err(metadata_not_read(path, e)),
+        // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP that
+        // Glimt reads.
+        Err(_) => None,
+    };
+    let (mut xmp, stored) = match decoder {
+        Some(mut d) => {
             let stored = rotate.then(|| exif::stored_orientation(&mut d, exif.as_deref()));
-            (d.xmp_metadata().ok().flatten(), stored)
-        })
-        .unwrap_or_default();
+            let xmp = d.xmp_metadata();
+            let xmp = match is_raw {
+                true => xmp.ok().flatten(),
+                false => xmp.map_err(|e| metadata_not_read(path, e))?,
+            };
+            (xmp, stored)
+        }
+        None => (None, None),
+    };
     // A PNG's EXIF and XMP that the decoder does not read, after the pixels, compressed or in
     // ImageMagick's raw profiles, are read here, by the reader of every chunk the PNG written
     // may drop (`png_with_chunks`). Their orientation was not shown, so `stored` is read
     // without it.
-    if has_ext(path, &["png"])
-        && (xmp.is_none() || exif.is_none())
-        && let Ok(bytes) = crate::images::decode::read_limited(path)
-    {
+    if has_ext(path, &["png"]) && (xmp.is_none() || exif.is_none()) {
+        let bytes =
+            crate::images::decode::read_limited(path).map_err(|e| metadata_not_read(path, e))?;
         let found = exif::png_metadata(&bytes);
         exif = exif.or_else(|| exif::derived_of(&found.exif?, how));
         xmp = xmp.or(found.xmp);
@@ -2863,6 +2879,29 @@ mod tests {
                 super::derived_metadata(&gone, true, 0, (4, 4), super::Derived::Copy).unwrap_err();
             assert!(refused.contains(name), "{refused}");
         }
+    }
+
+    /// A photo whose XMP cannot be read (here compressed, with its data broken) is neither turned
+    /// nor copied, and its file is left as it was. Before, the failed read was taken for a photo
+    /// without XMP, so a turn wrote the photo's own file anew without its keywords, comment and
+    /// stars, untold. A copy with its metadata stripped reads none, and is still made.
+    #[test]
+    fn a_photo_whose_xmp_cannot_be_read_is_not_written_without_it() {
+        let dir = std::env::temp_dir().join(format!("glimt-xmp-broken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        // An iTXt chunk of XMP, compressed (flag 1, method 0), whose zlib data is no zlib.
+        let itxt = [&b"XML:com.adobe.xmp\0\x01\0\0\0"[..], b"not zlib data"].concat();
+        let mut png = black_png(4, 2);
+        png.splice(33..33, png_chunk(b"iTXt", &itxt));
+        std::fs::write(&file, &png).unwrap();
+        let refused = super::save_rotated(&file, false, 1, false, 90).unwrap_err();
+        assert!(refused.contains("a.png"), "{refused}");
+        assert_eq!(std::fs::read(&file).unwrap(), png);
+        let refused = super::copy_bytes(&file, &copy_as(None, false)).unwrap_err();
+        assert!(refused.contains("a.png"), "{refused}");
+        super::copy_bytes(&file, &copy_as(None, true)).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A PNG turned keeps its whole EXIF block, also what lies past the values its directories
