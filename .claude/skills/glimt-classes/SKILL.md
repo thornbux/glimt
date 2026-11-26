@@ -79,7 +79,7 @@ after a kill, at the next start, and after an Undo cut short.
   - A rule held in two places, the start and the Undo, is this class's usual root.
 
 ### 5. Which volume a log belongs to
-- **Place:** `is_on_the_volume_noted` and the records `medium` and `in-file-system`.
+- **Place:** `job_decisions::disk_of` (looks in `journal::disk_now`) and the records `medium` and `in-file-system`.
 - **Seen again:**
   - cards cloned with `dd`;
   - two ext4 sticks at inode 2;

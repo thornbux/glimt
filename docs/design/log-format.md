@@ -218,9 +218,9 @@ A log no window holds locked was cut short. For each step, the start looks at th
   be read either and no lasting inode tells the folder, the device tells it, as in Glimt 0.97,
   so that such a log does not stay for good. Otherwise, without a medium that tells, the log
   stays for a later start, with its files' marks. A share's or tmpfs's device number
-  is its own, and is compared as before. One function, `journal::is_on_the_volume_noted`, answers whether a
+  is its own, and is compared as before. One function, `job_decisions::disk_of`, answers whether a
   folder is on the disk noted (surely, surely not, or cannot tell), and
-  `journal::is_the_folder_noted`, on top of it, whether it is the folder noted
+  `job_decisions::folder_of`, on top of it, whether it is the folder noted
   (`source_rules::one_rule_tells_the_folder_a_log_noted`). The
   volume is a record of its own, not a fourth field of `folder`, because Glimt 0.93.0 and 0.94.0
   pass over a kind they do not know but drop a `folder` record with four fields.

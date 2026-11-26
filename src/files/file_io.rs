@@ -438,20 +438,6 @@ impl<'a> KnownAs<'a> {
         }
     }
 
-    /// A file known by the size and time of the fingerprint it had before a Move, which may have
-    /// copied it to another disk: a Move's log, read again at the next start. The device is left
-    /// out, as the copy is on another device. A Move to another disk sets the time of the copy,
-    /// which that disk keeps only to its own resolution, so the times are compared as any file
-    /// system keeps them (`same_time_as_kept`).
-    pub(crate) fn size_and_time_as_kept((_, size, time): FileFingerprint) -> KnownAs<'a> {
-        KnownAs {
-            fingerprint: Some((None, size, time)),
-            compared: Compared::TimeAsKept,
-            listed: None,
-            list_is_old: None,
-        }
-    }
-
     /// A file known only by the inode its folder listed, in the list whose flag is
     /// `list_is_old`.
     pub(crate) fn listed(identity: Identity, list_is_old: &'a ListIsOld) -> KnownAs<'a> {
@@ -471,9 +457,6 @@ enum Compared {
     Whole,
     /// The size and time to the nanosecond, without the device (`KnownAs::size_and_time`).
     WithoutDevice,
-    /// The size, and the time as any file system keeps it (`same_time_as_kept`), without the
-    /// device (`KnownAs::size_and_time_as_kept`).
-    TimeAsKept,
 }
 
 /// The identity that the list knew each picked file by, in the order of the files, and the
@@ -2766,9 +2749,8 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// tells, right before a change, that no other file has taken the name since the list showed
 /// it, the user picked it or Glimt read it. Another inode than the one its folder listed is
 /// refused, and an unknown one passes. With a fingerprint, the device, size and time must also
-/// be the same (`same_fingerprint`), for `size_and_time` the size and the time, and for
-/// `size_and_time_as_kept` the size and the time as any file system keeps it
-/// (`same_time_as_kept`). A file that is gone is then refused. Without a fingerprint, a file
+/// be the same (`same_fingerprint`), and for `size_and_time` the size and the time. A file that
+/// is gone is then refused. Without a fingerprint, a file
 /// that is gone is left to the operation to tell. Another file found has the window whose list
 /// it is read its folder again (`ListIsOld`). It waits for the disk, so it is called in the
 /// thread that makes the change. Returns the error to tell. A look that failed returns its own
@@ -2791,7 +2773,6 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
         let is_same = |now: FileFingerprint| match known.compared {
             Compared::Whole => same_fingerprint(before, now),
             Compared::WithoutDevice => (before.1, before.2) == (now.1, now.2),
-            Compared::TimeAsKept => before.1 == now.1 && same_time_as_kept(before.2, now.2),
         };
         match fingerprint_or_error(path) {
             Ok(now) if is_same(now) => return Ok(()),
@@ -2807,7 +2788,7 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
 }
 
 /// Returns the error for a file read or picked that is no longer there.
-fn gone_meanwhile() -> std::io::Error {
+pub(crate) fn gone_meanwhile() -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::NotFound,
         crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
@@ -3167,7 +3148,7 @@ pub(crate) fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
 /// some FUSE file systems. So the time a Move to another disk gave the copy can be up to 2
 /// seconds before the time the file had, and a time within that of the other counts as the
 /// same. Glimt tells a file by this rule only where the fingerprint was taken before such a
-/// Move, in a Move's log (`KnownAs::size_and_time_as_kept`). Everywhere else, a Rename Many's
+/// Move, in a Move's log (`job_decisions::moves_that_went`). Everywhere else, a Rename Many's
 /// plan among them, the file was only renamed or not moved at all, so its time is compared to
 /// the nanosecond, as another file written there in the same 2 seconds would else pass.
 pub(crate) fn same_time_as_kept(a: (i64, i64), b: (i64, i64)) -> bool {
