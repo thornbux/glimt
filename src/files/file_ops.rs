@@ -275,8 +275,9 @@ type MovedBack = (Vec<(PathBuf, PathBuf)>, Vec<Moved>, Vec<String>);
 /// thread once the look has answered or been given up.
 pub(crate) type WithRealFolder = Box<dyn FnOnce(&mut crate::App, &egui::Context) + Send>;
 
-/// A file saved in the background (a turned image, or a tool's file), and how it went.
-type SavedFile = (PathBuf, Result<(), String>);
+/// A file saved in the background (a turned image, or a tool's file), and how it went. A
+/// failure is worded where the save failed, so the window can only tell it as a failure.
+type SavedFile = (PathBuf, Result<(), Failure>);
 
 /// A file with the fingerprint it had when it was picked.
 type PickedAs = (PathBuf, FileFingerprint);
@@ -689,7 +690,7 @@ impl FileOperations {
 
     /// A turned image saved in the background, or a tool's file, with how it went, and the busy
     /// pointer that the window drops once it has handled it.
-    pub(crate) fn take_saved(&mut self) -> Option<(PathBuf, Result<(), String>, Working)> {
+    pub(crate) fn take_saved(&mut self) -> Option<(PathBuf, Result<(), Failure>, Working)> {
         let ((path, result), pointer) = self.saved_rx.try_recv().ok()?;
         self.saving.remove(&path);
         Some((path, result, pointer))
@@ -2131,7 +2132,8 @@ impl crate::App {
                 }
                 true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
-            });
+            })
+            .map_err(|e| Failure::from(tf!("Could not save the orientation: {e}", e)));
             let told = (jpeg && result.is_ok() && !rotate).then(|| {
                 Told::Notice(tr("Saved; it shows when Auto Rotate Using EXIF is on").into())
             });

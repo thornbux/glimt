@@ -198,7 +198,7 @@ impl crate::App {
                     self.written_anew(std::slice::from_ref(&path));
                     self.files_changed(ctx, &[path]);
                 }
-                Err(e) => self.tell_failed_write(tf!("Could not save the orientation: {e}", e)),
+                Err(failure) => self.tell_failed_write(failure),
             }
         }
     }
