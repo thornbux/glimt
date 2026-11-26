@@ -151,10 +151,9 @@ impl crate::App {
         if self.file_operations.drop_ended_jobs() && self.search.exif_search_waits_for_writes() {
             self.update_search(ctx);
         }
-        if self.is_writing() {
+        if self.take_saves_and_check_writing(ctx) {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
-        self.take_saves(ctx);
     }
 
     /// Takes every answer that can tell of a failed write: the error that

@@ -1034,12 +1034,21 @@ impl crate::App {
             .any(|p| above.contains(p.as_path()) || p.ancestors().any(|a| held.contains(a)))
     }
 
-    /// Whether files are still being written (`file_io::WRITING`), by file jobs, a turned
-    /// image, a print, keywords or the settings, or a file operation waits for its folder's
-    /// real path. Closing waits for them.
-    pub(crate) fn is_writing(&self) -> bool {
-        crate::files::file_io::WRITING.load(Ordering::Acquire) > 0
-            || (self.file_operations.real_folders_awaited).load(Ordering::Acquire) > 0
+    /// Takes every answer that can tell of a failed write (`take_saves`). Returns whether files
+    /// were still being written just before (`file_io::WRITING`), by file jobs, a turned image,
+    /// a print, keywords or the settings, or whether a file operation waited for its folder's
+    /// real path. Closing and `--wait` wait for them.
+    ///
+    /// The writing is looked at before the answers are taken, because a write tells its failure
+    /// before it stops counting as writing. So a write that has ended has had its failure taken
+    /// here, and a close decided by the answer never misses it. This is the one way the window
+    /// asks whether files are written. Before, a close looked again after it had taken the
+    /// answers, and a turn that failed in between let the window close without telling it.
+    pub(crate) fn take_saves_and_check_writing(&mut self, ctx: &egui::Context) -> bool {
+        let is_writing = crate::files::file_io::WRITING.load(Ordering::Acquire) > 0
+            || (self.file_operations.real_folders_awaited).load(Ordering::Acquire) > 0;
+        self.take_saves(ctx);
+        is_writing
     }
 
     /// A file operation on `total` files that changes `held_back_files`, shown in the status bar
@@ -2106,6 +2115,8 @@ impl crate::App {
         let saved = self.file_operations.saved_tx.clone();
         self.file_operations.saving.insert(path.clone());
         self.run_in_background(ctx, Vec::new(), move || {
+            #[cfg(test)]
+            crate::support::threads::wait_in_a_test_while_held(&path);
             // When another program removed or renamed the file meanwhile, there is nothing to
             // save the turn into, and the user is told that it was not saved. It is looked at
             // here, not in the window's thread, because it waits for the disk.
@@ -9296,7 +9307,7 @@ mod tests {
                 then.store(true, SeqCst)
             });
             // The pending look-up counts as work that a close waits for.
-            assert!(app.is_writing() || ran.load(SeqCst));
+            assert!(app.take_saves_and_check_writing(&ctx) || ran.load(SeqCst));
             assert!(idle_and(&mut app, &|_| ran.load(SeqCst)));
         }
         let a = dir.join("a.png");

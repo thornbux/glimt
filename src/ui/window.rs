@@ -24,6 +24,15 @@ const SIGNALS_THAT_END_AT_ONCE: usize = 3;
 /// -1 until `close_on_termination_signals` makes it.
 static SIGNAL_WAKER: AtomicI32 = AtomicI32::new(-1);
 
+#[cfg(test)]
+thread_local! {
+    /// Whether a close on this test's thread waits for the writes it started to end before it
+    /// looks whether files are written, as on a busy computer where a turn that fails at once
+    /// ends before the window's thread goes on.
+    static CLOSE_WAITS_FOR_ITS_WRITES: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
 pub(crate) type InhibitorStop = Box<dyn FnOnce() + Send>;
 
@@ -277,10 +286,8 @@ impl crate::App {
         if !close && self.window.close_requests == 0 {
             return;
         }
-        // Whether files are written is read before their answers are taken. A job tells its
-        // failure before it stops counting as writing, so a failure cannot slip in between.
-        let was_writing = self.is_writing();
         let failed_before = self.window.failed_writes_told;
+        let was_writing = self.take_saves_and_check_writing(ctx);
         // eframe may run no `ui` for a long time, as while the window is minimized. So the file
         // jobs' reports, by which marks follow moved files, are taken here before the guard
         // decides, and a Copy or Move that waited for its folder's real path starts its job.
@@ -359,9 +366,19 @@ impl crate::App {
         {
             self.window.turn_tried_at_close = shown;
         }
+        // A write that started here may have ended already, with a failure that keeps the window
+        // open as in `guard_close`. Before, the close went on, and the failure was never told.
+        #[cfg(test)]
+        wait_in_a_test_for_the_writes_of_the_close();
+        let failed_before = self.window.failed_writes_told;
+        let is_writing = self.take_saves_and_check_writing(ctx);
+        if self.window.failed_writes_told != failed_before && !self.window.is_closing_for_signal {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            return;
+        }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
-        if !self.is_writing() {
+        if !is_writing {
             return;
         }
         if is_sent_again {
@@ -645,6 +662,21 @@ impl crate::App {
     }
 }
 
+/// Waits in a test that asked for it (`CLOSE_WAITS_FOR_ITS_WRITES`) until the writes of this
+/// test's thread have ended, for at most five seconds.
+#[cfg(test)]
+fn wait_in_a_test_for_the_writes_of_the_close() {
+    if !CLOSE_WAITS_FOR_ITS_WRITES.get() {
+        return;
+    }
+    let start = Instant::now();
+    while crate::files::file_io::WRITING.load(Ordering::Acquire) > 0
+        && start.elapsed() < std::time::Duration::from_secs(5)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 /// Whether a window, menu or popup was on the screen in this frame or the last; the panels
 /// of the main window do not count.
 fn is_window_visible(ctx: &egui::Context) -> bool {
@@ -885,13 +917,23 @@ mod tests {
                 app.track_window(ui.ctx());
             });
         };
-        close(&mut app);
+        // The save waits until the close has seen it running, as on a slow disk. Before, a save
+        // that failed at once let the close go on, and the test failed now and then.
         let a = dir.join("a.png");
+        let hold = |held: bool| {
+            use crate::support::threads::{HELD_FILES, lock_even_if_poisoned};
+            let mut files = lock_even_if_poisoned(&HELD_FILES);
+            files.retain(|p| *p != a);
+            files.extend(held.then(|| a.clone()));
+        };
+        hold(true);
+        close(&mut app);
         assert!(app.file_operations.is_saving(&a));
         // A warning kept until drawn, such as an edit without its lock, gives the close's
         // message a new notice. Before, the close's notice was known by its number, so the
         // notice under the new number kept the close's text above the failure.
         (app.notice).keep_until_drawn(crate::viewer::view::Failure::from("a lock warning"));
+        hold(false);
         // Passes of `logic` alone, as while the window is minimized, take the failure before any
         // `poll_background`. The close's notice goes with the close that the failure forgot.
         // Before, it stayed above the failure, though the window stays open, and the test failed
@@ -923,9 +965,46 @@ mod tests {
         assert!(!app.file_operations.is_saving(&a));
         // A turn made after that, while the window waits for other work, is saved.
         app.viewing.set_turn((2, false), a.clone());
+        hold(true);
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
+        hold(false);
         assert!(run_background_until(&mut app, &ctx, over));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn whose save fails before the close looks whether files are written keeps the
+    /// window open, with the failure on screen. Before, the close went on as no file was
+    /// written any more, and the failure was never told.
+    #[test]
+    fn a_turn_that_fails_at_once_at_closing_keeps_the_window_open() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-close-fast-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::files::file_io::create_file(&dir.join("a.png"), b"not a PNG").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.save_orientation = true;
+        app.viewing.set_turn((1, false), dir.join("a.png"));
+        use eframe::egui::{RawInput, ViewportCommand, ViewportEvent, ViewportId, ViewportInfo};
+        let info = ViewportInfo {
+            events: vec![ViewportEvent::Close],
+            ..Default::default()
+        };
+        let input = RawInput {
+            viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
+            ..Default::default()
+        };
+        super::CLOSE_WAITS_FOR_ITS_WRITES.set(true);
+        let out = ctx.run_logic(&input, |ctx| app.guard_close(ctx));
+        super::CLOSE_WAITS_FOR_ITS_WRITES.set(false);
+        let commands = out.viewport_commands.get(&ViewportId::ROOT);
+        assert!(commands.is_some_and(|c| c.contains(&ViewportCommand::CancelClose)));
+        let told = (app.window.last_failed_write()).map(|f| f.answer_text());
+        assert!(
+            told.as_ref()
+                .is_some_and(|t| t.contains("Could not save the orientation")),
+            "{told:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

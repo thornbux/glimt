@@ -595,9 +595,7 @@ impl crate::App {
         if self.remote.awaiting_outcome.is_empty() {
             return;
         }
-        // Whether files are written is read before the failures are taken, as `guard_close`
-        // does: a write tells its failure before it stops counting as writing.
-        let is_writing = self.is_writing();
+        let is_writing = self.take_saves_and_check_writing(ctx);
         // A marks file read again (Select Mark) stops counting as writing once it has sent its
         // answer, before `receive_marks` takes it and selects again, so it is waited for too.
         #[cfg(feature = "marks")]
@@ -609,7 +607,6 @@ impl crate::App {
             && !self.folder.is_opening()
             && !self.working_besides_image();
         let folder_unread = self.folder.is_opening() || self.folder.is_listing();
-        self.take_saves(ctx);
         let failed_writes = self.window.failed_writes_told();
         let last_failure =
             (self.window.last_failed_write()).map_or_else(String::new, |f| f.answer_text());
@@ -3288,7 +3285,9 @@ mod tests {
         assert!(answer.try_recv().is_err());
         // As `on_exit` does it, after the writes, which here are other tests'.
         let start = std::time::Instant::now();
-        while app.is_writing() && start.elapsed() < std::time::Duration::from_secs(20) {
+        while app.take_saves_and_check_writing(&ctx)
+            && start.elapsed() < std::time::Duration::from_secs(20)
+        {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         app.answer_awaited_outcomes(&ctx, true);
@@ -3401,12 +3400,12 @@ mod tests {
         // every test shares. Under the load of the whole test run it was still queued at the
         // close, which was then rightly told that its writes were not done. So the test waits
         // for its writes, as a window rests before a script runs.
-        let not_writing = |app: &crate::App| !app.is_writing();
-        assert!(crate::support::test_support::run_background_until(
-            &mut app,
-            &ctx,
-            not_writing
-        ));
+        let start = std::time::Instant::now();
+        while app.take_saves_and_check_writing(&ctx) {
+            assert!(start.elapsed() < std::time::Duration::from_secs(5));
+            app.poll_background(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         let (reply, answer) = std::sync::mpsc::channel();
         let open = format!("wait open {}", other.display());
         app.remote.tx.send((open, Some(reply), later())).unwrap();

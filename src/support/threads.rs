@@ -33,6 +33,11 @@ const MOST_STUCK: usize = 32;
 #[cfg(test)]
 pub(crate) static BREAKING_FILES: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
 
+/// In a test, the files whose work waits where it calls `wait_in_a_test_while_held`, until the
+/// test takes them out, as a write to a slow share would. Each test names files of its own.
+#[cfg(test)]
+pub(crate) static HELD_FILES: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
+
 thread_local! {
     /// Whether this thread waits for room in the decode budget (`WaitingForRoom`). The
     /// `Progress` of its job, which another thread reads, holds it too.
@@ -833,6 +838,15 @@ pub(crate) fn panic_in_a_test_at(path: &std::path::Path) {
         .any(|p| p == path)
     {
         panic!("a file that breaks the work");
+    }
+}
+
+/// Waits while `path` is one of `HELD_FILES`, for a test of what the window does while the work
+/// on that file still runs.
+#[cfg(test)]
+pub(crate) fn wait_in_a_test_while_held(path: &std::path::Path) {
+    while lock_even_if_poisoned(&HELD_FILES).iter().any(|p| p == path) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 
