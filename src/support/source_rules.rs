@@ -207,7 +207,7 @@ const RETIRED_NAMES: &[&str] = &[
     "other_lines",       // non_entry_lines
     "root_now",          // typed_root_folder
     "take_lightroom",    // takes_lightroom_stars
-    "undo_left",         // is_undo_remainder
+    "undo_left",         // ReportedUndo::Remainder
     "move_held",         // move_lock
     "has_access",        // has_alt_text
     "is_unlocked",       // open_if_unlocked

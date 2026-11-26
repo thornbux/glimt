@@ -242,7 +242,7 @@ impl Journal {
     // It is not synced, because a crash of Glimt does not need that. A power cut may lose the
     // last steps' records, and `repair_cut_short` finds them again by the names
     // (`done_by_names`).
-    pub fn count_step_done(&mut self) {
+    fn count_step_done(&mut self) {
         // Not told: a count that did not reach the plan is found again by the names, as above.
         let _ = self.log.add_records(&[Record::Done(self.done)]);
         self.done += 1;
@@ -257,7 +257,7 @@ impl Journal {
     /// (a USB stick pulled out during the sync), and also when the count itself did not (a full
     /// state disk). A swap left done without its count would be read at the next start after a
     /// kill as one not begun, and finishing it would swap the photos back.
-    pub fn count_middle_of_swap_done(&mut self) -> std::io::Result<()> {
+    fn count_middle_of_swap_done(&mut self) -> std::io::Result<()> {
         sync_folders(&self.one_name_per_folder).map_err(|(_, e)| e)?;
         self.log.add_records_synced(&[Record::Done(self.done)])?;
         self.done += 1;

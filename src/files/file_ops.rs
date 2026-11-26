@@ -255,7 +255,7 @@ impl FilesMoved {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum FileIs {
     Back,
-    AtNew,
+    AtNewName,
 }
 
 /// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
@@ -4454,7 +4454,7 @@ fn put_files(
                 errors.extend(told);
                 match back {
                     FileIs::Back => drop(moving.remove(path)),
-                    FileIs::AtNew => put.push((path.clone(), target.clone())),
+                    FileIs::AtNewName => put.push((path.clone(), target.clone())),
                 }
             } else {
                 put.push((path.clone(), target.clone()));
@@ -4574,7 +4574,7 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                         left.push((from, to, now));
                     }
                     // The file is at `from` with the sidecars that followed it.
-                    Err((FileIs::AtNew, told)) => {
+                    Err((FileIs::AtNewName, told)) => {
                         errors.extend(told);
                         back.push((to, from));
                     }
@@ -4628,7 +4628,7 @@ fn follow_or_go_back(
         Ok(left_behind) if left_behind.is_empty() => return Ok(()),
         Ok(left_behind) => {
             return Err((
-                FileIs::AtNew,
+                FileIs::AtNewName,
                 left_behind.iter().map(|l| l.told()).collect(),
             ));
         }
@@ -4681,11 +4681,11 @@ fn follow_or_go_back(
     }
     let file_is = match crate::files::file_io::may_have_been_done(&error, to) {
         true => FileIs::Back,
-        false => FileIs::AtNew,
+        false => FileIs::AtNewName,
     };
     let to = escaped_name(to);
     let told = (not.failed.iter())
-        .filter(|(side, at, e)| transfer == Transfer::Copy || !sidecar_where_the_file_is((side, at), e, FileIs::AtNew))
+        .filter(|(side, at, e)| transfer == Transfer::Copy || !sidecar_where_the_file_is((side, at), e, FileIs::AtNewName))
         .map(|(side, at, e)| {
             // A move that may have been done and could not be finished may have left the
             // sidecar at either name, or lost it on the way.
@@ -4731,7 +4731,7 @@ fn sidecar_where_the_file_is(
     }
     let (away, beside) = match file_is {
         FileIs::Back => (at, side),
-        FileIs::AtNew => (side, at),
+        FileIs::AtNewName => (side, at),
     };
     journal::finish_step(away, beside) == crate::files::file_io::StepLeft::AtNewName
 }
@@ -6128,7 +6128,7 @@ mod tests {
         let Err((file_is, told)) = result else {
             panic!("the sidecar followed")
         };
-        assert_eq!(file_is, super::FileIs::AtNew, "{told:?}");
+        assert_eq!(file_is, super::FileIs::AtNewName, "{told:?}");
         assert_eq!(std::fs::read_to_string(&at).unwrap(), "own");
         assert_eq!(told.len(), 1, "{told:?}");
         assert!(told[0].contains("or at neither"), "{told:?}");
@@ -6160,7 +6160,7 @@ mod tests {
         );
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
-        let Err((super::FileIs::AtNew, told)) = &result else {
+        let Err((super::FileIs::AtNewName, told)) = &result else {
             panic!("{result:?}")
         };
         assert!(told[0].contains("is still at its old name"), "{told:?}");
@@ -6190,7 +6190,7 @@ mod tests {
             &std::collections::HashSet::from([&photo]),
             (&mut Default::default(), None),
         );
-        let Err((super::FileIs::AtNew, told)) = &result else {
+        let Err((super::FileIs::AtNewName, told)) = &result else {
             panic!("{result:?}")
         };
         assert!(told[0].contains("is a link"), "{told:?}");

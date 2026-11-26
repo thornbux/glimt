@@ -1651,7 +1651,7 @@ mod tests {
         let moves = vec![(p("a.txt"), p("b.txt"))];
         let mut plan = journal::start_journal(&plans, &moves).unwrap();
         journal::rename_step(&moves[0].0, &moves[0].1).unwrap();
-        plan.count_step_done();
+        plan.count_rename_done().unwrap();
         plan.keep_on_disk();
         // Another program changes the photo after "Later".
         std::fs::write(p("b.txt"), "a, edited").unwrap();
@@ -1721,7 +1721,7 @@ mod tests {
             let marks = known.map(|k| (p("c.png"), k)).into_iter().collect();
             let mut plan = journal::start_journal_with_marks(&plans, &moves, &marks).unwrap();
             journal::rename_step(&moves[0].0, &moves[0].1).unwrap();
-            plan.count_step_done();
+            plan.count_rename_done().unwrap();
             plan.keep_on_disk();
             // Another window rates the photo at its new name before Glimt is killed.
             rate(&mut app, "c.png", meanwhile);
