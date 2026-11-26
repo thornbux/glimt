@@ -4136,3 +4136,8 @@ msgstr "Kansiot ennen kansiota {folder}"
 #, fuzzy
 msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
 msgstr "tiedoston {name} metatietoja ei voitu lukea, eikä kuvaa kirjoiteta ilman niitä: {e}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
+msgstr "tiedoston {name} metatietoja ei voitu lukea, eikä sen sivutiedostoa kirjoiteta ilman niitä: {e}"

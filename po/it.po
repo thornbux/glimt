@@ -4136,3 +4136,8 @@ msgstr "Cartelle prima di {folder}"
 #, fuzzy
 msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
 msgstr "non è stato possibile leggere i metadati di {name}, e l'immagine non viene scritta senza di essi: {e}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
+msgstr "non è stato possibile leggere i metadati di {name}, e il suo file collaterale non viene scritto senza di essi: {e}"

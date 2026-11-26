@@ -4147,3 +4147,8 @@ msgstr "Mapper før {folder}"
 #, fuzzy
 msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
 msgstr "metadataa til {name} kunne ikkje lesast, og biletet blir ikkje skrive utan dei: {e}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
+msgstr "metadataa til {name} kunne ikkje lesast, og sidefila blir ikkje skriven utan dei: {e}"

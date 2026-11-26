@@ -794,7 +794,11 @@ fn read_embedded(path: &Path) -> Result<Option<String>, String> {
     const JPEG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
     let is_raw = crate::model::listing::has_ext(path, crate::images::raw::EXTS);
     let judged = |e: image::ImageError| match crate::images::save::is_failed_read(&e, is_raw) {
-        true => Err(format!("{}: {e}", escaped_name(path))),
+        true => Err(crate::tf!(
+            "the metadata of {name} could not be read, and its sidecar is not written without it: {e}",
+            name = escaped_name(path),
+            e
+        )),
         false => Ok(None),
     };
     let bytes = match crate::metadata::exif::jpeg_app1(path, JPEG) {
@@ -5432,8 +5436,8 @@ mod tests {
 
     /// A keyword or alt text added to an image whose own XMP could not be read is refused and
     /// told, and no sidecar is started, as one without the image's keywords would hide them from
-    /// then on. The panel shows that image as without keywords, as before. Before, the sidecar
-    /// was written.
+    /// then on. The refusal says that the image's metadata could not be read. The panel shows
+    /// that image as without keywords, as before. Before, the sidecar was written.
     #[test]
     fn no_sidecar_is_started_when_the_images_xmp_cannot_be_read() {
         let dir =
@@ -5451,7 +5455,9 @@ mod tests {
         let shown = super::read(&path);
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(
-            keyword.as_ref().is_err_and(|e| e.contains("a.tif")),
+            keyword
+                .as_ref()
+                .is_err_and(|e| e.contains("a.tif could not be read")),
             "{keyword:?}"
         );
         assert!(alt_text.is_err(), "{alt_text:?}");

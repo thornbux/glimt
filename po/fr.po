@@ -4136,3 +4136,8 @@ msgstr "Dossiers avant {folder}"
 #, fuzzy
 msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
 msgstr "les métadonnées de {name} n'ont pas pu être lues, et l'image n'est pas écrite sans elles : {e}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
+msgstr "les métadonnées de {name} n'ont pas pu être lues, et son fichier annexe n'est pas écrit sans elles : {e}"

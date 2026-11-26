@@ -4158,3 +4158,8 @@ msgstr "Složky před {folder}"
 #, fuzzy
 msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
 msgstr "metadata souboru {name} nelze přečíst a obrázek se bez nich nezapíše: {e}"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
+msgstr "metadata souboru {name} nelze přečíst a jeho doprovodný soubor se bez nich nezapíše: {e}"

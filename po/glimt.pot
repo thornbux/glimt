@@ -3333,3 +3333,7 @@ msgstr ""
 #: src/images/save.rs
 msgid "the metadata of {name} could not be read, and the image is not written without it: {e}"
 msgstr ""
+
+#: src/metadata/xmp.rs
+msgid "the metadata of {name} could not be read, and its sidecar is not written without it: {e}"
+msgstr ""
