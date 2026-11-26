@@ -1276,12 +1276,10 @@ fn derived_metadata(
     let mut exif = exif::derived(path, how).map_err(|e| metadata_not_read(path, e))?;
     let reader =
         crate::images::decode::image_reader(path).map_err(|e| metadata_not_read(path, e))?;
-    // A RAW's pixels come from its preview, and the image crate reads it as a TIFF at best, so
-    // what that read cannot give is no failure of the photo's metadata.
     let is_raw = has_ext(path, crate::images::raw::EXTS);
     let decoder = match reader.into_decoder() {
         Ok(decoder) => Some(decoder),
-        Err(image::ImageError::IoError(e)) if !is_raw => return Err(metadata_not_read(path, e)),
+        Err(e) if is_failed_read(&e, is_raw) => return Err(metadata_not_read(path, e)),
         // A format the image crate does not decode, such as a HEIC or an SVG, has no XMP that
         // Glimt reads.
         Err(_) => None,
@@ -1289,10 +1287,12 @@ fn derived_metadata(
     let (mut xmp, stored) = match decoder {
         Some(mut d) => {
             let stored = rotate.then(|| exif::stored_orientation(&mut d, exif.as_deref()));
-            let xmp = d.xmp_metadata();
-            let xmp = match is_raw {
-                true => xmp.ok().flatten(),
-                false => xmp.map_err(|e| metadata_not_read(path, e))?,
+            let xmp = match d.xmp_metadata() {
+                Ok(xmp) => xmp,
+                // A RAW's pixels come from its preview, and the image crate reads it as a TIFF
+                // at best, so what that read cannot make out is no failure of its metadata.
+                Err(e) if is_raw && !is_failed_read(&e, is_raw) => None,
+                Err(e) => return Err(metadata_not_read(path, e)),
             };
             (xmp, stored)
         }
@@ -1317,6 +1317,15 @@ fn derived_metadata(
     }
     let stored_quarter = stored.is_some_and(crate::images::decode::is_quarter_turn);
     Ok((exif, xmp, (turns % 2 == 1) != stored_quarter))
+}
+
+/// Returns whether `e`, an error of the image crate's read of a file's metadata, means that the
+/// file could not be read, so that a copy or turn made without its metadata is refused. Only an
+/// I/O error does, such as a share that stopped answering. The end of a RAW's file met early
+/// does not, because the image crate reads a RAW as a TIFF, whose offsets a RAW need not keep.
+fn is_failed_read(e: &image::ImageError, is_raw: bool) -> bool {
+    matches!(e, image::ImageError::IoError(e)
+        if !(is_raw && e.kind() == std::io::ErrorKind::UnexpectedEof))
 }
 
 /// Returns why a file derived from `path` is not written: its metadata could not be read
@@ -2879,6 +2888,31 @@ mod tests {
                 super::derived_metadata(&gone, true, 0, (4, 4), super::Derived::Copy).unwrap_err();
             assert!(refused.contains(name), "{refused}");
         }
+    }
+
+    /// A RAW's metadata read through the image crate that fails as a read of the file, as on a
+    /// share that dropped after the preview was read, refuses the copy. Before, every failure
+    /// of a RAW's read was taken for no XMP, and the copy lost the keywords in the file. What the
+    /// image crate cannot make out of a RAW, as a TIFF, is still none.
+    #[test]
+    fn a_raw_whose_file_cannot_be_read_is_not_copied_without_its_metadata() {
+        let io = |kind| image::ImageError::IoError(std::io::Error::from(kind));
+        assert!(super::is_failed_read(
+            &io(std::io::ErrorKind::TimedOut),
+            true
+        ));
+        assert!(super::is_failed_read(
+            &io(std::io::ErrorKind::UnexpectedEof),
+            false
+        ));
+        assert!(!super::is_failed_read(
+            &io(std::io::ErrorKind::UnexpectedEof),
+            true
+        ));
+        let format = image::error::ImageFormatHint::Exact(image::ImageFormat::Tiff);
+        let decoding = image::error::DecodingError::new(format, "no TIFF");
+        let decoding = image::ImageError::Decoding(decoding);
+        assert!(!super::is_failed_read(&decoding, true));
     }
 
     /// A photo whose XMP cannot be read (here compressed, with its data broken) is neither turned
