@@ -410,7 +410,7 @@ impl crate::App {
             let kept = dialog.left_out.kept(&found);
             save_choice(dialog.left_out.text());
             let picked = dialog.picked;
-            self.pick(ctx, true, Pick::CopyForSharing(picked, kept, naming));
+            self.pick(ctx, Pick::CopyForSharing(picked, kept, naming));
         } else if !modal.should_close() {
             self.dialogs.show_sharing(dialog);
         }

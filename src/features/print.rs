@@ -355,7 +355,7 @@ impl crate::App {
             copies: dialog.copies,
         };
         match c.print_printer.clone() {
-            p if saves_pdf(&p) => self.pick(ctx, false, Pick::SavePdf(job)),
+            p if saves_pdf(&p) => self.pick(ctx, Pick::SavePdf(job)),
             p => self.print(ctx, job, PrintTo::Printer(p)),
         }
     }

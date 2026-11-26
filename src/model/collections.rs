@@ -3,6 +3,7 @@
 //! collections can be opened too.
 
 use crate::files::config::fits_on_a_line;
+use crate::files::file_io::IfMissing;
 use crate::model::listing::real_dir;
 use crate::support::format::escaped_name;
 use crate::support::lang::tr;
@@ -313,17 +314,17 @@ impl crate::App {
         self.run_in_background(ctx, Vec::new(), move || {
             // Only a new collection is made. One the menu listed may have been renamed or
             // trashed in another window since, and is then not made again under its old name.
-            let (file, new) = match added_to {
-                CollectionAddedTo::Saved(file) => (file, false),
+            let (file, if_missing) = match added_to {
+                CollectionAddedTo::Saved(file) => (file, IfMissing::LeaveMissing),
                 CollectionAddedTo::New(name) => match new_file(&name) {
-                    Ok(file) => (file, true),
+                    Ok(file) => (file, IfMissing::Create),
                     Err(why) => {
                         return Some(crate::support::threads::Told::FailedWrite(why.into()));
                     }
                 },
             };
             let name = escaped_name(file.file_stem().unwrap_or_default());
-            let (told, failed) = match append(&file, &paths, new) {
+            let (told, failed) = match append(&file, &paths, if_missing) {
                 Ok(n) => (
                     tf!("{n} added to the collection \"{name}\"", n, name),
                     false,
@@ -488,7 +489,7 @@ pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Op
                 }
             };
             // A collection removed since the folder was read has no entries left to follow.
-            match edit(&file, false, follow) {
+            match edit(&file, IfMissing::LeaveMissing, follow) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                     crate::files::file_io::save_failed(tf!(
                         "Could not save {name}: {e}",
@@ -708,7 +709,7 @@ pub(crate) fn edit_open_collection(
         return edit_window_list(file, change)
             .map_err(|e| tf!("Could not save the collection: {e}", e).into());
     }
-    edit(file, false, change).map_err(|e| {
+    edit(file, IfMissing::LeaveMissing, change).map_err(|e| {
         Failure::from(match e.kind() {
             std::io::ErrorKind::NotFound => tf!(
                 "The collection {file} is gone (renamed or removed in another window): not saved",
@@ -721,10 +722,15 @@ pub(crate) fn edit_open_collection(
 
 /// Make `change` to the collection in `file` as it is on disk now, under its lock: each window
 /// writes only its own change (images taken out, renamed, put in order), never its whole list,
-/// so what other windows changed meanwhile stays. With `new` a file not there yet starts empty;
-/// else that is an error, so a collection renamed or trashed elsewhere is not made again. One
-/// that cannot be read is never written over: what it holds would be lost.
-pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
+/// so what other windows changed meanwhile stays. With `IfMissing::Create` a file not there yet
+/// starts empty. With `LeaveMissing` that is a NotFound error, so a collection renamed or trashed
+/// elsewhere is not made again. One that cannot be read is never written over: what it holds
+/// would be lost.
+pub fn edit(
+    file: &Path,
+    if_missing: IfMissing,
+    change: impl FnOnce(&mut Vec<PathBuf>),
+) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // edit_shared cannot refuse to make one that went
     let _held = crate::files::file_io::file_lock(file);
     // A script or a music player may write the file after it is read here, and its change is
@@ -734,7 +740,9 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     // fingerprint does not show. That file's is taken too, and looked at again before the write.
     let target_read = crate::files::file_io::fingerprint_of_file_read(file);
     let (text, was_new) = match crate::images::decode::read_limited(file) {
-        Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+        Err(e) if if_missing == IfMissing::Create && e.kind() == std::io::ErrorKind::NotFound => {
+            (Vec::new(), true)
+        }
         read => (read?, false),
     };
     // The change sees each entry by its real path, the name the list and every operation give
@@ -844,15 +852,16 @@ pub fn reorder(all: &mut [PathBuf], ours: &[PathBuf]) {
     }
 }
 
-/// Adds `paths` to the collection in `file`, leaving out those it has. With `new` a collection
-/// not there yet is made, and without it that is a NotFound error, as `edit` says.
-pub fn append(file: &Path, paths: &[PathBuf], new: bool) -> std::io::Result<usize> {
+/// Adds `paths` to the collection in `file`, leaving out those it has. A collection not there
+/// yet is made with `IfMissing::Create`, and is a NotFound error with `LeaveMissing`, as `edit`
+/// says.
+pub fn append(file: &Path, paths: &[PathBuf], if_missing: IfMissing) -> std::io::Result<usize> {
     // The first collection of a new install: its folder is not there yet.
-    if let Some(dir) = file.parent().filter(|_| new) {
+    if let Some(dir) = file.parent().filter(|_| if_missing == IfMissing::Create) {
         std::fs::create_dir_all(dir)?;
     }
     let mut added = 0;
-    edit(file, new, |all| added = add(all, paths))?;
+    edit(file, if_missing, |all| added = add(all, paths))?;
     Ok(added)
 }
 
@@ -959,10 +968,14 @@ mod tests {
         let (target, link) = (dir.join("target.gqv"), dir.join("link.gqv"));
         std::fs::write(&target, "\"/a.png\"\n").unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
-        let edited = super::edit(&link, false, |all| {
-            std::fs::write(&target, "\"/a.png\"\n\"/other.png\"\n").unwrap();
-            all.push("/b.png".into());
-        });
+        let edited = super::edit(
+            &link,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| {
+                std::fs::write(&target, "\"/a.png\"\n\"/other.png\"\n").unwrap();
+                all.push("/b.png".into());
+            },
+        );
         assert!(edited.is_err());
         assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
         let kept = std::fs::read_to_string(&target).unwrap();
@@ -1199,9 +1212,11 @@ mod tests {
         let file = dir.join("trip.gqv");
         let geeqie = "#GQview collection\n#created with Geeqie version 2.0\n#geometry: 0 0 400 300\n\"/a.jpg\"\n\"/b.jpg\"\n#end\n";
         std::fs::write(&file, geeqie).unwrap();
-        super::edit(&file, false, |all| {
-            all.retain(|p| p.as_os_str() != "/a.jpg")
-        })
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| all.retain(|p| p.as_os_str() != "/a.jpg"),
+        )
         .unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("#geometry: 0 0 400 300\n") && text.contains("\"/b.jpg\""));
@@ -1219,10 +1234,14 @@ mod tests {
         let file = dir.join("trip.gqv");
         std::fs::write(&file, "#GQview collection\n\"/a.jpg\"\n#end\n").unwrap();
         let theirs = "#GQview collection\n\"/a.jpg\"\n\"/their.jpg\"\n#end\n";
-        let edited = super::edit(&file, false, |all| {
-            std::fs::write(&file, theirs).unwrap();
-            all.push("/b.jpg".into());
-        });
+        let edited = super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| {
+                std::fs::write(&file, theirs).unwrap();
+                all.push("/b.jpg".into());
+            },
+        );
         assert!(edited.is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), theirs);
         std::fs::remove_dir_all(dir).unwrap();
@@ -1240,9 +1259,11 @@ mod tests {
         std::fs::write(&target, text).unwrap();
         let file = dir.join("trip.gqv");
         std::os::unix::fs::symlink(&target, &file).unwrap();
-        super::edit(&file, false, |all| {
-            all.retain(|p| p.as_os_str() != "/a.jpg")
-        })
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| all.retain(|p| p.as_os_str() != "/a.jpg"),
+        )
         .unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), text);
         assert!(!std::fs::symlink_metadata(&file).unwrap().is_symlink());
@@ -1272,10 +1293,20 @@ mod tests {
             .collect();
         std::fs::write(&file, format!("#GQview collection\n{text}#end\n")).unwrap();
         let ours = ["a.jpg", "b.jpg", "c.jpg"].map(|n| real.join(n));
-        super::edit(&file, false, |all| super::reorder(all, &ours)).unwrap();
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| super::reorder(all, &ours),
+        )
+        .unwrap();
         let order = [&spelled[1], &spelled[0], &spelled[2]].map(|p| p.to_path_buf());
         assert_eq!(super::load(&file).unwrap(), order);
-        super::edit(&file, false, |all| all.retain(|p| *p != ours[0])).unwrap();
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| all.retain(|p| *p != ours[0]),
+        )
+        .unwrap();
         assert_eq!(super::load(&file).unwrap(), &order[1..]);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1310,13 +1341,17 @@ mod tests {
         let pairs = [(base.join("pics"), base.join("new"))];
         std::fs::rename(&pairs[0].0, &pairs[0].1).unwrap();
         let moved = crate::files::file_ops::moves_by_source(&pairs);
-        super::edit(&file, false, |all| {
-            for p in all {
-                if let Some(to) = crate::files::file_ops::new_place(p, &moved) {
-                    *p = to;
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| {
+                for p in all {
+                    if let Some(to) = crate::files::file_ops::new_place(p, &moved) {
+                        *p = to;
+                    }
                 }
-            }
-        })
+            },
+        )
         .unwrap();
         assert_eq!(super::load(&file).unwrap(), [base.join("new/a.jpg")]);
         std::fs::remove_dir_all(dir).unwrap();
@@ -1450,19 +1485,50 @@ mod tests {
         // that cannot be read is left as it is.
         let dir = std::env::temp_dir().join(format!("glimt-test-gqv-{}", std::process::id()));
         let file = dir.join("a.gqv");
-        assert_eq!(super::append(&file, &paths, true).unwrap(), 2);
-        assert_eq!(super::append(&file, &paths[..1], false).unwrap(), 0);
+        assert_eq!(
+            super::append(&file, &paths, crate::files::file_io::IfMissing::Create).unwrap(),
+            2
+        );
+        assert_eq!(
+            super::append(
+                &file,
+                &paths[..1],
+                crate::files::file_io::IfMissing::LeaveMissing
+            )
+            .unwrap(),
+            0
+        );
         let new = PathBuf::from("/n.jpg");
-        assert_eq!(super::append(&file, &[new.clone(), new], false).unwrap(), 1);
+        assert_eq!(
+            super::append(
+                &file,
+                &[new.clone(), new],
+                crate::files::file_io::IfMissing::LeaveMissing
+            )
+            .unwrap(),
+            1
+        );
         // A collection picked from the menu that was renamed or trashed since is not made again.
         let gone = dir.join("gone.gqv");
-        let e = super::append(&gone, &paths, false).unwrap_err();
+        let e = super::append(
+            &gone,
+            &paths,
+            crate::files::file_io::IfMissing::LeaveMissing,
+        )
+        .unwrap_err();
         assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
         assert!(crate::files::file_io::is_surely_gone(&gone));
         // A link to itself: reading fails, though not as missing.
         let unreadable = dir.join("b.gqv");
         std::os::unix::fs::symlink(&unreadable, &unreadable).unwrap();
-        assert!(super::append(&unreadable, &paths, true).is_err());
+        assert!(
+            super::append(
+                &unreadable,
+                &paths,
+                crate::files::file_io::IfMissing::Create
+            )
+            .is_err()
+        );
         assert!(unreadable.symlink_metadata().unwrap().is_symlink());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1476,22 +1542,41 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("c.gqv");
         std::fs::write(&file, super::to_text(&[p("/a"), p("/b"), p("/c")], &[])).unwrap();
-        super::edit(&file, false, |all| all.retain(|x| x != &p("/a"))).unwrap();
-        super::edit(&file, false, |all| {
-            (all.iter_mut().filter(|x| **x == p("/c"))).for_each(|x| *x = p("/d"))
-        })
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| all.retain(|x| x != &p("/a")),
+        )
+        .unwrap();
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| (all.iter_mut().filter(|x| **x == p("/c"))).for_each(|x| *x = p("/d")),
+        )
         .unwrap();
         assert_eq!(super::load(&file).unwrap(), [p("/b"), p("/d")]);
         // A change that changes nothing leaves the file as it was.
         let written = std::fs::metadata(&file).unwrap().modified().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        super::edit(&file, false, |all| all.retain(|_| true)).unwrap();
+        super::edit(
+            &file,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| all.retain(|_| true),
+        )
+        .unwrap();
         assert_eq!(
             std::fs::metadata(&file).unwrap().modified().unwrap(),
             written
         );
         let gone = dir.join("gone.gqv");
-        assert!(super::edit(&gone, false, |all| all.clear()).is_err());
+        assert!(
+            super::edit(
+                &gone,
+                crate::files::file_io::IfMissing::LeaveMissing,
+                |all| all.clear()
+            )
+            .is_err()
+        );
         assert!(!gone.exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1559,7 +1644,12 @@ mod tests {
         )
         .unwrap();
         crate::files::file_io::take_saves_failed();
-        super::edit(&saved, false, |all| all.retain(|p| *p != taken_out)).unwrap();
+        super::edit(
+            &saved,
+            crate::files::file_io::IfMissing::LeaveMissing,
+            |all| all.retain(|p| *p != taken_out),
+        )
+        .unwrap();
         let now = super::load(&saved).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(now, [kept]);

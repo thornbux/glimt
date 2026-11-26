@@ -1271,7 +1271,7 @@ impl crate::App {
                             self.add_sort_folder(self.folder.dir().to_path_buf());
                         }
                         if crate::ui::menus::button(ui, tr("Add…")).clicked() {
-                            self.pick(ui.ctx(), true, Pick::SortFolder);
+                            self.pick(ui.ctx(), Pick::SortFolder);
                         }
                     });
                 });

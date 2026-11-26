@@ -211,7 +211,7 @@ impl crate::App {
                 name = save::stem_with_suffix(path, &format!("-copy.{}", format.ext()));
             }
             let start = path.with_file_name(name);
-            self.pick(ctx, false, Pick::SaveAs(dialog.picked, copy_as, start));
+            self.pick(ctx, Pick::SaveAs(dialog.picked, copy_as, start));
         } else if !modal.should_close() {
             self.save_as = Some(dialog);
         }

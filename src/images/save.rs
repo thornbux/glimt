@@ -1483,18 +1483,19 @@ fn derive_sidecar<'a>(
     path: &'a Path,
     how: Derived,
 ) -> Result<SidecarUndo<'a>, String> {
+    use crate::files::file_io::IfMissing;
     use crate::metadata::xmp::update_locked_sidecar;
     let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
     let changed = (old.and_then(|x| String::from_utf8(x).ok()))
         .filter(|x| derived_xmp(x.as_bytes(), how) != x.as_bytes());
     if changed.is_some() {
-        update_locked_sidecar(lock, path, true, |x| {
+        update_locked_sidecar(lock, path, IfMissing::LeaveMissing, |x| {
             String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
         })?;
     }
     Ok(Box::new(move |lock, failed| match (changed, failed) {
         (Some(old), RenameFailed::NotDone) => {
-            update_locked_sidecar(lock, path, true, |_| Some(old))
+            update_locked_sidecar(lock, path, IfMissing::LeaveMissing, |_| Some(old))
         }
         (Some(_), RenameFailed::MayHaveBeenDone) => Err(crate::tf!(
             "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does",
@@ -4919,7 +4920,8 @@ mod tests {
             })
         };
         let step = |lock: &crate::metadata::xmp::SidecarLock| {
-            update_locked_sidecar(lock, &a, true, |_| Some("new side".into()))?;
+            let leave = crate::files::file_io::IfMissing::LeaveMissing;
+            update_locked_sidecar(lock, &a, leave, |_| Some("new side".into()))?;
             go.send(()).unwrap();
             // A move that is not held back lands now, before the image is looked at again.
             let _ = moved.recv_timeout(std::time::Duration::from_millis(200));

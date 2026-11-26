@@ -3057,7 +3057,7 @@ impl crate::App {
             Action::CopyTo => Pick::CopyTo(paths),
             _ => Pick::MoveTo(paths),
         };
-        self.pick(ctx, true, purpose);
+        self.pick(ctx, purpose);
     }
 
     /// File → Set as Wallpaper. It sets the shown image through the desktop portal, in the
@@ -4051,10 +4051,9 @@ fn rename_files_planned_in(
         };
         // A step is counted in the plan once done. When the middle of a swap cannot be
         // counted, because its names did not reach the disk, it is undone with the rest.
-        let is_middle_of_swap = swap && k + 1 == moves.len() / 2;
         let step = step
             .map_err(|e| (e, k))
-            .and_then(|()| (plan.count_rename_done(is_middle_of_swap)).map_err(|e| (e, k + 1)));
+            .and_then(|()| (plan.count_rename_done()).map_err(|e| (e, k + 1)));
         if let Err((e, done)) = step {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
@@ -7712,7 +7711,10 @@ mod tests {
         let (logs, gqv) = (dir.join("logs"), dir.join("col.gqv"));
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         let both = [a.clone(), b.clone()];
-        crate::model::collections::edit(&gqv, true, |all| *all = both.to_vec()).unwrap();
+        crate::model::collections::edit(&gqv, crate::files::file_io::IfMissing::Create, |all| {
+            *all = both.to_vec()
+        })
+        .unwrap();
         let mut log = super::journal::start_delete_log(&logs, "delete", Some(&gqv)).unwrap();
         log.note(&both);
         // The kill came after a.png went and was written down as gone, before b.png.

@@ -560,10 +560,7 @@ pub(crate) struct PickedFiles {
     listed: Vec<Identity>,
     /// The flag of the window whose list showed the files (`ListIsOld`).
     list_is_old: ListIsOld,
-    fingerprints: crate::support::threads::Receiving<Option<FileFingerprint>>,
-    /// Whether the paths are folders, which are told apart by their inode or their time
-    /// (`is_still_the_folder`), not by their size, which changes with every file put into them.
-    are_folders: bool,
+    fingerprints: crate::support::threads::Receiving<Option<Picked>>,
     /// The files kept beside each picked file, which the act looks at too (`AsSeen`).
     kept_beside: std::collections::HashMap<PathBuf, std::sync::Arc<KeptBeside>>,
 }
@@ -572,14 +569,14 @@ impl PickedFiles {
     /// Starts taking the fingerprints of the files `paths`, picked now, none of them from the
     /// list.
     pub(crate) fn new(paths: Vec<PathBuf>) -> PickedFiles {
-        PickedFiles::taken_in_background(paths, Listed::default(), false)
+        PickedFiles::taken_in_background(paths, Listed::default())
     }
 
     /// Starts taking the fingerprints of the files `files`, picked now in the list, which keep
     /// the inodes the list knew them by, and the flag of that list's window.
     pub(crate) fn listed(files: Vec<ListedFile>) -> PickedFiles {
         let (paths, listed) = paths_and_identities(files);
-        PickedFiles::taken_in_background(paths, listed, false)
+        PickedFiles::taken_in_background(paths, listed)
     }
 
     /// The files `files`, picked now in the list, with what a search saw of them when it found
@@ -601,11 +598,6 @@ impl PickedFiles {
         }
     }
 
-    /// Starts taking the device and inode of the folder `dir`, picked now.
-    pub(crate) fn folder(dir: PathBuf) -> PickedFiles {
-        PickedFiles::taken_in_background(vec![dir], Listed::default(), true)
-    }
-
     /// The files of `recorded`, with the fingerprints Glimt noted after its own operation on
     /// them. An Undo gives them, so that it leaves alone a file another program put at the name.
     pub(crate) fn recorded(recorded: Vec<(PathBuf, FileFingerprint)>) -> PickedFiles {
@@ -625,27 +617,23 @@ impl PickedFiles {
     ) -> PickedFiles {
         let (tx, rx) = std::sync::mpsc::channel();
         for fingerprint in fingerprints {
-            let _ = tx.send(fingerprint);
+            let _ = tx.send(fingerprint.map(Picked::File));
         }
         PickedFiles {
             paths: std::sync::Arc::new(paths),
             listed,
             list_is_old,
             fingerprints: crate::support::threads::Receiving::of(rx),
-            are_folders: false,
             kept_beside: Default::default(),
         }
     }
 
-    /// Starts taking the fingerprints of `paths`, folders when `are_folders`, in their order, in
-    /// a thread of its own, which shares the paths. `listed` are their identities in the list.
+    /// Starts taking the fingerprints of `paths`, in their order, each with whether it is a file
+    /// or a folder (`Picked`), in a thread of its own, which shares the paths. `listed` are their
+    /// identities in the list.
     /// It shows no busy pointer, as the user does not wait for it while a dialog is open, and a
     /// file on a share that stopped answering would keep it on for good.
-    fn taken_in_background(
-        paths: Vec<PathBuf>,
-        (listed, list_is_old): Listed,
-        are_folders: bool,
-    ) -> PickedFiles {
+    fn taken_in_background(paths: Vec<PathBuf>, (listed, list_is_old): Listed) -> PickedFiles {
         let (tx, rx) = std::sync::mpsc::channel();
         let paths = std::sync::Arc::new(paths);
         let taken = paths.clone();
@@ -663,7 +651,6 @@ impl PickedFiles {
             listed,
             list_is_old,
             fingerprints: crate::support::threads::Receiving::of(rx),
-            are_folders,
             kept_beside: Default::default(),
         }
     }
@@ -693,7 +680,6 @@ impl PickedFiles {
         let fingerprints = PickedFingerprints {
             taken,
             list_is_old: self.list_is_old,
-            are_folders: self.are_folders,
             kept_beside: self.kept_beside,
         };
         // The thread that took them has let go of the paths once it sent the last one, or it
@@ -719,9 +705,8 @@ impl PickedFiles {
 /// The fingerprints of files picked before a wait, as `PickedFiles::wait_for_fingerprints`
 /// took them, each with the identity its list knew it by.
 pub(crate) struct PickedFingerprints {
-    taken: std::collections::HashMap<PathBuf, (FileFingerprint, Identity)>,
+    taken: std::collections::HashMap<PathBuf, (Picked, Identity)>,
     list_is_old: ListIsOld,
-    are_folders: bool,
     /// The files kept beside each picked file (`AsSeen`).
     kept_beside: std::collections::HashMap<PathBuf, std::sync::Arc<KeptBeside>>,
 }
@@ -730,7 +715,7 @@ impl PickedFingerprints {
     /// Returns the fingerprint that the file at `path` had when it was picked. Returns `None`
     /// when it was not taken in time, or nothing was there.
     pub(crate) fn picked_as(&self, path: &Path) -> Option<FileFingerprint> {
-        self.taken.get(path).map(|(picked, _)| *picked)
+        self.taken.get(path).map(|(picked, _)| picked.fingerprint())
     }
 
     /// Looks whether the file at `path` is still the one picked there, and the files kept
@@ -751,12 +736,22 @@ impl PickedFingerprints {
     /// Looks whether the file at `path` is still the one picked there, as
     /// `still_the_one_picked` does, without the files kept beside it.
     fn still_the_file_picked(&self, path: &Path) -> std::io::Result<()> {
-        let (picked, listed) = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
-        if self.are_folders {
-            let kind = file_system_type(path);
-            let keeps_inodes = kind.is_some_and(|kind| has_lasting_inodes(&kind));
-            return is_still_the_folder(path, picked, keeps_inodes, &self.list_is_old);
-        }
+        let (picked, listed) = match *self.taken.get(path).ok_or_else(changed_meanwhile)? {
+            (Picked::Folder(picked), _) => {
+                // A file at the name now is not the folder picked, whatever its inode or time.
+                // Files need no such look, as a folder's size and time never pass for a file's.
+                // A failed look is judged by the look below.
+                if let Ok(meta) = looked(path, false)
+                    && !meta.is_dir()
+                {
+                    return Err(changed_meanwhile());
+                }
+                let kind = file_system_type(path);
+                let keeps_inodes = kind.is_some_and(|kind| has_lasting_inodes(&kind));
+                return is_still_the_folder(path, picked, keeps_inodes, &self.list_is_old);
+            }
+            (Picked::File(picked), listed) => (picked, listed),
+        };
         let known = KnownAs {
             fingerprint: Some(picked),
             compared: Compared::Whole,
@@ -764,6 +759,25 @@ impl PickedFingerprints {
             list_is_old: Some(&self.list_is_old),
         };
         is_still_the_file(path, known)
+    }
+}
+
+/// What a name held when it was picked, with its fingerprint, as the look at it said. A folder is
+/// told apart by its inode or its time (`is_still_the_folder`), not by its size, which changes
+/// with every file put into it. The kind comes from the look itself, so that no caller states it,
+/// and none can state it wrong.
+#[derive(Clone, Copy)]
+enum Picked {
+    File(FileFingerprint),
+    Folder(FileFingerprint),
+}
+
+impl Picked {
+    /// Returns the fingerprint taken of the file or folder.
+    fn fingerprint(self) -> FileFingerprint {
+        match self {
+            Picked::File(fingerprint) | Picked::Folder(fingerprint) => fingerprint,
+        }
     }
 }
 
@@ -981,6 +995,28 @@ impl From<StepError> for std::io::Error {
         };
         std::io::Error::new(kind, error)
     }
+}
+
+/// What a change of a file that is not there yet does: a collection edited or added to
+/// (`collections::edit`), or a photo's sidecar changed (`xmp::update_sidecar`). Set wrong, a
+/// collection renamed or trashed elsewhere is made again, a sidecar is made for a photo that had
+/// none, or the change is lost.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum IfMissing {
+    /// The file is made, empty, and the change goes into it.
+    Create,
+    /// The file is not made. Each function that takes this says what it returns then.
+    LeaveMissing,
+}
+
+/// Whether `open_if_unlocked` makes the file it locks or opens one that is there.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Opening {
+    /// The file is made new, and the open fails when the name is there. A file made new that
+    /// cannot be locked is removed again.
+    New,
+    /// The file is there already, a plan or log found at a start or under its name.
+    Existing,
 }
 
 /// Where sure looks at both names of a step find its file (`where_a_step_left_the_file`).
@@ -2469,13 +2505,13 @@ pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Opens `path` as `open_to_lock` says, and takes its lock if no other window holds it. A plan
-/// of Rename Many and a log of Move are each locked as the file itself this way. With `is_new`
-/// the file is made new, and the open fails when the name is there. A file made new that cannot
-/// be locked is removed again. Returns the file, whose lock is held while it stays open, or the
-/// error `WouldBlock` when another window holds the lock. The lock is tried for a moment,
-/// because a program that another thread starts holds a copy of the descriptor, and its lock,
-/// until it runs.
-pub fn open_if_unlocked(path: &Path, is_new: bool) -> std::io::Result<std::fs::File> {
+/// of Rename Many and a log of Move are each locked as the file itself this way. `opening` says
+/// whether the file is made new or is there (`Opening`). Returns the file, whose lock is held
+/// while it stays open, or the error `WouldBlock` when another window holds the lock. The lock
+/// is tried for a moment, because a program that another thread starts holds a copy of the
+/// descriptor, and its lock, until it runs.
+pub fn open_if_unlocked(path: &Path, opening: Opening) -> std::io::Result<std::fs::File> {
+    let is_new = opening == Opening::New;
     let file = open_to_lock(path, std::fs::OpenOptions::new().create_new(is_new))?;
     #[cfg(test)]
     if is_new && let Some(hook) = BEFORE_NEW_FILE_IS_LOCKED.take() {
@@ -3162,9 +3198,9 @@ fn paths_and_identities(files: Vec<ListedFile>) -> (Vec<PathBuf>, Listed) {
     (paths, (listed, list_is_old))
 }
 
-/// Returns the fingerprint of the file at `path`, picked before a wait, or `None` when nothing is
-/// there.
-fn picked_fingerprint(path: &Path) -> Option<FileFingerprint> {
+/// Returns the fingerprint of the file or folder at `path`, picked before a wait, with which of
+/// the two it is. Returns `None` when nothing is there, or the look failed.
+fn picked_fingerprint(path: &Path) -> Option<Picked> {
     #[cfg(test)]
     loop {
         let stalls = lock_even_if_poisoned(&FINGERPRINT_STALLS).as_deref() == Some(path);
@@ -3173,7 +3209,12 @@ fn picked_fingerprint(path: &Path) -> Option<FileFingerprint> {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    fingerprint(path)
+    let meta = looked(path, false).ok()?;
+    let fingerprint = fingerprint_from(path, &meta);
+    Some(match meta.is_dir() {
+        true => Picked::Folder(fingerprint),
+        false => Picked::File(fingerprint),
+    })
 }
 
 /// Looks whether the folder at `path` is still the folder whose fingerprint was `picked`, on a
@@ -4490,14 +4531,45 @@ mod tests {
         assert!(super::is_still_the_folder(&dir, picked, false, &Default::default()).is_err());
         super::is_still_the_folder(&dir, picked, true, &Default::default()).unwrap();
         let fingerprints = super::PickedFingerprints {
-            taken: [(dir.clone(), (picked, None))].into(),
+            taken: [(dir.clone(), (super::Picked::Folder(picked), None))].into(),
             list_is_old: Default::default(),
-            are_folders: true,
             kept_beside: Default::default(),
         };
         if super::file_system_type(&dir).is_some_and(|kind| super::has_lasting_inodes(&kind)) {
             fingerprints.still_the_one_picked(&dir).unwrap();
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The kind of what was picked comes from the look: a folder picked as any file is told as a
+    /// folder, so files put into it since do not refuse it, and a name whose kind changed between
+    /// the pick and the act is refused either way.
+    #[test]
+    fn the_look_tells_whether_a_folder_or_a_file_was_picked() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-picked-kind-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("folder")).unwrap();
+        std::fs::write(dir.join("file"), "x").unwrap();
+        let (folder, file) = (dir.join("folder"), dir.join("file"));
+        let picked = |paths: &[&std::path::PathBuf]| {
+            let mut picked =
+                super::PickedFiles::new(paths.iter().map(|p| p.to_path_buf()).collect());
+            picked.wait_until_taken();
+            picked.wait_for_fingerprints().1
+        };
+        let both = picked(&[&folder, &file]);
+        // The file put in later gives the folder a time the clock's resolution tells apart.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(folder.join("new.jpg"), "x").unwrap();
+        both.still_the_one_picked(&folder).unwrap();
+        both.still_the_one_picked(&file).unwrap();
+        std::fs::remove_dir_all(&folder).unwrap();
+        std::fs::write(&folder, "x").unwrap();
+        std::fs::remove_file(&file).unwrap();
+        std::fs::create_dir(&file).unwrap();
+        assert!(both.still_the_one_picked(&folder).is_err());
+        assert!(both.still_the_one_picked(&file).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5456,12 +5528,12 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let plan = dir.join("plan");
         std::fs::write(&plan, "steps").unwrap();
-        let held = super::open_if_unlocked(&plan, false).unwrap();
+        let held = super::open_if_unlocked(&plan, super::Opening::Existing).unwrap();
         held.set_len(5).expect("the file is not open for writing");
         assert_eq!(std::fs::read(&plan).unwrap(), b"steps");
-        let again = super::open_if_unlocked(&plan, false).map(|_| ());
+        let again = super::open_if_unlocked(&plan, super::Opening::Existing).map(|_| ());
         assert_eq!(again.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
-        let gone = super::open_if_unlocked(&dir.join("gone"), false).map(|_| ());
+        let gone = super::open_if_unlocked(&dir.join("gone"), super::Opening::Existing).map(|_| ());
         assert_eq!(gone.unwrap_err().kind(), std::io::ErrorKind::NotFound);
         assert!(!dir.join("gone").exists());
         drop(held);

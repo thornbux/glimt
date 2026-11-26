@@ -1211,18 +1211,18 @@ impl crate::App {
         }
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         match action {
-            Action::OpenFile => self.pick(ctx, false, Pick::Open),
-            Action::OpenFolder => self.pick(ctx, true, Pick::Open),
-            Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
-            Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
+            Action::OpenFile => self.pick(ctx, Pick::OpenFile),
+            Action::OpenFolder => self.pick(ctx, Pick::OpenFolder),
+            Action::OpenFolders => self.pick(ctx, Pick::Folders),
+            Action::OpenRecursive => self.pick(ctx, Pick::Recursive),
             Action::NewCollection => {
                 if let Some(asked) = self.ask_about_targets() {
                     self.dialogs
                         .ask_about(asked, Prompt::NewCollection, String::new());
                 }
             }
-            Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
-            Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
+            Action::OpenCollection => self.pick(ctx, Pick::Collection),
+            Action::ImportLightroom => self.pick(ctx, Pick::Lightroom),
             Action::RemoveFromCollection if self.folder.collection().is_some() => {
                 self.remove_from_collection(ctx)
             }
@@ -1253,7 +1253,7 @@ impl crate::App {
                 self.find_duplicates.get_or_insert_with(FindDuplicates::new);
             }
             Action::CheckImages => drop(self.check_images.get_or_insert(None)),
-            Action::BackUp => self.pick(ctx, true, Pick::BackUp),
+            Action::BackUp => self.pick(ctx, Pick::BackUp),
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
@@ -1406,11 +1406,11 @@ impl crate::App {
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
                 let (path, how) = (self.path(self.list.shown()), self.shown_copy());
-                self.pick(ctx, false, Pick::SaveFrame(path, k, how));
+                self.pick(ctx, Pick::SaveFrame(path, k, how));
             }
             Action::ExportFrames if self.frame_count() > 1 => {
                 let (path, how) = (self.path(self.list.shown()), self.shown_copy());
-                self.pick(ctx, true, Pick::ExportFrames(path, how));
+                self.pick(ctx, Pick::ExportFrames(path, how));
             }
             Action::SaveFrame | Action::ExportFrames => {}
             Action::Rename if self.list.selected().len() > 1 => {

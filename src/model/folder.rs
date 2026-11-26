@@ -3438,7 +3438,12 @@ mod tests {
                 *p = c.clone();
             }
         };
-        crate::model::collections::edit(&dir.join("col.gqv"), false, follow).unwrap();
+        crate::model::collections::edit(
+            &dir.join("col.gqv"),
+            crate::files::file_io::IfMissing::LeaveMissing,
+            follow,
+        )
+        .unwrap();
         let has_c = |app: &crate::App| {
             (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };
