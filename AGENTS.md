@@ -523,7 +523,15 @@ arm becomes a method.
 - **A user-visible change** gets a line under `[Unreleased]` in `CHANGELOG.md`, in its own
   commit.
 - **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `po/*.po`
-  (see Language). A file's or folder's name or path in it, or in a label, goes through
+  (see Language). Text for the user is a `format::ShownText`: `tr` and `tf!` return one, and
+  every place text reaches the user takes one (the `menus` helpers, `DrawShown`, `ShownTip`,
+  `ShownChoice`, `PaintShown`, `rich` and `spoken`, `Notice::give`, `Failure`, `Told::Notice`,
+  `NoticeSender::send`, the title). egui's own text calls are in `clippy.toml`. Only the
+  ways in that `ShownText`'s doc lists make one: a translated text, a name or path, a number,
+  a text read from a file (`from_file_text_on_one_line` where it shows on one line,
+  `from_file_text` where a panel shows it whole), and `ShownText::untranslated` for a text
+  that has none, such as "…" or a key's name. A file's or folder's name or path in it, or in
+  a label, goes through
   `format::escaped_name` (or `App::name`, `file_io::shown_path`, which use it), which writes
   line breaks and marks of direction as escapes, so a planted name cannot add lines of its own
   to a question. `display()` is used nowhere; a path's text for another use is its
