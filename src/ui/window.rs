@@ -545,7 +545,10 @@ impl crate::App {
         });
     }
 
+    /// Sets the window's title to `title_text`. It is the one place the title is set, so the
+    /// title is always a `ShownText`.
     pub(crate) fn update_window_title(&self, ctx: &egui::Context) {
+        #[allow(clippy::disallowed_methods)] // The one place the title is set, from a ShownText.
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text().to_string()));
     }
 
