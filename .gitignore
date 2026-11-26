@@ -4,3 +4,4 @@
 /.flatpak-builder
 /glimt-test-*
 /.claude/worktrees/
+/.claude/skills/
