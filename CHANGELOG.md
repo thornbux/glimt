@@ -21,6 +21,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   whose XMP is long for its first image, such as a Photoshop TIFF with a long history or a DNG
   with a small preview. Before, they showed none, and a keyword added then started a sidecar
   that hid the file's own keywords.
+- A keyword, comment or alt text is not saved, and the failure is told, when the XMP inside the
+  photo cannot be read, such as on a share that stopped answering or in a file cut short.
+  Before, a sidecar was started without the photo's own keywords and hid them from then on.
 
 ## [0.99.0] - 2026-11-26
 
