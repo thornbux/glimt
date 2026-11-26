@@ -10,6 +10,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A name that holds a backslash is shown with the backslash doubled, so the text "\n" in a name
   is no longer taken for a line break. A FUSE mount whose source is one plain word, which can be
   a user's name, is shown as "fuse" in a notice, not by that word.
+- A collection's name and the name of a theme of your own are shown with their line breaks and
+  marks of direction as escapes, as file names are, in the menus and the notices.
+
+### Changed
+
+- Text read from a file, such as an EXIF field, a keyword or a comment, is shown on one line in
+  the window title, the full screen info, a print's caption and the notices, with a line break
+  written as "\n". The info panel still shows a comment with its own line breaks. The names of
+  tools and of applications in Open With are shown on one line too.
+- Internal: every text shown to the user is now a type of its own that only translated texts,
+  escaped names and a few named kinds of text make, so a name that was not escaped cannot reach
+  the window. Nothing else changes in use.
 
 ## [0.101.0] - 2026-11-26
 
