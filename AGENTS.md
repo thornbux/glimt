@@ -812,8 +812,10 @@ The limits decided:
 - In the same boot, a card or stick that cannot be told from the one a job cut short worked on
   (a card cloned with `dd`, a second ext4 stick in the Flatpak) is not taken for it. The job's
   marks wait until the right one is back.
-- On NFSv3, a hard link that another program makes at the new name between Glimt's look and its
-  rename counts as the rename done. Both names are then one file, so nothing is lost.
+- Where a rename is made as a hard link and an unlink, as on a file system without
+  RENAME_NOREPLACE (NFSv3, or FAT, NTFS and exFAT through FUSE), a hard link that another program
+  makes at the new name between Glimt's look and its link counts as the rename done. Both names
+  are then one file, so nothing is lost.
 - On NFS, the attribute cache can make Glimt refuse once to write a sidecar or collection that
   nobody changed, as changed after its read. The next edit takes a new look and goes through.
 
@@ -864,7 +866,8 @@ The steps of a release, the release tests' list, the checks by hand and the pack
   a time, each on its own branch, never a batch of them. One release shipped eleven new things
   and another eight, and the next releases were spent fixing them.
 - **A dot release (X.Y.Z)** fixes only *must fix* bugs of the release before it, nothing else:
-  no hardening, no refactoring, no feature. What else is found waits for the next minor.
+  no hardening, no refactoring, no feature. What else is found waits: a should fix for the next
+  minor, and hardening until it has a reason (*Hardening waits for a reason*).
   A must fix still closes its whole class at the root, as *Fix the root, once* says: the
   should findings of the same class, which that one fix in the shared place also closes, go
   with it. Findings of other classes wait.
