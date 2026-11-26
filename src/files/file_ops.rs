@@ -93,7 +93,10 @@ pub(crate) struct RenameJob {
 pub(crate) struct RenameOutcome {
     result: Result<(), RenameFailed>,
     left_alone: Vec<usize>,
-    undo: Vec<Moved>,
+    /// The Undo, with the token the rename took when it started. The outcome holds the token
+    /// until the window has taken the Undo, so Ctrl+Z waits for it, and no outcome can leave
+    /// an Undo without one.
+    undo: Option<(Vec<Moved>, UndoOnTheWay)>,
 }
 
 /// Why `rename_files` failed, and where the names of its files are now.
@@ -313,8 +316,9 @@ impl ReportedUndo {
 
 /// The mark of an operation that will leave an Undo, taken when it starts. Only
 /// `FileOperations::undo_on_the_way` makes one, and Ctrl+Z waits while one lives. An operation
-/// hands it on in its report's `ReportedUndo::New`, so it lives until the window has taken the
-/// Undo.
+/// hands it on with its Undo, in its report's `ReportedUndo::New` or in Rename Many's
+/// `RenameOutcome`, and `FileOperations::set_new_undo` takes it with the Undo. So it lives until
+/// the window has put the Undo in place.
 pub(crate) struct UndoOnTheWay {
     _held: Arc<()>,
 }
@@ -615,11 +619,28 @@ impl FileOperations {
     }
 
     /// Marks an operation that will leave an Undo as running. Its thread holds what this
-    /// returns and hands it on in its report (`ReportedUndo::New`), and Undo waits for it
-    /// meanwhile.
+    /// returns and hands it on with its Undo (`ReportedUndo::New`, `RenameOutcome`), and Undo
+    /// waits for it meanwhile.
     fn undo_on_the_way(&self) -> UndoOnTheWay {
         UndoOnTheWay {
             _held: self.undo_on_the_way.clone(),
+        }
+    }
+
+    /// Sets the Undo of an operation that ended, which replaces any older one. It takes the
+    /// token the operation took when it started (`undo_on_the_way`), which goes only after the
+    /// Undo is in place. So no Undo of background work is set without one, and Ctrl+Z waits
+    /// until the Undo is there.
+    fn set_new_undo(&mut self, undo: Undo, _token: UndoOnTheWay) {
+        self.undo = Some(undo);
+    }
+
+    /// Keeps what an Undo could not put back, unless an operation that ended meanwhile left a
+    /// newer Undo. It takes no token, because it is no new Undo: it is the rest of the one
+    /// that Ctrl+Z took.
+    fn keep_remainder(&mut self, undo: Undo) {
+        if self.undo.is_none() {
+            self.undo = Some(undo);
         }
     }
 
@@ -1259,12 +1280,11 @@ impl crate::App {
                 journal::remove_once_written(log);
             }
             match undo {
-                // The token goes once the Undo is in place.
-                Some(ReportedUndo::New(undo, _token)) => self.file_operations.undo = Some(undo),
-                Some(ReportedUndo::Remainder(undo)) if self.file_operations.undo.is_none() => {
-                    self.file_operations.undo = Some(undo)
+                Some(ReportedUndo::New(undo, token)) => {
+                    self.file_operations.set_new_undo(undo, token)
                 }
-                _ => {}
+                Some(ReportedUndo::Remainder(undo)) => self.file_operations.keep_remainder(undo),
+                None => {}
             }
             if let Some(find_duplicates) = &mut self.find_duplicates {
                 // Those that failed are still there.
@@ -1900,12 +1920,12 @@ impl crate::App {
             let (_, picked) = picked.wait_for_fingerprints();
             let renamed = rename_undoable(
                 (listed, to),
-                (&picked, undoing),
+                (&picked, undoing, undo_on_the_way),
                 &steps,
                 &marks_at_new_names,
             );
             let _ = tx.send(renamed);
-            drop((undo_on_the_way, steps));
+            drop(steps);
             None
         });
         self.file_operations.renaming = Some(job);
@@ -1977,9 +1997,13 @@ impl crate::App {
         self.set_selection(ctx, Default::default());
         // A rename that was itself an undo is not undone again, so Ctrl+Z twice does not give
         // the new names back. A failed Undo stays to be done again, unless an operation that
-        // finished meanwhile left a newer Undo.
-        if !undo.is_empty() && !(job.undoing && self.file_operations.undo.is_some()) {
-            self.file_operations.undo = Some(Undo::Rename(undo));
+        // finished meanwhile left a newer Undo. The token goes once the Undo is in place.
+        match (undo, job.undoing) {
+            (Some((undo, token)), false) => {
+                (self.file_operations).set_new_undo(Undo::Rename(undo), token)
+            }
+            (Some((undo, _token)), true) => self.file_operations.keep_remainder(Undo::Rename(undo)),
+            (None, _) => {}
         }
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
@@ -3916,10 +3940,10 @@ pub(crate) fn name_in_the_way(
 /// is no longer the one `picked` is left out, so a file that another program put at the name
 /// since keeps it. Returns how it went, with the places left out and the Undo it leaves: of a
 /// rename that went through, or of an Undo (`undoing`) that failed, what it still has to put
-/// back.
+/// back. The Undo carries `undo_on_the_way`, and the token goes here when no Undo is left.
 fn rename_undoable(
     (listed, to): (Vec<ListedFile>, Vec<PathBuf>),
-    (picked, undoing): (&PickedFingerprints, bool),
+    (picked, undoing, undo_on_the_way): (&PickedFingerprints, bool, UndoOnTheWay),
     job: &Job,
     marks_at_new_names: &journal::MarksAtNewNames,
 ) -> RenameOutcome {
@@ -3953,7 +3977,7 @@ fn rename_undoable(
     RenameOutcome {
         result,
         left_alone,
-        undo,
+        undo: (!undo.is_empty()).then_some((undo, undo_on_the_way)),
     }
 }
 
@@ -10485,7 +10509,7 @@ mod tests {
         super::RenameOutcome {
             result: Ok(()),
             left_alone: Vec::new(),
-            undo: Vec::new(),
+            undo: None,
         }
     }
 
@@ -10523,7 +10547,7 @@ mod tests {
                 names: super::NamesAfterAFailure::NotAllPutBack,
             }),
             left_alone: Vec::new(),
-            undo: Vec::new(),
+            undo: None,
         };
         app.finish_rename_many(&ctx, job, outcome);
         assert!(run_background_until(&mut app, &ctx, |app| !app
