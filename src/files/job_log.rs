@@ -425,7 +425,8 @@ impl JobLog {
             .map_or(0, |d| d.as_nanos());
         let mut bytes = header_bytes(job, nanos, crate::features::remote::instance_id());
         bytes.extend(records_bytes(first));
-        let renamed = crate::files::file_io::open_if_unlocked(&made, true).and_then(|mut file| {
+        let new = crate::files::file_io::Opening::New;
+        let renamed = crate::files::file_io::open_if_unlocked(&made, new).and_then(|mut file| {
             file.write_all(&bytes)?;
             file.sync_all()?;
             // A plain rename, which keeps the open file under its new name. `rename_never_over`
@@ -615,7 +616,8 @@ pub(crate) fn jobs_dir() -> Option<PathBuf> {
 /// log opened, which holds its lock while it stays open, and what was read. Only a regular file
 /// is opened, never through a link, and it is read as a stream of at most `MAX_DECODE_BYTES`.
 pub(crate) fn read_job_log(path: &Path) -> std::io::Result<(File, LogRead)> {
-    let file = crate::files::file_io::open_if_unlocked(path, false)?;
+    let file =
+        crate::files::file_io::open_if_unlocked(path, crate::files::file_io::Opening::Existing)?;
     let bounded = std::io::Read::take(&file, crate::images::decode::MAX_DECODE_BYTES);
     // The parser is fed broken logs in survives_broken_job_logs.
     let read = parse_job_log(&mut std::io::BufReader::new(bounded))?;

@@ -1944,7 +1944,10 @@ fn note_written_anew_in_job_logs(dir: &Path, path: &Path, before: FileFingerprin
             })
             .collect();
         // A plan that a window holds now, running or being put right, is passed over.
-        let Ok(file) = crate::files::file_io::open_if_unlocked(&entry.path(), false) else {
+        let Ok(file) = crate::files::file_io::open_if_unlocked(
+            &entry.path(),
+            crate::files::file_io::Opening::Existing,
+        ) else {
             continue;
         };
         if let Err(e) = JobLog::found(entry.path(), file).add_records(&written) {
@@ -2358,9 +2361,10 @@ pub fn repair_cut_short(
     // that asked about it too would do the same steps again, on files already put right. That
     // also holds for one that opened it just before the first deleted it, and got the lock once
     // that one let go.
-    let _held = crate::files::file_io::open_if_unlocked(plan, false)
-        .ok()
-        .filter(|file| is_linked(file).unwrap_or(false))?;
+    let _held =
+        crate::files::file_io::open_if_unlocked(plan, crate::files::file_io::Opening::Existing)
+            .ok()
+            .filter(|file| is_linked(file).unwrap_or(false))?;
     let done = done.map(|d| done_by_names(moves, d));
     // A step whose photo's name another file has taken since the plan was made (while the
     // question waited for "Later") is not taken. Nothing is renamed then, so that a photo and its
@@ -2490,13 +2494,14 @@ pub fn leave_names(
 ) -> Result<Vec<(PathBuf, PathBuf)>, Option<std::io::Error>> {
     // Only one window at a time, and only while the plan is there, as `repair_cut_short`.
     let held =
-        crate::files::file_io::open_if_unlocked(plan, false).map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => None,
-            std::io::ErrorKind::WouldBlock => Some(std::io::Error::other(
-                crate::support::lang::tr("another window has them open"),
-            )),
-            _ => Some(e),
-        })?;
+        crate::files::file_io::open_if_unlocked(plan, crate::files::file_io::Opening::Existing)
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => None,
+                std::io::ErrorKind::WouldBlock => Some(std::io::Error::other(
+                    crate::support::lang::tr("another window has them open"),
+                )),
+                _ => Some(e),
+            })?;
     if !is_linked(&held).map_err(Some)? {
         return Err(None);
     }

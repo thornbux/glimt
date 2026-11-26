@@ -1000,6 +1000,16 @@ pub(crate) enum IfMissing {
     LeaveMissing,
 }
 
+/// Whether `open_if_unlocked` makes the file it locks or opens one that is there.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Opening {
+    /// The file is made new, and the open fails when the name is there. A file made new that
+    /// cannot be locked is removed again.
+    New,
+    /// The file is there already, a plan or log found at a start or under its name.
+    Existing,
+}
+
 /// Where sure looks at both names of a step find its file (`where_a_step_left_the_file`).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum StepLeft {
@@ -2486,13 +2496,13 @@ pub fn open_and_lock(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Opens `path` as `open_to_lock` says, and takes its lock if no other window holds it. A plan
-/// of Rename Many and a log of Move are each locked as the file itself this way. With `is_new`
-/// the file is made new, and the open fails when the name is there. A file made new that cannot
-/// be locked is removed again. Returns the file, whose lock is held while it stays open, or the
-/// error `WouldBlock` when another window holds the lock. The lock is tried for a moment,
-/// because a program that another thread starts holds a copy of the descriptor, and its lock,
-/// until it runs.
-pub fn open_if_unlocked(path: &Path, is_new: bool) -> std::io::Result<std::fs::File> {
+/// of Rename Many and a log of Move are each locked as the file itself this way. `opening` says
+/// whether the file is made new or is there (`Opening`). Returns the file, whose lock is held
+/// while it stays open, or the error `WouldBlock` when another window holds the lock. The lock
+/// is tried for a moment, because a program that another thread starts holds a copy of the
+/// descriptor, and its lock, until it runs.
+pub fn open_if_unlocked(path: &Path, opening: Opening) -> std::io::Result<std::fs::File> {
+    let is_new = opening == Opening::New;
     let file = open_to_lock(path, std::fs::OpenOptions::new().create_new(is_new))?;
     #[cfg(test)]
     if is_new && let Some(hook) = BEFORE_NEW_FILE_IS_LOCKED.take() {
@@ -5493,12 +5503,12 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let plan = dir.join("plan");
         std::fs::write(&plan, "steps").unwrap();
-        let held = super::open_if_unlocked(&plan, false).unwrap();
+        let held = super::open_if_unlocked(&plan, super::Opening::Existing).unwrap();
         held.set_len(5).expect("the file is not open for writing");
         assert_eq!(std::fs::read(&plan).unwrap(), b"steps");
-        let again = super::open_if_unlocked(&plan, false).map(|_| ());
+        let again = super::open_if_unlocked(&plan, super::Opening::Existing).map(|_| ());
         assert_eq!(again.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
-        let gone = super::open_if_unlocked(&dir.join("gone"), false).map(|_| ());
+        let gone = super::open_if_unlocked(&dir.join("gone"), super::Opening::Existing).map(|_| ());
         assert_eq!(gone.unwrap_err().kind(), std::io::ErrorKind::NotFound);
         assert!(!dir.join("gone").exists());
         drop(held);
