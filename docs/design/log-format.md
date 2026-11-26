@@ -125,7 +125,6 @@ The record kinds:
 | `step` | number, from, to or `-`, fingerprint or `-` | before the step | every job |
 | `done` | number | after the step is done | #225, Rename Many's count |
 | `tree` | from, to or `-` | before a folder is renamed or trashed | #248 |
-| `trashed` | number, trash top or `home`, `.trashinfo` name | after the file is in the trash | #235 |
 | `marks` | number, bits, stars | before the marks file forgets them | #235 |
 | `place` | number, index in the collection | with `marks` | #235 |
 | `aside` | number, sidecar, hidden name | synced before the sidecar is renamed | now `aside/` |
@@ -239,7 +238,7 @@ A log no window holds locked was cut short. For each step, the start looks at th
 - **`tree`:** the marks and collection entries under the old path follow the new one, or are
   forgotten for a trashed folder, once the start sees the folder at its new place by its inode
   (#248).
-- **`undo-trash` with `trashed` and `marks`:** each file that is back at its original name with
+- **`undo-trash` with `written`, `marks` and `place`:** each file that is back at its original name with
   its fingerprint gets its marks and its place back. One still in the trash keeps its records,
   and the log stays, so a later start can finish (#235). Undo itself is not offered after a
   restart for now (decision 4).
@@ -305,9 +304,6 @@ untrusted text:
 - Every path must be absolute and have no `..` part. A step whose number is not one the log has
   is passed over. A field that does not parse makes its record be passed over, never the start
   stop.
-- A `trashed` record names a trash by its top's path and a `.trashinfo` name with no `/`, and the
-  trash is opened through `open_folder_not_through_link` as now, so a log cannot send a restore
-  outside a trash.
 - `survives_broken_job_logs` feeds the parser `broken(sample)` of a log with every record kind,
   and the weekly fuzz run takes it too. The old parsers keep their tests.
 

@@ -499,7 +499,6 @@ job_record record shown
 job_record record step
 job_record record done
 job_record record tree
-job_record record trashed
 job_record record marks
 job_record record place
 job_record record aside

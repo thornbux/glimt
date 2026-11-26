@@ -35,13 +35,12 @@ pub(crate) const JOB_KINDS: [&str; 8] = [
 /// src/frozen-1.0.txt. "old-log" names the job log that this one was written from
 /// (`Record::OldLog`), a log of this format, not one of the old logs of Glimt 0.92 and older.
 #[cfg(test)]
-pub(crate) const RECORD_KINDS: [&str; 17] = [
+pub(crate) const RECORD_KINDS: [&str; 16] = [
     "folder",
     "shown",
     "step",
     "done",
     "tree",
-    "trashed",
     "marks",
     "place",
     "aside",
@@ -72,9 +71,6 @@ const EMPTY_LOG_AGE: std::time::Duration = std::time::Duration::from_secs(60);
 /// The field that stands for no path or no fingerprint. No path is "-", as every path is
 /// absolute.
 const NONE: &str = "-";
-
-/// The field of a `trashed` record that names the trash in the home folder.
-const HOME_TRASH: &str = "home";
 
 /// A record of a job log, after the header. A step's `number` is its place among the log's
 /// steps, counted from 0, and the later records of a step name it by that number.
@@ -123,13 +119,6 @@ pub(crate) enum Record {
     Done(usize),
     /// A folder about to be renamed (`to`) or trashed (`None`), with every file in it.
     Tree { from: PathBuf, to: Option<PathBuf> },
-    /// The step's file is in the trash at `top` (`None` for the trash in the home folder),
-    /// under the `.trashinfo` file named `info_name`.
-    Trashed {
-        number: usize,
-        top: Option<PathBuf>,
-        info_name: PathBuf,
-    },
     /// The marks and stars of the step's file, written before the marks file forgets them.
     Marks { number: usize, bits: u8, stars: u8 },
     /// The step's file's place in the collection shown.
@@ -206,14 +195,6 @@ impl Record {
             }
             Record::Done(number) => ("done", vec![text(number)]),
             Record::Tree { from, to } => ("tree", vec![path(from), maybe_path(to)]),
-            Record::Trashed {
-                number,
-                top,
-                info_name,
-            } => {
-                let top = top.as_deref().map_or(HOME_TRASH.into(), path);
-                ("trashed", vec![text(number), top, path(info_name)])
-            }
             Record::Marks {
                 number,
                 bits,
@@ -280,14 +261,6 @@ impl Record {
                 from: absolute(from)?,
                 to: maybe_absolute(to)?,
             },
-            (b"trashed", [n, top, info]) => Record::Trashed {
-                number: number(n)?,
-                top: match &top[..] {
-                    b"home" => None,
-                    top => Some(absolute(top)?),
-                },
-                info_name: plain_name(info)?,
-            },
             (b"marks", [n, bits, stars]) => Record::Marks {
                 number: number(n)?,
                 bits: number(bits)?,
@@ -327,7 +300,6 @@ impl Record {
         match self {
             Record::Step { number, .. }
             | Record::Done(number)
-            | Record::Trashed { number, .. }
             | Record::Marks { number, .. }
             | Record::Place { number, .. }
             | Record::Aside { number, .. }
@@ -351,7 +323,6 @@ impl Record {
         match self {
             Record::Step { number, .. }
             | Record::Done(number)
-            | Record::Trashed { number, .. }
             | Record::Marks { number, .. }
             | Record::Place { number, .. }
             | Record::Aside { number, .. }
@@ -929,16 +900,6 @@ mod tests {
                 from: p("/photos/old"),
                 to: None,
             },
-            Record::Trashed {
-                number: 1,
-                top: None,
-                info_name: p("c d.jpg.trashinfo"),
-            },
-            Record::Trashed {
-                number: 0,
-                top: Some(p("/media/stick")),
-                info_name: p("a.jpg.trashinfo"),
-            },
             Record::Marks {
                 number: 1,
                 bits: 5,
@@ -1067,7 +1028,7 @@ mod tests {
     }
 
     /// A path that is relative or goes up with `..` makes its record be passed over, and so does
-    /// a `.trashinfo` name or a volume with a `/`. The records around it are kept.
+    /// a volume with a `/`. The records around it are kept.
     #[test]
     fn relative_paths_and_dot_dot_are_refused() {
         let good = log_bytes("1", &every_record()[..3]);
@@ -1076,8 +1037,6 @@ mod tests {
             b"shown\0/c/../a.gqv\0\0",
             b"tree\0/photos/old\0../x\0\0",
             b"step\x001\0/photos/a.jpg\0photos/b.jpg\0-\0\0",
-            b"trashed\x000\0home\0../a.trashinfo\0\0",
-            b"trashed\x000\0media\0a.trashinfo\0\0",
             b"aside\x000\0/p/a.xmp\0/p/../q/.h\0\0",
             b"old-log\0../deletes/1-2\0\0",
             b"volume\0/card\0../1234-ABCD\0\0",
@@ -1090,6 +1049,20 @@ mod tests {
             expected.push(Record::Done(0));
             assert_eq!(records_of(&bytes), expected, "{}", bad.escape_ascii());
         }
+    }
+
+    /// A `trashed` record, a kind that Glimt 0.99.0 read but never wrote and this Glimt no
+    /// longer knows, is passed over, and the records around it are kept.
+    /// Risk: a log that a kill left under 0.99.0 is not read whole, and is not put right.
+    #[test]
+    fn a_trashed_record_of_0_99_is_passed_over() {
+        let mut bytes = log_bytes("1", &every_record()[..3]);
+        bytes.extend(b"trashed\x000\0home\0a.jpg.trashinfo\0\0");
+        bytes.extend(super::records_bytes(&[Record::Done(0)]));
+        let mut expected = every_record();
+        expected.truncate(3);
+        expected.push(Record::Done(0));
+        assert_eq!(records_of(&bytes), expected);
     }
 
     /// Every record is written in the shape that Glimt 0.93.0 and 0.94.0 read: a kind they know
