@@ -91,24 +91,16 @@ pub(crate) struct RenameJob {
 /// leaves. That is the Undo of a rename that went through, or the part that a failed Undo
 /// still has to do.
 pub(crate) struct RenameOutcome {
-    result: Result<(), String>,
+    result: Result<(), RenameFailed>,
     left_alone: Vec<usize>,
     undo: Vec<Moved>,
-    /// Whether each file is under a name the rename knows: its new one, or its old one again.
-    /// It is false when a failed rename could not put every old name back.
-    names_known: bool,
-    /// Whether a Stop, also that of a second close, ended the rename with every old name back.
-    /// That is told as a stop, not as a failed write that would keep the window open.
-    stopped: bool,
 }
 
-/// Why `rename_files` failed, and whether every file it renamed has its old name back.
+/// Why `rename_files` failed, and where the names of its files are now.
 #[derive(Debug)]
 pub(crate) struct RenameFailed {
     text: String,
-    names_put_back: bool,
-    /// Whether a Stop ended it, with every old name back.
-    stopped: bool,
+    names: NamesAfterAFailure,
 }
 
 impl From<String> for RenameFailed {
@@ -116,8 +108,32 @@ impl From<String> for RenameFailed {
     fn from(text: String) -> Self {
         RenameFailed {
             text,
-            names_put_back: true,
-            stopped: false,
+            names: NamesAfterAFailure::PutBack,
+        }
+    }
+}
+
+/// Where the names are after a Rename Many failed. One value says it, where two bools allowed
+/// a stop that left names unknown, which no rename ends with.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum NamesAfterAFailure {
+    /// Every file has its old name back.
+    PutBack,
+    /// A Stop, also that of a second close, ended the rename with every old name back. That is
+    /// told as a stop, not as a failed write that would keep the window open.
+    PutBackByAStop,
+    /// Not every old name could be put back, so a file may be under a name the rename does not
+    /// know.
+    NotAllPutBack,
+}
+
+impl NamesAfterAFailure {
+    /// Returns where the names are when every old name is back, `stopped` saying whether a
+    /// Stop ended the rename.
+    fn all_put_back(stopped: bool) -> NamesAfterAFailure {
+        match stopped {
+            true => NamesAfterAFailure::PutBackByAStop,
+            false => NamesAfterAFailure::PutBack,
         }
     }
 }
@@ -232,6 +248,14 @@ impl FilesMoved {
             FilesMoved::ByTheJob(_, pairs) | FilesMoved::FromARecord(pairs) => pairs,
         }
     }
+}
+
+/// Where a file is after one of its sidecars could not follow it (`follow_or_go_back`): back at
+/// the name it was moved from, or still at its new one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum FileIs {
+    Back,
+    AtNew,
 }
 
 /// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
@@ -1902,9 +1926,12 @@ impl crate::App {
             result,
             left_alone,
             undo,
-            names_known,
-            stopped,
         } = answer;
+        let names = result.as_ref().err().map(|e| e.names);
+        // Each file is under a name the rename knows: its new one, or its old one again.
+        let names_known = names != Some(NamesAfterAFailure::NotAllPutBack);
+        let stopped = names == Some(NamesAfterAFailure::PutBackByAStop);
+        let result = result.map_err(|e| e.text);
         let failed = result.is_err();
         // The files left alone are told by name, as an Undo of a move tells them.
         let other = match job.undoing {
@@ -3893,12 +3920,9 @@ fn rename_undoable(
         .map(|(_, pair)| pair)
         .collect();
     let (kept_from, kept_to) = pairs.iter().cloned().unzip();
-    let (result, names_known, stopped) = match pairs.is_empty() {
-        true => (Ok(()), true, false),
-        false => match rename_files(kept_from, kept_to, job, &still_picked, marks_at_new_names) {
-            Ok(()) => (Ok(()), true, false),
-            Err(e) => (Err(e.text), e.names_put_back, e.stopped),
-        },
+    let result = match pairs.is_empty() {
+        true => Ok(()),
+        false => rename_files(kept_from, kept_to, job, &still_picked, marks_at_new_names),
     };
     // An Undo that failed put the names back, so what it still has to do is the rename it was
     // asked to undo, from the old name to the name the file has now. A file left under a
@@ -3914,8 +3938,6 @@ fn rename_undoable(
         result,
         left_alone,
         undo,
-        names_known,
-        stopped,
     }
 }
 
@@ -4050,8 +4072,7 @@ fn rename_files_planned_in(
             }
             return Err(RenameFailed {
                 text: tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e),
-                names_put_back: true,
-                stopped,
+                names: NamesAfterAFailure::all_put_back(stopped),
             });
         }
         // A file is counted when it lands under its name. That is the later half of a swap's
@@ -4213,8 +4234,7 @@ fn names_left_for_the_next_start(
             t,
             e
         ),
-        names_put_back: false,
-        stopped: false,
+        names: NamesAfterAFailure::NotAllPutBack,
     }
 }
 
@@ -4418,8 +4438,8 @@ fn put_files(
                 // old name never picks up a sidecar left behind.
                 errors.extend(told);
                 match back {
-                    true => drop(moving.remove(path)),
-                    false => put.push((path.clone(), target.clone())),
+                    FileIs::Back => drop(moving.remove(path)),
+                    FileIs::AtNew => put.push((path.clone(), target.clone())),
                 }
             } else {
                 put.push((path.clone(), target.clone()));
@@ -4532,14 +4552,14 @@ fn move_back(pairs: Vec<Moved>, mut move_log: Option<&mut journal::MoveLog>) -> 
                     // The file went back to its sidecars at `to`, and the Undo stays to be tried
                     // again. A look at it that failed is no answer that it is gone, so the Undo
                     // keeps the fingerprint of the move, which a file moved back and forth keeps.
-                    Err((true, told)) => {
+                    Err((FileIs::Back, told)) => {
                         errors.extend(told);
                         moving.remove(&to);
                         let now = fingerprint(&to).unwrap_or(at_move);
                         left.push((from, to, now));
                     }
                     // The file is at `from` with the sidecars that followed it.
-                    Err((false, told)) => {
+                    Err((FileIs::AtNew, told)) => {
                         errors.extend(told);
                         back.push((to, from));
                     }
@@ -4583,7 +4603,7 @@ fn follow_or_go_back(
     transfer: Transfer,
     moving: &HashSet<&PathBuf>,
     (names, log): (&mut xmp::AdobeNames, Option<&mut journal::MoveLog>),
-) -> Result<(), (bool, Vec<String>)> {
+) -> Result<(), (FileIs, Vec<String>)> {
     use crate::files::file_io::{KnownAs, fingerprint_or_error, is_still_the_file, put_file_back};
     // The file is looked at before its sidecars follow, which may take a while, so that only
     // this file goes back, not one that another program put at `to` meanwhile. A look that
@@ -4591,7 +4611,12 @@ fn follow_or_go_back(
     let at_put = fingerprint_or_error(to);
     let not = match xmp::follow(from, to, transfer, moving, names) {
         Ok(left_behind) if left_behind.is_empty() => return Ok(()),
-        Ok(left_behind) => return Err((false, left_behind.iter().map(|l| l.told()).collect())),
+        Ok(left_behind) => {
+            return Err((
+                FileIs::AtNew,
+                left_behind.iter().map(|l| l.told()).collect(),
+            ));
+        }
         Err(not) => not,
     };
     let file = escaped_name(from);
@@ -4617,7 +4642,7 @@ fn follow_or_go_back(
         // Each sidecar is put beside the file, also after one that could not be.
         let beside: Vec<bool> = (not.failed.iter())
             .map(|(side, at, e)| {
-                transfer == Transfer::Copy || sidecar_where_the_file_is((side, at), e, true)
+                transfer == Transfer::Copy || sidecar_where_the_file_is((side, at), e, FileIs::Back)
             })
             .collect();
         let is_whole = told.is_empty() && !beside.contains(&false);
@@ -4633,16 +4658,19 @@ fn follow_or_go_back(
                 false => format!("{side}: {e}"),
             }
         }));
-        return Err((true, told));
+        return Err((FileIs::Back, told));
     };
     // The put-back is the step written down last, taken back from its new name.
     if let Some(log) = log {
         log.note_last_step_failed(Direction::Back, &error);
     }
-    let is_back = crate::files::file_io::may_have_been_done(&error, to);
+    let file_is = match crate::files::file_io::may_have_been_done(&error, to) {
+        true => FileIs::Back,
+        false => FileIs::AtNew,
+    };
     let to = escaped_name(to);
     let told = (not.failed.iter())
-        .filter(|(side, at, e)| transfer == Transfer::Copy || !sidecar_where_the_file_is((side, at), e, false))
+        .filter(|(side, at, e)| transfer == Transfer::Copy || !sidecar_where_the_file_is((side, at), e, FileIs::AtNew))
         .map(|(side, at, e)| {
             // A move that may have been done and could not be finished may have left the
             // sidecar at either name, or lost it on the way.
@@ -4670,25 +4698,25 @@ fn follow_or_go_back(
         })
         .chain(not.left_behind.iter().map(|l| l.told()))
         .collect();
-    Err((is_back, told))
+    Err((file_is, told))
 }
 
 /// Puts the sidecar whose move from `side` to `at` failed with `e` beside its file, at `side`
-/// when the file went back (`file_is_back`) and otherwise at `at`. A move that may have been done
+/// when the file went back (`file_is`) and otherwise at `at`. A move that may have been done
 /// may have left it at both names, one file under two, or only at the new one, which
 /// `journal::finish_step` puts right. A move refused for sure left the sidecar at `side`, and it
 /// is not touched. Returns whether the sidecar is surely beside the file now.
 fn sidecar_where_the_file_is(
     (side, at): (&Path, &Path),
     e: &std::io::Error,
-    file_is_back: bool,
+    file_is: FileIs,
 ) -> bool {
     if !crate::files::file_io::may_have_been_done(e, side) {
-        return file_is_back;
+        return file_is == FileIs::Back;
     }
-    let (away, beside) = match file_is_back {
-        true => (at, side),
-        false => (side, at),
+    let (away, beside) = match file_is {
+        FileIs::Back => (at, side),
+        FileIs::AtNew => (side, at),
     };
     journal::finish_step(away, beside) == crate::files::file_io::StepLeft::AtNewName
 }
@@ -5697,7 +5725,8 @@ mod tests {
         crate::files::file_io::RENAME_WAYS_MISSING.set(0);
         let error = swapped.unwrap_err();
         assert!(
-            !error.names_put_back && error.text.contains("next start"),
+            error.names == super::NamesAfterAFailure::NotAllPutBack
+                && error.text.contains("next start"),
             "{}",
             error.text
         );
@@ -5976,10 +6005,10 @@ mod tests {
             );
             UNLINK_FAILS.set(None);
             RENAME_WAYS_MISSING.set(0);
-            let Err((is_back, told)) = result else {
+            let Err((file_is, told)) = result else {
                 panic!("every sidecar followed")
             };
-            assert_eq!(is_back, can_go_back, "{told:?}");
+            assert_eq!(file_is == super::FileIs::Back, can_go_back, "{told:?}");
             assert_eq!(read(&to.join("a.xmp")), "adobe", "{told:?}");
             assert!(!from.join("a.xmp").exists());
             assert_eq!(read(&from.join("a.cr2.xmp")), "own");
@@ -6031,10 +6060,10 @@ mod tests {
             );
             UNLINK_FAILS.set(None);
             RENAME_WAYS_MISSING.set(0);
-            let Err((is_back, told)) = result else {
+            let Err((file_is, told)) = result else {
                 panic!("the sidecar followed")
             };
-            assert_eq!(is_back, can_go_back, "{told:?}");
+            assert_eq!(file_is == super::FileIs::Back, can_go_back, "{told:?}");
             let (beside, away) = match can_go_back {
                 true => (from.join("a.jpg.xmp"), to.join("a.jpg.xmp")),
                 false => (to.join("a.jpg.xmp"), from.join("a.jpg.xmp")),
@@ -6081,10 +6110,10 @@ mod tests {
         ANSWER_LOST_AT.set(None);
         LOOKS_FAIL_ONCE_DONE_AT.set(None);
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != at);
-        let Err((is_back, told)) = result else {
+        let Err((file_is, told)) = result else {
             panic!("the sidecar followed")
         };
-        assert!(!is_back, "{told:?}");
+        assert_eq!(file_is, super::FileIs::AtNew, "{told:?}");
         assert_eq!(std::fs::read_to_string(&at).unwrap(), "own");
         assert_eq!(told.len(), 1, "{told:?}");
         assert!(told[0].contains("or at neither"), "{told:?}");
@@ -6116,7 +6145,7 @@ mod tests {
         );
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
-        let Err((false, told)) = &result else {
+        let Err((super::FileIs::AtNew, told)) = &result else {
             panic!("{result:?}")
         };
         assert!(told[0].contains("is still at its old name"), "{told:?}");
@@ -6146,7 +6175,7 @@ mod tests {
             &std::collections::HashSet::from([&photo]),
             (&mut Default::default(), None),
         );
-        let Err((false, told)) = &result else {
+        let Err((super::FileIs::AtNew, told)) = &result else {
             panic!("{result:?}")
         };
         assert!(told[0].contains("is a link"), "{told:?}");
@@ -6187,7 +6216,10 @@ mod tests {
         );
         LOOK_FAILS.set(None);
         ANSWER_LOST_AT.set(None);
-        assert!(matches!(result, Err((true, _))), "{result:?}");
+        assert!(
+            matches!(result, Err((super::FileIs::Back, _))),
+            "{result:?}"
+        );
         log.remove_once_followed();
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
@@ -6226,7 +6258,10 @@ mod tests {
         );
         LOOK_NOT_FOUND_AT.set(None);
         ON_A_SHARE_IN_A_TEST.set(None);
-        assert!(matches!(result, Err((true, _))), "{result:?}");
+        assert!(
+            matches!(result, Err((super::FileIs::Back, _))),
+            "{result:?}"
+        );
         log.remove_once_followed();
         crate::files::file_io::wait_for_queued_writes();
         crate::files::file_io::wait_for_queued_writes();
@@ -6504,7 +6539,7 @@ mod tests {
             &Default::default(),
         );
         let refused = refused.err().unwrap();
-        assert!(refused.names_put_back);
+        assert_eq!(refused.names, super::NamesAfterAFailure::PutBack);
         assert!(
             refused.text.contains("nothing was renamed"),
             "{}",
@@ -10408,8 +10443,11 @@ mod tests {
                 marks_at_new_names,
             };
             let outcome = super::RenameOutcome {
-                result: if went { Ok(()) } else { Err("stopped".into()) },
-                names_known: true,
+                result: if went {
+                    Ok(())
+                } else {
+                    Err(String::from("stopped").into())
+                },
                 ..renamed_whole()
             };
             app.finish_rename_many(&ctx, job, outcome);
@@ -10430,8 +10468,6 @@ mod tests {
             result: Ok(()),
             left_alone: Vec::new(),
             undo: Vec::new(),
-            names_known: true,
-            stopped: false,
         }
     }
 
@@ -10464,11 +10500,12 @@ mod tests {
         );
         let job = app.file_operations.renaming.take().unwrap();
         let outcome = super::RenameOutcome {
-            result: Err("not all names could be put back".into()),
+            result: Err(super::RenameFailed {
+                text: "not all names could be put back".into(),
+                names: super::NamesAfterAFailure::NotAllPutBack,
+            }),
             left_alone: Vec::new(),
             undo: Vec::new(),
-            names_known: false,
-            stopped: false,
         };
         app.finish_rename_many(&ctx, job, outcome);
         assert!(run_background_until(&mut app, &ctx, |app| !app
