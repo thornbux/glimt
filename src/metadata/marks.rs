@@ -1195,7 +1195,12 @@ fn has_form_of_marks_line(line: &[u8]) -> bool {
 /// An existing sidecar keeps everything else: only the rating changes, or is added to its first
 /// rdf:Description. Without a sidecar, 0 stars writes none.
 pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
-    crate::metadata::xmp::update_sidecar(path, stars == 0, |x| set_rating(x, stars))
+    use crate::files::file_io::IfMissing;
+    let if_missing = match stars {
+        0 => IfMissing::LeaveMissing,
+        _ => IfMissing::Create,
+    };
+    crate::metadata::xmp::update_sidecar(path, if_missing, |x| set_rating(x, stars))
 }
 
 /// `xmp` with its rating set to `stars`, as an attribute of its first rdf:Description. Returns

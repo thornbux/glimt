@@ -3,7 +3,7 @@
 //! own files. Only columns that have been the same for many Lightroom versions are read. Also
 //! File → Import Lightroom Catalog's dialog, what it will do (`Catalog::plan`) and the import.
 
-use crate::files::file_io::ListedFile;
+use crate::files::file_io::{IfMissing, ListedFile};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 use crate::model::listing::{Types, is_listed};
@@ -549,7 +549,12 @@ impl crate::App {
             let failed: Vec<&str> = (all.iter())
                 .filter(|(name, paths)| {
                     (dir.as_ref()).is_none_or(|d| {
-                        collections::append(&d.join(format!("{name}.gqv")), paths, true).is_err()
+                        collections::append(
+                            &d.join(format!("{name}.gqv")),
+                            paths,
+                            IfMissing::Create,
+                        )
+                        .is_err()
                     })
                 })
                 .map(|(name, _)| name.as_str())

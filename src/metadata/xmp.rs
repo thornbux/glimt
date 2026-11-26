@@ -6,7 +6,7 @@
 //! when their files move.
 
 use crate::files::config::fits_on_a_line;
-use crate::files::file_io::ListedFile;
+use crate::files::file_io::{IfMissing, ListedFile};
 use crate::images::save::FileId;
 use crate::support::format::{escaped_name, without_control_characters};
 use crate::support::threads::lock_even_if_poisoned;
@@ -567,7 +567,11 @@ pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), String>
     let clears_only = fields
         .iter()
         .all(|f| f.as_deref().is_none_or(str::is_empty));
-    update(path, clears_only && !own, |x| {
+    let if_missing = match clears_only && !own {
+        true => IfMissing::LeaveMissing,
+        false => IfMissing::Create,
+    };
+    update(path, if_missing, |x| {
         set_alt_text(x, change, inside.as_deref(), own)
     })
 }
@@ -977,7 +981,7 @@ fn write_keywords(
         .filter(|list| inside.as_deref().is_some_and(|x| has_property(x, list)))
         .collect();
     let mut written = KeywordsAndComment::default();
-    update(path, false, |x| {
+    update(path, IfMissing::Create, |x| {
         let from = match has_keywords_or_comment(x) {
             true => x,
             false => inside.as_deref().unwrap_or_default(),
@@ -1315,18 +1319,19 @@ fn lock_of(key: u64) -> &'static std::sync::Mutex<()> {
     }
 }
 
-/// Changes the sidecar of `path` with `change`, or a new, empty sidecar unless `only_if_there`,
-/// in which case a file without a sidecar keeps having none. It is written to a temporary file
+/// Changes the sidecar of `path` with `change`, or a new, empty sidecar with
+/// `IfMissing::Create`. With `LeaveMissing` a file without a sidecar keeps having none, and that
+/// counts as done. It is written to a temporary file
 /// first, so a crash never leaves half a sidecar. The stars are written with it; a turn holds the
 /// lock on after the change, so it takes the lock itself (`update_locked_sidecar`).
 #[cfg(any(feature = "marks", test))]
 pub fn update_sidecar(
     path: &Path,
-    only_if_there: bool,
+    if_missing: IfMissing,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    update(path, only_if_there, change)
+    update(path, if_missing, change)
 }
 
 /// Changes the sidecar of `path` as `update_sidecar` does, with its lock already taken by the
@@ -1334,15 +1339,15 @@ pub fn update_sidecar(
 pub(crate) fn update_locked_sidecar(
     _lock: &SidecarLock,
     path: &Path,
-    only_if_there: bool,
+    if_missing: IfMissing,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
-    update(path, only_if_there, change)
+    update(path, if_missing, change)
 }
 
 fn update(
     path: &Path,
-    only_if_there: bool,
+    if_missing: IfMissing,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
     // When the image was moved, renamed or deleted while this waited, no sidecar of its old
@@ -1382,7 +1387,7 @@ fn update(
         Ok(Some(bytes)) => {
             String::from_utf8(bytes).map_err(|e| format!("{}: {e}", escaped_name(&side)))?
         }
-        Ok(None) if only_if_there => return Ok(()),
+        Ok(None) if if_missing == IfMissing::LeaveMissing => return Ok(()),
         Ok(None) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
              <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
              <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
@@ -3387,7 +3392,10 @@ mod tests {
             super::add_keywords(&file, &["Oslo".into()]).unwrap();
             super::tag_file(&file, "Places|Norway|Bergen", true).unwrap();
             super::write_changed(&file, None, Some("Trip".into())).unwrap();
-            super::update_sidecar(&file, true, |x| Some(x.to_owned())).unwrap();
+            super::update_sidecar(&file, crate::files::file_io::IfMissing::LeaveMissing, |x| {
+                Some(x.to_owned())
+            })
+            .unwrap();
         }
         assert!(
             MOUNT_TABLES_PARSED.get() <= 1,
@@ -3953,7 +3961,10 @@ mod tests {
         std::fs::write(sidecar(&file), "<x:xmpmeta/>").unwrap();
         let ro = std::fs::Permissions::from_mode(0o444);
         std::fs::set_permissions(sidecar(&file), ro).unwrap();
-        let refused = update_sidecar(&file, true, |x| Some(format!("{x} "))).unwrap_err();
+        let refused = update_sidecar(&file, crate::files::file_io::IfMissing::LeaveMissing, |x| {
+            Some(format!("{x} "))
+        })
+        .unwrap_err();
         assert!(
             refused.starts_with(&sidecar(&file).display().to_string()),
             "{refused}"
@@ -3994,7 +4005,7 @@ mod tests {
             if was_there {
                 std::fs::write(sidecar(&file), "<x:xmpmeta/>").unwrap();
             }
-            let written = update_sidecar(&file, false, |old| {
+            let written = update_sidecar(&file, crate::files::file_io::IfMissing::Create, |old| {
                 std::fs::write(sidecar(&file), theirs).unwrap();
                 Some(format!("{old} "))
             });

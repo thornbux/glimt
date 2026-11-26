@@ -7525,7 +7525,10 @@ mod tests {
         let (logs, gqv) = (dir.join("logs"), dir.join("col.gqv"));
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         let both = [a.clone(), b.clone()];
-        crate::model::collections::edit(&gqv, true, |all| *all = both.to_vec()).unwrap();
+        crate::model::collections::edit(&gqv, crate::files::file_io::IfMissing::Create, |all| {
+            *all = both.to_vec()
+        })
+        .unwrap();
         let mut log = super::journal::start_delete_log(&logs, "delete", Some(&gqv)).unwrap();
         log.note(&both);
         // The kill came after a.png went and was written down as gone, before b.png.

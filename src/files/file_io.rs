@@ -988,6 +988,18 @@ impl From<StepError> for std::io::Error {
     }
 }
 
+/// What a change of a file that is not there yet does: a collection edited or added to
+/// (`collections::edit`), or a photo's sidecar changed (`xmp::update_sidecar`). Set wrong, a
+/// collection renamed or trashed elsewhere is made again, a sidecar is made for a photo that had
+/// none, or the change is lost.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum IfMissing {
+    /// The file is made, empty, and the change goes into it.
+    Create,
+    /// The file is not made. Each function that takes this says what it returns then.
+    LeaveMissing,
+}
+
 /// Where sure looks at both names of a step find its file (`where_a_step_left_the_file`).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum StepLeft {
