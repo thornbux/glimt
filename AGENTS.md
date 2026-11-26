@@ -948,6 +948,13 @@ release as well, to see that it fails there.
 New thumbnails are saved to the shared cache by default (`save_thumbnails`). Test with a
 separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
 
+When behaviour changes on purpose, the existing test that holds it is changed to the new
+behaviour, rather than a new test added beside it. A test or release-test section that fails
+now and then, also only on CI's slower runners, is a bug of the test or of Glimt, never noise.
+It waits for the event it needs, never for a time, and a longer wait, a retry or a looser
+assertion is no fix. Its cause is found first: of the flaky tests of 0.99 to 0.101, two hid a
+real bug in Glimt.
+
 ## What an agent decides, and what it asks
 
 An agent decides on its own, within its task and these rules: the code, its tests and
