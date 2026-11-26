@@ -1668,7 +1668,14 @@ mod tests {
             ["sea"]
         );
         // Another image shown while the wait runs ends it, and its own panel is read.
-        let other = app.start_job_of("Other", 1, true, Vec::new()).unwrap();
+        let other = app
+            .start_job_of(
+                "Other",
+                1,
+                crate::files::file_ops::JobWrites::TheirSidecars,
+                Vec::new(),
+            )
+            .unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&file));
         app.show_file(&ctx, 1);
         app.request_and_take_exif(&ctx);
@@ -1696,7 +1703,14 @@ mod tests {
         ));
         app.show_file(&ctx, 0);
         read_panel(&mut app, &ctx);
-        let other = app.start_job_of("Other", 1, true, vec![b.clone()]).unwrap();
+        let other = app
+            .start_job_of(
+                "Other",
+                1,
+                crate::files::file_ops::JobWrites::TheirSidecars,
+                vec![b.clone()],
+            )
+            .unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&a));
         app.request_and_take_exif(&ctx);
         assert!(
@@ -1705,7 +1719,12 @@ mod tests {
         );
         drop(other);
         let writing = app
-            .start_job_of("Saving", 1, true, vec![a.clone()])
+            .start_job_of(
+                "Saving",
+                1,
+                crate::files::file_ops::JobWrites::TheirSidecars,
+                vec![a.clone()],
+            )
             .unwrap();
         app.show_file(&ctx, 1);
         app.request_and_take_exif(&ctx);

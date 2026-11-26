@@ -349,6 +349,16 @@ impl HeldBackFiles {
     }
 }
 
+/// What a job writes: the files themselves (a copy, move, delete or rename), or only their
+/// sidecars (keywords, comments, stars, a Lightroom import). It is named where the job starts,
+/// so that no `bool` can say the one for the other.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum JobWrites {
+    TheFiles,
+    /// The files must not be moved, renamed or deleted while it runs.
+    TheirSidecars,
+}
+
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
 /// import). The status bar shows how far it is, and its Stop takes effect between files.
 pub(crate) struct Job {
@@ -360,9 +370,8 @@ pub(crate) struct Job {
     pub(crate) started: Instant,
     /// Every job writes files, so closing waits for it as long as its thread holds the job.
     _writing: Working,
-    /// Whether the job writes the sidecars of its files. Those files must not be moved, renamed
-    /// or deleted while it runs.
-    pub(crate) writes_sidecars: bool,
+    /// What the job writes, the files or their sidecars.
+    writes: JobWrites,
     /// The files and folders the job changes. No other operation starts on them while it runs.
     pub(crate) held_back_files: Vec<PathBuf>,
 }
@@ -372,7 +381,7 @@ impl Job {
     pub(crate) fn new(
         activity: &'static str,
         total: usize,
-        writes_sidecars: bool,
+        writes: JobWrites,
         held_back_files: Vec<PathBuf>,
     ) -> Job {
         Job {
@@ -382,9 +391,15 @@ impl Job {
             stop_requested: Default::default(),
             started: Instant::now(),
             _writing: Working::new(&crate::files::file_io::WRITING),
-            writes_sidecars,
+            writes,
             held_back_files,
         }
+    }
+
+    /// Returns whether the job writes the sidecars of its files, which must then stay where
+    /// they are while it runs.
+    pub(crate) fn writes_sidecars(&self) -> bool {
+        self.writes == JobWrites::TheirSidecars
     }
 
     /// Whether Stop was pressed.
@@ -553,7 +568,7 @@ impl FileOperations {
     /// Lets go of the jobs and the `run_in_background` work that ended. Returns true when the last
     /// job writing sidecars ended now.
     pub(crate) fn drop_ended_jobs(&mut self) -> bool {
-        let any_writing = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.writes_sidecars);
+        let any_writing = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.writes_sidecars());
         let were_writing = any_writing(&self.jobs);
         self.jobs.retain(|job| Arc::strong_count(job) > 1);
         self.held_back_files.retain(|t| Arc::strong_count(t) > 1);
@@ -562,7 +577,7 @@ impl FileOperations {
 
     /// Returns whether a job writing sidecars runs.
     pub(crate) fn is_writing_sidecars(&self) -> bool {
-        (self.jobs.iter()).any(|j| j.writes_sidecars && Arc::strong_count(j) > 1)
+        (self.jobs.iter()).any(|j| j.writes_sidecars() && Arc::strong_count(j) > 1)
     }
 
     /// Returns the running jobs that write the sidecar of `file`, or of a folder it is in. Each
@@ -571,7 +586,7 @@ impl FileOperations {
     /// import's 100,000 files in every frame.
     pub(crate) fn jobs_writing_sidecar_of(&self, file: &Path) -> Vec<std::sync::Weak<Job>> {
         (self.jobs.iter())
-            .filter(|j| j.writes_sidecars && Arc::strong_count(j) > 1)
+            .filter(|j| j.writes_sidecars() && Arc::strong_count(j) > 1)
             .filter(|j| j.held_back_files.iter().any(|t| file.starts_with(t)))
             .map(Arc::downgrade)
             .collect()
@@ -588,7 +603,7 @@ impl FileOperations {
     /// be lost while the panel shows it as saved.
     pub(crate) fn stop_jobs(&self) {
         (self.jobs.iter())
-            .filter(|job| !(job.writes_sidecars && job.total == 1))
+            .filter(|job| !(job.writes_sidecars() && job.total == 1))
             .for_each(|job| job.stop_requested.store(true, Ordering::Relaxed));
     }
 
@@ -869,7 +884,7 @@ impl crate::App {
         let saving =
             (self.file_operations.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
         let writing = (self.file_operations.jobs.iter())
-            .any(|j| j.writes_sidecars && Arc::strong_count(j) > 1);
+            .any(|j| j.writes_sidecars() && Arc::strong_count(j) > 1);
         // Only one Rename Many runs at a time, and nothing else works on files while it runs.
         // Otherwise a step would find its file gone, and its undo could not put the others
         // back.
@@ -957,28 +972,28 @@ impl crate::App {
         total: usize,
         held_back_files: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
-        self.start_job_of(activity, total, false, held_back_files)
+        self.start_job_of(activity, total, JobWrites::TheFiles, held_back_files)
     }
 
-    /// `start_job`, of the files' sidecars (`writes_sidecars`) or of the files themselves.
+    /// `start_job`, of the files themselves or of their sidecars, as `writes` says.
     pub(crate) fn start_job_of(
         &mut self,
         activity: &'static str,
         total: usize,
-        writes_sidecars: bool,
+        writes: JobWrites,
         held_back_files: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
         // Keywords and stars are never refused, because an edit made in the panel would be lost.
         // They wait for a checked list in `write_sidecars` instead, and their job holds back
         // every other operation (`are_free_to_change`'s `writing`). A job that changes none of
         // the user's files, such as a backup, is not refused either.
-        if !writes_sidecars
+        if writes == JobWrites::TheFiles
             && !held_back_files.is_empty()
             && !self.are_free_to_change(&held_back_files)
         {
             return None;
         }
-        let job = Arc::new(Job::new(activity, total, writes_sidecars, held_back_files));
+        let job = Arc::new(Job::new(activity, total, writes, held_back_files));
         self.file_operations.jobs.push(job.clone());
         Some(job)
     }
@@ -2611,7 +2626,12 @@ impl crate::App {
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         let paths: Vec<PathBuf> = files.iter().map(|f| f.path().to_path_buf()).collect();
-        let Some(job) = self.start_job_of(activity, paths.len(), true, paths.clone()) else {
+        let Some(job) = self.start_job_of(
+            activity,
+            paths.len(),
+            JobWrites::TheirSidecars,
+            paths.clone(),
+        ) else {
             return;
         };
         // "exif:" searches find keywords, comments and stars too, so these files are read
@@ -4964,7 +4984,7 @@ mod tests {
         let held = crate::metadata::xmp::lock_sidecar(&p("b.jpg"));
         let (from, to) = (vec![p("a.jpg"), p("b.jpg")], vec![p("c.jpg"), p("d.jpg")]);
         let renaming = std::thread::spawn(move || {
-            let job = super::Job::new("Renaming", 2, false, Vec::new());
+            let job = super::Job::new("Renaming", 2, super::JobWrites::TheFiles, Vec::new());
             rename_files(from, to, &job).map_err(|e| e.text)
         });
         // The first photo's last step: its sidecar follows it after the photo itself. Waited for
@@ -5607,7 +5627,7 @@ mod tests {
         let p = |n: &str| dir.join(n);
         std::fs::write(p("a.jpg"), "a").unwrap();
         std::fs::write(p("b.jpg"), "b").unwrap();
-        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        let job = super::Job::new("Renaming", 2, super::JobWrites::TheFiles, Vec::new());
         // The renames' folder fails to sync, and the state folder with the plan does not.
         crate::files::file_io::FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
         let swapped = rename_files(
@@ -5636,7 +5656,7 @@ mod tests {
         let p = |n: &str| dir.join(n);
         std::fs::write(p("a.jpg"), "a").unwrap();
         std::fs::write(p("b.jpg"), "b").unwrap();
-        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        let job = super::Job::new("Renaming", 2, super::JobWrites::TheFiles, Vec::new());
         // The second step, b.jpg to its hidden name, is linked and its unlink answers EIO.
         crate::files::file_io::RENAME_WAYS_MISSING.set(1);
         crate::files::file_io::UNLINK_FAILS.set(Some((p("b.jpg"), libc::EIO)));
@@ -5679,7 +5699,7 @@ mod tests {
         std::fs::write(p("a.jpg"), "a").unwrap();
         std::fs::write(p("b.jpg"), "b").unwrap();
         let long = format!("{}.jpg", "x".repeat(300));
-        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        let job = super::Job::new("Renaming", 2, super::JobWrites::TheFiles, Vec::new());
         // The last step, b.jpg's hidden name to the long name, fails with ENAMETOOLONG.
         let swapped = rename_files(
             vec![p("a.jpg"), p("b.jpg")],
@@ -5718,7 +5738,7 @@ mod tests {
             let _socket = std::os::unix::net::UnixListener::bind(from.join("a.xmp")).unwrap();
             RENAME_WAYS_MISSING.set(1);
             UNLINK_FAILS.set(Some((from.join("a.xmp"), libc::EPERM)));
-            let job = super::Job::new("Moving", 1, false, Vec::new());
+            let job = super::Job::new("Moving", 1, super::JobWrites::TheFiles, Vec::new());
             let paths = [from.join("a.cr2")];
             let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
             let (_, picked) = picked.wait_for_fingerprints();
@@ -5781,7 +5801,7 @@ mod tests {
         // a.cr2's own sidecar is a socket, which can be neither moved (its old name cannot be
         // unlinked) nor copied.
         let _socket = std::os::unix::net::UnixListener::bind(from.join("a.cr2.xmp")).unwrap();
-        let job = super::Job::new("Moving", 2, false, Vec::new());
+        let job = super::Job::new("Moving", 2, super::JobWrites::TheFiles, Vec::new());
         let paths = [from.join("a.cr2"), from.join("a.nef")];
         let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
@@ -5853,7 +5873,12 @@ mod tests {
         for path in &paths {
             std::fs::write(path, "jpg").unwrap();
         }
-        let job = super::Job::new("Moving", paths.len(), false, Vec::new());
+        let job = super::Job::new(
+            "Moving",
+            paths.len(),
+            super::JobWrites::TheFiles,
+            Vec::new(),
+        );
         let picked = crate::files::file_io::PickedFiles::new(paths.clone());
         let (_, picked) = picked.wait_for_fingerprints();
         MOUNT_TABLES_PARSED.set(0);
@@ -6438,7 +6463,7 @@ mod tests {
         }
         // A file where the plans' folder should be, so that no plan can be made in it.
         std::fs::write(p("plans"), "").unwrap();
-        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        let job = super::Job::new("Renaming", 2, super::JobWrites::TheFiles, Vec::new());
         let refused = super::rename_files_planned_in(
             Some(p("plans")),
             (vec![p("a.jpg"), p("b.jpg")], vec![p("b.jpg"), p("a.jpg")]),
@@ -6470,7 +6495,7 @@ mod tests {
         for (n, t) in [("a.jpg", "a"), ("b.jpg", "b"), ("a.jpg.xmp", "a's")] {
             std::fs::write(p(n), t).unwrap();
         }
-        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        let job = super::Job::new("Renaming", 2, super::JobWrites::TheFiles, Vec::new());
         rename_files(
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],
@@ -6598,7 +6623,12 @@ mod tests {
         // Work that touches none of the user's files is never held back, also while a
         // keywords job holds back everything else (a Lightroom import's collections).
         let held = app
-            .start_job_of("Writing", 1, true, vec![dir.join("b.png")])
+            .start_job_of(
+                "Writing",
+                1,
+                super::JobWrites::TheirSidecars,
+                vec![dir.join("b.png")],
+            )
             .unwrap();
         assert!(app.run_in_background(&ctx, Vec::new(), || None));
         drop(held);
@@ -7521,7 +7551,7 @@ mod tests {
         app.marks
             .rate(&crate::support::test_support::unlisted(&all), 3);
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
-        let job = super::Job::new("Deleting", 4, false, Vec::new());
+        let job = super::Job::new("Deleting", 4, super::JobWrites::TheFiles, Vec::new());
         let mut log = super::journal::start_delete_log(&logs, "delete", None).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
@@ -8127,7 +8157,7 @@ mod tests {
             3,
         );
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
-        let job = super::Job::new("Moving", 2, false, Vec::new());
+        let job = super::Job::new("Moving", 2, super::JobWrites::TheFiles, Vec::new());
         let mut log = super::journal::start_move_log(&logs).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
@@ -8221,7 +8251,7 @@ mod tests {
         use crate::files::file_io::{ANSWER_LOST_AT, LOOK_FAILS};
         let dir = contract_folder("move-cannot-tell");
         let (to, logs, a) = (dir.join("sub"), dir.join("logs"), dir.join("a.png"));
-        let job = super::Job::new("Moving", 1, false, Vec::new());
+        let job = super::Job::new("Moving", 1, super::JobWrites::TheFiles, Vec::new());
         let mut log = super::journal::start_move_log(&logs).unwrap();
         let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
         let (_, picked) = picked.wait_for_fingerprints();
@@ -8314,7 +8344,7 @@ mod tests {
         let dir = contract_folder("move-log-full");
         let to = dir.join("sub");
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
-        let job = super::Job::new("Moving", 2, false, Vec::new());
+        let job = super::Job::new("Moving", 2, super::JobWrites::TheFiles, Vec::new());
         let mut log = super::journal::MoveLog::refusing_writes(&dir.join("log"));
         let paths = [a.clone(), b.clone()];
         let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
@@ -8636,7 +8666,7 @@ mod tests {
         let paths = [from.join("a.jpg")];
         let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
         let (_, picked) = picked.wait_for_fingerprints();
-        let job = super::Job::new("Moving", 1, false, Vec::new());
+        let job = super::Job::new("Moving", 1, super::JobWrites::TheFiles, Vec::new());
         ANSWER_LOST_AT.set(Some(from.join("a.jpg")));
         let (errors, put) =
             super::put_files(&paths, (&picked, &to), (super::Transfer::Move, None), &job);
@@ -8839,7 +8869,7 @@ mod tests {
         // seen, so one started as `app.` in a closure that is given the App passed unseen.
         for spelling in [
             "app.start_job(ctx, x);",
-            "            .start_job_of(\"Moving\", 1, false, paths)",
+            "            .start_job_of(\"Moving\", 1, JobWrites::TheFiles, paths)",
             "crate::App::run_in_background(app, ctx, held, work);",
             "let held = window.hold_back_while_writing(paths)?;",
             "paths.iter().map(App::run_in_background);",
@@ -10698,7 +10728,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.viewing.set_turn((1, false), a.clone());
         let held = app
-            .start_job_of("Moving", 1, false, vec![a.clone()])
+            .start_job_of("Moving", 1, super::JobWrites::TheFiles, vec![a.clone()])
             .unwrap();
         app.notice.clear();
         app.save_orientation(&ctx);
@@ -10786,7 +10816,12 @@ mod tests {
         // the file would be read before its sidecar landed. Once it is written, it is read
         // again.
         let writing = app
-            .start_job_of("Saving keywords", 1, true, vec![dir.join("a.png")])
+            .start_job_of(
+                "Saving keywords",
+                1,
+                super::JobWrites::TheirSidecars,
+                vec![dir.join("a.png")],
+            )
             .unwrap();
         app.search.set_query("exif:x");
         app.update_search(&ctx);
