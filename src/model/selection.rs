@@ -19,11 +19,13 @@ use std::sync::mpsc;
 /// files, or the shown image when none is selected. Only `App::targets`, `App::asked_targets`
 /// and `App::select_for_action` make one, so a function that takes it cannot be given the shown
 /// image in place of the files the user picked (AGENTS.md, rule 2). Every function that acts on
-/// the picked files takes one, and its caller asks for it.
+/// the picked files takes one. Its caller asks for it, or the menu item itself asks where it acts
+/// (the Open With submenu's choices, the Sort Manager's folder buttons).
 ///
 /// The places hold only for the list of the frame they were made in, as a listing moves the
 /// files. So a `Targets` is never kept in a struct, a channel or a dialog's state. A wait goes
-/// through `PickedFiles` or `Asked`, and `asked_targets` finds the files again after it. The
+/// through `PickedFiles` or `Asked`, and `asked_targets` finds the files again after it, or
+/// carries the paths themselves (Open With's question). The
 /// type is not `Send`, which keeps it out of a thread and a channel to one. A field of `App`
 /// that held one is not refused by the compiler, and is for review to find.
 pub(crate) struct Targets {
