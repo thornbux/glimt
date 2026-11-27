@@ -193,9 +193,12 @@ impl Marks {
         self.read_file_again(false);
     }
 
-    /// Gives `files` the stars `stars`.
+    /// Gives `files` the stars `stars`. The file is read back after the write, as for `toggle`,
+    /// so that stars the writer refused (`ListedFile::check`) do not stay shown. It reads the
+    /// file only when the write did not leave it as this window holds it.
     pub fn rate(&mut self, files: &[ListedFile], stars: u8) {
         self.change(files, Change::Stars(stars));
+        self.read_file_again(false);
     }
 
     /// Reads the marks file again after this window's writes queued before, also when it is as
@@ -1026,8 +1029,9 @@ fn write(file: &Path, changes: Vec<Edit>) {
         // Under the file's lock: no other window wrote since this one read or wrote it. The file
         // is looked at before `KNOWN_STAMPS` is taken, as in `read_file_again`.
         let stamp = file_stamp(file);
-        // A pair left out was made in the window's marks, so the window reads the file again.
-        let ours = known_stamps().get(file) == Some(&stamp) && !some_left_out;
+        // A pair left out, or a change refused, was made in the window's marks, so the window
+        // reads the file again and shows what it holds.
+        let ours = known_stamps().get(file) == Some(&stamp) && !some_left_out && taken.is_empty();
         let mut map = parse(bytes);
         let before = map.clone();
         for change in &changes {
@@ -1600,9 +1604,11 @@ mod tests {
         std::fs::write(&file, format!("0\t3\t{}\n", a.display())).unwrap();
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let mut marks = super::read_marks();
-        marks.rate(
+        // The rating as `rate` makes it, without the read back it queues after the write, as
+        // the test writes by hand.
+        marks.change(
             &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
-            4,
+            super::Change::Stars(4),
         );
         super::write(&file, super::SENT.with(|sent| sent.take()));
         // The share stops answering: the read fails, and the rating, not yet confirmed by a
@@ -2057,6 +2063,43 @@ mod tests {
         super::write(&file, super::SENT.with(|sent| sent.take()));
         let now = super::parse(&std::fs::read(&file).unwrap());
         assert_eq!((now.get(&a), now.get(&b)), (None, Some(&(0, 3))));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A mark or stars refused for an entry that no listing has checked do not stay shown: the
+    /// writer does not take the file as held after the refusal, and a rate asks for the read
+    /// back as a toggle does. Risk: the window showing, and Select Mark selecting, a mark the
+    /// file does not have, for good when the listing then fails.
+    #[test]
+    fn a_mark_refused_for_an_unchecked_entry_is_not_shown() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-marks-ref-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        // A file with a mark already, so the refused write leaves it as it is.
+        std::fs::write(&file, format!("0\t2\t{}\n", b.display())).unwrap();
+        let entry = [crate::files::file_io::ListedFile::unchecked_entry(
+            a.clone(),
+            &Default::default(),
+        )];
+        let mut marks = super::read_marks();
+        // The changes as `rate` and `toggle` make them, without the read back they queue after
+        // the write, as the test writes by hand.
+        marks.change(&entry, super::Change::Stars(3));
+        marks.change(&entry, super::Change::Toggle(1));
+        assert_eq!(marks.get(&a), (1, 3));
+        crate::files::file_io::take_saves_failed();
+        super::write(&file, super::SENT.with(|sent| sent.take()));
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        refreshed(&mut marks);
+        assert_eq!((marks.get(&a), marks.get(&b)), ((0, 0), (0, 2)));
+        marks.rate(&entry, 3);
+        assert!(marks.is_reading(), "a rate reads the file back");
+        settled(&mut marks);
+        super::SENT.with(|sent| sent.take());
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
