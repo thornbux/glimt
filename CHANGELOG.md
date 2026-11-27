@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The list of the files that a Rename Many cut short left under the wrong names is saved only
+  at a name ending in .txt or .m3u. Before, a name picked in the chooser could be an image or a
+  collection, which the list's text then replaced (#329).
+
 ## [0.104.0] - 2026-11-27
 
 ### Added
