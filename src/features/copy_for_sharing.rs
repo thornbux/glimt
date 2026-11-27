@@ -420,7 +420,7 @@ impl crate::App {
         }
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("copy for sharing")).show(ctx, |ui| {
-            ui.strong(Action::CopyForSharing.label());
+            ui.show_strong(Action::CopyForSharing.label());
             ui.show_label(count(dialog.picked.paths().len(), "image"));
             go = dialog.draw(ui);
         });

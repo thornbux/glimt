@@ -180,7 +180,7 @@ impl FindDuplicates {
                 for &(g, f) in &self.rows[range] {
                     let group = &self.groups[g];
                     if f == usize::MAX {
-                        ui.strong(tf!(
+                        ui.show_strong(tf!(
                             "Group {n} ({files})",
                             n = g + 1,
                             files = count(group.len(), "file")
@@ -300,7 +300,7 @@ impl crate::App {
             }
         }
         let (mut open, mut start, mut trash, mut show) = (true, false, false, None);
-        egui::Window::new(tr("Find Duplicates"))
+        crate::ui::menus::window(tr("Find Duplicates"))
             .open(&mut open)
             .default_size([620.0, 480.0])
             .show(ctx, |ui| {

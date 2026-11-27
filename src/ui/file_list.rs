@@ -949,7 +949,7 @@ impl crate::App {
             p.rect_filled(at.expand(2.0), 3.0, egui::Color32::from_black_alpha(170));
             p.galley(at.min, galley, gold);
         }
-        let response = response.on_hover_text_at_pointer(match self.folder.collection() {
+        let response = response.tip_at_pointer(match self.folder.collection() {
             Some(_) => escaped_name(self.path(i)),
             None => self.name(i),
         });
@@ -1231,7 +1231,7 @@ impl crate::App {
             .resizable(true)
             .default_size(200.0)
             .show(ui, |ui| {
-                ui.strong(tr("Sort Manager"));
+                ui.show_strong(tr("Sort Manager"));
                 ui.horizontal(|ui| {
                     let c = &mut self.config;
                     let changed = radio_choice(ui, &mut c.sort_move, false, tr("Copy")).changed()

@@ -251,7 +251,7 @@ impl crate::App {
         };
         self.pan_days(ctx, &mut pan);
         let (mut open, mut show, mut close) = (true, None, false);
-        egui::Window::new(tr("Pan View"))
+        crate::ui::menus::window(tr("Pan View"))
             .open(&mut open)
             .default_size([900.0, 640.0])
             .show(ctx, |ui| {

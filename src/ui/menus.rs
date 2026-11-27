@@ -88,10 +88,11 @@ impl OpenWith {
     }
 }
 
-/// The ways a shown text is drawn other than a button: a label, a weak or a heading label, a
-/// tooltip, a combo box's text, a text painted by hand and what a screen reader says. Each takes
-/// a `ShownText`, so a raw name or a `String` cannot be drawn, and `clippy.toml` refuses the
-/// egui call each of them makes.
+/// The ways a shown text is drawn other than a button: a label, a weak, strong or heading label,
+/// a tooltip, a combo box's text, a field's hint, a slider's text, a part of a laid out text, a
+/// text painted by hand, a window's title, a collapsing header and what a screen reader says.
+/// Each takes a `ShownText`, so a raw name or a `String` cannot be drawn, and `clippy.toml`
+/// refuses the egui call each of them makes.
 pub(crate) trait DrawShown {
     /// Draws `text` as a label.
     fn show_label(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
@@ -99,6 +100,8 @@ pub(crate) trait DrawShown {
     fn show_weak(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
     /// Draws `text` as a heading.
     fn show_heading(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
+    /// Draws `text` as a label in the strong colour.
+    fn show_strong(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
 }
 
 impl DrawShown for egui::Ui {
@@ -114,18 +117,67 @@ impl DrawShown for egui::Ui {
     fn show_heading(&mut self, text: impl AsRef<ShownText>) -> egui::Response {
         self.heading(text.as_ref().as_str())
     }
+    #[allow(clippy::disallowed_methods)] // The one place a label of text is drawn.
+    fn show_strong(&mut self, text: impl AsRef<ShownText>) -> egui::Response {
+        self.strong(text.as_ref().as_str())
+    }
 }
 
 /// A tooltip of a shown text, which egui's own `on_hover_text` would take as any `String`.
 pub(crate) trait ShownTip {
     /// Shows `text` while the pointer is on the widget.
     fn tip(self, text: impl AsRef<ShownText>) -> egui::Response;
+    /// Shows `text` beside the pointer while it is on the widget.
+    fn tip_at_pointer(self, text: impl AsRef<ShownText>) -> egui::Response;
 }
 
 impl ShownTip for egui::Response {
     #[allow(clippy::disallowed_methods)] // The one place a tooltip of text is drawn.
     fn tip(self, text: impl AsRef<ShownText>) -> egui::Response {
         self.on_hover_text(text.as_ref().as_str())
+    }
+    #[allow(clippy::disallowed_methods)] // The one place a tooltip at the pointer is drawn.
+    fn tip_at_pointer(self, text: impl AsRef<ShownText>) -> egui::Response {
+        self.on_hover_text_at_pointer(text.as_ref().as_str())
+    }
+}
+
+/// The grey text an empty text field shows, as a shown text.
+pub(crate) trait ShownHint {
+    /// Returns the field showing `text` while it is empty.
+    fn hint(self, text: impl AsRef<ShownText>) -> Self;
+}
+
+impl ShownHint for egui::TextEdit<'_> {
+    #[allow(clippy::disallowed_methods)] // The one place a field's hint is set.
+    fn hint(self, text: impl AsRef<ShownText>) -> Self {
+        self.hint_text(text.as_ref().as_str())
+    }
+}
+
+/// The text beside a slider, as a shown text.
+pub(crate) trait ShownSlider {
+    /// Returns the slider with `text` beside it.
+    fn shown_text(self, text: impl AsRef<ShownText>) -> Self;
+}
+
+impl ShownSlider for egui::Slider<'_> {
+    #[allow(clippy::disallowed_methods)] // The one place a slider's text is set.
+    fn shown_text(self, text: impl AsRef<ShownText>) -> Self {
+        self.text(text.as_ref().as_str())
+    }
+}
+
+/// A part of a laid out text, as a shown text.
+pub(crate) trait ShownLayout {
+    /// Adds `text` at the end, after `leading_space` points, in `format`.
+    fn append_shown(&mut self, text: &ShownText, leading_space: f32, format: egui::TextFormat);
+}
+
+impl ShownLayout for egui::text::LayoutJob {
+    #[allow(clippy::disallowed_methods)] // The one place a part of a laid out text is added.
+    fn append_shown(&mut self, text: &ShownText, leading_space: f32, format: egui::TextFormat) {
+        self.append(text.as_str(), leading_space, format);
     }
 }
 
@@ -1106,6 +1158,18 @@ pub(crate) fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Optio
     }
 }
 
+/// Returns a window titled `title`, which a caller places and fills.
+#[allow(clippy::disallowed_methods)] // The one place a window is made.
+pub(crate) fn window<'open>(title: impl AsRef<ShownText>) -> egui::Window<'open> {
+    egui::Window::new(title.as_ref().as_str())
+}
+
+/// Returns a header of `text` that opens and closes what is under it.
+#[allow(clippy::disallowed_methods)] // The one place a collapsing header is made.
+pub(crate) fn collapsing(text: impl AsRef<ShownText>) -> egui::CollapsingHeader {
+    egui::CollapsingHeader::new(text.as_ref().as_str())
+}
+
 /// Returns `text` as a rich text, which a caller sizes or colours.
 #[allow(clippy::disallowed_methods)] // The one place a rich text is made.
 pub(crate) fn rich(text: impl AsRef<ShownText>) -> egui::RichText {
@@ -1129,7 +1193,7 @@ pub(crate) fn button(ui: &mut egui::Ui, text: impl AsRef<ShownText>) -> egui::Re
 #[allow(clippy::disallowed_methods)] // The one place a button with an icon is drawn.
 pub(crate) fn icon_button(
     ui: &mut egui::Ui,
-    icon: &str,
+    icon: &'static str,
     text: impl AsRef<ShownText>,
 ) -> egui::Response {
     let text = text.as_ref();
@@ -1253,7 +1317,7 @@ pub(crate) fn submenu<R>(
 /// its colours. Phosphor's glyphs are all one em wide, so the texts line up.
 pub(crate) fn with_icon(
     ui: &egui::Ui,
-    icon: &str,
+    icon: &'static str,
     text: impl AsRef<ShownText>,
 ) -> egui::text::LayoutJob {
     let font = egui::TextStyle::Button.resolve(ui.style());
@@ -1263,8 +1327,9 @@ pub(crate) fn with_icon(
         color,
         ..Default::default()
     };
-    job.append(icon, 0.0, format(ui.visuals().weak_text_color()));
-    job.append(text.as_ref(), 8.0, format(egui::Color32::PLACEHOLDER));
+    let icon = ShownText::untranslated(icon);
+    job.append_shown(&icon, 0.0, format(ui.visuals().weak_text_color()));
+    job.append_shown(text.as_ref(), 8.0, format(egui::Color32::PLACEHOLDER));
     job
 }
 
@@ -1310,7 +1375,7 @@ pub(crate) fn menu_button(
 pub(crate) fn tool_button(
     ui: &mut egui::Ui,
     chosen: &mut Option<Action>,
-    icon: &str,
+    icon: &'static str,
     action: Action,
     on: bool,
 ) {

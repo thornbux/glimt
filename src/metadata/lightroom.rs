@@ -312,7 +312,7 @@ impl crate::App {
             .collect();
         let (mut next, mut back, mut go) = (false, false, false);
         let modal = egui::Modal::new(egui::Id::unique("lightroom")).show(ctx, |ui| {
-            ui.strong(tr("Import from Lightroom"));
+            ui.show_strong(tr("Import from Lightroom"));
             match &mut lr.plan {
                 None => {
                     ui.show_label(tr("Where the catalog's folders are now (empty: left out):"));

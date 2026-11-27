@@ -12,7 +12,7 @@ use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{STUCK_AFTER, lock_even_if_poisoned};
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
-use crate::ui::menus::{DrawShown, PaintShown, ShownTip};
+use crate::ui::menus::{DrawShown, PaintShown, ShownLayout, ShownTip};
 use crate::ui::menus::{checkbox, menu_item, scroll_menu, with_icon};
 use crate::viewer::crop::Crop;
 use crate::{app_id, ui::theme};
@@ -2590,12 +2590,16 @@ fn notice_layout(messages: &[NoticeMessage], width: f32) -> egui::text::LayoutJo
     job.wrap.max_width = width;
     let heading = egui::TextFormat::simple(egui::FontId::proportional(17.0), NOTICE_HEADING);
     let detail = egui::TextFormat::simple(egui::FontId::proportional(14.0), NOTICE_DETAIL);
+    let line_break = ShownText::untranslated("\n");
     for (i, message) in messages.iter().enumerate() {
-        let line_break = if i > 0 { "\n" } else { "" };
-        let first = &message.heading;
-        job.append(&format!("{line_break}{first}"), 0.0, heading.clone());
+        let first = match i > 0 {
+            true => ShownText::concat([&line_break, &message.heading]),
+            false => message.heading.clone(),
+        };
+        job.append_shown(&first, 0.0, heading.clone());
         if !message.detail.is_empty() {
-            job.append(&format!("\n{}", message.detail), 0.0, detail.clone());
+            let detail_text = ShownText::concat([&line_break, &message.detail]);
+            job.append_shown(&detail_text, 0.0, detail.clone());
         }
     }
     job

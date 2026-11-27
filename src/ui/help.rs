@@ -1266,7 +1266,7 @@ impl Page {
 pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
     let Some(shown) = *page else { return };
     let mut open = true;
-    let drawn = egui::Window::new(shown.title())
+    let drawn = crate::ui::menus::window(shown.title())
         .id(egui::Id::unique("help"))
         .open(&mut open)
         .collapsible(false)
@@ -1292,7 +1292,7 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
 
 fn manual(ui: &mut egui::Ui) {
     for (heading, text) in MANUAL {
-        ui.strong(*heading);
+        ui.show_strong(english(heading));
         ui.show_label(english(text));
         // The same lists as glimt --help, so they are never behind.
         if *heading == "Command line" {
@@ -1302,11 +1302,11 @@ fn manual(ui: &mut egui::Ui) {
         }
         ui.add_space(6.0);
     }
-    egui::CollapsingHeader::new("Differences from Geeqie").show(ui, |ui| {
+    crate::ui::menus::collapsing(english("Differences from Geeqie")).show(ui, |ui| {
         grid(ui, "differences", 3).show(ui, |ui| {
-            ui.strong("");
-            ui.strong("Glimt");
-            ui.strong("Geeqie");
+            ui.show_strong(ShownText::default());
+            ui.show_strong(english("Glimt"));
+            ui.show_strong(english("Geeqie"));
             ui.end_row();
             for (what, glimt, geeqie) in DIFFERENCES {
                 ui.show_label(english(what));
@@ -1493,7 +1493,7 @@ fn about(ui: &mut egui::Ui) {
         });
     });
     ui.add_space(8.0);
-    egui::CollapsingHeader::new("Credits")
+    crate::ui::menus::collapsing(english("Credits"))
         .default_open(true)
         .show(ui, |ui| {
             ui.show_label(english(
@@ -1510,7 +1510,7 @@ fn about(ui: &mut egui::Ui) {
                 }
             });
         });
-    egui::CollapsingHeader::new("Licence (MIT)").show(ui, |ui| {
+    crate::ui::menus::collapsing(english("Licence (MIT)")).show(ui, |ui| {
         ui.show_label(english(include_str!("../../LICENSE")));
     });
 }

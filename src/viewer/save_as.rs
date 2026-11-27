@@ -175,7 +175,7 @@ impl crate::App {
         }
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("save as")).show(ctx, |ui| {
-            ui.strong(tr("Save As"));
+            ui.show_strong(tr("Save As"));
             ui.show_label(escaped_file_name(&dialog.path));
             save_as_fields(ui, &mut dialog);
             crate::ui::menus::checkbox(

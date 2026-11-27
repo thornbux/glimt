@@ -12,7 +12,7 @@ use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::support::threads::{background_threads, in_parts};
-use crate::ui::menus::ShownTip;
+use crate::ui::menus::{ShownHint, ShownTip};
 use crate::{metadata::exif, metadata::xmp};
 use crate::{tf, ui::theme};
 use eframe::egui;
@@ -246,7 +246,7 @@ impl crate::App {
             };
             let edit = egui::TextEdit::singleline(&mut self.search.query)
                 .id(egui::Id::unique("file search"))
-                .hint_text(hint);
+                .hint(hint);
             // Geeqie's file filter has its Case checkbox to the right, and before it the switch
             // between fuzzy and regular expression search. The row is laid out from the right,
             // so the field takes what is left, because a row wider than the panel would widen it

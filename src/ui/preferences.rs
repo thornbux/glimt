@@ -10,7 +10,7 @@ use crate::support::lang::tr;
 use crate::support::threads::set_cpu_use;
 use crate::ui::actions::{ALL, Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::{DrawShown, ShownChoice, ShownTip};
+use crate::ui::menus::{DrawShown, ShownChoice, ShownHint, ShownSlider, ShownTip};
 use crate::ui::menus::{checkbox, radio, radio_choice};
 use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
 use eframe::egui;
@@ -225,7 +225,7 @@ impl crate::App {
             self.preferences.query.clear();
         }
         let mut keys_drawn = false;
-        egui::Window::new(tr("Preferences"))
+        crate::ui::menus::window(tr("Preferences"))
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
@@ -236,7 +236,7 @@ impl crate::App {
                 // Above the settings, so it stays when they scroll.
                 let search = egui::TextEdit::singleline(&mut self.preferences.query)
                     .id(search_id)
-                    .hint_text(tr("Search the settings"))
+                    .hint(tr("Search the settings"))
                     .desired_width(f32::INFINITY);
                 let search = ui.add(search);
                 // Until it has it: the window's first frame only measures it.
@@ -259,7 +259,7 @@ impl crate::App {
                     if shown[1] {
                         section(ui, theme::icon::KEYBOARD, tr(KEYBOARD[0]));
                         // Open on a search, with the actions it finds.
-                        let keys = egui::CollapsingHeader::new(tr("Keyboard shortcuts"))
+                        let keys = crate::ui::menus::collapsing(tr("Keyboard shortcuts"))
                             .open((!query.is_empty()).then_some(true))
                             .show(ui, |ui| {
                                 self.key_settings(ui, &query);
@@ -384,7 +384,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             let size = egui::Slider::new(&mut self.config.ui_scale, 50..=300)
                 .suffix(" %")
-                .text(tr("size of the menus, lists and text"));
+                .shown_text(tr("size of the menus, lists and text"));
             // Applied when let go: a size changing under the pointer would move it.
             let size = ui.add(size);
             changed |= size.changed();
@@ -409,7 +409,7 @@ impl crate::App {
             "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
         ));
         let delay = egui::Slider::new(&mut self.config.slideshow_delay, 1..=MAX_SLIDESHOW_DELAY)
-            .text(tr("seconds per image"));
+            .shown_text(tr("seconds per image"));
         if ui.add(delay).changed() {
             changed = true;
             self.update_window_title(ctx);
@@ -455,10 +455,10 @@ impl crate::App {
             )
             .changed();
         let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
-            .text(tr("quality when a lossy WebP is saved again"));
+            .shown_text(tr("quality when a lossy WebP is saved again"));
         changed |= ui.add(quality).changed();
         let quality = egui::Slider::new(&mut self.config.jpeg_quality, 50..=100)
-            .text(tr("quality of a cropped JPEG (Edit → Crop)"));
+            .shown_text(tr("quality of a cropped JPEG (Edit → Crop)"));
         changed |= ui.add(quality).changed();
         let c = &mut self.config;
         changed |= checkbox(
@@ -645,12 +645,13 @@ impl crate::App {
         }
         let mut changed = chosen.is_some();
         let restart = tr("Decoding threads and one malloc arena take effect after a restart.");
-        egui::CollapsingHeader::new(tr("Details"))
+        crate::ui::menus::collapsing(tr("Details"))
             .open((level.is_none() || custom).then_some(true))
             .show(ui, |ui| {
                 let mut n = self.config.preload;
                 ui.show_label(tr("Preload next and previous images:"));
-                let slider = egui::Slider::new(&mut n, 0..=20).text(tr("images on each side"));
+                let slider =
+                    egui::Slider::new(&mut n, 0..=20).shown_text(tr("images on each side"));
                 if ui.add(slider).changed() {
                     self.set_preload(n);
                     changed = true;
@@ -662,12 +663,12 @@ impl crate::App {
                 changed |= ui
                     .add(
                         egui::Slider::new(&mut c.decode_threads, 1..=8)
-                            .text(tr("images decoded at once")),
+                            .shown_text(tr("images decoded at once")),
                     )
                     .changed();
                 let animation = egui::Slider::new(&mut c.animation_mb, 8..=1024)
                     .logarithmic(true)
-                    .text(tr("MB at most for an animation's frames"));
+                    .shown_text(tr("MB at most for an animation's frames"));
                 if ui.add(animation).changed() {
                     crate::images::decode::set_animation_limit(c.animation_mb);
                     changed = true;
@@ -679,7 +680,7 @@ impl crate::App {
         let c = &mut self.config;
         let program = egui::Slider::new(&mut c.added_format_memory_mb, 512..=65536)
             .logarithmic(true)
-            .text(tr("MB at most for an added format's program"));
+            .shown_text(tr("MB at most for an added format's program"));
         let explained = tr(
             "A program that reads an added format, such as Java for microscope \
                             files, gets at most this much memory. Raise it when such a program \
@@ -886,7 +887,7 @@ impl crate::App {
         let field = egui::TextEdit::multiline(&mut text)
             .desired_rows(3)
             .desired_width(f32::INFINITY)
-            .hint_text("%name%  %position%");
+            .hint(ShownText::untranslated("%name%  %position%"));
         if ui.add_enabled(c.full_screen_info, field).changed() {
             c.full_screen_info_template = text.replace('\n', "\\n");
             changed = true;
@@ -925,7 +926,7 @@ impl crate::App {
         ui.show_label(tr("Custom window title (empty: \"image name - Glimt\"):"));
         let field = egui::TextEdit::singleline(&mut self.config.window_title)
             .desired_width(f32::INFINITY)
-            .hint_text("%name% - %app%");
+            .hint(ShownText::untranslated("%name% - %app%"));
         if ui.add(field).changed() {
             changed = true;
             self.update_window_title(ctx);
@@ -1001,7 +1002,7 @@ impl crate::App {
                     .map(|s| ShownText::keys_of(ui.ctx(), &egui::KeyboardShortcut::new(s.1, s.2)))
                     .collect();
                 if self.preferences.key_being_chosen_for == Some(action) {
-                    ui.strong(tr("Press a key (Esc cancels)"));
+                    ui.show_strong(tr("Press a key (Esc cancels)"));
                 } else {
                     ui.show_label(ShownText::join(&keys, &ShownText::untranslated(", ")));
                 }
@@ -1061,7 +1062,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             ui.show_label(tr("Player (Enter):"));
             let player = egui::TextEdit::singleline(&mut self.config.video_player)
-                .hint_text(tr("default application"));
+                .hint(tr("default application"));
             let hint =
                 tr("A command line, such as mpv --fs; a path with spaces goes in \"quotes\"");
             changed |= ui.add(player).tip(hint).changed();
@@ -1108,7 +1109,7 @@ fn section(ui: &mut egui::Ui, icon: &'static str, title: ShownText) {
         let accent = ui.visuals().selection.bg_fill;
         let icon = crate::ui::menus::rich(ShownText::untranslated(icon));
         ui.add(egui::Label::new(icon.size(18.0).color(accent)));
-        ui.strong(title);
+        ui.show_strong(title);
     });
     ui.separator();
 }

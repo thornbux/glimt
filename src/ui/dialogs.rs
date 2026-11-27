@@ -955,7 +955,7 @@ impl crate::App {
         let is_list_kept = self.file_operations.names_left().map(|(_, kept)| kept);
         let (mut choice, mut save, mut copy, mut leave) = (None, false, false, false);
         egui::Modal::new(egui::Id::unique("cut short")).show(ctx, |ui| {
-            ui.strong(tr("Rename Many was cut short"));
+            ui.show_strong(tr("Rename Many was cut short"));
             ui.show_label(tf!(
                 "A crash or a power cut stopped it in {folder}. Some files may have their new \
                  names, some their old ones, and some hidden temporary names ({steps} to put \

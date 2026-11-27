@@ -10,7 +10,7 @@ use crate::support::format::{ShownText, count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took};
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::{DrawShown, PaintShown, ShownChoice, ShownTip};
+use crate::ui::menus::{DrawShown, PaintShown, ShownChoice, ShownHint, ShownTip};
 use crate::{features::print, images::decode, tf};
 use eframe::egui;
 use std::io::Write;
@@ -281,7 +281,7 @@ impl crate::App {
             let enter = self.answers(ctx, egui::Key::Enter);
             let modal = egui::Modal::new(egui::Id::unique("print dialog")).show(ctx, |ui| {
                 let n = dialog.paths.len();
-                ui.strong(match n {
+                ui.show_strong(match n {
                     1 => tr("Print the image").to_owned(),
                     n => tf!("Print {count}", count = count(n, "image")),
                 });
@@ -1237,7 +1237,7 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
         ui.add_enabled(
             c.print_caption,
             egui::TextEdit::singleline(&mut c.print_caption_template)
-                .hint_text("%name%")
+                .hint(ShownText::untranslated("%name%"))
                 .desired_width(220.0),
         )
         .tip(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %file_size%, %taken%, %camera%, %keywords%, %comment% …"));
@@ -1257,7 +1257,7 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
         ui.show_label(tr("Bottom of each page:"));
         ui.add(
             egui::TextEdit::singleline(&mut c.print_footer)
-                .hint_text("%page% / %pages%")
+                .hint(ShownText::untranslated("%page% / %pages%"))
                 .desired_width(260.0),
         )
         .tip(numbers);

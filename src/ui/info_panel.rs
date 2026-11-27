@@ -14,7 +14,7 @@ use crate::support::threads::{
     Receiving, STUCK_AFTER, Took, lock_even_if_poisoned, spawn_worker_pool,
 };
 use crate::ui::dialogs::entered;
-use crate::ui::menus::{DrawShown, ShownTip};
+use crate::ui::menus::{DrawShown, ShownHint, ShownTip};
 use crate::{files::config, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
@@ -466,7 +466,7 @@ impl crate::App {
         ui.show_weak(tr("Keywords"));
         let keywords = ui.add(
             egui::TextEdit::singleline(&mut edit.keywords)
-                .hint_text(tr("Separated by commas"))
+                .hint(tr("Separated by commas"))
                 .desired_width(f32::INFINITY),
         );
         if drawn == Drawn::AsRead && std::mem::take(&mut self.info_panel.keywords_take_focus) {
@@ -482,7 +482,7 @@ impl crate::App {
         ui.show_weak(tr("Alt text"));
         let alt = ui.add(
             egui::TextEdit::multiline(&mut edit.alt_text)
-                .hint_text(tr("What the picture shows, for someone who cannot see it"))
+                .hint(tr("What the picture shows, for someone who cannot see it"))
                 .desired_rows(2)
                 .desired_width(f32::INFINITY),
         );
@@ -582,7 +582,7 @@ impl crate::App {
         ui.allocate_ui_with_layout(row, layout, |ui| {
             let add = crate::ui::menus::button(ui, tr("Add")).clicked();
             let field = egui::TextEdit::singleline(&mut self.info_panel.new_keyword)
-                .hint_text(tr("Places|Norway|Oslo"))
+                .hint(tr("Places|Norway|Oslo"))
                 .desired_width(ui.available_width());
             let enter = entered(&ui.add(field));
             if (add || enter) && !self.info_panel.new_keyword.trim().is_empty() {
@@ -907,7 +907,7 @@ impl crate::App {
                 None => &[],
             };
             let is_kept = drawn == Some(Drawn::KeptWhileReading);
-            egui::Window::new(title)
+            crate::ui::menus::window(title)
                 .id(egui::Id::unique("exif window"))
                 .open(&mut open)
                 .default_size([560.0, 600.0])

@@ -57,7 +57,7 @@ impl crate::App {
             self.select_still_broken(ctx, c);
         }
         let (mut open, mut start, mut show, mut select) = (true, false, None, false);
-        egui::Window::new(tr("Check Images"))
+        crate::ui::menus::window(tr("Check Images"))
             .open(&mut open)
             .default_size([560.0, 400.0])
             .show(ctx, |ui| {
