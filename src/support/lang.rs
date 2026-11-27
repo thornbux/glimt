@@ -1037,10 +1037,8 @@ msgstr[1] "bilder"
                 while call.ends_with("format!(") {
                     call = enclosing(code, call.len() - "format!(".len());
                 }
-                // The main window's title, the app's name alone, is the same in every language.
-                let is_app_title = text == "Glimt" && called(call, &[".with_title("]);
                 let shown = (text.starts_with(char::is_uppercase) && words(&text) >= 2)
-                    || (called(call, &shown_by) && words(&text) >= 1 && !is_app_title);
+                    || (called(call, &shown_by) && words(&text) >= 1);
                 let table = tables.iter().any(|r| r.contains(&at)) && msgid(&text);
                 let terminal = called(
                     before,
