@@ -81,9 +81,11 @@ pub(crate) enum Pick {
         crate::features::copy_for_sharing::Naming,
     ),
     /// Where to save this list of the files that a Rename Many cut short left not under the
-    /// names they were to get (`journal::names_left`).
+    /// names they were to get (`journal::names_left`). Only a name that opens as a plain list
+    /// is taken (`PickedListName`).
     SaveNamesLeft(String),
-    /// Where to save these images, the list as it was shown, as a plain list.
+    /// Where to save these images, the list as it was shown, as a plain list. Only a name that
+    /// opens as a plain list is taken (`PickedListName`).
     SaveList(Vec<PathBuf>),
 }
 
@@ -185,8 +187,8 @@ enum CutShortWork {
     /// The names left as they are, and the plans removed.
     LeaveNames,
     /// The list of the files not under the names they were to get (`journal::names_left`)
-    /// saved as the file picked, which had the fingerprint at the pick.
-    SaveList(String, PathBuf, Option<FileFingerprint>),
+    /// saved at the name picked.
+    SaveList(String, collections::PickedListName),
 }
 
 /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file
@@ -678,9 +680,17 @@ impl crate::App {
                     self.copy_for_sharing(picked, dir, kept, naming)
                 }
                 (Pick::SaveNamesLeft(list), Some(file)) => {
-                    self.work_on_cut_short(ctx, CutShortWork::SaveList(list, file, at_pick))
+                    match collections::PickedListName::picked(file, at_pick) {
+                        Ok(file) => self.work_on_cut_short(ctx, CutShortWork::SaveList(list, file)),
+                        Err(failure) => self.notice.give_error(failure),
+                    }
                 }
-                (Pick::SaveList(paths), Some(file)) => self.save_list(ctx, paths, (file, at_pick)),
+                (Pick::SaveList(paths), Some(file)) => {
+                    match collections::PickedListName::picked(file, at_pick) {
+                        Ok(file) => self.save_list(ctx, paths, file),
+                        Err(failure) => self.notice.give_error(failure),
+                    }
+                }
             }
         }
     }
@@ -1053,9 +1063,7 @@ impl crate::App {
         self.run_in_background(ctx, held_back_files, move || match work {
             CutShortWork::PutRight(undo) => put_cut_short_right(plans, undo, &report_tx),
             CutShortWork::LeaveNames => leave_names_as_they_are(&plans, &report_tx),
-            CutShortWork::SaveList(list, file, at_pick) => {
-                save_names_left(&list, (&file, at_pick), kept)
-            }
+            CutShortWork::SaveList(list, file) => save_names_left(&list, &file, kept),
         });
     }
 
@@ -1455,28 +1463,25 @@ fn leave_names_as_they_are(
 }
 
 /// Saves `list`, the files that a Rename Many cut short left not under the names they were to
-/// get, as `file`, which the user picked when the file there had the fingerprint `at_pick`.
-/// Once it is written, `kept` is raised, and the names may be left as they are. Returns what
-/// to tell.
+/// get, at `file`, the name the user picked. Once it is written, `kept` is raised, and the
+/// names may be left as they are. Returns what to tell.
 fn save_names_left(
     list: &str,
-    (file, at_pick): (&Path, Option<FileFingerprint>),
+    file: &collections::PickedListName,
     kept: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Option<Told> {
     use std::io::Write;
     let write = |f: &mut std::fs::File| f.write_all(list.as_bytes());
-    let name = escaped_name(file);
-    Some(
-        match crate::files::file_io::write_picked_name(file, at_pick, write) {
-            Ok(()) => {
-                if let Some(kept) = kept {
-                    kept.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
-                Told::Notice(tf!("Saved {file}", file = name))
+    let name = escaped_name(file.path());
+    Some(match file.write_list_text(write) {
+        Ok(()) => {
+            if let Some(kept) = kept {
+                kept.store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            Err(e) => Told::FailedWrite(tf!("Could not save {name}: {e}", name, e).into()),
-        },
-    )
+            Told::Notice(tf!("Saved {file}", file = name))
+        }
+        Err(e) => Told::FailedWrite(tf!("Could not save {name}: {e}", name, e).into()),
+    })
 }
 
 /// Gives the text field `field` of a dialog the keyboard focus while no widget has it, as the
@@ -1635,13 +1640,53 @@ mod tests {
         };
         assert_eq!(paths, [dir.join("c.png"), dir.join("a.png")]);
         let file = dir.join("lists/shown.txt");
-        app.save_list(&ctx, paths.clone(), (file.clone(), None));
+        let list = crate::model::collections::PickedListName::picked(file.clone(), None);
+        let list = list.unwrap();
+        app.save_list(&ctx, paths.clone(), list);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
         assert_eq!(crate::model::collections::load(&file).unwrap(), paths);
         let text = std::fs::read_to_string(&file).unwrap();
         // Outside the list's folder, so written absolute.
         let (c, a) = (paths[0].to_str().unwrap(), paths[1].to_str().unwrap());
         assert!(text.ends_with(&format!("\n{c}\n{a}\n")), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A list is written only at a name that opens as a plain list, by Save List As and by the
+    /// list of the names a Rename Many cut short left alike, as the chooser answers both. Before,
+    /// the names-left list replaced an image (whose sidecar and stars then stayed on the text)
+    /// or a `.gqv` collection, and Save List As did so before 0.104 (#329).
+    /// Risk: a list writer that takes the chooser's name unchecked writes over a user's file.
+    #[test]
+    fn a_list_is_saved_only_at_a_name_that_is_a_list() {
+        use super::Pick;
+        use crate::support::test_support::run_background_until;
+        let dir = std::env::temp_dir().join(format!("glimt-test-list-name-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        std::fs::write(dir.join("c.gqv"), "#GQview collection\n").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let refused = crate::support::lang::tr("Not saved: a list's name must end in .txt or .m3u");
+        for is_names_left in [false, true] {
+            for name in ["a.png", "c.gqv", "list"] {
+                let pick = match is_names_left {
+                    false => Pick::SaveList(vec![dir.join("a.png")]),
+                    true => Pick::SaveNamesLeft("a.png → b.png\n".into()),
+                };
+                let before = std::fs::read(dir.join(name)).ok();
+                app.notice.clear();
+                // As the chooser answers when the user let it replace the file there.
+                let at_pick = crate::files::file_io::fingerprint(&dir.join(name));
+                let (tx, rx) = crate::support::threads::answer_channel(&app.busy);
+                tx.send((Some(dir.join(name)), at_pick)).unwrap();
+                app.dialogs.file_dialog = Some(pick);
+                app.dialogs.picked_path = crate::support::threads::Receiving::of(rx);
+                app.receive_picked(&ctx);
+                assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+                assert_eq!(std::fs::read(dir.join(name)).ok(), before, "{name}");
+                assert_eq!(app.notice.text(), Some(refused.as_str()), "{name}");
+            }
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1745,7 +1790,9 @@ mod tests {
         assert!(!is_kept);
         assert_eq!(app.file_operations.cut_short().len(), 1);
         let list = list.to_owned();
-        let save = super::CutShortWork::SaveList(list.clone(), p("left.txt"), None);
+        let left = crate::model::collections::PickedListName::picked(p("left.txt"), None);
+        let left = left.unwrap();
+        let save = super::CutShortWork::SaveList(list.clone(), left);
         app.work_on_cut_short(&ctx, save);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
         assert_eq!(std::fs::read_to_string(p("left.txt")).unwrap(), list);

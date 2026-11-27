@@ -76,6 +76,46 @@ pub(crate) enum CollectionAddedTo {
     New(String),
 }
 
+/// A name that the user picked in the chooser to save a list's text at, with the fingerprint of
+/// the file there at the pick. Every list that Glimt writes at a picked name (Save List As, and
+/// the list of the names a Rename Many cut short left) is written through one of these, and
+/// only `picked` makes one. So no list writer can put text in the place of an image, whose
+/// sidecar and stars would then stay on the text, or of a `.gqv` collection, whose entries
+/// would be lost.
+pub(crate) struct PickedListName {
+    file: PathBuf,
+    at_pick: Option<crate::files::file_io::FileFingerprint>,
+}
+
+impl PickedListName {
+    /// Takes the name `file` that the chooser answered, where the file had the fingerprint
+    /// `at_pick`. Returns the failure to tell when the name does not open as a plain list
+    /// (`is_list`).
+    pub(crate) fn picked(
+        file: PathBuf,
+        at_pick: Option<crate::files::file_io::FileFingerprint>,
+    ) -> Result<Self, Failure> {
+        match is_list(&file) {
+            true => Ok(PickedListName { file, at_pick }),
+            false => Err(tr("Not saved: a list's name must end in .txt or .m3u").into()),
+        }
+    }
+
+    /// Returns the name picked.
+    pub(crate) fn path(&self) -> &Path {
+        &self.file
+    }
+
+    /// Writes the list with `write` at the name picked, replacing only the file that was there
+    /// at the pick (`write_picked_name`).
+    pub(crate) fn write_list_text(
+        &self,
+        write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        crate::files::file_io::write_picked_name(&self.file, self.at_pick, write)
+    }
+}
+
 /// A window's own changes to a plain list, apart from its file, which Glimt never writes.
 /// Every entry is named by its real path, as the list and the edits of a collection name it.
 /// Only what the window changed is kept, not the entries, so that a list of 500,000 entries
@@ -256,39 +296,33 @@ impl crate::App {
         self.save_collection_order();
     }
 
-    /// Saves `paths`, the list as it was shown, as the plain list `file`, which the user picked
-    /// when the file there had the fingerprint `at_pick`, in the background. The list's file is
-    /// held back from other work meanwhile. Each entry is written as `list_text` writes it, and
-    /// an entry left out is told as a failed write beside the notice of the save. A name that
-    /// does not open as a plain list (`is_list`) is refused before anything is written: an
-    /// image's sidecar and stars would stay on the list, a `.gqv` would lose its entries, and a
-    /// name without a list's extension would never open as a list.
+    /// Saves `paths`, the list as it was shown, as the plain list `list`, the name the user
+    /// picked, in the background. The list's file is held back from other work meanwhile. Each
+    /// entry is written as `list_text` writes it, and an entry left out is told as a failed
+    /// write beside the notice of the save.
     pub(crate) fn save_list(
         &mut self,
         ctx: &egui::Context,
         paths: Vec<PathBuf>,
-        (file, at_pick): (PathBuf, Option<crate::files::file_io::FileFingerprint>),
+        list: PickedListName,
     ) {
         use crate::support::threads::Told;
-        if !is_list(&file) {
-            let text = tr("Not saved: a list's name must end in .txt or .m3u");
-            return self.notice.give_error(text);
-        }
-        self.run_in_background(ctx, vec![file.clone()], move || {
+        self.run_in_background(ctx, vec![list.path().to_path_buf()], move || {
             use std::io::Write;
-            let name = escaped_name(&file);
+            let file = list.path();
+            let name = escaped_name(file);
             // Relative paths are made from absolute ones, as the reader makes them from the
             // list's folder as an absolute path (`load`).
             let made = (paths.iter().map(std::path::absolute))
                 .collect::<std::io::Result<Vec<PathBuf>>>()
-                .and_then(|paths| Ok((paths, std::path::absolute(&file)?)));
+                .and_then(|paths| Ok((paths, std::path::absolute(file)?)));
             let saved = made.and_then(|(paths, file)| {
                 // By its real path, as the window's paths are real paths: a list saved through a
                 // link to its folder would otherwise write its own images absolute.
                 let folder = real_dir(file.parent().unwrap_or(Path::new("/")));
                 let (text, left_out) = list_text(&paths, &folder);
                 let write = |f: &mut std::fs::File| f.write_all(&text);
-                crate::files::file_io::write_picked_name(&file, at_pick, write)?;
+                list.write_list_text(write)?;
                 Ok(left_out)
             });
             Some(match saved {
@@ -1993,31 +2027,6 @@ mod tests {
         assert_eq!(dropped(6, &picked, 2), [0, 1, 2, 5, 3, 4]);
     }
 
-    /// Save List As writes only at a name that opens as a plain list. Before, it replaced an
-    /// image (whose sidecar and stars then stayed on the text), a `.gqv` collection, or wrote a
-    /// name without a list's extension that never opened as a list.
-    #[test]
-    fn save_list_refuses_a_name_that_is_no_list() {
-        use crate::support::test_support::run_background_until;
-        let dir = std::env::temp_dir().join(format!("glimt-test-list-name-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
-        std::fs::write(dir.join("c.gqv"), "#GQview collection\n").unwrap();
-        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        let refused = crate::support::lang::tr("Not saved: a list's name must end in .txt or .m3u");
-        for name in ["a.png", "c.gqv", "list"] {
-            let before = std::fs::read(dir.join(name)).ok();
-            app.notice.clear();
-            // As the chooser answers when the user let it replace the file there.
-            let at_pick = crate::files::file_io::fingerprint(&dir.join(name));
-            app.save_list(&ctx, vec![dir.join("a.png")], (dir.join(name), at_pick));
-            assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
-            assert_eq!(std::fs::read(dir.join(name)).ok(), before, "{name}");
-            assert_eq!(app.notice.text(), Some(refused.as_str()), "{name}");
-        }
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
     /// A list saved through a symbolic link to a folder reads back as the same images however
     /// it is opened. Before, the base was the link's path, and an image outside the list's
     /// folder was written with `..` steps from it, which read back from the real path named
@@ -2037,7 +2046,8 @@ mod tests {
         }
         let (mut app, ctx) = crate::support::test_support::app_on(&photos);
         let through_link = dir.join("link/lists/l.txt");
-        app.save_list(&ctx, images.to_vec(), (through_link.clone(), None));
+        let list = super::PickedListName::picked(through_link.clone(), None).unwrap();
+        app.save_list(&ctx, images.to_vec(), list);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
         let text = std::fs::read_to_string(&through_link).unwrap();
         assert!(text.ends_with("\nb.png\n"), "{text}");
