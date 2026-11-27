@@ -91,23 +91,27 @@ impl crate::App {
     }
 
     /// Image `i` as a file a write can check is still the one listed (`ListedFile::check`).
+    /// While no listing has checked the list's entries (a saved list's rows, a collection's
+    /// entries), it is an unchecked entry, which no change passes.
     pub(crate) fn listed_file(&self, i: usize) -> crate::files::file_io::ListedFile {
-        self.listed_file_known_as(self.path(i), self.list.identity(i))
+        use crate::files::file_io::ListedFile;
+        let (path, list_is_old) = (self.path(i), self.folder.list_is_old());
+        match self.list.has_unchecked_entries() {
+            true => ListedFile::unchecked_entry(path, list_is_old),
+            false => ListedFile::new(path, self.list.identity(i), list_is_old),
+        }
     }
 
-    /// The file at `path`, which the list shows and knew by `identity`, for a change of it.
-    /// While no listing has checked the list's entries (a saved list's rows, a collection's
-    /// entries), it is an unchecked entry, which no change passes (`ListedFile::check`).
-    pub(crate) fn listed_file_known_as(
+    /// The file at `path` that the info panel read, known by the `identity` its read looked up,
+    /// for the save of an edit of it. What the list knows of the file is judged when the edit is
+    /// saved (`write_sidecars`), not kept from the read, because the list may have been checked
+    /// or replaced since.
+    pub(crate) fn file_read_for_an_edit(
         &self,
         path: PathBuf,
         identity: crate::files::file_io::Identity,
     ) -> crate::files::file_io::ListedFile {
-        use crate::files::file_io::ListedFile;
-        match self.list.has_unchecked_entries() {
-            true => ListedFile::unchecked_entry(path, self.folder.list_is_old()),
-            false => ListedFile::new(path, identity, self.folder.list_is_old()),
-        }
+        crate::files::file_io::ListedFile::new(path, identity, self.folder.list_is_old())
     }
 
     /// Is `path` image number `i` in the list? (Without building the path.)

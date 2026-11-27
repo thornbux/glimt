@@ -1098,7 +1098,7 @@ mod tests {
         // The old name is kept with the new one: the dates were carried, not read anew.
         assert_eq!(pan.known_dates.len(), 4);
         app.pan_view = Some(pan);
-        app.forget_old_list();
+        app.forget_old_list(&ctx);
         assert!(app.pan_view.as_ref().unwrap().known_dates.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }

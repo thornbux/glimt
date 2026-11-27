@@ -1613,7 +1613,7 @@ impl crate::App {
             .as_deref()
             .and_then(Path::file_name)
             .map(OsString::from);
-        self.forget_old_list();
+        self.forget_old_list(ctx);
         // A file of a type the menu does not list (a RAW with RAW off) is listed with the
         // folder it opens. A folder or several folders opened later go by the menu again.
         self.folder.opened_type = file_type;
@@ -1700,7 +1700,7 @@ impl crate::App {
 
     /// What belongs to the list shown before, which a new folder, collection or set of folders
     /// starts without.
-    pub(crate) fn forget_old_list(&mut self) {
+    pub(crate) fn forget_old_list(&mut self, ctx: &egui::Context) {
         // A check still running would find names of the old list, so it is stopped and its
         // window closed.
         if let Some(Some(check)) = self.check_images.take() {
@@ -1728,9 +1728,10 @@ impl crate::App {
         }
         // A list's entries not yet checked are the old list's. A folder opened now is listed
         // whole, and open_collection marks its own entries again. An edit that waits for the
-        // old list to be checked is dropped and told. Sent once the new list is checked, it
-        // went by the new list's names and could write over a newer edit of the same file.
-        self.drop_sidecar_writes_waiting_for_the_list();
+        // old list to be checked is ended now: written when the panel read its file, else told.
+        // Sent once the new list is checked, it went by the new list's names and could write
+        // over a newer edit of the same file.
+        self.end_sidecar_writes_waiting_for_the_list(ctx);
         self.list.set_unchecked_entries(false);
     }
 
@@ -1746,7 +1747,7 @@ impl crate::App {
         } else {
             HashSet::new()
         };
-        self.forget_old_list();
+        self.forget_old_list(ctx);
         self.file_operations.keep_deleting(deleting);
         self.folder.recursive = false;
         self.folder.dir = root.to_path_buf();
@@ -1786,7 +1787,7 @@ impl crate::App {
         // As when a folder is opened, the subfolders come with it when the menu says so,
         // whatever was shown.
         self.folder.recursive = self.config.show_subfolders;
-        self.forget_old_list();
+        self.forget_old_list(ctx);
         self.folder.dir = PathBuf::from("/");
         self.folder.folders = folders;
         self.replace_files(ctx, Vec::new(), None);
@@ -2483,7 +2484,7 @@ impl crate::App {
     /// (`is_list_checked`), and so do the thumbnails, the EXIF index and the Pan view's days.
     /// Glimt goes to the first image by itself, as for a tree's first part. Nothing is shown when
     /// the list holds files already.
-    fn take_saved_list(&mut self, ctx: &egui::Context, rows: Rows) {
+    pub(crate) fn take_saved_list(&mut self, ctx: &egui::Context, rows: Rows) {
         if !self.list.files().is_empty() {
             return;
         }

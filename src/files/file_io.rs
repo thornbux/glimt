@@ -444,8 +444,9 @@ impl PartialEq for ListedFile {
 
 impl ListedFile {
     /// The file at `path`, which a listing found and the list knew by `identity`. A refusal
-    /// raises `list_is_old`, the flag of the window whose list it is. Only `App::listed_file`
-    /// and the tests make one, as only the window knows whether a listing has checked the list.
+    /// raises `list_is_old`, the flag of the window whose list it is. Only `App::listed_file`,
+    /// `App::file_read_for_an_edit` and the tests make one, as only the window knows whether a
+    /// listing has checked the list.
     pub(crate) fn new(path: PathBuf, identity: Identity, list_is_old: &ListIsOld) -> Self {
         ListedFile {
             path,
@@ -494,12 +495,6 @@ impl ListedFile {
             ListedAs::Listed(identity) => identity,
             ListedAs::UncheckedEntry => None,
         }
-    }
-
-    /// Returns whether the file is an entry of a list's file that no listing had checked when
-    /// it was picked.
-    pub(crate) fn is_unchecked_entry(&self) -> bool {
-        self.listed_as == ListedAs::UncheckedEntry
     }
 
     /// Refuses to change the file when another file has taken its name since the list showed

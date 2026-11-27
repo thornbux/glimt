@@ -297,11 +297,6 @@ impl crate::App {
         self.receive_operation_report(ctx);
         self.receive_renames(ctx);
         self.receive_file_work(ctx);
-        // An edit that waits for the list to be checked is not written by a close, so it is
-        // told as a failed write: the window stays open once, and the next close goes on.
-        if close {
-            self.drop_sidecar_writes_waiting_for_the_list();
-        }
         // A write that failed keeps the window open, with the failure on screen. Closing then
         // would hide it within a frame, and the user would believe the keywords or the turn
         // saved. Telling it also forgot a close that waited, so the next close closes. A close
@@ -367,6 +362,11 @@ impl crate::App {
         {
             self.window.turn_tried_at_close = shown;
         }
+        // An edit that waits for the list to be checked, the one just saved among them, is
+        // ended: written when its file is known by an identity read from the disk, which the
+        // close then waits for, and else told as a failed write, which keeps the window open
+        // once, so the next close goes on.
+        self.end_sidecar_writes_waiting_for_the_list(ctx);
         // A write that started here may have ended already, with a failure that keeps the window
         // open as in `guard_close`. Before, the close went on, and the failure was never told.
         #[cfg(test)]
@@ -1482,7 +1482,7 @@ mod tests {
         app.write_sidecars(&ctx, "Keywords", files, |_, ()| Ok(()), |_, _| None);
         assert!(!close_pass(&mut app, &ctx, true));
         assert_eq!(app.window.failed_writes_told, 1);
-        app.drop_sidecar_writes_waiting_for_the_list();
+        app.end_sidecar_writes_waiting_for_the_list(&ctx);
         assert_eq!(app.window.failed_writes_told, 1);
         std::fs::remove_dir_all(dir).unwrap();
     }

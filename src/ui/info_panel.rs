@@ -3,7 +3,7 @@
 
 use crate::files::config::keyword_tree_path;
 use crate::files::external::open_url;
-use crate::files::file_io::{Identity, ListedFile, is_another_file};
+use crate::files::file_io::{Identity, is_another_file};
 use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
@@ -63,10 +63,11 @@ pub(crate) enum Drawn {
 /// the info panel, and as last read or saved, to tell whether they changed.
 pub(crate) struct MetadataEdit {
     pub(crate) path: PathBuf,
-    /// The file it was read from, with the identity the list knows it by, or as an entry no
-    /// listing had checked yet. Its save is refused when another file has taken the name since.
-    /// It is saved at `path`, which follows a rename.
-    pub(crate) file: ListedFile,
+    /// The identity of the file it was read from, when the list knows the file by one. Its
+    /// save is refused when another file has taken the name since. What the list knows of the
+    /// file is asked at the save (`App::file_read_for_an_edit`), not kept from the read, as the
+    /// list may have been checked or replaced in between.
+    pub(crate) identity: Identity,
     keywords: String,
     comment: String,
     pub(crate) saved: xmp::KeywordsAndComment,
@@ -308,8 +309,7 @@ impl crate::App {
         // The edit of the image before is saved as soon as another image is shown, before this
         // one's read is asked for. Saved only at the next answer, it could still wait when the
         // user came back, and the panel then read the file as it was before the edit.
-        if (self.info_panel.metadata_edit.as_ref())
-            .is_some_and(|e| is_another(&e.path, e.file.identity()))
+        if (self.info_panel.metadata_edit.as_ref()).is_some_and(|e| is_another(&e.path, e.identity))
         {
             self.save_metadata_edit(ctx);
         }
@@ -354,17 +354,21 @@ impl crate::App {
         } in done
         {
             // A file the list knows by no identity (on a FAT card, say) is not told apart by the
-            // one read, which such a file system may make up anew at each look.
-            let read_identity = read_identity.filter(|_| identity.is_some());
+            // one read, which such a file system may make up anew at each look. An entry that no
+            // listing has checked has no identity from the list, so it keeps the one read: an
+            // edit of it is written with that identity checked when its list goes away
+            // (`end_sidecar_writes_waiting_for_the_list`).
+            let read_identity =
+                read_identity.filter(|_| identity.is_some() || self.list.has_unchecked_entries());
             // Kept while being edited: the reader may answer for the image again. An answer of
             // another file under the name replaces it.
             if (self.info_panel.metadata_edit.as_ref())
-                .is_none_or(|m| m.path != path || is_another_file(m.file.identity(), read_identity))
+                .is_none_or(|m| m.path != path || is_another_file(m.identity, read_identity))
             {
                 self.save_metadata_edit(ctx);
                 self.info_panel.metadata_edit = Some(MetadataEdit {
                     path: path.clone(),
-                    file: self.listed_file_known_as(path.clone(), read_identity),
+                    identity: read_identity,
                     keywords: meta.keywords_text(),
                     comment: meta.comment.clone(),
                     saved: meta,
@@ -759,8 +763,9 @@ impl crate::App {
                 &mut edit.saved_alt_text.extended_description,
             ),
         };
+        let (path, identity) = (edit.path.clone(), edit.identity);
         if alt_text.text.is_some() || alt_text.extended_description.is_some() {
-            let file = edit.file.moved_to(edit.path.clone());
+            let file = self.file_read_for_an_edit(path, identity);
             // A sidecar job like the keywords': Move, Rename and Delete wait for it.
             self.write_sidecars(
                 ctx,
@@ -797,7 +802,8 @@ impl crate::App {
         }
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
-        let file = edit.file.moved_to(edit.path.clone());
+        let (path, identity) = (edit.path.clone(), edit.identity);
+        let file = self.file_read_for_an_edit(path, identity);
         // A sidecar job, so that a Move, Rename or Delete of the file waits until it has
         // landed, instead of leaving the new keywords behind under the old name.
         self.write_sidecars(
@@ -1584,6 +1590,87 @@ mod tests {
             ["Oslo", "beach"]
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An edit the panel read from a saved list's row before the listing checked the list is
+    /// written when another folder opens: saved after the listing ended, and saved while the
+    /// rows were unchecked with the other folder opened before the listing ended. Risk: the
+    /// keyword lost. Before, the edit kept the row's unchecked judgement and was looked up by
+    /// name in the other folder's list, and an edit that waited was dropped with the old list.
+    #[test]
+    fn an_edit_read_from_a_saved_row_is_saved_when_another_folder_opens() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-kw-saved-{}", std::process::id()));
+        let other = dir.with_extension("other");
+        for d in [&dir, &other] {
+            let _ = std::fs::remove_dir_all(d);
+            std::fs::create_dir_all(d).unwrap();
+        }
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("c.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let dir = crate::model::listing::real_dir(&dir);
+        let other = crate::model::listing::real_dir(&other);
+        let file = dir.join("a.png");
+        app.set_remember_file_lists(true);
+        app.refresh(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let c = &app.config;
+        let order = (c.sort, c.sort_ascending, c.sort_case_sensitive);
+        let key = crate::model::saved_list::ListKey::of(&dir, false, app.shown_types(), order);
+        // The listing saves after it sent its list, so the test waits for the file.
+        let saved = || {
+            (0..250).find_map(|_| {
+                crate::files::file_io::wait_for_queued_writes();
+                crate::model::saved_list::read(&key).or_else(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    None
+                })
+            })
+        };
+        assert!(saved().is_some());
+        // The folder opened again shows its saved rows, and the panel reads the first one.
+        let show_saved_rows = |app: &mut crate::App| {
+            crate::support::test_support::open_now(app, &ctx, dir.clone());
+            app.take_saved_list(&ctx, saved().unwrap());
+            assert!(app.list.has_unchecked_entries());
+            app.info_panel.metadata_edit = None;
+            read_panel(app, &ctx);
+        };
+        let sidecars_written = |app: &mut crate::App| {
+            assert!(run_background_until(app, &ctx, |a| {
+                !a.file_operations.is_writing_sidecars()
+            }));
+        };
+        // The listing ends, the keyword is typed, another folder opens, and the edit is saved.
+        show_saved_rows(&mut app);
+        assert!(run_background_until(&mut app, &ctx, |a| {
+            !a.folder.is_listing() && !a.list.has_unchecked_entries()
+        }));
+        app.info_panel.metadata_edit.as_mut().unwrap().keywords = "beach".into();
+        crate::support::test_support::open_now(&mut app, &ctx, other.clone());
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        app.request_and_take_exif(&ctx);
+        sidecars_written(&mut app);
+        assert_eq!(crate::metadata::xmp::read(&file).keywords, ["beach"]);
+        // Saved while the rows are unchecked, the edit waits, and is written when another
+        // folder opens before the listing ends.
+        show_saved_rows(&mut app);
+        app.info_panel.metadata_edit.as_mut().unwrap().keywords = "beach, sea".into();
+        app.save_metadata_edit(&ctx);
+        crate::support::test_support::open_now(&mut app, &ctx, other.clone());
+        sidecars_written(&mut app);
+        assert_eq!(crate::metadata::xmp::read(&file).keywords, ["beach", "sea"]);
+        app.set_remember_file_lists(false);
+        crate::files::file_io::wait_for_queued_writes();
+        for d in [&dir, &other] {
+            std::fs::remove_dir_all(d).unwrap();
+        }
     }
 
     /// An extended description written to the shown file behind the panel's back, as another

@@ -150,6 +150,15 @@ type SidecarReport = Box<dyn FnOnce(usize, &Job) -> Option<ShownText> + Send>;
 /// the file's name now (`write_sidecars`). Returns the text of its failure.
 type SidecarWrite = Box<dyn Fn(usize, &Path) -> Result<(), ShownText> + Send>;
 
+/// A sidecar write that waited and is settled: its activity, its files with their places among
+/// the files it was asked for, its write and its report.
+type SettledWrite = (
+    ShownText,
+    Vec<(ListedFile, usize)>,
+    SidecarWrite,
+    SidecarReport,
+);
+
 /// A sidecar write asked for while a rename runs or the list's entries are not yet checked to
 /// be files (`write_sidecars`). It is sent once the rename is over, to the names its files have
 /// then, and once the list is checked.
@@ -162,7 +171,8 @@ struct WaitingSidecarWrite {
     write: SidecarWrite,
     report: SidecarReport,
     /// Closing waits for a write that waits for a rename, as for one that was sent. A write
-    /// that waits for the list does not hold it, because a listing that broke waits for F5.
+    /// that waits for the list does not hold it, because a close ends it
+    /// (`end_sidecar_writes_waiting_for_the_list`) and then waits for what that sends.
     _writing: Option<Working>,
 }
 
@@ -2706,33 +2716,24 @@ impl crate::App {
         // An entry of a list not yet checked may be a folder, which must get no sidecar. So the
         // write waits for the listing that checks the list, rather than being refused after the
         // panel has counted the edit as saved.
-        // A file picked as an unchecked entry (the info panel's edit, read before the listing
-        // came) is taken from the list again by its name, as the listing found it.
+        // Whether a file is such an entry is judged on the list shown now, never on what the
+        // list was when the file was picked: an edit kept in the info panel may be saved after
+        // the listing, or after another list took its place.
         let is_unchecked = self.list.has_unchecked_entries();
-        let is_unchecked_entry: Vec<bool> = match is_unchecked {
-            true => self.are_list_entries(&files),
-            false => vec![false; files.len()],
-        };
-        let is_unchecked_entry: Vec<bool> = (is_unchecked_entry.into_iter().zip(&files))
-            .map(|(is_entry, f)| is_entry || f.is_unchecked_entry())
-            .collect();
-        let waits_for_the_list = is_unchecked || is_unchecked_entry.contains(&true);
-        if self.file_operations.renaming.is_some() || waits_for_the_list {
+        if self.file_operations.renaming.is_some() || is_unchecked {
+            let is_unchecked_entry = match is_unchecked {
+                true => self.are_list_entries(&files),
+                false => vec![false; files.len()],
+            };
             let waiting = WaitingSidecarWrite {
                 activity: activity.into(),
                 files,
                 is_unchecked_entry,
                 write: Box::new(write),
                 report: Box::new(report),
-                _writing: (!waits_for_the_list)
-                    .then(|| Working::new(&crate::files::file_io::WRITING)),
+                _writing: (!is_unchecked).then(|| Working::new(&crate::files::file_io::WRITING)),
             };
-            self.file_operations.sidecar_writes_waiting.push(waiting);
-            // Checked already, the list gives the entries now.
-            if !is_unchecked {
-                self.settle_sidecar_writes_waiting_for_the_list(ctx);
-            }
-            return;
+            return self.file_operations.sidecar_writes_waiting.push(waiting);
         }
         self.send_sidecar_write(ctx, activity.into(), files, write, report);
     }
@@ -2862,9 +2863,9 @@ impl crate::App {
     /// and the end of a listing and of Rename Many call it at once. When no rename runs, each
     /// write is sent whose files are no unchecked entries of the list, and the others once the
     /// list is checked. When the list stays unchecked with no listing coming, as after a
-    /// listing that failed, those others are dropped and told, so that a `--wait` does not
-    /// answer done for an edit that is never written. A new list drops them
-    /// (`forget_old_list`), and so does a close (`guard_close`).
+    /// listing that failed, those others are ended (`end_sidecar_writes_waiting_for_the_list`),
+    /// so that a `--wait` does not answer done for an edit that is never written. A new list
+    /// ends them (`forget_old_list`), and so does a close (`refuse_or_delay_close`).
     pub(crate) fn settle_sidecar_writes_waiting_for_the_list(&mut self, ctx: &egui::Context) {
         if self.file_operations.sidecar_writes_waiting.is_empty()
             || self.file_operations.renaming.is_some()
@@ -2873,26 +2874,41 @@ impl crate::App {
         }
         self.send_sidecar_writes_waiting_for_the_list(ctx);
         if self.list.has_unchecked_entries() && !self.folder.is_listing() {
-            self.drop_sidecar_writes_waiting_for_the_list();
+            self.end_sidecar_writes_waiting_for_the_list(ctx);
         }
     }
 
-    /// Drops the sidecar writes that wait for the list's entries to be checked, and tells the
-    /// user so as a failed write. A close, a new list and a listing that failed drop them,
-    /// because the list they were asked on will not be checked.
-    pub(crate) fn drop_sidecar_writes_waiting_for_the_list(&mut self) {
-        let waiting = &mut self.file_operations.sidecar_writes_waiting;
-        let files_waiting = |w: &Vec<WaitingSidecarWrite>| -> usize {
-            (w.iter().filter(|w| w._writing.is_none()))
-                .map(|w| w.files.len())
-                .sum()
-        };
-        let files = files_waiting(waiting);
-        waiting.retain(|w| w._writing.is_some());
-        if files > 0 {
+    /// Ends the sidecar writes that wait for the list's entries to be checked, because the list
+    /// they were asked on will not be checked: a close, a new list and a listing that failed end
+    /// them. A file known by an identity that a read of the disk looked up (the info panel's
+    /// edit) is written, with that identity checked right before the write
+    /// (`ListedFile::check`), and so is a file that is no entry of the list. An entry known by
+    /// none may be a folder or no file at all, so it is left out, and told as a failed write.
+    pub(crate) fn end_sidecar_writes_waiting_for_the_list(&mut self, ctx: &egui::Context) {
+        let (waiting, still_waiting): (Vec<_>, Vec<_>) =
+            (std::mem::take(&mut self.file_operations.sidecar_writes_waiting).into_iter())
+                .partition(|w| w._writing.is_none());
+        self.file_operations.sidecar_writes_waiting = still_waiting;
+        let mut left_out = 0;
+        let mut writes = Vec::new();
+        for waiting in waiting {
+            let mut files = Vec::new();
+            for (k, (file, &is_entry)) in (waiting.files.iter())
+                .zip(&waiting.is_unchecked_entry)
+                .enumerate()
+            {
+                match is_entry && file.identity().is_none() {
+                    true => left_out += 1,
+                    false => files.push((file.clone(), k)),
+                }
+            }
+            writes.push((waiting.activity, files, waiting.write, waiting.report));
+        }
+        self.send_settled_sidecar_writes(ctx, writes);
+        if left_out > 0 {
             self.tell_failed_write(tf!(
                 "The list is not yet read, so the metadata edited for {count} was not saved",
-                count = count(files, "file")
+                count = count(left_out, "file")
             ));
         }
     }
@@ -2944,19 +2960,24 @@ impl crate::App {
             }
             writes.push((waiting.activity, files, waiting.write, waiting.report));
         }
-        // They are sent as they are, as they were settled here. Through `write_sidecars`, a
-        // write of another list went back to wait for this one.
-        for (activity, files, write, report) in writes {
-            let (files, places): (Vec<ListedFile>, Vec<usize>) = files.into_iter().unzip();
-            let write =
-                move |j: usize, path: &Path| write(*places.get(j).ok_or_else(broke_here)?, path);
-            self.send_sidecar_write(ctx, activity, files, write, report);
-        }
+        self.send_settled_sidecar_writes(ctx, writes);
         if left_out > 0 {
             self.tell_failed_write(tf!(
                 "The metadata edited for {count} was not saved, as the list no longer has them",
                 count = count(left_out, "file")
             ));
+        }
+    }
+
+    /// Sends `writes`, the sidecar writes that waited and are settled, each with its files and
+    /// their places among the files it was asked for. They are sent as they are, as they were
+    /// settled. Through `write_sidecars`, a write of another list went back to wait for this one.
+    fn send_settled_sidecar_writes(&mut self, ctx: &egui::Context, writes: Vec<SettledWrite>) {
+        for (activity, files, write, report) in writes {
+            let (files, places): (Vec<ListedFile>, Vec<usize>) = files.into_iter().unzip();
+            let write =
+                move |j: usize, path: &Path| write(*places.get(j).ok_or_else(broke_here)?, path);
+            self.send_sidecar_write(ctx, activity, files, write, report);
         }
     }
 
