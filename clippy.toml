@@ -68,12 +68,11 @@ disallowed-methods = [
     # texture and font names, the clipboard (`Context::copy_text`), the app id
     # (`with_app_id`, `eframe::run_native`, whose name is the title only when none is given), a
     # `custom_parser`, and a `TextEdit`'s buffer, which holds what the user types. Clippy cannot
-    # refuse a field or an impl's `From`, so every pub field that holds text stays with review:
-    # `ViewportBuilder::title` (the window title) first, then `LayoutJob::text`, `WidgetInfo`'s
-    # labels, `UiBuilder::accessibility_label`, `ValueFormat::prefix`/`suffix`,
-    # `ContainerAtom::atoms` and `Suggestion::content`, with `From<&str>`/`From<String>` for
-    # `WidgetText`/`RichText`/`Atom`. After an update of egui, list these again from its source
-    # (AGENTS.md, "A UI text").
+    # refuse a field, an enum variant or an impl's `From`, so these stay with review as a class:
+    # every pub field and enum variant of egui that holds text (the window title,
+    # `ViewportBuilder::title`, first), and every `From` into `WidgetText`, `RichText`, `Atom`
+    # or `AtomKind`. After an update of egui, list the calls again from its source (AGENTS.md,
+    # "A UI text").
     { path = "egui::Ui::button", reason = "menus::button or icon_button: noted by its text, which the release tests click" },
     { path = "egui::Ui::small_button", reason = "menus::small_button: noted by its text, which the release tests click" },
     { path = "egui::Ui::selectable_label", reason = "menus::selectable: noted by its text, which the release tests click" },
