@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.105.0] - 2026-11-28
+
 ### Added
 
 - Remember file lists for faster loading (Preferences, off by default): a folder opened again,
@@ -4968,7 +4970,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.104.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.105.0...HEAD
+[0.105.0]: https://github.com/thornbux/glimt/compare/v0.104.0...v0.105.0
 [0.104.0]: https://github.com/thornbux/glimt/compare/v0.103.0...v0.104.0
 [0.103.0]: https://github.com/thornbux/glimt/compare/v0.102.0...v0.103.0
 [0.102.0]: https://github.com/thornbux/glimt/compare/v0.101.0...v0.102.0
