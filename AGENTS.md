@@ -873,7 +873,8 @@ A test or a `source_rules` check that fails when new code opens the class again 
 where no type can hold the rule, and the commit says why. A check that reads the source as text
 is slipped past by a spelling it does not know, and its gaps came back as findings in release
 after release. A class that such a check holds today moves into a type as structural work in a
-minor release, when its code is changed.
+minor release, when its code is changed. The check goes only when the type closes every way
+around it that the check caught: write that way out and see that it no longer compiles.
 
 A fix is right the first time when it closes every way in. Before the change, list each path
 that reaches the code it guards (its callers, the actions and `--remote` commands that end
@@ -969,6 +970,8 @@ text (`menu File "Open With"`, found through the `test-hooks` build's
 `glimt --remote where LABEL`), and reads the result from the files or from a colour in a
 screenshot. A button or selectable row is drawn through the `menus` helpers, which note where
 it is, because clippy refuses egui's own; another widget the tests need gets a `noted(…)` call.
+`where` finds only a text noted whole in that frame, so a check that waits for a text names the
+`noted` call that gives exactly it; otherwise it waits for ever, on the new build too.
 Use screen coordinates only where a click's place is the point. Run the check against the last
 release as well, to see that it fails there.
 
