@@ -506,10 +506,11 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          it; glimt --slideshow show.txt plays it in its order. What changes in the window stays \
          there: Glimt never changes the list's file.\n\n\
          File → Save List As… saves the list as the window shows it, in its order (only the \
-         matches while a search is on), as a new plain list: one image on each line, relative to \
-         the list's folder (../ for an image outside it), under a first line that names the \
-         Glimt that saved it. An image whose name holds a line break cannot be written on a line, \
-         and is left out and told.\n\n\
+         matches while a search is on), as a new plain list ending in .txt or .m3u: one image on \
+         each line, relative to the list's folder (absolute for an image outside it), under a \
+         first line that names the Glimt that saved it. An image whose name holds a line break \
+         cannot be written on a line, and is left out and told. While a folder is still being \
+         read, it waits until the list is whole.\n\n\
          File → Import Lightroom Catalog… reads a Lightroom Classic catalog (.lrcat, with \
          Lightroom closed) through the sqlite3 program, 3.37 or newer:\n\n\
          - its collections become Glimt's (named with their sets, as Travel - Norway; one of the \

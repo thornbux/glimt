@@ -1639,7 +1639,9 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
         assert_eq!(crate::model::collections::load(&file).unwrap(), paths);
         let text = std::fs::read_to_string(&file).unwrap();
-        assert!(text.ends_with("\n../c.png\n../a.png\n"), "{text}");
+        // Outside the list's folder, so written absolute.
+        let (c, a) = (paths[0].to_str().unwrap(), paths[1].to_str().unwrap());
+        assert!(text.ends_with(&format!("\n{c}\n{a}\n")), "{text}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

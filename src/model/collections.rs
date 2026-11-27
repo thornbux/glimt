@@ -283,8 +283,10 @@ impl crate::App {
                 .collect::<std::io::Result<Vec<PathBuf>>>()
                 .and_then(|paths| Ok((paths, std::path::absolute(&file)?)));
             let saved = made.and_then(|(paths, file)| {
-                let folder = file.parent().unwrap_or(Path::new("/"));
-                let (text, left_out) = list_text(&paths, folder);
+                // By its real path, as the window's paths are real paths: a list saved through a
+                // link to its folder would otherwise write its own images absolute.
+                let folder = real_dir(file.parent().unwrap_or(Path::new("/")));
+                let (text, left_out) = list_text(&paths, &folder);
                 let write = |f: &mut std::fs::File| f.write_all(&text);
                 crate::files::file_io::write_picked_name(&file, at_pick, write)?;
                 Ok(left_out)
@@ -722,8 +724,10 @@ fn parse_list(text: &[u8], base: &Path) -> Vec<PathBuf> {
 
 /// Returns the text of a plain list of `paths`, absolute paths, saved in the folder
 /// `list_folder`, and how many paths were left out. The first line says which Glimt saved it.
-/// Each path is written relative to the folder, with `..` steps for one outside it, so that
-/// the list and its images can be moved together. A line that `parse_list` would read as
+/// A path in the folder is written relative to it, so that the list and its images can be moved
+/// together, and any other path is written absolute. A `..` step would be read back from the
+/// path the list is opened by, as written (`parse_list`), and through a symbolic link that is
+/// another folder than the one it was worked out from. A line that `parse_list` would read as
 /// another path or as a comment (a name that starts or ends with a space, or starts with # or
 /// a quote) is written in quotes, which `parse_list` takes off after it trims the line. A path
 /// with a line break cannot be written on a line, and is left out.
@@ -736,8 +740,12 @@ pub(crate) fn list_text(paths: &[PathBuf], list_folder: &Path) -> (Vec<u8>, usiz
             left_out += 1;
             continue;
         }
-        let relative = relative_to(&lexically_normal(path), &list_folder);
-        let line = relative.as_os_str().as_bytes();
+        let path = lexically_normal(path);
+        let written = match path.strip_prefix(&list_folder) {
+            Ok(in_folder) => in_folder,
+            Err(_) => &path,
+        };
+        let line = written.as_os_str().as_bytes();
         // The list's folder itself, as a list may name folders.
         let line: &[u8] = if line.is_empty() { b"." } else { line };
         let is_read_otherwise =
@@ -748,20 +756,6 @@ pub(crate) fn list_text(paths: &[PathBuf], list_folder: &Path) -> (Vec<u8>, usiz
         }
     }
     (text, left_out)
-}
-
-/// Returns `path` relative to the folder `base`, both absolute and lexically normal, with a
-/// `..` for each part of `base` that `path` does not share. It is worked out as written,
-/// without looking at the disk, as `parse_list` reads it back.
-fn relative_to(path: &Path, base: &Path) -> PathBuf {
-    let (mut path, mut base) = (path.components().peekable(), base.components().peekable());
-    while path.peek().is_some() && path.peek() == base.peek() {
-        path.next();
-        base.next();
-    }
-    (base.map(|_| std::path::Component::ParentDir))
-        .chain(path)
-        .collect()
 }
 
 /// `path` with its `.` and `..` worked out as written, without looking at the disk: the same
@@ -2024,9 +2018,42 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A list saved through a symbolic link to a folder reads back as the same images however
+    /// it is opened. Before, the base was the link's path, and an image outside the list's
+    /// folder was written with `..` steps from it, which read back from the real path named
+    /// another folder. An image in the list's folder stays relative to it.
+    #[test]
+    fn a_list_saved_through_a_link_reads_back_by_either_path() {
+        use crate::support::test_support::run_background_until;
+        let dir = std::env::temp_dir().join(format!("glimt-test-list-link-{}", std::process::id()));
+        let photos = dir.join("data/photos");
+        std::fs::create_dir_all(photos.join("trip")).unwrap();
+        std::fs::create_dir_all(photos.join("lists")).unwrap();
+        let photos = std::fs::canonicalize(&photos).unwrap();
+        std::os::unix::fs::symlink(&photos, dir.join("link")).unwrap();
+        let images = [photos.join("trip/a.png"), photos.join("lists/b.png")];
+        for image in &images {
+            image::RgbImage::new(2, 2).save(image).unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&photos);
+        let through_link = dir.join("link/lists/l.txt");
+        app.save_list(&ctx, images.to_vec(), (through_link.clone(), None));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        let text = std::fs::read_to_string(&through_link).unwrap();
+        assert!(text.ends_with("\nb.png\n"), "{text}");
+        assert_eq!(super::entries_by_real_path(&through_link).unwrap(), images);
+        let through_real_path = photos.join("lists/l.txt");
+        assert_eq!(
+            super::entries_by_real_path(&through_real_path).unwrap(),
+            images
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A list that Save List As writes reads back as the same files through Glimt's own
-    /// reader: relative to the list, with `..` steps, and with names that a plain line would
-    /// read as another name or a comment. A name with a line break is left out and counted.
+    /// reader: relative to the list in its folder, absolute outside it, and with names that a
+    /// plain line would read as another name or a comment. A name with a line break is left
+    /// out and counted.
     #[test]
     fn a_saved_list_reads_back_as_the_same_files() {
         use std::os::unix::ffi::OsStrExt;
@@ -2059,8 +2086,8 @@ mod tests {
             [
                 &b"a.jpg"[..],
                 b"deeper/b c.jpg",
-                b"../other/d.jpg",
-                b"../../e.jpg"
+                b"/lists/other/d.jpg",
+                b"/e.jpg"
             ]
         );
         assert_eq!(super::parse_list(&text, base), paths[..11]);
