@@ -184,8 +184,11 @@ pub struct DesktopLook {
 /// How much motion the desktop asks for.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Motion {
-    /// Motion as usual, also when the desktop says nothing.
+    /// The desktop has not answered yet. What would only pulse is left out until it has, so a
+    /// user who asked for less motion never sees it, also while a slow portal is asked.
     #[default]
+    Unknown,
+    /// Motion as usual, also when the desktop answered that it knows neither key.
     Full,
     /// Less motion: what would only pulse, such as the activity line, is left out.
     Reduced,
@@ -340,6 +343,13 @@ impl DesktopSettings {
         self.look_answer.is_none()
             && self.screen_profile_answer.is_none()
             && self.theme_files_answer.is_none()
+    }
+
+    /// Sets the motion the desktop asked for, as its answer would, for a test that must not
+    /// depend on the desktop it runs on.
+    #[cfg(test)]
+    pub(crate) fn answer_motion(&mut self, motion: Motion) {
+        self.look.motion = motion;
     }
 }
 
@@ -561,12 +571,12 @@ pub fn read_desktop_look() -> DesktopLook {
     }
 }
 
-/// Reads the portal's "reduced-motion", "(<uint32 1>,)" when the desktop asks for less motion,
+/// Parses the portal's "reduced-motion", "(<uint32 1>,)" when the desktop asks for less motion,
 /// and GNOME's "enable-animations", "(<false>,)" when animations are off. Returns, when either
 /// asks for less motion, `Motion::Reduced`. A desktop that knows neither key answers nothing,
 /// which is `Motion::Full`.
 fn parse_motion(reduced_motion: &str, enable_animations: &str) -> Motion {
-    if parse_contrast(reduced_motion) || enable_animations.contains("<false>") {
+    if parse_uint32_is_one(reduced_motion) || enable_animations.contains("<false>") {
         Motion::Reduced
     } else {
         Motion::Full
@@ -582,6 +592,12 @@ fn parse_scale(text: &str) -> Option<f32> {
 
 /// "(<uint32 1>,)": 1 is high contrast, 0 none.
 fn parse_contrast(text: &str) -> bool {
+    parse_uint32_is_one(text)
+}
+
+/// Returns whether a portal's answer "(<uint32 N>,)" holds 1, as the contrast and the
+/// reduced-motion keys answer when they are on.
+fn parse_uint32_is_one(text: &str) -> bool {
     text.split("uint32 ")
         .nth(1)
         .is_some_and(|n| n.starts_with('1'))

@@ -2217,10 +2217,11 @@ pub(crate) fn thumbs_to_keep<'a>(
 
 /// Returns how strongly the activity line is drawn at `time` seconds, from `ACTIVITY_FAINTEST`
 /// to 1. It goes from full to faint and back once each `ACTIVITY_PULSE`. Returns `None` when the
-/// desktop asks for less motion, as a line that does not pulse would look like a border.
+/// desktop asks for less motion, as a line that does not pulse would look like a border, and
+/// while the desktop has not answered, which may be a desktop that asks for less.
 fn activity_line_alpha(time: f64, motion: theme::Motion) -> Option<f32> {
     match motion {
-        theme::Motion::Reduced => None,
+        theme::Motion::Unknown | theme::Motion::Reduced => None,
         theme::Motion::Full => {
             let wave = (time * std::f64::consts::TAU / ACTIVITY_PULSE).cos() as f32;
             Some(ACTIVITY_FAINTEST + (1.0 - ACTIVITY_FAINTEST) * (wave + 1.0) / 2.0)
@@ -2569,22 +2570,28 @@ mod tests {
             let next = activity_line_alpha(time + ACTIVITY_PULSE, Motion::Full).unwrap();
             assert!((alpha - next).abs() < 1e-3, "{alpha} and {next} at {time}");
             assert_eq!(activity_line_alpha(time, Motion::Reduced), None);
+            assert_eq!(activity_line_alpha(time, Motion::Unknown), None);
         }
         let faintest = activity_line_alpha(ACTIVITY_PULSE / 2.0, Motion::Full).unwrap();
         assert!(faintest < ACTIVITY_FAINTEST + 1e-3);
     }
 
-    /// The activity line shows while a folder is read, and not with its setting off or once the
-    /// folder is read.
-    /// Risk: the line stays after the listing, or shows for a user who turned it off.
+    /// The activity line shows while a folder is read, and not with its setting off, once the
+    /// folder is read, or before the desktop has said how much motion it wants.
+    /// Risk: the line stays after the listing, shows for a user who turned it off, or pulses
+    /// for a user who asked for less motion while the slow desktop answers.
     #[test]
     fn the_activity_line_shows_only_while_a_folder_is_read() {
         use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        use crate::ui::theme::Motion;
         let dir = contract_folder("activity-line");
         let (mut app, ctx) = app_on(&dir);
         assert_eq!(app.activity_line_strength(0.0), None);
         app.start_listing(&ctx);
         assert!(app.folder.is_listing());
+        app.desktop_settings.answer_motion(Motion::Unknown);
+        assert_eq!(app.activity_line_strength(0.0), None);
+        app.desktop_settings.answer_motion(Motion::Full);
         assert_eq!(app.activity_line_strength(0.0), Some(1.0));
         app.config.activity_line = false;
         assert_eq!(app.activity_line_strength(0.0), None);
