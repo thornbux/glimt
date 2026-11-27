@@ -349,17 +349,18 @@ pub(crate) fn count(n: usize, noun: &'static str) -> ShownText {
 }
 
 /// `text` as it is if it `fits`, else its start and end around "…", as long as fits; found by
-/// halving, so a row lays out a few texts, not one for each letter.
-pub(crate) fn middle_cut(text: &ShownText, fits: impl Fn(&str) -> bool) -> ShownText {
+/// halving, so a row lays out a few texts, not one for each letter. `fits` is given each text
+/// tried as a shown text, as it measures it the way it is drawn.
+pub(crate) fn middle_cut(text: &ShownText, fits: impl Fn(&ShownText) -> bool) -> ShownText {
     if fits(text) {
         return text.clone();
     }
     let chars: Vec<char> = text.chars().collect();
-    let cut = |keep: usize| -> String {
+    let cut = |keep: usize| -> ShownText {
         let tail = keep / 2;
         let head: String = chars[..keep - tail].iter().collect();
         let end: String = chars[chars.len() - tail..].iter().collect();
-        format!("{head}…{end}")
+        ShownText(format!("{head}…{end}").into())
     };
     let (mut lo, mut hi) = (0, chars.len());
     while lo < hi {
@@ -370,7 +371,7 @@ pub(crate) fn middle_cut(text: &ShownText, fits: impl Fn(&str) -> bool) -> Shown
             hi = mid - 1;
         }
     }
-    ShownText::made(cut(lo))
+    cut(lo)
 }
 
 /// Returns the pieces of `text` from left to right: the text, and the codes in it. With
@@ -761,7 +762,7 @@ mod tests {
         assert_eq!(super::grouped(1234567, "."), "1.234.567");
         assert_eq!(super::count(1, "image"), "1 image");
         // One letter is one unit wide here.
-        let fits = |n: usize| move |s: &str| s.chars().count() <= n;
+        let fits = |n: usize| move |s: &super::ShownText| s.chars().count() <= n;
         assert_eq!(
             super::middle_cut(&"fjord_sunrise.jpg".into(), fits(20)),
             "fjord_sunrise.jpg"

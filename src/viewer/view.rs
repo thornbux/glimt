@@ -1259,7 +1259,7 @@ impl crate::App {
     pub(crate) fn paint_name(&self, ui: &egui::Ui, rect: egui::Rect, i: usize) {
         let p = ui.painter();
         let font = egui::TextStyle::Body.resolve(ui.style());
-        let galley = p.layout_no_wrap(self.name(i).to_string(), font, egui::Color32::WHITE);
+        let galley = p.layout_shown(self.name(i), font, egui::Color32::WHITE);
         let text = egui::Rect::from_min_size(rect.left_top() + egui::vec2(8.0, 8.0), galley.size());
         p.rect_filled(text.expand(4.0), 3.0, egui::Color32::from_black_alpha(160));
         p.galley(text.min, galley, egui::Color32::WHITE);
@@ -1313,8 +1313,8 @@ impl crate::App {
             return;
         }
         let p = ui.painter();
-        let galley = p.layout_no_wrap(
-            text.to_string(),
+        let galley = p.layout_shown(
+            &text,
             egui::FontId::proportional(15.0),
             egui::Color32::WHITE,
         );
@@ -1372,8 +1372,8 @@ impl crate::App {
     /// the main window.
     pub(crate) fn projector_window(&mut self, ctx: &egui::Context) {
         let id = egui::ViewportId::from_hash_of("glimt projector");
-        let builder = egui::ViewportBuilder::default()
-            .with_title(tr("Glimt Projector").to_string())
+        let title = tr("Glimt Projector");
+        let builder = crate::ui::menus::titled(egui::ViewportBuilder::default(), &title)
             .with_app_id(app_id())
             .with_inner_size([960.0, 600.0]);
         let mut chosen = None;
@@ -1934,7 +1934,7 @@ impl crate::App {
             // message, can be long.
             let (font, grey) = (egui::FontId::proportional(16.0), egui::Color32::GRAY);
             let width = (area.width() - 32.0).max(80.0);
-            let galley = ui.painter().layout(text.to_string(), font, grey, width);
+            let galley = ui.painter().layout_shown_wrapped(&text, font, grey, width);
             let at = area.center() - galley.size() / 2.0;
             ui.painter().galley(at, galley, grey);
         }
@@ -1989,10 +1989,11 @@ impl crate::App {
             return;
         };
         ui.ctx().request_repaint_after(left);
-        let id = crate::features::remote::window_id();
+        // The window's ID, the user's own --name, shown as the title shows it.
+        let id = ShownText::from_file_text_on_one_line(&crate::features::remote::window_id());
         let size = (area.height() / 6.0).clamp(32.0, 160.0);
         let (font, white) = (egui::FontId::proportional(size), egui::Color32::WHITE);
-        let galley = ui.painter().layout(id, font, white, area.width() - 32.0);
+        let galley = (ui.painter()).layout_shown_wrapped(id, font, white, area.width() - 32.0);
         let at = area.center() - galley.size() / 2.0;
         let band = egui::Rect::from_min_size(at, galley.size()).expand(size / 4.0);
         ui.painter()
@@ -2500,8 +2501,8 @@ pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
         egui::Color32::WHITE,
         egui::Stroke::NONE,
     ));
-    let label = p.layout_no_wrap(
-        text.to_string(),
+    let label = p.layout_shown(
+        &text,
         egui::FontId::proportional(16.0),
         egui::Color32::WHITE,
     );

@@ -1328,10 +1328,10 @@ fn grid(ui: &egui::Ui, id: &str, columns: usize) -> egui::Grid {
 }
 
 /// Two columns, the first in code: options or commands and what they do.
-fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &'static str)]) {
+fn table(ui: &mut egui::Ui, id: &str, rows: &[(&'static str, &'static str)]) {
     grid(ui, id, 2).show(ui, |ui| {
         for (what, does) in rows {
-            ui.code(*what);
+            ui.show_styled(ShownText::untranslated(what), egui::RichText::code);
             ui.show_label(english(does));
             ui.end_row();
         }

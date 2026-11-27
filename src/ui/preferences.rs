@@ -10,7 +10,7 @@ use crate::support::lang::tr;
 use crate::support::threads::set_cpu_use;
 use crate::ui::actions::{ALL, Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::{DrawShown, ShownChoice, ShownHint, ShownSlider, ShownTip};
+use crate::ui::menus::{DrawShown, ShownChoice, ShownHint, ShownSlider, ShownTip, ShownUnit};
 use crate::ui::menus::{checkbox, radio, radio_choice};
 use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
 use eframe::egui;
@@ -383,7 +383,7 @@ impl crate::App {
         }
         ui.horizontal(|ui| {
             let size = egui::Slider::new(&mut self.config.ui_scale, 50..=300)
-                .suffix(" %")
+                .unit(ShownText::untranslated(" %"))
                 .shown_text(tr("size of the menus, lists and text"));
             // Applied when let go: a size changing under the pointer would move it.
             let size = ui.add(size);
@@ -1107,8 +1107,9 @@ fn section(ui: &mut egui::Ui, icon: &'static str, title: ShownText) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         let accent = ui.visuals().selection.bg_fill;
-        let icon = crate::ui::menus::rich(ShownText::untranslated(icon));
-        ui.add(egui::Label::new(icon.size(18.0).color(accent)));
+        ui.show_styled(ShownText::untranslated(icon), |t| {
+            t.size(18.0).color(accent)
+        });
         ui.show_strong(title);
     });
     ui.separator();

@@ -869,6 +869,13 @@ const TEXT_FOR_THE_USER: &[(Reaches, &[&str])] = &[
             "collapsing(",
             "rich(",
             "spoken(",
+            ".show_styled(",
+            ".layout_shown(",
+            ".layout_shown_wrapped(",
+            "single_line(",
+            ".progress_text(",
+            ".unit(",
+            "titled(",
             // A notice and a failure, which `texts_for_the_user` finds in the code too.
             ".give(",
             ".give_error(",

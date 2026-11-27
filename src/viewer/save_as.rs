@@ -14,7 +14,7 @@ use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::{DrawShown, ShownChoice};
+use crate::ui::menus::{DrawShown, ShownChoice, ShownUnit};
 use eframe::egui;
 #[cfg(feature = "video")]
 use std::path::Path;
@@ -305,14 +305,14 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
                 ui.horizontal(|ui| {
                     crate::ui::menus::radio_choice(ui, &mut c.size_mode, 1, tr("Longest side"));
                     let drag = egui::DragValue::new(&mut c.longest_side).range(1..=65535);
-                    if ui.add(drag.suffix(" px")).changed() {
+                    if ui.add(drag.unit(ShownText::untranslated(" px"))).changed() {
                         c.size_mode = 1;
                     }
                 });
                 ui.horizontal(|ui| {
                     crate::ui::menus::radio_choice(ui, &mut c.size_mode, 2, tr("Percent"));
                     let drag = egui::DragValue::new(&mut c.percent).range(1..=100);
-                    if ui.add(drag.suffix(" %")).changed() {
+                    if ui.add(drag.unit(ShownText::untranslated(" %"))).changed() {
                         c.size_mode = 2;
                     }
                 });

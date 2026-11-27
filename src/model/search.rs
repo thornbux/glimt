@@ -12,7 +12,7 @@ use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::support::threads::{background_threads, in_parts};
-use crate::ui::menus::{ShownHint, ShownTip};
+use crate::ui::menus::{DrawShown, ShownHint, ShownTip};
 use crate::{metadata::exif, metadata::xmp};
 use crate::{tf, ui::theme};
 use eframe::egui;
@@ -285,7 +285,8 @@ impl crate::App {
             }
         });
         if let Some(e) = &self.search.error {
-            ui.colored_label(ui.visuals().error_fg_color, tf!("Not a pattern: {e}", e));
+            let colour = ui.visuals().error_fg_color;
+            ui.show_styled(tf!("Not a pattern: {e}", e), |t| t.color(colour));
         }
     }
 

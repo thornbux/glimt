@@ -869,12 +869,7 @@ impl crate::App {
         // Cut in the middle, so the end of the name and its extension stay.
         let width = name_rect.width() - 4.0;
         let p = ui.painter();
-        let fits = |s: &str| {
-            p.layout_no_wrap(s.to_owned(), font.clone(), text_color)
-                .size()
-                .x
-                <= width
-        };
+        let fits = |s: &ShownText| p.layout_shown(s, font.clone(), text_color).size().x <= width;
         let name = middle_cut(&self.name(i), fits);
         p.with_clip_rect(name_rect).show_text(
             egui::pos2(name_rect.min.x, rect.center().y),
@@ -918,7 +913,7 @@ impl crate::App {
         self.paint_thumb(ui, i, frame);
         if self.config.grid_names {
             let font = egui::TextStyle::Small.resolve(ui.style());
-            let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font, color);
+            let mut job = crate::ui::menus::single_line(&name, font, color);
             job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
             let galley = ui.painter().layout_job(job);
             let at = egui::pos2(
@@ -941,7 +936,7 @@ impl crate::App {
             let p = ui.painter();
             let gold = egui::Color32::from_rgb(255, 190, 40);
             let small = egui::TextStyle::Small.resolve(ui.style());
-            let galley = p.layout_no_wrap(marks.to_string(), small, gold);
+            let galley = p.layout_shown(&marks, small, gold);
             let at = egui::Rect::from_min_size(
                 frame.right_top() + egui::vec2(-galley.size().x - 4.0, 3.0),
                 galley.size(),
@@ -2320,9 +2315,9 @@ fn path_buttons(ui: &mut egui::Ui, path: &Path, field: egui::Id) -> Option<PathB
     // part at the panel's default width.
     let padding = ui.spacing().button_padding.x / 2.0;
     let width = |text: ShownText| {
-        let galley =
-            ui.painter()
-                .layout_no_wrap(text.to_string(), font.clone(), egui::Color32::PLACEHOLDER);
+        let galley = ui
+            .painter()
+            .layout_shown(text, font.clone(), egui::Color32::PLACEHOLDER);
         galley.size().x + 2.0 * padding
     };
     // Each folder with the "/" before it, and room left over for the empty part to click.

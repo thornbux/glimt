@@ -145,12 +145,13 @@ impl SharingDialog {
         if !self.left_out.is_file_name_left_out() {
             if self.clashes > 0 {
                 let images = count(self.clashes, "image");
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
+                let colour = ui.visuals().warn_fg_color;
+                ui.show_styled(
                     tf!(
                         "Same name as another image picked, from another folder: {images}",
                         images
                     ),
+                    |t| t.color(colour),
                 );
             }
             checkbox(

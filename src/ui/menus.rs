@@ -92,7 +92,10 @@ impl OpenWith {
 /// a tooltip, a combo box's text, a field's hint, a slider's text, a part of a laid out text, a
 /// text painted by hand, a window's title, a collapsing header and what a screen reader says.
 /// Each takes a `ShownText`, so a raw name or a `String` cannot be drawn, and `clippy.toml`
-/// refuses the egui call each of them makes.
+/// refuses the egui call each of them makes. egui's `From<String>` and `From<&str>` for
+/// `RichText` and `WidgetText` stay open, as an impl's method has no path that clippy can
+/// refuse, and refusing `From::from` itself would refuse every conversion. So review holds a
+/// `"…".into()` given to an egui widget.
 pub(crate) trait DrawShown {
     /// Draws `text` as a label.
     fn show_label(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
@@ -102,6 +105,13 @@ pub(crate) trait DrawShown {
     fn show_heading(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
     /// Draws `text` as a label in the strong colour.
     fn show_strong(&mut self, text: impl AsRef<ShownText>) -> egui::Response;
+    /// Draws `text` as a label in the look that `style` gives it, such as a colour, a size or
+    /// the code font (`egui::RichText::code`).
+    fn show_styled(
+        &mut self,
+        text: impl AsRef<ShownText>,
+        style: impl FnOnce(egui::RichText) -> egui::RichText,
+    ) -> egui::Response;
 }
 
 impl DrawShown for egui::Ui {
@@ -120,6 +130,14 @@ impl DrawShown for egui::Ui {
     #[allow(clippy::disallowed_methods)] // The one place a label of text is drawn.
     fn show_strong(&mut self, text: impl AsRef<ShownText>) -> egui::Response {
         self.strong(text.as_ref().as_str())
+    }
+    #[allow(clippy::disallowed_methods)] // The one place a label of a styled text is drawn.
+    fn show_styled(
+        &mut self,
+        text: impl AsRef<ShownText>,
+        style: impl FnOnce(egui::RichText) -> egui::RichText,
+    ) -> egui::Response {
+        self.add(egui::Label::new(style(rich(text))))
     }
 }
 
@@ -168,6 +186,39 @@ impl ShownSlider for egui::Slider<'_> {
     }
 }
 
+/// The unit after a number to drag or slide, such as " %", as a shown text.
+pub(crate) trait ShownUnit {
+    /// Returns the field with `text` after its number.
+    fn unit(self, text: impl AsRef<ShownText>) -> Self;
+}
+
+impl ShownUnit for egui::Slider<'_> {
+    #[allow(clippy::disallowed_methods)] // The one place a slider's unit is set.
+    fn unit(self, text: impl AsRef<ShownText>) -> Self {
+        self.suffix(text.as_ref().as_str())
+    }
+}
+
+impl ShownUnit for egui::DragValue<'_> {
+    #[allow(clippy::disallowed_methods)] // The one place a dragged number's unit is set.
+    fn unit(self, text: impl AsRef<ShownText>) -> Self {
+        self.suffix(text.as_ref().as_str())
+    }
+}
+
+/// The text on a progress bar, as a shown text.
+pub(crate) trait ShownProgress {
+    /// Returns the bar with `text` on it.
+    fn progress_text(self, text: impl AsRef<ShownText>) -> Self;
+}
+
+impl ShownProgress for egui::ProgressBar {
+    #[allow(clippy::disallowed_methods)] // The one place a progress bar's text is set.
+    fn progress_text(self, text: impl AsRef<ShownText>) -> Self {
+        self.text(text.as_ref().as_str())
+    }
+}
+
 /// A part of a laid out text, as a shown text.
 pub(crate) trait ShownLayout {
     /// Adds `text` at the end, after `leading_space` points, in `format`.
@@ -205,6 +256,21 @@ pub(crate) trait PaintShown {
         font: egui::FontId,
         colour: egui::Color32,
     ) -> egui::Rect;
+    /// Lays out `text` on one line in `font` and `colour`, to be measured or painted.
+    fn layout_shown(
+        &self,
+        text: impl AsRef<ShownText>,
+        font: egui::FontId,
+        colour: egui::Color32,
+    ) -> std::sync::Arc<egui::Galley>;
+    /// Lays out `text` in `font` and `colour`, broken into lines of at most `width`.
+    fn layout_shown_wrapped(
+        &self,
+        text: impl AsRef<ShownText>,
+        font: egui::FontId,
+        colour: egui::Color32,
+        width: f32,
+    ) -> std::sync::Arc<egui::Galley>;
 }
 
 impl PaintShown for egui::Painter {
@@ -218,6 +284,25 @@ impl PaintShown for egui::Painter {
         colour: egui::Color32,
     ) -> egui::Rect {
         self.text(at, anchor, text.as_ref().as_str(), font, colour)
+    }
+    #[allow(clippy::disallowed_methods)] // The one place a text is laid out on one line.
+    fn layout_shown(
+        &self,
+        text: impl AsRef<ShownText>,
+        font: egui::FontId,
+        colour: egui::Color32,
+    ) -> std::sync::Arc<egui::Galley> {
+        self.layout_no_wrap(text.as_ref().to_string(), font, colour)
+    }
+    #[allow(clippy::disallowed_methods)] // The one place a text is laid out in lines.
+    fn layout_shown_wrapped(
+        &self,
+        text: impl AsRef<ShownText>,
+        font: egui::FontId,
+        colour: egui::Color32,
+        width: f32,
+    ) -> std::sync::Arc<egui::Galley> {
+        self.layout(text.as_ref().to_string(), font, colour, width)
     }
 }
 
@@ -1182,6 +1267,24 @@ pub(crate) fn spoken(role: egui::Role, enabled: bool, text: &ShownText) -> egui:
     egui::WidgetInfo::labeled(role, enabled, text.as_str())
 }
 
+/// Returns a layout of `text` on one line in `font` and `colour`, which a caller may cut to a
+/// width before it is laid out.
+#[allow(clippy::disallowed_methods)] // The one place a text is made a layout of one line.
+pub(crate) fn single_line(
+    text: &ShownText,
+    font: egui::FontId,
+    colour: egui::Color32,
+) -> egui::text::LayoutJob {
+    egui::text::LayoutJob::simple_singleline(text.to_string(), font, colour)
+}
+
+/// Returns `builder` with the window's title `title`, which the taskbar, the window list and a
+/// screen reader show.
+#[allow(clippy::disallowed_methods)] // The one place a new window's title is set.
+pub(crate) fn titled(builder: egui::ViewportBuilder, title: &ShownText) -> egui::ViewportBuilder {
+    builder.with_title(title.as_str())
+}
+
 /// Draws a button of `text` and notes it for the release tests, which click it by its text.
 #[allow(clippy::disallowed_methods)] // The one place a plain button is drawn.
 pub(crate) fn button(ui: &mut egui::Ui, text: impl AsRef<ShownText>) -> egui::Response {
@@ -1364,7 +1467,9 @@ pub(crate) fn menu_button(
     action: Action,
 ) {
     if let Some(text) = shortcut_text(ui.ctx(), action) {
-        button = button.shortcut_text(text);
+        #[allow(clippy::disallowed_methods)] // The one place a shortcut's keys are drawn.
+        let with_keys = button.shortcut_text(text);
+        button = with_keys;
     }
     if noted(&ui.add(button), &action.label()).clicked() {
         *chosen = Some(action);

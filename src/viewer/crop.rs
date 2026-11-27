@@ -6,7 +6,7 @@ use crate::files::file_io::Transfer;
 use crate::files::file_ops::{FilesMoved, OperationReport};
 use crate::support::lang::tr;
 use crate::tf;
-use crate::ui::menus::DrawShown;
+use crate::ui::menus::{DrawShown, PaintShown};
 use eframe::egui;
 #[cfg(feature = "video")]
 use std::path::Path;
@@ -108,9 +108,9 @@ impl crate::App {
             let stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
             p.rect_stroke(sel, 0.0, stroke, egui::StrokeKind::Outside);
             let [_, _, w, h] = part_pixels(part, pixels);
-            let text = format!("{w} × {h}");
+            let text = crate::tf!("{w} × {h}", w, h);
             let font = egui::FontId::proportional(14.0);
-            let galley = p.layout_no_wrap(text, font, egui::Color32::WHITE);
+            let galley = p.layout_shown(text, font, egui::Color32::WHITE);
             let at = sel.left_top() + egui::vec2(6.0, 6.0);
             p.rect_filled(
                 egui::Rect::from_min_size(at, galley.size()).expand(3.0),

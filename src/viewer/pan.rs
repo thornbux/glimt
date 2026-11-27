@@ -558,7 +558,7 @@ impl crate::App {
                 rect.max - egui::vec2(6.0, 6.0),
             ),
         ] {
-            let g = p.layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
+            let g = p.layout_shown(&text, font.clone(), egui::Color32::WHITE);
             let at = align.anchor_size(corner, g.size());
             p.rect_filled(at.expand(2.0), 3.0, dark);
             p.galley(at.min, g, egui::Color32::WHITE);

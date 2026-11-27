@@ -745,7 +745,8 @@ impl crate::App {
                     let name = pattern_name(text.trim(), first, 1);
                     ui.show_weak(tf!("First: {name}", name = escaped_name(&name)));
                     if let Some(warning) = fat_warning(&name, fat.as_deref()) {
-                        ui.colored_label(ui.visuals().warn_fg_color, warning);
+                        let colour = ui.visuals().warn_fg_color;
+                        ui.show_styled(warning, |t| t.color(colour));
                     }
                 }
                 ui.horizontal(|ui| {

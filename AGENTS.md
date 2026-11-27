@@ -525,9 +525,11 @@ arm becomes a method.
 - **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `po/*.po`
   (see Language). Text for the user is a `format::ShownText`: `tr` and `tf!` return one, and
   every place text reaches the user takes one (the `menus` helpers, `DrawShown`, `ShownTip`,
-  `ShownChoice`, `ShownHint`, `ShownSlider`, `ShownLayout`, `PaintShown`, `window`,
-  `collapsing`, `rich` and `spoken`, `Notice::give`, `Failure`, `Told::Notice`,
-  `NoticeSender::send`, the title). egui's own text calls are in `clippy.toml`. Only the
+  `ShownChoice`, `ShownHint`, `ShownSlider`, `ShownUnit`, `ShownProgress`, `ShownLayout`,
+  `PaintShown`, `window`, `collapsing`, `rich`, `single_line`, `titled` and `spoken`,
+  `Notice::give`, `Failure`, `Told::Notice`, `NoticeSender::send`, the title). egui's own
+  text calls are in `clippy.toml`, except its `From<String>` and `From<&str>` for `RichText`
+  and `WidgetText`, which clippy cannot name, so review holds them. Only the
   ways in that `ShownText`'s doc lists make one: a translated text, a name or path, a number,
   a text read from a file (`from_file_text_on_one_line` where it shows on one line,
   `from_file_text` where a panel shows it whole), and `ShownText::untranslated` for a text

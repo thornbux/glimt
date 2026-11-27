@@ -642,8 +642,8 @@ fn main() -> eframe::Result {
         }
     }
     start.refuse_remote_options();
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Glimt")
+    let title = crate::support::format::ShownText::untranslated("Glimt");
+    let mut viewport = crate::ui::menus::titled(egui::ViewportBuilder::default(), &title)
         .with_app_id(app_id())
         .with_inner_size([1280.0, 800.0]);
     if let Ok(icon) = crate::images::decode::decode_glimts_own_image(LOGO) {

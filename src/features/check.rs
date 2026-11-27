@@ -6,7 +6,7 @@ use crate::images::decode::DecodeFailure;
 use crate::support::format::{ShownText, count, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, background_threads};
-use crate::ui::menus::DrawShown;
+use crate::ui::menus::{DrawShown, ShownProgress};
 use crate::{images::decode, tf};
 use eframe::egui;
 use std::ffi::OsString;
@@ -84,7 +84,7 @@ impl crate::App {
                     );
                     ui.add(
                         egui::ProgressBar::new(progress)
-                            .text(line)
+                            .progress_text(line)
                             .desired_width(260.0),
                     );
                     if working > 0 {
