@@ -4214,3 +4214,8 @@ msgstr "{w} × {h}"
 #, fuzzy
 msgid "Not saved: a list's name must end in .txt or .m3u"
 msgstr "Não salvo: o nome de uma lista deve terminar em .txt ou .m3u"
+
+#: src/ui/actions.rs
+#, fuzzy
+msgid "The folder is still being read: save the list when it is whole"
+msgstr "A pasta ainda está sendo lida: salve a lista quando estiver completa"

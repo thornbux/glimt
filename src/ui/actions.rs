@@ -47,6 +47,11 @@ const NO_IMAGE: &str = "there is no image to act on";
 /// selected file.
 const HIDDEN_BY_SEARCH: &str = "the search hides the files it would act on";
 
+/// The reason `why_refused` gives for Save List As while the folder is read. A tree is listed
+/// in parts and a first listing shows nothing until it ends, so a list saved then would hold
+/// only part of the images, and be told as saved.
+const STILL_LISTING: &str = "the folder is still being read";
+
 /// Geeqie's default shortcuts up to 3.1, except R (random order; Geeqie: refresh) and F5
 /// (refresh). Glimt keeps them where Geeqie 3.2 changed its keys, and DIFFERENCES in help.rs
 /// lists each such key. The first one for an action is shown in the menu. egui ignores an extra
@@ -1195,6 +1200,8 @@ impl crate::App {
             Some(NO_IMAGE)
         } else if action.target() == Target::Selection && self.list.only_hidden_selected() {
             Some(HIDDEN_BY_SEARCH)
+        } else if action == Action::SaveListAs && self.folder.is_listing() {
+            Some(STILL_LISTING)
         } else {
             None
         }
@@ -1214,6 +1221,9 @@ impl crate::App {
             } else if why == HIDDEN_BY_SEARCH {
                 // `targets` tells the user so.
                 let _ = self.targets();
+            } else if why == STILL_LISTING {
+                let text = tr("The folder is still being read: save the list when it is whole");
+                self.notice.give_error(text);
             }
             return;
         }

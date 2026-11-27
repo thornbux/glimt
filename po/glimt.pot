@@ -3387,3 +3387,7 @@ msgstr ""
 #: src/model/collections.rs
 msgid "Not saved: a list's name must end in .txt or .m3u"
 msgstr ""
+
+#: src/ui/actions.rs
+msgid "The folder is still being read: save the list when it is whole"
+msgstr ""

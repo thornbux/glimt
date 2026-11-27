@@ -4202,3 +4202,8 @@ msgstr "{w} × {h}"
 #, fuzzy
 msgid "Not saved: a list's name must end in .txt or .m3u"
 msgstr "Ekki vistað: heiti lista verður að enda á .txt eða .m3u"
+
+#: src/ui/actions.rs
+#, fuzzy
+msgid "The folder is still being read: save the list when it is whole"
+msgstr "Enn er verið að lesa möppuna: vistaðu listann þegar hann er heill"

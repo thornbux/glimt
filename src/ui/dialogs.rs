@@ -1643,6 +1643,36 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Save List As is refused, and says why, while the folder is read: a list saved then held
+    /// only the images found so far, and was told as saved. Once the listing ends it opens the
+    /// chooser again.
+    #[test]
+    fn save_list_as_waits_until_the_folder_is_read() {
+        use super::Pick;
+        use crate::support::test_support::{app_on, run_background_until};
+        let dir = std::env::temp_dir().join(format!("glimt-test-list-wait-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.visit(&ctx, dir.clone());
+        assert!(app.folder.is_listing());
+        app.run(&ctx, crate::ui::actions::Action::SaveListAs);
+        assert!(app.dialogs.file_dialog.is_none());
+        let wait = crate::support::lang::tr(
+            "The folder is still being read: save the list when it is whole",
+        );
+        assert_eq!(app.notice.text(), Some(wait.as_str()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .folder
+            .is_listing()));
+        app.run(&ctx, crate::ui::actions::Action::SaveListAs);
+        assert!(matches!(
+            app.dialogs.file_dialog.take(),
+            Some(Pick::SaveList(_))
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The folders picked in Open Several Folders are split only where zenity put them apart,
     /// so a folder whose name holds a line break opens as itself. Before, the answer was split
     /// at every line break, and a folder named "trip" and a line break and "etc" opened the
