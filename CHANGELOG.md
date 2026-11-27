@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- File → Save List As… saves the list as the window shows it (only the matches while a search
+  is on, in their order) as a plain .txt list, which Glimt opens again as a list: one image on
+  each line, relative to the list's folder.
+
 ## [0.103.0] - 2026-11-27
 
 ### Added
