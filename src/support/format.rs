@@ -3,9 +3,27 @@
 
 use crate::support::lang::{self, tr};
 
-/// Makes each number type a `Number` and a `Shown`.
+/// Makes each number type a `Number` and a `Shown`, shown as `ShownText::number` writes it.
 macro_rules! numbers {
-    ($($t:ty),*) => { $(impl Number for $t {} impl Shown for $t {})* };
+    ($($t:ty),*) => { $(
+        impl Number for $t {}
+        impl Shown for $t {
+            fn shown(&self) -> ShownText {
+                ShownText::number(*self)
+            }
+        }
+    )* };
+}
+
+/// Makes each error type a `Shown`, shown as `ShownText::of_error` escapes it.
+macro_rules! errors {
+    ($($t:ty),*) => { $(
+        impl Shown for $t {
+            fn shown(&self) -> ShownText {
+                ShownText::of_error(self)
+            }
+        }
+    )* };
 }
 
 /// The size that a sum of the files of a share gives (`listing::is_on_a_share`). Their sizes
@@ -91,7 +109,7 @@ impl ShownText {
     /// Returns `value` alone as a text, as `tf!` would fill a placeholder with it, such as an
     /// error's text that is drawn as a failure's cause.
     pub(crate) fn of(value: &impl Shown) -> Self {
-        ShownText(value.to_string().into())
+        value.shown()
     }
 
     /// Returns the text of `error`, made by a library or the system (a decoder's, a codec's, a
@@ -239,14 +257,32 @@ impl PartialEq<&str> for ShownText {
 }
 
 /// A value that `tf!` may fill a placeholder with: a shown text, a number, or an error's text.
-pub(crate) trait Shown: std::fmt::Display {}
+/// Each says how it is shown, so a value fills a placeholder only in the form it has as a text
+/// of its own: an error escaped by `ShownText::of_error`. Before, an error filled a placeholder
+/// with its raw text, while `of_error` escaped the same error (audit 0.102.0 r1, A-1).
+pub(crate) trait Shown {
+    /// Returns the value as a text for the user.
+    fn shown(&self) -> ShownText;
+}
 
-impl Shown for ShownText {}
-impl<T: Shown + ?Sized> Shown for &T {}
-impl Shown for std::io::Error {}
-impl Shown for crate::files::file_io::StepError {}
-impl Shown for image::ImageError {}
-impl Shown for arboard::Error {}
+impl Shown for ShownText {
+    fn shown(&self) -> ShownText {
+        self.clone()
+    }
+}
+
+impl<T: Shown + ?Sized> Shown for &T {
+    fn shown(&self) -> ShownText {
+        (**self).shown()
+    }
+}
+
+errors!(
+    std::io::Error,
+    crate::files::file_io::StepError,
+    image::ImageError,
+    arboard::Error
+);
 
 /// A number that `ShownText::number` writes, and that fills a placeholder of `tf!`.
 pub(crate) trait Number: std::fmt::Display {}
@@ -529,6 +565,8 @@ mod tests {
         let passed_on = std::io::Error::other(super::ShownText::of_error(&error));
         assert_eq!(super::ShownText::of_error(&passed_on), shown);
         assert_eq!(super::ShownText::of_message("C:\\photos"), "C:\\photos");
+        // An error fills a placeholder escaped, as of_error shows it alone.
+        assert_eq!(crate::untranslated!("{error}", error), shown);
         let size = super::human_size(2048);
         assert_eq!(
             crate::untranslated!("image too large ({size})", size),

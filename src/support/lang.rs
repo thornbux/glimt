@@ -282,7 +282,7 @@ pub fn fill_placeholders(template: ShownText, values: &[(&str, &dyn Shown)]) -> 
             .and_then(|close| Some((close, values.iter().find(|v| v.0 == &after[..close])?)));
         match value {
             Some((close, (_, v))) => {
-                out.push_str(&v.to_string());
+                out.push_str(v.shown().as_str());
                 rest = &after[close + 1..];
             }
             None => {
