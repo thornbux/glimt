@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- While a folder or a tree is read, a thin line pulses at the bottom of the file list, right
+  above the status bar. Preferences → File list turns it off, and it is left out when the
+  desktop asks for less motion (animations off).
+
 ## [0.103.0] - 2026-11-27
 
 ### Added
