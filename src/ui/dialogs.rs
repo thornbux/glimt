@@ -83,6 +83,8 @@ pub(crate) enum Pick {
     /// Where to save this list of the files that a Rename Many cut short left not under the
     /// names they were to get (`journal::names_left`).
     SaveNamesLeft(String),
+    /// Where to save these images, the list as it was shown, as a plain list.
+    SaveList(Vec<PathBuf>),
 }
 
 impl Pick {
@@ -107,7 +109,8 @@ impl Pick {
             | Pick::Lightroom
             | Pick::SaveFrame(..)
             | Pick::SaveAs(..)
-            | Pick::SaveNamesLeft(_) => false,
+            | Pick::SaveNamesLeft(_)
+            | Pick::SaveList(_) => false,
         }
     }
 }
@@ -441,7 +444,11 @@ impl crate::App {
         let start = self.dialog_start(&purpose);
         let save = matches!(
             purpose,
-            Pick::SavePdf(_) | Pick::SaveFrame(..) | Pick::SaveAs(..) | Pick::SaveNamesLeft(_)
+            Pick::SavePdf(_)
+                | Pick::SaveFrame(..)
+                | Pick::SaveAs(..)
+                | Pick::SaveNamesLeft(_)
+                | Pick::SaveList(_)
         );
         let several = matches!(purpose, Pick::Folders);
         let folder = purpose.wants_folder();
@@ -464,6 +471,7 @@ impl crate::App {
             Pick::ExportFrames(..) => tr("Export Every Frame To"),
             Pick::SaveAs(..) => tr("Save As"),
             Pick::SaveNamesLeft(_) => tr("Save the list…"),
+            Pick::SaveList(_) => tr("Save List As"),
         };
         let notices = self.notice_sender.clone();
         let make_start_first = matches!(purpose, Pick::Collection);
@@ -526,6 +534,7 @@ impl crate::App {
             )),
             Pick::SaveAs(_, _, start) => start.clone(),
             Pick::SaveNamesLeft(_) => self.folder.dir().join("rename-many-left.txt"),
+            Pick::SaveList(_) => self.folder.dir().join("list.txt"),
             // Made first in the dialog's thread (`pick`): the file dialog cannot start in a
             // folder that is not there.
             Pick::Collection => (collections::collections_dir())
@@ -671,6 +680,7 @@ impl crate::App {
                 (Pick::SaveNamesLeft(list), Some(file)) => {
                     self.work_on_cut_short(ctx, CutShortWork::SaveList(list, file, at_pick))
                 }
+                (Pick::SaveList(paths), Some(file)) => self.save_list(ctx, paths, (file, at_pick)),
             }
         }
     }
@@ -1600,6 +1610,38 @@ fn run_chooser(
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// Save List As saves what the list shows: under a search, only the matches, in the order
+    /// the rows show them, and the list read back is those files. An image the search hides
+    /// would otherwise go into the list, or the rows' order be lost.
+    #[test]
+    fn save_list_as_saves_the_rows_shown_in_their_order() {
+        use super::Pick;
+        use crate::support::test_support::run_background_until;
+        let dir = std::env::temp_dir().join(format!("glimt-test-save-list-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("lists")).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.search.set_query(r"re:/[ac]\.png$");
+        app.update_search(&ctx);
+        // The rows of a fuzzy search, best first, in another order than the list's.
+        app.list.set_matches(Some(vec![2, 0]));
+        app.run(&ctx, crate::ui::actions::Action::SaveListAs);
+        // The test's chooser is shared with other tests, so the answer is given here.
+        let Some(Pick::SaveList(paths)) = app.dialogs.file_dialog.take() else {
+            panic!("Save List As opened no chooser to save a list");
+        };
+        assert_eq!(paths, [dir.join("c.png"), dir.join("a.png")]);
+        let file = dir.join("lists/shown.txt");
+        app.save_list(&ctx, paths.clone(), (file.clone(), None));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert_eq!(crate::model::collections::load(&file).unwrap(), paths);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.ends_with("\n../c.png\n../a.png\n"), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// The folders picked in Open Several Folders are split only where zenity put them apart,
     /// so a folder whose name holds a line break opens as itself. Before, the answer was split

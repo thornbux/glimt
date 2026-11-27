@@ -8994,6 +8994,11 @@ mod tests {
             ),
             ("back_up", "Glimt's own folders, no file of the user's"),
             (
+                "save_list",
+                "a new text file at a name the user picked, written by write_picked_name, no \
+                 image or sidecar changed: save_list_as_saves_the_rows_shown_in_their_order",
+            ),
+            (
                 "add_to_collection",
                 "Glimt's own collection file: adds_to_a_collection_in_the_background",
             ),

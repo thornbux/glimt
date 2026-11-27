@@ -256,6 +256,45 @@ impl crate::App {
         self.save_collection_order();
     }
 
+    /// Saves `paths`, the list as it was shown, as the plain list `file`, which the user picked
+    /// when the file there had the fingerprint `at_pick`, in the background. The list's file is
+    /// held back from other work meanwhile. Each entry is written as `list_text` writes it, and
+    /// an entry left out is told as a failed write beside the notice of the save.
+    pub(crate) fn save_list(
+        &mut self,
+        ctx: &egui::Context,
+        paths: Vec<PathBuf>,
+        (file, at_pick): (PathBuf, Option<crate::files::file_io::FileFingerprint>),
+    ) {
+        use crate::support::threads::Told;
+        self.run_in_background(ctx, vec![file.clone()], move || {
+            use std::io::Write;
+            let name = escaped_name(&file);
+            // Relative paths are made from absolute ones, as the reader makes them from the
+            // list's folder as an absolute path (`load`).
+            let made = (paths.iter().map(std::path::absolute))
+                .collect::<std::io::Result<Vec<PathBuf>>>()
+                .and_then(|paths| Ok((paths, std::path::absolute(&file)?)));
+            let saved = made.and_then(|(paths, file)| {
+                let folder = file.parent().unwrap_or(Path::new("/"));
+                let (text, left_out) = list_text(&paths, folder);
+                let write = |f: &mut std::fs::File| f.write_all(&text);
+                crate::files::file_io::write_picked_name(&file, at_pick, write)?;
+                Ok(left_out)
+            });
+            Some(match saved {
+                Ok(left_out) => {
+                    let saved = Told::Notice(tf!("Saved {file}", file = name));
+                    match crate::files::config::left_out_for_line_breaks(left_out) {
+                        Some(left_out) => Told::Several(vec![saved, Told::FailedWrite(left_out)]),
+                        None => saved,
+                    }
+                }
+                Err(e) => Told::FailedWrite(tf!("Could not save {name}: {e}", name, e).into()),
+            })
+        });
+    }
+
     /// Returns whether the rows shown are in the order of the list: with no search, or with a
     /// search whose matches keep the list's order (`re:`, `exif:`, `stars:`).
     fn search_rows_are_in_list_order(&self) -> bool {
@@ -367,6 +406,7 @@ impl crate::App {
         menu_item(ui, chosen, Action::NewCollection);
         menu_item(ui, chosen, Action::OpenCollection);
         menu_item(ui, chosen, Action::ImportLightroom);
+        menu_item(ui, chosen, Action::SaveListAs);
         let mut open = None;
         scroll_menu(
             ui,
@@ -670,6 +710,50 @@ fn parse_list(text: &[u8], base: &Path) -> Vec<PathBuf> {
             None => Some(lexically_normal(&base.join(OsStr::from_bytes(line)))),
         })
         .filter(|p| seen.insert(p.clone()))
+        .collect()
+}
+
+/// Returns the text of a plain list of `paths`, absolute paths, saved in the folder
+/// `list_folder`, and how many paths were left out. The first line says which Glimt saved it.
+/// Each path is written relative to the folder, with `..` steps for one outside it, so that
+/// the list and its images can be moved together. A line that `parse_list` would read as
+/// another path or as a comment (a name that starts or ends with a space, or starts with # or
+/// a quote) is written in quotes, which `parse_list` takes off after it trims the line. A path
+/// with a line break cannot be written on a line, and is left out.
+pub(crate) fn list_text(paths: &[PathBuf], list_folder: &Path) -> (Vec<u8>, usize) {
+    let mut text = format!("# Saved by Glimt {}\n", env!("CARGO_PKG_VERSION")).into_bytes();
+    let list_folder = lexically_normal(list_folder);
+    let mut left_out = 0;
+    for path in paths {
+        if !fits_on_a_line(path) {
+            left_out += 1;
+            continue;
+        }
+        let relative = relative_to(&lexically_normal(path), &list_folder);
+        let line = relative.as_os_str().as_bytes();
+        // The list's folder itself, as a list may name folders.
+        let line: &[u8] = if line.is_empty() { b"." } else { line };
+        let is_read_otherwise =
+            line.trim_ascii() != line || line.starts_with(b"#") || line.starts_with(b"\"");
+        let quote: &[u8] = if is_read_otherwise { b"\"" } else { b"" };
+        for part in [quote, line, quote, b"\n"] {
+            text.extend_from_slice(part);
+        }
+    }
+    (text, left_out)
+}
+
+/// Returns `path` relative to the folder `base`, both absolute and lexically normal, with a
+/// `..` for each part of `base` that `path` does not share. It is worked out as written,
+/// without looking at the disk, as `parse_list` reads it back.
+fn relative_to(path: &Path, base: &Path) -> PathBuf {
+    let (mut path, mut base) = (path.components().peekable(), base.components().peekable());
+    while path.peek().is_some() && path.peek() == base.peek() {
+        path.next();
+        base.next();
+    }
+    (base.map(|_| std::path::Component::ParentDir))
+        .chain(path)
         .collect()
 }
 
@@ -1906,5 +1990,47 @@ mod tests {
         assert_eq!(dropped(6, &picked, 0), [1, 2, 5, 0, 3, 4]);
         assert_eq!(dropped(6, &picked, 6), [0, 3, 4, 1, 2, 5]);
         assert_eq!(dropped(6, &picked, 2), [0, 1, 2, 5, 3, 4]);
+    }
+
+    /// A list that Save List As writes reads back as the same files through Glimt's own
+    /// reader: relative to the list, with `..` steps, and with names that a plain line would
+    /// read as another name or a comment. A name with a line break is left out and counted.
+    #[test]
+    fn a_saved_list_reads_back_as_the_same_files() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::Path;
+        let base = Path::new("/lists/sub");
+        let names: [&[u8]; 12] = [
+            b"/lists/sub/a.jpg",
+            b"/lists/sub/deeper/b c.jpg",
+            b"/lists/other/d.jpg",
+            b"/e.jpg",
+            b"/lists/sub/#f.jpg",
+            b"/lists/sub/ g.jpg ",
+            b"/lists/sub/h.jpg\r",
+            b"/lists/sub/\"i\".jpg",
+            "/lists/sub/æøå.jpg".as_bytes(),
+            b"/lists/sub/\xff.jpg",
+            b"/lists/sub",
+            b"/lists/sub/line\nbreak.jpg",
+        ];
+        let paths: Vec<PathBuf> = (names.iter())
+            .map(|n| PathBuf::from(std::ffi::OsStr::from_bytes(n)))
+            .collect();
+        let (text, left_out) = super::list_text(&paths, base);
+        assert_eq!(left_out, 1);
+        let lines: Vec<&[u8]> = text.split(|&b| b == b'\n').collect();
+        let head = format!("# Saved by Glimt {}", env!("CARGO_PKG_VERSION"));
+        assert_eq!(lines[0], head.as_bytes());
+        assert_eq!(
+            lines[1..5],
+            [
+                &b"a.jpg"[..],
+                b"deeper/b c.jpg",
+                b"../other/d.jpg",
+                b"../../e.jpg"
+            ]
+        );
+        assert_eq!(super::parse_list(&text, base), paths[..11]);
     }
 }

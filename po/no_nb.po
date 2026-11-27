@@ -373,6 +373,10 @@ msgid "Save As…"
 msgstr "Lagre som …"
 
 #: src/ui/actions.rs
+msgid "Save List As…"
+msgstr "Lagre liste som …"
+
+#: src/ui/actions.rs
 msgid "Save This Frame…"
 msgstr "Lagre denne ruten …"
 
@@ -2149,6 +2153,10 @@ msgstr "Lagre som PDF"
 #: src/main.rs
 msgid "Save As"
 msgstr "Lagre som"
+
+#: src/ui/dialogs.rs
+msgid "Save List As"
+msgstr "Lagre liste som"
 
 #: src/features/print.rs
 msgid "Add to the Sort Manager"

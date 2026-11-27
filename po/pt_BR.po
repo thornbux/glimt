@@ -465,6 +465,11 @@ msgstr "Salvar como…"
 
 #: src/ui/actions.rs
 #, fuzzy
+msgid "Save List As…"
+msgstr "Salvar lista como…"
+
+#: src/ui/actions.rs
+#, fuzzy
 msgid "Save This Frame…"
 msgstr "Salvar este quadro…"
 
@@ -2679,6 +2684,11 @@ msgstr "Salvar como PDF"
 #, fuzzy
 msgid "Save As"
 msgstr "Salvar como"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Salvar lista como"
 
 #: src/features/print.rs
 #, fuzzy

@@ -2858,6 +2858,11 @@ msgstr "kwaliteit van een bijgesneden JPEG (Bewerken → Bijsnijden)"
 msgid "Save As…"
 msgstr "Opslaan als …"
 
+#: src/ui/actions.rs
+#, fuzzy
+msgid "Save List As…"
+msgstr "Lijst opslaan als …"
+
 #: src/viewer/save_as.rs
 #, fuzzy
 msgid "A video is not saved as an image"
@@ -2932,6 +2937,11 @@ msgstr "Kon de afbeelding niet opslaan: {e}"
 #, fuzzy
 msgid "Save As"
 msgstr "Opslaan als"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Lijst opslaan als"
 
 #: src/ui/preferences.rs
 #, fuzzy

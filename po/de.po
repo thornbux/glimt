@@ -2858,6 +2858,11 @@ msgstr "Qualität eines zugeschnittenen JPEG (Bearbeiten → Zuschneiden)"
 msgid "Save As…"
 msgstr "Speichern unter …"
 
+#: src/ui/actions.rs
+#, fuzzy
+msgid "Save List As…"
+msgstr "Liste speichern unter …"
+
 #: src/viewer/save_as.rs
 #, fuzzy
 msgid "A video is not saved as an image"
@@ -2932,6 +2937,11 @@ msgstr "Konnte das Bild nicht speichern: {e}"
 #, fuzzy
 msgid "Save As"
 msgstr "Speichern unter"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Liste speichern unter"
 
 #: src/ui/preferences.rs
 #, fuzzy

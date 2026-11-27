@@ -465,6 +465,11 @@ msgstr "Lagra som …"
 
 #: src/ui/actions.rs
 #, fuzzy
+msgid "Save List As…"
+msgstr "Lagra liste som …"
+
+#: src/ui/actions.rs
+#, fuzzy
 msgid "Save This Frame…"
 msgstr "Lagra denne ruta …"
 
@@ -2679,6 +2684,11 @@ msgstr "Lagra som PDF"
 #, fuzzy
 msgid "Save As"
 msgstr "Lagra som"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Lagra liste som"
 
 #: src/features/print.rs
 #, fuzzy

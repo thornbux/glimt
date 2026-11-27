@@ -2870,6 +2870,11 @@ msgstr "jakość przyciętego JPEG (Edycja → Przytnij)"
 msgid "Save As…"
 msgstr "Zapisz jako…"
 
+#: src/ui/actions.rs
+#, fuzzy
+msgid "Save List As…"
+msgstr "Zapisz listę jako…"
+
 #: src/viewer/save_as.rs
 #, fuzzy
 msgid "A video is not saved as an image"
@@ -2944,6 +2949,11 @@ msgstr "Nie udało się zapisać obrazu: {e}"
 #, fuzzy
 msgid "Save As"
 msgstr "Zapisz jako"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Zapisz listę jako"
 
 #: src/ui/preferences.rs
 #, fuzzy

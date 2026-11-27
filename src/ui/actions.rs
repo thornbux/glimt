@@ -310,6 +310,7 @@ pub const ALL: &[Action] = &[
     Action::RotateCw,
     Action::SaveAs,
     Action::SaveFrame,
+    Action::SaveListAs,
     Action::SaveOrientation,
     Action::SelectAll,
     #[cfg(feature = "marks")]
@@ -656,6 +657,8 @@ pub enum Action {
     KeyboardMap,
     About,
     CopyForSharing,
+    /// Save the list as shown, as a plain list of images (`App::save_list`).
+    SaveListAs,
 }
 
 impl Action {
@@ -758,6 +761,7 @@ impl Action {
             SaveOrientation => "Save Orientation to File",
             Crop => "Crop…",
             SaveAs => "Save As…",
+            SaveListAs => "Save List As…",
             ZoomIn => "Zoom In",
             ZoomOut => "Zoom Out",
             Zoom1To1 => "Zoom 1:1",
@@ -912,7 +916,7 @@ impl Action {
             Flip => "\u{ed6c}",                                // flip-vertical
             SaveOrientation => "\u{e248}",                     // floppy-disk
             Crop => "\u{e1d4}",                                // crop
-            SaveAs => "\u{e20a}",                              // download
+            SaveAs | SaveListAs => "\u{e20a}",                 // download
             ZoomIn => "\u{e310}",                              // magnifying-glass-plus
             ZoomOut => "\u{e30e}",                             // magnifying-glass-minus
             Zoom1To1 => "\u{e626}",                            // frame-corners
@@ -1028,13 +1032,15 @@ impl Action {
             | FitHeight | FitFill | FullScreen | HideFileList | FullScreenInfo | Histogram
             | HistogramLog | Compare | OneImage | AboveEachOther | NextLayout | PaneLeft
             | PaneRight | PaneUp | PaneDown | Animate | Subfolders | HiddenFiles
-            | OpenCollection | ImportLightroom | RenameCollection | TrashCollection
-            | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage | PreviousPage
-            | IconGrid | Toolbar | PathBar | Thumbnails | ThumbnailGrid | GridNames | InfoPanel
-            | ExifWindow | FocusKeywords | SortManager | PanView | FolderTree | Refresh
-            | Slideshow | PauseSlideshow | RandomOrder | SlideshowFaster | SlideshowSlower
-            | LeaveFullScreen | NewWindow | WindowTitle | WindowName | Projector
-            | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => Target::NoFile,
+            | OpenCollection | ImportLightroom | SaveListAs | RenameCollection
+            | TrashCollection | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage
+            | PreviousPage | IconGrid | Toolbar | PathBar | Thumbnails | ThumbnailGrid
+            | GridNames | InfoPanel | ExifWindow | FocusKeywords | SortManager | PanView
+            | FolderTree | Refresh | Slideshow | PauseSlideshow | RandomOrder | SlideshowFaster
+            | SlideshowSlower | LeaveFullScreen | NewWindow | WindowTitle | WindowName
+            | Projector | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => {
+                Target::NoFile
+            }
             #[cfg(feature = "marks")]
             SelectMark1 | SelectMark2 | SelectMark3 | SelectMark4 | SelectMark5 | SelectMark6 => {
                 Target::NoFile
@@ -1224,6 +1230,11 @@ impl crate::App {
                 }
             }
             Action::OpenCollection => self.pick(ctx, Pick::Collection),
+            // What the list shows (`shown_files`), in the order it shows it.
+            Action::SaveListAs => {
+                let paths = (self.shown_files().into_iter()).map(|i| self.path(i));
+                self.pick(ctx, Pick::SaveList(paths.collect()));
+            }
             Action::ImportLightroom => self.pick(ctx, Pick::Lightroom),
             Action::RemoveFromCollection if self.folder.collection().is_some() => {
                 if let Some(targets) = self.targets() {
@@ -1898,6 +1909,7 @@ mod tests {
             RotateCw,
             SaveAs,
             SaveFrame,
+            SaveListAs,
             SaveOrientation,
             SetWallpaper,
             TrashCollection,
@@ -1989,6 +2001,7 @@ mod tests {
             Action::OpenRecursive,
             Action::OpenCollection,
             Action::ImportLightroom,
+            Action::SaveListAs,
             Action::BackUp,
             Action::NewWindow,
             Action::OpenWith,

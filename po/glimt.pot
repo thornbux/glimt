@@ -383,6 +383,10 @@ msgid "Save As…"
 msgstr ""
 
 #: src/ui/actions.rs
+msgid "Save List As…"
+msgstr ""
+
+#: src/ui/actions.rs
 msgid "Save This Frame…"
 msgstr ""
 
@@ -2158,6 +2162,10 @@ msgstr ""
 
 #: src/main.rs
 msgid "Save As"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Save List As"
 msgstr ""
 
 #: src/features/print.rs

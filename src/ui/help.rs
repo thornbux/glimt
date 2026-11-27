@@ -503,8 +503,13 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          the command line).\n\n\
          A plain list opens the same way: a .txt or .m3u file with one image on each line, \
          relative to the list or absolute, # for comments, as a script or a music player writes \
-         it; glimt --slideshow show.txt plays it in its order. Glimt never writes a list: what \
-         changes in the window stays there.\n\n\
+         it; glimt --slideshow show.txt plays it in its order. What changes in the window stays \
+         there: Glimt never changes the list's file.\n\n\
+         File → Save List As… saves the list as the window shows it, in its order (only the \
+         matches while a search is on), as a new plain list: one image on each line, relative to \
+         the list's folder (../ for an image outside it), under a first line that names the \
+         Glimt that saved it. An image whose name holds a line break cannot be written on a line, \
+         and is left out and told.\n\n\
          File → Import Lightroom Catalog… reads a Lightroom Classic catalog (.lrcat, with \
          Lightroom closed) through the sqlite3 program, 3.37 or newer:\n\n\
          - its collections become Glimt's (named with their sets, as Travel - Norway; one of the \

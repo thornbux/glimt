@@ -193,3 +193,4 @@ action ParentFolder
 action HomeFolder
 action IconGrid
 action PauseSlideshow
+action SaveListAs

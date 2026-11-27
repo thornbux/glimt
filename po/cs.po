@@ -465,6 +465,11 @@ msgstr "Uložit jako…"
 
 #: src/ui/actions.rs
 #, fuzzy
+msgid "Save List As…"
+msgstr "Uložit seznam jako…"
+
+#: src/ui/actions.rs
+#, fuzzy
 msgid "Save This Frame…"
 msgstr "Uložit tento snímek…"
 
@@ -2691,6 +2696,11 @@ msgstr "Uložit jako PDF"
 #, fuzzy
 msgid "Save As"
 msgstr "Uložit jako"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Uložit seznam jako"
 
 #: src/features/print.rs
 #, fuzzy

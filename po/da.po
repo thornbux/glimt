@@ -2858,6 +2858,11 @@ msgstr "kvalitet for en beskåret JPEG (Redigér → Beskær)"
 msgid "Save As…"
 msgstr "Gem som …"
 
+#: src/ui/actions.rs
+#, fuzzy
+msgid "Save List As…"
+msgstr "Gem liste som …"
+
 #: src/viewer/save_as.rs
 #, fuzzy
 msgid "A video is not saved as an image"
@@ -2932,6 +2937,11 @@ msgstr "Kunne ikke gemme billedet: {e}"
 #, fuzzy
 msgid "Save As"
 msgstr "Gem som"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Gem liste som"
 
 #: src/ui/preferences.rs
 #, fuzzy

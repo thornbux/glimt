@@ -2858,6 +2858,11 @@ msgstr "gæði skorinnar JPEG-myndar (Breyta → Skera)"
 msgid "Save As…"
 msgstr "Vista sem…"
 
+#: src/ui/actions.rs
+#, fuzzy
+msgid "Save List As…"
+msgstr "Vista lista sem…"
+
 #: src/viewer/save_as.rs
 #, fuzzy
 msgid "A video is not saved as an image"
@@ -2932,6 +2937,11 @@ msgstr "Gat ekki vistað myndina: {e}"
 #, fuzzy
 msgid "Save As"
 msgstr "Vista sem"
+
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "Save List As"
+msgstr "Vista lista sem"
 
 #: src/ui/preferences.rs
 #, fuzzy
