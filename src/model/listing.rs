@@ -1337,6 +1337,83 @@ impl Drop for BackgroundTurn {
     }
 }
 
+/// The counts of one listing: the folders it has opened and the images it has found in them.
+/// The listing's `ListingCounter` writes them, and the window reads them through the
+/// `ListingProgress` made with it.
+#[derive(Default)]
+struct ListingCounts {
+    folders: std::sync::atomic::AtomicUsize,
+    images: std::sync::atomic::AtomicUsize,
+}
+
+/// The counting side of one listing, which its thread owns. It cannot be cloned, so only that
+/// thread counts into the numbers its `ListingProgress` shows.
+pub(crate) struct ListingCounter(std::sync::Arc<ListingCounts>);
+
+impl ListingCounter {
+    /// Makes a counter for a new listing and the one reader of its counts, both at zero. The
+    /// reader is made only here, so it always shows the counts of the listing it was made for,
+    /// never those of a listing before it, whose thread may still be counting.
+    pub(crate) fn new() -> (ListingCounter, ListingProgress) {
+        let counts = std::sync::Arc::new(ListingCounts::default());
+        (ListingCounter(counts.clone()), ListingProgress(counts))
+    }
+
+    /// Counts a folder whose reading has started. Returns the folder's count, which takes the
+    /// folder and the images it found back again unless its reading ends with `done`.
+    fn folder_opened(&self) -> FolderCounted<'_> {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.0.folders.fetch_add(1, Relaxed);
+        FolderCounted {
+            counter: self,
+            images: 0,
+        }
+    }
+}
+
+/// The window's side of one listing's counts. Only `ListingCounter::new` makes one.
+pub(crate) struct ListingProgress(std::sync::Arc<ListingCounts>);
+
+impl ListingProgress {
+    /// Returns how many folders the listing has opened so far, and how many images it found in
+    /// them.
+    pub(crate) fn folders_and_images(&self) -> (usize, usize) {
+        use std::sync::atomic::Ordering::Relaxed;
+        (self.0.folders.load(Relaxed), self.0.images.load(Relaxed))
+    }
+}
+
+/// The count of one folder while it is read. A folder whose reading fails partway is not
+/// listed, so when it is dropped without `done`, it takes its folder and images back out of the
+/// listing's counts.
+struct FolderCounted<'a> {
+    counter: &'a ListingCounter,
+    images: usize,
+}
+
+impl FolderCounted<'_> {
+    /// Counts an image found in the folder.
+    fn image_found(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.images += 1;
+        self.counter.0.images.fetch_add(1, Relaxed);
+    }
+
+    /// Keeps the folder and its images in the counts, as the folder was read whole. The count
+    /// is forgotten, so its drop does not take them back. It holds nothing that must be let go.
+    fn done(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for FolderCounted<'_> {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.counter.0.folders.fetch_sub(1, Relaxed);
+        self.counter.0.images.fetch_sub(self.images, Relaxed);
+    }
+}
+
 /// A JPEG by its name: the one test, for the scaled decode, Check Images, duplicates, the
 /// orientation field and the EXIF read.
 pub fn is_jpeg(path: &Path) -> bool {
@@ -1670,7 +1747,8 @@ pub fn list_tree(
     part: impl FnMut(&FolderReadWhole),
 ) -> Result<ListedTree, Unread> {
     let whole = Path::new("");
-    walk_tree((dir, whole), types, stop, awaited, top, part).map(
+    let (counted, _) = ListingCounter::new();
+    walk_tree((dir, whole), types, stop, awaited, &counted, top, part).map(
         |(own, mut out, read, left_out)| {
             // In name order, as list_folder gives a single folder; sort_by_names builds on that.
             out.sort_unstable();
@@ -1683,12 +1761,14 @@ pub fn list_tree(
 /// found them, which is the order of the images that `part` gets. The listing of a tree keeps
 /// what it looked at of each image by its place in that order, for the sort of the whole list.
 /// With `from` other than empty, it reads only that subfolder of the tree and the folders below
-/// it (`walk_by_from`), with their names relative to `dir`, and `top` is not called.
+/// it (`walk_by_from`), with their names relative to `dir`, and `top` is not called. Each folder
+/// and image it reads is counted with `counted`, for the status bar.
 pub fn walk_tree(
     (dir, from): (&Path, &Path),
     types: Types,
     stop: &std::sync::atomic::AtomicBool,
     awaited: &ImagesAwaited,
+    counted: &ListingCounter,
     top: impl FnOnce(&[PathBuf]),
     mut part: impl FnMut(&FolderReadWhole),
 ) -> Result<ListedTree, Unread> {
@@ -1704,9 +1784,12 @@ pub fn walk_tree(
         on_a_share,
     ));
     let list = |folder: &Path, types: Types| {
-        list_folder_after(folder, types, &mut || {
-            gate.borrow_mut().before_a_look(folder)
-        })
+        list_folder_after(
+            folder,
+            types,
+            &mut || gate.borrow_mut().before_a_look(folder),
+            Some(counted),
+        )
     };
     let canonical = |p: &Path| std::fs::canonicalize(p);
     let walked = walk_by_from(
@@ -1829,7 +1912,17 @@ pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
 /// as empty, or as the part read, a folder on a share that failed for a moment emptied the
 /// list, and the selection with it.
 pub fn list_folder(dir: &Path, types: Types) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)> {
-    list_folder_after(dir, types, &mut || {})
+    list_folder_after(dir, types, &mut || {}, None)
+}
+
+/// Reads `dir` as `list_folder` does, and counts it and its images with `counted` as they are
+/// found, for the status bar. The list's own listing reads a single folder with this.
+pub(crate) fn list_folder_counted(
+    dir: &Path,
+    types: Types,
+    counted: &ListingCounter,
+) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)> {
+    list_folder_after(dir, types, &mut || {}, Some(counted))
 }
 
 /// Reads `dir` as `list_folder` does, and calls `before_each` before the look at each entry. A
@@ -1837,10 +1930,15 @@ pub fn list_folder(dir: &Path, types: Types) -> std::io::Result<(Vec<PathBuf>, V
 /// on its own, and the walk of a tree on a share passes each of those looks through the gate
 /// (`ReadsFirst::before_a_look`). Before, a folder of hundreds of entries held the share for
 /// that many calls in a row, and the image awaited waited behind them.
+///
+/// With `counted`, the folder is counted once it is opened and each image as it is found. A
+/// folder that cannot be opened is not counted, and one whose reading fails partway is taken
+/// back out of the counts with its images (`FolderCounted`).
 fn list_folder_after(
     dir: &Path,
     types: Types,
     before_each: &mut dyn FnMut(),
+    counted: Option<&ListingCounter>,
 ) -> std::io::Result<(Vec<PathBuf>, Vec<ListedName>)> {
     use crate::images::save::identity_of_entry;
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
@@ -1848,6 +1946,7 @@ fn list_folder_after(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((dirs, images)),
         entries => entries?,
     };
+    let mut folder_counted = counted.map(ListingCounter::folder_opened);
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
@@ -1855,6 +1954,9 @@ fn list_folder_after(
         let (file, folder) = kind(&entry);
         if file && is_listed(&path, types) {
             images.push((entry.file_name(), identity_of_entry(&entry)));
+            if let Some(folder_counted) = &mut folder_counted {
+                folder_counted.image_found();
+            }
         } else if folder && lists_folder_named(entry.file_name().as_encoded_bytes(), types) {
             dirs.push(path);
         }
@@ -1863,6 +1965,9 @@ fn list_folder_after(
     // ~9× faster than Path::cmp, which re-parses the path in every comparison.
     dirs.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
     images.sort_unstable(); // byte-wise on Unix
+    if let Some(folder_counted) = folder_counted {
+        folder_counted.done();
+    }
     Ok((dirs, images))
 }
 
@@ -2636,6 +2741,57 @@ mod tests {
 
         let gone = super::list_folder(&dir.join("gone"), types).unwrap();
         assert_eq!(gone, (Vec::new(), Vec::new()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The status bar's counts of a listing take in only what the listing read. A folder that
+    /// cannot be read is not counted and stops nothing, one whose reading fails partway takes its
+    /// folder and images back out, and a listing that takes another's place counts from zero.
+    /// The risk: counts that run ahead of the list, or the old listing's counts shown.
+    #[test]
+    fn a_listing_counts_only_the_folders_and_images_it_read() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-listing-counts-{}", std::process::id()));
+        for (sub, images) in [("a", 2), ("b", 1), ("c", 1)] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            for i in 0..images {
+                std::fs::write(dir.join(sub).join(format!("{i}.jpg")), "x").unwrap();
+            }
+        }
+        std::fs::write(dir.join("c/notes.txt"), "x").unwrap();
+        let types = super::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        let (counted, progress) = super::ListingCounter::new();
+        // A file is no folder, and cannot be read as one.
+        let not_a_folder = dir.join("a/0.jpg");
+        assert!(super::list_folder_counted(&not_a_folder, types, &counted).is_err());
+        assert_eq!(progress.folders_and_images(), (0, 0));
+        // The walk goes on past b, which cannot be read, and counts the top, a and c.
+        let failing = dir.join("b");
+        let list = |folder: &std::path::Path, types| match folder == failing {
+            true => Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            false => super::list_folder_counted(folder, types, &counted),
+        };
+        let real = |p: &std::path::Path| std::fs::canonicalize(p);
+        let walked = super::walk_by(&dir, types, crate::images::save::file_id, real, list);
+        assert_eq!(walked.count(), 4);
+        assert_eq!(progress.folders_and_images(), (3, 3));
+        // A folder whose reading fails after two images is taken back out with them.
+        let mut cut_short = counted.folder_opened();
+        cut_short.image_found();
+        cut_short.image_found();
+        assert_eq!(progress.folders_and_images(), (4, 5));
+        drop(cut_short);
+        assert_eq!(progress.folders_and_images(), (3, 3));
+        // The listing before, told to stop, still counts into its own counts alone.
+        let (_newer_counter, newer) = super::ListingCounter::new();
+        super::list_folder_counted(&dir.join("a"), types, &counted).unwrap();
+        assert_eq!(newer.folders_and_images(), (0, 0));
+        assert_eq!(progress.folders_and_images(), (4, 5));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

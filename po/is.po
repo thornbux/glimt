@@ -1403,6 +1403,11 @@ msgstr "Leitin sýnir myndirnar í annarri röð: hreinsaðu hana til að færa 
 msgid "Reading folder…"
 msgstr "Les möppu…"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Les möppur… {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2289,6 +2294,12 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "skrá"
 msgstr[1] "skrár"
+
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "mappa"
+msgstr[1] "möppur"
 
 #, fuzzy
 msgid "frame"

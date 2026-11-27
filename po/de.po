@@ -1403,6 +1403,11 @@ msgstr "Die Suche zeigt die Bilder in einer anderen Reihenfolge: leeren Sie sie,
 msgid "Reading folder…"
 msgstr "Lese Ordner …"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Lese Ordner … {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2289,6 +2294,12 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "Datei"
 msgstr[1] "Dateien"
+
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "Ordner"
+msgstr[1] "Ordner"
 
 #, fuzzy
 msgid "frame"

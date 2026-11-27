@@ -2005,8 +2005,20 @@ impl crate::App {
                         .is_none()
                         .then_some(self.status_bar.total_size),
                 );
+                // The counts of a listing move while it runs. A repaint a few times a second
+                // shows them, as the listing itself asks for none per file.
+                if self.folder.is_listing() {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                }
                 let mut left = match self.list.matches() {
-                    _ if self.folder.is_listing() => tr("Reading folder…"),
+                    _ if self.folder.is_listing() => match self.folder.listing_counts() {
+                        Some((folders, images)) => tf!(
+                            "Reading folders… {folders}, {images}",
+                            folders = count(folders, "folder"),
+                            images = count(images, "image")
+                        ),
+                        None => tr("Reading folder…"),
+                    },
                     // A search shows the matches, with the count and size of what the list
                     // shows.
                     Some(found) => {

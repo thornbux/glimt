@@ -1403,6 +1403,11 @@ msgstr "Wyszukiwanie pokazuje obrazy w innej kolejności: wyczyść je, by je pr
 msgid "Reading folder…"
 msgstr "Odczyt folderu…"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Odczyt folderów… {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2293,6 +2298,13 @@ msgid_plural "files"
 msgstr[0] "plik"
 msgstr[1] "pliki"
 msgstr[2] "plików"
+
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "folder"
+msgstr[1] "foldery"
+msgstr[2] "folderów"
 
 #, fuzzy
 msgid "frame"

@@ -1573,6 +1573,11 @@ msgstr "A busca mostra as imagens em outra ordem: limpe-a para movê-las"
 msgid "Reading folder…"
 msgstr "Lendo a pasta…"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Lendo pastas… {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2483,6 +2488,13 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "arquivo"
 msgstr[1] "arquivos"
+
+#. count(): one and many
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "pasta"
+msgstr[1] "pastas"
 
 #. count(): one and many
 #, fuzzy

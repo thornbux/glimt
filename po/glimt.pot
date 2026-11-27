@@ -1270,6 +1270,10 @@ msgstr ""
 msgid "Reading folder…"
 msgstr ""
 
+#: src/ui/file_list.rs
+msgid "Reading folders… {folders}, {images}"
+msgstr ""
+
 #: src/main.rs
 msgid "Remove"
 msgstr ""
@@ -1997,6 +2001,12 @@ msgstr[1] ""
 #. count(): one and many
 msgid "file"
 msgid_plural "files"
+msgstr[0] ""
+msgstr[1] ""
+
+#. count(): one and many
+msgid "folder"
+msgid_plural "folders"
 msgstr[0] ""
 msgstr[1] ""
 

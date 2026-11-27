@@ -1260,6 +1260,10 @@ msgstr "Søket viser bildene i en annen rekkefølge: tøm det for å flytte dem"
 msgid "Reading folder…"
 msgstr "Leser mappen …"
 
+#: src/ui/file_list.rs
+msgid "Reading folders… {folders}, {images}"
+msgstr "Leser mapper … {folders}, {images}"
+
 #: src/main.rs
 msgid "Remove"
 msgstr "Fjern"
@@ -1989,6 +1993,12 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "fil"
 msgstr[1] "filer"
+
+#. count(): one and many
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "mappe"
+msgstr[1] "mapper"
 
 #. count(): one and many
 msgid "frame"

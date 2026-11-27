@@ -1573,6 +1573,11 @@ msgstr "Søket viser bileta i ei anna rekkjefølgje: tøm det for å flytta dei"
 msgid "Reading folder…"
 msgstr "Les mappa …"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Les mapper … {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2483,6 +2488,13 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "fil"
 msgstr[1] "filer"
+
+#. count(): one and many
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "mappe"
+msgstr[1] "mapper"
 
 #. count(): one and many
 #, fuzzy

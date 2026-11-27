@@ -8,8 +8,8 @@ use crate::files::external::{Login, gio_mount};
 use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
-    FolderReadWhole, FoldersRead, ListedName, NameHashes, ReadWhole, Rows, SortKey, Types, Unread,
-    is_listed, list_folder, walk, walk_tree,
+    FolderReadWhole, FoldersRead, ListedName, ListingCounter, ListingProgress, NameHashes,
+    ReadWhole, Rows, SortKey, Types, Unread, is_listed, list_folder_counted, walk, walk_tree,
 };
 use crate::support::format::{NOT_COUNTED_ON_A_SHARE, ShownText, escaped_name};
 use crate::support::lang::tr;
@@ -97,6 +97,10 @@ pub(crate) struct Folder {
     place_before: Option<PathBuf>,
     /// The folder listing in the background, as (subfolders, images).
     listing_rx: Receiving<Listed>,
+    /// How far the listing that reads folders has come, for the status bar. It is made with the
+    /// listing's own counter, so a listing that took another's place counts from zero. None for
+    /// the listing of a collection, which reads no folder.
+    listing_progress: Option<ListingProgress>,
     /// The parts left out of a listing because they could not be read, which have been told
     /// since the place was opened or F5 read it again.
     told_left_out: HashSet<PathBuf>,
@@ -208,6 +212,7 @@ impl Folder {
             still_opening_notice: None,
             place_before: remembered,
             listing_rx: Receiving::none(),
+            listing_progress: None,
             told_left_out: HashSet::new(),
             listing_version: 0,
             subdirs_rx: Receiving::none(),
@@ -375,6 +380,15 @@ impl Folder {
     /// before it is read.
     pub(crate) fn is_listing(&self) -> bool {
         self.listing_rx.is_some() || self.looking_up.is_some()
+    }
+
+    /// Returns how many folders the listing that runs has opened, and how many images it found
+    /// in them. Returns `None` while no listing of folders runs: none at all, the place is still
+    /// looked up, or a collection is checked.
+    pub(crate) fn listing_counts(&self) -> Option<(usize, usize)> {
+        let progress = self.listing_progress.as_ref()?;
+        (self.listing_rx.is_some() && self.looking_up.is_none())
+            .then(|| progress.folders_and_images())
     }
 
     /// Forgets that Glimt showed the first image of a tree's first part by itself
@@ -785,6 +799,9 @@ struct Listing {
     awaited: crate::model::listing::ImagesAwaited,
     /// What the parts of a tree are made from.
     parts: PartsFrom,
+    /// Counts the folders and images read, which the window shows (`Folder`'s
+    /// `listing_progress`).
+    counted: ListingCounter,
     /// How long the window took to take the last part, in microseconds (`Folder`'s
     /// `part_taken_in`).
     part_taken_in: Arc<AtomicU64>,
@@ -841,6 +858,7 @@ impl Listing {
                         self.types,
                         &self.stop,
                         &self.awaited,
+                        &self.counted,
                         |_| {},
                         &mut part,
                     )
@@ -848,7 +866,8 @@ impl Listing {
                 .map(|(_, _, tree, unread)| (Vec::new(), tree, unread)),
                 false => {
                     let tree = vec![(d.clone(), modified(d))];
-                    (list_folder(d, self.types).map(|(_, files)| (files, tree, Vec::new())))
+                    (list_folder_counted(d, self.types, &self.counted))
+                        .map(|(_, files)| (files, tree, Vec::new()))
                         .map_err(|e| (d.clone(), e))
                 }
             };
@@ -1079,6 +1098,7 @@ impl Listing {
                 self.types,
                 &self.stop,
                 &self.awaited,
+                &self.counted,
                 |dirs| {
                     if subdirs_tx.send(dirs.to_vec()).is_ok() {
                         self.ctx.request_repaint();
@@ -1090,7 +1110,7 @@ impl Listing {
                 // The time is taken before the folder is read, so a change made while it is
                 // read is seen too.
                 let read = vec![(self.dir.clone(), modified(&self.dir))];
-                (list_folder(&self.dir, self.types))
+                (list_folder_counted(&self.dir, self.types, &self.counted))
                     .map(|(dirs, files)| (dirs, files, read, Vec::new()))
                     .map_err(|e| (self.dir.clone(), e))
             }
@@ -1861,6 +1881,10 @@ impl crate::App {
         let parts = self.parts_from((by, ascending, case), stop.clone());
         self.folder.first_part_shown = None;
         self.folder.list_is_a_part = false;
+        // A new counter for each listing, so the counts shown are this listing's alone, while
+        // the listing before, told to stop, may still count into its own.
+        let (counted, progress) = ListingCounter::new();
+        self.folder.listing_progress = collection.is_none().then_some(progress);
         let listing = Listing {
             dir: list_dir,
             types,
@@ -1872,6 +1896,7 @@ impl crate::App {
             stop,
             awaited: self.decoding.images_awaited().clone(),
             parts,
+            counted,
             part_taken_in: self.folder.part_taken_in.clone(),
             tx,
             size_tx,
@@ -5759,7 +5784,7 @@ mod tests {
         let list = |path: &std::path::Path, types| match path.file_name() == Some("locked".as_ref())
         {
             true => Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
-            false => super::list_folder(path, types),
+            false => crate::model::listing::list_folder(path, types),
         };
         Box::new(crate::model::listing::walk_by(
             app.folder.dir(),
@@ -6225,7 +6250,9 @@ mod tests {
         );
         let own = |folder: &PathBuf| {
             let name = folder.strip_prefix("/").unwrap().to_path_buf();
-            let images = super::list_folder(folder, app.shown_types()).unwrap().1;
+            let images = crate::model::listing::list_folder(folder, app.shown_types())
+                .unwrap()
+                .1;
             (images.into_iter()).map(move |f| name.join(f.0).into_os_string())
         };
         let want: HashSet<OsString> = both.iter().flat_map(own).collect();

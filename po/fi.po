@@ -1403,6 +1403,11 @@ msgstr "Haku näyttää kuvat eri järjestyksessä: tyhjennä se siirtääksesi 
 msgid "Reading folder…"
 msgstr "Luetaan kansiota…"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Luetaan kansioita… {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2289,6 +2294,12 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "tiedosto"
 msgstr[1] "tiedostoa"
+
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "kansio"
+msgstr[1] "kansiota"
 
 #, fuzzy
 msgid "frame"

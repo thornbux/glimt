@@ -6705,6 +6705,46 @@ else
     done
 fi
 
+section "a tree listed: the status bar counts the folders and images read so far"
+# lossyfs holds every look at a path that a line of /tmp/lossy-stall starts. The tree has four
+# folders, a with two images, b with only an empty folder w, c with three images and d with only
+# an empty folder w, and it is listed with its subfolders. The walk reads the folders in name
+# order and counts a folder when it opens it, so it is held looking at b/w with the top, a and b
+# opened and a's two images found, and, once b/w is let go, at d/w with six folders and five
+# images. Each hold is waited for in lossyfs's log and each count by its text on the screen, so
+# no wait is timed. 0.102.0 said "Reading folder…" until the whole tree was read.
+faults=yes
+if ! grep -q " $lossy fuse" /proc/mounts; then
+    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/counted-tree-$v d=$lossy/counted-tree-$v
+        rm -rf $back; mkdir -p $back/a $back/b/w $back/c $back/d/w
+        for k in 1 2; do convert -size 64x64 xc:red $back/a/$k.png; done
+        for k in 3 4 5; do convert -size 64x64 xc:lime $back/c/$k.png; done
+        config show_subfolders=true thumbnails=false
+        printf '%s\n' /counted-tree-$v/b/w /counted-tree-$v/d/w >/tmp/lossy-stall
+        start $d
+        until_ok "grep -q '^STALL /counted-tree-$v/b/w' /tmp/lossyfs.log" 30
+        until_ok "[ -n \"\$(where 'Reading folders… 3 folders, 2 images')\" ]" 10 &&
+            got=first || got=
+        echo /counted-tree-$v/d/w >/tmp/lossy-stall
+        until_ok "grep -q '^STALL /counted-tree-$v/d/w' /tmp/lossyfs.log" 30
+        until_ok "[ -n \"\$(where 'Reading folders… 6 folders, 5 images')\" ]" 10 &&
+            got="$got second"
+        held="$(grep -c "^STALL /counted-tree-$v/[bd]/w" /tmp/lossyfs.log)"
+        rm -f /tmp/lossy-stall
+        until_listed $d/c/5.png
+        quit
+        if [ $v = new ]; then
+            expect "the share held the walk at b/w and at d/w" "$held" 2
+            expect "the counts while b/w and then d/w were held" "$got" "first second"
+        else note "old: '$got', held $held"; fi
+        rm -rf $back
+    done
+fi
+
 section "a share that stops answering: the image after it is decoded, the info panel shows its own EXIF"
 # STALL-1. lossyfs holds every look at and read of /stall-view-* while /tmp/lossy-stall names
 # it. A link to an image there, shown, holds the one decode worker and the info panel's reader.
