@@ -3062,10 +3062,12 @@ impl crate::App {
 
     /// Copy or Move. It copies or moves the targets to a folder that the file chooser asks
     /// for.
-    pub(crate) fn pick_copy_or_move(&mut self, ctx: &egui::Context, action: Action) {
-        let Some(targets) = self.targets() else {
-            return;
-        };
+    pub(crate) fn pick_copy_or_move(
+        &mut self,
+        ctx: &egui::Context,
+        action: Action,
+        targets: Targets,
+    ) {
         let paths = PickedFiles::listed(targets.iter().map(|&i| self.listed_file(i)).collect());
         let purpose = match action {
             Action::CopyTo => Pick::CopyTo(paths),
@@ -3089,11 +3091,8 @@ impl crate::App {
 
     /// Copy Path. It copies the targets' paths as text, quoted for Copy Path and not quoted for
     /// Copy Path Unquoted.
-    pub(crate) fn copy_paths(&mut self, ctx: &egui::Context, action: Action) {
+    pub(crate) fn copy_paths(&mut self, ctx: &egui::Context, action: Action, targets: Targets) {
         let quote = action == Action::CopyPath;
-        let Some(targets) = self.targets() else {
-            return;
-        };
         let paths: Vec<String> = (targets.iter())
             .map(|&i| copied_path(&self.path(i), quote))
             .collect();
@@ -8933,7 +8932,7 @@ mod tests {
                 "a new PDF of its own, no file of the user's changed: writes_a_pdf",
             ),
             (
-                "tools_menu",
+                "run_tool",
                 "a program of the user's that holds its files; a_hold_holds_its_files_back",
             ),
             (

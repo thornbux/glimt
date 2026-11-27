@@ -11,6 +11,7 @@ use crate::files::config::sharing_path;
 use crate::files::file_io::{PickedFiles, create_file, edit_shared, save_failed, write_later};
 use crate::files::file_ops::{JobAfterLookUp, OperationReport};
 use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
+use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took, Working, answer_channel};
@@ -367,10 +368,7 @@ impl SharingOutcome {
 impl crate::App {
     /// File → Copy for Sharing…: opens its dialog for the targets, and reads the choice made
     /// last time and the tags of the images in the background.
-    pub(crate) fn start_copy_for_sharing(&mut self, ctx: &egui::Context) {
-        let Some(targets) = self.targets() else {
-            return;
-        };
+    pub(crate) fn start_copy_for_sharing(&mut self, ctx: &egui::Context, targets: Targets) {
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let clashes = name_clashes(&paths);
         let (tx, rx) = answer_channel(&self.busy);

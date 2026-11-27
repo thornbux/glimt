@@ -9,6 +9,7 @@ use crate::images::colour::FILTERS;
 use crate::images::decode::{catch_panic_as_error, color_image};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
+use crate::model::selection::Targets;
 use crate::support::format::ShownText;
 #[cfg(feature = "marks")]
 use crate::support::format::count;
@@ -1258,10 +1259,22 @@ impl crate::App {
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
-            Action::CopyTo | Action::MoveTo => self.pick_copy_or_move(ctx, action),
-            Action::CopyForSharing => self.start_copy_for_sharing(ctx),
+            Action::CopyTo | Action::MoveTo => {
+                if let Some(targets) = self.targets() {
+                    self.pick_copy_or_move(ctx, action, targets);
+                }
+            }
+            Action::CopyForSharing => {
+                if let Some(targets) = self.targets() {
+                    self.start_copy_for_sharing(ctx, targets);
+                }
+            }
             // The default application; the Open With submenu lists the others.
-            Action::OpenWith => self.open_targets_in_default_app(),
+            Action::OpenWith => {
+                if let Some(targets) = self.targets() {
+                    self.open_targets_in_default_app(targets);
+                }
+            }
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::PlayVideo => self.play_video(ctx),
@@ -1300,11 +1313,19 @@ impl crate::App {
                     .collect();
                 self.set_selection(ctx, inverted);
             }
-            Action::CopyPath | Action::CopyPathUnquoted => self.copy_paths(ctx, action),
+            Action::CopyPath | Action::CopyPathUnquoted => {
+                if let Some(targets) = self.targets() {
+                    self.copy_paths(ctx, action, targets);
+                }
+            }
             // Decoded at full size in the background; egui hands it to the clipboard.
             Action::CopyImage => self.copy_image(ctx),
             // As a list of files, which a file manager pastes as a copy.
-            Action::CopyFilesToClipboard => self.copy_files(),
+            Action::CopyFilesToClipboard => {
+                if let Some(targets) = self.targets() {
+                    self.copy_files(targets);
+                }
+            }
             Action::Preferences if config::locked() => {
                 self.notice
                     .give_error(tr("The settings are locked (--lock-settings)"));
@@ -1403,7 +1424,11 @@ impl crate::App {
                 let dir = self.folder.dir().to_path_buf();
                 self.dialogs.ask_new_folder(&dir);
             }
-            Action::Print => self.open_print(ctx),
+            Action::Print => {
+                if let Some(targets) = self.targets() {
+                    self.open_print(ctx, targets);
+                }
+            }
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
                 let (path, how) = (self.path(self.list.shown()), self.shown_copy());
@@ -1592,10 +1617,7 @@ impl crate::App {
 
     /// Select → Copy Files: the selected files (or the shown one) to the clipboard, as a file
     /// manager copies them.
-    pub(crate) fn copy_files(&mut self) {
-        let Some(targets) = self.targets() else {
-            return;
-        };
+    pub(crate) fn copy_files(&mut self, targets: Targets) {
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let result = (self.file_operations.clipboard()).and_then(|c| c.set().file_list(&paths));
         if let Err(e) = result {

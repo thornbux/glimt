@@ -5,6 +5,7 @@ use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_own_folder, open_url};
 use crate::files::file_ops::OperationReport;
 use crate::images::colour::{FILTERS, ProfileAsked, ProfileSet, set_colour, set_intent};
+use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
@@ -891,64 +892,68 @@ impl crate::App {
             let Some(targets) = self.targets() else {
                 return;
             };
-            let tool = tools[k].clone();
-            let listed: Vec<_> = targets.iter().map(|&i| self.listed_file(i)).collect();
-            let targets: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-            // A turned image still being saved would be written over the tool's edit. The
-            // files are held while the tool runs, so a delete, move or rename of them waits.
-            // The thread lets go of the files the tool does not take once it has sorted them.
-            let Some(held_back) = self.hold_back_while_writing(targets) else {
+            self.run_tool(ui.ctx(), tools[k].clone(), targets);
+        });
+    }
+
+    /// Runs `tool` on the files at `targets`, in the background.
+    fn run_tool(&mut self, ctx: &egui::Context, tool: tools::Tool, targets: Targets) {
+        let listed: Vec<_> = targets.iter().map(|&i| self.listed_file(i)).collect();
+        let targets: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        // A turned image still being saved would be written over the tool's edit. The
+        // files are held while the tool runs, so a delete, move or rename of them waits.
+        // The thread lets go of the files the tool does not take once it has sorted them.
+        let Some(held_back) = self.hold_back_while_writing(targets) else {
+            return;
+        };
+        let (dir, running) = (self.folder.dir().to_path_buf(), self.tools_running.clone());
+        let report_tx = self.file_operations.report_sender();
+        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
+        let awaited = self.decoding.images_awaited().clone();
+        // No busy pointer: a tool may be an editor that stays open for hours, so it is not
+        // waited for at closing either, as for Open With.
+        std::thread::spawn(move || {
+            // Each file is looked at on a share only after the images the window waits
+            // for, as every other look in the background is (#294).
+            let mut gate = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited);
+            for file in &listed {
+                gate.before_a_look(file.path());
+            }
+            // A file whose name another file has taken since the list was read is not given
+            // to the tool, which may change it.
+            let (targets, refused) = crate::files::file_io::still_listed(listed);
+            if let Some(first) = refused.into_iter().next() {
+                tx.send_failed_write(first);
+            }
+            // The types a tool takes are looked up in the system's files of file types, the
+            // first time, so the files are sorted here and not in the window's thread.
+            let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
+                targets.into_iter().partition(|p| tool.accepts(p));
+            held_back.hold_only(&files);
+            let name = ShownText::from_file_text_on_one_line(&tool.name);
+            if files.is_empty() {
+                let _ = tx.send_error(tf!("{name} takes none of these files", name));
                 return;
-            };
-            let (dir, running) = (self.folder.dir().to_path_buf(), self.tools_running.clone());
-            let report_tx = self.file_operations.report_sender();
-            let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
-            let awaited = self.decoding.images_awaited().clone();
-            // No busy pointer: a tool may be an editor that stays open for hours, so it is not
-            // waited for at closing either, as for Open With.
-            std::thread::spawn(move || {
-                // Each file is looked at on a share only after the images the window waits
-                // for, as every other look in the background is (#294).
-                let mut gate = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited);
-                for file in &listed {
-                    gate.before_a_look(file.path());
-                }
-                // A file whose name another file has taken since the list was read is not given
-                // to the tool, which may change it.
-                let (targets, refused) = crate::files::file_io::still_listed(listed);
-                if let Some(first) = refused.into_iter().next() {
-                    tx.send_failed_write(first);
-                }
-                // The types a tool takes are looked up in the system's files of file types, the
-                // first time, so the files are sorted here and not in the window's thread.
-                let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
-                    targets.into_iter().partition(|p| tool.accepts(p));
-                held_back.hold_only(&files);
-                let name = ShownText::from_file_text_on_one_line(&tool.name);
-                if files.is_empty() {
-                    let _ = tx.send_error(tf!("{name} takes none of these files", name));
-                    return;
-                }
-                if !left.is_empty() {
-                    let files = count(left.len(), "file");
-                    let _ = tx.send(tf!(
-                        "{name} leaves out {files} of a type it does not take",
-                        name,
-                        files
-                    ));
-                }
-                let result = tool.run(&files, &dir, &running);
-                drop(held_back);
-                let _ = report_tx.send(OperationReport {
-                    read_folder_again: true,
-                    changed: files,
-                    ..Default::default()
-                });
-                if let Err(e) = result {
-                    let _ = tx.send_error(tf!("{name}: {e}", name = tool.shown_name(), e));
-                }
-                ctx.request_repaint();
+            }
+            if !left.is_empty() {
+                let files = count(left.len(), "file");
+                let _ = tx.send(tf!(
+                    "{name} leaves out {files} of a type it does not take",
+                    name,
+                    files
+                ));
+            }
+            let result = tool.run(&files, &dir, &running);
+            drop(held_back);
+            let _ = report_tx.send(OperationReport {
+                read_folder_again: true,
+                changed: files,
+                ..Default::default()
             });
+            if let Err(e) = result {
+                let _ = tx.send_error(tf!("{name}: {e}", name = tool.shown_name(), e));
+            }
+            ctx.request_repaint();
         });
     }
 
@@ -1042,13 +1047,11 @@ impl crate::App {
     /// the Open With submenu opens them in the one chosen there. Each file starts a program of
     /// its own, so more than a few are asked about first. Before, Ctrl+A and this started a
     /// program for each of thousands of files.
-    pub(crate) fn open_targets_in_default_app(&mut self) {
-        if let Some(targets) = self.targets() {
-            let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-            match files.len() > OPENED_WITHOUT_ASKING {
-                true => self.dialogs.ask_open_files(files),
-                false => self.open_in("", files),
-            }
+    pub(crate) fn open_targets_in_default_app(&mut self, targets: Targets) {
+        let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        match files.len() > OPENED_WITHOUT_ASKING {
+            true => self.dialogs.ask_open_files(files),
+            false => self.open_in("", files),
         }
     }
 

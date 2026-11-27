@@ -6,6 +6,7 @@
 use crate::files::config::Config;
 use crate::images::decode::catch_panic_as_error;
 use crate::model::listing::ReadsFirst;
+use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Told, Took};
@@ -364,10 +365,7 @@ impl crate::App {
     /// File → Print. It opens the dialog for the selected images, or the shown one. CUPS is
     /// asked for the printers, and the first page's images are decoded small for the preview,
     /// in the background.
-    pub(crate) fn open_print(&mut self, ctx: &egui::Context) {
-        let Some(targets) = self.targets() else {
-            return;
-        };
+    pub(crate) fn open_print(&mut self, ctx: &egui::Context, targets: Targets) {
         let (tx, rx) = mpsc::channel();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let first: Vec<PathBuf> = paths.iter().take(MAX_PREVIEWS).cloned().collect();
