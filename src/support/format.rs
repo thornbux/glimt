@@ -56,6 +56,14 @@ pub(crate) enum Piece<'a> {
 /// - `ShownText::of`, a value as `tf!` fills a placeholder with it, and `keys_of`, keys;
 /// - `join` and `push`, of texts that are shown texts already.
 ///
+/// Some of these take any `&str`, which the type cannot tell from a name's lossy text: the
+/// readers of files and programs give a `String`, in many modules, and Rust cannot let only
+/// those make a value. So `source_rules::names_are_shown_through_one_function` finds a name's
+/// lossy text given to `from_file_text`, `from_file_text_on_one_line`, `of_message` and
+/// `fill_template`. `untranslated` takes a `&'static str`, which a literal is, but so is the
+/// text of a `LazyLock<String>` or a leaked `String` (`clippy.toml` refuses `String::leak`).
+/// No type refuses that, so review holds it.
+///
 /// Before, every widget and notice took any `String`, and `source_rules` read the source to find
 /// a name that reached the user unescaped, which a spelling it did not know slipped past (#320,
 /// #323).
@@ -65,6 +73,8 @@ pub(crate) struct ShownText(std::borrow::Cow<'static, str>);
 impl ShownText {
     /// Returns `text`, which has no translation: a symbol such as "…", a key's name, or a text
     /// that stays English, such as the About window's credits.
+    /// It is given a literal or a constant: the text of a `LazyLock<String>` is a `&'static
+    /// str` too, which the type cannot refuse (see the type's doc).
     pub(crate) const fn untranslated(text: &'static str) -> Self {
         ShownText(std::borrow::Cow::Borrowed(text))
     }

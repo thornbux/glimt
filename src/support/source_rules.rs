@@ -846,6 +846,29 @@ const TEXT_FOR_THE_USER: &[(Reaches, &[&str])] = &[
             "Button::new(",
             "RichText::new(",
             "ProgressBar::new(",
+            // The helpers of menus.rs that the window's texts are drawn with now, as
+            // `clippy.toml` refuses egui's own calls above. `given_whole_to` finds them too, as
+            // each gives its text whole to egui's call; they are named here so that the check
+            // does not rest on that.
+            "icon_button(",
+            "button_enabled(",
+            "small_button(",
+            "caret(",
+            ".show_label(",
+            ".show_weak(",
+            ".show_heading(",
+            ".show_strong(",
+            ".tip(",
+            ".tip_at_pointer(",
+            ".hint(",
+            ".selected(",
+            ".shown_text(",
+            ".append_shown(",
+            ".show_text(",
+            "window(",
+            "collapsing(",
+            "rich(",
+            "spoken(",
             // A notice and a failure, which `texts_for_the_user` finds in the code too.
             ".give(",
             ".give_error(",
@@ -862,6 +885,19 @@ const TEXT_FOR_THE_USER: &[(Reaches, &[&str])] = &[
             // when the window is made and when it is changed.
             ".with_title(",
             "ViewportCommand::Title(",
+        ],
+    ),
+    (
+        Reaches::InWindowText,
+        &[
+            // The ways a text read from a file or written by a program becomes a shown text, as
+            // it is and untranslated. They take any `&str`, which no type can tell from a
+            // name's lossy text, as each reader of a file or a program gives a `String` (audit
+            // 0.102.0 r1, A-2).
+            "ShownText::from_file_text(",
+            "ShownText::from_file_text_on_one_line(",
+            "ShownText::of_message(",
+            "fill_template(",
         ],
     ),
 ];
@@ -6772,6 +6808,7 @@ fn given_whole_to(f: &Teller, calls: &HashSet<String>, modules: &HashSet<String>
             ".to_string()",
             ".clone()",
             ".as_str()",
+            ".as_ref()",
         ];
         while let Some(shorter) = ends.iter().find_map(|end| argument.strip_suffix(end)) {
             argument = shorter;
@@ -7274,6 +7311,32 @@ fn finds_a_lossy_name_told_in_every_way() {
             "a.rs:33", "a.rs:36", "a.rs:43",
         ]
     );
+}
+
+/// The check above finds a name's lossy text given to the helpers of menus.rs that the window's
+/// texts are drawn with, also one of the crate's own that passes its text on with `.as_ref()`,
+/// and to the ways a file's or a program's text becomes a shown text. A name given through
+/// `escaped_name` passes. Before, these helpers were not on the list, and a helper that passed
+/// its text on with `.as_ref()` was not followed (audit 0.102.0 r1, A-3).
+/// Risk: a raw name given to a helper of the window, or taken for a file's text, passes.
+#[test]
+fn finds_a_lossy_name_given_to_a_shown_text_helper() {
+    let library = "fn say_it(text: impl AsRef<ShownText>) -> WidgetInfo {\n    \
+        WidgetInfo::labeled(Role::Label, true, text.as_ref().as_str())\n}\n";
+    let text = "fn a(r: Response, p: &Path) {\n    r.tip(p.to_string_lossy());\n}\n\
+        fn b(p: &Path) -> ShownText {\n    \
+        ShownText::from_file_text_on_one_line(&p.to_string_lossy())\n}\n\
+        fn c(p: &Path) {\n    say_it(&p.to_string_lossy());\n}\n\
+        fn d(p: &Path) {\n    let why = ShownText::of_message(&p.to_string_lossy());\n}\n\
+        fn e(p: &Path) -> egui::Window<'static> {\n    window(escaped_name(p))\n}\n";
+    let sources = [
+        ("lib.rs".to_owned(), library.to_owned()),
+        ("a.rs".to_owned(), text.to_owned()),
+    ];
+    let found: Vec<String> = (names_given_to_the_user_raw(&sources).into_iter())
+        .map(|found| found.replace(" (lossy text shown)", ""))
+        .collect();
+    assert_eq!(found, ["a.rs:2", "a.rs:5", "a.rs:8", "a.rs:11"]);
 }
 
 /// Returns the places in `text`, of `file`, where a whole path is made into text outside
