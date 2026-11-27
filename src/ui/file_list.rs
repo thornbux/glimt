@@ -2005,18 +2005,24 @@ impl crate::App {
                         .is_none()
                         .then_some(self.status_bar.total_size),
                 );
+                let counts = self.folder.listing_counts();
                 // The counts of a listing move while it runs. A repaint a few times a second
                 // shows them, as the listing itself asks for none per file.
-                if self.folder.is_listing() {
+                if counts.is_some() {
                     ctx.request_repaint_after(std::time::Duration::from_millis(250));
                 }
+                // The release tests look for the counts on their own, as a selection adds to
+                // the text after them.
+                let counted = counts.map(|(folders, images)| {
+                    tf!(
+                        "Reading folders… {folders}, {images}",
+                        folders = count(folders, "folder"),
+                        images = count(images, "image")
+                    )
+                });
                 let mut left = match self.list.matches() {
-                    _ if self.folder.is_listing() => match self.folder.listing_counts() {
-                        Some((folders, images)) => tf!(
-                            "Reading folders… {folders}, {images}",
-                            folders = count(folders, "folder"),
-                            images = count(images, "image")
-                        ),
+                    _ if self.folder.is_listing() => match &counted {
+                        Some(counted) => counted.clone(),
                         None => tr("Reading folder…"),
                     },
                     // A search shows the matches, with the count and size of what the list
@@ -2054,7 +2060,11 @@ impl crate::App {
                 self.types_menu(ctx, ui);
                 ui.separator();
                 // The release tests look for the hidden count on its own.
-                crate::support::test_hooks::noted(&ui.show_label(left), &hidden);
+                let label = ui.show_label(left);
+                crate::support::test_hooks::noted(&label, &hidden);
+                if let Some(counted) = &counted {
+                    crate::support::test_hooks::noted(&label, counted);
+                }
                 if let Some((job, jobs)) = self.file_operations.first_job_and_count() {
                     ui.separator();
                     let more = match jobs - 1 {
