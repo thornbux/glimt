@@ -101,6 +101,7 @@ const FILE_LIST: &[&str] = &[
     "Remove thumbnails of deleted files",
     "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)",
     "Search field above the file list:",
+    "Show a line at the bottom of the file list while a folder is read",
     "Show file size and date in the file list",
     "Show folders as a tree (Ctrl+T)",
     "Show marks and stars in the file list",
@@ -781,7 +782,8 @@ impl crate::App {
         });
     }
 
-    /// Preferences: file details, and saving and cleaning the shared thumbnail cache.
+    /// Preferences: file details, the activity line, and saving and cleaning the shared
+    /// thumbnail cache.
     pub(crate) fn cache_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let c = &mut self.config;
@@ -789,6 +791,12 @@ impl crate::App {
             ui,
             &mut c.file_details,
             tr("Show file size and date in the file list"),
+        )
+        .changed();
+        changed |= checkbox(
+            ui,
+            &mut c.activity_line,
+            tr("Show a line at the bottom of the file list while a folder is read"),
         )
         .changed();
         let save = tr("Save new thumbnails to ~/.cache/thumbnails (shared with other programs)");

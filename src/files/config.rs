@@ -391,6 +391,8 @@ config! {
     window_title: String = String::new(),
     /// File list with size and date columns, as in Geeqie.
     file_details: bool = false,
+    /// A thin pulsing line at the bottom of the file list while a folder is read.
+    activity_line: bool = true,
     sort: Sort = Sort::Name,
     sort_ascending: bool = true,
     sort_case_sensitive: bool = true,

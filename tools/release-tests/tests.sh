@@ -6745,6 +6745,68 @@ else
     done
 fi
 
+section "a tree listed: a thin line pulses at the bottom of the file list, and is gone after"
+# lossyfs holds the walk at b/w of a tree with a (two images) and b (only an empty folder w).
+# While it is held, the status bar says 'Reading folders… 3 folders, 2 images', whose noted
+# place gives the status bar's row. The line is the panel's bottom 2 px, right above the status
+# bar: activity_line_rows counts the rows of a strip above that row that are mostly the Dark
+# theme's blue accent (b - r > 0.1; the panel is grey). The list has two names, far above the
+# strip, so no selected row reaches it, and the shot after the listing sees the same strip with
+# no line. The test desktop has no settings portal, so a stand-in gdbus answers nothing and the
+# animations count as on; a second start, with a gdbus that says GNOME's animations are off,
+# shows no line. 0.103.0 drew no line.
+activity_line_rows() {
+    local y n=0
+    for y in $(seq $(($2 - 30)) $(($2 - 9))); do
+        [ "$(matching $1 140x1+20+$y 'b-r>0.1')" -gt 100 ] && n=$((n + 1))
+    done
+    echo $n
+}
+faults=yes
+if ! grep -q " $lossy fuse" /proc/mounts; then
+    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        for animations in true false; do
+            as_version $v
+            printf '#!/bin/sh\ncase "$*" in\n*enable-animations*) echo "(<%s>,)" ;;\n*) exit 1 ;;\nesac\n' \
+                $animations >/tmp/stub/gdbus
+            chmod +x /tmp/stub/gdbus
+            back=/opt/lossy/pulse-$animations-$v d=$lossy/pulse-$animations-$v
+            rm -rf $back; mkdir -p $back/a $back/b/w
+            for k in 1 2; do convert -size 64x64 xc:red $back/a/$k.png; done
+            config show_subfolders=true thumbnails=false theme=Dark
+            echo /pulse-$animations-$v/b/w >/tmp/lossy-stall
+            start $d
+            until_ok "grep -q '^STALL /pulse-$animations-$v/b/w' /tmp/lossyfs.log" 30
+            until_ok "[ -n \"\$(where 'Reading folders… 3 folders, 2 images')\" ]" 10
+            status_row="$(where 'Reading folders… 3 folders, 2 images')"
+            # Without animations nothing pulses, so the screen settles once the desktop's answer
+            # is in; with them a shot is enough, as the line never goes out.
+            if [ $animations = false ]; then settled pulse-$v-$animations
+            else shot pulse-$v-$animations; fi
+            rm -f /tmp/lossy-stall
+            until_listed $d/a/2.png
+            settled pulse-$v-$animations-after
+            quit
+            y=${status_row#* } during= after=
+            if [ -n "$status_row" ]; then
+                during=$(activity_line_rows pulse-$v-$animations $y)
+                after=$(activity_line_rows pulse-$v-$animations-after $y)
+            fi
+            if [ $v = new ] && [ $animations = true ]; then
+                if [ -n "$during" ] && [ "$during" -ge 1 ] && [ "$during" -le 3 ]; then
+                    pass "a thin line while the tree is read ($during rows)"
+                else fail "a thin line while the tree is read: '$during' rows at '$status_row'"; fi
+                expect "no line once the tree is read" "$after" 0
+            elif [ $v = new ]; then
+                expect "no line while the tree is read, with animations off" "$during" 0
+            else note "old, animations $animations: '$during' rows while read, '$after' after"; fi
+            rm -rf $back
+        done
+    done
+fi
+
 section "a share that stops answering: the image after it is decoded, the info panel shows its own EXIF"
 # STALL-1. lossyfs holds every look at and read of /stall-view-* while /tmp/lossy-stall names
 # it. A link to an image there, shown, holds the one decode worker and the info panel's reader.

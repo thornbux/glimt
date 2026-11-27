@@ -64,6 +64,12 @@ pub(crate) const MAX_THUMBS: usize = 600;
 /// behind thousands of them. A row dropped and still drawn is asked about again.
 const SIZES_AND_DATES_WAITING: usize = 500;
 
+/// The time of one pulse of the activity line, in seconds.
+const ACTIVITY_PULSE: f64 = 1.2;
+
+/// The faintest the activity line pulses to, so that it never goes out while a folder is read.
+const ACTIVITY_FAINTEST: f32 = 0.25;
+
 /// A rectangle being dragged in the icon grid to select.
 pub(crate) struct RubberBand {
     /// Where it started, from the top left of the grid's content, so it scrolls along.
@@ -1497,6 +1503,7 @@ impl crate::App {
                     self.search_field(ui);
                 }
                 opened = self.file_list(ctx, ui, &mut go_to, &mut chosen, form);
+                self.activity_line(ctx, ui);
             });
         // A double-click opens the file clicked, also with Ctrl or Shift, whose clicks change
         // the selection and go to no file. A plain click before it has already gone there.
@@ -1508,6 +1515,37 @@ impl crate::App {
         if let Some(action) = chosen {
             self.run(ctx, action);
         }
+    }
+
+    /// Draws a thin pulsing line in the accent colour along the bottom of the side panel, right
+    /// above the status bar, while a folder or tree is read. It is drawn here once, not in
+    /// `file_list`, which the grid in the image area draws too. A screen reader hears nothing of
+    /// it, as the status bar's counts already tell.
+    fn activity_line(&self, ctx: &egui::Context, ui: &egui::Ui) {
+        let Some(alpha) = self.activity_line_strength(ctx.input(|i| i.time)) else {
+            return;
+        };
+        // A pulse needs smooth frames, and only while it is drawn.
+        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        // The panel's whole width and its very bottom, past the margins of its frame, as egui
+        // clips the panel's contents to its outer edges.
+        let panel = ui.clip_rect();
+        let line = egui::Rect::from_min_max(
+            egui::pos2(panel.left(), panel.bottom() - 2.0),
+            panel.right_bottom(),
+        );
+        let colour = ui.visuals().selection.bg_fill.gamma_multiply(alpha);
+        ui.painter().rect_filled(line, 0.0, colour);
+    }
+
+    /// Returns how strongly the activity line is drawn at `time` seconds. Returns `None` when it
+    /// is not drawn: no folder is read, the setting turned it off, or the desktop asks for less
+    /// motion.
+    fn activity_line_strength(&self, time: f64) -> Option<f32> {
+        if !self.config.activity_line || !self.folder.is_listing() {
+            return None;
+        }
+        activity_line_alpha(time, self.desktop_settings.look().motion)
     }
 
     /// View → Thumbnails in Image Area: the files as a grid of thumbnails where the image is.
@@ -2177,6 +2215,19 @@ pub(crate) fn thumbs_to_keep<'a>(
         .collect()
 }
 
+/// Returns how strongly the activity line is drawn at `time` seconds, from `ACTIVITY_FAINTEST`
+/// to 1. It goes from full to faint and back once each `ACTIVITY_PULSE`. Returns `None` when the
+/// desktop asks for less motion, as a line that does not pulse would look like a border.
+fn activity_line_alpha(time: f64, motion: theme::Motion) -> Option<f32> {
+    match motion {
+        theme::Motion::Reduced => None,
+        theme::Motion::Full => {
+            let wave = (time * std::f64::consts::TAU / ACTIVITY_PULSE).cos() as f32;
+            Some(ACTIVITY_FAINTEST + (1.0 - ACTIVITY_FAINTEST) * (wave + 1.0) / 2.0)
+        }
+    }
+}
+
 /// Paints the highlight of a selected or hovered row or cell, rounded as the theme's widgets.
 /// A selected one gets a soft tint of the selection colour, which keeps the text in its own
 /// colour, and an outline in the full colour, which keeps it plain to see in every theme.
@@ -2499,6 +2550,51 @@ fn fade_scrolled_edges<R>(ui: &egui::Ui, scrolled: &egui::scroll_area::ScrollAre
 #[cfg(test)]
 mod tests {
     use super::Panel;
+
+    /// The activity line pulses within its bounds, once each pulse, and is not drawn when the
+    /// desktop asks for less motion.
+    /// Risk: the line goes out in the middle of a listing, or pulses for a user who asked for
+    /// less motion.
+    #[test]
+    fn the_activity_line_pulses_within_its_bounds() {
+        use super::{ACTIVITY_FAINTEST, ACTIVITY_PULSE, activity_line_alpha};
+        use crate::ui::theme::Motion;
+        for step in 0..1000 {
+            let time = step as f64 * 0.0137;
+            let alpha = activity_line_alpha(time, Motion::Full).unwrap();
+            assert!(
+                (ACTIVITY_FAINTEST..=1.0).contains(&alpha),
+                "{alpha} at {time}"
+            );
+            let next = activity_line_alpha(time + ACTIVITY_PULSE, Motion::Full).unwrap();
+            assert!((alpha - next).abs() < 1e-3, "{alpha} and {next} at {time}");
+            assert_eq!(activity_line_alpha(time, Motion::Reduced), None);
+        }
+        let faintest = activity_line_alpha(ACTIVITY_PULSE / 2.0, Motion::Full).unwrap();
+        assert!(faintest < ACTIVITY_FAINTEST + 1e-3);
+    }
+
+    /// The activity line shows while a folder is read, and not with its setting off or once the
+    /// folder is read.
+    /// Risk: the line stays after the listing, or shows for a user who turned it off.
+    #[test]
+    fn the_activity_line_shows_only_while_a_folder_is_read() {
+        use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        let dir = contract_folder("activity-line");
+        let (mut app, ctx) = app_on(&dir);
+        assert_eq!(app.activity_line_strength(0.0), None);
+        app.start_listing(&ctx);
+        assert!(app.folder.is_listing());
+        assert_eq!(app.activity_line_strength(0.0), Some(1.0));
+        app.config.activity_line = false;
+        assert_eq!(app.activity_line_strength(0.0), None);
+        app.config.activity_line = true;
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.activity_line_strength(0.0), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A path that does not fit keeps its last folders and puts the first ones behind "…". The
     /// folder shown stays, also when it alone is wider than the room.

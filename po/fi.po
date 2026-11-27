@@ -2088,6 +2088,11 @@ msgstr "sekuntia kuvaa kohti"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr "Näytä viiva tiedostoluettelon alareunassa, kun kansiota luetaan"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Näytä tiedostokoko ja päiväys tiedostoluettelossa"
 

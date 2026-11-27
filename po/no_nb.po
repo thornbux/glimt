@@ -1823,6 +1823,10 @@ msgid "seconds per image"
 msgstr "sekunder per bilde"
 
 #: src/ui/preferences.rs
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr "Vis en linje nederst i fillisten mens en mappe leses"
+
+#: src/ui/preferences.rs
 msgid "Show file size and date in the file list"
 msgstr "Vis filstørrelse og dato i fillisten"
 

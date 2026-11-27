@@ -2088,6 +2088,11 @@ msgstr "sekunder pr. billede"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr "Vis en linje nederst i fillisten, mens en mappe læses"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Vis filstørrelse og dato i fillisten"
 

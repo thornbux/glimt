@@ -2088,6 +2088,11 @@ msgstr "sekund na obraz"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr "Pokazuj linię u dołu listy plików podczas odczytu folderu"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Pokaż rozmiar i datę na liście plików"
 
