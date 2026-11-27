@@ -5,8 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Remember file lists for faster loading (Preferences, off by default): a folder opened again,
+  also at the start, shows its list from the last time at once while it is read again, and the
+  list read then takes its place. Actions on its files wait until it is read. The lists are
+  kept in ~/.cache/glimt/lists, readable only by you; Clear saved lists removes them, and so
+  does turning the setting off.
+
 ### Fixed
 
+- The files kept in the list from a folder that could not be read go into their places in the
+  list's order. Before, they stayed after the file they followed, and the files of the folder's
+  next parts or a rename could land in the wrong places beside them (#285).
 - The list of the files that a Rename Many cut short left under the wrong names is saved only
   at a name ending in .txt or .m3u. Before, a name picked in the chooser could be an image or a
   collection, which the list's text then replaced (#329).
