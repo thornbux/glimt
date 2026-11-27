@@ -12,6 +12,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   a user's name, is shown as "fuse" in a notice, not by that word.
 - A collection's name and the name of a theme of your own are shown with their line breaks and
   marks of direction as escapes, as file names are, in the menus and the notices.
+- More names are shown with their line breaks and marks of direction as escapes, as file names
+  are: an added format's and a tool's name, a program's, a printer's and a keyword's, a colour
+  profile's path and name, a network address and its server, and a file system's type. So is
+  the reason that a library or a program such as ffmpeg gives when something fails.
 
 ### Changed
 
