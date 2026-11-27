@@ -6754,7 +6754,10 @@ section "a tree listed: a thin line pulses at the bottom of the file list, and i
 # strip, so no selected row reaches it, and the shot after the listing sees the same strip with
 # no line. The test desktop has no settings portal, so a stand-in gdbus answers nothing and the
 # animations count as on; a second start, with a gdbus that says GNOME's animations are off,
-# shows no line. 0.103.0 drew no line.
+# shows no line. The line waits for the desktop's answer, so the section waits for the stand-in
+# to be asked about the animations (/tmp/stub/asked-animations), the last thing the desktop's
+# thread asks, and then for the line on the screen, or for a screen at rest without it. 0.103.0
+# asks no such thing and drew no line.
 activity_line_rows() {
     local y n=0
     for y in $(seq $(($2 - 30)) $(($2 - 9))); do
@@ -6769,7 +6772,8 @@ else
     for v in new old; do
         for animations in true false; do
             as_version $v
-            printf '#!/bin/sh\ncase "$*" in\n*enable-animations*) echo "(<%s>,)" ;;\n*) exit 1 ;;\nesac\n' \
+            rm -f /tmp/stub/asked-animations
+            printf '#!/bin/sh\ncase "$*" in\n*enable-animations*) touch /tmp/stub/asked-animations; echo "(<%s>,)" ;;\n*) exit 1 ;;\nesac\n' \
                 $animations >/tmp/stub/gdbus
             chmod +x /tmp/stub/gdbus
             back=/opt/lossy/pulse-$animations-$v d=$lossy/pulse-$animations-$v
@@ -6781,10 +6785,14 @@ else
             until_ok "grep -q '^STALL /pulse-$animations-$v/b/w' /tmp/lossyfs.log" 30
             until_ok "[ -n \"\$(where 'Reading folders… 3 folders, 2 images')\" ]" 10
             status_row="$(where 'Reading folders… 3 folders, 2 images')"
-            # Without animations nothing pulses, so the screen settles once the desktop's answer
-            # is in; with them a shot is enough, as the line never goes out.
-            if [ $animations = false ]; then settled pulse-$v-$animations
-            else shot pulse-$v-$animations; fi
+            # The answer is in once the stand-in was asked; the window takes it at its next frame.
+            # With animations the line then shows within a few frames, and is looked for until
+            # it does; without them nothing pulses, so the screen comes to rest without it.
+            [ $v = new ] && until_ok "[ -e /tmp/stub/asked-animations ]" 30
+            if [ $animations = false ] || [ $v = old ]; then settled pulse-$v-$animations
+            else
+                until_ok "shot pulse-$v-$animations && [ \"\$(activity_line_rows pulse-$v-$animations \${status_row#* })\" -ge 1 ]" 10
+            fi
             rm -f /tmp/lossy-stall
             until_listed $d/a/2.png
             settled pulse-$v-$animations-after
