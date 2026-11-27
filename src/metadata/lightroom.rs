@@ -624,7 +624,7 @@ pub fn read(file: &Path) -> Result<Catalog, ShownText> {
         .arg(non_table_check() + QUERY)
         .spawn()
         .map_err(|e| {
-            let needs = ShownText::untranslated(NEEDS_SQLITE3);
+            let needs = tr(NEEDS_SQLITE3);
             crate::untranslated!("{needs}: {e}", needs, e)
         })?;
     let (out, why, ok) = crate::files::external::output_of(

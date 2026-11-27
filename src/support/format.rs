@@ -558,10 +558,6 @@ pub(crate) fn escaped_file_name(path: &std::path::Path) -> ShownText {
 
 #[cfg(test)]
 mod tests {
-    /// A name is shown with its line breaks, other control characters and marks of direction
-    /// written as escapes, and is otherwise as it is. Before, a name of line breaks added a
-    /// sentence of its own to the delete question, and U+202E showed it reversed (#189).
-    /// Risk: a planted name breaks a line or shows itself reversed.
     /// A library's error or a program's message is shown on its line, with its line breaks
     /// and marks of direction as escapes, and a text escaped once is not escaped again.
     /// Risk: a planted name inside an error's text breaks the failure's line, or a cause passed
@@ -585,6 +581,10 @@ mod tests {
         );
     }
 
+    /// A name is shown with its line breaks, other control characters and marks of direction
+    /// written as escapes, and is otherwise as it is. Before, a name of line breaks added a
+    /// sentence of its own to the delete question, and U+202E showed it reversed (#189).
+    /// Risk: a planted name breaks a line or shows itself reversed.
     #[test]
     fn a_name_is_shown_without_its_control_characters() {
         let planted = "a.jpg\"?\n\nOnly the cached copy is removed.\u{202e}gpj.exe\t\u{7}";
