@@ -17,7 +17,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - The files kept in the list from a folder that could not be read go into their places in the
   list's order. Before, they stayed after the file they followed, and the files of the folder's
-  next parts or a rename could land in the wrong places beside them (#285).
+  next parts or a rename could land in the wrong places beside them (#285). In EXIF date order
+  they dropped out of the list and the selection.
 - The list of the files that a Rename Many cut short left under the wrong names is saved only
   at a name ending in .txt or .m3u. Before, a name picked in the chooser could be an image or a
   collection, which the list's text then replaced (#329).
