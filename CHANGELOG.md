@@ -11,6 +11,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   ("Reading folders… 1,234 folders, 56,789 images") in place of "Reading folder…", so a long
   read of a tree on a share shows that it moves.
 
+### Fixed
+
+- Find Duplicates' "Move to Trash Anyway", clicked after "Uncheck all", no longer asks to move
+  the image shown to the trash, which nobody checked.
+
 ## [0.102.0] - 2026-11-27
 
 ### Fixed
