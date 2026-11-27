@@ -4197,3 +4197,8 @@ msgstr "{n} ({cols} × {rows})"
 #, fuzzy
 msgid "{w} × {h}"
 msgstr "{w} × {h}"
+
+#: src/model/collections.rs
+#, fuzzy
+msgid "Not saved: a list's name must end in .txt or .m3u"
+msgstr "Ikke gemt: en listes navn skal slutte på .txt eller .m3u"

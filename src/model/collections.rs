@@ -259,7 +259,10 @@ impl crate::App {
     /// Saves `paths`, the list as it was shown, as the plain list `file`, which the user picked
     /// when the file there had the fingerprint `at_pick`, in the background. The list's file is
     /// held back from other work meanwhile. Each entry is written as `list_text` writes it, and
-    /// an entry left out is told as a failed write beside the notice of the save.
+    /// an entry left out is told as a failed write beside the notice of the save. A name that
+    /// does not open as a plain list (`is_list`) is refused before anything is written: an
+    /// image's sidecar and stars would stay on the list, a `.gqv` would lose its entries, and a
+    /// name without a list's extension would never open as a list.
     pub(crate) fn save_list(
         &mut self,
         ctx: &egui::Context,
@@ -267,6 +270,10 @@ impl crate::App {
         (file, at_pick): (PathBuf, Option<crate::files::file_io::FileFingerprint>),
     ) {
         use crate::support::threads::Told;
+        if !is_list(&file) {
+            let text = tr("Not saved: a list's name must end in .txt or .m3u");
+            return self.notice.give_error(text);
+        }
         self.run_in_background(ctx, vec![file.clone()], move || {
             use std::io::Write;
             let name = escaped_name(&file);
@@ -1990,6 +1997,31 @@ mod tests {
         assert_eq!(dropped(6, &picked, 0), [1, 2, 5, 0, 3, 4]);
         assert_eq!(dropped(6, &picked, 6), [0, 3, 4, 1, 2, 5]);
         assert_eq!(dropped(6, &picked, 2), [0, 1, 2, 5, 3, 4]);
+    }
+
+    /// Save List As writes only at a name that opens as a plain list. Before, it replaced an
+    /// image (whose sidecar and stars then stayed on the text), a `.gqv` collection, or wrote a
+    /// name without a list's extension that never opened as a list.
+    #[test]
+    fn save_list_refuses_a_name_that_is_no_list() {
+        use crate::support::test_support::run_background_until;
+        let dir = std::env::temp_dir().join(format!("glimt-test-list-name-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        std::fs::write(dir.join("c.gqv"), "#GQview collection\n").unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let refused = crate::support::lang::tr("Not saved: a list's name must end in .txt or .m3u");
+        for name in ["a.png", "c.gqv", "list"] {
+            let before = std::fs::read(dir.join(name)).ok();
+            app.notice.clear();
+            // As the chooser answers when the user let it replace the file there.
+            let at_pick = crate::files::file_io::fingerprint(&dir.join(name));
+            app.save_list(&ctx, vec![dir.join("a.png")], (dir.join(name), at_pick));
+            assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+            assert_eq!(std::fs::read(dir.join(name)).ok(), before, "{name}");
+            assert_eq!(app.notice.text(), Some(refused.as_str()), "{name}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A list that Save List As writes reads back as the same files through Glimt's own

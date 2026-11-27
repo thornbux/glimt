@@ -3383,3 +3383,7 @@ msgstr ""
 #: src/ui/file_list.rs
 msgid "{w} × {h}"
 msgstr ""
+
+#: src/model/collections.rs
+msgid "Not saved: a list's name must end in .txt or .m3u"
+msgstr ""
