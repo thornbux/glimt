@@ -417,20 +417,20 @@ impl crate::App {
             (as_seen.kept_beside).extend(checked.into_iter().map(|path| (path, kept.clone())));
         }
         let checked = &find_duplicates.checked;
-        let checked_rows = (0..self.list.files().len())
+        let checked_rows: std::collections::BTreeSet<usize> = (0..self.list.files().len())
             .filter(|&i| checked.contains(&self.path(i)))
             .collect();
+        // Only when the list still has every checked file, as the delete would otherwise take
+        // too few, or none and say nothing (another folder opened since the search).
+        if checked_rows.len() != checked.len() {
+            return self
+                .notice
+                .give_error(tr("The checked files are no longer all in the list"));
+        }
         let Some(targets) = self.select_for_action(ctx, checked_rows) else {
             return;
         };
-        // With none selected the delete takes the shown image: only when the list still has
-        // every checked file, else it would be another one, or too few.
-        if self.list.selected().len() == checked.len() {
-            self.request_delete_as_seen(ctx, Removal::Trash, targets, Some(&as_seen));
-        } else {
-            self.notice
-                .give_error(tr("The checked files are no longer all in the list"));
-        }
+        self.request_delete_as_seen(ctx, Removal::Trash, targets, Some(&as_seen));
     }
 }
 
@@ -896,6 +896,30 @@ mod tests {
             Some(crate::support::lang::tr(hides).as_str())
         );
         assert_eq!(app.list.selected(), &[2].into());
+        assert!(!app.asking_about_selection());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Move to Trash with checked files that the list no longer has (another folder opened
+    /// since the search) trashes nothing, says so, and leaves the selection as it was.
+    /// Risk: the click does nothing and says nothing, or clears the user's selection.
+    #[test]
+    fn checked_files_no_longer_listed_are_told() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-dup-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.list
+            .set_files(["c.png", "d.png"].map(Into::into).to_vec());
+        app.list.select([1].into());
+        let mut find_duplicates = super::FindDuplicates::new();
+        find_duplicates.checked = [dir.join("a.png"), dir.join("b.png")].into();
+        app.trash_checked(&ctx, &find_duplicates);
+        let gone = "The checked files are no longer all in the list";
+        assert_eq!(
+            app.notice.text(),
+            Some(crate::support::lang::tr(gone).as_str())
+        );
+        assert_eq!(app.list.selected(), &[1].into());
         assert!(!app.asking_about_selection());
         std::fs::remove_dir_all(dir).unwrap();
     }

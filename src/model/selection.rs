@@ -323,7 +323,7 @@ impl crate::App {
     /// Returns the targets of the selection made, or `None` when it refused. An empty set is
     /// selected too, as nothing, and returns `None`: `targets()` would give the shown image
     /// for an empty selection, which nobody picked here (Find Duplicates' "Move to Trash
-    /// Anyway" after "Uncheck all", or a dialog's files all gone).
+    /// Anyway" after "Uncheck all").
     pub(crate) fn select_for_action(
         &mut self,
         ctx: &egui::Context,
