@@ -13,6 +13,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   kept in ~/.cache/glimt/lists, readable only by you; Clear saved lists removes them, and so
   does turning the setting off.
 
+### Changed
+
+- Marks and stars set on a collection's entries before Glimt has checked them are refused with
+  a message, until the collection is read. Before, they were written without a look, under a
+  name where there might be no file, and the next file of that name showed them.
+
 ### Fixed
 
 - The files kept in the list from a folder that could not be read go into their places in the
