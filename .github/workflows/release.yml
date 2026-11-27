@@ -4,6 +4,10 @@
 # version's section of CHANGELOG.md as the release notes. A dry run (by hand, dry_run) builds and smoke-tests the branch it is started on and
 # publishes nothing.
 name: Release
+# A dry run's title says so: the tag's run looks for one by it, to skip clippy and the tests.
+run-name: >-
+  ${{ inputs.dry_run && format('Dry run on {0}', github.ref_name)
+  || format('Release {0}', inputs.tag || github.ref_name) }}
 
 on:
   push:
@@ -40,12 +44,49 @@ defaults:
     shell: bash
 
 jobs:
+  # Looks up a successful dry run of this workflow on the commit the tag names. When there is
+  # one, it ran clippy and the tests with the same Rust and profile on the same code, and the
+  # tag's build skips them. Any failure of the look-up runs them. It is a job of its own, so
+  # that the build's token gets no more than it needs.
+  dry-run-before:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      commit: ${{ steps.lookup.outputs.commit }}
+    steps:
+      - id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$DRY_RUN" ]; then
+              echo "A dry run runs clippy and the tests itself."; exit 0
+          fi
+          [[ "$TAG_GIVEN" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+              { echo "No vX.Y.Z tag: clippy and the tests run."; exit 0; }
+          if ! commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG_GIVEN" --jq .sha) ||
+              ! run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?head_sha=$commit&event=workflow_dispatch&status=success&per_page=100" \
+                  --jq '[.workflow_runs[] | select(.display_title | startswith("Dry run on "))
+                         | .html_url] | first // empty'); then
+              echo "::warning::The look-up of a dry run failed: clippy and the tests run."
+              exit 0
+          fi
+          if [ -z "$run" ]; then
+              echo "No successful dry run on $commit: clippy and the tests run."; exit 0
+          fi
+          echo "The dry run $run passed on $commit."
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: dry-run-before
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ !inputs.dry_run && inputs.tag || github.ref }}
+          # A dry run checks out the commit its run is named for, by which the tag's run finds
+          # it, not the branch, which may have moved on since the run started.
+          ref: ${{ !inputs.dry_run && inputs.tag || github.sha }}
           persist-credentials: false
           # The history of main too, to see that the tag is on it.
           fetch-depth: 0
@@ -104,13 +145,28 @@ jobs:
         run: cargo install --locked cargo-generate-rpm@0.21.1
       - name: Known vulnerabilities in the crates (RustSec)
         run: cargo audit
+      - name: Tested by a dry run?
+        # Only when the dry run passed on the very commit checked out here: a tag moved since
+        # the look-up runs the checks again.
+        env:
+          TESTED: ${{ needs.dry-run-before.outputs.commit }}
+        run: |
+          if [ -n "$TESTED" ] && [ "$TESTED" = "$(git rev-parse HEAD)" ]; then
+              echo "Clippy and the tests are skipped: a dry run passed on $TESTED."
+              echo "SKIP_CHECKS=true" >> "$GITHUB_ENV"
+          else
+              echo "Clippy and the tests run."
+          fi
       # The tagged code itself, with the Rust it is built with: a tag pushed by hand, or a
-      # crate changed since the last CI run, is not published untested.
+      # crate changed since the last CI run, is not published untested, unless a dry run
+      # tested this very commit with that Rust.
       - name: Clippy
+        if: ${{ env.SKIP_CHECKS != 'true' }}
         run: |
           cargo clippy --locked --release --all-targets --features full -- -D warnings
           cargo clippy --locked --release --all-targets -- -D warnings
       - name: Tests
+        if: ${{ env.SKIP_CHECKS != 'true' }}
         # The packages are built with every feature, and a build from source has none, so the
         # tests run in both builds.
         run: |

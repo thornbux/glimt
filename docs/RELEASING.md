@@ -29,7 +29,10 @@ branch made from it and merged back into it; `main` gets the release branch only
 5. **The dry run.** Start the Release workflow by hand on the release branch, which builds and
    smoke-tests every package and publishes nothing. The branch must be on GitHub first
    (`git push origin release-X.Y.Z`; delete it there afterwards):
-   `gh workflow run release.yml --ref release-X.Y.Z -f dry_run=true -f tag=none`.
+   `gh workflow run release.yml --ref release-X.Y.Z -f dry_run=true -f tag=none`. The tag's
+   run skips clippy and the tests only when a dry run passed on the very commit the tag names
+   (its log says which way it went), so a dry run on the commit to be tagged also makes the
+   tag's run faster.
 6. **By hand.** The checks below that no script makes, and CI on the release branch
    (`gh run list --branch release-X.Y.Z`): its last run, on the commit to be tagged, is green, and
    every earlier run that failed was read and its cause found and fixed. A test that fails now
