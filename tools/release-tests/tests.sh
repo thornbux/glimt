@@ -7605,6 +7605,38 @@ for s in range(10):
     expect "first image within 1.5 times the last release's time" \
         "$(within $big_ms_new $big_ms_old 100)" yes
     expect "memory within 1.5 times the last release's" "$(within $big_mb_new $big_mb_old 20)" yes
+
+    # A saved file list shows the first image at once while the folder is read again: the time
+    # to the first image with the list that the run before saved, against the time without one,
+    # in date order, where the listing looks at every file and the saved list holds the dates.
+    # The best of two runs of each. The last release has no such setting, saves no list, and
+    # takes as long both times. Waits for the "first image" line on stderr and for the list's
+    # file, no text in the window.
+    for v in new old; do
+        as_version $v
+        lists=$XDG_CACHE_HOME/glimt/lists
+        config thumbnails=false sort=date remember_file_lists=true
+        for run in 1 2; do
+            rm -rf $XDG_CACHE_HOME/glimt
+            start $big
+            wait_first
+            best list_without_$v "$(first_image | grep -o '[0-9]*')"
+            # The list is saved once the folder is read whole; the last release saves none.
+            [ $v = new ] && until_ok "[ -n \"\$(ls -A $lists 2>/dev/null)\" ]" 120
+            quit
+            start $big
+            wait_first
+            best list_with_$v "$(first_image | grep -o '[0-9]*')"
+            quit
+        done
+        saved_lists="$(ls -A $lists 2>/dev/null | wc -l)"
+        without=$(eval echo \$list_without_$v) with=$(eval echo \$list_with_$v)
+        note "$v: first image in date order $without ms without a saved list, $with ms with it"
+        if [ $v = new ]; then
+            expect "a saved list shows the first image of 500,000 files in half the time or less" \
+                "$saved_lists $([ $(( with * 2 )) -le $without ] && echo sooner)" "1 sooner"
+        else note "old: $saved_lists saved lists"; fi
+    done
     config thumbnails=false screen_profile=$adobe
     start $big
     wait_first
