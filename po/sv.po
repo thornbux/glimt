@@ -1403,6 +1403,11 @@ msgstr "Sökningen visar bilderna i en annan ordning: töm den för att flytta d
 msgid "Reading folder…"
 msgstr "Läser mappen …"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Läser mappar … {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2289,6 +2294,12 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "fil"
 msgstr[1] "filer"
+
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "mapp"
+msgstr[1] "mappar"
 
 #, fuzzy
 msgid "frame"

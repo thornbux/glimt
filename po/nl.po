@@ -1403,6 +1403,11 @@ msgstr "De zoekopdracht toont de afbeeldingen in een andere volgorde: wis hem om
 msgid "Reading folder…"
 msgstr "Map lezen …"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Mappen lezen … {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2289,6 +2294,12 @@ msgid "file"
 msgid_plural "files"
 msgstr[0] "bestand"
 msgstr[1] "bestanden"
+
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "map"
+msgstr[1] "mappen"
 
 #, fuzzy
 msgid "frame"

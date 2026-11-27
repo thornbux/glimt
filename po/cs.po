@@ -1573,6 +1573,11 @@ msgstr "Hledání ukazuje obrázky v jiném pořadí: vymažte ho, abyste je moh
 msgid "Reading folder…"
 msgstr "Čtení složky…"
 
+#: src/ui/file_list.rs
+#, fuzzy
+msgid "Reading folders… {folders}, {images}"
+msgstr "Čtení složek… {folders}, {images}"
+
 #: src/main.rs
 #, fuzzy
 msgid "Remove"
@@ -2487,6 +2492,14 @@ msgid_plural "files"
 msgstr[0] "soubor"
 msgstr[1] "soubory"
 msgstr[2] "souborů"
+
+#. count(): one, few and many
+#, fuzzy
+msgid "folder"
+msgid_plural "folders"
+msgstr[0] "složka"
+msgstr[1] "složky"
+msgstr[2] "složek"
 
 #. count(): one, few and many
 #, fuzzy
