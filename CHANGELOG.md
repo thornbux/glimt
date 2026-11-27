@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- While a folder or a tree is read, the status bar counts the folders and images read so far
+  ("Reading folders… 1,234 folders, 56,789 images") in place of "Reading folder…", so a long
+  read of a tree on a share shows that it moves.
+
 ## [0.102.0] - 2026-11-27
 
 ### Fixed
