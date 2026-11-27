@@ -845,14 +845,11 @@ impl crate::App {
             let Some((found, _)) = self.asked_targets() else {
                 return;
             };
-            if self
-                .select_for_action(ctx, found.iter().copied().collect())
-                .is_none()
-            {
+            let Some(targets) = self.select_for_action(ctx, found.iter().copied().collect()) else {
                 return;
-            }
+            };
             let added_to = collections::CollectionAddedTo::New(text.to_owned());
-            return self.add_to_collection(ctx, added_to);
+            return self.add_to_collection(ctx, targets, added_to);
         }
         if let Prompt::RenameCollection = prompt {
             return self.rename_collection(ctx, text);
@@ -868,7 +865,7 @@ impl crate::App {
             return self.rename_folder(ctx, text);
         }
         // The files asked about, with their fingerprints taken while the dialog was open.
-        let mut picked = None;
+        let (mut picked, mut selected) = (None, None);
         if matches!(prompt, Prompt::Rename | Prompt::RenameMany) {
             let Some((found, asked)) = self.asked_targets() else {
                 return;
@@ -879,13 +876,10 @@ impl crate::App {
                     [i] => self.show_file(ctx, i),
                     _ => return,
                 },
-                _ if self
-                    .select_for_action(ctx, found.iter().copied().collect())
-                    .is_none() =>
-                {
-                    return;
-                }
-                _ => {}
+                _ => match self.select_for_action(ctx, found.iter().copied().collect()) {
+                    Some(targets) => selected = Some(targets),
+                    None => return,
+                },
             }
             picked = Some(asked);
         }
@@ -926,8 +920,8 @@ impl crate::App {
             Prompt::Rename if self.list.files().is_empty() => {}
             Prompt::Rename if target == self.path(self.list.shown()) => {}
             Prompt::RenameMany => {
-                if let Some(picked) = picked {
-                    self.rename_many(ctx, text, picked);
+                if let (Some(targets), Some(picked)) = (selected, picked) {
+                    self.rename_many(ctx, text, targets, picked);
                 }
             }
             Prompt::NewCollection

@@ -1786,10 +1786,13 @@ impl crate::App {
     /// Renames the selected files by `pattern`, numbered in list order. Nothing is overwritten.
     /// If a new name is taken by a file outside the selection, nothing is renamed. When new
     /// names swap with old ones, the files go through temporary names.
-    pub(crate) fn rename_many(&mut self, ctx: &egui::Context, pattern: &str, picked: PickedFiles) {
-        let Some(targets) = self.targets() else {
-            return;
-        };
+    pub(crate) fn rename_many(
+        &mut self,
+        ctx: &egui::Context,
+        pattern: &str,
+        targets: Targets,
+        picked: PickedFiles,
+    ) {
         let listed: Vec<ListedFile> = targets.iter().map(|&i| self.listed_file(i)).collect();
         let from: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         if !self.are_free_to_change(&from) {
@@ -3102,13 +3105,10 @@ impl crate::App {
     /// Rename. It renames the one file selected, as Delete and Move take it (right-clicked in
     /// the list, say), not the image shown beside it. Only its name is asked for, without the
     /// folders that a list with subfolders gives it.
-    pub(crate) fn start_rename(&mut self, ctx: &egui::Context) {
+    pub(crate) fn start_rename(&mut self, ctx: &egui::Context, targets: Targets) {
         // The first of the targets, as Delete and Move take them: the file selected
         // (right-clicked in the list, say), not the image shown beside it, which is renamed
         // only when nothing is selected. It is shown, so the user sees what is renamed.
-        let Some(targets) = self.targets() else {
-            return;
-        };
         let Some(&i) = targets.first() else {
             return;
         };
@@ -5632,7 +5632,8 @@ mod tests {
             .len()
             == 2));
         app.run(&ctx, crate::ui::actions::Action::SelectAll);
-        app.start_rename(&ctx);
+        let targets = app.targets().unwrap();
+        app.start_rename(&ctx, targets);
         assert_eq!(app.dialogs.asked_names(), ["a.png"]);
         // Another program deletes a.png, and the list follows.
         std::fs::remove_file(d.join("a.png")).unwrap();
@@ -5707,7 +5708,12 @@ mod tests {
         let idle = |app: &crate::App| {
             (app.file_operations.jobs.iter()).all(|job| std::sync::Arc::strong_count(job) == 1)
         };
-        keyword.add_keywords_to_selected(&keyword_ctx, vec!["meant for the first photo".into()]);
+        let targets = keyword.targets().unwrap();
+        keyword.add_keywords_to_selected(
+            &keyword_ctx,
+            targets,
+            vec!["meant for the first photo".into()],
+        );
         assert!(run_background_until(&mut keyword, &keyword_ctx, |app| !app
             .file_operations
             .is_writing_sidecars()));
@@ -6921,7 +6927,13 @@ mod tests {
                 |app, ctx, d| {
                     app.list.select([0, 1].into_iter().collect());
                     let picked = vec![d.join("a.png"), d.join("b.png")];
-                    app.rename_many(ctx, "x#", crate::files::file_io::PickedFiles::new(picked));
+                    let targets = app.targets().unwrap();
+                    app.rename_many(
+                        ctx,
+                        "x#",
+                        targets,
+                        crate::files::file_io::PickedFiles::new(picked),
+                    );
                 },
                 |app, d| {
                     side(&d.join("x1.png")) == "a"
@@ -7264,7 +7276,8 @@ mod tests {
                     let at = (app.list.files().iter()).position(|n| *n == *f);
                     app.list.select(at.into_iter().collect());
                     let picked = crate::files::file_io::PickedFiles::new(vec![d.join(f)]);
-                    app.rename_many(ctx, "x#", picked);
+                    let targets = app.targets().unwrap();
+                    app.rename_many(ctx, "x#", targets, picked);
                 },
                 Some("x1"),
             ),
@@ -11151,7 +11164,13 @@ mod tests {
         let has = |app: &crate::App, want: &[&str]| idle(app) && entries(app) == want;
         app.list.select([0, 1].into_iter().collect());
         let picked = vec![d.join("a.png"), d.join("b.png")];
-        app.rename_many(&ctx, "x#", crate::files::file_io::PickedFiles::new(picked));
+        let targets = app.targets().unwrap();
+        app.rename_many(
+            &ctx,
+            "x#",
+            targets,
+            crate::files::file_io::PickedFiles::new(picked),
+        );
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["x1.png", "x2.png"]

@@ -4617,7 +4617,8 @@ mod tests {
             .is_listing()));
         assert_eq!(names(&app), ["b.png", "a.png"]);
         app.start_listing(&ctx);
-        app.remove_from_collection(&ctx);
+        let targets = app.targets().unwrap();
+        app.remove_from_collection(&ctx, targets);
         assert!(run_background_until(&mut app, &ctx, |app| !app
             .folder
             .is_listing()));

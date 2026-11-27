@@ -8,6 +8,7 @@ use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 use crate::metadata::xmp::KeywordChange;
+use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
@@ -606,7 +607,11 @@ impl crate::App {
             self.change_keyword_tree(Vec::new(), Some(p));
         }
         if let Some((tag, on)) = tick {
-            self.set_keyword_on_files(ui.ctx(), tag, on);
+            // The edit is saved also when the search refuses the targets.
+            self.save_metadata_edit(ui.ctx());
+            if let Some(targets) = self.targets() {
+                self.set_keyword_on_files(ui.ctx(), targets, tag, on);
+            }
         }
     }
 
@@ -646,11 +651,14 @@ impl crate::App {
 
     /// Set the keyword `tag` (a tree path) on the selected images, or the shown one, or take it
     /// off, in the background; the shown image's keywords show it at once.
-    pub(crate) fn set_keyword_on_files(&mut self, ctx: &egui::Context, tag: String, on: bool) {
+    pub(crate) fn set_keyword_on_files(
+        &mut self,
+        ctx: &egui::Context,
+        targets: Targets,
+        tag: String,
+        on: bool,
+    ) {
         self.save_metadata_edit(ctx);
-        let Some(targets) = self.targets() else {
-            return;
-        };
         if targets.contains(&self.list.shown())
             && let Some(edit) = &mut self.info_panel.metadata_edit
         {
@@ -833,20 +841,26 @@ impl crate::App {
         };
         let keywords = edit.keywords_meant();
         if !keywords.is_empty() {
-            self.add_keywords_to_selected(ctx, keywords);
+            // The edit is saved also when the search refuses the targets.
+            self.save_metadata_edit(ctx);
+            if let Some(targets) = self.targets() {
+                self.add_keywords_to_selected(ctx, targets, keywords);
+            }
         }
     }
 
     /// Add `keywords` to every selected file, in the background.
-    pub(crate) fn add_keywords_to_selected(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
+    pub(crate) fn add_keywords_to_selected(
+        &mut self,
+        ctx: &egui::Context,
+        targets: Targets,
+        keywords: Vec<String>,
+    ) {
         // The shown image's own edit is saved first. The panel then shows the added keywords at
         // once, as `set_keyword_on_files` does. When it read them back from the file instead, it
         // could read the file before the writer reached it, and a later edit saved them away
         // again.
         self.save_metadata_edit(ctx);
-        let Some(targets) = self.targets() else {
-            return;
-        };
         if targets.contains(&self.list.shown())
             && let Some(edit) = &mut self.info_panel.metadata_edit
         {
@@ -1088,7 +1102,8 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        app.add_keywords_to_selected(&ctx, vec!["beach".into()]);
+        let targets = app.targets().unwrap();
+        app.add_keywords_to_selected(&ctx, targets, vec!["beach".into()]);
         let shown = |app: &crate::App| {
             let edit = app.info_panel.metadata_edit.as_ref().unwrap();
             edit.saved.keywords == ["beach"] && edit.keywords.contains("beach")

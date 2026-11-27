@@ -5,6 +5,7 @@
 use crate::files::config::fits_on_a_line;
 use crate::files::file_io::IfMissing;
 use crate::model::listing::real_dir;
+use crate::model::selection::Targets;
 use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use crate::support::lang::tr;
@@ -193,6 +194,9 @@ impl crate::App {
     /// Move the selected images (or the shown one) of the open collection one place earlier or
     /// later, or to its start or end, and save its new order: a slideshow plays it so. Several
     /// selected keep their order among themselves; the shown image and the selection follow.
+    /// `picked` are the places of the images moved: the targets' places for a key or a menu,
+    /// or the images the user dragged. A drag is a pick of its own, which `Targets` does not
+    /// hold, so this takes the places themselves.
     // shortcut: the whole list put together again for each move, some milliseconds for 100,000
     // images; move the indices alone if collections that large are moved image by image.
     pub(crate) fn move_in_collection(
@@ -308,10 +312,12 @@ impl crate::App {
     /// looked up there too, and why there can be none of that name is told. A file whose name
     /// has a line break is left out with a notice, because the collection keeps a name on a
     /// line.
-    pub(crate) fn add_to_collection(&mut self, ctx: &egui::Context, added_to: CollectionAddedTo) {
-        let Some(targets) = self.targets() else {
-            return;
-        };
+    pub(crate) fn add_to_collection(
+        &mut self,
+        ctx: &egui::Context,
+        targets: Targets,
+        added_to: CollectionAddedTo,
+    ) {
         let mut paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let left_out = crate::files::config::keep_those_that_fit_on_a_line(&mut paths);
         self.run_in_background(ctx, Vec::new(), move || {
@@ -387,8 +393,11 @@ impl crate::App {
                         ui.show_label(tr("No collections yet"));
                     }
                     for (name, file) in all.into_iter().flatten() {
-                        if icon_button(ui, theme::icon::STACK, escaped_name(&name)).clicked() {
-                            self.add_to_collection(ui.ctx(), CollectionAddedTo::Saved(file));
+                        if icon_button(ui, theme::icon::STACK, escaped_name(&name)).clicked()
+                            && let Some(targets) = self.targets()
+                        {
+                            let added_to = CollectionAddedTo::Saved(file);
+                            self.add_to_collection(ui.ctx(), targets, added_to);
                         }
                     }
                 },
@@ -423,10 +432,7 @@ impl crate::App {
 
     /// Collection → Remove: the targets out of the collection's file at once; the files stay where
     /// they are.
-    pub(crate) fn remove_from_collection(&mut self, ctx: &egui::Context) {
-        let Some(targets) = self.targets() else {
-            return;
-        };
+    pub(crate) fn remove_from_collection(&mut self, ctx: &egui::Context, targets: Targets) {
         // Out of the collection's file here, at once: the files stay where they are.
         let out: HashSet<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         self.edit_collection(move |all| all.retain(|p| !out.contains(p)));
@@ -1153,7 +1159,8 @@ mod tests {
         ));
         let file = dir.join("trip.gqv");
         std::fs::write(&file, b"").unwrap();
-        app.add_to_collection(&ctx, super::CollectionAddedTo::Saved(file.clone()));
+        let targets = app.targets().unwrap();
+        app.add_to_collection(&ctx, targets, super::CollectionAddedTo::Saved(file.clone()));
         let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, told
@@ -1175,7 +1182,8 @@ mod tests {
         app.list.select([0, 1].into());
         let file = dir.join("trip.gqv");
         std::fs::write(&file, b"").unwrap();
-        app.add_to_collection(&ctx, super::CollectionAddedTo::Saved(file.clone()));
+        let targets = app.targets().unwrap();
+        app.add_to_collection(&ctx, targets, super::CollectionAddedTo::Saved(file.clone()));
         let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, told

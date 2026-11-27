@@ -1226,7 +1226,9 @@ impl crate::App {
             Action::OpenCollection => self.pick(ctx, Pick::Collection),
             Action::ImportLightroom => self.pick(ctx, Pick::Lightroom),
             Action::RemoveFromCollection if self.folder.collection().is_some() => {
-                self.remove_from_collection(ctx)
+                if let Some(targets) = self.targets() {
+                    self.remove_from_collection(ctx, targets);
+                }
             }
             Action::RemoveFromCollection => {}
             Action::RenameCollection | Action::TrashCollection if self.collection_is_list() => {
@@ -1444,7 +1446,11 @@ impl crate::App {
                     self.ask_rename_many(asked);
                 }
             }
-            Action::Rename => self.start_rename(ctx),
+            Action::Rename => {
+                if let Some(targets) = self.targets() {
+                    self.start_rename(ctx, targets);
+                }
+            }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
             Action::WindowTitle => {
@@ -1529,9 +1535,15 @@ impl crate::App {
             }
             return;
         }
-        let Some(targets) = self.targets() else {
-            return;
-        };
+        if let Some(targets) = self.targets() {
+            self.mark_files(ctx, targets, kind, n);
+        }
+    }
+
+    /// Sets mark `n` on the files at `targets` or takes it off (`kind` 'm'), or gives them `n`
+    /// stars.
+    #[cfg(feature = "marks")]
+    fn mark_files(&mut self, ctx: &egui::Context, targets: Targets, kind: char, n: u8) {
         let mut files: Vec<ListedFile> = targets.iter().map(|&i| self.listed_file(i)).collect();
         let before = files.len();
         files.retain(|f| crate::files::config::fits_on_a_line(f.path()));

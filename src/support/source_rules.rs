@@ -5344,7 +5344,7 @@ fn sidecars_are_written_through_write_sidecars() {
         ("ui/info_panel.rs", "save_metadata_edit"),
         ("ui/info_panel.rs", "set_keyword_on_files"),
         ("ui/info_panel.rs", "add_keywords_to_selected"),
-        ("ui/actions.rs", "apply_mark"),
+        ("ui/actions.rs", "mark_files"),
         ("metadata/lightroom.rs", "write_imported"),
     ];
     const HOMES: &[(&str, &[(&str, &str)])] = &[
