@@ -31,7 +31,11 @@ pub(crate) enum Piece<'a> {
 ///   `file_io::shown_path`, a name or path;
 /// - `thousands`, `count`, `human_size`, `size_text` and `ShownText::number`, a number;
 /// - `ShownText::from_file_text_on_one_line` and `from_file_text`, a text read from a file;
-/// - `ShownText::untranslated`, a text that has no translation, such as "…" or a key's name;
+/// - `ShownText::untranslated`, a text that has no translation, such as "…" or a key's name,
+///   and `untranslated!`, an English cause of a failure with its values filled in;
+/// - `ShownText::of_error` and `of_message`, a library's error or a program's message, the
+///   cause of a failure;
+/// - `ShownText::of`, a value as `tf!` fills a placeholder with it, and `keys_of`, keys;
 /// - `join` and `push`, of texts that are shown texts already.
 ///
 /// Before, every widget and notice took any `String`, and `source_rules` read the source to find

@@ -525,13 +525,20 @@ arm becomes a method.
 - **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `po/*.po`
   (see Language). Text for the user is a `format::ShownText`: `tr` and `tf!` return one, and
   every place text reaches the user takes one (the `menus` helpers, `DrawShown`, `ShownTip`,
-  `ShownChoice`, `PaintShown`, `rich` and `spoken`, `Notice::give`, `Failure`, `Told::Notice`,
+  `ShownChoice`, `ShownHint`, `ShownSlider`, `ShownLayout`, `PaintShown`, `window`,
+  `collapsing`, `rich` and `spoken`, `Notice::give`, `Failure`, `Told::Notice`,
   `NoticeSender::send`, the title). egui's own text calls are in `clippy.toml`. Only the
   ways in that `ShownText`'s doc lists make one: a translated text, a name or path, a number,
   a text read from a file (`from_file_text_on_one_line` where it shows on one line,
   `from_file_text` where a panel shows it whole), and `ShownText::untranslated` for a text
-  that has none, such as "…" or a key's name. A file's or folder's name or path in it, or in
-  a label, goes through
+  that has none, such as "…" or a key's name. A placeholder of `tf!` takes a `Shown`: a
+  `ShownText`, a number or an error type (`std::io::Error`, `StepError`), never a `String` or
+  a `str`. A function whose error reaches the user returns its cause as a `ShownText`, never
+  a `String`: a library's error through `ShownText::of_error`, a program's or a library's
+  message through `of_message` (both write line breaks and marks of direction as escapes),
+  and an English cause that has no translation through `untranslated!`, which fills its
+  `{name}`s as `tf!` does and is for causes only, never for words of the interface. A file's
+  or folder's name or path in it, or in a label, goes through
   `format::escaped_name` (or `App::name`, `file_io::shown_path`, which use it), which writes
   line breaks and marks of direction as escapes, so a planted name cannot add lines of its own
   to a question. `display()` is used nowhere; a path's text for another use is its
