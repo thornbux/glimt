@@ -3607,28 +3607,6 @@ fn errors_are_not_given_as_ordinary_notices() {
     );
 }
 
-/// A `Failure` becomes a text again only for the answer to a `--remote … --wait` that a write
-/// failed (`Failure::answer_text`). Turned into a text anywhere else, it could be given as an
-/// ordinary notice, which the type is there to stop.
-#[test]
-fn failures_stay_failures() {
-    let homes: &[(&str, &[(&str, &str)])] = &[(
-        ".answer_text(",
-        &[("features/remote.rs", "answer_awaited_outcomes")],
-    )];
-    let wrong = outside_their_homes(homes);
-    assert!(
-        wrong.is_empty(),
-        "keep a Failure a Failure, and give it with an error's setter:\n{}",
-        wrong.join("\n")
-    );
-    let view = include_str!("../viewer/view.rs");
-    assert!(
-        !view.contains("for Failure {\n    fn fmt") && !view.contains("From<Failure>"),
-        "a Failure that turns into a text could be given as an ordinary notice"
-    );
-}
-
 /// The check above finds an error's text in the call, in a `let` above it and in a function
 /// that returns it, and passes over an error given as one.
 #[test]

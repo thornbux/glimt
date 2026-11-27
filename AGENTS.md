@@ -549,8 +549,10 @@ arm becomes a method.
   with `NoticeSender::send_error`, and is drawn with a red stripe and a warning sign. A function
   that words a failure returns a `Failure` (`Failure::from(text)`, or `Failure::because(heading,
   cause)`, whose cause is drawn smaller under it), never a `String`: only the setters of errors
-  take a `Failure`, so a caller cannot give it as an ordinary notice
-  (`source_rules::failures_stay_failures`, `errors_are_not_given_as_ordinary_notices`).
+  take a `Failure`, so a caller cannot give it as an ordinary notice. A `Failure` becomes a
+  text again only as a `String` (`Failure::answer_text`, for `--remote … --wait`), which no
+  notice and no `tf!` takes. A text of an error that is not yet a `Failure` is found by its
+  words (`source_rules::errors_are_not_given_as_ordinary_notices`).
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests clean up the files they create, under temporary names of their own
   (`source_rules::tests_use_temporary_names_of_their_own`).

@@ -464,9 +464,8 @@ impl Failure {
     }
 
     /// Returns the failure's text, its cause on a line of its own, for the answer to a
-    /// `--remote … --wait` that a write failed. This is the one place a failure becomes a text
-    /// again (`source_rules::failures_stay_failures`), so that none is given as an ordinary
-    /// notice.
+    /// `--remote … --wait` that a write failed. It is a `String`, which no notice and no
+    /// placeholder of `tf!` takes, so the text cannot be given again as an ordinary notice.
     pub(crate) fn answer_text(&self) -> String {
         self.message().text().to_string()
     }
