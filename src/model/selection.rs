@@ -318,7 +318,10 @@ impl crate::App {
     /// Images, a dialog's answer and `--remote select` do. Returns `None`, with a notice and the
     /// selection left as it was, when the search hides any of them. The search would keep those
     /// apart, and the action would then act on fewer files than meant, or on the shown image.
-    /// Returns the targets of the selection made, or `None` when it refused.
+    /// Returns the targets of the selection made, or `None` when it refused. An empty set is
+    /// selected too, as nothing, and returns `None`: `targets()` would give the shown image
+    /// for an empty selection, which nobody picked here (Find Duplicates' "Move to Trash
+    /// Anyway" after "Uncheck all", or a dialog's files all gone).
     pub(crate) fn select_for_action(
         &mut self,
         ctx: &egui::Context,
@@ -330,7 +333,11 @@ impl crate::App {
             ));
             return None;
         }
+        let is_empty = places.is_empty();
         self.set_selection(ctx, places);
+        if is_empty {
+            return None;
+        }
         self.targets()
     }
 
@@ -636,6 +643,28 @@ mod tests {
         assert!(app.list.select_on_right_click(shown));
         assert_eq!(app.targets().as_deref(), Some(&[shown][..]));
         assert!(app.list.hidden_selected().is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A feature that selects the files it acts on and is given none acts on nothing, never on
+    /// the shown image, which `targets()` gives for an empty selection. Before, Find
+    /// Duplicates' "Move to Trash Anyway" after "Uncheck all" asked to trash the shown image.
+    /// Risk: an action meant for files the user picked acts on the shown image instead.
+    #[test]
+    fn selecting_no_files_for_an_action_gives_no_targets() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-none-picked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list.set_files(vec!["a.jpg".into(), "b.jpg".into()]);
+        app.list.set_shown(1);
+        app.list.select([0].into());
+        assert!(app.select_for_action(&ctx, Default::default()).is_none());
+        assert!(app.list.selected().is_empty());
+        assert_eq!(
+            app.select_for_action(&ctx, [0].into()).as_deref(),
+            Some(&[0][..])
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
