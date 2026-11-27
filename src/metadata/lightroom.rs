@@ -8,7 +8,7 @@ use crate::files::file_io::{IfMissing, ListedFile};
 use crate::metadata::marks;
 use crate::model::listing::{Types, is_listed};
 use crate::support::format::ShownText;
-use crate::support::format::count;
+use crate::support::format::{count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::ui::menus::DrawShown;
@@ -319,7 +319,7 @@ impl crate::App {
                     egui::Grid::new("lightroom roots").show(ui, |ui| {
                         let roots = lr.catalog.roots.iter().zip(&mut lr.root_folders_now);
                         for (((_, was), now), is_there) in roots.zip(&there) {
-                            ui.show_label(ShownText::from_file_text_on_one_line(was));
+                            ui.show_label(escaped_name(was));
                             // A size of its own: in the grid the field would be as narrow as
                             // its text.
                             let height = ui.spacing().interact_size.y;
@@ -360,9 +360,8 @@ impl crate::App {
                     }
                     if !plan.existing.is_empty() {
                         // The names are those the catalog gives.
-                        let mut names = ShownText::from_file_text_on_one_line(
-                            &plan.existing[..plan.existing.len().min(5)].join(", "),
-                        );
+                        let mut names =
+                            escaped_name(plan.existing[..plan.existing.len().min(5)].join(", "));
                         if plan.existing.len() > 5 {
                             let n = plan.existing.len() - 5;
                             names = tf!("{names} and {n} more", names, n);
@@ -569,7 +568,7 @@ impl crate::App {
             let mut msg = tf!("Imported from Lightroom: {done}", done);
             let any_failed = !failed.is_empty();
             if !failed.is_empty() {
-                let names = ShownText::from_file_text_on_one_line(&failed.join(", "));
+                let names = escaped_name(failed.join(", "));
                 msg += &tf!("; not saved: {names}", names);
             }
             if dir.is_none() && !all.is_empty() {

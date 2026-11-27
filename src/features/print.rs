@@ -774,17 +774,20 @@ fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
 
 /// A page text with its numbers filled in, for %page% and %pages%. A `%%` is a `%`, and the
 /// codes are read as in the other templates (`format::pieces`). Any other text between two `%`
-/// stays as it is, so "100% · %page%" still gets its page number.
-pub(crate) fn page_text(text: &str, page: usize, pages: usize) -> String {
+/// stays as it is, so "100% · %page%" still gets its page number. The text is the user's own,
+/// from the settings, and is shown on one line as a file's text is, the same in the preview and
+/// on paper.
+pub(crate) fn page_text(text: &str, page: usize, pages: usize) -> ShownText {
     use crate::support::format::{Piece, pieces};
-    (pieces(text, Some(|name| name == "page" || name == "pages")))
+    let filled: String = (pieces(text, Some(|name| name == "page" || name == "pages")))
         .map(|piece| match piece {
             Piece::Code("page") => page.to_string(),
             Piece::Code("pages") => pages.to_string(),
             Piece::Code(other) => format!("%{other}%"),
             Piece::Text(text) => text.to_owned(),
         })
-        .collect()
+        .collect();
+    ShownText::from_file_text_on_one_line(&filled)
 }
 
 /// Writes a PDF of `pages` pages to `out`, with the images laid out by `layout`, each with its
@@ -1136,9 +1139,7 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Co
     let pages = dialog.paths.len().div_ceil(layout.per_page.max(1));
     for (line, at) in [(&layout.header, page.header), (&layout.footer, page.footer)] {
         if !line.is_empty() {
-            // The page's text is the user's own, from the settings.
-            let shown = ShownText::from_file_text_on_one_line(&page_text(line, 1, pages));
-            text(&shown, 9.0, at);
+            text(&page_text(line, 1, pages), 9.0, at);
         }
     }
 }

@@ -65,10 +65,13 @@ impl ShownText {
 
     /// Returns `text`, read from a file (an EXIF or XMP value, a template's field), for one
     /// line: the window title, the full screen info, a print's caption, a notice or a question.
-    /// Its line breaks and marks of direction are written as escapes, as `escaped_name` writes a
-    /// name's, so it cannot add a line of its own.
+    /// Its line breaks, other control characters and marks of direction are written as escapes,
+    /// so it cannot add a line of its own. Its backslashes are kept, as in a comment
+    /// "D:\Archive": only a name doubles them (`escaped_name`), so that the text "\n" in a name
+    /// is not taken for a line break of the name. A file's or folder's name goes through
+    /// `escaped_name` instead.
     pub(crate) fn from_file_text_on_one_line(text: &str) -> Self {
-        escaped_name(text)
+        ShownText::with_hidden_marks_escaped(text)
     }
 
     /// Returns `text`, read from a file, for a place that shows it whole, as the info panel
@@ -555,14 +558,20 @@ mod tests {
     }
 
     /// Text read from a file is shown on one line with its line breaks and marks of direction as
-    /// escapes, or whole where a place shows it whole, as the info panel does.
-    /// Risk: an EXIF or XMP text adds a line of its own to the title, a caption or a notice.
+    /// escapes and its backslashes kept, or whole where a place shows it whole, as the info
+    /// panel does.
+    /// Risk: an EXIF or XMP text adds a line of its own to the title, a caption or a notice, or
+    /// a comment "D:\Archive" is printed with its backslash doubled.
     #[test]
     fn text_from_a_file_is_shown_on_one_line_or_whole() {
         let planted = "Nice\nCopy\u{202e}gpj";
         assert_eq!(
             super::ShownText::from_file_text_on_one_line(planted),
             "Nice\\nCopy\\u{202e}gpj"
+        );
+        assert_eq!(
+            super::ShownText::from_file_text_on_one_line("Scan of D:\\Archive"),
+            "Scan of D:\\Archive"
         );
         assert_eq!(super::ShownText::from_file_text(planted), planted);
         let lines = super::ShownText::from("a\nb");
