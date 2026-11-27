@@ -658,7 +658,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          readable there, also after Remove thumbnails of deleted files, which keeps those of disks \
          not plugged in. Turn the setting off before looking at such photos.\n\n\
          View also shows or hides the toolbar and the folder path, and Preferences the search \
-         field and each file's size and date in the list. A click opens a menu; with one open, \
+         field and each file's size and date in the list. While a folder is read, a thin line \
+         pulses at the bottom of the file list; Preferences turns it off, and it is left out when \
+         the desktop asks for less motion (animations off). A click opens a menu; with one open, \
          pointing at another opens that, and it closes a moment after the pointer leaves. Full \
          screen, also the projector's, keeps the screen saver off, unless Preferences say \
          otherwise.",

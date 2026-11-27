@@ -2088,6 +2088,11 @@ msgstr "sekúndur á mynd"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr "Sýna línu neðst í skráalistanum meðan mappa er lesin"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Sýna skráarstærð og dagsetningu í skráalistanum"
 

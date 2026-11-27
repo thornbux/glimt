@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- While a folder or a tree is read, a thin line pulses at the bottom of the file list, right
+  above the status bar. Preferences → File list turns it off, and it is left out when the
+  desktop asks for less motion (animations off).
 - File → Save List As… saves the list as the window shows it (only the matches while a search
   is on, in their order) as a plain .txt list, which Glimt opens again as a list: one image on
   each line, relative to the list's folder.

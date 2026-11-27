@@ -2283,6 +2283,11 @@ msgstr "sekund per bilete"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr "Vis ei linje nedst i fillista medan ei mappe vert lesen"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Vis filstorleik og dato i fillista"
 

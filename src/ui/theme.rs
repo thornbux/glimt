@@ -176,6 +176,19 @@ pub struct DesktopLook {
     pub high_contrast: bool,
     /// The size of text, as GNOME's Large Text and text scaling set it.
     pub text_scale: Option<f32>,
+    /// How much motion the desktop asks for, as GNOME's Reduce Animation and the portal's
+    /// reduced-motion key set it.
+    pub motion: Motion,
+}
+
+/// How much motion the desktop asks for.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Motion {
+    /// Motion as usual, also when the desktop says nothing.
+    #[default]
+    Full,
+    /// Less motion: what would only pulse, such as the activity line, is left out.
+    Reduced,
 }
 
 /// The themes to choose from, and the user's own theme files, as `read_theme_files` read them.
@@ -541,6 +554,22 @@ pub fn read_desktop_look() -> DesktopLook {
         // GNOME's text scaling factor, from the portal too: gsettings in a Flatpak reads the
         // sandbox's settings, not the desktop's.
         text_scale: parse_scale(&read("org.gnome.desktop.interface", "text-scaling-factor")),
+        motion: parse_motion(
+            &read("org.freedesktop.appearance", "reduced-motion"),
+            &read("org.gnome.desktop.interface", "enable-animations"),
+        ),
+    }
+}
+
+/// Reads the portal's "reduced-motion", "(<uint32 1>,)" when the desktop asks for less motion,
+/// and GNOME's "enable-animations", "(<false>,)" when animations are off. Returns, when either
+/// asks for less motion, `Motion::Reduced`. A desktop that knows neither key answers nothing,
+/// which is `Motion::Full`.
+fn parse_motion(reduced_motion: &str, enable_animations: &str) -> Motion {
+    if parse_contrast(reduced_motion) || enable_animations.contains("<false>") {
+        Motion::Reduced
+    } else {
+        Motion::Full
     }
 }
 
@@ -596,6 +625,18 @@ mod tests {
             super::shown_name(super::BUILT_IN[0].0),
             crate::support::lang::tr(super::BUILT_IN[0].0)
         );
+    }
+
+    /// The portal's reduced-motion and GNOME's animations switch each ask for less motion, and
+    /// no answer asks for none.
+    /// Risk: the activity line pulses for a user whose desktop asked for less motion.
+    #[test]
+    fn less_motion_is_read_from_either_key() {
+        use super::{Motion, parse_motion};
+        assert_eq!(parse_motion("(<uint32 1>,)", ""), Motion::Reduced);
+        assert_eq!(parse_motion("", "(<false>,)"), Motion::Reduced);
+        assert_eq!(parse_motion("(<uint32 0>,)", "(<true>,)"), Motion::Full);
+        assert_eq!(parse_motion("", ""), Motion::Full);
     }
 
     /// Save as Theme takes no built-in theme's name, and any other.

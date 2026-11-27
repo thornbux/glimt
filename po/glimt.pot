@@ -1837,6 +1837,10 @@ msgid "seconds per image"
 msgstr ""
 
 #: src/ui/preferences.rs
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr ""
+
+#: src/ui/preferences.rs
 msgid "Show file size and date in the file list"
 msgstr ""
 

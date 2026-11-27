@@ -2283,6 +2283,11 @@ msgstr "sekund na obrázek"
 
 #: src/ui/preferences.rs
 #, fuzzy
+msgid "Show a line at the bottom of the file list while a folder is read"
+msgstr "Zobrazit čáru u spodního okraje seznamu souborů během čtení složky"
+
+#: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Zobrazit velikost a datum souboru v seznamu souborů"
 
