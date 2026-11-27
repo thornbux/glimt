@@ -8,7 +8,7 @@
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::model::listing::{Rows, Sort, SortKey, Types};
 
@@ -99,25 +99,59 @@ impl ListKey {
     }
 }
 
-/// When a listing that may save its list began, counted by the times the saved lists were
-/// cleared. Only `SaveTicket::now` makes one.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct SaveTicket(u64);
+/// Whether a save of a saved list failed in a window since its setting was last turned on. Then
+/// the window saves no list until the setting is turned on again or Glimt starts again, so that
+/// a cache that cannot be written (a full home, a read-only `~/.cache`) is told once, and not
+/// at every listing, each of which would also have a `--remote … --wait` answer "not done". Each
+/// window has its own (`Folder::saves_stopped`), as one test's failed save stopped the saves of
+/// the others' windows.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SavesStopped(std::sync::Arc<AtomicBool>);
 
-impl SaveTicket {
-    /// Returns the ticket of a listing that begins now.
-    pub(crate) fn now() -> SaveTicket {
-        SaveTicket(TIMES_CLEARED.load(Ordering::SeqCst))
+impl SavesStopped {
+    /// Stops the saves of the window, after a save failed.
+    fn stop(&self) {
+        self.0.store(true, Ordering::SeqCst);
     }
 
-    /// Returns whether no clearing of the saved lists came after this ticket was made.
-    fn is_current(self) -> bool {
-        TIMES_CLEARED.load(Ordering::SeqCst) == self.0
+    /// Lets the window save lists again, when the setting is turned on again.
+    pub(crate) fn go_on(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+
+    /// Returns whether a save failed since the saves last went on.
+    fn is_stopped(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// When a listing that may save its list began, counted by the times the saved lists were
+/// cleared, and whether its window's saves stopped since. Only `SaveTicket::now` makes one.
+#[derive(Clone, Debug)]
+pub(crate) struct SaveTicket {
+    times_cleared: u64,
+    stopped: SavesStopped,
+}
+
+impl SaveTicket {
+    /// Returns the ticket of a listing that begins now, in the window whose saves `stopped`
+    /// tells of.
+    pub(crate) fn now(stopped: &SavesStopped) -> SaveTicket {
+        SaveTicket {
+            times_cleared: TIMES_CLEARED.load(Ordering::SeqCst),
+            stopped: stopped.clone(),
+        }
+    }
+
+    /// Returns whether no clearing of the saved lists came after this ticket was made, and no
+    /// save of its window failed.
+    fn is_current(&self) -> bool {
+        TIMES_CLEARED.load(Ordering::SeqCst) == self.times_cleared && !self.stopped.is_stopped()
     }
 }
 
 /// What a listing does with the saved list of its place, as the window decides when it starts.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) enum SavedListUse {
     /// Nothing: the setting is off, or the listing is not of one folder or tree read whole (a
     /// collection, several folders, a subfolder read again).
@@ -132,10 +166,10 @@ pub(crate) enum SavedListUse {
 
 impl SavedListUse {
     /// Returns the ticket of a listing that saves its list, or `None` when it saves none.
-    pub(crate) fn ticket(self) -> Option<SaveTicket> {
+    pub(crate) fn ticket(&self) -> Option<SaveTicket> {
         match self {
             SavedListUse::Off => None,
-            SavedListUse::Save(ticket) | SavedListUse::ShowThenSave(ticket) => Some(ticket),
+            SavedListUse::Save(ticket) | SavedListUse::ShowThenSave(ticket) => Some(ticket.clone()),
         }
     }
 }
@@ -193,11 +227,12 @@ impl<'a> Fields<'a> {
 
 impl crate::App {
     /// Turns Remember file lists for faster loading on or off. Turned off, every saved list is
-    /// removed.
+    /// removed. Turned on, the window saves lists again after a save that failed.
     pub(crate) fn set_remember_file_lists(&mut self, on: bool) {
         self.config.remember_file_lists = on;
-        if !on {
-            clear_saved_lists();
+        match on {
+            true => self.folder.saves_stopped().go_on(),
+            false => clear_saved_lists(),
         }
     }
 }
@@ -309,27 +344,36 @@ fn packed(plain: &[u8]) -> Vec<u8> {
 
 /// Packs `plain`, the unpacked saved list of `key`, in the listing thread, and writes it in the
 /// thread that writes Glimt's own files, unless the saved lists were cleared after the listing
-/// began (`ticket`). The folder is made only the user's (0700), and so is the file (0600), each
-/// from the start. A failed write is told.
+/// began or a save of the window failed (`ticket`). The folder is made only the user's (0700),
+/// and so is the file (0600), each from the start. A failed write is told, and stops the
+/// window's saves (`SavesStopped`).
 /// shortcut: no limit on how many lists are kept or how large they grow; Clear saved lists, or
 /// the setting turned off, removes them all. Remove the oldest past a total if caches grow.
 pub(crate) fn save(key: &ListKey, plain: &[u8], ticket: SaveTicket) {
     let Some(path) = key.file() else {
         return;
     };
+    if !ticket.is_current() {
+        return;
+    }
     let file = packed(plain);
-    crate::files::file_io::write_later(move || {
-        if !ticket.is_current() {
-            return;
-        }
-        if let Err(e) = write_saved(&path, &file) {
-            crate::files::file_io::save_failed(crate::tf!(
-                "Could not save {name}: {e}",
-                name = crate::files::file_io::shown_path(&path),
-                e
-            ));
-        }
-    });
+    crate::files::file_io::write_later(move || save_at(&path, &file, &ticket));
+}
+
+/// Writes the saved list `file` at `path`, in the thread that writes Glimt's own files, unless
+/// `ticket` is no longer current. A failed write is told, and stops the window's saves.
+fn save_at(path: &Path, file: &[u8], ticket: &SaveTicket) {
+    if !ticket.is_current() {
+        return;
+    }
+    if let Err(e) = write_saved(path, file) {
+        ticket.stopped.stop();
+        crate::files::file_io::save_failed(crate::tf!(
+            "Could not save {name}: {e}",
+            name = crate::files::file_io::shown_path(path),
+            e
+        ));
+    }
 }
 
 /// Writes `file` at `path`, in a folder made only the user's when it is not there.
@@ -373,7 +417,7 @@ fn put_sort_key(out: &mut Vec<u8>, key: &SortKey) {
 
 #[cfg(test)]
 mod tests {
-    use super::{ListKey, packed, parse, put_bytes, unpacked};
+    use super::{ListKey, SaveTicket, SavesStopped, packed, parse, put_bytes, save_at, unpacked};
     use crate::model::listing::{Rows, Sort, SortKey, Types};
     use std::ffi::OsString;
     use std::path::Path;
@@ -523,6 +567,33 @@ mod tests {
         // In an order by date, each row needs a date's key.
         let by_date = tree_key((Sort::Date, true, true));
         assert!(parse(&file_of(&by_date, &["a.jpg"]), &by_date).is_none());
+    }
+
+    /// A save that fails stops the window's saves, so it is told once, and the setting turned
+    /// on again lets them go on. Risk: a cache that cannot be written told at every listing,
+    /// each of which also had a `--remote open … --wait` answer "not done".
+    #[test]
+    fn a_failed_save_is_told_once_until_the_setting_is_on_again() {
+        let blocker =
+            std::env::temp_dir().join(format!("glimt-test-saves-stopped-{}", std::process::id()));
+        std::fs::write(&blocker, "a file where the folder of the lists would be").unwrap();
+        let path = blocker.join("lists").join("list");
+        let stopped = SavesStopped::default();
+        // Another test's clearing of the lists between the ticket and the save skips the save,
+        // so it is tried until one fails.
+        let fails = || {
+            (0..10).any(|_| {
+                save_at(&path, b"list", &SaveTicket::now(&stopped));
+                stopped.is_stopped()
+            })
+        };
+        assert!(fails());
+        save_at(&path, b"list", &SaveTicket::now(&stopped));
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        stopped.go_on();
+        assert!(fails());
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        std::fs::remove_file(blocker).unwrap();
     }
 
     /// Each choice that makes a listing differ gives its saved list a file of its own: another

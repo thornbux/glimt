@@ -12,7 +12,7 @@ use crate::model::listing::{
     ReadWhole, Rows, SortKey, Types, Unread, is_listed, list_folder_counted, walk, walk_tree,
 };
 use crate::model::saved_list;
-use crate::model::saved_list::{ListKey, SaveTicket, SavedListUse};
+use crate::model::saved_list::{ListKey, SaveTicket, SavedListUse, SavesStopped};
 use crate::support::format::{NOT_COUNTED_ON_A_SHARE, ShownText, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
@@ -189,6 +189,9 @@ pub(crate) struct Folder {
     /// Raised by a write that found another file at a name this window's list showed
     /// (`ListedFile::check`). Each file the window picks carries it.
     list_is_old: ListIsOld,
+    /// Whether a save of a saved list failed in this window, which then saves none until the
+    /// setting is turned on again.
+    saves_stopped: SavesStopped,
 }
 
 impl Folder {
@@ -251,6 +254,7 @@ impl Folder {
             saved_collections: Default::default(),
             sort_folders_written: Receiving::none(),
             list_is_old: ListIsOld::default(),
+            saves_stopped: SavesStopped::default(),
         }
     }
 
@@ -263,6 +267,11 @@ impl Folder {
     /// a name this window's list showed, so that the folder must be read again.
     pub(crate) fn take_list_is_old(&self) -> bool {
         self.list_is_old.take()
+    }
+
+    /// Whether a save of a saved list failed in this window (`SavesStopped`).
+    pub(crate) fn saves_stopped(&self) -> &SavesStopped {
+        &self.saves_stopped
     }
 
     /// The saved collections that the File menu lists, read in the background.
@@ -954,7 +963,7 @@ impl Listing {
     /// Returns the key of the saved list of the folder listed, with its real path, or `None`
     /// when the listing neither shows nor saves one.
     fn saved_list_key(&self) -> Option<ListKey> {
-        if self.saved == SavedListUse::Off {
+        if matches!(self.saved, SavedListUse::Off) {
             return None;
         }
         let order = (self.by, self.ascending, self.case);
@@ -1129,7 +1138,7 @@ impl Listing {
         // The saved list of a folder just opened goes first, so that the window shows it while
         // the folder is read. Its key holds the folder's real path, which is looked up here.
         let key = self.saved_list_key();
-        if let (SavedListUse::ShowThenSave(_), Some(key)) = (self.saved, &key) {
+        if let (SavedListUse::ShowThenSave(_), Some(key)) = (&self.saved, &key) {
             self.send_saved_list(key);
         }
         let mut sent = self.parts.parts_sent();
@@ -1996,8 +2005,8 @@ impl crate::App {
         let just_opened = self.folder.lists_tree_in_parts && self.list.files().is_empty();
         match (self.config.remember_file_lists && whole_place, just_opened) {
             (false, _) => SavedListUse::Off,
-            (true, false) => SavedListUse::Save(SaveTicket::now()),
-            (true, true) => SavedListUse::ShowThenSave(SaveTicket::now()),
+            (true, false) => SavedListUse::Save(SaveTicket::now(&self.folder.saves_stopped)),
+            (true, true) => SavedListUse::ShowThenSave(SaveTicket::now(&self.folder.saves_stopped)),
         }
     }
 
@@ -4022,7 +4031,7 @@ mod tests {
         );
         assert!(!started.list.has_unchecked_entries());
         // Turned off, the lists go, and a listing that began before saves none.
-        let before = crate::model::saved_list::SaveTicket::now();
+        let before = crate::model::saved_list::SaveTicket::now(app.folder.saves_stopped());
         let plain = crate::model::saved_list::unpacked(&key, app.list.rows()).unwrap();
         app.set_remember_file_lists(false);
         crate::files::file_io::wait_for_queued_writes();
