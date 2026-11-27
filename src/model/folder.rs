@@ -2277,12 +2277,12 @@ impl crate::App {
 
     /// Adds to a listing's `files` the files of the list shown that lie in a part `left_out`
     /// of the listing: in a folder left out, or an entry of a collection left out. Each one
-    /// goes after the file it followed in the list shown, and keeps its identity, so an action
-    /// on it still checks that it is the file listed. In an order that looks at the files, each
-    /// one has the key of the file it follows (`Rows::with_rows_put_in`), so the keys stay in
-    /// their order for the parts of the next listing. Returns `rows` as they are when the list
-    /// shows none of them, or holds only a collection's entries that no listing has checked
-    /// yet.
+    /// keeps its identity, so an action on it still checks that it is the file listed, and what
+    /// it is sorted by in the list shown. Each goes into its place by its own key and name, or,
+    /// in a collection's own order, after the file it followed (`Rows::with_kept_rows`), so the
+    /// rows are in the order they claim for the parts of the next listing. Returns `rows` as
+    /// they are when the list shows none of them, or holds only a collection's entries that no
+    /// listing has checked yet.
     fn with_shown_files_of_parts(&self, rows: Rows, left_out: &[Unread]) -> Rows {
         if left_out.is_empty() || self.list.has_unchecked_entries() {
             return rows;
@@ -2304,20 +2304,22 @@ impl crate::App {
         let place: HashMap<&OsString, usize> = (rows.files().iter().enumerate())
             .map(|(i, f)| (f, i))
             .collect();
-        // The files kept, by the number of the listing's files before them.
-        let mut kept: HashMap<usize, Vec<ListedName>> = HashMap::new();
-        let mut listed_before = 0;
+        // The places of the files kept in the list shown, and for each the number of the
+        // listing's files before it, which places it only in a collection's own order.
+        let (mut kept, mut listed_before) = (HashSet::new(), Vec::new());
+        let mut before = 0;
         for (i, name) in self.list.files().iter().enumerate() {
             match place.get(name) {
-                Some(&at) => listed_before = at + 1,
+                Some(&at) => before = at + 1,
                 None if is_in_a_part(name) => {
-                    let file = (name.clone(), self.list.identity(i));
-                    kept.entry(listed_before).or_default().push(file);
+                    kept.insert(i);
+                    listed_before.push(before);
                 }
                 None => {}
             }
         }
-        rows.with_rows_put_in(kept)
+        let kept = self.list.rows().only(|i| kept.contains(&i));
+        rows.with_kept_rows(kept, &listed_before)
     }
 
     /// Tells the parts `left_out` of a listing that could not be read, each the first time it
@@ -3729,9 +3731,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-held-part-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
-        for name in ["a.png", "sub/b.png"] {
-            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
-        }
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        // Larger than a.png, so that an order by size tells the two apart.
+        let noise = |x: u32, y: u32| image::Rgb([(x * 7 + y * 13) as u8, (x * y) as u8, 9]);
+        let larger = image::RgbImage::from_fn(64, 64, noise);
+        larger.save(dir.join("sub/b.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let dir = crate::model::listing::real_dir(&dir);
         app.config.show_subfolders = true;
@@ -3741,21 +3745,22 @@ mod tests {
             .is_listing()));
         assert_eq!(app.list.files(), ["a.png", "sub/b.png"]);
         app.set_selection(&ctx, [0, 1].into());
-        let send = |app: &mut crate::App, part: &str| {
+        let a_and_c = || vec![("a.png".into(), None), ("c.png".into(), None)];
+        let send_rows = |app: &mut crate::App, part: &str, rows: super::Rows| {
             let (tx, rx) = std::sync::mpsc::channel();
             app.folder.hold_listing(rx);
             let listed = super::Listed {
                 dirs: Vec::new(),
-                files: Ok(super::ListedRows::Rows(super::Rows::unsorted(vec![
-                    ("a.png".into(), None),
-                    ("c.png".into(), None),
-                ]))),
+                files: Ok(super::ListedRows::Rows(rows)),
                 left_out: vec![(dir.join(part), std::io::Error::other("the share failed"))],
                 read: Vec::new(),
                 read_in: std::time::Duration::ZERO,
             };
             tx.send(listed).unwrap();
             app.receive_listing(&ctx, std::time::Duration::ZERO);
+        };
+        let send = |app: &mut crate::App, part: &str| {
+            send_rows(app, part, super::Rows::unsorted(a_and_c()));
         };
         send(&mut app, "sub");
         assert_eq!(app.list.files(), ["a.png", "sub/b.png", "c.png"]);
@@ -3767,6 +3772,39 @@ mod tests {
         send(&mut app, "sub");
         assert_eq!(app.list.files(), ["a.png", "sub/b.png", "c.png"]);
         assert_eq!(app.notice.text(), None);
+        // A listing in a sort order, as a folder's always is, takes the files kept into their
+        // places in it, and the list is in the order it claims. Before, sub/b.png went after
+        // a.png, where the list showed it, and took a.png's key (#285).
+        let is_in_its_order = |app: &crate::App| {
+            let (rows, none) = (app.list.rows(), super::SortKey::Name);
+            let order = rows.order().unwrap();
+            let row = |i: usize| (rows.key(i).unwrap_or(&none), &rows.files()[i]);
+            (1..rows.len())
+                .all(|i| crate::model::listing::in_order(row(i - 1), row(i), order).is_lt())
+        };
+        let by_name = (crate::model::listing::Sort::Name, true, true);
+        let rows = super::Rows::sorted(a_and_c(), by_name, |_, _| super::SortKey::Name);
+        send_rows(&mut app, "sub", rows);
+        assert_eq!(app.list.files(), ["a.png", "c.png", "sub/b.png"]);
+        assert!(is_in_its_order(&app));
+        // By size, the file kept keeps what it is sorted by in the list shown, and goes after
+        // c.png, which is larger than a.png and smaller than it.
+        app.config.sort = crate::model::listing::Sort::Size;
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.list.files(), ["a.png", "sub/b.png"]);
+        let b_key = app.list.rows().key(1).cloned();
+        let a_size = std::fs::metadata(dir.join("a.png")).unwrap().len();
+        let by_size = app.list.rows().order().unwrap();
+        let rows = super::Rows::sorted(a_and_c(), by_size, |i, _| {
+            super::SortKey::Size(Some(a_size + i as u64))
+        });
+        send_rows(&mut app, "sub", rows);
+        assert_eq!(app.list.files(), ["a.png", "c.png", "sub/b.png"]);
+        assert_eq!(app.list.rows().key(2).cloned(), b_key);
+        assert!(is_in_its_order(&app));
         // "su" is no folder of "sub/b.png".
         send(&mut app, "su");
         assert_eq!(app.list.files(), ["a.png", "c.png"]);

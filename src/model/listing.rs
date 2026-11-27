@@ -641,24 +641,54 @@ impl Rows {
         Some(rows)
     }
 
-    /// Returns these rows with the rows of `kept` put in, each list of them after as many of
-    /// these rows as its number in `kept` says. In an order that looks at the files, each row
-    /// put in takes what the row before it is sorted by, or the first row's when it goes
-    /// first, so that the keys stay in their order. Rows put into no rows of their own are in no
-    /// sort order.
-    pub fn with_rows_put_in(self, mut kept: HashMap<usize, Vec<ListedName>>) -> Rows {
+    /// Returns the rows at the places that `keep` holds to, each with its key, in these rows'
+    /// order.
+    pub fn only(&self, keep: impl Fn(usize) -> bool) -> Rows {
+        let mut rows = Rows::empty_in(&self.order, 0);
+        for i in (0..self.len()).filter(|&i| keep(i)) {
+            let row = (self.files[i].clone(), self.identities[i]);
+            rows.push(row, self.key(i).cloned());
+        }
+        rows
+    }
+
+    /// Returns these rows, a listing's, with `kept` put in: rows of the list shown that the
+    /// listing could not read, which these rows lack. In a sort order, each kept row goes into
+    /// its place by its own key and name, as `in_order` compares them. Kept rows of another order
+    /// (the order was changed since the list was shown) are put in this order first, each with
+    /// the key of a file that could not be looked at, as no file is looked at here. So the rows
+    /// returned are in the order they claim. In no sort order (a collection's own), each kept
+    /// row goes after as many of these rows as `listed_before` says at its place, and the rows
+    /// claim no order. Before, a kept row went after the row it followed in the list shown and
+    /// took that row's key, and the rows claimed an order they were not in, by which later parts
+    /// and renames were placed wrongly (#285).
+    pub fn with_kept_rows(self, kept: Rows, listed_before: &[usize]) -> Rows {
         if kept.is_empty() {
             return self;
         }
-        if self.is_empty() {
-            return Rows::unsorted(kept.remove(&0).unwrap_or_default());
-        }
-        let put_in = kept.values().map(Vec::len).sum::<usize>();
-        let mut rows = Rows::empty_in(&self.order, self.len() + put_in);
-        let first_key = self.key(0).cloned();
-        for row in kept.remove(&0).unwrap_or_default() {
-            rows.push(row, first_key.clone());
-        }
+        let n = self.len();
+        let Some(order) = self.order() else {
+            return Rows::interleaved(
+                &RowOrder::Unsorted,
+                (self.rows_with_keys(), n),
+                &[],
+                kept,
+                listed_before,
+            );
+        };
+        let kept = match kept.order() == Some(order) {
+            true => kept,
+            false => Rows::sorted(kept.listed_names(), order, |_, _| {
+                SortKey::not_looked_at(order.0)
+            }),
+        };
+        let at = self.places_among_staying(&[], &kept, order);
+        let like = Rows::empty_in(&self.order, 0).order;
+        Rows::interleaved(&like, (self.rows_with_keys(), n), &[], kept, &at)
+    }
+
+    /// Takes these rows apart into each row with its key, in their order.
+    fn rows_with_keys(self) -> impl Iterator<Item = (ListedName, Option<SortKey>)> {
         let Rows {
             files,
             identities,
@@ -668,14 +698,7 @@ impl Rows {
             RowOrder::ByKey(_, keys) => keys.into_iter(),
             _ => Vec::new().into_iter(),
         };
-        for (i, row) in files.into_iter().zip(identities).enumerate() {
-            let key = keys.next();
-            rows.push(row, key.clone());
-            for row in kept.remove(&(i + 1)).unwrap_or_default() {
-                rows.push(row, key.clone());
-            }
-        }
-        rows
+        (files.into_iter().zip(identities)).map(move |row| (row, keys.next()))
     }
 }
 
