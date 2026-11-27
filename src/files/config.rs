@@ -393,6 +393,9 @@ config! {
     file_details: bool = false,
     /// A thin pulsing line at the bottom of the file list while a folder is read.
     activity_line: bool = true,
+    /// Keep the list of each folder or tree read whole in ~/.cache/glimt/lists, so that it shows
+    /// at once when the place is opened again, while it is read again (`saved_list`).
+    remember_file_lists: bool = false,
     sort: Sort = Sort::Name,
     sort_ascending: bool = true,
     sort_case_sensitive: bool = true,
@@ -1625,6 +1628,10 @@ mod tests {
             ("$XDG_STATE_HOME/glimt/renames", NUL),
             ("$XDG_STATE_HOME/glimt/jobs", NUL),
             (
+                "$XDG_CACHE_HOME/glimt/lists",
+                NoneToBreak("each name has its length before it, and no line is read"),
+            ),
+            (
                 "$XDG_DATA_HOME/glimt/collections",
                 CheckedBy("a_name_with_a_line_break_is_refused_at_the_add"),
             ),
@@ -1841,6 +1848,7 @@ mod tests {
                 (".config", "$XDG_CONFIG_HOME"),
                 (".local/state", "$XDG_STATE_HOME"),
                 (".local/share", "$XDG_DATA_HOME"),
+                (".cache", "$XDG_CACHE_HOME"),
             ];
             let (home, var) = folders.iter().find(|f| rest.starts_with(f.0)).unwrap();
             format!("file {var}{}", &rest[home.len()..])
@@ -1855,6 +1863,7 @@ mod tests {
             shown(super::sharing_path()),
             shown(crate::model::collections::collections_dir()),
             shown(crate::files::job_log::jobs_dir()),
+            shown(crate::model::saved_list::saved_lists_dir()),
         ];
         #[cfg(feature = "marks")]
         files.push(shown(crate::metadata::marks::marks_file()));

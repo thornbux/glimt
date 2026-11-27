@@ -4207,3 +4207,18 @@ msgstr "No se ha guardado: el nombre de una lista debe terminar en .txt o .m3u"
 #, fuzzy
 msgid "The folder is still being read: save the list when it is whole"
 msgstr "La carpeta aún se está leyendo: guarde la lista cuando esté completa"
+
+#: src/ui/preferences.rs
+#, fuzzy
+msgid "Remember file lists for faster loading"
+msgstr "Recordar las listas de archivos para cargar más rápido"
+
+#: src/ui/preferences.rs
+#, fuzzy
+msgid "Clear saved lists"
+msgstr "Borrar las listas guardadas"
+
+#: src/ui/preferences.rs
+#, fuzzy
+msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
+msgstr "Se guardan en ~/.cache/glimt/lists: una carpeta abierta de nuevo muestra al instante su lista de la última vez mientras se vuelve a leer, y las acciones sobre sus archivos esperan hasta que se haya leído"

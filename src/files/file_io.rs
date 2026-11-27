@@ -1122,6 +1122,26 @@ impl BeforeRename {
     }
 }
 
+/// Who may read a file that Glimt writes new, as its temporary file is made.
+#[derive(Clone, Copy)]
+pub(crate) enum Readers {
+    /// Those the user's umask lets read it, as for the settings or a sidecar.
+    AsUsual,
+    /// Only the user (0600), from the moment it is made: a saved file list, which names the
+    /// files of a folder that may be private.
+    OnlyTheUser,
+}
+
+impl Readers {
+    /// Returns the mode a new file is made with, before the umask.
+    fn mode(self) -> u32 {
+        match self {
+            Readers::AsUsual => 0o666,
+            Readers::OnlyTheUser => 0o600,
+        }
+    }
+}
+
 /// Returns whether nothing is at `path`: the system said that the name is not there (NotFound).
 /// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
 /// permission, says nothing, so the name counts as there. A step that removes, renames over or
@@ -2623,7 +2643,18 @@ pub(crate) fn shown_path(path: &Path) -> crate::support::format::ShownText {
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
 pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
-    replace(path, bytes, None, || Ok(nothing_to_undo))
+    replace(path, bytes, (None, Readers::AsUsual), || {
+        Ok(nothing_to_undo)
+    })
+}
+
+/// `replace_file` for a file of Glimt's own that only the user may read: a saved file list. Its
+/// new version is made readable only by the user (0600) before a byte is written, also when no
+/// file was there.
+pub fn replace_private_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    replace(path, bytes, (None, Readers::OnlyTheUser), || {
+        Ok(nothing_to_undo)
+    })
 }
 
 /// `replace_file` for a file of the user's that must still be there: a turned image, whose
@@ -2644,7 +2675,7 @@ pub fn replace_existing<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
     read: FileFingerprint,
     before: impl FnOnce() -> std::io::Result<Undo>,
 ) -> std::io::Result<()> {
-    replace(path, bytes, Some(read), before)
+    replace(path, bytes, (Some(read), Readers::AsUsual), before)
 }
 
 /// Replaces the file named `path` with `bytes`, written whole beside it first. Unlike
@@ -2684,7 +2715,7 @@ pub fn replace_name_with<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
             .map_err(|e| explain_rename_error(e, path));
         renamed.or_else(|e| taken_back(e, true, (tmp, path), undo))
     };
-    write_beside(&tmp_path(path), path, write, give_name)?;
+    write_beside(Readers::AsUsual, &tmp_path(path), path, write, give_name)?;
     tell_other_names(path, has_other_names);
     Ok(())
 }
@@ -2724,7 +2755,7 @@ pub(crate) fn replace_what_was_read(
         Some(read) => replace_name_with(path, write, || {
             is_still_the_file(path, KnownAs::fingerprint(read)).map(|()| nothing_to_undo)
         }),
-        None => write_beside(&tmp_path(path), path, write, |tmp| {
+        None => write_beside(Readers::AsUsual, &tmp_path(path), path, write, |tmp| {
             rename_never_over(tmp, path).map_err(StepError::into_io_error)
         }),
     }
@@ -2747,7 +2778,7 @@ pub(crate) fn fingerprint_if_there(path: &Path) -> std::io::Result<Option<FileFi
 fn replace<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
     path: &Path,
     bytes: impl AsRef<[u8]>,
-    existing: Option<FileFingerprint>,
+    (existing, readers): (Option<FileFingerprint>, Readers),
     before: impl FnOnce() -> std::io::Result<Undo>,
 ) -> std::io::Result<()> {
     use std::io::Write;
@@ -2763,7 +2794,7 @@ fn replace<Undo: FnOnce(RenameFailed) -> std::io::Result<()>>(
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
     let has_other_names = existing.is_some() && check_writable(path)?;
-    write_beside(&tmp_path(path), path, write, |tmp| {
+    write_beside(readers, &tmp_path(path), path, write, |tmp| {
         there()?;
         let undo = before()?;
         // `before` may take a while (a sidecar written under its lock), so the file is looked
@@ -3353,21 +3384,22 @@ fn tell_other_names(path: &Path, has_other_names: bool) {
     lock_even_if_poisoned(&OTHER_NAMES).add(path);
 }
 
-/// A file written whole at `tmp` beside `path` (`create_temp_beside`), on disk, and then given its
-/// name by `give_name`; `tmp` removed when anything fails. On disk before the rename: after a crash
-/// the old file or the new one, never an empty one. The new name is on disk when this returns
-/// (`sync_folder_of`), so an older version cannot come back after a power cut and leave an
-/// image and its sidecar out of step. No folder made: a sidecar or a collection whose
-/// folder was renamed meanwhile is not written into a new one of the old name. The one
-/// temp-and-rename for every file Glimt writes: settings, sidecars, collections, a PDF, and
-/// a thumbnail through `write_beside_without_folder_sync`.
+/// A file written whole at `tmp` beside `path` (`create_temp_beside`, made new for `readers`), on
+/// disk, and then given its name by `give_name`; `tmp` removed when anything fails. On disk before
+/// the rename: after a crash the old file or the new one, never an empty one. The new name is on
+/// disk when this returns (`sync_folder_of`), so an older version cannot come back after a power
+/// cut and leave an image and its sidecar out of step. No folder made: a sidecar or a collection
+/// whose folder was renamed meanwhile is not written into a new one of the old name. The one
+/// temp-and-rename for every file Glimt writes: settings, sidecars, collections, a PDF, and a
+/// thumbnail through `write_beside_without_folder_sync`.
 pub fn write_beside(
+    readers: Readers,
     tmp: &Path,
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    write_beside_without_folder_sync(tmp, path, write, give_name)?;
+    write_beside_without_folder_sync_for(readers, tmp, path, write, give_name)?;
     // The file has its name now, which its error says, so that a save can go on with what
     // follows the name (`named_but_not_on_disk`).
     sync_folder_of(path)
@@ -3403,13 +3435,24 @@ pub fn write_beside_without_folder_sync(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
+    write_beside_without_folder_sync_for(Readers::AsUsual, tmp, path, write, give_name)
+}
+
+/// `write_beside_without_folder_sync`, with the temporary file made for `readers`.
+fn write_beside_without_folder_sync_for(
+    readers: Readers,
+    tmp: &Path,
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+    give_name: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     let write_and_sync = |f: &mut std::fs::File| {
         write(f)?;
         #[cfg(test)]
         FILES_SYNCED.set(FILES_SYNCED.get() + 1);
         f.sync_all()
     };
-    write_beside_without_sync(tmp, path, write_and_sync, give_name)
+    write_beside_without_sync_for(readers, tmp, path, write_and_sync, give_name)
 }
 
 /// Writes a file as `write_beside` does, without syncing the file or its folder. This is for
@@ -3421,7 +3464,18 @@ pub fn write_beside_without_sync(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let written = create_temp_beside(tmp, path).and_then(|mut f| write(&mut f));
+    write_beside_without_sync_for(Readers::AsUsual, tmp, path, write, give_name)
+}
+
+/// `write_beside_without_sync`, with the temporary file made for `readers`.
+fn write_beside_without_sync_for(
+    readers: Readers,
+    tmp: &Path,
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+    give_name: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let written = create_temp_beside(readers, tmp, path).and_then(|mut f| write(&mut f));
     let result = written.and_then(|_| give_name(tmp));
     // A rename that may have been done is no reason to remove `tmp`. On cifs, a rename over a
     // file it refuses deletes that file and tries again, and when that try loses its answer,
@@ -3448,6 +3502,7 @@ pub fn write_beside_without_sync(
 pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
     write_beside(
+        Readers::AsUsual,
         &tmp_path(path),
         path,
         |f| f.write_all(bytes.as_ref()),
@@ -3487,11 +3542,16 @@ pub fn instance_tag() -> &'static str {
 
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar
 /// or a list kept private, 0600, stays so). Made private first when `path` is there, and given
-/// those before a byte is written: no one else can open it meanwhile. A new file as usual, but
-/// only when nothing is surely at `path`. A look at `path` that fails returns its error, as a
-/// new file would lose the mode, the user's attributes and the ACL of the file it replaces.
+/// those before a byte is written: no one else can open it meanwhile. A new file is made for
+/// `readers`, but only when nothing is surely at `path`. A look at `path` that fails returns its
+/// error, as a new file would lose the mode, the user's attributes and the ACL of the file it
+/// replaces.
 #[allow(clippy::disallowed_methods)] // the one way a new file is made, under its temporary name
-pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
+pub(crate) fn create_temp_beside(
+    readers: Readers,
+    tmp: &Path,
+    path: &Path,
+) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     // Glimt's own: the temporary name. The file is made new, never opened: a link left or
     // planted at `tmp` would be followed and the file it points to emptied. Not told: a name
@@ -3501,6 +3561,7 @@ pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::F
         std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(readers.mode())
             .clone()
     };
     // A link at `path` is replaced itself (`replace_name`), so the new file takes nothing of the
@@ -4989,14 +5050,20 @@ mod tests {
                 |_| Err(std::io::Error::other("the sidecar stays aside")),
             )
         };
-        let written =
-            super::write_beside(&tmp, &path, |f| std::io::Write::write_all(f, b"new"), lost);
+        let written = super::write_beside(
+            super::Readers::AsUsual,
+            &tmp,
+            &path,
+            |f| std::io::Write::write_all(f, b"new"),
+            lost,
+        );
         assert!(written.is_err());
         assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "new");
         let refused = |_: &std::path::Path| Err(std::io::Error::from_raw_os_error(libc::EACCES));
         let tmp2 = dir.join(".a.png.tmp2");
         assert!(
             super::write_beside(
+                super::Readers::AsUsual,
                 &tmp2,
                 &path,
                 |f| std::io::Write::write_all(f, b"new"),
@@ -5009,7 +5076,13 @@ mod tests {
         // was, so `tmp` goes. Before, any such error kept a hidden copy in the user's folder.
         let tmp3 = dir.join(".a.png.tmp3");
         let look_failed = |_: &std::path::Path| Err(std::io::Error::from_raw_os_error(libc::EIO));
-        let written = super::write_beside(&tmp3, &path, |f| f.write_all(b"new"), look_failed);
+        let written = super::write_beside(
+            super::Readers::AsUsual,
+            &tmp3,
+            &path,
+            |f| f.write_all(b"new"),
+            look_failed,
+        );
         assert!(written.is_err());
         assert!(super::is_surely_gone(&tmp3));
         // A rename that may have been done keeps `tmp` and names it, also when the undo did
@@ -5019,7 +5092,13 @@ mod tests {
             let eio = std::io::Error::from_raw_os_error(libc::EIO);
             super::taken_back(eio, true, (&tmp4, &path), |_| Ok(()))
         };
-        let written = super::write_beside(&tmp4, &path, |f| f.write_all(b"new"), lost);
+        let written = super::write_beside(
+            super::Readers::AsUsual,
+            &tmp4,
+            &path,
+            |f| f.write_all(b"new"),
+            lost,
+        );
         let e = written.unwrap_err().to_string();
         assert!(e.contains(&tmp4.display().to_string()), "{e}");
         assert_eq!(std::fs::read_to_string(&tmp4).unwrap(), "new");
@@ -5038,12 +5117,12 @@ mod tests {
         std::fs::write(&path, "old").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).push(path.clone());
-        let made = super::create_temp_beside(&tmp, &path);
+        let made = super::create_temp_beside(super::Readers::AsUsual, &tmp, &path);
         let checked = super::check_writable(&path);
         crate::support::threads::lock_even_if_poisoned(&super::LOOKS_FAIL).retain(|p| *p != path);
         assert!(made.is_err() && checked.is_err());
         assert!(super::is_surely_gone(&tmp));
-        let made = super::create_temp_beside(&tmp, &path).unwrap();
+        let made = super::create_temp_beside(super::Readers::AsUsual, &tmp, &path).unwrap();
         assert_eq!(made.metadata().unwrap().permissions().mode() & 0o777, 0o600);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -5063,11 +5142,11 @@ mod tests {
         std::os::unix::fs::symlink(&target, &link).unwrap();
         let fresh = dir.join("fresh");
         let new_mode = std::fs::File::create(&fresh).unwrap().metadata().unwrap();
-        let made = super::create_temp_beside(&tmp, &link).unwrap();
+        let made = super::create_temp_beside(super::Readers::AsUsual, &tmp, &link).unwrap();
         let mode = made.metadata().unwrap().permissions().mode() & 0o7777;
         assert_eq!(mode, new_mode.permissions().mode() & 0o7777);
         std::fs::remove_file(&tmp).unwrap();
-        let made = super::create_temp_beside(&tmp, &target).unwrap();
+        let made = super::create_temp_beside(super::Readers::AsUsual, &tmp, &target).unwrap();
         assert_eq!(
             made.metadata().unwrap().permissions().mode() & 0o7777,
             0o666
@@ -5454,7 +5533,7 @@ mod tests {
         assert!(super::file_lock(&photo).is_none(), "locked through a link");
         let tmp = super::tmp_path(&photo);
         symlink(&victim, &tmp).unwrap();
-        drop(super::create_temp_beside(&tmp, &photo).unwrap());
+        drop(super::create_temp_beside(super::Readers::AsUsual, &tmp, &photo).unwrap());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
     }

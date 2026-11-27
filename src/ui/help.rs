@@ -658,6 +658,14 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          files: those of photos on an encrypted volume or a stick that is taken away stay \
          readable there, also after Remove thumbnails of deleted files, which keeps those of disks \
          not plugged in. Turn the setting off before looking at such photos.\n\n\
+         With Remember file lists for faster loading on in Preferences, the list of each folder \
+         or tree read whole is kept in ~/.cache/glimt/lists, one for each order and choice of \
+         files shown. A folder opened again shows that list at once while it is read again, and \
+         the list read then takes its place, with the image shown and the selection. Until it \
+         has come, actions on the files (delete, move, rename, keywords) wait, and so do the \
+         thumbnails. The lists name the files of each folder, so turn the setting off before \
+         looking at private folders. Clear saved lists removes them all, and so does turning \
+         the setting off.\n\n\
          View also shows or hides the toolbar and the folder path, and Preferences the search \
          field and each file's size and date in the list. While a folder is read, a thin line \
          pulses at the bottom of the file list; Preferences turns it off, and it is left out when \

@@ -3391,3 +3391,15 @@ msgstr ""
 #: src/ui/actions.rs
 msgid "The folder is still being read: save the list when it is whole"
 msgstr ""
+
+#: src/ui/preferences.rs
+msgid "Remember file lists for faster loading"
+msgstr ""
+
+#: src/ui/preferences.rs
+msgid "Clear saved lists"
+msgstr ""
+
+#: src/ui/preferences.rs
+msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
+msgstr ""

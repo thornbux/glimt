@@ -306,8 +306,9 @@ pub(crate) fn uri_path(path: &Path) -> String {
         .collect()
 }
 
-/// MD5 (RFC 1321), only for the cache file names the freedesktop spec prescribes.
-fn md5(data: &[u8]) -> [u8; 16] {
+/// MD5 (RFC 1321), only for the names of cache files: those the freedesktop spec prescribes, and
+/// the saved file lists' (`saved_list`).
+pub(crate) fn md5(data: &[u8]) -> [u8; 16] {
     const S: [u32; 4 * 4] = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21];
     let k: [u32; 64] =
         std::array::from_fn(|i| ((i as f64 + 1.0).sin().abs() * 4_294_967_296.0) as u32);

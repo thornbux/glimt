@@ -297,7 +297,8 @@ impl crate::App {
         if pan.days_rx.is_some() && pan.removed_while_reading.1 != self.list.version() {
             pan.stop_reading_days.store(true, Ordering::Relaxed);
         }
-        if stale && pan.days_rx.is_none() {
+        // The rows of a saved list are read only once a listing has seen their files.
+        if stale && pan.days_rx.is_none() && !self.list.has_unchecked_entries() {
             self.start_reading_days(ctx, pan);
         }
         // The days so far, the last ones sent; days for a list that changed meanwhile are taken

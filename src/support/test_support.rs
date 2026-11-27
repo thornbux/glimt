@@ -68,8 +68,18 @@ impl Drop for SharedSettingsChanged {
 /// not written in tests). The window's logic without a window. The settings that the whole
 /// process shares are held to read them for the rest of the test (`SHARED_SETTINGS`).
 pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Context) {
+    let (mut app, ctx) = app_starting_on(dir, test_config());
+    app.receive_listing(&ctx, std::time::Duration::from_secs(5));
+    (app, ctx)
+}
+
+/// An `App` for a test as `app_on` makes it, with the settings `config`, just started on folder
+/// `dir`: its look-up and listing still run in the background.
+pub(crate) fn app_starting_on(
+    dir: &std::path::Path,
+    config: crate::files::config::Config,
+) -> (crate::App, eframe::egui::Context) {
     let ctx = eframe::egui::Context::default();
-    let config = test_config();
     let start = crate::cli::Start::default();
     // A new window sets the shared settings as they are, and empties the colour transforms that
     // a test which changes them may be looking at. So no such test runs while it is made.
@@ -88,8 +98,7 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
         sort_folders: Vec::new(),
         keyword_tree: Vec::new(),
     };
-    let mut app = crate::App::with_config(&ctx, read, Some(dir.into()), start);
-    app.receive_listing(&ctx, std::time::Duration::from_secs(5));
+    let app = crate::App::with_config(&ctx, read, Some(dir.into()), start);
     (app, ctx)
 }
 
@@ -450,7 +459,7 @@ pub(crate) fn exif_with_every_row() -> Vec<u8> {
 
 /// The settings of a test's `App`: its own, with no remote control and nothing kept in the
 /// user's files.
-fn test_config() -> crate::files::config::Config {
+pub(crate) fn test_config() -> crate::files::config::Config {
     crate::files::config::Config {
         remote_control: false,
         keep_recent: false,

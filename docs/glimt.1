@@ -611,6 +611,15 @@ Only a name that is surely gone from a folder that is there counts as gone: a fi
 keeps its marks, and a name whose folder is not there, as on a stick not plugged in yet, keeps
 them too, and the log stays for a later start.
 .TP
+.I $XDG_CACHE_HOME/glimt/lists
+With Remember file lists for faster loading on (the setting
+.BR remember_file_lists ),
+the list of each folder or tree read whole, one file for each folder, order and choice of files
+shown, packed, readable only by the user (default
+.IR ~/.cache/glimt/lists ).
+A folder opened again shows it at once while it is read again; actions on its files wait for that
+listing. Clear saved lists in Preferences removes them, and so does turning the setting off.
+.TP
 .IR $XDG_STATE_HOME/glimt/renames ", " moves " and " deletes
 Where Glimt 0.92 and older kept these logs. Glimt 0.93 and 0.94 put each log there right once,
 and this Glimt no longer reads them. The start removes such a folder when it holds no log, and

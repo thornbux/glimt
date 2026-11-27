@@ -90,14 +90,17 @@ const SLIDESHOW: &[&str] = &[
 const FILE_LIST: &[&str] = &[
     "File list",
     "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam",
+    "Clear saved lists",
     "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there",
     "Fuzzy, best matches first (like fzf)",
     "In ~/.cache/thumbnails; kept for disks that are not plugged in",
     "Include the images in subfolders in the file list",
+    "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read",
     "Large",
     "Medium",
     "Refresh the folder when files change",
     "Regular expression, in list order (like Geeqie's file filter)",
+    "Remember file lists for faster loading",
     "Remove thumbnails of deleted files",
     "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)",
     "Search field above the file list:",
@@ -782,8 +785,8 @@ impl crate::App {
         });
     }
 
-    /// Preferences: file details, the activity line, and saving and cleaning the shared
-    /// thumbnail cache.
+    /// Preferences: file details, the activity line, the saved file lists, and saving and
+    /// cleaning the shared thumbnail cache.
     pub(crate) fn cache_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let c = &mut self.config;
@@ -799,6 +802,25 @@ impl crate::App {
             tr("Show a line at the bottom of the file list while a folder is read"),
         )
         .changed();
+        let mut remember = self.config.remember_file_lists;
+        let lists_tip = tr(
+            "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read",
+        );
+        if checkbox(
+            ui,
+            &mut remember,
+            tr("Remember file lists for faster loading"),
+        )
+        .tip(lists_tip)
+        .changed()
+        {
+            self.set_remember_file_lists(remember);
+            changed = true;
+        }
+        if crate::ui::menus::button(ui, tr("Clear saved lists")).clicked() {
+            crate::model::saved_list::clear_saved_lists();
+        }
+        let c = &mut self.config;
         let save = tr("Save new thumbnails to ~/.cache/thumbnails (shared with other programs)");
         let kept = tr(
             "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there",

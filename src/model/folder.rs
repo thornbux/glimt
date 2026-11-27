@@ -11,6 +11,8 @@ use crate::model::listing::{
     FolderReadWhole, FoldersRead, ListedName, ListingCounter, ListingProgress, NameHashes,
     ReadWhole, Rows, SortKey, Types, Unread, is_listed, list_folder_counted, walk, walk_tree,
 };
+use crate::model::saved_list;
+use crate::model::saved_list::{ListKey, SaveTicket, SavedListUse};
 use crate::support::format::{NOT_COUNTED_ON_A_SHARE, ShownText, escaped_name};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
@@ -112,6 +114,9 @@ pub(crate) struct Folder {
     subdirs_rx: Receiving<Vec<PathBuf>>,
     /// The images of the tree found so far, as it is read, a folder of it at a time.
     part_rx: Receiving<TreePart>,
+    /// The saved list of the folder just opened (`saved_list`), which its listing sends before
+    /// it reads the folder.
+    saved_rx: Receiving<Rows>,
     /// How long the window took to take the last part of the tree, in microseconds. The
     /// listing thread waits for four times as long before it sends the next part.
     part_taken_in: Arc<AtomicU64>,
@@ -217,6 +222,7 @@ impl Folder {
             listing_version: 0,
             subdirs_rx: Receiving::none(),
             part_rx: Receiving::none(),
+            saved_rx: Receiving::none(),
             part_taken_in: Arc::default(),
             lists_tree_in_parts: false,
             listing_sends_parts: false,
@@ -807,6 +813,11 @@ struct Listing {
     part_taken_in: Arc<AtomicU64>,
     tx: mpsc::Sender<Listed>,
     size_tx: mpsc::Sender<u64>,
+    /// What the listing does with the saved list of its place.
+    saved: SavedListUse,
+    /// Where it sends the saved list it read, which the window shows until the listing's own
+    /// list comes.
+    saved_tx: mpsc::Sender<Rows>,
     /// When the thread started reading. The time it took is measured here, in the thread,
     /// because a window that is not drawn takes the list late, and that wait is no listing.
     started: Instant,
@@ -936,6 +947,32 @@ impl Listing {
             read_in: self.started.elapsed(),
         };
         if self.tx.send(failed).is_ok() {
+            self.ctx.request_repaint();
+        }
+    }
+
+    /// Returns the key of the saved list of the folder listed, with its real path, or `None`
+    /// when the listing neither shows nor saves one.
+    fn saved_list_key(&self) -> Option<ListKey> {
+        if self.saved == SavedListUse::Off {
+            return None;
+        }
+        let order = (self.by, self.ascending, self.case);
+        let dir = listing::real_dir(&self.dir);
+        Some(ListKey::of(&dir, self.recursive, self.types, order))
+    }
+
+    /// Sends the window the saved list of `key`, when there is one. The parts of a tree then
+    /// bring only the images that the saved list lacks, and take out those that the folders
+    /// they read no longer hold, as for a list read again.
+    fn send_saved_list(&mut self, key: &ListKey) {
+        let Some(rows) = saved_list::read(key) else {
+            return;
+        };
+        if self.recursive {
+            self.parts.listed_before = NameHashes::of(rows.files());
+        }
+        if self.saved_tx.send(rows).is_ok() {
             self.ctx.request_repaint();
         }
     }
@@ -1089,6 +1126,12 @@ impl Listing {
         // Its images come too, a folder of the tree at a time, each part in the order the list
         // is in. The first images are sent at once, and after them at most four times a second,
         // because the window merges each part into the whole list.
+        // The saved list of a folder just opened goes first, so that the window shows it while
+        // the folder is read. Its key holds the folder's real path, which is looked up here.
+        let key = self.saved_list_key();
+        if let (SavedListUse::ShowThenSave(_), Some(key)) = (self.saved, &key) {
+            self.send_saved_list(key);
+        }
         let mut sent = self.parts.parts_sent();
         // The images of a tree come in the order the walk found them, which is the order that
         // what the parts looked at is kept by, for the sort of the whole list.
@@ -1143,6 +1186,14 @@ impl Listing {
                 ListedRows::Rows(sent.sorted(files, known))
             }
         };
+        // The whole list is saved for the next time the folder opens, only when every folder of
+        // it was read. Its bytes are made before the list is sent, and packed after.
+        let to_save = match (&rows, &key) {
+            (ListedRows::Rows(rows), Some(key)) if left_out.is_empty() => {
+                saved_list::unpacked(key, rows)
+            }
+            _ => None,
+        };
         // The receiver is gone if another folder was opened meanwhile; then we stop.
         let listed = Listed {
             dirs,
@@ -1155,6 +1206,9 @@ impl Listing {
             return;
         }
         self.ctx.request_repaint();
+        if let (Some(plain), Some(key), Some(ticket)) = (to_save, &key, self.saved.ticket()) {
+            saved_list::save(key, &plain, ticket);
+        }
         // The sizes come afterwards. The folder is read once more and summed from the directory
         // entries in chunks, so the status bar fills in gradually without a copy of the whole
         // list in memory. A tree is read a folder at a time, unsorted. On a share they are not
@@ -1834,6 +1888,9 @@ impl crate::App {
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.folder.sort_collection;
         let folders = self.folder.folders.clone();
+        let saved_list_use = self.saved_list_use();
+        let (saved_tx, saved_rx) = mpsc::channel();
+        self.folder.saved_rx = Receiving::of(saved_rx);
         // A folder read again in EXIF date order (mostly after Glimt's own sidecar writes) keeps
         // the order shown when no name is new, instead of reading every file's EXIF again.
         // shortcut: the list copied in the UI thread, 7-9 ms for 500,000 names, once per
@@ -1900,6 +1957,8 @@ impl crate::App {
             part_taken_in: self.folder.part_taken_in.clone(),
             tx,
             size_tx,
+            saved: saved_list_use,
+            saved_tx,
             ctx: ctx2,
             started: Instant::now(),
         };
@@ -1924,6 +1983,22 @@ impl crate::App {
         self.folder.change_waits = false;
         self.folder.changes_seen = ChangesSeen::Nothing;
         self.folder.relist_whole = false;
+    }
+
+    /// Returns what the listing that starts does with the saved list of its place. A saved list
+    /// is kept of one folder or tree read whole (no collection, no several folders and no
+    /// subfolder read again), with the setting on, and shown when the folder was just opened and
+    /// the list is empty (no file of it given to show).
+    fn saved_list_use(&self) -> SavedListUse {
+        let f = &self.folder;
+        let whole_place =
+            f.collection.is_none() && f.folders.is_empty() && f.listing_from.as_os_str().is_empty();
+        let just_opened = self.folder.lists_tree_in_parts && self.list.files().is_empty();
+        match (self.config.remember_file_lists && whole_place, just_opened) {
+            (false, _) => SavedListUse::Off,
+            (true, false) => SavedListUse::Save(SaveTicket::now()),
+            (true, true) => SavedListUse::ShowThenSave(SaveTicket::now()),
+        }
     }
 
     /// Reads the folder again after the folder watcher saw it change: only the subfolder of the
@@ -2126,6 +2201,7 @@ impl crate::App {
         if let Took::Answer(dirs) = self.folder.subdirs_rx.take() {
             self.folder.subdirs = dirs;
         }
+        self.receive_saved_list(ctx);
         // Every part that came is taken, each of the images found since the part before.
         let began = Instant::now();
         let mut took_parts = false;
@@ -2145,6 +2221,7 @@ impl crate::App {
             Took::Gone => {
                 self.folder.subdirs_rx.clear();
                 self.folder.part_rx.clear();
+                self.folder.saved_rx.clear();
                 return self.tell_background_stopped(tr("Reading the folder"));
             }
             Took::Nothing => return,
@@ -2158,6 +2235,9 @@ impl crate::App {
         }
         self.folder.subdirs_rx.clear();
         self.folder.part_rx.clear();
+        // The saved list was sent before this answer, and is not shown after it: the window's
+        // short wait at the start may take a small folder's list before it.
+        self.folder.saved_rx.clear();
         let Listed {
             mut dirs,
             files,
@@ -2213,8 +2293,24 @@ impl crate::App {
         // The time taken counts the list made from it in this thread too.
         let took = read_in + listed_from.elapsed();
         self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
-        self.list.set_unchecked_entries(false);
+        self.note_list_checked(ctx);
         self.settle_sidecar_writes_waiting_for_the_list(ctx);
+        self.note_listed_as();
+        self.tell_left_out(left_out);
+    }
+
+    /// Notes that the list's entries are checked, after a whole listing: a collection's entries
+    /// or a saved list's rows. An exif: search that waited for them is searched again.
+    fn note_list_checked(&mut self, ctx: &egui::Context) {
+        if self.list.has_unchecked_entries() {
+            self.list.set_unchecked_entries(false);
+            self.update_search(ctx);
+        }
+    }
+
+    /// Notes what the list shown was read and sorted as (`ListedAs`), after a whole listing of
+    /// a folder or tree, and none for a collection or several folders.
+    fn note_listed_as(&mut self) {
         let types = self.shown_types();
         let c = &self.config;
         self.folder.listed_as =
@@ -2228,7 +2324,14 @@ impl crate::App {
                     self.folder.recursive,
                 )
             });
-        self.tell_left_out(left_out);
+    }
+
+    /// Shows the saved list of the folder just opened, which its listing sent before any part
+    /// (`take_saved_list`), when it has come.
+    fn receive_saved_list(&mut self, ctx: &egui::Context) {
+        if let Took::Answer(rows) = self.folder.saved_rx.take() {
+            self.take_saved_list(ctx, rows);
+        }
     }
 
     /// Returns the list's rows, whose parts brought the names new in the subfolder read again,
@@ -2359,6 +2462,22 @@ impl crate::App {
         self.take_listing(ctx, rows, whole, (&ReadWhole::default(), None));
     }
 
+    /// Shows `rows`, the saved list of the folder just opened (`saved_list`), until its
+    /// listing's own list comes and takes its place by name (`take_listing`). The rows are
+    /// entries that no listing has checked, so every file operation waits for that list
+    /// (`is_list_checked`), and so do the thumbnails, the EXIF index and the Pan view's days.
+    /// Glimt goes to the first image by itself, as for a tree's first part. Nothing is shown when
+    /// the list holds files already.
+    fn take_saved_list(&mut self, ctx: &egui::Context, rows: Rows) {
+        if !self.list.files().is_empty() {
+            return;
+        }
+        let first = rows.files().first().cloned();
+        self.replace_list(ctx, rows, first.clone(), None);
+        self.list.set_unchecked_entries(true);
+        self.folder.first_part_shown = first;
+    }
+
     /// Takes the images of the folder read in the background as the list: all of them when
     /// `whole`, and otherwise a part of a tree, the images new to the list, which go into it in
     /// its order and leave out the names that the folders it `read` whole no longer hold. In an
@@ -2432,12 +2551,13 @@ impl crate::App {
         // starts at its first image instead, unless the user chose another one meanwhile.
         let mut shown = self.list.files().get(self.list.shown()).cloned();
         let plays = self.slideshow.is_running();
+        // When that first image is the whole list's first too, it stays shown as it is.
         if whole
             && shown.is_some()
             && std::mem::take(&mut self.folder.first_part_shown) == shown
             && !plays
         {
-            shown = None;
+            shown = rows.files().first().cloned();
         }
         // An image shown in a slideshow that is gone gives its place to the next one of the
         // list that stays, and not to the first image.
@@ -3808,6 +3928,106 @@ mod tests {
         // "su" is no folder of "sub/b.png".
         send(&mut app, "su");
         assert_eq!(app.list.files(), ["a.png", "c.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder opened again with a saved list shows that list at once, as entries no listing
+    /// has checked: a file gone since is shown, and a Delete of it waits with the notice of
+    /// work still running. The listing's own list then takes its place, with the gone file left
+    /// out and a new one in. At the start, a small folder's list taken in the window's short
+    /// wait before the first frame is not replaced by the saved list that came before it.
+    /// Turned off, the saved lists are removed, and a save of a listing that began before is
+    /// not written. The risks: an action on a file that is no longer there, a saved list shown
+    /// in place of the folder read, and a saved list left after the user turned the setting off.
+    #[test]
+    fn a_saved_list_shows_at_once_and_the_listing_puts_it_right() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-saved-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let dir = crate::model::listing::real_dir(&dir);
+        let listed = |app: &mut crate::App| {
+            assert!(run_background_until(app, &ctx, |a| !a.folder.is_listing()));
+        };
+        // A listing with the setting on saves the list, only the user's.
+        app.set_remember_file_lists(true);
+        app.refresh(&ctx);
+        listed(&mut app);
+        let c = &app.config;
+        let order = (c.sort, c.sort_ascending, c.sort_case_sensitive);
+        let key = crate::model::saved_list::ListKey::of(&dir, false, app.shown_types(), order);
+        let file = key.file().unwrap();
+        // The listing saves after it sent its list, so the test waits for the file.
+        let saved_as = |names: &[&str]| {
+            (0..250).any(|_| {
+                crate::files::file_io::wait_for_queued_writes();
+                let rows = crate::model::saved_list::read(&key);
+                rows.is_some_and(|r| r.files() == names) || {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    false
+                }
+            })
+        };
+        assert!(saved_as(&["a.png", "b.png"]));
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), 0o600);
+        assert_eq!(mode(file.parent().unwrap()), 0o700);
+        // The folder changes, and is opened again.
+        std::fs::remove_file(dir.join("a.png")).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("c.png")).unwrap();
+        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+        let waited = app.folder.saved_rx.wait(std::time::Duration::from_secs(5));
+        let super::Took::Answer(rows) = waited else {
+            panic!("no saved list was sent");
+        };
+        assert_eq!(rows.files(), ["a.png", "b.png"], "the list saved");
+        app.take_saved_list(&ctx, rows);
+        assert_eq!(app.list.files(), ["a.png", "b.png"]);
+        assert!(app.list.has_unchecked_entries());
+        assert!(!app.are_free_to_change(&[dir.join("a.png")]));
+        let told = app.notice.text().unwrap_or_default();
+        assert!(told.starts_with("Still working on these files"), "{told}");
+        listed(&mut app);
+        assert_eq!(app.list.files(), ["b.png", "c.png"]);
+        assert!(!app.list.has_unchecked_entries());
+        assert!(saved_as(&["b.png", "c.png"]));
+        // At the start, the folder emptied since: whatever the short wait before the first
+        // frame took, the list ends as the folder is, and checked.
+        std::fs::remove_file(dir.join("b.png")).unwrap();
+        std::fs::remove_file(dir.join("c.png")).unwrap();
+        let config = crate::files::config::Config {
+            remember_file_lists: true,
+            ..crate::support::test_support::test_config()
+        };
+        let (mut started, ctx) = crate::support::test_support::app_starting_on(&dir, config);
+        assert!(run_background_until(&mut started, &ctx, |a| {
+            !a.folder.is_listing() && !a.folder.is_looking_up()
+        }));
+        for _ in 0..5 {
+            started.poll_background(&ctx);
+        }
+        assert!(
+            started.list.files().is_empty(),
+            "{:?}",
+            started.list.files()
+        );
+        assert!(!started.list.has_unchecked_entries());
+        // Turned off, the lists go, and a listing that began before saves none.
+        let before = crate::model::saved_list::SaveTicket::now();
+        let plain = crate::model::saved_list::unpacked(&key, app.list.rows()).unwrap();
+        app.set_remember_file_lists(false);
+        crate::files::file_io::wait_for_queued_writes();
+        assert!(crate::files::file_io::is_surely_gone(
+            file.parent().unwrap()
+        ));
+        crate::model::saved_list::save(&key, &plain, before);
+        crate::files::file_io::wait_for_queued_writes();
+        assert!(crate::files::file_io::is_surely_gone(&file));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

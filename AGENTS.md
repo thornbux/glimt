@@ -273,6 +273,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/model/folder.rs` | Opening and listing folders and collections, following changes, the status bar's sizes |
 | `src/model/selection.rs` | Moving through the list, and the selection |
 | `src/model/listing.rs` | Image extensions (`EXTS`), reading a folder or tree, sorting (`Sort`) |
+| `src/model/saved_list.rs` | The saved file lists: a folder's list kept in `$XDG_CACHE_HOME/glimt/lists`, shown at once when it opens again |
 | `src/model/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders |
 | `src/model/search.rs` | The search and its terms, and the EXIF index |
 | `src/viewer.rs` | **The viewer/ folder:** the image area and what is done to the image shown |

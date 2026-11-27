@@ -560,3 +560,5 @@ job_record record new-marks
 sharing_tag PNG text group:x
 job_record record in-file-system
 setting activity_line
+setting remember_file_lists
+file $XDG_CACHE_HOME/glimt/lists

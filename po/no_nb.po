@@ -3381,3 +3381,15 @@ msgstr "Ikke lagret: navnet på en liste må slutte på .txt eller .m3u"
 #: src/ui/actions.rs
 msgid "The folder is still being read: save the list when it is whole"
 msgstr "Mappen leses fortsatt: lagre listen når den er hel"
+
+#: src/ui/preferences.rs
+msgid "Remember file lists for faster loading"
+msgstr "Husk fillister for raskere lasting"
+
+#: src/ui/preferences.rs
+msgid "Clear saved lists"
+msgstr "Tøm lagrede lister"
+
+#: src/ui/preferences.rs
+msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
+msgstr "Lagres i ~/.cache/glimt/lists: en mappe som åpnes igjen, viser listen fra sist med en gang mens den leses på nytt, og handlinger på filene venter til den er lest"

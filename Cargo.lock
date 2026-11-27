@@ -1305,6 +1305,7 @@ dependencies = [
  "jpeg-decoder",
  "jxl-oxide",
  "libc",
+ "miniz_oxide 0.8.9",
  "moxcms",
  "png",
  "regex",

@@ -514,6 +514,12 @@ impl crate::App {
         // there is. That waits while keywords are still being written, and the marks stay until
         // they are, so files read before their sidecar landed are read again after. (The frame
         // that sees the job end searches again.)
+        // The entries that no listing has checked (a saved list's rows, a collection's entries)
+        // are read once a listing has seen their files. Until then the term is not known, and
+        // the listing that checks them searches again.
+        if self.list.has_unchecked_entries() {
+            return None;
+        }
         let writing = self.file_operations.is_writing_sidecars();
         if !writing
             && self.search.exif_index.texts().is_some()

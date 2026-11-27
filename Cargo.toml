@@ -32,6 +32,8 @@ arboard = { version = "3.6.1", default-features = false }
 tiff = { version = "0.11.3", default-features = false }
 # Already used by eframe; here for the window frame on GNOME/Wayland, which shows the title.
 winit = { version = "0.30.13", default-features = false, features = ["wayland-csd-adwaita"] }
+# The saved file lists packed with zlib; already in through png, at the version png uses.
+miniz_oxide = "0.8.9"
 # Searches with re: and exif:re:.
 regex = "1.13.1"
 # Optional: JPEG XL (feature jxl).

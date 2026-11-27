@@ -295,6 +295,43 @@ impl Rows {
         rows
     }
 
+    /// Returns rows of `names`, read from a saved list (`saved_list`), in `order`, each with
+    /// what it is sorted by from `keys` in an order that looks at the files, and none without.
+    /// No row has an identity, as no listing has seen its file yet. Returns `None` unless each
+    /// key is of that order and every row comes after the one before it as `in_order` compares
+    /// them, so that rows read from a file never claim an order they are not in.
+    pub fn from_saved(
+        names: Vec<OsString>,
+        order: (Sort, bool, bool),
+        keys: Vec<SortKey>,
+    ) -> Option<Rows> {
+        let looks = order.0.looks_at_files();
+        let kind = std::mem::discriminant(&SortKey::not_looked_at(order.0));
+        let keys_fit = match looks {
+            true => {
+                keys.len() == names.len()
+                    && (keys.iter()).all(|k| std::mem::discriminant(k) == kind)
+            }
+            false => keys.is_empty(),
+        };
+        let none = SortKey::Name;
+        let row = |i: usize| (keys.get(i).unwrap_or(&none), &names[i]);
+        let is_in_order = (1..names.len()).all(|i| in_order(row(i - 1), row(i), order).is_lt());
+        if !keys_fit || !is_in_order {
+            return None;
+        }
+        let identities = vec![None; names.len()];
+        let order = match looks {
+            true => RowOrder::ByKey(order, keys),
+            false => RowOrder::ByName(order),
+        };
+        Some(Rows {
+            files: names,
+            identities,
+            order,
+        })
+    }
+
     /// Returns no rows, in the order of `like`, with room for `n`.
     fn empty_in(like: &RowOrder, n: usize) -> Rows {
         Rows {

@@ -995,6 +995,9 @@ impl crate::App {
                 }
             }
             Some(None) => {}
+            // An entry that no listing has checked (a saved list's row, a collection's entry)
+            // gets its thumbnail once a listing has seen its file.
+            None if self.list.has_unchecked_entries() => {}
             None => {
                 let path = self.path(i);
                 self.thumbs.ask(name, path, self.folder.dir(), identity);

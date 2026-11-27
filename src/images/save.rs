@@ -937,9 +937,9 @@ pub(crate) fn save_copy_with_sidecar(
         // A file of that name is not touched, nor a sidecar there, because the copy is refused
         // first.
         None => {
-            let tmp = crate::files::file_io::tmp_path(new);
             let written = crate::files::file_io::write_beside(
-                &tmp,
+                crate::files::file_io::Readers::AsUsual,
+                &crate::files::file_io::tmp_path(new),
                 new,
                 |f| f.write_all(out),
                 |tmp| {
