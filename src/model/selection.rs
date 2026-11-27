@@ -1,5 +1,6 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
+use crate::files::file_io::PickedFiles;
 use crate::model::folder::total_size_unless_on_a_share;
 use crate::support::format::{ShownText, count, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
@@ -9,9 +10,51 @@ use crate::ui::actions::Action;
 use crate::ui::file_list::SizeDue;
 use crate::viewer::view::Viewing;
 use eframe::egui;
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+
+/// The places in the list of the files that an action on the selection acts on: the selected
+/// files, or the shown image when none is selected. Only `App::targets`, `App::asked_targets`
+/// and `App::select_for_action` make one, so a function that takes it cannot be given the shown
+/// image in place of the files the user picked (AGENTS.md, rule 2). Every function that acts on
+/// the picked files takes one, and its caller asks for it.
+///
+/// The places hold only for the list of the frame they were made in, as a listing moves the
+/// files. So a `Targets` is never kept in a struct, a channel or a dialog's state. A wait goes
+/// through `PickedFiles` or `Asked`, and `asked_targets` finds the files again after it. The
+/// type is not `Send`, which keeps it out of a thread and a channel to one. A field of `App`
+/// that held one is not refused by the compiler, and is for review to find.
+pub(crate) struct Targets {
+    places: Vec<usize>,
+    /// Makes the type neither `Send` nor `Sync`.
+    _in_the_window_thread: std::marker::PhantomData<*const ()>,
+}
+
+impl Targets {
+    /// The targets at `places`, made only by the three ways in that `Targets` names.
+    fn new(places: Vec<usize>) -> Targets {
+        Targets {
+            places,
+            _in_the_window_thread: std::marker::PhantomData,
+        }
+    }
+
+    /// Targets at `places`, for a test that acts on given files.
+    #[cfg(test)]
+    pub(crate) fn at(places: Vec<usize>) -> Targets {
+        Targets::new(places)
+    }
+}
+
+impl std::ops::Deref for Targets {
+    type Target = [usize];
+
+    fn deref(&self) -> &[usize] {
+        &self.places
+    }
+}
 
 impl crate::App {
     // ---- Moving through the list, and the selection ----
@@ -272,22 +315,23 @@ impl crate::App {
     }
 
     /// Selects the files at `places` for an action to act on, as Find Duplicates, Check
-    /// Images, a dialog's answer and `--remote select` do. Returns false, with a notice and the
+    /// Images, a dialog's answer and `--remote select` do. Returns `None`, with a notice and the
     /// selection left as it was, when the search hides any of them. The search would keep those
     /// apart, and the action would then act on fewer files than meant, or on the shown image.
+    /// Returns the targets of the selection made, or `None` when it refused.
     pub(crate) fn select_for_action(
         &mut self,
         ctx: &egui::Context,
         places: std::collections::BTreeSet<usize>,
-    ) -> bool {
+    ) -> Option<Targets> {
         if !places.iter().all(|&i| self.list.shows_file(i)) {
             self.notice.give_error(tr(
                 "The search hides files this would act on: clear it first",
             ));
-            return false;
+            return None;
         }
         self.set_selection(ctx, places);
-        true
+        self.targets()
     }
 
     /// Called when the selection changes: update the title and compute the size in the background.
@@ -363,14 +407,36 @@ impl crate::App {
     /// notice, when every selected file is one the search hides, because the shown image
     /// would then stand in for files the user picked. When the search hides only some of
     /// them, the action acts on the others, and the status bar counts the ones it leaves out.
-    pub(crate) fn targets(&mut self) -> Option<Vec<usize>> {
+    pub(crate) fn targets(&mut self) -> Option<Targets> {
         let targets = self.targets_without_notice();
         if targets.is_none() {
             self.notice.give_error(tr(
                 "The search hides files this would act on: clear it first",
             ));
         }
-        targets
+        targets.map(Targets::new)
+    }
+
+    /// The places now of the files the dialog asked about that are still in the list, and the
+    /// files as they were picked, with their fingerprints. Returns `None`, with a notice, when
+    /// none of them is, or when another folder or collection is shown.
+    pub(crate) fn asked_targets(&mut self) -> Option<(Targets, PickedFiles)> {
+        let (opened_folder_hash, names, picked) = self.dialogs.take_asked()?;
+        let names: HashSet<OsString> = names.into_iter().collect();
+        let found: Vec<usize> = match opened_folder_hash == self.opened_folder_hash() {
+            true => (self.list.files().iter().enumerate())
+                .filter(|(_, f)| names.contains(*f))
+                .map(|(i, _)| i)
+                .collect(),
+            false => Vec::new(),
+        };
+        if found.is_empty() {
+            self.notice.give_error(tr(
+                "The files asked about are no longer in the list: nothing was done",
+            ));
+            return None;
+        }
+        Some((Targets::new(found), picked))
     }
 
     /// Says how many selected files the search hides, which an action on the selection
@@ -559,7 +625,7 @@ mod tests {
         app.search.set_query("cherry");
         app.update_search(&ctx);
         assert!(app.list.only_hidden_selected());
-        assert_eq!(app.targets(), None);
+        assert!(app.targets().is_none());
         assert!(app.notice.set_aside().is_some());
         // Neither the delete's question nor a query names the shown image.
         app.run(&ctx, crate::ui::actions::Action::Delete);
@@ -568,7 +634,7 @@ mod tests {
         assert!(app.remote_query("selection").is_empty());
         let shown = app.list.shown();
         assert!(app.list.select_on_right_click(shown));
-        assert_eq!(app.targets(), Some(vec![shown]));
+        assert_eq!(app.targets().as_deref(), Some(&[shown][..]));
         assert!(app.list.hidden_selected().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -587,17 +653,20 @@ mod tests {
         app.list.select([0, 1, 2].into());
         app.search.set_query("cherry");
         app.update_search(&ctx);
-        assert_eq!(app.targets(), Some(vec![2]));
+        assert_eq!(app.targets().as_deref(), Some(&[2][..]));
         let left_out = app.hidden_selection_notice().unwrap();
         assert!(left_out.contains("2 files"), "{left_out}");
         app.config.confirm_trash = true;
         app.request_delete(&ctx, crate::files::file_ops::Removal::Trash);
         app.list.select([0, 2].into());
         assert_eq!(app.dialogs.asked_left_out(), Some(&left_out));
-        assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![2]));
+        assert_eq!(
+            app.asked_targets().map(|(found, _)| found.to_vec()),
+            Some(vec![2])
+        );
         assert_eq!(app.dialogs.asked_left_out(), None);
         app.list.select([2, 3].into());
-        assert_eq!(app.targets(), Some(vec![2, 3]));
+        assert_eq!(app.targets().as_deref(), Some(&[2, 3][..]));
         assert_eq!(app.hidden_selection_notice(), None);
         app.request_delete(&ctx, crate::files::file_ops::Removal::Trash);
         assert_eq!(app.dialogs.asked_left_out(), None);

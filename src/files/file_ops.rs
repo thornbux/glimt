@@ -17,6 +17,7 @@ use crate::images::save::save_rotated;
 use crate::metadata::marks::MovesKnownFrom;
 use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
+use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
@@ -845,16 +846,19 @@ impl FileOperations {
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, removal: Removal) {
-        self.request_delete_as_seen(ctx, removal, None);
+        if let Some(targets) = self.targets() {
+            self.request_delete_as_seen(ctx, removal, targets, None);
+        }
     }
 
-    /// `request_delete`, of files whose fingerprints `seen` a search took when it found them
-    /// (Find Duplicates), when it is given. The delete then leaves out a file that is no longer
-    /// as the search saw it, not only one changed while the question was open.
+    /// `request_delete` of `targets`, of files whose fingerprints `seen` a search took when it
+    /// found them (Find Duplicates), when it is given. The delete then leaves out a file that is
+    /// no longer as the search saw it, not only one changed while the question was open.
     pub(crate) fn request_delete_as_seen(
         &mut self,
         ctx: &egui::Context,
         removal: Removal,
+        targets: Targets,
         seen: Option<&crate::files::file_io::AsSeen>,
     ) {
         if self.list.files().is_empty() {
@@ -864,10 +868,9 @@ impl crate::App {
             Removal::Trash => self.config.confirm_trash,
             Removal::ForGood => self.config.confirm_delete,
         } {
-            if let Some(asked) = self.ask_about_targets_as_seen(seen) {
-                self.dialogs.confirm_delete(asked, removal);
-            }
-        } else if let Some(targets) = self.targets() {
+            let asked = self.ask_about_files(&targets, seen);
+            self.dialogs.confirm_delete(asked, removal);
+        } else {
             self.delete_targets(ctx, removal, targets, seen);
         }
     }
@@ -888,7 +891,7 @@ impl crate::App {
 
     /// A hash of what the list shows: the folder, the folders or the collection opened. Another
     /// folder or collection that is opened may hold files with the same names.
-    fn opened_folder_hash(&self) -> u64 {
+    pub(crate) fn opened_folder_hash(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         (
@@ -905,22 +908,14 @@ impl crate::App {
     /// places in the list. Returns `None`, with a notice, when there are no targets, and the
     /// dialog must not open.
     pub(crate) fn ask_about_targets(&mut self) -> Option<Asked> {
-        self.ask_about_targets_as_seen(None)
-    }
-
-    /// `ask_about_targets`, with the fingerprints `seen` that a search took, when given
-    /// (`request_delete_as_seen`).
-    fn ask_about_targets_as_seen(
-        &mut self,
-        seen: Option<&crate::files::file_io::AsSeen>,
-    ) -> Option<Asked> {
         let targets = self.targets()?;
-        Some(self.ask_about_files(&targets, seen))
+        Some(self.ask_about_files(&targets, None))
     }
 
-    /// The files at `targets` for a dialog about them, as `ask_about_targets_as_seen` takes
-    /// them. A dialog about one file of the selection (Rename) asks about that one file alone,
-    /// so that its answer can act on no other.
+    /// The files at `targets` for a dialog about them, with the fingerprints `seen` that a
+    /// search took, when given (`request_delete_as_seen`). A dialog about one file of the
+    /// selection (Rename) asks about that one file alone, so that its answer can act on no
+    /// other.
     fn ask_about_files(
         &mut self,
         targets: &[usize],
@@ -930,28 +925,6 @@ impl crate::App {
         let picked = self.picked_targets(targets, seen);
         let left_out = self.hidden_selection_notice();
         Asked::new(self.opened_folder_hash(), names.collect(), left_out, picked)
-    }
-
-    /// The places now of the files the dialog asked about that are still in the list, and the
-    /// files as they were picked, with their fingerprints. Returns `None`, with a notice, when
-    /// none of them is, or when another folder or collection is shown.
-    pub(crate) fn asked_targets(&mut self) -> Option<(Vec<usize>, PickedFiles)> {
-        let (opened_folder_hash, names, picked) = self.dialogs.take_asked()?;
-        let names: HashSet<OsString> = names.into_iter().collect();
-        let found: Vec<usize> = match opened_folder_hash == self.opened_folder_hash() {
-            true => (self.list.files().iter().enumerate())
-                .filter(|(_, f)| names.contains(*f))
-                .map(|(i, _)| i)
-                .collect(),
-            false => Vec::new(),
-        };
-        if found.is_empty() {
-            self.notice.give_error(tr(
-                "The files asked about are no longer in the list: nothing was done",
-            ));
-            return None;
-        }
-        Some((found, picked))
     }
 
     /// Returns whether no file of `paths`, or in a folder of them, is being saved turned or changed
@@ -1094,7 +1067,7 @@ impl crate::App {
         &mut self,
         ctx: &egui::Context,
         removal: Removal,
-        targets: Vec<usize>,
+        targets: Targets,
         seen: Option<&crate::files::file_io::AsSeen>,
     ) {
         let picked = self.picked_targets(&targets, seen);
@@ -1109,7 +1082,7 @@ impl crate::App {
         &mut self,
         ctx: &egui::Context,
         removal: Removal,
-        targets: Vec<usize>,
+        targets: Targets,
         picked: PickedFiles,
     ) {
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
@@ -4877,6 +4850,7 @@ fn folder_of_all(paths: &[PathBuf]) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::selection::Targets;
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
     use crate::support::threads::{Told, lock_even_if_poisoned};
     use std::path::PathBuf;
@@ -5277,7 +5251,12 @@ mod tests {
         crate::support::test_support::open_now(&mut app, &ctx, d.join("show.m3u"));
         assert!(app.folder.is_listing() && app.list.files().len() == 2);
         let sub = (app.list.files().iter()).position(|f| std::path::Path::new(f).ends_with("sub"));
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![sub.unwrap()], None);
+        app.delete_targets(
+            &ctx,
+            super::Removal::ForGood,
+            Targets::at(vec![sub.unwrap()]),
+            None,
+        );
         assert!(app.notice.text().is_some() && app.list.files().len() == 2);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -5745,7 +5724,12 @@ mod tests {
             .renaming
             .is_none()));
         assert!(!c.exists(), "the other photo was renamed");
-        delete.delete_targets(&delete_ctx, super::Removal::ForGood, vec![0], None);
+        delete.delete_targets(
+            &delete_ctx,
+            super::Removal::ForGood,
+            Targets::at(vec![0]),
+            None,
+        );
         assert!(run_background_until(&mut delete, &delete_ctx, idle));
         assert!(a.exists() && b.exists(), "the other photo was deleted");
         drop(first);
@@ -6780,7 +6764,7 @@ mod tests {
             let _ = wait.recv();
             None
         }));
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![0]), None);
         assert!(a.exists() && app.notice.text().is_some());
         assert_eq!(app.list.files().len(), 2);
         app.file_operations.undo = Some(super::Undo::Move(vec![(
@@ -6810,7 +6794,7 @@ mod tests {
         });
         assert!(free);
         app.file_operations.undo = None;
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![0]), None);
         assert!(wait_for(&|| !a.exists()));
         // Thousands against thousands are answered at once, not path against path (10^8
         // comparisons froze the window for seconds).
@@ -6951,7 +6935,9 @@ mod tests {
             ),
             (
                 "delete",
-                |app, ctx, _| app.delete_targets(ctx, super::Removal::ForGood, vec![0], None),
+                |app, ctx, _| {
+                    app.delete_targets(ctx, super::Removal::ForGood, Targets::at(vec![0]), None)
+                },
                 |app, d| {
                     !d.join("a.png").exists()
                         && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
@@ -7056,7 +7042,9 @@ mod tests {
             ),
             (
                 "trash",
-                |app, ctx, _| app.delete_targets(ctx, super::Removal::Trash, vec![0], None),
+                |app, ctx, _| {
+                    app.delete_targets(ctx, super::Removal::Trash, Targets::at(vec![0]), None)
+                },
                 |app, d| {
                     !d.join("a.png").exists()
                         && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
@@ -7067,7 +7055,7 @@ mod tests {
             (
                 "undo a trash",
                 |app, ctx, _| {
-                    app.delete_targets(ctx, super::Removal::Trash, vec![0], None);
+                    app.delete_targets(ctx, super::Removal::Trash, Targets::at(vec![0]), None);
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.text().is_none() {
@@ -7334,7 +7322,7 @@ mod tests {
         }
         fn delete(app: &mut crate::App, ctx: &Context, f: &str, removal: super::Removal) {
             let at = (app.list.files().iter()).position(|n| *n == *f);
-            app.delete_targets(ctx, removal, at.into_iter().collect(), None);
+            app.delete_targets(ctx, removal, Targets::at(at.into_iter().collect()), None);
         }
         fn undo(app: &mut crate::App, ctx: &Context) {
             run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
@@ -7550,7 +7538,12 @@ mod tests {
                 "undo a trash",
                 &["r.cr2", "r.nef", "r.xmp"],
                 |app, ctx, _| {
-                    app.delete_targets(ctx, super::Removal::Trash, [0].into_iter().collect(), None);
+                    app.delete_targets(
+                        ctx,
+                        super::Removal::Trash,
+                        Targets::at([0].into_iter().collect()),
+                        None,
+                    );
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -7560,12 +7553,7 @@ mod tests {
                 "undo a trash of both",
                 &["r.cr2", "r.nef", "r.xmp"],
                 |app, ctx, _| {
-                    app.delete_targets(
-                        ctx,
-                        super::Removal::Trash,
-                        [0, 1].into_iter().collect(),
-                        None,
-                    );
+                    app.delete_targets(ctx, super::Removal::Trash, Targets::at(vec![0, 1]), None);
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -9473,7 +9461,7 @@ mod tests {
             && app.file_operations.undo.is_some()));
         // The delete waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
         let lock = crate::metadata::xmp::lock_sidecar(&a);
-        app.delete_targets(&ctx, super::Removal::Trash, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::Trash, Targets::at(vec![0]), None);
         app.undo(&ctx);
         assert!(
             sub.join("c.png").exists() && !c.exists(),
@@ -9886,7 +9874,10 @@ mod tests {
             open
         });
         assert!(asked);
-        assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![0]));
+        assert_eq!(
+            app.asked_targets().map(|(found, _)| found.to_vec()),
+            Some(vec![0])
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -10004,7 +9995,7 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |app| app.modal_open()));
         assert_eq!(app.dialogs.asked_names(), ["a.png"]);
         let (found, picked) = app.asked_targets().unwrap();
-        assert_eq!(found, vec![0]);
+        assert_eq!(found.to_vec(), vec![0]);
         app.notice.clear();
         app.delete_now(&ctx, super::Removal::ForGood, found, picked);
         let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("changed"));
@@ -10129,7 +10120,12 @@ mod tests {
         // Move to Trash.
         let at = (0..app.list.files().len()).find(|&i| app.path(i) == a);
         let release = hold_the_remover();
-        app.delete_targets(&ctx, super::Removal::Trash, vec![at.unwrap()], None);
+        app.delete_targets(
+            &ctx,
+            super::Removal::Trash,
+            Targets::at(vec![at.unwrap()]),
+            None,
+        );
         assert!(run_background_until(&mut app, &ctx, |app| over(app)
             && app.file_operations.undo.is_some()));
         assert!(!a.exists());
@@ -10681,7 +10677,7 @@ mod tests {
             let at = (app.list.files().iter())
                 .position(|f| f == "c.png")
                 .unwrap();
-            app.delete_targets(&ctx, super::Removal::ForGood, vec![at], None);
+            app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![at]), None);
         });
         assert!(!d.join("c.png.xmp").exists());
         // With many files, they are held a chunk at a time, so a file held up by a sidecar
@@ -10716,7 +10712,7 @@ mod tests {
             .collect();
         assert_eq!(all.len(), 400);
         let lock = crate::metadata::xmp::lock_sidecar(&y);
-        app.delete_targets(&ctx, super::Removal::ForGood, all, None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(all), None);
         let others_gone = |_: &crate::App| paths.iter().all(|p| held_up.contains(p) || !p.exists());
         assert!(
             run_background_until(&mut app, &ctx, others_gone),
@@ -10805,7 +10801,7 @@ mod tests {
             .folder
             .is_listing()));
         app.notice.clear();
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![0]), None);
         let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("a.png.xmp"));
         assert!(run_background_until(&mut app, &ctx, told));
         assert!(!a.exists());
@@ -10823,7 +10819,7 @@ mod tests {
         let side = crate::metadata::xmp::sidecar(&a);
         std::os::unix::fs::symlink(dir.join("nowhere"), &side).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![0]), None);
         let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
         assert!(run_background_until(&mut app, &ctx, |_| gone(&a) && gone(&side)));
         std::fs::remove_dir_all(dir).unwrap();
@@ -10880,7 +10876,7 @@ mod tests {
             .folder
             .is_listing()));
         lock_even_if_poisoned(&LOOKS_FAIL).push(a.clone());
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![0], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![0]), None);
         let done = run_background_until(&mut app, &ctx, |app| !app.working());
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
         assert!(done);
@@ -11082,7 +11078,7 @@ mod tests {
             .iter()
             .position(|f| std::path::Path::new(f).ends_with("b.png"))
             .unwrap();
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![b], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![b]), None);
         assert!(run_background_until(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -11189,7 +11185,7 @@ mod tests {
         ) && at(app)
             .is_some()));
         let a = at(&app).unwrap();
-        app.delete_targets(&ctx, super::Removal::Trash, vec![a], None);
+        app.delete_targets(&ctx, super::Removal::Trash, Targets::at(vec![a]), None);
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["b.png"]
@@ -11339,7 +11335,7 @@ mod tests {
         let a = dir.join("a.png");
         lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).push(a.clone());
         let (mut app, ctx) = app_on(&dir);
-        app.delete_targets(&ctx, super::Removal::ForGood, vec![0, 1], None);
+        app.delete_targets(&ctx, super::Removal::ForGood, Targets::at(vec![0, 1]), None);
         assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations

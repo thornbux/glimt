@@ -845,7 +845,10 @@ impl crate::App {
             let Some((found, _)) = self.asked_targets() else {
                 return;
             };
-            if !self.select_for_action(ctx, found.into_iter().collect()) {
+            if self
+                .select_for_action(ctx, found.iter().copied().collect())
+                .is_none()
+            {
                 return;
             }
             let added_to = collections::CollectionAddedTo::New(text.to_owned());
@@ -876,7 +879,12 @@ impl crate::App {
                     [i] => self.show_file(ctx, i),
                     _ => return,
                 },
-                _ if !self.select_for_action(ctx, found.into_iter().collect()) => return,
+                _ if self
+                    .select_for_action(ctx, found.iter().copied().collect())
+                    .is_none() =>
+                {
+                    return;
+                }
                 _ => {}
             }
             picked = Some(asked);
@@ -2218,7 +2226,10 @@ mod tests {
         app.request_delete(&ctx, crate::files::file_ops::Removal::Trash);
         app.list.select([1, 2].into());
         assert_eq!(app.delete_dialog_subject(), "\"a.png\"");
-        assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![0]));
+        assert_eq!(
+            app.asked_targets().map(|(found, _)| found.to_vec()),
+            Some(vec![0])
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

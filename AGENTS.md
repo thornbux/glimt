@@ -431,6 +431,10 @@ arm becomes a method.
     (`file_menu`), offers only actions on the selection.
   - `targets()` returns `None` when the search hides every selected file, and the action then
     stops: the shown image must not stand in for the files the user picked.
+  - The function that acts on the selection takes a `selection::Targets`, which only
+    `targets()`, `asked_targets()` and `select_for_action` make, and its caller asks for it.
+    Its places hold only for the frame they were made in, so a wait carries `PickedFiles` or
+    `Asked`, never a `Targets`.
   - A feature or dialog that selects the files it acts on (Find Duplicates, Check Images,
     Rename Many) does so with `select_for_action`, which refuses while the search hides any of
     them.

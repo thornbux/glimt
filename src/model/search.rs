@@ -907,7 +907,7 @@ mod tests {
         app.search.set_query("beach");
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[2].into());
-        assert_eq!(app.targets(), Some(vec![2]));
+        assert_eq!(app.targets().as_deref(), Some(&[2][..]));
         // Ctrl+click adds the shown image the first time, but not when the search hides it.
         app.list.clear_selection();
         app.list.add_to_selection([app.list.shown(), 3]);
@@ -923,7 +923,7 @@ mod tests {
         app.search.set_query("beach2");
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[3].into());
-        assert_eq!(app.targets(), Some(vec![3]));
+        assert_eq!(app.targets().as_deref(), Some(&[3][..]));
         app.search.set_query("");
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[2, 3].into());
@@ -971,7 +971,7 @@ mod tests {
         app.config.fuzzy_search = true;
         // The EXIF index is read in the background, and finds nothing until it is there.
         assert!(typed(&mut app, &["exi", "exif:canon"]).is_empty());
-        assert_eq!(app.targets(), None);
+        assert!(app.targets().is_none());
         assert_eq!(typed(&mut app, &["exif:canon", ""]), [0, 1].into());
         let read = |a: &crate::App| a.search.has_exif_index();
         assert!(crate::support::test_support::run_background_until(

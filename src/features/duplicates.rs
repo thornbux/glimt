@@ -420,13 +420,13 @@ impl crate::App {
         let checked_rows = (0..self.list.files().len())
             .filter(|&i| checked.contains(&self.path(i)))
             .collect();
-        if !self.select_for_action(ctx, checked_rows) {
+        let Some(targets) = self.select_for_action(ctx, checked_rows) else {
             return;
-        }
+        };
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
         if self.list.selected().len() == checked.len() {
-            self.request_delete_as_seen(ctx, Removal::Trash, Some(&as_seen));
+            self.request_delete_as_seen(ctx, Removal::Trash, targets, Some(&as_seen));
         } else {
             self.notice
                 .give_error(tr("The checked files are no longer all in the list"));

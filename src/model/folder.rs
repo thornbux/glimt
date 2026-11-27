@@ -6842,7 +6842,7 @@ mod tests {
                     false => "",
                 };
                 assert_eq!(
-                    app.targets(),
+                    app.targets().map(|t| t.to_vec()),
                     on_screen,
                     "the targets after {shift}a key: {at}"
                 );

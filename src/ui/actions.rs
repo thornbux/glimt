@@ -1244,7 +1244,7 @@ impl crate::App {
             }
             Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
                 if let Some(picked) = self.targets() {
-                    let picked: HashSet<usize> = picked.into_iter().collect();
+                    let picked: HashSet<usize> = picked.iter().copied().collect();
                     let (n, shown) = (self.list.files().len(), self.shown_files());
                     let order = collections::moved(n, &shown, &picked, action);
                     self.move_in_collection(ctx, picked, order)

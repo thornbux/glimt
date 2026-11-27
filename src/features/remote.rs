@@ -978,7 +978,7 @@ impl crate::App {
         if let Some(&first) = found.first() {
             // When the search hides one of them, none is selected, and the answer names every
             // path, as at closing.
-            if !self.select_for_action(ctx, found) {
+            if self.select_for_action(ctx, found).is_none() {
                 return paths.iter().flat_map(|p| p.bytes().chain([0])).collect();
             }
             self.show_file(ctx, first);
