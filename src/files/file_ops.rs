@@ -2706,21 +2706,33 @@ impl crate::App {
         // An entry of a list not yet checked may be a folder, which must get no sidecar. So the
         // write waits for the listing that checks the list, rather than being refused after the
         // panel has counted the edit as saved.
+        // A file picked as an unchecked entry (the info panel's edit, read before the listing
+        // came) is taken from the list again by its name, as the listing found it.
         let is_unchecked = self.list.has_unchecked_entries();
-        if self.file_operations.renaming.is_some() || is_unchecked {
-            let is_unchecked_entry = match is_unchecked {
-                true => self.are_list_entries(&files),
-                false => vec![false; files.len()],
-            };
+        let is_unchecked_entry: Vec<bool> = match is_unchecked {
+            true => self.are_list_entries(&files),
+            false => vec![false; files.len()],
+        };
+        let is_unchecked_entry: Vec<bool> = (is_unchecked_entry.into_iter().zip(&files))
+            .map(|(is_entry, f)| is_entry || f.is_unchecked_entry())
+            .collect();
+        let waits_for_the_list = is_unchecked || is_unchecked_entry.contains(&true);
+        if self.file_operations.renaming.is_some() || waits_for_the_list {
             let waiting = WaitingSidecarWrite {
                 activity: activity.into(),
                 files,
                 is_unchecked_entry,
                 write: Box::new(write),
                 report: Box::new(report),
-                _writing: (!is_unchecked).then(|| Working::new(&crate::files::file_io::WRITING)),
+                _writing: (!waits_for_the_list)
+                    .then(|| Working::new(&crate::files::file_io::WRITING)),
             };
-            return self.file_operations.sidecar_writes_waiting.push(waiting);
+            self.file_operations.sidecar_writes_waiting.push(waiting);
+            // Checked already, the list gives the entries now.
+            if !is_unchecked {
+                self.settle_sidecar_writes_waiting_for_the_list(ctx);
+            }
+            return;
         }
         self.send_sidecar_write(ctx, activity.into(), files, write, report);
     }
@@ -2836,7 +2848,7 @@ impl crate::App {
             waiting.files = (waiting.files.iter())
                 .map(|f| {
                     let path = new_place(f.path(), &moved).unwrap_or_else(|| f.path().into());
-                    ListedFile::new(path, f.identity(), f.list_is_old())
+                    f.moved_to(path)
                 })
                 .collect();
             self.file_operations.sidecar_writes_waiting.push(waiting);

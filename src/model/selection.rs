@@ -92,11 +92,22 @@ impl crate::App {
 
     /// Image `i` as a file a write can check is still the one listed (`ListedFile::check`).
     pub(crate) fn listed_file(&self, i: usize) -> crate::files::file_io::ListedFile {
-        crate::files::file_io::ListedFile::new(
-            self.path(i),
-            self.list.identity(i),
-            self.folder.list_is_old(),
-        )
+        self.listed_file_known_as(self.path(i), self.list.identity(i))
+    }
+
+    /// The file at `path`, which the list shows and knew by `identity`, for a change of it.
+    /// While no listing has checked the list's entries (a saved list's rows, a collection's
+    /// entries), it is an unchecked entry, which no change passes (`ListedFile::check`).
+    pub(crate) fn listed_file_known_as(
+        &self,
+        path: PathBuf,
+        identity: crate::files::file_io::Identity,
+    ) -> crate::files::file_io::ListedFile {
+        use crate::files::file_io::ListedFile;
+        match self.list.has_unchecked_entries() {
+            true => ListedFile::unchecked_entry(path, self.folder.list_is_old()),
+            false => ListedFile::new(path, identity, self.folder.list_is_old()),
+        }
     }
 
     /// Is `path` image number `i` in the list? (Without building the path.)
@@ -566,6 +577,28 @@ fn position_of(row: Option<usize>, total: usize, separator: &'static str) -> Sho
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+
+    /// A file the list shows as an entry of a list's file that no listing has checked yet (a
+    /// collection's entry, a saved list's row) is refused by the check every change makes, and
+    /// passes once the listing has checked it. Risk: a mark or stars set on a name where no
+    /// listed file is, which the next file of that name then shows. Before, such a file had no
+    /// identity and passed without a look.
+    #[test]
+    fn an_entry_no_listing_has_checked_is_refused() {
+        let dir = crate::support::test_support::contract_folder("unchecked-entry");
+        std::fs::write(dir.join("show.m3u"), "a.png\n").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, dir.join("show.m3u"));
+        assert!(app.list.has_unchecked_entries());
+        assert!(app.listed_file(0).check().is_err());
+        assert!(crate::support::test_support::run_background_until(
+            &mut app,
+            &ctx,
+            |a| !a.list.has_unchecked_entries() && !a.folder.is_listing()
+        ));
+        assert!(app.listed_file(0).check().is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A file planted with line breaks and a mark that turns the text around in its name is
     /// shown with them written as escapes, in the list, the title and the delete question,

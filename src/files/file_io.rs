@@ -428,27 +428,48 @@ impl ListIsOld {
 #[derive(Clone, Debug)]
 pub(crate) struct ListedFile {
     path: PathBuf,
-    identity: Identity,
+    listed_as: ListedAs,
     /// The flag of the window whose list showed the file, raised when `check` finds another
     /// file at its name.
     list_is_old: ListIsOld,
 }
 
-/// Two are the same file when their path and identity are, whichever window's flag they carry.
+/// Two are the same file when their path and what the list knew of them are, whichever
+/// window's flag they carry.
 impl PartialEq for ListedFile {
     fn eq(&self, other: &Self) -> bool {
-        (&self.path, self.identity) == (&other.path, other.identity)
+        (&self.path, self.listed_as) == (&other.path, other.listed_as)
     }
 }
 
 impl ListedFile {
-    /// The file at `path`, which the list knew by `identity` (`App::listed_file`). A refusal
-    /// raises `list_is_old`, the flag of the window whose list it is.
+    /// The file at `path`, which a listing found and the list knew by `identity`. A refusal
+    /// raises `list_is_old`, the flag of the window whose list it is. Only `App::listed_file`
+    /// and the tests make one, as only the window knows whether a listing has checked the list.
     pub(crate) fn new(path: PathBuf, identity: Identity, list_is_old: &ListIsOld) -> Self {
         ListedFile {
             path,
-            identity,
+            listed_as: ListedAs::Listed(identity),
             list_is_old: list_is_old.clone(),
+        }
+    }
+
+    /// The file at `path`, an entry of a list's file that no listing has checked yet (a saved
+    /// list's row, a collection's entry), in the list whose flag is `list_is_old`. It never
+    /// passes `check`.
+    pub(crate) fn unchecked_entry(path: PathBuf, list_is_old: &ListIsOld) -> Self {
+        ListedFile {
+            path,
+            listed_as: ListedAs::UncheckedEntry,
+            list_is_old: list_is_old.clone(),
+        }
+    }
+
+    /// This file at its new place `path` after a rename, with what the list knew of it kept.
+    pub(crate) fn moved_to(&self, path: PathBuf) -> Self {
+        ListedFile {
+            path,
+            ..self.clone()
         }
     }
 
@@ -457,7 +478,7 @@ impl ListedFile {
     pub(crate) fn not_from_the_list(path: PathBuf) -> Self {
         ListedFile {
             path,
-            identity: None,
+            listed_as: ListedAs::Listed(None),
             list_is_old: ListIsOld::default(),
         }
     }
@@ -466,13 +487,19 @@ impl ListedFile {
         &self.path
     }
 
+    /// Returns the identity the listing gave the file, or `None` when it is not known or no
+    /// listing has checked the entry.
     pub(crate) fn identity(&self) -> Identity {
-        self.identity
+        match self.listed_as {
+            ListedAs::Listed(identity) => identity,
+            ListedAs::UncheckedEntry => None,
+        }
     }
 
-    /// The flag of the window whose list showed the file (`ListIsOld`).
-    pub(crate) fn list_is_old(&self) -> &ListIsOld {
-        &self.list_is_old
+    /// Returns whether the file is an entry of a list's file that no listing had checked when
+    /// it was picked.
+    pub(crate) fn is_unchecked_entry(&self) -> bool {
+        self.listed_as == ListedAs::UncheckedEntry
     }
 
     /// Refuses to change the file when another file has taken its name since the list showed
@@ -484,12 +511,29 @@ impl ListedFile {
     /// shortcut: a file deleted and another made under its name may get the freed inode and
     /// pass; the size and time of the listing would tell them apart, but cost a look at every
     /// file.
+    /// An entry that no listing has checked is refused without a look. No file may be there,
+    /// or a folder, or a file that came after the list was saved, and a mark set on the name
+    /// would go to the next file that takes it.
     pub(crate) fn check(&self) -> std::io::Result<()> {
-        is_still_the_file(
-            &self.path,
-            KnownAs::listed(self.identity, &self.list_is_old),
-        )
+        match self.listed_as {
+            ListedAs::Listed(identity) => {
+                is_still_the_file(&self.path, KnownAs::listed(identity, &self.list_is_old))
+            }
+            ListedAs::UncheckedEntry => Err(std::io::Error::other(crate::support::lang::tr(
+                "Still working on these files: try again in a moment",
+            ))),
+        }
     }
+}
+
+/// What the list knew of a file it showed, when the file was picked.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ListedAs {
+    /// A file that a listing found, with the identity the listing gave it.
+    Listed(Identity),
+    /// An entry of a list's file that no listing has checked yet
+    /// (`List::has_unchecked_entries`): a saved list's row or a collection's entry.
+    UncheckedEntry,
 }
 
 /// What a file was known by, for `is_still_the_file`: the inode its folder listed, and its
@@ -3244,7 +3288,8 @@ fn paths_and_identities(files: Vec<ListedFile>) -> (Vec<PathBuf>, Listed) {
         .first()
         .map(|f| f.list_is_old.clone())
         .unwrap_or_default();
-    let listed = files.iter().map(|f| f.identity).collect();
+    // An unchecked entry has no identity, and its fingerprint taken at the pick decides.
+    let listed = files.iter().map(ListedFile::identity).collect();
     let paths = files.into_iter().map(|f| f.path).collect();
     (paths, (listed, list_is_old))
 }

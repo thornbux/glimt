@@ -2300,10 +2300,14 @@ impl crate::App {
     }
 
     /// Notes that the list's entries are checked, after a whole listing: a collection's entries
-    /// or a saved list's rows. An exif: search that waited for them is searched again.
+    /// or a saved list's rows. An exif: search that waited for them is searched again. The marks
+    /// are read again, because a mark set on an unchecked entry was shown but refused by the
+    /// marks file's writer (`ListedFile::check`).
     fn note_list_checked(&mut self, ctx: &egui::Context) {
         if self.list.has_unchecked_entries() {
             self.list.set_unchecked_entries(false);
+            #[cfg(feature = "marks")]
+            self.marks.read_again();
             self.update_search(ctx);
         }
     }

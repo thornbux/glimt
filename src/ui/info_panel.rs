@@ -63,9 +63,10 @@ pub(crate) enum Drawn {
 /// the info panel, and as last read or saved, to tell whether they changed.
 pub(crate) struct MetadataEdit {
     pub(crate) path: PathBuf,
-    /// The identity of the file it was read from, when the list knows the file by one. Its
-    /// save is refused when another file has taken the name since.
-    pub(crate) identity: Identity,
+    /// The file it was read from, with the identity the list knows it by, or as an entry no
+    /// listing had checked yet. Its save is refused when another file has taken the name since.
+    /// It is saved at `path`, which follows a rename.
+    pub(crate) file: ListedFile,
     keywords: String,
     comment: String,
     pub(crate) saved: xmp::KeywordsAndComment,
@@ -307,7 +308,8 @@ impl crate::App {
         // The edit of the image before is saved as soon as another image is shown, before this
         // one's read is asked for. Saved only at the next answer, it could still wait when the
         // user came back, and the panel then read the file as it was before the edit.
-        if (self.info_panel.metadata_edit.as_ref()).is_some_and(|e| is_another(&e.path, e.identity))
+        if (self.info_panel.metadata_edit.as_ref())
+            .is_some_and(|e| is_another(&e.path, e.file.identity()))
         {
             self.save_metadata_edit(ctx);
         }
@@ -357,12 +359,12 @@ impl crate::App {
             // Kept while being edited: the reader may answer for the image again. An answer of
             // another file under the name replaces it.
             if (self.info_panel.metadata_edit.as_ref())
-                .is_none_or(|m| m.path != path || is_another_file(m.identity, read_identity))
+                .is_none_or(|m| m.path != path || is_another_file(m.file.identity(), read_identity))
             {
                 self.save_metadata_edit(ctx);
                 self.info_panel.metadata_edit = Some(MetadataEdit {
                     path: path.clone(),
-                    identity: read_identity,
+                    file: self.listed_file_known_as(path.clone(), read_identity),
                     keywords: meta.keywords_text(),
                     comment: meta.comment.clone(),
                     saved: meta,
@@ -758,7 +760,7 @@ impl crate::App {
             ),
         };
         if alt_text.text.is_some() || alt_text.extended_description.is_some() {
-            let file = ListedFile::new(edit.path.clone(), edit.identity, self.folder.list_is_old());
+            let file = edit.file.moved_to(edit.path.clone());
             // A sidecar job like the keywords': Move, Rename and Delete wait for it.
             self.write_sidecars(
                 ctx,
@@ -795,7 +797,7 @@ impl crate::App {
         }
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
-        let file = ListedFile::new(edit.path.clone(), edit.identity, self.folder.list_is_old());
+        let file = edit.file.moved_to(edit.path.clone());
         // A sidecar job, so that a Move, Rename or Delete of the file waits until it has
         // landed, instead of leaving the new keywords behind under the old name.
         self.write_sidecars(
