@@ -291,13 +291,15 @@ fn parse(bytes: &[u8], key: &ListKey) -> Option<Rows> {
         return None;
     }
     let count = fields.u64()?;
-    // Each row takes at least four bytes, so a larger count cannot be, and nothing is made
-    // ready for it.
+    // Each row takes at least four bytes, so a larger count cannot be.
     if count > (fields.0.len() / 4) as u64 {
         return None;
     }
+    // The rows grow as they are read, with no room made from the count, which is the file's
+    // word: a name takes six times its four bytes there, and a small file that unpacks to
+    // 256 MiB of zeros would make room for 1.6 GB before its first row is refused.
     let looks = key.order.0.looks_at_files();
-    let (mut names, mut keys) = (Vec::with_capacity(count as usize), Vec::new());
+    let (mut names, mut keys) = (Vec::new(), Vec::new());
     for _ in 0..count {
         let name = OsString::from_vec(fields.bytes()?.to_vec());
         if !key.allows(&name) {
@@ -564,6 +566,15 @@ mod tests {
         let mut next_version = file_of(&key, &["a.jpg"]);
         next_version[8] = 2;
         assert!(parse(&next_version, &key).is_none());
+        // A count larger than the rows a small file holds, also one that unpacks to 16 MiB of
+        // zeros, is refused, and no room is made for it.
+        for (count, zeros) in [(u64::MAX, 0), ((16 << 20) / 4, 16 << 20)] {
+            let mut plain = Vec::new();
+            put_bytes(&mut plain, &key.text);
+            plain.extend(u64::to_le_bytes(count));
+            plain.resize(plain.len() + zeros, 0);
+            assert!(parse(&packed(&plain), &key).is_none(), "{count}");
+        }
         // In an order by date, each row needs a date's key.
         let by_date = tree_key((Sort::Date, true, true));
         assert!(parse(&file_of(&by_date, &["a.jpg"]), &by_date).is_none());
