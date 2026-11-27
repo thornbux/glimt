@@ -14,15 +14,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
   marks of direction as escapes, as file names are, in the menus and the notices.
 - More names are shown with their line breaks and marks of direction as escapes, as file names
   are: an added format's and a tool's name, a program's, a printer's and a keyword's, a colour
-  profile's path and name, a network address and its server, and a file system's type. So is
-  the reason that a library or a program such as ffmpeg gives when something fails.
+  profile's path and name, a network address and its server, a file system's type, the folders
+  and collections of a Lightroom catalog, and the window's name (--name) and ID in the title and
+  when Identify shows it. So is the reason that a library or a program such as ffmpeg gives when
+  something fails.
+- When sqlite3 cannot be started, Import Lightroom Catalog says that it needs sqlite3 in the
+  language in use, not in English.
 
 ### Changed
 
 - Text read from a file, such as an EXIF field, a keyword or a comment, is shown on one line in
   the window title, the full screen info, a print's caption and the notices, with a line break
-  written as "\n". The info panel still shows a comment with its own line breaks. The names of
-  tools and of applications in Open With are shown on one line too.
+  written as "\n" and its backslashes as they are. The info panel still shows a comment with
+  its own line breaks. The names of tools and of applications in Open With are shown on one line
+  too.
 - Internal: every text shown to the user is now a type of its own that only translated texts,
   escaped names and a few named kinds of text make, so a name that was not escaped cannot reach
   the window. Nothing else changes in use.
