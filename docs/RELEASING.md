@@ -30,11 +30,12 @@ branch made from it and merged back into it; `main` gets the release branch only
    smoke-tests every package and publishes nothing. The branch must be on GitHub first
    (`git push origin release-X.Y.Z`; delete it there afterwards):
    `gh workflow run release.yml --ref release-X.Y.Z -f dry_run=true -f tag=none`.
-6. **By hand.** The checks below that no script makes, and CI on the release branch: every run
-   of it is green (`gh run list --branch release-X.Y.Z`), and each failure was read and its cause
-   found. A test that fails now and then on CI's slower runners is a bug of the test or of Glimt,
-   never noise: in 0.101.0 one stopped the tag's workflow and hid a real bug, and another had
-   failed on the release branch of 0.100.0 unseen.
+6. **By hand.** The checks below that no script makes, and CI on the release branch
+   (`gh run list --branch release-X.Y.Z`): its last run, on the commit to be tagged, is green, and
+   every earlier run that failed was read and its cause found and fixed. A test that fails now
+   and then on CI's slower runners is a bug of the test or of Glimt, never noise: in 0.101.0 one
+   stopped the tag's workflow and hid a real bug, and another had failed on the release branch
+   of 0.100.0 unseen.
 7. **The tag.** `main` is fast-forwarded to the tested commit
    (`git merge --ff-only release-X.Y.Z`). If it cannot be, the release branch is first rebased
    onto `main` or merged with it, and steps 3 to 6 run again on the new commit. The tag
@@ -45,11 +46,13 @@ branch made from it and merged back into it; `main` gets the release branch only
 8. **After the tag.** Check that the Release workflow ended green, with every package,
    `SHA256SUMS` and the attestations. Until 1.0 no Flatpak bundle is built (*The Flatpak*).
    When the workflow fails before it publishes the release, find the cause first. A fix that
-   needs code is a new commit: with the maintainer's yes the tag is taken back
-   (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`) and the fixed commit later gets the
-   same version, or the fix becomes X.Y.(Z+1). The fix's CHANGELOG line goes into the release's
-   section, the fix is audited, and steps 4 to 6 run again on the new commit before it is
-   tagged. A tag whose release was published is never moved.
+   needs code is a new commit on the release branch. With the maintainer's yes the tag is taken
+   back (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`): no release of that version
+   was published, so the version is still free, and the fixed commit gets it. The fix's
+   CHANGELOG line goes into that version's section (not under [Unreleased]), the fix is audited,
+   and steps 4 to 6 run again on the new commit before it is tagged. This is no dot release: a
+   dot release fixes a published release (AGENTS.md, *Releases*). A tag whose release was
+   published is never moved.
 9. **Flathub and the website.** Glimt is not on Flathub yet, so nothing is sent there. Once
    Glimt is on Flathub, a pull request to its repository follows each tag (below). The website
    (glimt-web) is updated when the maintainer asks.
