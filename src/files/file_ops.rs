@@ -94,10 +94,11 @@ pub(crate) struct RenameJob {
 pub(crate) struct RenameOutcome {
     result: Result<(), RenameFailed>,
     left_alone: Vec<usize>,
-    /// The Undo, with the token the rename took when it started. The outcome holds the token
-    /// until the window has taken the Undo, so Ctrl+Z waits for it, and no outcome can leave
-    /// an Undo without one.
-    undo: Option<(Vec<Moved>, UndoOnTheWay)>,
+    /// The Undo of a rename that went through, with the token the rename took when it
+    /// started, or the remainder of an Undo that failed, with the token of Ctrl+Z's take. The
+    /// outcome holds the token until the window has taken the Undo, so Ctrl+Z waits for it,
+    /// and no outcome can leave an Undo without one.
+    undo: Option<ReportedUndo>,
 }
 
 /// Why `rename_files` failed, and where the names of its files are now.
@@ -302,16 +303,17 @@ pub(crate) enum ReportedUndo {
     /// has taken the Undo, so Ctrl+Z waits for it, and no report can leave a new Undo without
     /// one.
     New(Undo, UndoOnTheWay),
-    /// What an Undo from the trash or of a move could not put back. It is kept only when no
-    /// operation that finished meanwhile left an Undo of its own, which is newer.
-    Remainder(Undo),
+    /// What an Undo could not put back, with the token of the take in `App::undo` that it is
+    /// the rest of. It is kept only when no operation that finished meanwhile left an Undo of
+    /// its own, which is newer.
+    Remainder(Undo, UndoTaken),
 }
 
 impl ReportedUndo {
     /// Returns the Undo, new or a remainder.
     fn undo(&self) -> &Undo {
         match self {
-            ReportedUndo::New(undo, _) | ReportedUndo::Remainder(undo) => undo,
+            ReportedUndo::New(undo, _) | ReportedUndo::Remainder(undo, _) => undo,
         }
     }
 }
@@ -323,6 +325,14 @@ impl ReportedUndo {
 /// the window has put the Undo in place.
 pub(crate) struct UndoOnTheWay {
     _held: Arc<()>,
+}
+
+/// The mark that Ctrl+Z took the Undo out of `FileOperations::undo`. Only
+/// `FileOperations::take_undo` makes one. What that Undo could not put back goes back with it, as
+/// a `ReportedUndo::Remainder` or to `FileOperations::keep_remainder`. So a new Undo, which
+/// needs an `UndoOnTheWay`, cannot be given as a remainder without the token (#328).
+pub(crate) struct UndoTaken {
+    _taken: (),
 }
 
 /// The job that a look at a folder comes before (`App::wait_for_look_up_before_the_job`).
@@ -351,23 +361,24 @@ impl JobAfterLookUp {
 /// given up, it goes back as a remainder. So Ctrl+Z can try it again, and does not say that
 /// there is nothing to undo.
 struct UndoUntilStarted {
-    undo: Option<Undo>,
+    undo: Option<(Undo, UndoTaken)>,
     report_tx: AnswerSender<OperationReport>,
 }
 
 impl UndoUntilStarted {
-    /// Lets the Undo go, because the job that does it has started.
-    fn started(mut self) {
-        self.undo = None;
+    /// Lets the Undo go, because the job that does it has started. Returns the token of its
+    /// take, which the job's remainder goes back with.
+    fn started(mut self) -> Option<UndoTaken> {
+        self.undo.take().map(|(_, undo_taken)| undo_taken)
     }
 }
 
 impl Drop for UndoUntilStarted {
     fn drop(&mut self) {
-        if let Some(undo) = self.undo.take() {
+        if let Some((undo, undo_taken)) = self.undo.take() {
             // The send fails only when the window has closed, and the Undo goes with it.
             let _ = self.report_tx.send(OperationReport {
-                undo: Some(ReportedUndo::Remainder(undo)),
+                undo: Some(ReportedUndo::Remainder(undo, undo_taken)),
                 ..Default::default()
             });
         }
@@ -639,12 +650,27 @@ impl FileOperations {
     }
 
     /// Keeps what an Undo could not put back, unless an operation that ended meanwhile left a
-    /// newer Undo. It takes no token, because it is no new Undo: it is the rest of the one
-    /// that Ctrl+Z took.
-    fn keep_remainder(&mut self, undo: Undo) {
+    /// newer Undo. It takes the token of Ctrl+Z's take (`take_undo`), not an `UndoOnTheWay`,
+    /// because it is no new Undo: it is the rest of the one that Ctrl+Z took.
+    fn keep_remainder(&mut self, undo: Undo, _taken: UndoTaken) {
         if self.undo.is_none() {
             self.undo = Some(undo);
         }
+    }
+
+    /// Sets the Undo a report or a rename's outcome left: a new one, or a remainder.
+    fn keep_reported(&mut self, undo: ReportedUndo) {
+        match undo {
+            ReportedUndo::New(undo, token) => self.set_new_undo(undo, token),
+            ReportedUndo::Remainder(undo, undo_taken) => self.keep_remainder(undo, undo_taken),
+        }
+    }
+
+    /// Takes the Undo for Ctrl+Z, with the token that what it cannot put back goes back with.
+    /// Returns `None` when there is nothing to undo.
+    fn take_undo(&mut self) -> Option<(Undo, UndoTaken)> {
+        let undo = self.undo.take()?;
+        Some((undo, UndoTaken { _taken: () }))
     }
 
     /// Lets go of the jobs and the `run_in_background` work that ended. Returns true when the last
@@ -1263,12 +1289,8 @@ impl crate::App {
             if let Some(log) = job_log {
                 journal::remove_once_written(log);
             }
-            match undo {
-                Some(ReportedUndo::New(undo, token)) => {
-                    self.file_operations.set_new_undo(undo, token)
-                }
-                Some(ReportedUndo::Remainder(undo)) => self.file_operations.keep_remainder(undo),
-                None => {}
+            if let Some(undo) = undo {
+                self.file_operations.keep_reported(undo);
             }
             if let Some(find_duplicates) = &mut self.find_duplicates {
                 // Those that failed are still there.
@@ -1885,7 +1907,7 @@ impl crate::App {
         let Some(steps) = self.start_job(tr("Renaming"), from.len(), held_back_files) else {
             return;
         };
-        let undoing = undoing.map(UndoUntilStarted::started).is_some();
+        let undoing = undoing.and_then(UndoUntilStarted::started);
         let shown = from.iter().position(|f| self.is_file(self.list.shown(), f));
         let marks_at_new_names = self.marks_at_new_names(&from, &to);
         let job = RenameJob {
@@ -1893,7 +1915,7 @@ impl crate::App {
             from: from.clone(),
             to: to.clone(),
             shown,
-            undoing,
+            undoing: undoing.is_some(),
             marks_at_new_names: marks_at_new_names.clone(),
         };
         let (tx, rx) = answer_channel(&self.busy);
@@ -1991,12 +2013,8 @@ impl crate::App {
         // A rename that was itself an undo is not undone again, so Ctrl+Z twice does not give
         // the new names back. A failed Undo stays to be done again, unless an operation that
         // finished meanwhile left a newer Undo. The token goes once the Undo is in place.
-        match (undo, job.undoing) {
-            (Some((undo, token)), false) => {
-                (self.file_operations).set_new_undo(Undo::Rename(undo), token)
-            }
-            (Some((undo, _token)), true) => self.file_operations.keep_remainder(Undo::Rename(undo)),
-            (None, _) => {}
+        if let Some(undo) = undo {
+            self.file_operations.keep_reported(undo);
         }
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
@@ -2422,7 +2440,7 @@ impl crate::App {
         if !self.are_free_to_change(&undone) {
             return;
         }
-        let Some(undo) = self.file_operations.undo.take() else {
+        let Some((undo, undo_taken)) = self.file_operations.take_undo() else {
             self.notice.give(tr("Nothing to undo"));
             return;
         };
@@ -2439,7 +2457,7 @@ impl crate::App {
                     .collect();
                 let picked = PickedFiles::recorded(recorded);
                 let undo = UndoUntilStarted {
-                    undo: Some(Undo::Rename(pairs)),
+                    undo: Some((Undo::Rename(pairs), undo_taken)),
                     report_tx,
                 };
                 self.rename_files_of(ctx, (now, before), picked, Some(undo));
@@ -2464,7 +2482,8 @@ impl crate::App {
                 let _ = report_tx.send(OperationReport {
                     moved: FilesMoved::ByTheJob(Transfer::Move, back),
                     read_folder_again: true,
-                    undo: (!left.is_empty()).then_some(ReportedUndo::Remainder(Undo::Move(left))),
+                    undo: (!left.is_empty())
+                        .then_some(ReportedUndo::Remainder(Undo::Move(left), undo_taken)),
                     move_log,
                     ..Default::default()
                 });
@@ -2481,7 +2500,7 @@ impl crate::App {
                 };
                 with_failed_write(Some(told), log_warning)
             })),
-            Undo::Trash(trash_move) => self.undo_trash(ctx, trash_move, undone),
+            Undo::Trash(trash_move) => self.undo_trash(ctx, (trash_move, undo_taken), undone),
         }
         // A folder that came back shows in the tree again.
         self.tree.read_again();
@@ -2491,7 +2510,12 @@ impl crate::App {
     /// first have taken the files' marks out of the marks file, which may take long, so the
     /// status bar shows the Undo with Stop meanwhile. A stopped Undo puts nothing back and stays
     /// to be done again. `undone` are the files it holds back.
-    fn undo_trash(&mut self, ctx: &egui::Context, trash_move: TrashMove, undone: Vec<PathBuf>) {
+    fn undo_trash(
+        &mut self,
+        ctx: &egui::Context,
+        (trash_move, undo_taken): (TrashMove, UndoTaken),
+        undone: Vec<PathBuf>,
+    ) {
         let report_tx = self.file_operations.report_tx.clone();
         let Some(job) = self.start_job(tr("Undo"), trash_move.files.len(), Vec::new()) else {
             return;
@@ -2501,7 +2525,7 @@ impl crate::App {
                 crate::files::trash::take_forgotten_marks(&trash_move.marks, || job.is_stopped())
             else {
                 let _ = report_tx.send(OperationReport {
-                    undo: Some(ReportedUndo::Remainder(Undo::Trash(trash_move))),
+                    undo: Some(ReportedUndo::Remainder(Undo::Trash(trash_move), undo_taken)),
                     ..Default::default()
                 });
                 return Some(Told::Notice(job.stopped_text()));
@@ -2576,7 +2600,7 @@ impl crate::App {
             });
             let _ = report_tx.send(OperationReport {
                 read_folder_again: true,
-                undo: undo.map(ReportedUndo::Remainder),
+                undo: undo.map(|undo| ReportedUndo::Remainder(undo, undo_taken)),
                 restored_marks: marks,
                 job_log: undo_log.map(|log| log.into_log(&back)),
                 ..Default::default()
@@ -3933,10 +3957,12 @@ pub(crate) fn name_in_the_way(
 /// is no longer the one `picked` is left out, so a file that another program put at the name
 /// since keeps it. Returns how it went, with the places left out and the Undo it leaves: of a
 /// rename that went through, or of an Undo (`undoing`) that failed, what it still has to put
-/// back. The Undo carries `undo_on_the_way`, and the token goes here when no Undo is left.
+/// back. `undoing` is the token of Ctrl+Z's take when this rename is an Undo. A new Undo carries
+/// `undo_on_the_way` and a remainder carries `undoing`, and a token goes here when no Undo is
+/// left.
 fn rename_undoable(
     (listed, to): (Vec<ListedFile>, Vec<PathBuf>),
-    (picked, undoing, undo_on_the_way): (&PickedFingerprints, bool, UndoOnTheWay),
+    (picked, undoing, undo_on_the_way): (&PickedFingerprints, Option<UndoTaken>, UndoOnTheWay),
     job: &Job,
     marks_at_new_names: &journal::MarksAtNewNames,
 ) -> RenameOutcome {
@@ -3961,16 +3987,22 @@ fn rename_undoable(
     // asked to undo, from the old name to the name the file has now. A file left under a
     // hidden name has nothing at its name, so it drops out here and the journal repairs it.
     let undo = match (undoing, result.is_ok()) {
-        (false, true) => pairs.iter().filter_map(with_fingerprint).collect(),
-        (true, false) => (pairs.iter())
-            .filter_map(|(now, before)| with_fingerprint(&(before.clone(), now.clone())))
-            .collect(),
-        _ => Vec::new(),
+        (None, true) => {
+            let undo: Vec<Moved> = pairs.iter().filter_map(with_fingerprint).collect();
+            (!undo.is_empty()).then_some(ReportedUndo::New(Undo::Rename(undo), undo_on_the_way))
+        }
+        (Some(undo_taken), false) => {
+            let undo: Vec<Moved> = (pairs.iter())
+                .filter_map(|(now, before)| with_fingerprint(&(before.clone(), now.clone())))
+                .collect();
+            (!undo.is_empty()).then_some(ReportedUndo::Remainder(Undo::Rename(undo), undo_taken))
+        }
+        _ => None,
     };
     RenameOutcome {
         result,
         left_alone,
-        undo: (!undo.is_empty()).then_some((undo, undo_on_the_way)),
+        undo,
     }
 }
 
