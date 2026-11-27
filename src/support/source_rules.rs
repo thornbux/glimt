@@ -710,6 +710,7 @@ const REFUSED_CALLS: &[&str] = &[
     "egui::Painter::debug_text",
     "egui::Painter::error",
     "egui::Context::debug_text",
+    "egui::Context::check_for_id_clash",
     "egui::debug_text::print",
     "egui::Shape::text",
     "egui::epaint::text::FontsView::layout",

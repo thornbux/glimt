@@ -528,8 +528,9 @@ arm becomes a method.
   `ShownChoice`, `ShownHint`, `ShownSlider`, `ShownUnit`, `ShownProgress`, `ShownLayout`,
   `PaintShown`, `window`, `collapsing`, `rich`, `single_line`, `titled` and `spoken`,
   `Notice::give`, `Failure`, `Told::Notice`, `NoticeSender::send`, the title). egui's own
-  text calls are in `clippy.toml`, except its `From<String>` and `From<&str>` for `RichText`
-  and `WidgetText`, which clippy cannot name, so review holds them. When egui is updated, its
+  text calls are in `clippy.toml`, except what clippy cannot name: every pub field that holds
+  text (`ViewportBuilder::title`, the window title, first) and its `From<String>` and
+  `From<&str>` for `RichText` and `WidgetText`, so review holds them. When egui is updated, its
   text-taking API is listed again from its source, as the comment above those entries says,
   and each new call is refused there. Only the
   ways in that `ShownText`'s doc lists make one: a translated text, a name or path, a number,

@@ -68,9 +68,12 @@ disallowed-methods = [
     # texture and font names, the clipboard (`Context::copy_text`), the app id
     # (`with_app_id`, `eframe::run_native`, whose name is the title only when none is given), a
     # `custom_parser`, and a `TextEdit`'s buffer, which holds what the user types. Clippy cannot
-    # refuse a field or an impl's `From`, so `LayoutJob::text`, `WidgetInfo`'s fields and
-    # `From<&str>` for `WidgetText`/`RichText`/`Atom` stay with review. After an update of egui,
-    # list these again from its source (AGENTS.md, "A UI text").
+    # refuse a field or an impl's `From`, so every pub field that holds text stays with review:
+    # `ViewportBuilder::title` (the window title) first, then `LayoutJob::text`, `WidgetInfo`'s
+    # labels, `UiBuilder::accessibility_label`, `ValueFormat::prefix`/`suffix`,
+    # `ContainerAtom::atoms` and `Suggestion::content`, with `From<&str>`/`From<String>` for
+    # `WidgetText`/`RichText`/`Atom`. After an update of egui, list these again from its source
+    # (AGENTS.md, "A UI text").
     { path = "egui::Ui::button", reason = "menus::button or icon_button: noted by its text, which the release tests click" },
     { path = "egui::Ui::small_button", reason = "menus::small_button: noted by its text, which the release tests click" },
     { path = "egui::Ui::selectable_label", reason = "menus::selectable: noted by its text, which the release tests click" },
@@ -147,6 +150,7 @@ disallowed-methods = [
     { path = "egui::Painter::debug_text", reason = "menus::PaintShown::show_text: it takes a ShownText, so a raw name or String cannot be painted" },
     { path = "egui::Painter::error", reason = "menus::PaintShown::show_text: it takes a ShownText, so a raw name or String cannot be painted" },
     { path = "egui::Context::debug_text", reason = "menus::PaintShown::show_text: it takes a ShownText, so a raw name or String cannot be painted" },
+    { path = "egui::Context::check_for_id_clash", reason = "menus::PaintShown::show_text: it paints its text through debug_text; a ShownText cannot be given to it" },
     { path = "egui::debug_text::print", reason = "menus::PaintShown::show_text: it takes a ShownText, so a raw name or String cannot be painted" },
     { path = "egui::Shape::text", reason = "menus::PaintShown::show_text: it takes a ShownText, so a raw name or String cannot be painted" },
     { path = "egui::epaint::text::FontsView::layout", reason = "menus::PaintShown::layout_shown_wrapped: it takes a ShownText, so a raw name or String cannot be laid out" },
