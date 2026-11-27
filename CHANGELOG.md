@@ -12,7 +12,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   desktop asks for less motion (animations off).
 - File → Save List As… saves the list as the window shows it (only the matches while a search
   is on, in their order) as a plain .txt list, which Glimt opens again as a list: one image on
-  each line, relative to the list's folder.
+  each line, relative to the list's folder, or absolute for an image outside it.
 
 ## [0.103.0] - 2026-11-27
 
