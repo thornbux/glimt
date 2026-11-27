@@ -2265,10 +2265,12 @@ impl crate::App {
         // list's own rows. A name of it that left the list after the listing began (a delete or
         // a move) has none there, and then the list stays as it is and the folder is read
         // again, as a delete reads it again anyway. Before, the list took such a whole list
-        // without its keys.
+        // without its keys. A part left out keeps its files in that order too, each put in
+        // by its own key. Before, they went from the list in EXIF date order.
         let rows = match files {
             Ok(ListedRows::Rows(rows)) => Some(self.with_shown_files_of_parts(rows, &left_out)),
-            Ok(ListedRows::InListOrder(kept)) => self.list.rows().in_step(kept),
+            Ok(ListedRows::InListOrder(kept)) => (self.list.rows().in_step(kept))
+                .map(|rows| self.with_shown_files_of_parts(rows, &left_out)),
             // A subfolder read again ends as a whole one does (`rows_with_subfolder_read_again`).
             Ok(ListedRows::InParts(names)) => {
                 (dirs, read) = self.folders_with_subfolder_read_again(read);
@@ -3879,18 +3881,21 @@ mod tests {
         assert_eq!(app.list.files(), ["a.png", "sub/b.png"]);
         app.set_selection(&ctx, [0, 1].into());
         let a_and_c = || vec![("a.png".into(), None), ("c.png".into(), None)];
-        let send_rows = |app: &mut crate::App, part: &str, rows: super::Rows| {
+        let send_listed = |app: &mut crate::App, part: &str, rows: super::ListedRows| {
             let (tx, rx) = std::sync::mpsc::channel();
             app.folder.hold_listing(rx);
             let listed = super::Listed {
                 dirs: Vec::new(),
-                files: Ok(super::ListedRows::Rows(rows)),
+                files: Ok(rows),
                 left_out: vec![(dir.join(part), std::io::Error::other("the share failed"))],
                 read: Vec::new(),
                 read_in: std::time::Duration::ZERO,
             };
             tx.send(listed).unwrap();
             app.receive_listing(&ctx, std::time::Duration::ZERO);
+        };
+        let send_rows = |app: &mut crate::App, part: &str, rows: super::Rows| {
+            send_listed(app, part, super::ListedRows::Rows(rows));
         };
         let send = |app: &mut crate::App, part: &str| {
             send_rows(app, part, super::Rows::unsorted(a_and_c()));
@@ -3937,6 +3942,20 @@ mod tests {
         send_rows(&mut app, "sub", rows);
         assert_eq!(app.list.files(), ["a.png", "c.png", "sub/b.png"]);
         assert_eq!(app.list.rows().key(2).cloned(), b_key);
+        assert!(is_in_its_order(&app));
+        // In EXIF date order a listing with no new name keeps the order shown, and the file
+        // kept is in it too. Before, sub/b.png went from the list (B-1 of 0.105.0's audit).
+        app.config.sort = crate::model::listing::Sort::ExifOriginal;
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        assert_eq!(app.list.files(), ["a.png", "sub/b.png"]);
+        app.set_selection(&ctx, [0, 1].into());
+        let only_a = vec![("a.png".into(), None)];
+        send_listed(&mut app, "sub", super::ListedRows::InListOrder(only_a));
+        assert_eq!(app.list.files(), ["a.png", "sub/b.png"]);
+        assert_eq!(app.list.selected(), &[0, 1].into());
         assert!(is_in_its_order(&app));
         // "su" is no folder of "sub/b.png".
         send(&mut app, "su");
