@@ -663,6 +663,7 @@ impl crate::App {
             false => tr("Taking keywords off"),
         };
         let (n, written) = (files.len(), tag.clone());
+        let shown_tag = ShownText::from_file_text_on_one_line(&tag);
         self.write_sidecars(
             ctx,
             activity,
@@ -676,8 +677,16 @@ impl crate::App {
                 _ if job.is_stopped() => Some(job.stopped_text()),
                 // One sentence, so each language can put the words in its own order.
                 _ if n > 1 => Some(match on {
-                    true => tf!("{tag} set on {count}", tag, count = count(n, "file")),
-                    false => tf!("{tag} taken off {count}", tag, count = count(n, "file")),
+                    true => tf!(
+                        "{tag} set on {count}",
+                        tag = shown_tag,
+                        count = count(n, "file")
+                    ),
+                    false => tf!(
+                        "{tag} taken off {count}",
+                        tag = shown_tag,
+                        count = count(n, "file")
+                    ),
                 }),
                 _ => None,
             },
@@ -749,7 +758,7 @@ impl crate::App {
                 vec![(file, ())],
                 move |p, _| {
                     xmp::write_alt_text(p, &alt_text)
-                        .map_err(|e| tf!("Could not save the alt text: {e}", e).to_string())
+                        .map_err(|e| tf!("Could not save the alt text: {e}", e))
                 },
                 |_, _| None,
             );
@@ -787,7 +796,7 @@ impl crate::App {
             vec![(file, ())],
             move |p, _| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
                 Ok(_) => Ok(()),
-                Err(e) => Err(tf!("Could not save the keywords: {e}", e).to_string()),
+                Err(e) => Err(tf!("Could not save the keywords: {e}", e)),
             },
             |_, _| None,
         );
@@ -966,7 +975,7 @@ pub(crate) fn spawn_exif_reader(
             // that panics on the file leaves the panel without EXIF for it, not for good.
             if crate::files::file_io::is_surely_file(&path) {
                 let read = crate::support::threads::catch_panic(|| {
-                    let mut rows = vec![("Colour profile", colour_source(&path))];
+                    let mut rows = vec![("Colour profile", colour_source(&path).to_string())];
                     let (exif_rows, all) = exif::read_and_all(&path);
                     rows.extend(exif_rows);
                     let (meta, paths, alt_text) = xmp::read_all(&path);
@@ -1510,7 +1519,7 @@ mod tests {
             &ctx,
             "Other",
             crate::support::test_support::unlisted_with(other),
-            move |_, _| released.recv().map_or(Ok(()), |()| Err(String::new())),
+            move |_, _| released.recv().map_or(Ok(()), |()| Err(Default::default())),
             |_, _| None,
         );
         app.info_panel.metadata_edit.as_mut().unwrap().alt_text = "Red".into();
@@ -1642,7 +1651,7 @@ mod tests {
             &ctx,
             "Other",
             crate::support::test_support::unlisted_with(b),
-            move |_, _| hold.recv().map_or(Ok(()), |()| Err(String::new())),
+            move |_, _| hold.recv().map_or(Ok(()), |()| Err(Default::default())),
             |_, _| None,
         );
         app.info_panel.metadata_edit.as_mut().unwrap().keywords = "sea".into();

@@ -1776,7 +1776,7 @@ impl crate::App {
     pub(crate) fn mount_as(&mut self, ctx: &egui::Context, login: Login, answer: bool) {
         // This says which address is tried, and replaces what an attempt before left.
         self.notice
-            .give(tf!("Connecting to {uri}…", uri = login.uri));
+            .give(tf!("Connecting to {uri}…", uri = escaped_name(&login.uri)));
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         // Its busy pointer: `is_mounting`, while `mounting_rx` waits for this answer.

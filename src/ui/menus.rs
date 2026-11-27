@@ -357,7 +357,7 @@ impl crate::App {
             match set {
                 ProfileSet::Screen { answer: Err(e), .. }
                 | ProfileSet::Input { answer: Err(e), .. } => {
-                    self.notice.give_error(ShownText::from_cause(e));
+                    self.notice.give_error(e);
                 }
                 ProfileSet::Screen {
                     path, chosen: true, ..
@@ -719,7 +719,10 @@ impl crate::App {
                 ui.separator();
             }
             for (name, pid) in running {
-                let text = tf!("Stop {name}", name);
+                let text = tf!(
+                    "Stop {name}",
+                    name = ShownText::from_file_text_on_one_line(&name)
+                );
                 if icon_button(ui, theme::icon::STOP, &text).clicked() {
                     let mut running = lock_even_if_poisoned(&self.tools_running);
                     let was = running.len();
@@ -784,7 +787,7 @@ impl crate::App {
                 let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
                     targets.into_iter().partition(|p| tool.accepts(p));
                 held_back.hold_only(&files);
-                let name = &tool.name;
+                let name = ShownText::from_file_text_on_one_line(&tool.name);
                 if files.is_empty() {
                     let _ = tx.send_error(tf!("{name} takes none of these files", name));
                     return;
@@ -857,7 +860,7 @@ impl crate::App {
                             match crate::files::portal::open_with(&path) {
                                 Ok(true) => {}
                                 Ok(false) => break,
-                                Err(e) => drop(tx.send_error(ShownText::from_cause(e))),
+                                Err(e) => drop(tx.send_error(e)),
                             }
                         }
                     });
@@ -891,7 +894,7 @@ impl crate::App {
                     let mut gio = external::host_command("gio");
                     gio.arg("launch").arg(&desktop).args(&files);
                     if let Err(told) = external::run_telling("gio", gio) {
-                        let _ = tx.send_error(ShownText::from_cause(told));
+                        let _ = tx.send_error(told);
                     }
                 });
             }
@@ -923,7 +926,7 @@ impl crate::App {
         std::thread::spawn(move || {
             for path in files {
                 if let Err(told) = open_one_in(&words, &path) {
-                    let _ = tx.send_error(ShownText::from_cause(told));
+                    let _ = tx.send_error(told);
                     // In a Flatpak the default application is chosen through the desktop's
                     // portal, and its Cancel is a failure of gio, which ends them all.
                     if words.is_empty() && external::in_flatpak() {
@@ -1325,7 +1328,7 @@ pub(crate) fn tool_button(
 
 /// Opens `path` in the program of `words`, or in the default application when `words` is
 /// empty, and waits for that program to exit. A video player stays open while it plays.
-fn open_one_in(words: &[String], path: &Path) -> Result<(), String> {
+fn open_one_in(words: &[String], path: &Path) -> Result<(), ShownText> {
     let Some((name, args)) = words.split_first() else {
         // gio is part of glib, and xdg-open covers systems without it. In a Flatpak, both ask
         // the portal for the default application.

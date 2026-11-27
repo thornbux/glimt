@@ -8,6 +8,7 @@
 use crate::files::config::fits_on_a_line;
 use crate::files::file_io::{IfMissing, ListedFile, Transfer, put_file};
 use crate::images::save::FileId;
+use crate::support::format::ShownText;
 use crate::support::format::{escaped_name, without_control_characters};
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
@@ -115,7 +116,7 @@ pub(crate) const LOCK_FOLDER: &str = "sidecar-locks";
 thread_local! {
     /// The file the sidecar write of this thread is for (`write_for`), which `update` checks
     /// under the sidecar's lock, and the refusal of that check.
-    static WRITING_FOR: std::cell::RefCell<Option<(ListedFile, Option<String>)>> =
+    static WRITING_FOR: std::cell::RefCell<Option<(ListedFile, Option<ShownText>)>> =
         const { std::cell::RefCell::new(None) };
     /// The folders whose sidecars this thread locked one at a time (`lock_sidecar`), each with
     /// who it was when it was looked at (`file_id`) and who it is for its sidecars' locks
@@ -557,7 +558,7 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
 /// in it stays, also the field that was not edited. So an extended description that another
 /// window saved after the panel read the file is not written over by an edit of the alt text.
 /// Fields the image holds itself and that were cleared are written empty, as the comment is.
-pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), String> {
+pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), ShownText> {
     // The image's own XMP is read before the lock, because its read may wait for the decodes'
     // budget, and every other write of a sidecar under this lock would wait with it.
     let inside = read_embedded(path)?;
@@ -794,19 +795,16 @@ fn embedded(path: &Path) -> Option<String> {
 /// image when its file could not be read, as on a share that stopped answering, or its reader
 /// refused the packet, judged as a copy judges it (`save::is_failed_read`). A sidecar written
 /// then would start without the image's own keywords, and hide them from then on.
-fn read_embedded(path: &Path) -> Result<Option<String>, String> {
+fn read_embedded(path: &Path) -> Result<Option<String>, ShownText> {
     const JPEG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
     let is_raw = crate::model::listing::has_ext(path, crate::images::raw::EXTS);
-    let judged = |e: image::ImageError| {
-        match crate::images::save::is_failed_read(&e, is_raw) {
+    let judged = |e: image::ImageError| match crate::images::save::is_failed_read(&e, is_raw) {
         true => Err(crate::tf!(
             "the metadata of {name} could not be read, and its sidecar is not written without it: {e}",
             name = escaped_name(path),
             e
-        )
-        .to_string()),
+        )),
         false => Ok(None),
-    }
     };
     let bytes = match crate::metadata::exif::jpeg_app1(path, JPEG) {
         Some(found) => found.map(|found| found[JPEG.len()..].to_vec()),
@@ -922,7 +920,7 @@ pub fn write_changed(
     path: &Path,
     keywords: Option<KeywordChange>,
     comment: Option<String>,
-) -> Result<KeywordsAndComment, String> {
+) -> Result<KeywordsAndComment, ShownText> {
     let edited = match (&keywords, &comment) {
         (_, None) => Edited::Keywords,
         (None, Some(_)) => Edited::Comment,
@@ -948,7 +946,7 @@ pub fn add_to(have: &mut Vec<String>, keywords: &[String]) {
 }
 
 /// Add `keywords` to those `path` has, read and written as one change.
-pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
+pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), ShownText> {
     let added = write_keywords(path, Edited::Keywords, |meta, _| {
         add_to(&mut meta.keywords, keywords)
     });
@@ -971,7 +969,7 @@ fn write_keywords(
     path: &Path,
     edited: Edited,
     edit: impl FnOnce(&mut KeywordsAndComment, &mut Vec<String>),
-) -> Result<KeywordsAndComment, String> {
+) -> Result<KeywordsAndComment, ShownText> {
     // The image's own XMP is read before the lock, as `write_alt_text` reads it.
     let inside = read_embedded(path)?;
     let _lock = lock_sidecar(path);
@@ -1017,7 +1015,7 @@ fn write_keywords(
 /// (`update`). Another window's Rename Many holds that lock while it swaps names, so a check
 /// before the lock passed, waited for the swap, and wrote on the other photo's sidecar.
 /// Returns what `write` returns, and the error of the check when it refused the write.
-pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, Option<String>) {
+pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, Option<ShownText>) {
     WRITING_FOR.set(Some((file.clone(), None)));
     let written = write();
     let refused = WRITING_FOR.take().and_then(|(_, refused)| refused);
@@ -1196,7 +1194,11 @@ fn lock_dir() -> Option<PathBuf> {
 fn locks_in(runtime: Option<PathBuf>) -> Option<PathBuf> {
     let Some(dir) = runtime else {
         let why = crate::support::lang::tr(NO_RUNTIME_FOLDER);
-        crate::files::file_io::tell_unlocked(PathBuf::new(), "$XDG_RUNTIME_DIR", why);
+        crate::files::file_io::tell_unlocked(
+            PathBuf::new(),
+            &ShownText::untranslated("$XDG_RUNTIME_DIR"),
+            why,
+        );
         return None;
     };
     Some(dir.join(LOCK_FOLDER))
@@ -1332,7 +1334,7 @@ pub fn update_sidecar(
     path: &Path,
     if_missing: IfMissing,
     change: impl FnOnce(&str) -> Option<String>,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     let _lock = lock_sidecar(path);
     update(path, if_missing, change)
 }
@@ -1344,7 +1346,7 @@ pub(crate) fn update_locked_sidecar(
     path: &Path,
     if_missing: IfMissing,
     change: impl FnOnce(&str) -> Option<String>,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     update(path, if_missing, change)
 }
 
@@ -1352,19 +1354,19 @@ fn update(
     path: &Path,
     if_missing: IfMissing,
     change: impl FnOnce(&str) -> Option<String>,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     // When the image was moved, renamed or deleted while this waited, no sidecar of its old
     // name is made, and it does not count as done.
     if !crate::files::file_io::is_surely_there(path) {
-        return Err(
-            crate::support::lang::tr("the image was moved, renamed or deleted meanwhile")
-                .to_string(),
-        );
+        return Err(crate::support::lang::tr(
+            "the image was moved, renamed or deleted meanwhile",
+        ));
     }
     // The file the write is for is still the one the list showed, looked at under the lock.
     let refused = WRITING_FOR.with_borrow_mut(|writing| {
         let (file, refused) = writing.as_mut().filter(|(file, _)| file.path() == path)?;
-        let e = format!("{}: {}", escaped_name(path), file.check().err()?);
+        let e = file.check().err()?;
+        let e = crate::untranslated!("{name}: {e}", name = escaped_name(path), e);
         Some(refused.insert(e).clone())
     });
     if let Some(e) = refused {
@@ -1374,13 +1376,13 @@ fn update(
     // A link is not written through, because a downloaded folder may point IMG.jpg.xmp at
     // another file of the user's, which a keyword added here would then change. A sidecar
     // that cannot be looked at is not written either, as it may be such a link.
-    let named = |e: std::io::Error| format!("{}: {e}", escaped_name(&side));
+    let named =
+        |e: std::io::Error| crate::untranslated!("{name}: {e}", name = escaped_name(&side), e);
     if crate::files::file_io::is_link(&side).map_err(named)? {
         return Err(crate::tf!(
             "{name} is a link: not written through",
             name = escaped_name(&side)
-        )
-        .to_string());
+        ));
     }
     // The sidecar is looked at before it is read, so that one another program writes after the
     // read is not written over with what was read.
@@ -1388,10 +1390,17 @@ fn update(
     // A sidecar that is there but cannot be read (no permission, not UTF-8) is not written
     // over, because it may hold another program's edits.
     let old = match own_sidecar(path) {
-        Err(e) => return Err(format!("{}: {e}", escaped_name(&side))),
-        Ok(Some(bytes)) => {
-            String::from_utf8(bytes).map_err(|e| format!("{}: {e}", escaped_name(&side)))?
+        Err(e) => {
+            return Err(crate::untranslated!(
+                "{name}: {e}",
+                name = escaped_name(&side),
+                e
+            ));
         }
+        Ok(Some(bytes)) => String::from_utf8(bytes).map_err(|e| {
+            let e = ShownText::of_error(&e);
+            crate::untranslated!("{name}: {e}", name = escaped_name(&side), e)
+        })?,
         Ok(None) if if_missing == IfMissing::LeaveMissing => return Ok(()),
         Ok(None) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
              <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
@@ -1400,14 +1409,15 @@ fn update(
              <?xpacket end=\"w\"?>\n"
             .to_owned(),
     };
-    let text = change(&old).ok_or("unreadable XMP sidecar")?;
+    let text = change(&old).ok_or(ShownText::untranslated("unreadable XMP sidecar"))?;
     // A change that changes nothing is not written, and makes no sidecar where there is none.
     if text == old {
         return Ok(());
     }
     // A link put there since the look above is replaced, and the file it points to is left
     // alone. A sidecar changed or made since the read is left alone too.
-    let named = |e: std::io::Error| format!("{}: {e}", escaped_name(&side));
+    let named =
+        |e: std::io::Error| crate::untranslated!("{name}: {e}", name = escaped_name(&side), e);
     let write = |f: &mut std::fs::File| std::io::Write::write_all(f, text.as_bytes());
     crate::files::file_io::replace_what_was_read(&side, read, write).map_err(named)
 }
@@ -2062,7 +2072,7 @@ pub(crate) fn prefix_in_force(
 /// Sets a keyword of the keyword tree, "Places|Norway|Oslo", on `path` or takes it off. Its
 /// name (Oslo) goes among the keywords, and the whole path in lr:hierarchicalSubject, where
 /// darktable, digiKam and Lightroom keep the tree's place of a keyword.
-pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
+pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), ShownText> {
     let tagged = write_keywords(path, Edited::Keywords, |meta, paths| {
         set_tag(&mut meta.keywords, paths, tag, on)
     });
@@ -2072,7 +2082,7 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
 /// Sets the keyword tree paths `tags` on `path` in one write, as `tag` sets one. Each name goes
 /// among its keywords and each path in lr:hierarchicalSubject, beside what it has, which stays.
 /// Nothing is written when it has them all.
-pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
+pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), ShownText> {
     let tagged = write_keywords(path, Edited::Keywords, |meta, paths| {
         for t in tags {
             set_tag(&mut meta.keywords, paths, t, true);
@@ -4257,7 +4267,7 @@ mod tests {
         let file = dir.join("a.jpg");
         std::fs::write(&file, b"").unwrap();
         write_changed(&file, adding(&["x".into()]), None).unwrap();
-        let reads = |write: &dyn Fn() -> Result<(), String>| {
+        let reads = |write: &dyn Fn() -> Result<(), ShownText>| {
             SIDECAR_READS.set(0);
             write().unwrap();
             SIDECAR_READS.get()
@@ -4368,7 +4378,7 @@ mod tests {
         type Writer = (
             &'static str,
             Option<(&'static str, &'static str)>,
-            Box<dyn Fn(&Path) -> Result<(), String>>,
+            Box<dyn Fn(&Path) -> Result<(), ShownText>>,
         );
         let writers: Vec<Writer> = vec![
             (

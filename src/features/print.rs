@@ -536,7 +536,7 @@ impl crate::App {
                         out.flush()
                     };
                     crate::files::file_io::write_picked_name(file, *at_pick, write)
-                        .map_err(|e| e.to_string())
+                        .map_err(|e| ShownText::of_error(&e))
                 }
             };
             let to = chosen.map_or(to, PrintTo::Printer);
@@ -552,7 +552,13 @@ impl crate::App {
                 ),
             };
             let done = done.map(|()| match &to {
-                PrintTo::Printer(printer) => tf!("{what} sent to {printer}", what, printer),
+                PrintTo::Printer(printer) => {
+                    tf!(
+                        "{what} sent to {printer}",
+                        what,
+                        printer = escaped_name(printer)
+                    )
+                }
                 PrintTo::File(file, _) => {
                     tf!("{what} saved in {file}", what, file = escaped_name(file))
                 }
@@ -1011,13 +1017,13 @@ pub fn send(
     sides: Option<&str>,
     title: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     let mut child = crate::files::external::stoppable_command("lp")
         .args(lp_args(printer, copies, sides, title))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| format!("lp (from CUPS): {e}"))?;
+        .map_err(|e| crate::untranslated!("lp (from CUPS): {e}", e))?;
     // When a CUPS server does not answer, lp is ended after two minutes without progress, and
     // the print is told as failed, instead of the busy pointer for ever. A long print is not
     // ended, because the PDF is made while lp reads it, and each write lp takes feeds the watchdog.
@@ -1033,16 +1039,20 @@ pub fn send(
         None => Err(std::io::Error::other("no input")),
     };
     #[allow(clippy::disallowed_methods)] // under the Watchdog above
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| ShownText::of_error(&e))?;
     if watchdog.gave_up() {
-        return Err(
-            crate::support::lang::tr("No answer from the print server in two minutes").to_string(),
-        );
+        return Err(crate::support::lang::tr(
+            "No answer from the print server in two minutes",
+        ));
     }
     if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
+        return Err(ShownText::of_message(
+            String::from_utf8_lossy(&out.stderr).trim(),
+        ));
     }
-    written.map_err(|e| e.to_string())
+    written.map_err(|e| ShownText::of_error(&e))
 }
 
 /// The layout the print settings ask for.
@@ -1760,7 +1770,7 @@ mod tests {
             let img = image::RgbImage::from_pixel(60, 40, image::Rgb([k * 50, 0, 0]));
             (
                 img.into(),
-                Some(super::ShownText::from_cause(format!("img{k}.jpg"))),
+                Some(crate::support::format::escaped_name(format!("img{k}.jpg"))),
             )
         });
         let mut pdf = Vec::new();

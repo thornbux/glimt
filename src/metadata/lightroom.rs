@@ -603,12 +603,15 @@ fn non_table_check() -> String {
 }
 
 /// Read `file`; an error says why in words for the user.
-pub fn read(file: &Path) -> Result<Catalog, String> {
+pub fn read(file: &Path) -> Result<Catalog, ShownText> {
     if !crate::files::file_io::is_surely_gone(&file.with_extension("lrcat.lock")) {
-        return Err(tr("Lightroom has the catalog open: close Lightroom first").to_string());
+        return Err(tr("Lightroom has the catalog open: close Lightroom first"));
     }
     if !crate::files::external::has_program("sqlite3") {
-        return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS_SQLITE3)).to_string());
+        return Err(tf!(
+            "{needs}, which is not installed",
+            needs = tr(NEEDS_SQLITE3)
+        ));
     }
     // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
     // in the place of a table it reads would have sqlite3 run what the view says, its writefile
@@ -621,13 +624,16 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         .arg(file)
         .arg(non_table_check() + QUERY)
         .spawn()
-        .map_err(|e| format!("{NEEDS_SQLITE3}: {e}"))?;
+        .map_err(|e| {
+            let needs = ShownText::untranslated(NEEDS_SQLITE3);
+            crate::untranslated!("{needs}: {e}", needs, e)
+        })?;
     let (out, why, ok) = crate::files::external::output_of(
         &mut child,
         256 << 20,
         crate::files::external::PROGRAM_TIME_LIMIT,
     );
-    let out = out.ok_or_else(|| tr("The catalog is too large to read").to_string())?;
+    let out = out.ok_or_else(|| tr("The catalog is too large to read"))?;
     let catalog = parse(&out);
     if let Some((name, kind)) = catalog.not_tables.first() {
         return Err(sqlite_error_text(&format!(
@@ -643,15 +649,14 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
 /// Tells why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or
 /// the catalog. Only the first line is told, because sqlite3 puts the reason there and then
 /// echoes the query with a caret under the error.
-fn sqlite_error_text(why: &str) -> String {
+fn sqlite_error_text(why: &str) -> ShownText {
     let first = (why.lines().map(str::trim)).find(|l| !l.is_empty());
     match why.contains("unknown option: -safe") {
-        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").to_string(),
+        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer"),
         false => tf!(
             "Not a Lightroom Classic catalog Glimt can read: {why}",
-            why = first.unwrap_or("")
-        )
-        .to_string(),
+            why = ShownText::of_message(first.unwrap_or(""))
+        ),
     }
 }
 
@@ -764,7 +769,7 @@ pub fn roots_now(catalog: &Catalog) -> Vec<String> {
 /// Writes the stars and keywords that a Lightroom import gives the photo at `path` to its
 /// sidecar. A photo gone since gets nothing, and one that could not be looked at is tried, so
 /// its failure is told. Returns the text of the failure.
-fn write_imported(path: &Path, (stars, keywords): &(u8, Vec<String>)) -> Result<(), String> {
+fn write_imported(path: &Path, (stars, keywords): &(u8, Vec<String>)) -> Result<(), ShownText> {
     if crate::files::file_io::is_surely_gone(path) {
         return Ok(());
     }

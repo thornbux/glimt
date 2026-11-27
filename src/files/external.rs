@@ -5,6 +5,7 @@
 //! started.
 
 use crate::model::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
+use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
@@ -119,7 +120,7 @@ struct WatchdogState {
 
 /// A mounted share's local path. `Err(None)` means a login is needed, and `Err(Some)` says why
 /// the mount failed.
-pub type Mounted = Result<PathBuf, Option<String>>;
+pub type Mounted = Result<PathBuf, Option<ShownText>>;
 
 /// User name, domain and password for a network share.
 #[derive(Clone, Default)]
@@ -142,7 +143,7 @@ pub fn ffmpeg_frame(
     path: &Path,
     at: &str,
     max: Option<[u32; 2]>,
-) -> Result<image::DynamicImage, String> {
+) -> Result<image::DynamicImage, ShownText> {
     match ffmpeg_scale_filter(max) {
         Some(scale) => ffmpeg_ppm(path, &["-ss", at], &["-vf", &scale], max),
         None => ffmpeg_ppm(path, &["-ss", at], &[], max),
@@ -175,13 +176,13 @@ fn ffmpeg_scale_filter(max: Option<[u32; 2]>) -> Option<String> {
 pub fn decode_heif(
     path: &Path,
     max: Option<[u32; 2]>,
-) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), ShownText> {
     let mut child = stoppable_command("ffprobe")
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .args(FILES_ONLY)
         .arg(path)
         .spawn()
-        .map_err(|e| crate::tf!("HEIC and AVIF need ffprobe (ffmpeg): {e}", e).to_string())?;
+        .map_err(|e| crate::tf!("HEIC and AVIF need ffprobe (ffmpeg): {e}", e))?;
     let (probe, _, _) = output_of(&mut child, 1 << 20, PROGRAM_TIME_LIMIT);
     let probe = probe.unwrap_or_default();
     let probe = String::from_utf8_lossy(&probe);
@@ -336,16 +337,18 @@ pub fn run_limited(
     mut command: std::process::Command,
     max: u64,
     limit: std::time::Duration,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ShownText> {
     let program = escaped_name(command.get_program());
-    let mut child = command.spawn().map_err(|e| format!("{program}: {e}"))?;
+    let mut child = command
+        .spawn()
+        .map_err(|e| crate::untranslated!("{program}: {e}", program, e))?;
     let (out, err, ok) = output_of(&mut child, max, limit);
-    let out = out.ok_or_else(|| format!("{program}: too much output"))?;
+    let out = out.ok_or_else(|| crate::untranslated!("{program}: too much output", program))?;
     match ok {
         true => Ok(out),
         false => Err(last_line(
             &err,
-            &format!("{program} failed or did not end in time"),
+            crate::untranslated!("{program} failed or did not end in time", program),
         )),
     }
 }
@@ -493,11 +496,11 @@ pub(crate) fn last_text(mut from: impl std::io::Read, keep: usize) -> String {
 /// Returns the last line of a program's errors that is not empty, trimmed, or `fallback` when
 /// there is none. A damaged video makes ffmpeg write an error for every packet, and only the
 /// last one is told.
-pub(crate) fn last_line(err: &str, fallback: &str) -> String {
-    (err.lines().map(str::trim))
-        .rfind(|l| !l.is_empty())
-        .unwrap_or(fallback)
-        .to_owned()
+pub(crate) fn last_line(err: &str, fallback: ShownText) -> ShownText {
+    match (err.lines().map(str::trim)).rfind(|l| !l.is_empty()) {
+        Some(line) => ShownText::of_message(line),
+        None => fallback,
+    }
 }
 
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input. `max` is
@@ -508,7 +511,7 @@ pub fn ffmpeg_ppm(
     before: &[&str],
     after: &[&str],
     max: Option<[u32; 2]>,
-) -> Result<image::DynamicImage, String> {
+) -> Result<image::DynamicImage, ShownText> {
     use crate::images::decode::{DecodeInput, MAX_DECODE_BYTES};
     // The frame is no larger than Glimt decodes and comes within `PROGRAM_TIME_LIMIT`, because a
     // crafted file could otherwise keep ffmpeg busy for good, or hand over gigabytes. A frame
@@ -528,11 +531,11 @@ pub fn ffmpeg_ppm(
         .args(after)
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .spawn()
-        .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e).to_string())?;
+        .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e))?;
     let (frame, err, ok) = output_of(&mut child, limit, PROGRAM_TIME_LIMIT);
-    let frame = frame.ok_or("image too large")?;
+    let frame = frame.ok_or(ShownText::untranslated("image too large"))?;
     if !ok || frame.is_empty() {
-        return Err(last_line(&err, "no frame"));
+        return Err(last_line(&err, ShownText::untranslated("no frame")));
     }
     crate::images::decode::from_memory(&input.holding(frame)?)
 }
@@ -558,9 +561,10 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     // An option is not a place, and -u or -e would unmount or eject. It is not given to gio at
     // all, because `gio mount` takes no -- before its places. `gio info` does, and gets one.
     if uri.starts_with('-') {
-        return Err(Some(
-            crate::tf!("Could not mount {uri}: not an address", uri).to_string(),
-        ));
+        return Err(Some(crate::tf!(
+            "Could not mount {uri}: not an address",
+            uri = escaped_name(uri)
+        )));
     }
     // This has the usual limit, because asked before the mount, it would otherwise wait on a
     // server that never answers, with no watchdog yet.
@@ -579,7 +583,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .args(["mount", uri])
         .stdin(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| Some(crate::tf!("Could not run gio: {e}", e).to_string()))?;
+        .map_err(|e| Some(crate::tf!("Could not run gio: {e}", e)))?;
     // When a server never answers (a NAS asleep, a VPN down), gio is ended after a minute and
     // the mount is told as failed, instead of "Connecting…" and the busy pointer for ever.
     let watchdog = Watchdog::new(child.id(), PROGRAM_TIME_LIMIT * 2);
@@ -607,10 +611,10 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
             if passwords > 1 {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(Some(
-                    crate::tf!("Could not mount {uri}: wrong user name or password", uri)
-                        .to_string(),
-                ));
+                return Err(Some(crate::tf!(
+                    "Could not mount {uri}: wrong user name or password",
+                    uri = escaped_name(uri)
+                )));
             }
             &login.password
         } else if prompt.contains("domain") {
@@ -624,11 +628,13 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         let _ = writeln!(input, "{answer}");
         answered = text.len();
     }
-    let out = child.wait_with_output().map_err(|e| Some(e.to_string()))?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| Some(ShownText::of_error(&e)))?;
     if watchdog.gave_up() {
-        return Err(Some(
-            crate::support::lang::tr("No answer from the server in a minute").to_string(),
-        ));
+        return Err(Some(crate::support::lang::tr(
+            "No answer from the server in a minute",
+        )));
     }
     local().ok_or_else(|| {
         let err = String::from_utf8_lossy(&out.stderr);
@@ -638,15 +644,12 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
             .strip_prefix("gio: ")
             .and_then(|e| e.split_once(": "))
             .map_or(err, |e| e.1);
-        Some(
-            crate::tf!(
-                "Could not mount {uri}: {err}{hint}",
-                uri,
-                err,
-                hint = unknown_host(uri)
-            )
-            .to_string(),
-        )
+        Some(crate::tf!(
+            "Could not mount {uri}: {err}{hint}",
+            uri = escaped_name(uri),
+            err = ShownText::of_message(err),
+            hint = unknown_host(uri)
+        ))
     })
 }
 
@@ -656,6 +659,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
 fn unknown_host(uri: &str) -> crate::support::format::ShownText {
     use std::net::ToSocketAddrs;
     let host = uri_host(uri);
+    let shown_host = escaped_name(host);
     if host.is_empty()
         || (host, 445)
             .to_socket_addrs()
@@ -664,10 +668,10 @@ fn unknown_host(uri: &str) -> crate::support::format::ShownText {
         return crate::support::format::ShownText::default();
     }
     match host.contains('.') {
-        true => crate::tf!(" (the name {host} is not found)", host),
+        true => crate::tf!(" (the name {host} is not found)", host = shown_host),
         false => crate::tf!(
             " (the name {host} is not found; try {host}.local or its IP address)",
-            host
+            host = shown_host
         ),
     }
 }
@@ -785,11 +789,13 @@ fn desktop_apps_named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(Strin
 /// Returns how the program `name` that failed with `errors` and `status` is told: by the last
 /// line it printed on its errors, or by its exit status when it printed nothing, so the notice
 /// is never empty.
-fn failure_text(name: &str, errors: &str, status: std::process::ExitStatus) -> String {
-    match (errors.lines().map(str::trim)).rfind(|l| !l.is_empty()) {
-        Some(line) => line.to_owned(),
-        None => format!("{name}: {status}"),
-    }
+fn failure_text(name: &str, errors: &str, status: std::process::ExitStatus) -> ShownText {
+    let name = escaped_name(name);
+    let status = ShownText::of_message(&status.to_string());
+    last_line(
+        errors,
+        crate::untranslated!("{name}: {status}", name, status),
+    )
 }
 
 /// Waits for `child`, the user's program `name`, started with its errors piped, to end. Its
@@ -797,7 +803,7 @@ fn failure_text(name: &str, errors: &str, status: std::process::ExitStatus) -> S
 /// started in the background (an editor, the application `gio launch` opened) may hold them
 /// open for hours, so `child` is waited for, not the end of its errors. Returns how it failed,
 /// when it did (`failure_text`).
-pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result<(), String> {
+pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result<(), ShownText> {
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
         // No busy pointer: a reader of a program's errors, which the caller's thread waits for.
@@ -805,7 +811,8 @@ pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result
         rx
     });
     #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
-    let status = child.wait().map_err(|e| format!("{name}: {e}"))?;
+    let status = (child.wait())
+        .map_err(|e| crate::untranslated!("{name}: {e}", name = escaped_name(name), e))?;
     if status.success() {
         return Ok(());
     }
@@ -817,11 +824,11 @@ pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result
 /// Runs `cmd`, the user's program `name`, and waits for it in this thread, which the caller
 /// starts for it, as it may stay open for hours. Its output is not read, so a program that
 /// prints for hours is not kept. Returns how it failed, when it did.
-pub(crate) fn run_telling(name: &str, mut cmd: std::process::Command) -> Result<(), String> {
+pub(crate) fn run_telling(name: &str, mut cmd: std::process::Command) -> Result<(), ShownText> {
     let child = start_users_program(
         (cmd.stdout(std::process::Stdio::null())).stderr(std::process::Stdio::piped()),
     )
-    .map_err(|e| format!("{name}: {e}"))?;
+    .map_err(|e| crate::untranslated!("{name}: {e}", name = escaped_name(name), e))?;
     wait_telling(child, name)
 }
 
@@ -841,7 +848,7 @@ pub(crate) fn start_users_program(
 /// made is told through `notices`, and nothing is opened.
 pub fn open_own_folder(dir: &Path, notices: &crate::support::threads::NoticeSender) {
     if let Err(e) = std::fs::create_dir_all(dir) {
-        let folder = format!("{}: {e}", escaped_name(dir));
+        let folder = crate::untranslated!("{name}: {e}", name = escaped_name(dir), e);
         // A window that is gone has nothing to show it in.
         let _ = notices.send_error(crate::tf!("Could not make {folder}", folder));
         return;
@@ -866,7 +873,7 @@ pub fn open_url(url: &str) {
 /// File → Set as Wallpaper. It sets `path` as the desktop's background, through the desktop
 /// portal, which GNOME and KDE have, also for a Flatpak. GNOME shows it and asks first. Both
 /// keep a copy of their own, so the photo may be moved or deleted later. gdbus comes with gio.
-pub fn set_wallpaper(path: &Path) -> Result<(), String> {
+pub fn set_wallpaper(path: &Path) -> Result<(), ShownText> {
     // This is a GVariant string, and uri_path leaves no " or \ in it.
     let uri = format!("\"file://{}\"", crate::images::thumbs::uri_path(path));
     let mut gdbus = stoppable_command("gdbus");
@@ -1000,9 +1007,9 @@ fn host_for(
         let why = crate::tf!(
             "{program} runs outside the Flatpak, which needs: {how}",
             program = escaped_name(program),
-            how = format!(
-                "flatpak override --user --talk-name=org.freedesktop.Flatpak {}",
-                escaped_name(id)
+            how = crate::untranslated!(
+                "flatpak override --user --talk-name=org.freedesktop.Flatpak {id}",
+                id = escaped_name(id)
             )
         );
         let mut sh = command("sh");
@@ -1293,9 +1300,9 @@ mod tests {
         let text = super::last_text(&out[..], 1000);
         assert!(text.len() <= 2000);
         assert!(text.ends_with(".mp4: no frame"));
-        let told = super::last_line(&(text + "\n  \n"), "failed");
+        let told = super::last_line(&(text + "\n  \n"), "failed".into());
         assert!(told.starts_with("ferie_") && told.ends_with(".mp4: no frame"));
-        assert_eq!(super::last_line(" \n", "failed"), "failed");
+        assert_eq!(super::last_line(" \n", "failed".into()), "failed");
     }
 
     /// A server name the system finds needs no hint, and one it does not gets name.local or the

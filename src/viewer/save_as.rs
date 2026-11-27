@@ -237,7 +237,7 @@ impl crate::App {
             let (_, picked) = picked.wait_for_fingerprints();
             let saved = picked
                 .still_the_one_picked(&path)
-                .map_err(|e| format!("{}: {e}", escaped_name(&path)))
+                .map_err(|e| crate::untranslated!("{name}: {e}", name = escaped_name(&path), e))
                 .and_then(|()| {
                     decode::catch_panic_as_error(|| save::save_as(&path, &copy_as, &to, at_pick))
                 });

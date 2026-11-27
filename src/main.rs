@@ -140,7 +140,8 @@ struct App {
     print_dialog: Option<PrintDialog>,
     /// A Lightroom catalog being read, with where its root folders are now, then imported with
     /// the folders typed for them.
-    lightroom_catalog_answer: Receiving<(Result<Import, String>, Working)>,
+    lightroom_catalog_answer:
+        Receiving<(Result<Import, crate::support::format::ShownText>, Working)>,
     lightroom: Option<Import>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_view: Option<PanView>,
@@ -534,7 +535,8 @@ fn config_notice(problems: &[String]) -> Option<crate::viewer::view::Failure> {
         .filter(|p| !p.contains(": there is no setting "))
         .collect();
     let first = problems.first()?;
-    let first = crate::support::format::ShownText::from_cause(first.to_string());
+    // A problem quotes the settings file's line, which may hold any text.
+    let first = crate::support::format::ShownText::of_message(first);
     let more = match problems.len() - 1 {
         0 => crate::support::format::ShownText::default(),
         n => tf!("; and {n} more (glimt --check-config)", n),
@@ -715,7 +717,7 @@ mod tests {
         assert_eq!(
             super::config_notice(&[unknown, wrong.clone()]),
             Some(
-                crate::support::format::ShownText::from_cause(format!("Settings file: {wrong}"))
+                crate::support::format::ShownText::of_message(&format!("Settings file: {wrong}"))
                     .into()
             )
         );

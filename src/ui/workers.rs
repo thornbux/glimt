@@ -237,7 +237,7 @@ impl crate::App {
             Took::Nothing => {}
             Took::Gone => self.tell_background_stopped(tr("Reading the Lightroom catalog")),
             Took::Answer((Ok(import), _pointer)) => self.lightroom = Some(import),
-            Took::Answer((Err(e), _pointer)) => self.notice.give_error(ShownText::from_cause(e)),
+            Took::Answer((Err(e), _pointer)) => self.notice.give_error(e),
         }
     }
 

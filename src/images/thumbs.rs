@@ -3,6 +3,7 @@
 //! always read; new ones are written there only when "Save thumbnails" is on.
 
 use crate::files::file_io::{is_surely_dir, is_surely_file, is_surely_gone};
+use crate::support::format::ShownText;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -37,7 +38,7 @@ pub fn thumbnail(
     rotate: bool,
     save: bool,
     large: bool,
-) -> Result<image::RgbaImage, String> {
+) -> Result<image::RgbaImage, ShownText> {
     thumbnail_in(cache_dir(), path, rotate, save, large)
 }
 
@@ -47,9 +48,9 @@ fn thumbnail_in(
     rotate: bool,
     save: bool,
     large: bool,
-) -> Result<image::RgbaImage, String> {
+) -> Result<image::RgbaImage, ShownText> {
     if !is_surely_file(path) {
-        return Err("not a regular file".into());
+        return Err(ShownText::untranslated("not a regular file"));
     }
     // The cached thumbnail and the image decoded take from the decodes' shared budget as one job.
     let _job = crate::images::decode::start_decode_job();
@@ -73,7 +74,7 @@ fn thumbnail_in(
             return Ok(img);
         }
         if read_cached(failed, stamp, size).is_some() {
-            return Err("no thumbnail could be made before".into());
+            return Err(ShownText::untranslated("no thumbnail could be made before"));
         }
     }
     // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38. A decoder that

@@ -1648,7 +1648,10 @@ fn explain_rename_error(e: std::io::Error, to: &Path) -> std::io::Error {
     match e.raw_os_error() {
         Some(18 | 38 | 95) => {
             let kind = file_system_type(to.parent().unwrap_or(to));
-            let kind = kind.as_deref().map_or("?", shown_type);
+            let kind = (kind.as_deref()).map_or(
+                crate::support::format::ShownText::untranslated("?"),
+                shown_type,
+            );
             std::io::Error::new(
                 e.kind(),
                 crate::tf!(
@@ -1746,11 +1749,13 @@ fn file_system_type_in_udev(udev: &str) -> Option<String> {
 /// without a subtype is named by its source (`type_of`), which can be a URL or a path with a
 /// user's name in it, so such a name is shown as plain "fuse". A program's name, the subtype or
 /// source of the other FUSE mounts, has only letters, digits and `-_.+`.
-pub(crate) fn shown_type(kind: &str) -> &str {
+pub(crate) fn shown_type(kind: &str) -> crate::support::format::ShownText {
     let is_name = |c: char| c.is_ascii_alphanumeric() || "-_.+".contains(c);
     match kind.strip_prefix("fuse.") {
-        Some(source) if !source.chars().all(is_name) => "fuse",
-        _ => kind,
+        Some(source) if !source.chars().all(is_name) => {
+            crate::support::format::ShownText::untranslated("fuse")
+        }
+        _ => crate::support::format::escaped_name(kind),
     }
 }
 
@@ -2484,7 +2489,11 @@ pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
 
 /// Tells once for the folder of locks `folder` that an edit goes on without its lock, the lock
 /// `name`, which could not be had for the reason `e`.
-pub fn tell_unlocked(folder: PathBuf, name: &str, e: impl crate::support::format::Shown) {
+pub fn tell_unlocked(
+    folder: PathBuf,
+    name: &crate::support::format::ShownText,
+    e: impl crate::support::format::Shown,
+) {
     let warning = Failure::from(crate::tf!(
         "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost.",
         name,
@@ -2859,10 +2868,7 @@ fn taken_back(
             let text = match undone {
                 Ok(()) => kept,
                 Err(more) => crate::support::format::ShownText::join(
-                    [
-                        &kept,
-                        &crate::support::format::ShownText::from_cause(more.to_string()),
-                    ],
+                    [&kept, &crate::support::format::ShownText::of_error(&more)],
                     &crate::support::format::ShownText::untranslated("; "),
                 ),
             };

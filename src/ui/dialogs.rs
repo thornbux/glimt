@@ -201,7 +201,7 @@ pub(crate) struct Dialogs {
     confirm_delete: Option<Removal>,
     /// The type of the network or cloud mount whose files the trash refused, when the delete
     /// for good asked about is instead of a move to the trash.
-    trash_refused: Option<String>,
+    trash_refused: Option<ShownText>,
     /// When the delete dialog was first drawn, in egui's input time.
     delete_dialog_opened_at: Option<f64>,
     /// What a folder or collection dialog acts on, kept from when it asked: the folder to rename
@@ -312,7 +312,7 @@ impl Dialogs {
 
     /// Asks whether to delete the files `asked` for good, because the trash refused them on a
     /// network or cloud mount of type `kind`.
-    pub(crate) fn confirm_delete_instead(&mut self, asked: Asked, kind: String) {
+    pub(crate) fn confirm_delete_instead(&mut self, asked: Asked, kind: ShownText) {
         self.asked = Some(asked);
         self.confirm_delete = Some(Removal::ForGood);
         self.trash_refused = Some(kind);
@@ -549,9 +549,10 @@ impl crate::App {
     fn save_theme(&mut self, ctx: &egui::Context, text: &str) {
         // Never in the place of a built-in theme, which a file of its name would hide for good.
         let file = match theme::own_themes_dir() {
-            _ if theme::is_built_in(text) => {
-                Err(tf!("{text} is a built-in theme: choose another name", text))
-            }
+            _ if theme::is_built_in(text) => Err(tf!(
+                "{text} is a built-in theme: choose another name",
+                text = escaped_name(text)
+            )),
             Some(dir) => Ok(dir.join(format!("{text}.theme"))),
             None => Err(tr("no home folder").to_owned()),
         };
@@ -577,9 +578,12 @@ impl crate::App {
                     "Could not save the theme: {e}",
                     e = match e.kind() {
                         std::io::ErrorKind::AlreadyExists => {
-                            tf!("{text} exists already: choose another name", text)
+                            tf!(
+                                "{text} exists already: choose another name",
+                                text = escaped_name(&text)
+                            )
                         }
-                        _ => ShownText::from_cause(e.to_string()),
+                        _ => ShownText::of_error(&e),
                     }
                 )),
             }
@@ -683,7 +687,7 @@ impl crate::App {
             self.notice.clear();
             match done {
                 (Ok(path), _) => self.visit(ctx, path),
-                (Err(Some(e)), _) => self.notice.give_error(ShownText::from_cause(e)),
+                (Err(Some(e)), _) => self.notice.give_error(e),
                 // Ask for the login; the user name defaults to this one, as gio's does.
                 (Err(None), login) => {
                     let user = std::env::var("USER").unwrap_or_default();
@@ -784,7 +788,7 @@ impl crate::App {
                     collection_renamed: Some((old, new)),
                     ..Default::default()
                 })),
-                Err(e) => crate::files::file_io::save_failed(ShownText::from_cause(e)),
+                Err(e) => crate::files::file_io::save_failed(e),
             }
             drop(pointer);
             ctx.request_repaint();
@@ -1048,7 +1052,7 @@ impl crate::App {
             let mut connect = false;
             let mut password = None;
             let modal = egui::Modal::new(egui::Id::unique("asks login")).show(ctx, |ui| {
-                ui.show_label(tf!("Log in to {uri}", uri = login.uri));
+                ui.show_label(tf!("Log in to {uri}", uri = escaped_name(&login.uri)));
                 egui::Grid::new("login fields").show(ui, |ui| {
                     // Sized outright: in the grid of a modal, desired_width left them a few
                     // letters wide.
@@ -1491,7 +1495,7 @@ fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<ShownText> {
     let kind = fat.filter(|_| name.to_string_lossy().contains(NOT_ON_FAT))?;
     Some(tf!(
         "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name.",
-        kind
+        kind = escaped_name(kind)
     ))
 }
 
@@ -2190,7 +2194,10 @@ mod tests {
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, written
         ));
-        let taken = crate::tf!("There is a collection called \"{name}\" already", name);
+        let taken = crate::tf!(
+            "There is a collection called \"{name}\" already",
+            name = crate::support::format::escaped_name(&name)
+        );
         assert_eq!(app.notice.text(), Some(taken.as_str()));
         std::fs::remove_file(&file).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();

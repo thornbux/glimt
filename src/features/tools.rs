@@ -5,6 +5,7 @@
 //! `geeqie --remote`. The desktop files of added formats are read with the same `desktop_files`
 //! and `desktop_entry_values`.
 
+use crate::support::format::ShownText;
 use crate::support::format::{Piece, escaped_name, pieces};
 use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
@@ -94,7 +95,7 @@ impl Tool {
         files: &[PathBuf],
         folder: &Path,
         running: &RunningTools,
-    ) -> Result<(), String> {
+    ) -> Result<(), ShownText> {
         let words = command_words(&self.exec);
         let each = words.iter().any(|w| names_a_file(w, &TOOL_FILE_CODES));
         let runs: Vec<&[PathBuf]> = if each {
@@ -105,7 +106,7 @@ impl Tool {
         for run in runs {
             let args = arguments(&words, run);
             let Some(program) = args.first().cloned() else {
-                return Err("no command".into());
+                return Err(ShownText::untranslated("no command"));
             };
             let local = self.dir.join(&program);
             // A program beside the desktop file that could not be looked at is run, and its
@@ -131,7 +132,7 @@ impl Tool {
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::piped()),
             )
-            .map_err(|e| format!("{}: {e}", escaped_name(&program)))?;
+            .map_err(|e| crate::untranslated!("{name}: {e}", name = escaped_name(&program), e))?;
             let pid = child.id();
             lock_even_if_poisoned(running).push((self.name.clone(), pid));
             // Its errors are read in a thread of their own, and only the last of them are kept.
@@ -149,15 +150,19 @@ impl Tool {
             let mut now = lock_even_if_poisoned(running);
             match now.iter().position(|r| r.1 == pid) {
                 Some(at) => drop(now.remove(at)),
-                None => return Err(crate::support::lang::tr("stopped").to_string()),
+                None => return Err(crate::support::lang::tr("stopped")),
             }
             drop(now);
-            let status = status.map_err(|e| format!("{}: {e}", escaped_name(&program)))?;
+            let status = status.map_err(|e| {
+                crate::untranslated!("{name}: {e}", name = escaped_name(&program), e)
+            })?;
             if !status.success() {
                 let wait = std::time::Duration::from_millis(500);
                 let err = errors.and_then(|rx| rx.recv_timeout(wait).ok());
                 let err = err.unwrap_or_default();
-                return Err(err.lines().last().unwrap_or("failed").to_owned());
+                return Err(ShownText::of_message(
+                    err.lines().last().unwrap_or("failed"),
+                ));
             }
         }
         Ok(())
@@ -414,14 +419,18 @@ pub fn desktop_file_problems() -> Vec<crate::support::format::ShownText> {
         crate::tf!(
             "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}",
             file = escaped_name(path),
-            example = "sh -c \"convert \\\"$1\\\" ppm:-\" sh %f"
+            example = crate::support::format::ShownText::untranslated(
+                "sh -c \"convert \\\"$1\\\" ppm:-\" sh %f"
+            )
         )
     });
     let tools = given_no_file("tools", &["f", "u", "F", "U"]).map(|path| {
         crate::tf!(
             "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}",
             file = escaped_name(path),
-            example = "sh -c \"exiftool \\\"$1\\\"\" sh %f"
+            example = crate::support::format::ShownText::untranslated(
+                "sh -c \"exiftool \\\"$1\\\"\" sh %f"
+            )
         )
     });
     formats.chain(tools).collect()

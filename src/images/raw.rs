@@ -4,6 +4,7 @@
 //! without parsing each format.
 
 use crate::images::decode::ImageBytes;
+use crate::support::format::ShownText;
 use image::ImageDecoder;
 
 pub const EXTS: &[&str] = &[
@@ -14,7 +15,7 @@ pub const EXTS: &[&str] = &[
 ];
 
 /// The preview of a RAW file read already, turned upright if `rotate`.
-pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, String> {
+pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, ShownText> {
     let (mut img, orientation) = unturned(data)?;
     // It is wanted whole, near the size it is shown (`decode::scaled_jpeg`), so it is turned
     // whole.
@@ -28,8 +29,8 @@ pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, Strin
 /// that shrinks it turns the small image.
 pub fn unturned(
     data: &[u8],
-) -> Result<(image::DynamicImage, image::metadata::Orientation), String> {
-    let jpeg = preview(data).ok_or("no preview image in the RAW file")?;
+) -> Result<(image::DynamicImage, image::metadata::Orientation), ShownText> {
+    let jpeg = preview(data).ok_or(ShownText::untranslated("no preview image in the RAW file"))?;
     // TIFF-based RAW files carry the orientation in their own header, and others in the JPEG.
     let in_jpeg = || {
         let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg)).ok()?;

@@ -3,6 +3,7 @@
 //! EXIF date reads, and the orientation, which turning a JPEG writes.
 
 use crate::images::decode::ImageBytes;
+use crate::support::format::ShownText;
 use image::metadata::Orientation;
 use std::path::Path;
 
@@ -581,17 +582,18 @@ pub fn write_orientation(
     turns: u8,
     mirrored: bool,
     rotate: bool,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
-    let real = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let real = &std::fs::canonicalize(path).map_err(|e| ShownText::of_error(&e))?;
     // Taken before the read, so a JPEG still being copied in is not written back cut off.
-    let read =
-        crate::files::file_io::fingerprint_before_reading(real).map_err(|e| e.to_string())?;
+    let read = crate::files::file_io::fingerprint_before_reading(real)
+        .map_err(|e| ShownText::of_error(&e))?;
     // The file counts in the decodes' budget while it is read and turned. The job ends before
     // the sidecar's lock is taken, so that the budget is never held while a lock is waited for.
     let (data, new) = {
         let _job = crate::images::decode::start_decode_job();
-        let data = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
+        let data =
+            crate::images::decode::read_limited(real).map_err(|e| ShownText::of_error(&e))?;
         oriented(data, turns, mirrored, rotate)?
     };
     let how = crate::images::save::Derived::Oriented(new);
@@ -605,21 +607,23 @@ fn oriented(
     turns: u8,
     mirrored: bool,
     rotate: bool,
-) -> Result<(Vec<u8>, u8), String> {
+) -> Result<(Vec<u8>, u8), ShownText> {
     if !data.starts_with(&[0xff, 0xd8]) {
-        return Err(
-            crate::support::lang::tr("only JPEG files can store the orientation").to_string(),
-        );
+        return Err(crate::support::lang::tr(
+            "only JPEG files can store the orientation",
+        ));
     }
-    let (segments, _) = jpeg_segments(&data).ok_or("cut off")?;
+    let (segments, _) = jpeg_segments(&data).ok_or(ShownText::untranslated("cut off"))?;
     let exif = segments
         .iter()
         .find(|s| s.0 == 0xe1 && segment(&data, s).starts_with(b"Exif\0\0"));
     let new;
     match exif {
         Some(&(_, start, len)) => {
-            let block = data.get(start..start + len).ok_or("cut off")?;
-            let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
+            let block = data
+                .get(start..start + len)
+                .ok_or(ShownText::untranslated("cut off"))?;
+            let (t, ifd0, _, _) = ifds(block).ok_or(ShownText::untranslated("unreadable EXIF"))?;
             let little = t.is_little_endian;
             let found = find(&ifd0, ORIENTATION);
             match found {
@@ -627,7 +631,9 @@ fn oriented(
                 Some(e) if e.field_type == SHORT && e.count == 1 => {
                     // Read first, which keeps the write inside the block: an entry at its very end
                     // has no room for its value.
-                    let old = t.u16(e.value_offset).ok_or("cut off")?;
+                    let old = t
+                        .u16(e.value_offset)
+                        .ok_or(ShownText::untranslated("cut off"))?;
                     // A value outside 1 to 8 is shown unturned, as the view and the panel read
                     // it, so the turn starts from 1 and the file shows what the view showed.
                     let shown = match u8::try_from(old) {
@@ -643,10 +649,10 @@ fn oriented(
                         new.to_be_bytes()
                     };
                     data.get_mut(at..at + 2)
-                        .ok_or("cut off")?
+                        .ok_or(ShownText::untranslated("cut off"))?
                         .copy_from_slice(&bytes);
                 }
-                Some(_) => return Err("unusual orientation field".into()),
+                Some(_) => return Err(ShownText::untranslated("unusual orientation field")),
                 None => {
                     new = turned(1, turns, mirrored) as u16;
                     add_orientation(&mut data, start, len, little, new)?;
@@ -666,7 +672,7 @@ fn oriented(
             };
             // A JFIF segment longer than the file: cut off.
             if at > data.len() {
-                return Err("cut off".into());
+                return Err(ShownText::untranslated("cut off"));
             }
             data.splice(at..at, app1);
         }
@@ -709,7 +715,7 @@ pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
 /// thumbnail (IFD1), which a copy must not keep: of a crop it shows the whole frame, so every
 /// copy goes through here, upright or not. The pixel sizes the block has are set to `size`,
 /// the copy's own. This is what `save::Derived::Turned` and `Copy` keep of EXIF.
-pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
+pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), ShownText> {
     let Some((t, ifd0, exif, _)) = ifds(block) else {
         return Ok(());
     };
@@ -730,7 +736,7 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
         .collect();
     let found = find(&ifd0, ORIENTATION);
     if found.is_some_and(|e| e.field_type != SHORT) {
-        return Err("unusual orientation field".into());
+        return Err(ShownText::untranslated("unusual orientation field"));
     }
     // Offsets count from the TIFF header, after any "Exif\0\0" before it.
     let head = block.len() - t.data.len();
@@ -752,7 +758,7 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
     };
     block
         .get_mut(at..at + 2)
-        .ok_or("cut off")?
+        .ok_or(ShownText::untranslated("cut off"))?
         .copy_from_slice(&one);
     Ok(())
 }
@@ -1001,7 +1007,7 @@ fn add_orientation(
     len: usize,
     little: bool,
     value: u16,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     let tiff = start + 6;
     let p16 = |v: u16| {
         if little {
@@ -1018,18 +1024,25 @@ fn add_orientation(
         }
     };
     // Read inside the EXIF block only: an offset past it would copy the picture as fields.
-    let block = data.get(..start + len).ok_or("cut off")?;
+    let block = data
+        .get(..start + len)
+        .ok_or(ShownText::untranslated("cut off"))?;
     let read = Tiff {
         data: block,
         is_little_endian: little,
     };
-    let ifd = tiff + read.u32(tiff + 4).ok_or("cut off")? as usize;
-    let n = read.u16(ifd).ok_or("cut off")? as usize;
-    let entries = block.get(ifd + 2..ifd + 2 + 12 * n).ok_or("cut off")?;
+    let ifd = tiff
+        + read
+            .u32(tiff + 4)
+            .ok_or(ShownText::untranslated("cut off"))? as usize;
+    let n = read.u16(ifd).ok_or(ShownText::untranslated("cut off"))? as usize;
+    let entries = block
+        .get(ifd + 2..ifd + 2 + 12 * n)
+        .ok_or(ShownText::untranslated("cut off"))?;
     let mut list: Vec<Vec<u8>> = entries.chunks(12).map(<[u8]>::to_vec).collect();
     let next = block
         .get(ifd + 2 + 12 * n..ifd + 6 + 12 * n)
-        .ok_or("cut off")?
+        .ok_or(ShownText::untranslated("cut off"))?
         .to_vec();
     let mut entry = Vec::new();
     entry.extend(p16(ORIENTATION));
@@ -1055,7 +1068,7 @@ fn add_orientation(
     added.extend(next);
     let seg_len = len + 2 + added.len();
     if seg_len > 0xffff {
-        return Err("EXIF block too large".into());
+        return Err(ShownText::untranslated("EXIF block too large"));
     }
     data.splice(start + len..start + len, added);
     data[start - 2..start].copy_from_slice(&(seg_len as u16).to_be_bytes());

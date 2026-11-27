@@ -104,7 +104,7 @@ pub(crate) struct Search {
     /// at least three letters.
     query: String,
     /// Why a re: search pattern is not a valid pattern, shown under the search field.
-    error: Option<String>,
+    error: Option<ShownText>,
     /// The search field takes the focus when it is next drawn (/).
     wants_focus: bool,
     /// The rows among the matches of the shown file and of the file a slideshow of several
@@ -785,7 +785,7 @@ fn parse_and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
 
 /// A `re:` search, which ignores case unless `case`. For a pattern that is not valid, it
 /// returns why, to show while typing.
-pub fn regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, String> {
+pub fn regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, ShownText> {
     regex::bytes::RegexBuilder::new(pattern)
         .case_insensitive(!case)
         .build()
@@ -793,7 +793,7 @@ pub fn regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, String> {
             // The last line says what is wrong, and the ones before point at where.
             let text = e.to_string();
             let last = text.lines().last().unwrap_or_default();
-            last.trim_start_matches("error: ").to_owned()
+            ShownText::of_message(last.trim_start_matches("error: "))
         })
 }
 

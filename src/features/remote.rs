@@ -10,7 +10,7 @@
 
 use crate::features::remote;
 use crate::images::decode::{copy_limited, read_line_limited};
-use crate::support::format::escaped_name;
+use crate::support::format::{ShownText, escaped_name};
 use crate::support::lang::tr;
 #[cfg(feature = "test-hooks")]
 use crate::support::test_hooks;
@@ -291,7 +291,7 @@ pub(crate) struct NameAnswer {
     asked_by: NameAskedBy,
     /// `Err(None)` for a name that a window cannot take (`can_be_window_name`), and
     /// `Err(Some(why))` for one refused for another reason.
-    taken: Result<(), Option<String>>,
+    taken: Result<(), Option<ShownText>>,
 }
 
 /// One of `UNFINISHED_ANSWERS` while it lives.
@@ -442,7 +442,7 @@ impl Listener {
         busy: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
         listens_without_name: bool,
         start_listening: Option<
-            impl FnOnce(mpsc::Sender<Sent>, egui::Context) -> Result<(), String> + Send + 'static,
+            impl FnOnce(mpsc::Sender<Sent>, egui::Context) -> Result<(), ShownText> + Send + 'static,
         >,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
@@ -868,7 +868,7 @@ impl crate::App {
             match (answer.asked_by, answer.taken) {
                 (NameAskedBy::Remote(Some(reply)), Ok(())) => drop(reply.send(Vec::new())),
                 (NameAskedBy::Remote(Some(reply)), Err(why)) => {
-                    let why = why.unwrap_or_else(|| NOT_A_NAME.to_owned());
+                    let why = why.unwrap_or(ShownText::untranslated(NOT_A_NAME));
                     drop(reply.send(not_done_answer(&why)));
                 }
                 // A start that could not listen printed why in its thread.
@@ -876,13 +876,10 @@ impl crate::App {
                 | (NameAskedBy::Dialog, Ok(())) => {}
                 // The name typed is told in the user's language. The other reasons come from
                 // the system, rarely, and are the English ones that `--remote name` prints too.
-                (NameAskedBy::Dialog, Err(None)) => self.notice.give_error(
-                    tr(
-                        "Could not name this window: a name holds letters, digits, - and _, \
-                        not only digits, and at most 64 bytes",
-                    )
-                    .to_owned(),
-                ),
+                (NameAskedBy::Dialog, Err(None)) => self.notice.give_error(tr(
+                    "Could not name this window: a name holds letters, digits, - and _, not \
+                     only digits, and at most 64 bytes",
+                )),
                 (NameAskedBy::Dialog, Err(Some(why))) => self
                     .notice
                     .give_error(tf!("Could not name this window: {why}", why)),
@@ -1802,14 +1799,14 @@ fn open_path_sent(path: &str) -> String {
 
 /// Listens for commands in the background and passes each line to `tx`, with where to answer
 /// for a query. Returns the reason when the window cannot listen.
-pub fn listen(tx: mpsc::Sender<Sent>, ctx: eframe::egui::Context) -> Result<(), String> {
+pub fn listen(tx: mpsc::Sender<Sent>, ctx: eframe::egui::Context) -> Result<(), ShownText> {
     let Some(path) = socket(&socket_id()) else {
-        return Err(
+        return Err(ShownText::untranslated(
             match runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR")) {
-                None => "No remote control: $XDG_RUNTIME_DIR is not set to a full path".into(),
-                Some(_) => "No remote control: its folder there is not this user's own".into(),
+                None => "No remote control: $XDG_RUNTIME_DIR is not set to a full path",
+                Some(_) => "No remote control: its folder there is not this user's own",
             },
-        );
+        ));
     };
     // Only the user may connect, even where $XDG_RUNTIME_DIR is not private as it should be.
     {
@@ -1826,11 +1823,18 @@ pub fn listen(tx: mpsc::Sender<Sent>, ctx: eframe::egui::Context) -> Result<(), 
     let listener = match bound {
         Ok(listener) => listener,
         Err(None) => {
-            return Err(format!(
-                "A Glimt of ID {id} is running already: --remote goes to that one"
+            return Err(crate::untranslated!(
+                "A Glimt of ID {id} is running already: --remote goes to that one",
+                id = escaped_name(&id)
             ));
         }
-        Err(Some(e)) => return Err(format!("No remote control as {id}: {e}")),
+        Err(Some(e)) => {
+            return Err(crate::untranslated!(
+                "No remote control as {id}: {e}",
+                id = escaped_name(&id),
+                e
+            ));
+        }
     };
     keep_listening_as(Some(id));
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1870,7 +1874,7 @@ fn name_this_window(
     listens_without_name: bool,
     commands: mpsc::Sender<Sent>,
     ctx: &egui::Context,
-) -> Result<(), Option<String>> {
+) -> Result<(), Option<ShownText>> {
     if name.is_some_and(|n| !can_be_window_name(n)) {
         return Err(None);
     }
@@ -2215,11 +2219,15 @@ fn ends_in_a_path(line: &[u8]) -> bool {
 /// folder is opened without following a link, and checked and changed through what was opened,
 /// so another user who swaps the name for a link meanwhile (where $XDG_RUNTIME_DIR is a shared
 /// folder such as /tmp) changes nothing of the user's. Returns the reason when it is not done.
-fn make_own_folder_private(dir: &Path) -> Result<(), String> {
+fn make_own_folder_private(dir: &Path) -> Result<(), ShownText> {
     use std::os::unix::fs::PermissionsExt;
-    let not_own = || "No remote control: its folder there is not this user's own".to_owned();
+    let not_own =
+        || ShownText::untranslated("No remote control: its folder there is not this user's own");
     let cannot = |e: std::io::Error| {
-        format!("No remote control: its folder there cannot be made private: {e}")
+        crate::untranslated!(
+            "No remote control: its folder there cannot be made private: {e}",
+            e
+        )
     };
     let folder = match crate::files::file_io::open_folder_not_through_link(dir) {
         Ok(folder) => folder,
@@ -2315,15 +2323,15 @@ fn bind_where_removed(
 /// listens keeps its socket and links it to the new ID before the old ID is removed, so it is
 /// never without remote control. The new name is shared, as at start, when another window has
 /// it already. Returns the reason when the name cannot be taken.
-pub fn rename(name: Option<&str>) -> Result<(), String> {
+pub fn rename(name: Option<&str>) -> Result<(), ShownText> {
     if name.is_some_and(|n| !can_be_window_name(n)) {
-        return Err(NOT_A_NAME.into());
+        return Err(ShownText::untranslated(NOT_A_NAME));
     }
     if !listening() {
         keep_given_name(name.map(str::to_owned));
         return Ok(());
     }
-    let dir = runtime_dir().ok_or("there is no runtime folder")?;
+    let dir = runtime_dir().ok_or(ShownText::untranslated("there is no runtime folder"))?;
     let ids = match name {
         Some(n) => vec![n.to_owned(), format!("{n}.{}", instance_id())],
         None => vec![instance_id().to_owned()],
@@ -2338,13 +2346,13 @@ pub fn rename(name: Option<&str>) -> Result<(), String> {
 /// that a client can connect to. The socket is linked to the new ID before the old one is
 /// removed, so the window is never without remote control. The window used last keeps that
 /// place under its new ID. Returns the ID taken, or the reason when none of them can be taken.
-fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> {
+fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, ShownText> {
     let from = dir.join(socket_name(old));
-    let mut why = "a Glimt of that name and process ID runs already".to_owned();
+    let mut why = ShownText::untranslated("a Glimt of that name and process ID runs already");
     for id in ids {
         let to = dir.join(socket_name(id));
         if !socket_path_fits(&to) {
-            why = "the name is too long for the socket's path here".into();
+            why = ShownText::untranslated("the name is too long for the socket's path here");
             continue;
         }
         if id != old {
@@ -2355,7 +2363,7 @@ fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> 
                 // the name and the process ID, is tried, as when a window has the name.
                 Err(e) => {
                     eprintln!("Could not listen as {id}: {e}");
-                    why = e.to_string();
+                    why = ShownText::of_error(&e);
                     continue;
                 }
             }

@@ -1390,12 +1390,18 @@ pub fn is_hidden(path: &Path) -> bool {
 /// A theme, which is not in the list, is named with `hidden_shown`.
 pub fn refused_name(name: &str, hidden_shown: bool) -> Option<Failure> {
     if name.is_empty() || name.contains('/') || name == "." || name == ".." {
-        return Some(crate::tf!("Not a valid name: \"{text}\"", text = name).into());
+        return Some(
+            crate::tf!(
+                "Not a valid name: \"{text}\"",
+                text = crate::support::format::escaped_name(name)
+            )
+            .into(),
+        );
     }
     (name.starts_with('.') && !hidden_shown).then(|| {
         Failure::from(crate::tf!(
             "{text} starts with a dot and would be hidden: choose another name",
-            text = name
+            text = crate::support::format::escaped_name(name)
         ))
     })
 }

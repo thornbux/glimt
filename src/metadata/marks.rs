@@ -551,7 +551,7 @@ pub fn move_old_marks_file() -> Option<crate::support::format::ShownText> {
 /// marks. A move that failed is told, and the old file is used where it is.
 fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
     move_marks_file_by(old, new, |file| {
-        let m = std::fs::metadata(file).map_err(|e| e.to_string())?;
+        let m = std::fs::metadata(file).map_err(|e| ShownText::of_error(&e))?;
         Ok(crate::images::save::file_id_from_metadata(file, &m))
     })
 }
@@ -561,7 +561,7 @@ fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
 fn move_marks_file_by(
     old: &Path,
     new: &Path,
-    identity: impl Fn(&Path) -> Result<crate::images::save::FileId, String>,
+    identity: impl Fn(&Path) -> Result<crate::images::save::FileId, ShownText>,
 ) -> MarksMove {
     use crate::files::file_io::{is_surely_gone, lock_or_tell};
     // One file under both names has nothing to move.
@@ -985,7 +985,7 @@ fn write_to(file: Option<PathBuf>, edits: Vec<Edit>) {
         }
         None if adds => crate::files::file_io::save_failed(crate::tf!(
             "Could not save {name}: {e}",
-            name = "marks",
+            name = crate::support::format::ShownText::untranslated("marks"),
             e = crate::support::lang::tr("no data folder ($HOME is not set)")
         )),
         _ => {}
@@ -1189,7 +1189,7 @@ fn has_form_of_marks_line(line: &[u8]) -> bool {
 /// Write `stars` as xmp:Rating into the sidecar `<file>.xmp` that darktable and digiKam read.
 /// An existing sidecar keeps everything else: only the rating changes, or is added to its first
 /// rdf:Description. Without a sidecar, 0 stars writes none.
-pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
+pub fn write_xmp(path: &Path, stars: u8) -> Result<(), ShownText> {
     use crate::files::file_io::IfMissing;
     let if_missing = match stars {
         0 => IfMissing::LeaveMissing,
@@ -1407,7 +1407,7 @@ mod tests {
         std::fs::write(&new, line).unwrap();
         crate::files::file_io::take_saves_failed();
         let failing = |file: &std::path::Path| match file.starts_with(dir.join("state")) {
-            true => Err("the share did not answer".to_owned()),
+            true => Err("the share did not answer".into()),
             false => Ok(Ok((1, 2))),
         };
         assert_eq!(move_marks_file_by(&old, &new, failing), MarksMove::Failed);
@@ -2692,7 +2692,7 @@ mod tests {
     #[test]
     fn every_sidecar_writer_keeps_what_the_others_wrote() {
         use crate::metadata::xmp;
-        type Write = fn(&std::path::Path) -> Result<(), String>;
+        type Write = fn(&std::path::Path) -> Result<(), crate::support::format::ShownText>;
         let writers: [(&str, Write, &str); 6] = [
             ("stars", |p| super::write_xmp(p, 3), "Rating=\"3\""),
             (

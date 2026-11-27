@@ -254,7 +254,7 @@ impl SharingOutcome {
             match is_name_free(&target, &crate::metadata::xmp::lock_sidecar(&target)) {
                 Ok(true) => {}
                 Ok(false) => return self.names_taken += 1,
-                Err(e) => return self.errors.push(ShownText::from_cause(e.to_string())),
+                Err(e) => return self.errors.push(ShownText::of_error(&e)),
             }
         }
         let made = crate::images::decode::catch_panic_as_error(|| copy(path, kept));
@@ -305,7 +305,7 @@ impl SharingOutcome {
                 Err(e) => {
                     failed_looks += 1;
                     if naming == Naming::Own || failed_looks == MOST_FAILED_LOOKS {
-                        return self.errors.push(ShownText::from_cause(e.to_string()));
+                        return self.errors.push(ShownText::of_error(&e));
                     }
                     continue;
                 }

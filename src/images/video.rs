@@ -2,6 +2,7 @@
 //! as a preview, decoded by the `ffmpeg` program (`ffmpeg_frame`), so Glimt itself links no
 //! video codecs.
 
+use crate::support::format::ShownText;
 use std::path::Path;
 
 pub const EXTS: &[&str] = &[
@@ -15,7 +16,7 @@ pub const EXTS: &[&str] = &[
 pub fn preview(
     path: &Path,
     max: Option<[u32; 2]>,
-) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), ShownText> {
     use crate::files::external::{ffmpeg_frame, probe_size};
     // A frame that took too long is not asked for again at 0, which would wait as long.
     let img = match ffmpeg_frame(path, "1", max) {

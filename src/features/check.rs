@@ -24,16 +24,16 @@ pub(crate) struct ImageCheck {
     total: usize,
     /// Each file that failed: its name in the list, why, whether that is the file's fault, and
     /// its fingerprint, taken before it was read.
-    found_rx: Receiving<(OsString, String, bool, Option<FileFingerprint>)>,
+    found_rx: Receiving<(OsString, ShownText, bool, Option<FileFingerprint>)>,
     /// The broken ones found: (name in the list, why, fingerprint before it was read).
-    broken: Vec<(OsString, String, Option<FileFingerprint>)>,
+    broken: Vec<(OsString, ShownText, Option<FileFingerprint>)>,
     /// The broken files that are still as the check read them, which Select Them selects once
     /// they have been looked at in the background (`start_selecting_broken`).
     still_broken: Receiving<(Vec<OsString>, Working)>,
     /// The files that could not be checked, for a reason that says nothing about the file,
     /// such as ffmpeg not installed or a share away for a moment: (name in the list, why).
     /// They are not marked broken, as a user who trusts the mark may delete them.
-    unchecked: Vec<(OsString, String)>,
+    unchecked: Vec<(OsString, ShownText)>,
 }
 
 impl ImageCheck {

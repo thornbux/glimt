@@ -4,6 +4,7 @@
 
 use crate::files::config::Config;
 use crate::metadata::exif;
+use crate::support::format::ShownText;
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
@@ -140,11 +141,11 @@ pub(crate) enum ProfileSet {
     Screen {
         path: String,
         chosen: bool,
-        answer: Result<bool, String>,
+        answer: Result<bool, ShownText>,
     },
     Input {
         name: String,
-        answer: Result<(), String>,
+        answer: Result<(), ShownText>,
     },
 }
 
@@ -391,17 +392,20 @@ pub fn profile_fits(icc: &[u8], pixels: image::ColorType) -> bool {
 
 /// The RGB profile in the ICC file `path`, or `None` when it shows sRGB as it is (so that it
 /// costs nothing); an error for one that cannot be read or is not RGB.
-pub fn rgb_profile(path: &str) -> Result<Option<moxcms::ColorProfile>, String> {
+pub fn rgb_profile(path: &str) -> Result<Option<moxcms::ColorProfile>, ShownText> {
     use moxcms::{ColorProfile, DataColorSpace};
     #[cfg(test)]
     if let Some(hook) = READING.get() {
         hook();
     }
-    let bytes = crate::images::decode::read_limited(path).map_err(|e| format!("{path}: {e}"))?;
+    let named = crate::support::format::escaped_name(path);
+    let bytes = (crate::images::decode::read_limited(path))
+        .map_err(|e| crate::untranslated!("{named}: {e}", named, e))?;
     let profile = ColorProfile::new_from_slice(&bytes)
         .ok()
         .filter(|p| p.color_space == DataColorSpace::Rgb)
-        .ok_or(format!("{path}: not an RGB colour profile"))?;
+        .ok_or_else(|| crate::untranslated!("{named}: not an RGB colour profile", named))?;
+
     Ok((!is_like_srgb(&profile)).then_some(profile))
 }
 
@@ -448,7 +452,7 @@ pub fn set_colour(change: impl FnOnce(&mut Colour)) {
 /// The screen profile in `path` (empty: none, sRGB). A file that is not an RGB profile is an
 /// error, and the old one stays. False when it was sRGB and still is, so nothing need be shown
 /// again.
-pub fn set_screen(path: &str) -> Result<bool, String> {
+pub fn set_screen(path: &str) -> Result<bool, ShownText> {
     let was = {
         let c = crate::support::threads::read_even_if_poisoned(&COLOUR);
         if c.screen_path == path {
@@ -493,7 +497,7 @@ pub fn wait_for_screen() {
 
 /// Sets the profile for images without one: a value of `INPUT_PROFILES`, an empty one for
 /// sRGB, or the path of an ICC file.
-pub fn set_input(name: &str) -> Result<(), String> {
+pub fn set_input(name: &str) -> Result<(), ShownText> {
     let profile = match INPUT_PROFILES.iter().find(|p| p.0 == name) {
         Some(p) => p.2(),
         None if name.is_empty() => None,
@@ -514,7 +518,7 @@ pub fn set_intent(name: &str) {
 
 /// The profile an image is shown from, for the info panel: its own (by name), Adobe RGB from
 /// its EXIF, or the one taken for images without a profile.
-pub fn colour_source(path: &Path) -> String {
+pub fn colour_source(path: &Path) -> ShownText {
     use moxcms::{ColorProfile, ProfileText};
     // The file is read before the colour settings are locked. On a stalled share the read can
     // take long, and a change in Preferences would wait for it, with every decoding thread
@@ -540,24 +544,24 @@ pub fn colour_source(path: &Path) -> String {
                 .then(|| tr("Adobe RGB, from its EXIF").to_owned())
         }
     };
-    fn name_of(p: &ColorProfile) -> String {
+    fn name_of(p: &ColorProfile) -> ShownText {
+        let in_file = ShownText::from_file_text_on_one_line;
         match &p.description {
-            Some(ProfileText::PlainString(s)) => s.clone(),
-            Some(ProfileText::Localizable(l)) => {
-                l.first().map_or(String::new(), |s| s.value.clone())
-            }
-            Some(ProfileText::Description(d)) => d.ascii_string.clone(),
-            None => tr("unnamed").to_string(),
+            Some(ProfileText::PlainString(s)) => in_file(s),
+            Some(ProfileText::Localizable(l)) => l
+                .first()
+                .map_or(ShownText::default(), |s| in_file(&s.value)),
+            Some(ProfileText::Description(d)) => in_file(&d.ascii_string),
+            None => tr("unnamed"),
         }
     }
     let c = crate::support::threads::read_even_if_poisoned(&COLOUR);
-    let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
-    let source = match own {
+    let input = (c.input.as_ref()).map_or(ShownText::untranslated("sRGB"), name_of);
+    match own {
         Some(own) if c.use_image_profile => own,
         Some(own) => crate::tf!("{own}; {input} used instead", own, input),
         None => crate::tf!("none: taken as {input}", input),
-    };
-    source.to_string()
+    }
 }
 
 /// The desktop's screen profile file, read from colord in the background.
@@ -747,7 +751,7 @@ pub(crate) fn set_up_colour(config: &Config) -> Option<crate::viewer::view::Fail
         .err();
     set_colour(|c| c.use_image_profile = config.use_image_profile);
     set_intent(&config.rendering_intent);
-    error.map(|e| crate::support::format::ShownText::from_cause(e).into())
+    error.map(crate::viewer::view::Failure::from)
 }
 
 /// Makes the images for the screen wait a moment for the desktop's screen profile, when colour

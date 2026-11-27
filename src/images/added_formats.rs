@@ -20,6 +20,7 @@
 //! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has, and at most the memory of the setting
 //! `added_format_memory_mb`, which it finds in `GLIMT_FORMAT_MEMORY_MB`.
 
+use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -60,7 +61,7 @@ impl AddedFormat {
     }
 
     /// The image the command writes for `path`.
-    pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, String> {
+    pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, ShownText> {
         let memory_mb = MEMORY_LIMIT_MB.load(Ordering::Relaxed);
         self.run(path, crate::files::external::PROGRAM_TIME_LIMIT, memory_mb)
     }
@@ -72,9 +73,9 @@ impl AddedFormat {
         path: &Path,
         limit: Duration,
         memory_mb: usize,
-    ) -> Result<image::DynamicImage, String> {
+    ) -> Result<image::DynamicImage, ShownText> {
         // Absolute, so the path never reads as an option or as ImageMagick's "format:" prefix.
-        let path = std::path::absolute(path).map_err(|e| e.to_string())?;
+        let path = std::path::absolute(path).map_err(|e| ShownText::of_error(&e))?;
         let args = self.arguments(&path);
         let program = PathBuf::from(&args[0]);
         let local = self.dir.join(&program);
@@ -98,34 +99,39 @@ impl AddedFormat {
         // does what the program starts. The limit, the program and the file are arguments,
         // never part of the script's text. In a Flatpak the shell runs on the host through
         // flatpak-spawn, so the limit holds for the program there too.
+        let name = escaped_name(&self.name);
+        let program_name = escaped_name(&program);
         let mut child = crate::files::external::stoppable_host_command("sh")
             .args(["-c", LIMITED_PROGRAM, "sh", &memory_mb.to_string()])
             .arg(&program)
             .args(&args[1..])
             .spawn()
-            .map_err(|e| format!("{} ({}): {e}", self.name, escaped_name(program)))?;
-        let named = |e| format!("{}: {e}", self.name);
+            .map_err(|e| {
+                crate::untranslated!("{name} ({program}): {e}", name, program = program_name, e)
+            })?;
+        let named = |e: ShownText| crate::untranslated!("{name}: {e}", name, e);
         let mut input = crate::images::decode::DecodeInput::reserve(0).map_err(named)?;
         let (image, err, ok) =
             crate::files::external::counted_output_of(&mut child, max, limit, |length| {
                 input.grow_to(length, max).is_ok()
             });
-        let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
+        let image = image.ok_or_else(|| crate::untranslated!("{name}: image too large", name))?;
         if !ok || image.is_empty() {
-            let error = crate::files::external::last_line(&err, "no image");
+            let error =
+                crate::files::external::last_line(&err, ShownText::untranslated("no image"));
             if !ok && ran_out_of_memory(&err) {
-                let (name, mb) = (&self.name, memory_mb);
+                let mb = memory_mb;
                 return Err(crate::tf!(
                     "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory \
                      and CPU): {error}",
                     name,
                     mb,
                     error
-                )
-                .to_string());
+                ));
             }
-            return Err(format!("{}: {error}", self.name));
+            return Err(crate::untranslated!("{name}: {error}", name, error));
         }
+
         let image = input.holding(image).map_err(named)?;
         crate::images::decode::from_memory(&image).map_err(named)
     }

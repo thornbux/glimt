@@ -516,7 +516,7 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Vec<(PathBuf, StepError)> {
         };
     }
     let refused = match has_gio {
-        false => Err("gio is not there".to_owned()),
+        false => Err(ShownText::untranslated("gio is not there")),
         true => {
             // Within two minutes, because a share that stopped answering once left the delete
             // running for good, with no Stop. One gio for every file, so thousands do not
@@ -549,16 +549,18 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Vec<(PathBuf, StepError)> {
 /// Trashes `paths` by hand as gio does, all but those of `refused`, and fails at the end when
 /// it refused any, as gio goes on with the other files after one fails.
 #[cfg(test)]
-fn gio_in_a_test(paths: &[PathBuf], refused: &[PathBuf]) -> Result<(), String> {
+fn gio_in_a_test(paths: &[PathBuf], refused: &[PathBuf]) -> Result<(), ShownText> {
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
-    let home = home.ok_or("no home trash")?;
+    let home = home.ok_or(ShownText::untranslated("no home trash"))?;
     let taken: Vec<&Path> = (paths.iter())
         .filter(|p| !refused.contains(p))
         .map(PathBuf::as_path)
         .collect();
     match trash_by_hand_anywhere(&taken, &home).is_empty() && taken.len() == paths.len() {
         true => Ok(()),
-        false => Err("gio: Error trashing file: Permission denied".to_owned()),
+        false => Err(ShownText::untranslated(
+            "gio: Error trashing file: Permission denied",
+        )),
     }
 }
 

@@ -13,6 +13,7 @@ use crate::images::decode::{
 };
 use crate::images::save::{MAX_JPEG_EXIF, SharedMetadata, crc32, shared_metadata};
 use crate::metadata::xmp::Properties;
+use crate::support::format::ShownText;
 use crate::support::format::without_control_characters;
 use crate::support::lang::tr;
 use std::borrow::Cow;
@@ -1324,8 +1325,8 @@ struct GainMap<'a> {
 /// sorted, each once: those of its EXIF, its XMP, its sidecar and its IPTC, and its other parts
 /// with a tag. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one
 /// that cannot be read or is damaged.
-pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, String> {
-    let read = read_without_image_data(path).map_err(|e| e.to_string())?;
+pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, ShownText> {
+    let read = read_without_image_data(path).map_err(|e| ShownText::of_error(&e))?;
     let Some(data) = read else {
         return Ok(None);
     };
@@ -1380,9 +1381,9 @@ pub(crate) fn names_of_single_tags() -> Vec<String> {
 /// Makes the copy for sharing of `path` that keeps the tags `kept`, besides what every copy
 /// keeps. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one that
 /// cannot be read or is damaged.
-pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>>, String> {
+pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>>, ShownText> {
     // A video of a gigabyte is another format, told by its first bytes, not a file too large.
-    let head = read_head(path, 12).map_err(|e| e.to_string())?;
+    let head = read_head(path, 12).map_err(|e| ShownText::of_error(&e))?;
     if container_of(&head).is_none() {
         return Ok(None);
     }
@@ -1390,7 +1391,7 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
     // selection are made in a job of their own. It is read once, and its metadata is read
     // from that read too (`shared_metadata`), never from the file again.
     let _job = crate::images::decode::start_decode_job();
-    let source = &Source::read(path).map_err(|e| e.to_string())?;
+    let source = &Source::read(path).map_err(|e| ShownText::of_error(&e))?;
     let keeps = |tag: &str| kept.contains(tag);
     with_walked(source, source, |walked, mut metadata| {
         // A copy that leaves out the images after the main one still keeps the gain map.
@@ -1428,7 +1429,7 @@ fn with_walked<'a, T>(
     file: impl ImageBytes<'a>,
     data: &[u8],
     then: impl FnOnce(&Walked, SharedMetadata) -> T,
-) -> Result<Option<T>, String> {
+) -> Result<Option<T>, ShownText> {
     let Some(mut walked) = walk(data)? else {
         return Ok(None);
     };
@@ -1453,14 +1454,16 @@ fn container_of(head: &[u8]) -> Option<Container> {
 
 /// Walks `data` as the container its first bytes say. Returns `None` when it is not a JPEG,
 /// PNG or WebP, and an error when it is one that is damaged.
-fn walk(data: &[u8]) -> Result<Option<Walked<'_>>, String> {
+fn walk(data: &[u8]) -> Result<Option<Walked<'_>>, ShownText> {
     let walked = match container_of(data) {
         Some(Container::Jpeg) => walk_jpeg(data),
         Some(Container::Png) => walk_png(data),
         Some(Container::WebP) => walk_webp(data),
         None => return Ok(None),
     };
-    walked.map(Some).ok_or_else(|| "damaged or cut off".into())
+    walked
+        .map(Some)
+        .ok_or(ShownText::untranslated("damaged or cut off"))
 }
 
 /// Reads what `tags_of` walks of `path`: the file without its image data, in a few small reads.
@@ -2169,7 +2172,7 @@ fn assembled(
     exif: Option<Vec<u8>>,
     xmp: Option<Vec<u8>>,
     gain_map: Option<Vec<u8>>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ShownText> {
     let kept: Vec<&Part> = (walked.parts.iter())
         .filter(|p| p.tag.as_deref().is_none_or(keeps))
         .collect();
@@ -2179,7 +2182,9 @@ fn assembled(
         Container::Jpeg => {
             if let Some(exif) = exif {
                 if exif.len() > MAX_JPEG_EXIF {
-                    return Err("the EXIF block kept is too large for a JPEG".into());
+                    return Err(ShownText::untranslated(
+                        "the EXIF block kept is too large for a JPEG",
+                    ));
                 }
                 out.extend(jpeg_segment(0xe1, &[b"Exif\0\0", &exif[..]].concat()));
             }
@@ -2197,7 +2202,8 @@ fn assembled(
             jpeg_rest(&mut out, rest, walked.image_end);
             if let (Some(at), Some(gain_map), Some(found)) = (index_at, gain_map, &walked.gain_map)
             {
-                let size = |n: usize| u32::try_from(n).map_err(|_| "too large".to_owned());
+                let size =
+                    |n: usize| u32::try_from(n).map_err(|_| ShownText::untranslated("too large"));
                 let (main, length) = (size(out.len())?, size(gain_map.len())?);
                 // The gain map's offset counts from the index's TIFF header.
                 let offset = size(out.len() - at - 8)?;
@@ -2254,7 +2260,7 @@ fn jpeg_rest(out: &mut Vec<u8>, rest: &[&Part], image_end: Option<usize>) {
 
 /// Makes the copy of the gain map `gain_map`: its image data and the parts that decide how it
 /// looks, with only its gain map's XMP (`gain_map_xmp`), and without its EXIF or any other tag.
-fn gain_map_copy(gain_map: &GainMap) -> Result<Vec<u8>, String> {
+fn gain_map_copy(gain_map: &GainMap) -> Result<Vec<u8>, ShownText> {
     let xmp = gain_map.image.xmp.and_then(gain_map_xmp);
     assembled(&gain_map.image, &|_| false, None, xmp, None)
 }
@@ -2406,7 +2412,7 @@ fn webp_with_metadata(
     mut webp: Vec<u8>,
     exif: Option<Vec<u8>>,
     xmp: Option<Vec<u8>>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ShownText> {
     if webp.get(12..16) == Some(&b"VP8X"[..])
         && let Some(flags) = webp.get_mut(20)
     {
@@ -2420,9 +2426,9 @@ fn webp_with_metadata(
     // A simple WebP gets an extended header, which needs the image's size.
     let (width, height) = image::ImageReader::new(std::io::Cursor::new(&webp))
         .with_guessed_format()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| ShownText::of_error(&e))?
         .into_dimensions()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ShownText::of_error(&e))?;
     for (name, data) in [(b"EXIF", exif), (b"XMP ", xmp)] {
         if let Some(data) = data {
             webp = crate::images::save::webp_with_chunk(&webp, name, &data, width, height)?;

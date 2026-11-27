@@ -1,6 +1,7 @@
 //! The desktop portals that need what gdbus cannot do: a file descriptor passed, or the answer
 //! of a dialog awaited. Used in the Flatpak, where Glimt reaches the printers through them.
 
+use crate::support::format::ShownText;
 use std::collections::HashMap;
 use zbus::blocking::{Connection, MessageIterator};
 use zbus::zvariant::{OwnedValue, Value};
@@ -27,16 +28,18 @@ type Results = HashMap<String, OwnedValue>;
 /// cancelled. The Response is listened for before the call, so it cannot come first.
 fn request<B>(
     conn: &Connection,
-    interface: &str,
-    method: &str,
+    interface: &'static str,
+    method: &'static str,
     token: &str,
     body: &B,
-) -> Result<Option<Results>, String>
+) -> Result<Option<Results>, ShownText>
 where
     B: serde::Serialize + zbus::zvariant::DynamicType,
 {
-    let e = |e: zbus::Error| e.to_string();
-    let sender = conn.unique_name().ok_or("no D-Bus name")?;
+    let e = |e: zbus::Error| ShownText::of_error(&e);
+    let sender = conn
+        .unique_name()
+        .ok_or(ShownText::untranslated("no D-Bus name"))?;
     let sender = sender.trim_start_matches(':').replace('.', "_");
     let handle = format!("{PORTAL_OBJECT_PATH}/request/{sender}/{token}");
     // The portal's changes of owner are listened for before the Ping, so that a restart right
@@ -48,7 +51,11 @@ where
     let pong = conn
         .call_method(Some(PORTAL_BUS_NAME), PORTAL_OBJECT_PATH, peer, "Ping", &())
         .map_err(e)?;
-    let owner = pong.header().sender().ok_or("no D-Bus name")?.to_string();
+    let owner = pong
+        .header()
+        .sender()
+        .ok_or(ShownText::untranslated("no D-Bus name"))?
+        .to_string();
     let rule = response_rule(&owner, &handle).map_err(e)?;
     let responses = MessageIterator::for_match_rule(rule, conn, Some(1)).map_err(e)?;
     let mut responses = responses.into_inner();
@@ -83,16 +90,23 @@ where
         answer_or_loss(&mut responses, &mut owners, lost)
     };
     let Some(message) = with_time_limit(ANSWER_LIMIT, wait, stop) else {
-        return Err("no answer from the portal".into());
+        return Err(ShownText::untranslated("no answer from the portal"));
     };
-    let message = message.map_err(|()| "the portal restarted and lost the request")?;
-    let message = message.ok_or("no answer from the portal")?.map_err(e)?;
+    let message = message
+        .map_err(|()| ShownText::untranslated("the portal restarted and lost the request"))?;
+    let message = message
+        .ok_or(ShownText::untranslated("no answer from the portal"))?
+        .map_err(e)?;
     let (code, results): (u32, Results) = message.body().deserialize().map_err(e)?;
     // 0 done, 1 cancelled, 2 failed.
     match code {
         0 => Ok(Some(results)),
         1 => Ok(None),
-        _ => Err(format!("{interface}.{method} failed")),
+        _ => Err(crate::untranslated!(
+            "{interface}.{method} failed",
+            interface = ShownText::untranslated(interface),
+            method = ShownText::untranslated(method)
+        )),
     }
 }
 
@@ -186,8 +200,8 @@ fn with_time_limit<T: Send + 'static>(
 
 /// Returns a connection to the session bus, on which every call of a method waits at most
 /// `CALL_LIMIT` for its reply.
-fn session_bus() -> Result<Connection, String> {
-    let e = |e: zbus::Error| e.to_string();
+fn session_bus() -> Result<Connection, ShownText> {
+    let e = |e: zbus::Error| ShownText::of_error(&e);
     let builder = zbus::blocking::connection::Builder::session().map_err(e)?;
     calls_limited(builder, CALL_LIMIT).build().map_err(e)
 }
@@ -240,7 +254,7 @@ pub fn print(
     sides: Option<&str>,
     title: &str,
     write: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, ShownText> {
     let conn = session_bus()?;
     const PRINT: &str = "org.freedesktop.portal.Print";
     // GtkPrintSettings, whose values are all strings.
@@ -271,16 +285,16 @@ pub fn print(
         });
     let ticket = (chosen.get("token"))
         .and_then(|t| u32::try_from(t).ok())
-        .ok_or("no token from the print dialog")?;
+        .ok_or(ShownText::untranslated("no token from the print dialog"))?;
     let at = std::env::temp_dir().join(format!("{}.pdf", request_token()));
-    let mut file = create_unnamed(&at).map_err(|e| e.to_string())?;
+    let mut file = create_unnamed(&at).map_err(|e| ShownText::of_error(&e))?;
     {
         let mut out = std::io::BufWriter::new(&mut file);
-        write(&mut out).map_err(|e| e.to_string())?;
-        std::io::Write::flush(&mut out).map_err(|e| e.to_string())?;
+        write(&mut out).map_err(|e| ShownText::of_error(&e))?;
+        std::io::Write::flush(&mut out).map_err(|e| ShownText::of_error(&e))?;
     }
     use std::io::Seek;
-    file.rewind().map_err(|e| e.to_string())?;
+    file.rewind().map_err(|e| ShownText::of_error(&e))?;
     let send = request_token();
     let options = HashMap::from([
         ("handle_token", Value::from(send.as_str())),
@@ -297,8 +311,8 @@ pub fn print(
 
 /// The screen kept from going idle (no screen saver, no blanking) through the inhibit portal,
 /// until the sender returned is dropped: the request is closed then.
-pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String> {
-    let e = |e: zbus::Error| e.to_string();
+pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, ShownText> {
+    let e = |e: zbus::Error| ShownText::of_error(&e);
     let conn = session_bus()?;
     let token = request_token();
     let options = HashMap::from([
@@ -336,11 +350,11 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
 /// `path` opened in an application the user picks in the desktop's chooser (the open URI
 /// portal, asked to ask): Open With in the Flatpak, which cannot list the host's applications.
 /// Waits for the choice: false when the user cancelled.
-pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
+pub fn open_with(path: &std::path::Path) -> Result<bool, ShownText> {
     let conn = session_bus()?;
     // Only for its descriptor, which says which file: the portal opens it itself. It is
     // opened as every file is, so a pipe named in a collection is refused rather than waited on.
-    let file = crate::images::decode::open_regular(path).map_err(|e| e.to_string())?;
+    let file = crate::images::decode::open_regular(path).map_err(|e| ShownText::of_error(&e))?;
     let token = request_token();
     let options = HashMap::from([
         ("handle_token", Value::from(token.as_str())),

@@ -4,6 +4,7 @@
 
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::model::listing::has_ext;
+use crate::support::format::ShownText;
 use crate::support::format::human_size;
 use crate::support::threads::{Progress, WaitingForRoom, lock_even_if_poisoned};
 use crate::{images::raw, metadata::exif};
@@ -112,7 +113,7 @@ pub struct Decoded {
     /// The request's number, as in `App::pending`.
     pub request_number: u64,
     /// `None` = skipped because the user has already moved past it.
-    pub result: Option<Result<DecodedImage, String>>,
+    pub result: Option<Result<DecodedImage, ShownText>>,
     /// The fingerprint of the file, taken before it was read, so the window can tell whether
     /// the file under its name is still the one decoded.
     pub read: Option<crate::files::file_io::FileFingerprint>,
@@ -143,7 +144,7 @@ type Unturned = (
 );
 
 /// An animation's frames, decoded as they are taken, and its size, or why it is not decoded.
-type Animated = Result<(image::Frames<'static>, (u32, u32)), String>;
+type Animated = Result<(image::Frames<'static>, (u32, u32)), ShownText>;
 
 /// What a failed decode says about its file, told by its error (`failure_of`).
 #[derive(Debug, PartialEq)]
@@ -195,10 +196,13 @@ impl DecodeBudget {
     /// A job that has held its bytes for `HELD_TOO_LONG` without using the processor while this
     /// one waits for room is taken to be stuck, and its bytes are taken back
     /// (`BudgetState::take_back_stuck`).
-    fn take(&self, job: u64, bytes: u64, goes_first: bool) -> Result<(), String> {
+    fn take(&self, job: u64, bytes: u64, goes_first: bool) -> Result<(), ShownText> {
         if bytes > self.total {
             self.give_back(job);
-            return Err(format!("image too large ({})", human_size(bytes)));
+            return Err(crate::untranslated!(
+                "image too large ({size})",
+                size = human_size(bytes)
+            ));
         }
         let line = usize::from(!goes_first);
         let mut state = lock_even_if_poisoned(&self.state);
@@ -335,7 +339,7 @@ impl DecodeInput {
     /// Takes `cap` bytes of the budget for input that is about to be read, such as a program's
     /// output of at most `cap` bytes, and returns it empty. Returns an error when `cap` with
     /// what this thread holds already is more than the whole budget.
-    pub fn reserve(cap: u64) -> Result<DecodeInput, String> {
+    pub fn reserve(cap: u64) -> Result<DecodeInput, ShownText> {
         let reservation = reserve_from_budget(cap)?;
         INPUT_HOLDS.set(INPUT_HOLDS.get() + cap);
         Ok(DecodeInput {
@@ -347,9 +351,9 @@ impl DecodeInput {
 
     /// Puts `bytes` into the room reserved. Returns an error when they are more than was
     /// reserved, such as a file that grew while it was read.
-    pub fn holding(mut self, bytes: Vec<u8>) -> Result<DecodeInput, String> {
+    pub fn holding(mut self, bytes: Vec<u8>) -> Result<DecodeInput, ShownText> {
         if bytes.len() as u64 > self.reserved {
-            return Err(CHANGED_WHILE_READ.into());
+            return Err(ShownText::untranslated(CHANGED_WHILE_READ));
         }
         self.bytes = bytes;
         Ok(self)
@@ -361,7 +365,7 @@ impl DecodeInput {
     /// but never more than `cap`, the most the input may grow to. Before, the doubling could
     /// take nearly twice the cap, which other decodes then waited for. Returns an error when
     /// `length` with what this thread holds already is more than the whole budget.
-    pub fn grow_to(&mut self, length: u64, cap: u64) -> Result<(), String> {
+    pub fn grow_to(&mut self, length: u64, cap: u64) -> Result<(), ShownText> {
         if length <= self.reserved {
             return Ok(());
         }
@@ -472,11 +476,14 @@ pub(crate) trait ImageBytes<'a>: Copy {
     fn image_format(self) -> std::io::Result<Option<image::ImageFormat>>;
 
     /// Decodes the image that `dec`, a decoder of these bytes, reads (`from_decoder`).
-    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String>;
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, ShownText>;
 
     /// Calls `then` with all of the bytes, counted in the decodes' budget beside the pixels
     /// that `then` makes of them (`DecodeInput`).
-    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String>;
+    fn with_counted<T>(
+        self,
+        then: impl FnOnce(&[u8]) -> Result<T, ShownText>,
+    ) -> Result<T, ShownText>;
 }
 
 impl<'a> ImageBytes<'a> for &'a Path {
@@ -506,12 +513,15 @@ impl<'a> ImageBytes<'a> for &'a Path {
         image_format(self)
     }
 
-    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String> {
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, ShownText> {
         from_decoder(dec)
     }
 
-    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
-        then(&DecodeInput::read(self).map_err(|e| e.to_string())?)
+    fn with_counted<T>(
+        self,
+        then: impl FnOnce(&[u8]) -> Result<T, ShownText>,
+    ) -> Result<T, ShownText> {
+        then(&DecodeInput::read(self).map_err(|e| ShownText::of_error(&e))?)
     }
 }
 
@@ -542,11 +552,14 @@ impl<'a> ImageBytes<'a> for &'a PathBuf {
         self.as_path().image_format()
     }
 
-    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String> {
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, ShownText> {
         self.as_path().decode(dec)
     }
 
-    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+    fn with_counted<T>(
+        self,
+        then: impl FnOnce(&[u8]) -> Result<T, ShownText>,
+    ) -> Result<T, ShownText> {
         self.as_path().with_counted(then)
     }
 }
@@ -579,13 +592,16 @@ impl<'a> ImageBytes<'a> for &'a Source {
         self.image_reader().map(|reader| reader.format())
     }
 
-    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, String> {
+    fn decode<D: ImageDecoder>(self, dec: D) -> Result<image::DynamicImage, ShownText> {
         // The bytes lie in the source's `DecodeInput`, which the budget counts.
         is_counted_input(&self.input[..])?;
         decode_within_limits(dec)
     }
 
-    fn with_counted<T>(self, then: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+    fn with_counted<T>(
+        self,
+        then: impl FnOnce(&[u8]) -> Result<T, ShownText>,
+    ) -> Result<T, ShownText> {
         then(&self.input[..])
     }
 }
@@ -644,7 +660,7 @@ pub fn start_decode_job() -> DecodeJobBudget {
 /// others in line, because its input stays in memory while it waits. Behind them, the other
 /// threads could each read their input while it waited, and the input would again lie outside
 /// the budget.
-pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
+pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, ShownText> {
     let job = JOB_HOLDS.get().is_none().then(start_decode_job);
     let held = JOB_HOLDS.get().unwrap_or(0);
     let input = INPUT_HOLDS.get();
@@ -706,13 +722,13 @@ pub fn decode(
     max: [u32; 2],
     rotate: bool,
     page: usize,
-) -> Result<(Frames, [usize; 2], usize), String> {
+) -> Result<(Frames, [usize; 2], usize), ShownText> {
     let _job = start_decode_job();
     // Also for a file from a collection or the command line, which the listing did not see.
     if !crate::files::file_io::is_surely_file(path) {
         return Err(match crate::files::file_io::is_surely_there(path) {
-            true => "not a regular file".into(),
-            false => NOT_LOOKED_AT.into(),
+            true => ShownText::untranslated("not a regular file"),
+            false => ShownText::untranslated(NOT_LOOKED_AT),
         });
     }
     if let Some((frames, orig)) = animation(path, max) {
@@ -756,7 +772,7 @@ pub fn pages(path: &Path) -> usize {
 }
 
 /// Page `page` (from 1) of a multi-page TIFF with its ICC profile, or the next size of an ICO.
-pub fn page_of<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, String> {
+pub fn page_of<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, ShownText> {
     let _job = start_decode_job();
     match has_ext(file.path(), &["ico"]) {
         true => Ok((ico_size(file, page)?, None)),
@@ -768,7 +784,11 @@ pub fn page_of<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, Strin
 /// if `rotate` for the first page, as the view shows it, and `page_of` for a later one. It is
 /// the one way a copy or an exported frame reads a page. Before, a later page of a TIFF was
 /// read without its profile, so its copy and exported frame lost their colours.
-pub fn load_page<'a>(file: impl ImageBytes<'a>, page: usize, rotate: bool) -> Result<Page, String> {
+pub fn load_page<'a>(
+    file: impl ImageBytes<'a>,
+    page: usize,
+    rotate: bool,
+) -> Result<Page, ShownText> {
     let _job = start_decode_job();
     match page {
         0 => load_icc(file, rotate),
@@ -779,13 +799,14 @@ pub fn load_page<'a>(file: impl ImageBytes<'a>, page: usize, rotate: bool) -> Re
 /// An ICO's images, as their directory entries, in the order they are shown. The first is the
 /// one the image crate shows first (most bits per pixel, then the largest, and the last of
 /// equals), and the others follow in the same way. It reads only the directory.
-fn ico_sizes<'a>(file: impl ImageBytes<'a>) -> Result<Vec<[u8; 16]>, String> {
+fn ico_sizes<'a>(file: impl ImageBytes<'a>) -> Result<Vec<[u8; 16]>, ShownText> {
     // It reads as many entries as the count can say (1 MB at most), because the image crate
     // picks among all of them.
-    let head = (file.first_bytes(6 + 16 * u64::from(u16::MAX))).map_err(|e| e.to_string())?;
+    let head =
+        (file.first_bytes(6 + 16 * u64::from(u16::MAX))).map_err(|e| ShownText::of_error(&e))?;
     let le16 = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
     if head.len() < 6 || le16(&head, 0) != 0 || le16(&head, 2) != 1 {
-        return Err("not an ICO".into());
+        return Err(ShownText::untranslated("not an ICO"));
     }
     let n = (le16(&head, 4) as usize).min((head.len() - 6) / 16);
     let mut sizes: Vec<(u16, u32, usize, [u8; 16])> = (0..n)
@@ -802,17 +823,19 @@ fn ico_sizes<'a>(file: impl ImageBytes<'a>) -> Result<Vec<[u8; 16]>, String> {
 
 /// Image `k` of an ICO in the order of `ico_sizes`, given to the image crate (which shows only
 /// one) as an ICO of that image alone.
-fn ico_size<'a>(file: impl ImageBytes<'a>, k: usize) -> Result<image::DynamicImage, String> {
+fn ico_size<'a>(file: impl ImageBytes<'a>, k: usize) -> Result<image::DynamicImage, ShownText> {
     use std::io::{Read, Seek};
-    let mut entry = *ico_sizes(file)?.get(k).ok_or("no such size in the ICO")?;
+    let mut entry = *ico_sizes(file)?
+        .get(k)
+        .ok_or(ShownText::untranslated("no such size in the ICO"))?;
     let le32 =
         |e: &[u8; 16], at: usize| u32::from_le_bytes([e[at], e[at + 1], e[at + 2], e[at + 3]]);
     let (len, offset) = (le32(&entry, 8), le32(&entry, 12));
-    let mut file = file.open_reader().map_err(|e| e.to_string())?;
+    let mut file = file.open_reader().map_err(|e| ShownText::of_error(&e))?;
     let most = u64::from(len).min(1 << 26);
     let input = DecodeInput::reserve(22 + most)?;
     file.seek(std::io::SeekFrom::Start(offset.into()))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ShownText::of_error(&e))?;
     let mut one = vec![0, 0, 1, 0, 1, 0];
     entry[12..].copy_from_slice(&22u32.to_le_bytes());
     one.extend_from_slice(&entry);
@@ -821,7 +844,7 @@ fn ico_size<'a>(file: impl ImageBytes<'a>, k: usize) -> Result<image::DynamicIma
     #[allow(clippy::disallowed_methods)] // bounded by take
     file.take(most)
         .read_to_end(&mut one)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ShownText::of_error(&e))?;
     from_memory(&input.holding(one)?)
 }
 
@@ -848,26 +871,30 @@ pub fn tiff_pages(path: &Path) -> usize {
 /// colour, which covers faxes and scanned documents. Grey of other kinds, as science writes
 /// it (32-bit floats of a height model or a microscope, signed or 32-bit integers), is
 /// stretched from its lowest value to its highest.
-pub fn tiff_page<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, String> {
+pub fn tiff_page<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, ShownText> {
     use image::DynamicImage as D;
     use tiff::ColorType as C;
     use tiff::decoder::DecodingResult as R;
-    let file = file.open_reader().map_err(|e| e.to_string())?;
-    let mut dec = tiff::decoder::Decoder::new(file).map_err(|e| e.to_string())?;
-    dec.seek_to_image(page).map_err(|e| e.to_string())?;
-    let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
-    let color = dec.colortype().map_err(|e| e.to_string())?;
+    let file = file.open_reader().map_err(|e| ShownText::of_error(&e))?;
+    let mut dec = tiff::decoder::Decoder::new(file).map_err(|e| ShownText::of_error(&e))?;
+    dec.seek_to_image(page)
+        .map_err(|e| ShownText::of_error(&e))?;
+    let (w, h) = dec.dimensions().map_err(|e| ShownText::of_error(&e))?;
+    let color = dec.colortype().map_err(|e| ShownText::of_error(&e))?;
     // The tiff crate allocates the page whole, as its header claims, so the page must fit first.
     let bytes = u64::from(color.bit_depth()).div_ceil(8) * u64::from(color.num_samples());
     let claimed = (u64::from(w) * u64::from(h)).saturating_mul(bytes);
     if !fits_decode_limit(w, h, bytes) {
-        return Err(format!("image too large ({})", human_size(claimed)));
+        return Err(crate::untranslated!(
+            "image too large ({size})",
+            size = human_size(claimed)
+        ));
     }
     // The page as read and as changed into 8 bits (`unpacked`, `stretched`) are held at once.
     let _reserved = reserve_from_budget(2 * claimed)?;
     let icc = dec.get_tag_u8_vec(tiff::tags::Tag::IccProfile).ok();
     #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
-    let data = dec.read_image().map_err(|e| e.to_string())?;
+    let data = dec.read_image().map_err(|e| ShownText::of_error(&e))?;
     let img = match (color, data) {
         (C::Gray(8), R::U8(v)) => image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8),
         (C::GrayA(8), R::U8(v)) => image::GrayAlphaImage::from_raw(w, h, v).map(D::ImageLumaA8),
@@ -884,8 +911,12 @@ pub fn tiff_page<'a>(file: impl ImageBytes<'a>, page: usize) -> Result<Page, Str
         }
         _ => None,
     };
-    let img =
-        img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1));
+    let img = img.ok_or_else(|| {
+        crate::untranslated!(
+            "page {page} is in a colour format Glimt cannot show",
+            page = page + 1
+        )
+    });
     Ok((img?, icc))
 }
 
@@ -989,7 +1020,7 @@ fn animated_frames(path: &Path) -> Option<Animated> {
     // Two canvases are held at once (`too_large_animation`), and they are taken from the budget
     // for the decode job that called this, which holds them while it takes the frames.
     let too_large = |(w, h): (u32, u32)| match too_large_animation((w, h)) {
-        true => Some(Err("image too large".to_string())),
+        true => Some(Err(ShownText::untranslated("image too large"))),
         false => reserve_from_budget(u64::from(w) * u64::from(h) * 8)
             .err()
             .map(Err),
@@ -1076,8 +1107,8 @@ pub fn each_frame(
     path: &Path,
     only: Option<usize>,
     rotate: bool,
-    mut each: impl FnMut(usize, image::DynamicImage) -> Result<(), String>,
-) -> Result<usize, String> {
+    mut each: impl FnMut(usize, image::DynamicImage) -> Result<(), ShownText>,
+) -> Result<usize, ShownText> {
     let _job = start_decode_job();
     let wanted = |k: usize| only.is_none_or(|o| o == k);
     let mut done = 0;
@@ -1098,7 +1129,7 @@ pub fn each_frame(
             if only.is_some_and(|o| k > o) {
                 break;
             }
-            let frame = frame.map_err(|e| e.to_string())?;
+            let frame = frame.map_err(|e| ShownText::of_error(&e))?;
             if wanted(k) {
                 each(k, frame.into_buffer().into())?;
                 done += 1;
@@ -1119,7 +1150,7 @@ pub fn each_frame(
 /// shrunk. A JPEG is decoded at a fraction, and other images whole (HEIC, AVIF and video frames
 /// at `max` from ffmpeg) and shrunk after, then turned (`shrunk_upright`), as the view does.
 /// This is the one way for thumbnails, the print and its preview.
-pub fn decode_shrunk(path: &Path, max: [u32; 2], rotate: bool) -> Result<ShrunkImage, String> {
+pub fn decode_shrunk(path: &Path, max: [u32; 2], rotate: bool) -> Result<ShrunkImage, ShownText> {
     let _job = start_decode_job();
     let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
         Some(found) => found,
@@ -1175,7 +1206,7 @@ fn heif_icc<'a>(file: impl ImageBytes<'a>) -> Option<Vec<u8>> {
 pub fn load_icc<'a>(
     file: impl ImageBytes<'a>,
     rotate: bool,
-) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
+) -> Result<(image::DynamicImage, Option<Vec<u8>>), ShownText> {
     let _job = start_decode_job();
     let (mut img, icc, turn, _) = load_unturned(file, rotate, None)?;
     // The whole image is wanted (Save As, a copy, a turned save), so it is turned whole.
@@ -1192,7 +1223,7 @@ fn shrunk_upright(
     turn: Orientation,
     size: Option<[usize; 2]>,
     max: [u32; 2],
-) -> Result<(image::DynamicImage, [usize; 2]), String> {
+) -> Result<(image::DynamicImage, [usize; 2]), ShownText> {
     let quarter = is_quarter_turn(turn);
     let [w, h] = [img.width() as usize, img.height() as usize];
     let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
@@ -1208,7 +1239,7 @@ fn load_unturned<'a>(
     file: impl ImageBytes<'a>,
     rotate: bool,
     max: Option<[u32; 2]>,
-) -> Result<Unturned, String> {
+) -> Result<Unturned, ShownText> {
     let path = file.path();
     let upright = Orientation::NoTransforms;
     // Only ffmpeg's formats and SVG take `max`, so without them it has no use.
@@ -1235,8 +1266,9 @@ fn load_unturned<'a>(
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::model::listing::JXL_EXTS) {
-        let reader = file.open_reader().map_err(|e| e.to_string())?;
-        let mut dec = jxl_oxide::integration::JxlDecoder::new(reader).map_err(|e| e.to_string())?;
+        let reader = file.open_reader().map_err(|e| ShownText::of_error(&e))?;
+        let mut dec =
+            jxl_oxide::integration::JxlDecoder::new(reader).map_err(|e| ShownText::of_error(&e))?;
         // jxl-oxide starts with no limit on what it allocates. A lossy JPEG XL needs some 24
         // bytes a pixel while it renders, so a camera photo of 24 MP takes about 600 MB. Four
         // times a decode's limit lets such photos through and stops a render of some 90 MP or
@@ -1246,7 +1278,8 @@ fn load_unturned<'a>(
         // jxl-oxide's limit is lowered by it too.
         let mut limits = image::Limits::default();
         limits.max_alloc = Some(room_beside_input(4 * MAX_DECODE_BYTES));
-        dec.set_limits(limits).map_err(|e| e.to_string())?;
+        dec.set_limits(limits)
+            .map_err(|e| ShownText::of_error(&e))?;
         // The render is taken from the budget before it starts, for the job that called this.
         let (w, h) = dec.dimensions();
         let _reserved = reserve_from_budget(jxl_render_reservation(w, h))?;
@@ -1260,8 +1293,8 @@ fn load_unturned<'a>(
     }
     // The image crate holds a JPEG's bytes while it decodes, and they count in this job beside
     // its pixels: `image_reader` counts a file's, and a `Source` is counted already.
-    let reader = file.image_reader().map_err(|e| e.to_string())?;
-    let dec = reader.into_decoder().map_err(|e| e.to_string());
+    let reader = file.image_reader().map_err(|e| ShownText::of_error(&e))?;
+    let dec = reader.into_decoder().map_err(|e| ShownText::of_error(&e));
     // Grey TIFFs that the image crate does not take (floats, signed) go through the tiff crate.
     let mut dec = match dec {
         Err(e) if has_ext(path, crate::model::listing::TIFF_LIKE) => {
@@ -1444,52 +1477,52 @@ pub fn fits_decode_limit(w: u32, h: u32, bytes: u64) -> bool {
 /// is given the bytes, can tell that the budget counts all of them. A RAW's preview decoded from
 /// a `Vec` that `read_limited` gave outside a decode job passed before, and later a decoder
 /// over more bytes than this thread had counted.
-pub fn from_decoder<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, String> {
+pub fn from_decoder<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, ShownText> {
     // shortcut: the reader is told by the decoder's type name, which Rust does not promise to
     // keep; `whole_reads_of_images_are_counted` fails if it changes.
     if std::any::type_name::<D>().contains("Cursor<") {
-        return Err(NOT_COUNTED.into());
+        return Err(ShownText::untranslated(NOT_COUNTED));
     }
     decode_within_limits(dec)
 }
 
 /// Decodes the image `dec` reads, after `fits_decode_limit`, with its pixels taken from the
 /// budget. `from_decoder` and `from_memory` call it once they know where its bytes lie.
-fn decode_within_limits<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, String> {
+fn decode_within_limits<D: ImageDecoder>(dec: D) -> Result<image::DynamicImage, ShownText> {
     let (w, h) = dec.dimensions();
     if !fits_decode_limit(w, h, dec.color_type().bytes_per_pixel().into()) {
-        return Err(format!(
-            "image too large ({})",
-            human_size(dec.total_bytes())
+        return Err(crate::untranslated!(
+            "image too large ({size})",
+            size = human_size(dec.total_bytes())
         ));
     }
     let _reserved = reserve_from_budget(dec.total_bytes())?;
     #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
-    image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())
+    image::DynamicImage::from_decoder(dec).map_err(|e| ShownText::of_error(&e))
 }
 
 /// Decodes an image held in memory, of the format its bytes tell, after `fits_decode_limit`. It is
 /// the one way bytes are decoded (an added format's or ffmpeg's output, an ICO's image, a cached
 /// thumbnail). Clippy refuses the image crate's `load_from_memory`. The bytes must lie in a
 /// `DecodeInput`, so that the budget counts them (`is_counted_input`).
-pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, ShownText> {
     is_counted_input(bytes)?;
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format();
     decode_within_limits(
         reader
-            .map_err(|e| e.to_string())?
+            .map_err(|e| ShownText::of_error(&e))?
             .into_decoder()
-            .map_err(|e| e.to_string())?,
+            .map_err(|e| ShownText::of_error(&e))?,
     )
 }
 
 /// Returns an error unless `bytes` lie in a `DecodeInput` of this thread, whose bytes the
 /// budget counts beside the pixels made of them. The decoders of bytes ask it, so that a new
 /// way in that reads its input outside the budget fails in the tests.
-fn is_counted_input(bytes: &[u8]) -> Result<(), String> {
+fn is_counted_input(bytes: &[u8]) -> Result<(), ShownText> {
     match bytes.len() as u64 <= INPUT_HOLDS.get() {
         true => Ok(()),
-        false => Err(NOT_COUNTED.into()),
+        false => Err(ShownText::untranslated(NOT_COUNTED)),
     }
 }
 
@@ -1515,18 +1548,18 @@ fn count_whole_read(path: &Path, bytes: u64) -> std::io::Result<bool> {
 /// Decodes an image built into Glimt itself, its logo, on the window's thread. It takes nothing
 /// from the decodes' budget, because a large decode that holds the budget would keep the window
 /// waiting, and the image's size is known.
-pub fn decode_glimts_own_image(bytes: &'static [u8]) -> Result<image::DynamicImage, String> {
+pub fn decode_glimts_own_image(bytes: &'static [u8]) -> Result<image::DynamicImage, ShownText> {
     #[allow(clippy::disallowed_methods)] // Glimt's own image, whose size is known
-    image::load_from_memory(bytes).map_err(|e| e.to_string())
+    image::load_from_memory(bytes).map_err(|e| ShownText::of_error(&e))
 }
 
 /// Checks that Glimt can decode `path`, for Check Images. The file is decoded small, as for the
 /// list's thumbnails. A JPEG is also looked at for its end marker, which a file cut off in copying
 /// lacks, though it may still decode with grey at the bottom. Returns why not, if it cannot.
-pub fn check_decodes(path: &Path) -> Result<(), String> {
+pub fn check_decodes(path: &Path) -> Result<(), ShownText> {
     catch_panic_as_error(|| decode(path, [64, 64], false, 0).map(drop))?;
     if crate::model::listing::is_jpeg(path) && !is_whole_jpeg_file(path)? {
-        return Err("cut off: the JPEG has no end".into());
+        return Err(ShownText::untranslated("cut off: the JPEG has no end"));
     }
     Ok(())
 }
@@ -1595,8 +1628,8 @@ pub(crate) fn program_missing(error: &str) -> bool {
 /// motion photo.
 // shortcut: reads the whole file, as Check Images does each JPEG once; read from the image
 // data's start in blocks if motion photos of hundreds of MB make it slow.
-fn is_whole_jpeg_file(path: &Path) -> Result<bool, String> {
-    let data = DecodeInput::read(path).map_err(|e| e.to_string())?;
+fn is_whole_jpeg_file(path: &Path) -> Result<bool, ShownText> {
+    let data = DecodeInput::read(path).map_err(|e| ShownText::of_error(&e))?;
     Ok(crate::images::raw::is_whole_jpeg(&data))
 }
 
@@ -1631,9 +1664,11 @@ pub fn is_quarter_turn(o: Orientation) -> bool {
 /// Runs `work`, and returns an error if it panics. A decoder crashing on a broken file must not
 /// end the worker thread, because that would leave every later image or thumbnail waiting for
 /// ever.
-pub fn catch_panic_as_error<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+pub fn catch_panic_as_error<T>(
+    work: impl FnOnce() -> Result<T, ShownText>,
+) -> Result<T, ShownText> {
     crate::support::threads::catch_panic(work)
-        .unwrap_or_else(|| Err("the decoder crashed on this file".into()))
+        .unwrap_or_else(|| Err(ShownText::untranslated("the decoder crashed on this file")))
 }
 
 /// As `read_limited`, as UTF-8 text.
@@ -1871,7 +1906,7 @@ fn with_format_guessed<R: std::io::BufRead + std::io::Seek>(
 }
 
 /// Scale down to fit within `max`.
-pub fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicImage, String> {
+pub fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicImage, ShownText> {
     if img.width() > max[0] || img.height() > max[1] {
         let scale = (max[0] as f64 / img.width() as f64).min(max[1] as f64 / img.height() as f64);
         let w = ((img.width() as f64 * scale).round() as u32).max(1);
@@ -1883,7 +1918,7 @@ pub fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicI
         );
         fast_image_resize::Resizer::new()
             .resize(&img, &mut small, &opts)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| ShownText::of_error(&e))?;
         return Ok(small);
     }
     Ok(img)
@@ -3316,7 +3351,8 @@ mod tests {
         // Each error must be the size refused. A header with no pixels after it fails in the
         // decoder too, for the missing data, so an error alone would pass without
         // `fits_decode_limit`.
-        let refused = |e: Option<String>| e.is_some_and(|e| e.starts_with("image too large"));
+        let refused =
+            |e: Option<super::ShownText>| e.is_some_and(|e| e.starts_with("image too large"));
         assert!(refused(
             super::decode(&file, [16384, 16384], false, 0).err()
         ));
@@ -3450,10 +3486,15 @@ mod tests {
 
     #[test]
     fn survives_a_panic() {
-        assert_eq!(super::catch_panic_as_error(|| Ok::<_, String>(1)), Ok(1));
+        assert_eq!(
+            super::catch_panic_as_error(|| Ok::<_, super::ShownText>(1)),
+            Ok(1)
+        );
         assert!(
-            super::catch_panic_as_error(|| -> Result<(), String> { panic!("broken file") })
-                .is_err()
+            super::catch_panic_as_error(|| -> Result<(), super::ShownText> {
+                panic!("broken file")
+            })
+            .is_err()
         );
     }
 }

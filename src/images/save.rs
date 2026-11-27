@@ -111,7 +111,7 @@ thread_local! {
 /// (`derive_sidecar`), when the image's rename after the step surely was not done. When the
 /// rename may have been done, it writes nothing and says that the sidecar was changed.
 type SidecarUndo<'a> =
-    Box<dyn FnOnce(&crate::metadata::xmp::SidecarLock, RenameFailed) -> Result<(), String> + 'a>;
+    Box<dyn FnOnce(&crate::metadata::xmp::SidecarLock, RenameFailed) -> Result<(), ShownText> + 'a>;
 
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
@@ -144,12 +144,12 @@ pub struct CopyAs {
 impl CopyAs {
     /// Looks whether the file at `path` is still the one whose picture was shown. Returns the
     /// error to tell when another file has taken its name or it was written since.
-    pub fn is_still_the_file_shown(&self, path: &Path) -> Result<(), String> {
+    pub fn is_still_the_file_shown(&self, path: &Path) -> Result<(), ShownText> {
         let Some(read) = self.read else {
             return Ok(());
         };
         let known = crate::files::file_io::KnownAs::fingerprint(read);
-        crate::files::file_io::is_still_the_file(path, known).map_err(|e| e.to_string())
+        crate::files::file_io::is_still_the_file(path, known).map_err(|e| ShownText::of_error(&e))
     }
 }
 
@@ -307,17 +307,17 @@ pub fn save_rotated(
     turns: u8,
     mirrored: bool,
     webp_quality: u8,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     let named = path;
     // Through a symlink, the new file is renamed over the file it points to, not over the link.
-    let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let path = &std::fs::canonicalize(path).map_err(|e| ShownText::of_error(&e))?;
     // A read-only file is refused before the whole image is decoded and encoded for nothing.
-    crate::files::file_io::check_writable(path).map_err(|e| e.to_string())?;
+    crate::files::file_io::check_writable(path).map_err(|e| ShownText::of_error(&e))?;
     // Taken before any read, so a file changed while it is turned is not written over.
-    let read =
-        crate::files::file_io::fingerprint_before_reading(path).map_err(|e| e.to_string())?;
+    let read = crate::files::file_io::fingerprint_before_reading(path)
+        .map_err(|e| ShownText::of_error(&e))?;
     if !has_ext(path, &["png", "webp"]) {
-        return Err(tr("only JPEG, PNG and WebP can store the rotation").to_string());
+        return Err(tr("only JPEG, PNG and WebP can store the rotation"));
     }
     let out = turned_file(path, rotate, turns, mirrored, webp_quality)?;
     replace_with_sidecar(path, named, read, out, Derived::Turned)
@@ -334,11 +334,11 @@ fn turned_file(
     turns: u8,
     mirrored: bool,
     webp_quality: u8,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ShownText> {
     let _job = start_decode_job();
     let source = &Source::read(path).map_err(|e| metadata_not_read(path, e))?;
     if animated(source)? {
-        return Err(tr("animated images are not turned").to_string());
+        return Err(tr("animated images are not turned"));
     }
     let png = has_ext(path, &["png"]);
     let encoding = match png {
@@ -379,14 +379,15 @@ pub(crate) fn replace_with_sidecar(
     read: FileFingerprint,
     out: Vec<u8>,
     how: Derived,
-) -> Result<(), String> {
+) -> Result<(), ShownText> {
     // The fingerprint finds a copier that wrote on after the read, but not one that paused
     // meanwhile. The file's own end shows that it is not all there yet.
     // The file counts in the decodes' budget while it is looked at. The job ends before the
     // sidecar's lock is taken, so that the budget is never held while a lock is waited for.
     {
         let _job = crate::images::decode::start_decode_job();
-        let bytes = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
+        let bytes =
+            crate::images::decode::read_limited(real).map_err(|e| ShownText::of_error(&e))?;
         if let Some(why) = why_cut_short(&bytes, changed_lately(read.2)) {
             return Err(why);
         }
@@ -409,14 +410,16 @@ fn changed_lately(modified: (i64, i64)) -> bool {
 /// when it does not. A JPEG whose image data is not reached may be damaged before it, as well
 /// as still being copied, so it is not called the one. `changed_lately` says whether the file
 /// was changed in the last minute.
-fn why_cut_short(data: &[u8], changed_lately: bool) -> Option<String> {
+fn why_cut_short(data: &[u8], changed_lately: bool) -> Option<ShownText> {
     if !looks_cut_short(data, changed_lately) {
         return None;
     }
     if data.starts_with(&[0xff, 0xd8]) && exif::jpeg_scan_start(data).is_none() {
-        return Some(tr("the file looks incomplete or damaged").to_string());
+        return Some(tr("the file looks incomplete or damaged"));
     }
-    Some(tr("the file looks incomplete, as if it is still being copied").to_string())
+    Some(tr(
+        "the file looks incomplete, as if it is still being copied",
+    ))
 }
 
 /// Returns whether the JPEG, PNG or WebP `data` ends before its own end shows. That is a JPEG
@@ -634,8 +637,8 @@ fn replace_with_sidecar_locked<'a>(
     named: &'a Path,
     read: FileFingerprint,
     out: Vec<u8>,
-    step: impl FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<SidecarUndo<'a>, String>,
-) -> Result<(), String> {
+    step: impl FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<SidecarUndo<'a>, ShownText>,
+) -> Result<(), ShownText> {
     let lock = std::cell::OnceCell::new();
     let before = || {
         let lock = lock.get_or_init(|| crate::metadata::xmp::lock_sidecar(named));
@@ -649,7 +652,8 @@ fn replace_with_sidecar_locked<'a>(
             })
         })
     };
-    crate::files::file_io::replace_existing(real, out, read, before).map_err(|e| e.to_string())?;
+    crate::files::file_io::replace_existing(real, out, read, before)
+        .map_err(|e| ShownText::of_error(&e))?;
     // Without the sidecar's lock, as in `save_copy_with_sidecar`.
     drop(lock);
     crate::files::journal::note_written_anew(named, read);
@@ -659,7 +663,7 @@ fn replace_with_sidecar_locked<'a>(
 /// The copy of `path` that `how` asks for, encoded, and its format. It has its profile, and
 /// unless stripped its EXIF (upright) and XMP. JPEG and a lossy WebP are at their quality (the
 /// WebP through ffmpeg), and PNG and lossless WebP are without loss.
-pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String> {
+pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), ShownText> {
     // The file read counts in the decodes' budget until the copy is made.
     let _job = start_decode_job();
     match source_of_copy(path)? {
@@ -672,7 +676,7 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
 /// too large to be read whole, such as a large scan, whose copy is read from the file. Returns
 /// an error that names it when it could not be read, so that no copy is made without its
 /// metadata.
-fn source_of_copy(path: &Path) -> Result<Option<Source>, String> {
+fn source_of_copy(path: &Path) -> Result<Option<Source>, ShownText> {
     match Source::read(path) {
         Ok(source) => Ok(Some(source)),
         Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => Ok(None),
@@ -687,9 +691,9 @@ fn copy_from<'a>(
     file: impl ImageBytes<'a>,
     source: Option<&Source>,
     how: &CopyAs,
-) -> Result<(Vec<u8>, Format), String> {
+) -> Result<(Vec<u8>, Format), ShownText> {
     if animated(file)? {
-        return Err(tr("animated images are not saved as a copy").to_string());
+        return Err(tr("animated images are not saved as a copy"));
     }
     let format = how.format.unwrap_or_else(|| Format::of(file));
     let encoding = match format {
@@ -726,7 +730,7 @@ fn copy_from<'a>(
 fn pixels<'a>(
     file: impl ImageBytes<'a>,
     how: &CopyAs,
-) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
+) -> Result<(image::DynamicImage, Option<Vec<u8>>), ShownText> {
     let (img, icc) = crate::images::decode::load_page(file, how.page, how.rotate)?;
     // The file is looked at after it was read, so a file that took the name before the read or
     // during it is refused alike.
@@ -734,7 +738,7 @@ fn pixels<'a>(
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
         if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
-            return Err(tr("the part is outside the image").to_string());
+            return Err(tr("the part is outside the image"));
         }
         img = img.crop_imm(x, y, width, height);
     }
@@ -748,21 +752,24 @@ fn pixels<'a>(
 /// It is turned as the view showed it (`how`), as Save As turns its copy. Before, a frame
 /// saved from a turned view came out unturned. It goes through `encode` as every copy does, so
 /// a 32-bit float page is written in 16 bits.
-pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, String> {
+pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, ShownText> {
     let img = turned(img, how.turns, how.mirrored);
     encode(None, img, None, None, None, Encoding::Png, false, 0)
 }
 
 /// The image as `how` shows it, in sRGB, for Edit → Copy Image. That copied the image
 /// unturned, and only its first page.
-pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, String> {
+pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, ShownText> {
     let (img, icc) = pixels(path, how)?;
     Ok(crate::images::colour::to_srgb(img, icc.as_deref()))
 }
 
 /// Shrinks `img` so its longest side is `long` at most, by Lanczos3, which is sharp, for a copy
 /// kept.
-fn shrink_to_long_side(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, String> {
+fn shrink_to_long_side(
+    img: image::DynamicImage,
+    long: u32,
+) -> Result<image::DynamicImage, ShownText> {
     let (w, h) = (img.width(), img.height());
     if w.max(h) <= long {
         return Ok(img);
@@ -775,7 +782,7 @@ fn shrink_to_long_side(img: image::DynamicImage, long: u32) -> Result<image::Dyn
     );
     fast_image_resize::Resizer::new()
         .resize(&img, &mut small, &opts)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ShownText::of_error(&e))?;
     Ok(small)
 }
 
@@ -794,7 +801,7 @@ pub(crate) fn stem_with_suffix(path: &Path, more: &str) -> std::ffi::OsString {
 pub fn save_cropped(
     path: &Path,
     how: &CopyAs,
-) -> Result<(std::path::PathBuf, Option<String>), String> {
+) -> Result<(std::path::PathBuf, Option<ShownText>), ShownText> {
     let (out, format) = copy_bytes(path, how)?;
     // The original's own spelling (.jpeg, .JPG) where the format is the same.
     let ext = match path.extension().and_then(|e| e.to_str()) {
@@ -812,7 +819,7 @@ pub fn save_cropped(
         let new = path.with_file_name(name);
         match save_copy_with_sidecar(path, &new, &out, None, how.strip) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(ShownText::of_error(&e)),
             Ok(sidecar_failed) => return Ok((new, sidecar_failed)),
         }
     }
@@ -838,7 +845,7 @@ pub(crate) fn save_copy_with_sidecar(
     out: &[u8],
     replace: Option<crate::files::file_io::FileFingerprint>,
     strip: bool,
-) -> std::io::Result<Option<String>> {
+) -> std::io::Result<Option<ShownText>> {
     use std::io::Write;
     // The lock of the copy's sidecar is held, as every writer of a sidecar holds it. A keyword
     // written to the replaced file from another window then waits, rather than landing between
@@ -897,7 +904,11 @@ pub(crate) fn save_copy_with_sidecar(
                     Ok(move |failed| match (is_set_aside, failed) {
                         (true, RenameFailed::NotDone) => {
                             crate::files::file_io::rename_never_over(aside, side).map_err(|e| {
-                                let e = format!("{}: {e}", escaped_name(aside));
+                                let e = crate::untranslated!(
+                                    "{name}: {e}",
+                                    name = escaped_name(aside),
+                                    e
+                                );
                                 std::io::Error::other(crate::tf!(
                                     "its sidecar was not put back: {e}",
                                     e
@@ -1021,13 +1032,20 @@ fn write_copys_sidecar(
     side: &Path,
     xmp: Option<Vec<u8>>,
     not_on_disk: Option<std::io::Error>,
-) -> Option<String> {
+) -> Option<ShownText> {
     let written =
         xmp.map(|xmp| crate::files::file_io::create_file(side, derived_xmp(&xmp, Derived::Copy)));
     let (sidecar_not_on_disk, sidecar_failed) =
         match crate::files::file_io::named_but_not_on_disk(written.unwrap_or(Ok(()))) {
             Ok(not_on_disk) => (not_on_disk, None),
-            Err(e) => (None, Some(format!("{}: {e}", escaped_name(side)))),
+            Err(e) => (
+                None,
+                Some(crate::untranslated!(
+                    "{name}: {e}",
+                    name = escaped_name(side),
+                    e
+                )),
+            ),
         };
     if let Some(e) = not_on_disk.or(sidecar_not_on_disk) {
         crate::files::file_io::save_failed(crate::tf!(
@@ -1092,7 +1110,7 @@ fn may_be_set_aside(
 /// it is there all the same.
 pub(crate) fn told_saved(
     new: &Path,
-    sidecar_failed: Option<String>,
+    sidecar_failed: Option<ShownText>,
 ) -> crate::support::threads::Told {
     let file = escaped_name(new);
     match sidecar_failed {
@@ -1264,7 +1282,7 @@ pub fn save_as(
     how: &CopyAs,
     to: &Path,
     at_pick: Option<crate::files::file_io::FileFingerprint>,
-) -> Result<(std::path::PathBuf, Option<String>), String> {
+) -> Result<(std::path::PathBuf, Option<ShownText>), ShownText> {
     let format = how.format.unwrap_or_else(|| Format::of(path));
     let ext = to.extension().and_then(|e| e.to_str()).unwrap_or("");
     let matches = match format {
@@ -1280,13 +1298,15 @@ pub fn save_as(
             to.with_file_name(name)
         }
     };
-    if same_file(path, &to).map_err(|e| format!("{}: {e}", escaped_name(&to)))? {
-        return Err(tr("choose another name: the image itself is not changed").to_string());
+    if same_file(path, &to)
+        .map_err(|e| crate::untranslated!("{name}: {e}", name = escaped_name(&to), e))?
+    {
+        return Err(tr("choose another name: the image itself is not changed"));
     }
     let (out, _) = copy_bytes(path, how)?;
     let sidecar_failed =
         save_copy_with_sidecar(path, &to, &out, at_pick.filter(|_| matches), how.strip)
-            .map_err(|e| format!("{}: {e}", escaped_name(&to)))?;
+            .map_err(|e| crate::untranslated!("{name}: {e}", name = escaped_name(&to), e))?;
     Ok((to, sidecar_failed))
 }
 
@@ -1296,16 +1316,16 @@ pub fn save_as(
 /// could not be read, which the pixels' read would meet too. Before, it was taken for a file
 /// that is not animated, so an animation read again after a share's answer came back was
 /// turned, and its own file written anew with its first frame only.
-fn animated<'a>(file: impl ImageBytes<'a>) -> Result<bool, String> {
-    let format = file.image_format().map_err(|e| e.to_string())?;
-    let open = || file.open_reader().map_err(|e| e.to_string());
+fn animated<'a>(file: impl ImageBytes<'a>) -> Result<bool, ShownText> {
+    let format = file.image_format().map_err(|e| ShownText::of_error(&e))?;
+    let open = || file.open_reader().map_err(|e| ShownText::of_error(&e));
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
         Some(image::ImageFormat::Png) => (image::codecs::png::PngDecoder::new(open()?))
             .and_then(|d| d.is_apng())
-            .map_err(|e| e.to_string())?,
+            .map_err(|e| ShownText::of_error(&e))?,
         Some(image::ImageFormat::WebP) => (image::codecs::webp::WebPDecoder::new(open()?))
-            .map_err(|e| e.to_string())?
+            .map_err(|e| ShownText::of_error(&e))?
             .has_animation(),
         _ => false,
     })
@@ -1325,7 +1345,7 @@ fn derived_metadata<'a>(
     turns: u8,
     size: (u32, u32),
     how: Derived,
-) -> Result<Metadata, String> {
+) -> Result<Metadata, ShownText> {
     let path = file.path();
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
@@ -1408,13 +1428,12 @@ pub(crate) fn is_failed_read(e: &image::ImageError, is_raw: bool) -> bool {
 /// Returns why a file derived from `path` is not written: its metadata could not be read
 /// (`e`), and a copy or turned image without it would lose the photo's keywords, comment and
 /// stars as if it had none.
-fn metadata_not_read(path: &Path, e: impl crate::support::format::Shown) -> String {
+fn metadata_not_read(path: &Path, e: impl crate::support::format::Shown) -> ShownText {
     crate::tf!(
         "the metadata of {name} could not be read, and the image is not written without it: {e}",
         name = escaped_name(path),
         e
     )
-    .to_string()
 }
 
 /// Makes the XMP packet `xmp` what a file derived from its image as `how` says keeps of it,
@@ -1449,7 +1468,7 @@ pub(crate) fn shared_metadata<'a>(
     embedded_exif: Option<&[u8]>,
     embedded: Option<&[u8]>,
     iim: crate::metadata::xmp::Properties,
-) -> Result<SharedMetadata, String> {
+) -> Result<SharedMetadata, ShownText> {
     use crate::metadata::xmp;
     // A PNG without an eXIf chunk may keep its EXIF in a text chunk, as exiv2 and GIMP write it,
     // which the panel's reader unpacks (`exif::derived`).
@@ -1464,7 +1483,7 @@ pub(crate) fn shared_metadata<'a>(
     };
     let text = |bytes: &[u8]| std::str::from_utf8(bytes).ok().map(xmp::properties);
     let mut properties = embedded.and_then(text).unwrap_or_default();
-    let sidecar = xmp::own_sidecar(path).map_err(|e| e.to_string())?;
+    let sidecar = xmp::own_sidecar(path).map_err(|e| ShownText::of_error(&e))?;
     properties.add_over(sidecar.as_deref().and_then(text).unwrap_or_default());
     properties.add_missing(iim);
     Ok(SharedMetadata {
@@ -1486,7 +1505,7 @@ fn derive_sidecar<'a>(
     lock: &crate::metadata::xmp::SidecarLock,
     path: &'a Path,
     how: Derived,
-) -> Result<SidecarUndo<'a>, String> {
+) -> Result<SidecarUndo<'a>, ShownText> {
     use crate::files::file_io::IfMissing;
     use crate::metadata::xmp::update_locked_sidecar;
     let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
@@ -1497,17 +1516,15 @@ fn derive_sidecar<'a>(
             String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
         })?;
     }
-    Ok(Box::new(move |lock, failed| {
-        match (changed, failed) {
+    Ok(Box::new(move |lock, failed| match (changed, failed) {
         (Some(old), RenameFailed::NotDone) => {
             update_locked_sidecar(lock, path, IfMissing::LeaveMissing, |_| Some(old))
         }
         (Some(_), RenameFailed::MayHaveBeenDone) => Err(crate::tf!(
             "it is not known whether the image was written, and its sidecar {sidecar} already says what the new image does",
             sidecar = escaped_name(crate::metadata::xmp::sidecar(path))
-        ).to_string()),
+        )),
         (None, _) => Ok(()),
-    }
     }))
 }
 
@@ -1565,7 +1582,7 @@ fn encode(
     encoding: Encoding,
     quarter: bool,
     webp_quality: u8,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ShownText> {
     use image::ImageEncoder;
     let (img, icc) = writable_pixels(img, icc, encoding);
     let (width, height) = (img.width(), img.height());
@@ -1629,7 +1646,7 @@ fn encode(
             }
         }
     };
-    written.map_err(|e| e.to_string())?;
+    written.map_err(|e| ShownText::of_error(&e))?;
     // The rest of what the PNG said of itself is kept: its text (a comment, an AI tool's
     // prompt), its DPI and its gamma. Otherwise a 300 dpi scan prints at 72 after a turn. It is
     // only taken from a PNG.
@@ -1680,11 +1697,11 @@ fn writable_pixels(
 /// Puts `xmp` into `jpeg` in an APP1 segment of Adobe's name, right after the start (SOI).
 /// An XMP packet too long for one segment is left out, so a copy from a PNG or TIFF with a long
 /// editing history is still made.
-fn jpeg_with_xmp(jpeg: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
+fn jpeg_with_xmp(jpeg: &[u8], xmp: &[u8]) -> Result<Vec<u8>, ShownText> {
     const NAME: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
     let len = 2 + NAME.len() + xmp.len();
     if !jpeg.starts_with(&[0xFF, 0xD8]) {
-        return Err("not a JPEG file".into());
+        return Err(ShownText::untranslated("not a JPEG file"));
     }
     // shortcut: Extended XMP over several segments is not written; write it if a copy that
     // keeps such a packet is ever asked for.
@@ -1702,7 +1719,7 @@ fn jpeg_with_xmp(jpeg: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
 
 /// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
 /// (IHDR), where readers that stop at the pixels find it too.
-fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
+fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, ShownText> {
     let mut chunk = b"iTXt".to_vec();
     // Keyword, no compression, no language, no translated keyword, then the text.
     chunk.extend(b"XML:com.adobe.xmp\0\0\0\0\0");
@@ -1712,12 +1729,12 @@ fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
 
 /// Returns `png` with the chunk `chunk` (its name and data) right after the header (IHDR), with
 /// its length and CRC.
-fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, String> {
+fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, ShownText> {
     // The 8-byte signature comes first, then IHDR, with its length 13, its name, 13 bytes and a
     // CRC.
     let end = 33;
     if png.get(12..16) != Some(&b"IHDR"[..]) || png.len() < end {
-        return Err("not a PNG file".into());
+        return Err(ShownText::untranslated("not a PNG file"));
     }
     let mut out = png[..end].to_vec();
     out.extend(((chunk.len() - 4) as u32).to_be_bytes());
@@ -1734,7 +1751,7 @@ fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, Stri
 /// frame, so a crop or copy keeps none of them. Resources whose data is broken stay dropped, as
 /// before. They are taken from the file read once, which the turn refuses when it cannot read
 /// it (`turned_file`), so no failed read is taken for a PNG without them.
-fn png_with_photoshop_resources(new: &[u8], old: &Source) -> Result<Vec<u8>, String> {
+fn png_with_photoshop_resources(new: &[u8], old: &Source) -> Result<Vec<u8>, ShownText> {
     let resources = (exif::png_metadata(old).photoshop_resources)
         .and_then(|bytes| without_dropped_photoshop_resources(&bytes));
     let Some(resources) = resources.filter(|r| !r.is_empty()) else {
@@ -1866,11 +1883,11 @@ pub fn webp_lossless<'a>(file: impl ImageBytes<'a>) -> Option<bool> {
 /// `img` as a lossy WebP of `quality`, encoded by ffmpeg in memory, because the `image` crate
 /// writes only lossless ones. Its errors are read beside it, and it is stopped after
 /// `external::PROGRAM_TIME_LIMIT`.
-pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
+pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, ShownText> {
     use std::io::Write;
     let mut png = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ShownText::of_error(&e))?;
     let mut child = crate::files::external::stoppable_command("ffmpeg")
         .args([
             "-v", "error", "-f", "png_pipe", "-i", "-", "-c:v", "libwebp",
@@ -1886,7 +1903,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
         ])
         .stdin(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| crate::tf!("a lossy WebP needs ffmpeg to be saved: {e}", e).to_string())?;
+        .map_err(|e| crate::tf!("a lossy WebP needs ffmpeg to be saved: {e}", e))?;
     // The image is written in a thread of its own while its output is read, so neither pipe
     // fills and stops it.
     let mut stdin = child.stdin.take();
@@ -1902,8 +1919,8 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     (feed.join()).unwrap_or_else(|e| std::panic::resume_unwind(e));
     match webp {
         Some(webp) if ok && !webp.is_empty() => Ok(webp),
-        _ if err.trim().is_empty() => Err("ffmpeg made no WebP".into()),
-        _ => Err(err.trim().to_owned()),
+        _ if err.trim().is_empty() => Err(ShownText::untranslated("ffmpeg made no WebP")),
+        _ => Err(ShownText::of_message(err.trim())),
     }
 }
 
@@ -1916,14 +1933,14 @@ pub fn webp_with_chunk(
     data: &[u8],
     width: u32,
     height: u32,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ShownText> {
     let flag = match name {
         b"ICCP" => 0x20,
         b"EXIF" => 0x08,
         _ => 0x04,
     };
     if !webp.starts_with(b"RIFF") || webp.get(8..12) != Some(&b"WEBP"[..]) {
-        return Err("not a WebP file".into());
+        return Err(ShownText::untranslated("not a WebP file"));
     }
     let mut out = b"RIFF\0\0\0\0WEBP".to_vec();
     let chunks = &webp[12..];
@@ -1932,8 +1949,8 @@ pub fn webp_with_chunk(
     let alpha = chunks.starts_with(b"VP8L") && chunks.get(12).is_some_and(|b| b & 0x10 != 0);
     let flag = if alpha { flag | 0x10 } else { flag };
     let rest = if chunks.starts_with(b"VP8X") {
-        out.extend(chunks.get(..18).ok_or("cut off")?);
-        *out.get_mut(20).ok_or("cut off")? |= flag;
+        out.extend(chunks.get(..18).ok_or(ShownText::untranslated("cut off"))?);
+        *out.get_mut(20).ok_or(ShownText::untranslated("cut off"))? |= flag;
         &chunks[18..]
     } else {
         out.extend(b"VP8X\x0a\0\0\0");

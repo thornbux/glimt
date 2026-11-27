@@ -64,7 +64,7 @@ fn copy_into(
             Err(e) => {
                 return Err(std::io::Error::new(
                     e.kind(),
-                    format!("{}: {e}", escaped_name(source)),
+                    crate::untranslated!("{name}: {e}", name = escaped_name(source), e),
                 ));
             }
             Ok(meta) => meta,
@@ -91,7 +91,13 @@ fn copy_into(
         } else if meta.is_file() {
             // Named, as the files after it are not copied.
             crate::files::file_io::put_file(&source, &dest, crate::files::file_io::Transfer::Copy)
-                .map_err(|e| std::io::Error::other(format!("{}: {e}", escaped_name(source))))?;
+                .map_err(|e| {
+                    std::io::Error::other(crate::untranslated!(
+                        "{name}: {e}",
+                        name = escaped_name(source),
+                        e
+                    ))
+                })?;
             files += 1;
         }
     }

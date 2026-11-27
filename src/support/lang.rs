@@ -29,6 +29,24 @@ macro_rules! tf {
     }};
 }
 
+/// Returns the cause of a failure that has no translation, such as "image too large ({size})",
+/// with its `{name}`s filled in as `tf!` fills them. It is for the English causes that a
+/// decoder, a save or a program's start gives under a translated heading, and never for words
+/// that a user reads as the interface, which go through `tf!`.
+#[macro_export]
+macro_rules! untranslated {
+    ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {{
+        const _: () = assert!(
+            $crate::support::lang::names_every_placeholder($text, &[$(stringify!($name)),*]),
+            "untranslated! passes each placeholder of its text, and nothing else"
+        );
+        $crate::support::lang::fill_placeholders(
+            $crate::support::format::ShownText::untranslated($text),
+            &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn $crate::support::format::Shown)),*],
+        )
+    }};
+}
+
 /// The language setting's value for English, which Preferences writes. A value that names no
 /// language Glimt has (`is_language`), such as one of a later Glimt, shows English too, and the
 /// settings keep it. An empty value shows the system's language.
@@ -516,7 +534,7 @@ msgstr[1] "bilder"
     /// `{name}`s filled in, others and a lone brace left as they are.
     #[test]
     fn fills_in_values() {
-        let (n, e) = (3, "full disk");
+        let (n, e) = (3, super::ShownText::from("full disk"));
         assert_eq!(
             super::fill_placeholders("{n} left: {e}".into(), &[("n", &n), ("e", &e)]),
             "3 left: full disk"
@@ -525,7 +543,7 @@ msgstr[1] "bilder"
             super::fill_placeholders("{x} {n} {".into(), &[("n", &n)]),
             "{x} 3 {"
         );
-        let name = "a.jpg";
+        let name = super::ShownText::from("a.jpg");
         assert_eq!(
             crate::tf!("Could not save {name}: {e}", name, e),
             "Could not save a.jpg: full disk"

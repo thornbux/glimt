@@ -275,11 +275,11 @@ impl crate::App {
             let (_, picked) = picked.wait_for_fingerprints();
             let trashed = picked
                 .still_the_one_picked(&file)
-                .map_err(|e| e.to_string())
+                .map_err(|e| ShownText::of_error(&e))
                 .and_then(|()| {
                     let failed = crate::files::trash::trash(std::slice::from_ref(&file));
                     let told = crate::files::trash::told_failure(&failed);
-                    told.map_or(Ok(()), |t| Err(t.to_string()))
+                    told.map_or(Ok(()), |t| Err(ShownText::of_error(&t)))
                 });
             Some(match trashed {
                 Ok(()) => crate::support::threads::Told::Notice(tf!(
@@ -322,7 +322,6 @@ impl crate::App {
                 CollectionAddedTo::New(name) => match new_file(&name) {
                     Ok(file) => (file, IfMissing::Create),
                     Err(why) => {
-                        let why = ShownText::from_cause(why);
                         return Some(crate::support::threads::Told::FailedWrite(why.into()));
                     }
                 },
@@ -508,22 +507,28 @@ pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Op
 }
 
 /// `name` trimmed, if it can be the name of a collection's file.
-fn valid_collection_name(name: &str) -> Result<&str, String> {
+fn valid_collection_name(name: &str) -> Result<&str, ShownText> {
     let name = name.trim();
     match crate::model::listing::refused_name(name, false).is_some() {
-        true => Err(tf!("Not a valid collection name: \"{name}\"", name).to_string()),
+        true => Err(tf!(
+            "Not a valid collection name: \"{name}\"",
+            name = escaped_name(name)
+        )),
         false => Ok(name),
     }
 }
 
 /// The file of a new collection called `name`, or why there can be none.
-pub fn new_file(name: &str) -> Result<PathBuf, String> {
+pub fn new_file(name: &str) -> Result<PathBuf, ShownText> {
     let name = valid_collection_name(name)?;
     let file = collections_dir()
-        .ok_or(tr("no data folder ($HOME is not set)").to_string())?
+        .ok_or(tr("no data folder ($HOME is not set)"))?
         .join(format!("{name}.gqv"));
     match !crate::files::file_io::is_surely_gone(&file) {
-        true => Err(tf!("There is a collection called \"{name}\" already", name).to_string()),
+        true => Err(tf!(
+            "There is a collection called \"{name}\" already",
+            name = escaped_name(name)
+        )),
         false => Ok(file),
     }
 }
@@ -534,7 +539,7 @@ pub fn rename(
     file: &Path,
     name: &str,
     picked: &crate::files::file_io::PickedFingerprints,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, ShownText> {
     let name = valid_collection_name(name)?;
     // Under the collection's lock, as every edit of it: another window's edit lands before or
     // after the rename, never in between, where it would make the old name again.
@@ -542,16 +547,17 @@ pub fn rename(
     let _held = crate::files::file_io::file_lock(file);
     // Another program may have put another file at the name while the question was open.
     (picked.still_the_one_picked(file))
-        .map_err(|e| tf!("Could not rename the collection: {e}", e).to_string())?;
+        .map_err(|e| tf!("Could not rename the collection: {e}", e))?;
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
     // rename.
     match crate::files::file_io::rename_never_over(file, &new) {
         Ok(()) => Ok(new),
-        Err(e) if e.is_name_taken() => {
-            Err(tf!("There is a collection called \"{name}\" already", name).to_string())
-        }
-        Err(e) => Err(tf!("Could not rename the collection: {e}", e).to_string()),
+        Err(e) if e.is_name_taken() => Err(tf!(
+            "There is a collection called \"{name}\" already",
+            name = escaped_name(name)
+        )),
+        Err(e) => Err(tf!("Could not rename the collection: {e}", e)),
     }
 }
 

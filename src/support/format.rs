@@ -87,11 +87,35 @@ impl ShownText {
         ShownText(value.to_string().into())
     }
 
-    /// Returns `cause`, the text of an error that a function returned as a `String`.
-    // shortcut: about a hundred functions return their error's cause as a `String`, and this
-    // takes it as it is; when they return a `ShownText` (`f102-shown-causes`), this goes.
-    pub(crate) fn from_cause(cause: String) -> Self {
-        ShownText(cause.into())
+    /// Returns the text of `error`, made by a library or the system (a decoder's, a codec's, a
+    /// bus's or a regular expression's error), as the cause of a failure. Its line breaks,
+    /// other control characters and marks of direction are written as escapes, as a library
+    /// may put a name it was given into its text. Its backslashes are kept, so a text that was
+    /// escaped once, such as a `ShownText` passed on inside an `std::io::Error`, is not
+    /// escaped again.
+    pub(crate) fn of_error(error: &impl std::error::Error) -> Self {
+        ShownText::with_hidden_marks_escaped(&error.to_string())
+    }
+
+    /// Returns `text`, a message that a program or a library wrote (ffmpeg's last error line,
+    /// the line of a regular expression's error that says what is wrong), as the cause of a
+    /// failure. It is escaped as `of_error` escapes a library's error, as such a message may
+    /// hold the names or the pattern it was given.
+    pub(crate) fn of_message(text: &str) -> Self {
+        ShownText::with_hidden_marks_escaped(text)
+    }
+
+    /// Returns `text` with its line breaks, other control characters and marks of direction
+    /// written as escapes, and its backslashes kept.
+    fn with_hidden_marks_escaped(text: &str) -> Self {
+        let mut shown = String::new();
+        for c in text.chars() {
+            match c {
+                c if is_hidden_mark(c) => shown.extend(c.escape_default()),
+                c => shown.push(c),
+            }
+        }
+        ShownText(shown.into())
     }
 
     /// Returns `parts` joined by `separator`.
@@ -216,11 +240,6 @@ impl Shown for std::io::Error {}
 impl Shown for crate::files::file_io::StepError {}
 impl Shown for image::ImageError {}
 impl Shown for arboard::Error {}
-// shortcut: a `String` or `str` still fills a placeholder, because about a hundred functions
-// return their error's cause as a `String`; when those return a `ShownText`
-// (`f102-shown-causes`), these two go, and a raw name in a placeholder no longer compiles.
-impl Shown for String {}
-impl Shown for str {}
 
 /// A number that `ShownText::number` writes, and that fills a placeholder of `tf!`.
 pub(crate) trait Number: std::fmt::Display {}
@@ -453,15 +472,6 @@ pub(crate) fn without_control_characters(text: &str) -> String {
 /// to a question, push its buttons off the screen, or show itself reversed. It is the one way
 /// such a name is shown (`source_rules::names_are_shown_through_one_function`).
 pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> ShownText {
-    let is_hidden_mark = |c: char| {
-        c.is_control()
-            || matches!(
-                c,
-                '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}' | '\u{2029}'
-            )
-            || ('\u{202a}'..='\u{202e}').contains(&c)
-            || ('\u{2066}'..='\u{2069}').contains(&c)
-    };
     let mut shown = String::new();
     for c in name.as_ref().to_string_lossy().chars() {
         match c {
@@ -471,6 +481,18 @@ pub(crate) fn escaped_name(name: impl AsRef<std::ffi::OsStr>) -> ShownText {
         }
     }
     ShownText(shown.into())
+}
+
+/// Returns whether `c` is a control character or a mark of direction, which a name or an
+/// error's text shows only as an escape, so that it cannot break a line or turn a text around.
+fn is_hidden_mark(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}' | '\u{2029}'
+        )
+        || ('\u{202a}'..='\u{202e}').contains(&c)
+        || ('\u{2066}'..='\u{2069}').contains(&c)
 }
 
 /// Returns the name of the file or folder at `path` as `escaped_name` shows it, or the whole
@@ -486,6 +508,27 @@ mod tests {
     /// written as escapes, and is otherwise as it is. Before, a name of line breaks added a
     /// sentence of its own to the delete question, and U+202E showed it reversed (#189).
     /// Risk: a planted name breaks a line or shows itself reversed.
+    /// A library's error or a program's message is shown on its line, with its line breaks
+    /// and marks of direction as escapes, and a text escaped once is not escaped again.
+    /// Risk: a planted name inside an error's text breaks the failure's line, or a cause passed
+    /// on inside an `std::io::Error` shows its escapes doubled.
+    #[test]
+    fn an_error_text_is_shown_without_its_control_characters() {
+        let planted = "a.jpg\nOnly the cached copy is removed.\u{202e}gpj";
+        let shown = "a.jpg\\nOnly the cached copy is removed.\\u{202e}gpj";
+        assert_eq!(super::ShownText::of_message(planted), shown);
+        let error = std::io::Error::other(planted);
+        assert_eq!(super::ShownText::of_error(&error), shown);
+        let passed_on = std::io::Error::other(super::ShownText::of_error(&error));
+        assert_eq!(super::ShownText::of_error(&passed_on), shown);
+        assert_eq!(super::ShownText::of_message("C:\\photos"), "C:\\photos");
+        let size = super::human_size(2048);
+        assert_eq!(
+            crate::untranslated!("image too large ({size})", size),
+            format!("image too large ({size})")
+        );
+    }
+
     #[test]
     fn a_name_is_shown_without_its_control_characters() {
         let planted = "a.jpg\"?\n\nOnly the cached copy is removed.\u{202e}gpj.exe\t\u{7}";

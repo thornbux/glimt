@@ -4,6 +4,7 @@
 use crate::files::file_io::{FileFingerprint, Identity, is_another_file};
 use crate::images::decode::HistogramCounts;
 use crate::model::listing::{ListedName, Rows};
+use crate::support::format::ShownText;
 use crate::ui::file_list::RubberBand;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -103,11 +104,11 @@ pub(crate) struct List {
     /// The images of a layout's panes after the first, which shows `shown`.
     panes: Vec<usize>,
     loaded_images: HashMap<usize, LoadedImage>,
-    decode_errors: HashMap<usize, String>,
+    decode_errors: HashMap<usize, ShownText>,
     /// Why the full-resolution decode of images failed, by their places in the list. It is kept
     /// apart from `decode_errors`, because the screen-size version of such an image is still
     /// shown and decoded again. Only full resolution is not asked for again.
-    full_resolution_errors: HashMap<usize, String>,
+    full_resolution_errors: HashMap<usize, ShownText>,
     /// The decodes asked for, each with the number of its job and the box it was asked for in.
     /// Only the result of that job is taken, so one asked for before the page, the look or the
     /// file changed is dropped. A new list carries them by name, as the decoded images.
@@ -287,7 +288,7 @@ impl List {
     }
 
     /// Why images could not be decoded, by their places in the list.
-    pub(crate) fn decode_errors(&self) -> &HashMap<usize, String> {
+    pub(crate) fn decode_errors(&self) -> &HashMap<usize, ShownText> {
         &self.decode_errors
     }
 
@@ -590,12 +591,12 @@ impl List {
     }
 
     /// Notes why the image at place `i` could not be decoded.
-    pub(crate) fn decode_failed(&mut self, i: usize, why: String) {
+    pub(crate) fn decode_failed(&mut self, i: usize, why: ShownText) {
         self.decode_errors.insert(i, why);
     }
 
     /// Notes why the image at place `i` could not be decoded at full resolution.
-    pub(crate) fn full_resolution_failed(&mut self, i: usize, why: String) {
+    pub(crate) fn full_resolution_failed(&mut self, i: usize, why: ShownText) {
         self.full_resolution_errors.insert(i, why);
     }
 

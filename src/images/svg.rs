@@ -4,6 +4,7 @@
 //! what resvg allocates and how long it takes are set by the file, not by Glimt.
 
 use crate::images::decode::{DECODE_BUDGET, read_limited};
+use crate::support::format::ShownText;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::Path;
 
@@ -184,14 +185,16 @@ fn entities_too_large(data: &[u8]) -> bool {
 }
 
 /// Gzipped `data` unpacked, or an error once it would be larger than `limit` bytes.
-fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
+fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, ShownText> {
     use std::io::Read;
     let mut out = Vec::new();
     let mut reader = flate2::read::GzDecoder::new(data).take(limit + 1);
     #[allow(clippy::disallowed_methods)] // bounded by take
-    reader.read_to_end(&mut out).map_err(|e| e.to_string())?;
+    reader
+        .read_to_end(&mut out)
+        .map_err(|e| ShownText::of_error(&e))?;
     match out.len() as u64 > limit {
-        true => Err("SVG too large once unpacked".into()),
+        true => Err(ShownText::untranslated("SVG too large once unpacked")),
         false => Ok(out),
     }
 }
@@ -203,7 +206,7 @@ fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
 pub fn load(
     path: &Path,
     max: Option<[u32; 2]>,
-) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), ShownText> {
     draw_in_child(path, max, crate::files::external::PROGRAM_TIME_LIMIT)
 }
 
@@ -214,7 +217,7 @@ fn draw_in_child(
     path: &Path,
     max: Option<[u32; 2]>,
     limit: std::time::Duration,
-) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), ShownText> {
     let picture = largest_picture(max);
     // What the child may take, and the picture as read here, count against the decodes'
     // shared budget while it draws.
@@ -230,7 +233,7 @@ fn draw_in_child_outside_budget(
     max: Option<[u32; 2]>,
     limit: std::time::Duration,
     fonts: &'static [u8],
-) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), ShownText> {
     use std::io::Write;
     let picture = largest_picture(max);
     let mut command = crate::files::external::stoppable_command("/proc/self/exe");
@@ -239,7 +242,9 @@ fn draw_in_child_outside_budget(
     if let Some([w, h]) = max {
         command.env(DRAW_SVG_BOX, format!("{w} {h}"));
     }
-    let mut child = command.spawn().map_err(|e| format!("SVG: {e}"))?;
+    let mut child = command
+        .spawn()
+        .map_err(|e| crate::untranslated!("SVG: {e}", e))?;
     // The fonts are written from a thread of their own, so a child that stops reading them
     // cannot hold this one before the time limit starts.
     if let Some(mut input) = child.stdin.take() {
@@ -247,7 +252,10 @@ fn draw_in_child_outside_budget(
         std::thread::spawn(move || input.write_all(fonts));
     }
     let (out, errors, _) = crate::files::external::output_of(&mut child, picture + 4096, limit);
-    read_child_answer(out.ok_or("SVG too large")?, &errors)
+    read_child_answer(
+        out.ok_or(ShownText::untranslated("SVG too large"))?,
+        &errors,
+    )
 }
 
 /// Returns the system's fonts as `font_list` writes them, read once for every drawing child.
@@ -380,21 +388,31 @@ fn child_memory(max: Option<[u32; 2]>) -> u64 {
 fn read_child_answer(
     mut out: Vec<u8>,
     errors: &str,
-) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), ShownText> {
     let head = &out[..out.len().min(4096)];
     let find = |mark: &[u8]| head.windows(mark.len()).position(|w| w == mark);
     if let Some(at) = find(ERROR_MARK) {
         let text = &out[at + ERROR_MARK.len()..];
         let end = text.iter().position(|&b| b == b'\n').unwrap_or(text.len());
-        return Err(String::from_utf8_lossy(&text[..end]).into_owned());
+        return Err(ShownText::of_message(&String::from_utf8_lossy(
+            &text[..end],
+        )));
     }
     let Some(at) = find(PICTURE_MARK) else {
         use crate::files::external::TIMED_OUT;
         return Err(match errors {
-            e if e.contains(TIMED_OUT) => format!("drawing the SVG {TIMED_OUT}"),
+            e if e.contains(TIMED_OUT) => crate::untranslated!(
+                "drawing the SVG {timed_out}",
+                timed_out = ShownText::untranslated(TIMED_OUT)
+            ),
             // These are Rust's own words when an allocation fails, here past the limit.
-            e if e.contains("memory allocation of") => "SVG needs too much memory to draw".into(),
-            e => crate::files::external::last_line(e, "SVG could not be drawn"),
+            e if e.contains("memory allocation of") => {
+                ShownText::untranslated("SVG needs too much memory to draw")
+            }
+            e => crate::files::external::last_line(
+                e,
+                ShownText::untranslated("SVG could not be drawn"),
+            ),
         });
     };
     let start = at + PICTURE_MARK.len();
@@ -404,12 +422,13 @@ fn read_child_answer(
     };
     let (Some(w), Some(h), Some(own_w), Some(own_h)) = (number(0), number(1), number(2), number(3))
     else {
-        return Err("SVG cut short".into());
+        return Err(ShownText::untranslated("SVG cut short"));
     };
     // The picture's bytes are moved to the front of what was read, not copied.
     out.drain(..start + 16);
     out.truncate(w as usize * h as usize * 4);
-    let img = image::RgbaImage::from_raw(w, h, out).ok_or("SVG cut short")?;
+    let img =
+        image::RgbaImage::from_raw(w, h, out).ok_or(ShownText::untranslated("SVG cut short"))?;
     let own = (own_w > 0).then_some([own_w as usize, own_h as usize]);
     Ok((img.into(), own))
 }
@@ -493,23 +512,25 @@ fn draw(
     path: &Path,
     max: Option<[u32; 2]>,
     font_list: &[u8],
-) -> Result<(image::RgbaImage, Option<[usize; 2]>), String> {
+) -> Result<(image::RgbaImage, Option<[usize; 2]>), ShownText> {
     use resvg::{tiny_skia, usvg};
     // The SVG and the pictures it takes are read whole as a decode reads its file, which the
     // child's own budget counts. The parent counted the child's memory in its budget before.
     let _job = crate::images::decode::start_decode_job();
-    let mut data = read_limited(path).map_err(|e| e.to_string())?;
+    let mut data = read_limited(path).map_err(|e| ShownText::of_error(&e))?;
     // usvg unpacks a .svgz without a limit, and 10 MB of zeros would be 10 GB.
     if data.starts_with(&[0x1f, 0x8b]) {
         data = gunzip(&data, 64 << 20)?;
         // A file gzipped twice is refused, because usvg would unpack the inner one without a
         // limit.
         if data.starts_with(&[0x1f, 0x8b]) {
-            return Err("SVG gzipped twice".into());
+            return Err(ShownText::untranslated("SVG gzipped twice"));
         }
     }
     if entities_too_large(&data) {
-        return Err("SVG whose entities would grow too large".into());
+        return Err(ShownText::untranslated(
+            "SVG whose entities would grow too large",
+        ));
     }
     // The fonts come from the parent's list, which it read once. A font file is read only when
     // text is drawn with it.
@@ -525,7 +546,7 @@ fn draw(
         image_href_resolver: svg_images(),
         ..usvg::Options::default()
     };
-    let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
+    let tree = usvg::Tree::from_data(&data, &options).map_err(|e| ShownText::of_error(&e))?;
     let size = tree.size();
     // The longer side has at most `LONGEST_SIDE` pixels, because the pixmap is 4 bytes per
     // pixel (60000×60000 would be 14 GB).
@@ -545,7 +566,8 @@ fn draw(
         (size.width() * scale).ceil() as u32,
         (size.height() * scale).ceil() as u32,
     );
-    let mut pixmap = tiny_skia::Pixmap::new(w.max(1), h.max(1)).ok_or("SVG too large")?;
+    let mut pixmap = tiny_skia::Pixmap::new(w.max(1), h.max(1))
+        .ok_or(ShownText::untranslated("SVG too large"))?;
     resvg::render(
         &tree,
         tiny_skia::Transform::from_scale(scale, scale),
@@ -562,7 +584,8 @@ fn draw(
             }
         }
     }
-    let img = image::RgbaImage::from_raw(w.max(1), h.max(1), rgba).ok_or("SVG size mismatch")?;
+    let img = image::RgbaImage::from_raw(w.max(1), h.max(1), rgba)
+        .ok_or(ShownText::untranslated("SVG size mismatch"))?;
     Ok((img, own_size))
 }
 
