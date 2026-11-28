@@ -268,7 +268,7 @@ impl SharedMetadata {
     /// the tags `keeps` keeps, and always the orientation and the colour space. With
     /// `keeps_hdr_headroom`, a copy that leaves out an iPhone's maker note keeps its HDR
     /// headroom and gain, which its gain map needs. Each is `None` when nothing of it is kept.
-    /// A property kept keeps only its own value (`xmp::with_own_value_only`): a known tag
+    /// A property kept keeps only its own value (`xmp_packet::with_own_value_only`): a known tag
     /// written inside it goes unless `keeps` keeps that tag, and so does any tag of the image's
     /// own that is left out. The fields of a structure, such as a face region's name, are no
     /// known tags and stay with it.
@@ -561,8 +561,9 @@ fn jpeg_xmp_packets(data: &[u8]) -> [Packet; 2] {
 /// directories among its top-level `properties`. Google's Container:Directory lists a motion
 /// photo's video and an Ultra HDR photo's gain map, and Dynamic Depth's Device:Container (a
 /// Pixel's portrait photo, Android's depth photo) holds a directory of its own of the depth
-/// images. The names are read by their namespaces in `declared` (`xmp::is_in_namespace`), not
-/// by their prefixes, as ExifTool 12.87 and later write GContainer and GItem.
+/// images. The names are read by their namespaces in `declared`
+/// (`xmp_packet::is_in_namespace`), not by their prefixes, as ExifTool 12.87 and later write
+/// GContainer and GItem.
 ///
 /// Each directory describes the same bytes after the main image. The Ultra HDR, Motion Photo
 /// and Dynamic Depth specs each say that "Media items must be located in the container file in

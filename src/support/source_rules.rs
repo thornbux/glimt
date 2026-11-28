@@ -11753,8 +11753,8 @@ fn finds_a_wait_for_another_thread_in_the_window_thread() {
 }
 
 /// An XMP property is found only as a top-level property of a Description
-/// (`xmp::top_level_properties`), never by a search of the packet for its name. Such a search
-/// also finds the property inside another one, such as the keywords, the rating or the
+/// (`xmp_packet::top_level_properties`), never by a search of the packet for its name. Such a
+/// search also finds the property inside another one, such as the keywords, the rating or the
 /// orientation of another document in xmpMM:Pantry. The readers took those for the photo's own,
 /// and the editors took them out or changed them.
 #[test]
@@ -11766,7 +11766,8 @@ fn xmp_properties_are_found_at_the_top_level() {
     let wrong = searches_for_xmp_properties(&sources);
     assert!(
         wrong.is_empty(),
-        "find an XMP property with xmp::top_level_properties, not by a search for its name:\n{}",
+        "find an XMP property with xmp_packet::top_level_properties, not by a search for its \
+         name:\n{}",
         wrong.join("\n")
     );
 }
@@ -12479,9 +12480,10 @@ fn names_a_property(text: &str) -> bool {
 }
 
 /// Every walk over an XMP packet passes over its comments, CDATA sections and processing
-/// instructions through `xmp::not_element_length`. A walk that does not finds a Description, a
-/// property or a namespace declaration inside one, which XML does not see. A namespace declared
-/// in a comment once made the star writer write xmp:Rating with its prefix bound to nothing.
+/// instructions through `xmp_packet::not_element_length`. A walk that does not finds a
+/// Description, a property or a namespace declaration inside one, which XML does not see. A
+/// namespace declared in a comment once made the star writer write xmp:Rating with its prefix
+/// bound to nothing.
 #[test]
 fn packet_walks_pass_over_markup_that_is_no_element() {
     let sources: Vec<(String, String)> = (rust_sources().into_iter())
@@ -12490,8 +12492,9 @@ fn packet_walks_pass_over_markup_that_is_no_element() {
     let wrong = walks_without_markup_skip(&sources);
     assert!(
         wrong.is_empty(),
-        "pass over comments, CDATA and processing instructions with xmp::not_element_length, \
-         or say in the doc comment how the text given has none (`not_element_length`):\n{}",
+        "pass over comments, CDATA and processing instructions with \
+         xmp_packet::not_element_length, or say in the doc comment how the text given has \
+         none (`not_element_length`):\n{}",
         wrong.join("\n")
     );
 }
