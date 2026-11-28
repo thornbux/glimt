@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- --random, --layout and --fade apply only to the window they start, and are no longer saved to
+  the settings: a script's glimt --random no longer makes every later start random. The View
+  menu and Preferences still save these settings as before.
+- A few names were made clearer before 1.0 freezes them. In the settings file, sort=date is
+  sort=modified, show_subfolders is include_subfolders and remember_dir is remember_folder, and
+  the window state's last_dir is last_folder; the action ThumbnailGrid (in keys= and
+  --remote run) is ImageAreaGrid. A settings file of an older Glimt keeps every choice: the old
+  names are read once, and the next save writes the new ones. A script that runs
+  --remote run ThumbnailGrid must run ImageAreaGrid.
+- --remote info's line size is file_size, as the template field %file_size% is named. A script
+  that reads the size key must read file_size.
+- A job log names the log it was written from in a from-log record (old-log before); a log
+  that a kill left under an older Glimt is still read.
+
 ## [0.106.0] - 2026-11-28
 
 ### Added
