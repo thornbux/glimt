@@ -1,8 +1,8 @@
 # Build and publish a release when a tag vX.Y.Z is pushed (or by hand, for an existing tag):
-# a portable binary linked against glibc 2.28 with every feature, as a tar.gz, a .deb, an .rpm
-# and an AppImage (a Flatpak bundle too, once its job is turned on again at 1.0), and the
-# version's section of CHANGELOG.md as the release notes. A dry run (by hand, dry_run) builds and smoke-tests the branch it is started on and
-# publishes nothing.
+# a portable binary linked against glibc 2.28 with every feature, as a tar.gz, a .deb, an .rpm,
+# an AppImage and a Flatpak bundle, and the version's section of CHANGELOG.md as the release
+# notes. Flathub gets nothing until 1.0 (see the job flatpak). A dry run (by hand, dry_run)
+# builds and smoke-tests the branch it is started on and publishes nothing.
 name: Release
 # A dry run's title says so: the tag's run looks for one by it, to skip clippy and the tests.
 run-name: >-
@@ -291,7 +291,7 @@ jobs:
   # Checksums, provenance and publishing, apart from the build: the signing token is never
   # where the crates' code runs.
   release:
-    needs: build
+    needs: [build, flatpak]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
@@ -303,13 +303,16 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: packages
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flatpak
       - name: Checksums
         run: |
           TAG="$TAG_GIVEN"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
           sha256sum glimt-*-x86_64-linux.tar.gz glimt_*_amd64.deb glimt-*-1.x86_64.rpm \
-              glimt-*-x86_64.AppImage > SHA256SUMS
+              glimt-*-x86_64.AppImage glimt-*-x86_64.flatpak > SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -317,27 +320,29 @@ jobs:
             glimt_*_amd64.deb
             glimt-*-1.x86_64.rpm
             glimt-*-x86_64.AppImage
+            glimt-*-x86_64.flatpak
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           files="glimt-$VERSION-x86_64-linux.tar.gz glimt_${VERSION}_amd64.deb glimt-$VERSION-1.x86_64.rpm
-                 glimt-$VERSION-x86_64.AppImage SHA256SUMS"
+                 glimt-$VERSION-x86_64.AppImage glimt-$VERSION-x86_64.flatpak SHA256SUMS"
           # Run again by hand for a tag with a release already: replace its files.
           gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Glimt $VERSION" \
               --notes-file notes.md $files ||
             gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber $files
 
-  # Built beside the release in Flathub's image, and added to it afterwards, so that a broken
-  # Flatpak build does not hold back the other packages. The image is pinned by its digest, as
-  # the actions are by their commits: a tag can be moved, and this one runs privileged and its
-  # bundle is signed. A new runtime: its tag's digest from
+  # Built beside the packages in Flathub's image, and smoke-tested, in a dry run and for a tag
+  # alike: a tag's run that skips clippy and the tests after a dry run still builds this. The
+  # release job waits for it, so a broken bundle stops the release as a broken package does.
+  # The image is pinned by its digest, as the actions are by their commits: a tag can be moved,
+  # and this one runs privileged. A new runtime: its tag's digest from
   # `docker buildx imagetools inspect ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-XX.YY`.
   #
-  # Left out until 1.0, at the maintainer's word: no Flatpak bundle is built or published.
-  # Remove the `if` to build it again.
+  # The bundle goes on the GitHub release only. Publishing to Flathub waits for 1.0 and the
+  # maintainer's yes: it is then a pull request by hand (tools/flathub-manifest.py,
+  # docs/RELEASING.md), and no job of this workflow sends anything there.
   flatpak:
-    if: false
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08@sha256:6ed6921bb5a9e1a916989971844f159b854b7b225880c381fa34f7a158863039
@@ -345,20 +350,27 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ !inputs.dry_run && inputs.tag || github.ref }}
+          # The same commit as the build job's: a dry run's own, not the branch, which may
+          # have moved on since the run started.
+          ref: ${{ !inputs.dry_run && inputs.tag || github.sha }}
           persist-credentials: false
       - name: Build the bundle
+        # Named as the build job names its packages: a dry run for the version in Cargo.toml.
+        # The build job checks that the tag and Cargo.toml agree.
         run: |
-          TAG="${TAG_GIVEN:-dry-run}"
+          TAG="$TAG_GIVEN"
+          [ -n "$DRY_RUN" ] && TAG="v$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$TAG is no vX.Y.Z"; exit 1; }
           flatpak-builder --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo=repo \
               build-flatpak flatpak/io.github.thornbux.Glimt.yml
           flatpak build-bundle repo "glimt-${TAG#v}-x86_64.flatpak" io.github.thornbux.Glimt \
               --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: Smoke test of the bundle
         # The bundle installed as a user installs it, and an SVG drawn in the sandbox, in a
-        # child process of /proc/self/exe. A failure here stops flatpak-publish. The GL
-        # extension (Mesa, for the window) is installed by name, as the runtime may be there
-        # from the build already, without it.
+        # child process of /proc/self/exe. A failure here stops the release. The GL extension
+        # (Mesa, for the window) is installed by name, as the runtime may be there from the
+        # build already, without it. The checks with two windows stay by hand
+        # (docs/RELEASING.md, *By hand*).
         timeout-minutes: 10
         run: |
           flatpak remote-add --user --if-not-exists flathub \
@@ -373,31 +385,4 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: flatpak
-          path: glimt-*.flatpak
-
-  flatpak-publish:
-    needs: [release, flatpak]
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: flatpak
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: glimt-*.flatpak
-      - name: Add it to the release, and its checksum to SHA256SUMS
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="$TAG_GIVEN"
-          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p SHA256SUMS
-          # Run again by hand: the old line goes.
-          grep -v '\.flatpak$' SHA256SUMS > sums || true
-          sha256sum glimt-*.flatpak >> sums
-          mv sums SHA256SUMS
-          gh release upload "$TAG" --clobber -R "$GITHUB_REPOSITORY" glimt-*.flatpak SHA256SUMS
+          path: glimt-*-x86_64.flatpak

@@ -47,7 +47,7 @@ branch made from it and merged back into it; `main` gets the release branch only
    workflow never sees the tag before `main` holds it. The release workflow builds and
    publishes the packages (below).
 8. **After the tag.** Check that the Release workflow ended green, with every package,
-   `SHA256SUMS` and the attestations. Until 1.0 no Flatpak bundle is built (*The Flatpak*).
+   the Flatpak bundle among them, `SHA256SUMS` and the attestations.
    When the workflow fails before it publishes the release, find the cause first. A fix that
    needs code is a new commit on the release branch. With the maintainer's yes the tag is taken
    back (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`): no release of that version
@@ -141,8 +141,8 @@ Flatpak image's digest has moved.
 
 These need a desktop, so no script checks them:
 
-- The Flatpak, with two windows (Ctrl+N): `--remote next` goes to the focused one,
-  `--remote-all next` to both, and `--remote-all quit` closes both.
+- The Flatpak, with two windows (Ctrl+N), which its smoke test does not open: `--remote next`
+  goes to the focused one, `--remote-all next` to both, and `--remote-all quit` closes both.
 - In the Flatpak, Delete and Ctrl+Z (the trash portal), also of a read-only file, which the
   portal refuses, so Glimt moves it to the trash by hand.
 - File → Open File (the file chooser portal).
@@ -158,19 +158,21 @@ These need a desktop, so no script checks them:
 
 The release workflow's smoke test, `tools/package-smoke.sh`, checks before each package is
 published that every package draws an SVG, and that the AppImage also draws it in a New Window
-after the first window closed. The `.deb` and the `.rpm` are installed for it in a bare Ubuntu
-20.04 and AlmaLinux 8, with only their own dependencies, so a library of X11 missing from
-their lists stops the release. The test runs on X11 alone, so a missing Wayland library is not
-seen; those names are kept by hand.
+after the first window closed. The Flatpak bundle is installed for the user in Flathub's image
+and draws its SVG in the sandbox, in a dry run and for a tag alike; the checks of the Flatpak
+above, with two windows and the portals, stay by hand. The `.deb` and the `.rpm` are installed
+for it in a bare Ubuntu 20.04 and AlmaLinux 8, with only their own dependencies, so a library
+of X11 missing from their lists stops the release. The test runs on X11 alone, so a missing
+Wayland library is not seen; those names are kept by hand.
 
 ## Packages
 
 A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`. It builds against glibc
-2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb`, an `.rpm` and an AppImage. Both
-package formats are described in `Cargo.toml` (`[package.metadata.deb]` and
-`[package.metadata.generate-rpm]`). A new installed file goes in both lists
-(`source_rules::packages_install_the_same_files`), in the Flatpak manifest, and in the tar.gz
-and AppImage steps. To build and check the packages locally, after
+2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb`, an `.rpm`, an AppImage and a
+Flatpak bundle (*The Flatpak*). Both package formats are described in `Cargo.toml`
+(`[package.metadata.deb]` and `[package.metadata.generate-rpm]`). A new installed file goes in
+both lists (`source_rules::packages_install_the_same_files`), in the Flatpak manifest, and in
+the tar.gz and AppImage steps. To build and check the packages locally, after
 `cargo build --release --features full`:
 
 ```sh
@@ -201,8 +203,7 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
 
 Each release also gets `SHA256SUMS` of its files and a build provenance for each file, signed
 by GitHub through `actions/attest-build-provenance`; `gh attestation verify FILE -R
-thornbux/glimt` checks it. A new file to publish goes in both, and the Flatpak's line is added
-by its own job (not until 1.0, see *The Flatpak*).
+thornbux/glimt` checks it. A new file to publish goes in both, in the release job.
 
 ### The AppImage
 
@@ -216,15 +217,17 @@ its `$APPIMAGE`.
 
 ### The Flatpak
 
-Until 1.0 the release workflow builds no Flatpak bundle: the maintainer left it out, and its
-job carries `if: false`. The manifest and `flatpak/cargo-sources.json` are still kept up to date,
-so the job can be turned on again by removing that line.
-
-The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`
-in Flathub's `freedesktop-26.08` image, pinned by its digest (change both with
-`runtime-version`), and adds it to the release in a job of its own. It builds without the
-network, as Flathub does: the crates are sources in `flatpak/cargo-sources.json`, so a
-`Cargo.lock` changed without it fails there. Its Rust is pinned in the manifest by version and
+The release workflow builds a Flatpak bundle, `glimt-X.Y.Z-x86_64.flatpak`, from
+`flatpak/io.github.thornbux.Glimt.yml` in Flathub's `freedesktop-26.08` image, pinned by its
+digest (change both with `runtime-version`), in its job `flatpak`, beside the other packages.
+It runs in a dry run and for a tag alike, also when the tag's run skips clippy and the tests,
+and it smoke-tests the bundle (*By hand*). The release job waits for it and publishes the
+bundle with the other packages, in `SHA256SUMS` and the attestations, so a broken Flatpak
+stops the release. It goes on the GitHub release only: publishing to Flathub waits for 1.0 and
+the maintainer's yes (*Flathub*). The bundle names Flathub as its runtime's repository, so
+`flatpak install --user glimt-X.Y.Z-x86_64.flatpak` fetches the runtime from there. It builds
+without the network, as Flathub does: the crates are sources in `flatpak/cargo-sources.json`,
+so a `Cargo.lock` changed without it fails there. Its Rust is pinned in the manifest by version and
 checksum (static.rust-lang.org's archives), and the release workflow tests, lints and builds
 the packages with that same version. A new Rust is a change of both archives' lines there. To
 build it locally: its runtime, SDK and Rust take about 4 GB, so they can live on `/tmp` through
@@ -249,8 +252,9 @@ flatpak run io.github.thornbux.Glimt
 
 ### Flathub
 
-Not in use until Glimt is on Flathub: its repository there does not exist yet. Then Flathub
-builds from its own repository, `flathub/io.github.thornbux.Glimt`, not from this one.
+Not in use until 1.0 and the maintainer's yes: Glimt's repository there does not exist yet,
+and no job of the release workflow sends anything to Flathub. Then Flathub builds from its own
+repository, `flathub/io.github.thornbux.Glimt`, not from this one.
 After each release tag, `python3 tools/flathub-manifest.py vX.Y.Z <its checkout>` writes there
 the manifest with Glimt from the tag (and its commit) and `cargo-sources.json`, for a pull
 request. Flathub builds it and publishes once it is merged. Check it with Flathub's linter:
