@@ -3464,14 +3464,23 @@ fn copies_of_settings_have_one_writer() {
             &[("images/colour.rs", "use_color_management")],
         ),
     ];
-    let writes: Vec<(String, &[(&str, &str)])> = (ATOMICS.iter())
-        .flat_map(|(copy, home)| {
-            ["store(", "swap(", "fetch_", "compare_exchange"].map(|w| (format!("{copy}{w}"), *home))
-        })
-        .collect();
+    let writes = |methods: &[&str]| -> Vec<(String, &[(&str, &str)])> {
+        (ATOMICS.iter())
+            .flat_map(|(copy, home)| methods.iter().map(move |w| (format!("{copy}{w}"), *home)))
+            .collect()
+    };
+    let (stores, others) = (
+        writes(&["store("]),
+        writes(&["swap(", "fetch_", "compare_exchange"]),
+    );
     let mut homes: Vec<(&str, &[(&str, &str)])> = WRITERS.to_vec();
-    homes.extend(writes.iter().map(|(write, home)| (write.as_str(), *home)));
-    let wrong = outside_their_homes(&homes);
+    homes.extend(stores.iter().map(|(write, home)| (write.as_str(), *home)));
+    let mut wrong = outside_their_homes(&homes);
+    // No code writes a copy by these methods, so only their places are checked.
+    let other_homes: Vec<(&str, &[(&str, &str)])> = (others.iter())
+        .map(|(write, home)| (write.as_str(), *home))
+        .collect();
+    wrong.extend(spellings_outside_their_homes(&other_homes));
     assert!(
         wrong.is_empty(),
         "a copy of a setting written by hand:\n{}",
@@ -3481,7 +3490,7 @@ fn copies_of_settings_have_one_writer() {
     let planted = "fn a() {\n    VIEW_FILTER.swap(1, Relaxed);\n    \
         COLOR_MANAGEMENT.fetch_xor(true, Relaxed);\n    VIEW_FILTER.load(Relaxed);\n}\n";
     assert_eq!(
-        outside_homes_in("ui/file_list.rs", planted, &homes),
+        outside_homes_in("ui/file_list.rs", planted, &other_homes),
         [
             "ui/file_list.rs:2 (VIEW_FILTER.swap()",
             "ui/file_list.rs:3 (COLOR_MANAGEMENT.fetch_)"
@@ -3604,13 +3613,15 @@ fn a_round_begins_in_one_place() {
 #[test]
 fn the_slideshows_plan_is_made_in_one_place() {
     let home: &[(&str, &str)] = &[("viewer/slideshow.rs", "make_plan")];
-    let wrong = outside_their_homes(&[
+    let mut wrong = outside_their_homes(&[
         ("made_from =", home),
-        ("planned.clear(", home),
         ("pool.clear(", home),
         ("found_none = false", home),
         ("forget_order(", &[]),
     ]);
+    // `make_plan` empties the images planned with `retain`, which `note_on_screen` also calls to
+    // take an image shown out of the plan, so only a `clear` is watched, which no code makes.
+    wrong.extend(spellings_outside_their_homes(&[("planned.clear(", home)]));
     assert!(
         wrong.is_empty(),
         "the slideshow's plan made outside Slideshow::make_plan:\n{}",
@@ -4650,8 +4661,19 @@ fn in_assigned_tuple(line: &str, at: usize) -> bool {
 
 /// Returns each place outside the tests where a text of `homes` is written in code outside the
 /// functions it is allowed in, as "file:line (text)". A function named "" allows the whole
-/// file, and the text's own definition is allowed anywhere.
+/// file, and the text's own definition is allowed anywhere. A home that is gone, and a text
+/// with a home that no code mentions any more, are reported too (`texts_in_no_code`).
 fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
+    let sources = rust_sources();
+    let mut wrong = spellings_outside_their_homes(homes);
+    wrong.extend(texts_in_no_code(&sources, homes));
+    wrong
+}
+
+/// Returns what `outside_their_homes` returns, except a text that no code mentions. It is for
+/// the other spellings of a write whose usual spelling `outside_their_homes` watches, such as an
+/// atomic's `swap(` beside its `store(`, which no code uses and a later change could.
+fn spellings_outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
     let sources = rust_sources();
     let mut wrong = Vec::new();
     for (file, text) in &sources {
@@ -4681,6 +4703,28 @@ fn finds_a_home_that_is_gone() {
     );
 }
 
+/// A watched call that no code makes any more is found, so a rule whose call was renamed fails
+/// rather than checks nothing. `set_xmp_orientation(` stayed watched after it became
+/// `Packet::with_orientation`.
+#[test]
+fn finds_a_watched_text_that_is_gone() {
+    let sources = [(
+        "a.rs".to_owned(),
+        "fn kept() {\n    x();\n}\n#[cfg(test)]\nmod tests {\n    fn t() { y(); }\n}\n".to_owned(),
+    )];
+    let homes: &[(&str, &[(&str, &str)])] = &[
+        ("x(", &[("a.rs", "kept")]),
+        // A watched call that was renamed, one called only in the tests, and a ban.
+        ("renamed(", &[("a.rs", "kept")]),
+        ("y(", &[("a.rs", "kept")]),
+        ("banned(", &[]),
+    ];
+    assert_eq!(
+        texts_in_no_code(&sources, homes),
+        ["renamed(: in no code", "y(: in no code"]
+    );
+}
+
 /// Returns each home of `homes` whose file or function is not in `sources`, as "file: no fn
 /// name". A home renamed or gone would let a rule pass with nothing left to check (#287).
 fn homes_not_found(sources: &[(String, String)], homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
@@ -4696,6 +4740,29 @@ fn homes_not_found(sources: &[(String, String)], homes: &[(&str, &[(&str, &str)]
     };
     (all.filter(|(file, function)| !is_there(file, function)))
         .map(|(file, function)| format!("{file}: no fn {function}"))
+        .collect()
+}
+
+/// Returns each text of `homes` that has a home but that no code in `sources` outside the
+/// tests mentions, as "text: in no code". A call renamed or gone would let a rule pass with
+/// nothing left to check, as homes did before #287. A text with no home is a ban, which is
+/// meant to match nothing.
+fn texts_in_no_code(
+    sources: &[(String, String)],
+    homes: &[(&str, &[(&str, &str)])],
+) -> Vec<String> {
+    let code: Vec<Vec<String>> = (sources.iter())
+        .map(|(_, text)| {
+            let mut lines = code_lines(text);
+            lines.truncate(tests_start(&lines));
+            lines
+        })
+        .collect();
+    (homes.iter())
+        .filter(|(text, allowed)| {
+            !allowed.is_empty() && !code.iter().flatten().any(|l| mentions(l, text))
+        })
+        .map(|(text, _)| format!("{text}: in no code"))
         .collect()
 }
 
@@ -5296,7 +5363,9 @@ fn derived_files_take_metadata_in_one_place() {
         ),
         (".write_to(", &[("images/save.rs", "lossy_webp")]),
         ("png_with_xmp(", &[("images/save.rs", "encode")]),
-        ("set_xmp_orientation(", &[("images/save.rs", "derived_xmp")]),
+        // `Packet`'s method, watched by its call through a value, as `read_with_orientation(`
+        // ends the same way.
+        (".with_orientation(", &[("images/save.rs", "derived_xmp")]),
         ("set_exif_metadata(", &[("images/save.rs", "encode")]),
         (
             "own_sidecar(",
@@ -5504,7 +5573,8 @@ fn view_colours_stay_in_the_view() {
     ];
     let homes = [
         "to_display(",
-        "COLOUR.read(",
+        // The lock's helper given the static, by any path (`read_even_if_poisoned(&COLOUR)`).
+        "COLOUR)",
         "COLOR_MANAGEMENT.load(",
         "VIEW_FILTER.load(",
     ]
