@@ -2770,9 +2770,9 @@ impl crate::App {
         ) else {
             return;
         };
-        // "exif:" searches find keywords, comments and stars too, so these files are read
-        // again. That holds also when the first index is still being read, because it may have
-        // read them before this write.
+        // "exif:" searches find keywords, comments and stars too, and "date:" searches read the
+        // same index, so these files are read again. That holds also when the first index is
+        // still being read, because it may have read them before this write.
         let names = paths
             .iter()
             .filter_map(|p| p.strip_prefix(self.folder.dir()).ok());

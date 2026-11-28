@@ -27,9 +27,12 @@ use std::time::Instant;
 
 const PREFIXES: [&str; 5] = ["exif:", "re:", "mark:", "stars:", "date:"];
 
-/// The prefixes of the terms that look in the EXIF index (`IndexEntry`), and so wait for the
-/// files it reads again.
-const INDEX_PREFIXES: [&str; 2] = ["exif:", "date:"];
+/// The terms that look in the EXIF index (`IndexEntry`), each as its word and its kind. A term
+/// is sent to its search by this list (`index_term`), and a search waits by it for the files the
+/// index reads again (`indexed_search_waits_for_writes`), so a new term cannot be in one and not
+/// the other.
+const INDEX_TERMS: [(&str, IndexTerm); 2] =
+    [("exif:", IndexTerm::Exif), ("date:", IndexTerm::Date)];
 
 /// How deep groups may nest in a search. A `(` deeper than this is an ordinary word, so text
 /// pasted with thousands of them cannot overflow the stack of the parser, of the search through
@@ -99,6 +102,15 @@ pub(crate) struct IndexEntry {
     day: Option<Day>,
 }
 
+/// A kind of term that looks in the EXIF index, as `INDEX_TERMS` names it.
+#[derive(Clone, Copy)]
+enum IndexTerm {
+    /// "exif:", the words of the EXIF, keywords, comment and stars.
+    Exif,
+    /// "date:", the day a photo was taken.
+    Date,
+}
+
 /// What the index holds for each file in the folder (`IndexEntry`), for "exif:" and "date:"
 /// searches, and whether the names it lacks are read. It is built at the first such search and
 /// dropped with the folder.
@@ -160,8 +172,9 @@ pub(crate) struct Search {
     /// When to sum the matches' size, once the search has stayed the same for a moment.
     match_size_due: Option<Instant>,
     exif_index: ExifIndex,
-    /// The files whose keywords or comment changed after they were indexed. The next "exif:"
-    /// search reads only these files again, not the whole folder.
+    /// The files whose keywords or comment changed after they were indexed. The next search
+    /// that looks in the index ("exif:" or "date:") reads only these files again, not the whole
+    /// folder.
     exif_to_read_again: HashSet<OsString>,
     exif_index_rx: Receiving<(HashMap<OsString, IndexEntry>, Working)>,
     /// Set when the index being read is no longer wanted (another folder), so the thread stops.
@@ -186,8 +199,8 @@ impl Search {
         self.query.clear();
     }
 
-    /// The files' EXIF text is read again at the next "exif:" search, as their keywords or
-    /// comment changed.
+    /// The files' EXIF text is read again at the next search that looks in the index ("exif:"
+    /// or "date:"), as their keywords or comment changed.
     pub(crate) fn read_exif_again(&mut self, names: impl IntoIterator<Item = OsString>) {
         self.exif_to_read_again.extend(names);
     }
@@ -195,7 +208,8 @@ impl Search {
     /// Whether a search that looks in the index ("exif:" or "date:") waits for files that are
     /// read again once their writes end.
     pub(crate) fn indexed_search_waits_for_writes(&self) -> bool {
-        !self.exif_to_read_again.is_empty() && self.has_term_with(&INDEX_PREFIXES)
+        let words = INDEX_TERMS.map(|(word, _)| word);
+        !self.exif_to_read_again.is_empty() && self.has_term_with(&words)
     }
 
     /// Drops the EXIF index of the folder, which exif: and date: terms read, and stops its
@@ -473,10 +487,10 @@ impl crate::App {
             mask
         };
         match query {
-            Query::Term(term) => match (term.strip_prefix("exif:"), term.strip_prefix("date:")) {
-                (Some(words), _) => self.exif_matches(ctx, words),
-                (_, Some(dates)) => self.date_matches(ctx, dates),
-                _ => Some(self.term_matches(ctx, term, 1).unwrap_or_default()),
+            Query::Term(term) => match index_term(term) {
+                Some((IndexTerm::Exif, words)) => self.exif_matches(ctx, words),
+                Some((IndexTerm::Date, dates)) => self.date_matches(ctx, dates),
+                None => Some(self.term_matches(ctx, term, 1).unwrap_or_default()),
             },
             Query::Not(inner) => {
                 let out = mask(&self.query_matches(ctx, inner)?);
@@ -534,12 +548,17 @@ impl crate::App {
                 Vec::new()
             }
         };
-        if let Some(dates) = term.strip_prefix("date:") {
-            return Some(self.date_matches(ctx, dates).unwrap_or_default());
+        match index_term(term) {
+            Some((IndexTerm::Exif, words)) => {
+                return Some(self.exif_matches(ctx, words).unwrap_or_default());
+            }
+            Some((IndexTerm::Date, dates)) => {
+                return Some(self.date_matches(ctx, dates).unwrap_or_default());
+            }
+            None => {}
         }
-        match (term.strip_prefix("exif:"), term.strip_prefix("re:")) {
-            (Some(words), _) => Some(self.exif_matches(ctx, words).unwrap_or_default()),
-            (_, Some(pattern)) if !pattern.is_empty() => Some(regex(self, pattern)),
+        match term.strip_prefix("re:") {
+            Some(pattern) if !pattern.is_empty() => Some(regex(self, pattern)),
             _ => {
                 self.mark_matches(term)
                     .or_else(|| match self.config.fuzzy_search {
@@ -763,6 +782,12 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
         (q, last) = (q + 1, Some(i));
     }
     (q == query.len()).then_some(score)
+}
+
+/// Returns the kind of index term that `term` is (`INDEX_TERMS`) and what follows its word.
+/// Returns `None` for a term that does not look in the index.
+fn index_term(term: &str) -> Option<(IndexTerm, &str)> {
+    (INDEX_TERMS.iter()).find_map(|&(word, kind)| Some((kind, term.strip_prefix(word)?)))
 }
 
 /// The tree of a search. Returns `None` for an empty one. A term starts at a prefix (`exif:`,
