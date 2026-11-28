@@ -529,10 +529,10 @@ impl crate::App {
         self.folder.forget_image_shown_by_itself();
         let shown = self.list.files().get(self.list.shown());
         let in_the_folder = shown.is_some_and(|name| self.folder.holds_as_its_own(name));
-        if self.folder.recursive() != self.config.show_subfolders
-            && (self.config.show_subfolders || in_the_folder || shown.is_none())
+        if self.folder.recursive() != self.config.include_subfolders
+            && (self.config.include_subfolders || in_the_folder || shown.is_none())
         {
-            self.folder.set_recursive(self.config.show_subfolders);
+            self.folder.set_recursive(self.config.include_subfolders);
             self.start_listing(ctx);
         }
         self.panel.scroll_to_shown();
@@ -804,8 +804,11 @@ mod tests {
         let d = folder_of("listed-whole", &["a.png", "s1/b.png", "s2/c.png"]);
         let (mut app, ctx) = app_on(&d);
         // View → Subfolders on too, so that the stop below keeps the tree.
-        (app.config.slideshow_subfolders, app.config.show_subfolders) = (true, true);
-        app.folder.show_subfolders(true);
+        (
+            app.config.slideshow_subfolders,
+            app.config.include_subfolders,
+        ) = (true, true);
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         let listings = app.folder.whole_listings();
         assert!(run_background_until(&mut app, &ctx, |app| app
@@ -971,7 +974,7 @@ mod tests {
         let d = folder_of("slides-name", &["b.png", "a/1.png", "c/3.png"]);
         let (mut app, ctx) = app_on(&d);
         // View → Subfolders on, but the folder was listed before without them.
-        app.config.show_subfolders = true;
+        app.config.include_subfolders = true;
         app.folder.set_recursive(true);
         app.config.slideshow_subfolders = true;
         app.config.slideshow_random = false;

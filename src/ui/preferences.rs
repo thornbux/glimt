@@ -577,7 +577,7 @@ impl crate::App {
         }
         let tree = tr("Show folders as a tree (Ctrl+T)");
         self.toggle_box(ui, self.config.folder_tree, Action::FolderTree, tree);
-        let mut sub = self.config.show_subfolders;
+        let mut sub = self.config.include_subfolders;
         if checkbox(
             ui,
             &mut sub,
@@ -946,7 +946,12 @@ impl crate::App {
     pub(crate) fn window_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let (mut changed, mut clear) = (false, false);
         let c = &mut self.config;
-        changed |= checkbox(ui, &mut c.remember_dir, tr("Start in the last used folder")).changed();
+        changed |= checkbox(
+            ui,
+            &mut c.remember_folder,
+            tr("Start in the last used folder"),
+        )
+        .changed();
         let recent = tr("Keep a list of recent folders (File → Open Recent)");
         if checkbox(ui, &mut c.keep_recent, recent).changed() {
             changed = true;

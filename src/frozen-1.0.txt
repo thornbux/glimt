@@ -11,7 +11,6 @@
 # of 0.74.0 to 0.80.0, and renamed or took out the names that the review of this file found
 # misleading (0.96.0).
 setting preload
-setting remember_dir
 setting keep_recent
 setting confirm_delete
 setting confirm_trash
@@ -31,7 +30,6 @@ setting show_marks
 setting keys
 setting remote_control
 setting xmp_stars
-setting show_subfolders
 setting slideshow_subfolders
 setting save_orientation
 setting webp_quality
@@ -135,7 +133,6 @@ option --help
 option --
 value sort name
 value sort number
-value sort date
 value sort created
 value sort exif_original
 value sort exif_digitized
@@ -174,7 +171,6 @@ value language pl
 value language pt_BR
 value language fi
 value language sv
-state last_dir
 state maximized
 state window_size
 remote slideshow on
@@ -284,7 +280,6 @@ script Slideshow
 script SlideshowFaster
 script SlideshowSlower
 script Subfolders
-script ThumbnailGrid
 script Thumbnails
 script Toolbar
 script WindowTitle
@@ -562,3 +557,8 @@ job_record record in-file-system
 setting activity_line
 setting remember_file_lists
 file $XDG_CACHE_HOME/glimt/lists
+setting remember_folder
+setting include_subfolders
+value sort modified
+state last_folder
+script ImageAreaGrid

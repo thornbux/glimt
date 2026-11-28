@@ -745,9 +745,9 @@ impl crate::App {
 
     /// List the images of all subfolders too, or only the folder's own.
     pub(crate) fn set_subfolders(&mut self, ctx: &egui::Context, on: bool) {
-        self.config.show_subfolders = on;
+        self.config.include_subfolders = on;
         self.config.save();
-        self.folder.show_subfolders(on);
+        self.folder.include_subfolders(on);
         self.start_listing(ctx);
     }
 
@@ -2938,19 +2938,19 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-area-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        use crate::ui::actions::Action::{LeaveFullScreen, ThumbnailGrid};
+        use crate::ui::actions::Action::{ImageAreaGrid, LeaveFullScreen};
         app.run(&ctx, LeaveFullScreen);
         assert!(!app.panel.is_area_grid_on());
-        app.run(&ctx, ThumbnailGrid);
+        app.run(&ctx, ImageAreaGrid);
         assert!(app.panel.is_area_grid_shown());
         app.panel.open_from_grid();
         assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
         app.run(&ctx, LeaveFullScreen);
         assert!(app.panel.is_area_grid_shown());
         app.panel.open_from_grid();
-        app.run(&ctx, ThumbnailGrid);
+        app.run(&ctx, ImageAreaGrid);
         assert!(app.panel.is_area_grid_shown());
-        app.run(&ctx, ThumbnailGrid);
+        app.run(&ctx, ImageAreaGrid);
         assert!(!app.panel.is_area_grid_on());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -2982,7 +2982,7 @@ mod tests {
             "the image area drew no panes"
         );
         assert_eq!(app.image_in_status_bar(4).0, 1);
-        app.run(&ctx, crate::ui::actions::Action::ThumbnailGrid);
+        app.run(&ctx, crate::ui::actions::Action::ImageAreaGrid);
         assert!(app.panel.is_area_grid_shown());
         app.show_file(&ctx, 3);
         frame(&mut app);
@@ -3020,8 +3020,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-area-show-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        use crate::ui::actions::Action::{LeaveFullScreen, Slideshow, ThumbnailGrid};
-        app.run(&ctx, ThumbnailGrid);
+        use crate::ui::actions::Action::{ImageAreaGrid, LeaveFullScreen, Slideshow};
+        app.run(&ctx, ImageAreaGrid);
         app.run(&ctx, Slideshow);
         assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
         app.run(&ctx, LeaveFullScreen);

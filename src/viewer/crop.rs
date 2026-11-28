@@ -268,7 +268,7 @@ mod tests {
             part: None,
         };
         app.viewing.start_crop(crop);
-        app.run(&ctx, crate::ui::actions::Action::ThumbnailGrid);
+        app.run(&ctx, crate::ui::actions::Action::ImageAreaGrid);
         assert!(!app.viewing.is_cropping());
         // And Crop chosen in the grid opens the image, where the part is chosen.
         app.start_crop();
@@ -283,7 +283,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-crop-esc-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        app.run(&ctx, crate::ui::actions::Action::ThumbnailGrid);
+        app.run(&ctx, crate::ui::actions::Action::ImageAreaGrid);
         app.panel.open_from_grid();
         let crop = super::Crop {
             path: dir.join("a.png"),

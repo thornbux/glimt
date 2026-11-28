@@ -53,6 +53,11 @@ const HIDDEN_BY_SEARCH: &str = "the search hides the files it would act on";
 /// only part of the images, and be told as saved.
 const STILL_LISTING: &str = "the folder is still being read";
 
+/// The actions' names that Glimt 0.106 and older wrote in keys=, each with the name it is read
+/// as now. They were renamed before 1.0, and each is read once: the next save writes the new
+/// name (`old_action_names_mapped`, which the settings' `old_names_mapped` calls).
+const OLD_ACTION_NAMES: [(&str, &str); 1] = [("ThumbnailGrid", "ImageAreaGrid")];
+
 /// Geeqie's default shortcuts up to 3.1, except R (random order; Geeqie: refresh) and F5
 /// (refresh). Glimt keeps them where Geeqie 3.2 changed its keys, and DIFFERENCES in help.rs
 /// lists each such key. The first one for an action is shown in the menu. egui ignores an extra
@@ -121,7 +126,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::F11),
         (HideFileList, CTRL, Key::H),
         (Thumbnails, NONE, Key::T),
-        (ThumbnailGrid, NONE, Key::G),
+        (ImageAreaGrid, NONE, Key::G),
         (FullScreenInfo, NONE, Key::I),
         (Histogram, NONE, Key::K),
         (HistogramLog, NONE, Key::J),
@@ -240,6 +245,7 @@ pub const ALL: &[Action] = &[
     Action::HistogramLog,
     Action::HomeFolder,
     Action::IconGrid,
+    Action::ImageAreaGrid,
     Action::ImportLightroom,
     Action::InfoPanel,
     Action::InvertSelection,
@@ -339,7 +345,6 @@ pub const ALL: &[Action] = &[
     Action::SlideshowSlower,
     Action::SortManager,
     Action::Subfolders,
-    Action::ThumbnailGrid,
     Action::Thumbnails,
     Action::Toolbar,
     Action::TrashCollection,
@@ -410,7 +415,7 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
 /// answers or clicks in, and none starts a program of the user's. So a program that reaches
 /// Glimt's socket still cannot delete, move, rename or rewrite anything. A panel that the
 /// window offers anyway does not count: the file list and the folder tree, which HideFileList,
-/// ThumbnailGrid and FolderTree bring back, have menus that change files, but the user can
+/// ImageAreaGrid and FolderTree bring back, have menus that change files, but the user can
 /// always open them, so a script that shows them opens no new way to a change.
 /// `every_action_is_decided_for_scripts` makes each new action be put here or left out on
 /// purpose.
@@ -483,7 +488,7 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::SlideshowFaster,
     Action::SlideshowSlower,
     Action::Subfolders,
-    Action::ThumbnailGrid,
+    Action::ImageAreaGrid,
     Action::Thumbnails,
     Action::Toolbar,
     Action::WindowName,
@@ -634,7 +639,7 @@ pub enum Action {
     Toolbar,
     PathBar,
     Thumbnails,
-    ThumbnailGrid,
+    ImageAreaGrid,
     GridNames,
     InfoPanel,
     ExifWindow,
@@ -847,7 +852,7 @@ impl Action {
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
-            ThumbnailGrid => "Thumbnails in Image Area",
+            ImageAreaGrid => "Thumbnails in Image Area",
             GridNames => "Show File Names Under Thumbnails",
             InfoPanel => "Show Info Panel",
             SortManager => "Show Sort Manager",
@@ -993,7 +998,7 @@ impl Action {
             Toolbar => "\u{eca0}",                             // toolbox
             PathBar => "\u{e89c}",                             // signpost
             Thumbnails => "\u{e836}",                          // images
-            ThumbnailGrid => "\u{e464}",                       // squares-four
+            ImageAreaGrid => "\u{e464}",                       // squares-four
             InfoPanel | About => "\u{e2ce}",                   // info
             ExifWindow | SaveFrame => "\u{e10e}",              // camera
             FocusKeywords => "\u{e478}",                       // tag
@@ -1040,7 +1045,7 @@ impl Action {
             | PaneRight | PaneUp | PaneDown | Animate | Subfolders | HiddenFiles
             | OpenCollection | ImportLightroom | SaveListAs | RenameCollection
             | TrashCollection | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage
-            | PreviousPage | IconGrid | Toolbar | PathBar | Thumbnails | ThumbnailGrid
+            | PreviousPage | IconGrid | Toolbar | PathBar | Thumbnails | ImageAreaGrid
             | GridNames | InfoPanel | ExifWindow | FocusKeywords | SortManager | PanView
             | FolderTree | Refresh | Slideshow | PauseSlideshow | RandomOrder | SlideshowFaster
             | SlideshowSlower | LeaveFullScreen | NewWindow | WindowTitle | WindowName
@@ -1361,7 +1366,7 @@ impl crate::App {
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::GridNames => self.set_grid_names(!self.config.grid_names),
-            Action::ThumbnailGrid => {
+            Action::ImageAreaGrid => {
                 // A part chosen for Crop is of the image, and Enter in the grid opens an image.
                 self.viewing.stop_crop();
                 self.panel.toggle_area_grid();
@@ -1371,7 +1376,7 @@ impl crate::App {
             }
             Action::Crop => self.start_crop(),
             Action::SaveAs => self.start_save_as(ctx),
-            Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
+            Action::Subfolders => self.set_subfolders(ctx, !self.config.include_subfolders),
             Action::HiddenFiles => self.toggle_hidden_files(ctx),
             // An animation: stopped at the frame before or after the one shown, which A plays on.
             Action::NextPage | Action::PreviousPage if self.is_animated() => {
@@ -1779,6 +1784,21 @@ impl crate::App {
     }
 }
 
+/// Returns the keys= value `value` with each old action's name (`OLD_ACTION_NAMES`) as the name
+/// it has now, and every other item as it is.
+pub(crate) fn old_action_names_mapped(value: &str) -> String {
+    let item = |item: &str| {
+        let (name, combo) = item
+            .split_once('=')
+            .map_or((item, None), |(n, c)| (n, Some(c)));
+        let name = (OLD_ACTION_NAMES.iter())
+            .find(|(old, _)| *old == name)
+            .map_or(name, |(_, new)| new);
+        combo.map_or_else(|| name.to_owned(), |combo| format!("{name}={combo}"))
+    };
+    value.split(';').map(item).collect::<Vec<_>>().join(";")
+}
+
 /// Makes the user's own keys in `keys` the ones in effect, at start and after each change in
 /// Preferences. The settings hold them, and `USER_KEYS` holds the copy the key handling reads.
 /// Every change goes through this function, so the copy cannot fall behind the settings.
@@ -2051,7 +2071,7 @@ mod tests {
         use crate::support::test_support::{app_on, run_background_until};
         const OPENS_A_VIEW: &[Action] = &[
             Action::Projector,
-            Action::ThumbnailGrid,
+            Action::ImageAreaGrid,
             Action::PanView,
             Action::ExifWindow,
             Action::FocusKeywords,

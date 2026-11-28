@@ -3537,7 +3537,7 @@ key ctrl+a
 listed=$(remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/tree/||" | sort | tr '\n' ' ')
 quit
 expect "the tree's three images" "$listed" "a.png sub/b.png sub/deep/c.png "
-expect "Include Subfolders on in the settings" "$(grep -c '^show_subfolders=true$' $XDG_CONFIG_HOME/glimt/config)" 1
+expect "Include Subfolders on in the settings" "$(grep -c '^include_subfolders=true$' $XDG_CONFIG_HOME/glimt/config)" 1
 
 section "New Folder (Ctrl+F): made in the folder shown"
 d=/tmp/new-folder

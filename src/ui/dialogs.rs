@@ -652,7 +652,7 @@ impl crate::App {
                 }
                 // As View → Include Subfolders, which turns it off again.
                 (Pick::Recursive, Some(path)) => {
-                    self.config.show_subfolders = true;
+                    self.config.include_subfolders = true;
                     self.config.save();
                     self.visit(ctx, path);
                 }

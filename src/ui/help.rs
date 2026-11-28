@@ -760,7 +760,7 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          each file. The keys stay the same, so a script can read them. A backslash, tab, line \
          feed or carriage return in a value is written as \\\\, \\t, \\n or \\r, and a ; inside a \
          keyword as \\;. run ACTION does an action by its name in your own keys, such \
-         as glimt --remote run ZoomIn or run ThumbnailGrid; glimt --action-list lists the \
+         as glimt --remote run ZoomIn or run ImageAreaGrid; glimt --action-list lists the \
          actions it takes with their labels. They are those that change no file, sidecar, mark \
          or collection, not even through a window you then click in, and run does nothing while \
          a dialog asks you or you type in a text field.\n\n\

@@ -4077,7 +4077,7 @@ fn settings_change_through_their_setters() {
         "grid_names",
         "thumbnails",
         "icon_grid",
-        "show_subfolders",
+        "include_subfolders",
         "info_panel",
     ] {
         assert!(setters.contains_key(name), "{name} has no setter found");

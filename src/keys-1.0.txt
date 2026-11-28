@@ -113,7 +113,6 @@ action Undo
 action Crop
 action SaveAs
 # Added in 0.65.0
-action ThumbnailGrid
 # Added in 0.69.0: the actions not pinned before, those without a default key among them
 action OpenFile
 action OpenFolder
@@ -194,3 +193,4 @@ action HomeFolder
 action IconGrid
 action PauseSlideshow
 action SaveListAs
+action ImageAreaGrid

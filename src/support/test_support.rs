@@ -465,7 +465,7 @@ pub(crate) fn test_config() -> crate::files::config::Config {
         keep_recent: false,
         save_thumbnails: false,
         desktop_profile: false,
-        remember_dir: false,
+        remember_folder: false,
         // English, not the system's language: other tests read the texts and numbers it sets.
         language: "en".into(),
         ..Default::default()

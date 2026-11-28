@@ -173,7 +173,23 @@ const NAMED: [(&str, &[&str]); 7] = [
 ];
 
 /// The key of the last folder in the window state file, beside `WindowState`'s keys.
-pub const LAST_DIR: &str = "last_dir";
+pub const LAST_FOLDER: &str = "last_folder";
+
+/// The key that Glimt 0.106 and older wrote the last folder under. It is read while the state
+/// has no `LAST_FOLDER`, and the state written at the next exit holds only the new key.
+const OLD_LAST_FOLDER: &str = "last_dir";
+
+/// The settings' keys that Glimt 0.106 and older wrote, each with the key it is read as now.
+/// They were renamed before 1.0, and each is read once: the next save writes the new key. When
+/// a file holds both, the new one counts (`old_names_mapped`).
+const OLD_SETTING_KEYS: [(&str, &str); 2] = [
+    ("show_subfolders", "include_subfolders"),
+    ("remember_dir", "remember_folder"),
+];
+
+/// The values that Glimt 0.106 and older wrote, each as its key, the old value and the value
+/// it is read as now. They are read once, as `OLD_SETTING_KEYS` are.
+const OLD_SETTING_VALUES: [(&str, &str, &str); 1] = [("sort", "date", "modified")];
 
 /// The administrator's lock. While this file is there, every Glimt starts with --lock-settings.
 pub const LOCK_FILE: &str = "/etc/glimt/lock-settings";
@@ -288,7 +304,7 @@ config! {
     /// Seconds between images in a slideshow.
     slideshow_delay: u64 = DEFAULT_SLIDESHOW_DELAY,
     /// Start in the last used folder when no folder is given on the command line.
-    remember_dir: bool = false,
+    remember_folder: bool = false,
     /// Keep File → Open Recent's list. When this is off, no list is written and the one kept
     /// is deleted.
     keep_recent: bool = true,
@@ -350,7 +366,7 @@ config! {
     /// The file list holds the images of all subfolders too, with their folders in the name.
     /// It is kept across starts like the other View toggles, and the top folders show while
     /// the tree is read.
-    show_subfolders: bool = false,
+    include_subfolders: bool = false,
     /// A slideshow also shows the images in the subfolders.
     slideshow_subfolders: bool = false,
     /// Write the view's rotation into the JPEG when going to another image.
@@ -511,7 +527,9 @@ impl Config {
     pub fn parse(text: &str) -> Self {
         let mut c = Config::default();
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
-            c.set(key.trim(), value.trim());
+            if let Some((key, value)) = old_names_mapped(key.trim(), value.trim(), text) {
+                c.set(key, &value);
+            }
         }
         c.preload = c.preload.min(20);
         c.decode_threads = c.decode_threads.clamp(1, 8);
@@ -557,9 +575,18 @@ impl Config {
                 continue;
             };
             let (key, value) = (key.trim(), value.trim());
-            let now = key;
-            let has_key =
-                |&(_, l): &(usize, &str)| l.split_once('=').map(|(o, _)| o.trim()) == Some(now);
+            // An old name is checked as the new one, and passed over when the new one is there.
+            let Some((now, value)) = old_names_mapped(key, value, text) else {
+                continue;
+            };
+            let value = value.as_str();
+            // A line of an old key counts as its new key, unless it is passed over.
+            let has_key = |&(_, l): &(usize, &str)| {
+                let read_as_now = |(o, _): (&str, &str)| {
+                    old_names_mapped(o.trim(), "", text).is_some_and(|(o, _)| o == now)
+                };
+                l.split_once('=').is_some_and(read_as_now)
+            };
             let again = lines[..k].iter().any(has_key);
             let later = lines[k + 1..].iter().any(has_key);
             let mut alone = Config::default();
@@ -903,15 +930,61 @@ pub fn left_out_for_line_breaks(left_out: usize) -> Option<Failure> {
 
 /// The window state's line that keeps `dir` as the last folder. It is empty when `dir` does
 /// not fit on a line.
-pub fn last_dir_line(dir: &Path) -> String {
+pub fn last_folder_line(dir: &Path) -> String {
     match fits_on_a_line(dir) {
-        true => format!("{LAST_DIR}={}\n", dir.to_string_lossy()),
+        true => format!("{LAST_FOLDER}={}\n", dir.to_string_lossy()),
         false => String::new(),
     }
 }
 
-pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
-    state_value(state, LAST_DIR).map(PathBuf::from)
+/// Returns the last folder that the window state `state` keeps, also under the key that Glimt
+/// 0.106 and older wrote, or `None` when it keeps none.
+pub fn parse_last_folder(state: &str) -> Option<PathBuf> {
+    (state_value(state, LAST_FOLDER).or_else(|| state_value(state, OLD_LAST_FOLDER)))
+        .map(PathBuf::from)
+}
+
+/// Returns the key that the settings' `key` is read as now: the new key of an old one
+/// (`OLD_SETTING_KEYS`), and any other key as it is.
+fn key_now(key: &str) -> &str {
+    (OLD_SETTING_KEYS.iter())
+        .find(|(old, _)| *old == key)
+        .map_or(key, |(_, new)| new)
+}
+
+/// Returns the settings' line `key`=`value` of the settings file `text` under the names that
+/// this Glimt reads: an old key or value of Glimt 0.106 and older under its new name, and an old
+/// action's name in `keys` under its new one. Returns `None` for an old key when `text` also
+/// holds its new key, which counts then. This is the one place an old name is read, and
+/// `Config::parse`, `parse_checked` and the save's `merged` all read the file through it.
+fn old_names_mapped<'a>(key: &'a str, value: &str, text: &str) -> Option<(&'a str, String)> {
+    let now = key_now(key);
+    let has_new_key = |l: &str| l.split_once('=').is_some_and(|(k, _)| k.trim() == now);
+    if now != key && text.lines().any(has_new_key) {
+        return None;
+    }
+    let value = (OLD_SETTING_VALUES.iter())
+        .find(|(k, old, _)| *k == now && *old == value)
+        .map_or(value, |(_, _, new)| new);
+    let value = match now {
+        "keys" => crate::ui::actions::old_action_names_mapped(value),
+        _ => value.to_owned(),
+    };
+    Some((now, value))
+}
+
+/// Returns the settings file `text` with each line under the names that this Glimt reads
+/// (`old_names_mapped`), and without the line of an old key whose new key it holds too. Other
+/// lines, such as comments, and the lines that hold no old name stay as they are.
+fn with_old_names_mapped(text: &str) -> String {
+    let line = |l: &str| match l.split_once('=') {
+        Some((key, value)) => match old_names_mapped(key.trim(), value.trim(), text)? {
+            (now, new) if now == key.trim() && new == value.trim() => Some(format!("{l}\n")),
+            (now, new) => Some(format!("{now}={new}\n")),
+        },
+        None => Some(format!("{l}\n")),
+    };
+    text.lines().filter_map(line).collect()
 }
 
 /// Returns the value of the first line of `key` in the window state's text, or `None` when no
@@ -1081,6 +1154,8 @@ fn without_start_only(ours: &str, start_only: &mut Vec<StartOnlyLine>) -> String
 /// keeps the file's own order, its comments and blank lines, with the settings it lacks after
 /// them. Settings this Glimt does not know, from a newer one (a Flatpak beside a .deb), stay.
 fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
+    // The file's old names become the new ones in place, so the save writes only the new ones.
+    let on_disk = &with_old_names_mapped(on_disk);
     let pairs = |text: &str| -> std::collections::HashMap<String, String> {
         (text.lines().filter_map(|l| l.split_once('=')))
             .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
@@ -1286,6 +1361,61 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The names that 0.107 renamed before 1.0 are read once under their new names: a settings
+    /// file of 0.106 keeps every choice, --check-config finds nothing wrong in it, and the next
+    /// save writes only the new names. Where a file holds both, the new one counts.
+    /// Risk: a user loses Include Subfolders, the last folder, the sort order or an own key in
+    /// the upgrade.
+    #[test]
+    fn names_renamed_before_1_0_are_read_once() {
+        let old = "# mine\nshow_subfolders=true\nremember_dir = true\nsort=date\n\
+                   keys=ThumbnailGrid=Ctrl+G;Next=N\n";
+        let config = super::Config::parse(old);
+        assert!(config.include_subfolders && config.remember_folder);
+        assert_eq!(config.sort, crate::model::listing::Sort::Modified);
+        assert_eq!(config.keys.to_string(), "ImageAreaGrid=Ctrl+G;Next=N");
+        assert_eq!(super::Config::parse_checked(old).1, Vec::<String>::new());
+        let saved = super::Config::default().to_text();
+        let text = super::merged(&config.to_text(), &config.to_text(), old);
+        for gone in [
+            "show_subfolders",
+            "remember_dir",
+            "sort=date",
+            "keys=ThumbnailGrid",
+        ] {
+            assert!(
+                !text.lines().any(|l| l.starts_with(gone)),
+                "{gone} in {text}"
+            );
+        }
+        assert!(text.starts_with("# mine\ninclude_subfolders=true\nremember_folder=true\n"));
+        assert_eq!(super::Config::parse(&text), config);
+        // The new key counts, before or after the old one, and the save drops the old one.
+        for both in [
+            "show_subfolders=true\ninclude_subfolders=false\n",
+            "include_subfolders=false\nshow_subfolders=true\n",
+        ] {
+            assert!(!super::Config::parse(both).include_subfolders);
+            assert_eq!(super::Config::parse_checked(both).1, Vec::<String>::new());
+            let text = super::merged(&saved, &saved, both);
+            assert!(
+                !text.lines().any(|l| l.starts_with("show_subfolders")),
+                "{text}"
+            );
+        }
+        // The window state's last folder, also under the key of 0.106.
+        let folder = Some(std::path::PathBuf::from("/x"));
+        assert_eq!(super::parse_last_folder("last_dir=/x\n"), folder);
+        assert_eq!(
+            super::parse_last_folder("last_dir=/y\nlast_folder=/x\n"),
+            folder
+        );
+        assert_eq!(
+            super::last_folder_line(std::path::Path::new("/x")),
+            "last_folder=/x\n"
+        );
+    }
+
     /// An own key that no build of Glimt can use is told, as a value out of range is.
     #[test]
     fn an_unusable_key_is_told() {
@@ -1399,7 +1529,7 @@ mod tests {
             Config::default().confirm_trash && !Config::parse("confirm_trash=false").confirm_trash
         );
         assert!(Config::default().delete_key && !Config::parse("delete_key=false").delete_key);
-        assert!(Config::parse("remember_dir=true").remember_dir);
+        assert!(Config::parse("remember_folder=true").remember_folder);
         assert!(
             !Config::default().slideshow_random
                 && Config::parse("slideshow_random=true").slideshow_random
@@ -1468,16 +1598,16 @@ mod tests {
             Config::default().auto_refresh && !Config::parse("auto_refresh=false").auto_refresh
         );
         assert_eq!(
-            super::parse_last_dir("last_dir=/tmp/a b\n"),
+            super::parse_last_folder("last_dir=/tmp/a b\n"),
             Some("/tmp/a b".into())
         );
-        assert_eq!(super::parse_last_dir("last_dir=\n"), None);
+        assert_eq!(super::parse_last_folder("last_dir=\n"), None);
         // A folder name with a line break is not kept, as its second line would be read as a
         // key of the window state.
-        let line = super::last_dir_line(std::path::Path::new("/tmp/a b"));
-        assert_eq!(super::parse_last_dir(&line), Some("/tmp/a b".into()));
+        let line = super::last_folder_line(std::path::Path::new("/tmp/a b"));
+        assert_eq!(super::parse_last_folder(&line), Some("/tmp/a b".into()));
         assert_eq!(
-            super::last_dir_line(std::path::Path::new("/x\nwindow_x=99999")),
+            super::last_folder_line(std::path::Path::new("/x\nwindow_x=99999")),
             ""
         );
         assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
@@ -1829,7 +1959,7 @@ mod tests {
             position: Some(eframe::egui::pos2(0.0, 0.0)),
             maximized: true,
         };
-        let state = format!("{}=/x\n{}", super::LAST_DIR, window.to_text());
+        let state = format!("{}=/x\n{}", super::LAST_FOLDER, window.to_text());
         let keys = state.lines().filter_map(|l| l.split_once('='));
         now.extend(keys.map(|(key, _)| format!("state {key}")));
         now.extend(remote_names());

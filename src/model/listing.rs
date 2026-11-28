@@ -44,12 +44,13 @@ pub const SVG_EXTS: &[&str] = if cfg!(feature = "svg") {
     &[]
 };
 
-/// Each order with its config value and menu label. "date" is the file's modification time, the
-/// name it had before the other dates came; the help says so.
+/// Each order with its config value and menu label. "modified" is the file's modification time,
+/// which the menu calls "date", the name it had before the other dates came; the help says so.
+/// Glimt 0.106 and older wrote it "date", which the settings read once (`old_names_mapped`).
 pub const SORTS: [(Sort, &str, &str); 8] = [
     (Sort::Name, "name", "Sort by name"),
     (Sort::Number, "number", "Sort by number"),
-    (Sort::Date, "date", "Sort by date"),
+    (Sort::Modified, "modified", "Sort by date"),
     (Sort::Created, "created", "Sort by file creation date"),
     (
         Sort::ExifOriginal,
@@ -160,7 +161,7 @@ impl SortKey {
     fn not_looked_at(by: Sort) -> SortKey {
         match by {
             Sort::Name | Sort::Number | Sort::Extension => SortKey::Name,
-            Sort::Date | Sort::Created => SortKey::Time(None),
+            Sort::Modified | Sort::Created => SortKey::Time(None),
             Sort::Size => SortKey::Size(None),
             Sort::ExifOriginal | Sort::ExifDigitized => SortKey::Exif(true, None),
         }
@@ -993,7 +994,7 @@ pub enum Sort {
     /// Numbers in names compared by value: "img2" before "img10".
     Number,
     /// Modification time.
-    Date,
+    Modified,
     Created,
     ExifOriginal,
     ExifDigitized,
@@ -2071,7 +2072,7 @@ fn sort_by_names(files: &mut [ListedName], by: Sort, ascending: bool, case: bool
             (ext, n)
         }),
         // These look at the files, and `Rows::sorted` sorts by them above.
-        Sort::Date | Sort::Created | Sort::Size | Sort::ExifOriginal | Sort::ExifDigitized => {}
+        Sort::Modified | Sort::Created | Sort::Size | Sort::ExifOriginal | Sort::ExifDigitized => {}
     }
     if !ascending {
         files.reverse();
@@ -2138,7 +2139,7 @@ fn sort_key(path: &Path, by: Sort) -> SortKey {
     };
     match by {
         Sort::Name | Sort::Number | Sort::Extension => SortKey::Name,
-        Sort::Date => SortKey::Time(meta().map(|m| nanos(m.modified()))),
+        Sort::Modified => SortKey::Time(meta().map(|m| nanos(m.modified()))),
         // Not every file system records creation time; then the modification time.
         Sort::Created => {
             SortKey::Time(meta().map(|m| nanos(m.created().or_else(|_| m.modified()))))
@@ -2261,7 +2262,7 @@ mod tests {
         assert_eq!(merged.listed_names(), want);
         // In an order by date, the keys of the names left out go with them.
         let time = |t| super::SortKey::Time(Some(t));
-        let by_date = (super::Sort::Date, true, true);
+        let by_date = (super::Sort::Modified, true, true);
         let old = rows_of(found(&names), &[1, 2, 3, 4, 5].map(time), by_date);
         let new = rows_of(found(&["e/c/3.png"]), &[time(4)], by_date);
         let (merged, _) = old.merged(new, &read).unwrap();
@@ -3306,7 +3307,7 @@ mod tests {
         // is the same, by its name. Descending, the other way round.
         let time = |t| SortKey::Time(Some(t));
         for ascending in [true, false] {
-            let order = by(Sort::Date, ascending, true);
+            let order = by(Sort::Modified, ascending, true);
             let old = rows_of(listed(&["a", "b", "c"]), &[2, 4, 9].map(time), order);
             let new = rows_of(listed(&["x", "y", "z"]), &[1, 5, 9].map(time), order);
             let (mut want, mut keys) = (["x", "a", "b", "y", "c", "z"], [1, 2, 4, 5, 9, 9]);
@@ -3335,7 +3336,7 @@ mod tests {
         let time = |t| SortKey::Time(Some(t));
         let size = |n| SortKey::Size(Some(n));
         let none = super::ReadWhole::default();
-        let (by_date, by_size) = ((Sort::Date, true, true), (Sort::Size, true, true));
+        let (by_date, by_size) = ((Sort::Modified, true, true), (Sort::Size, true, true));
         let part = || rows_of(listed(&["n", "o"]), &[1, 3].map(size), by_size);
         let lists = [
             rows_of(listed(&["a"]), &[time(2)], by_date),

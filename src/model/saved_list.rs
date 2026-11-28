@@ -469,7 +469,7 @@ mod tests {
             (Sort::Name, Vec::new()),
             (Sort::Number, Vec::new()),
             (
-                Sort::Date,
+                Sort::Modified,
                 vec![
                     SortKey::Time(Some(3)),
                     SortKey::Time(None),
@@ -576,7 +576,7 @@ mod tests {
             assert!(parse(&packed(&plain), &key).is_none(), "{count}");
         }
         // In an order by date, each row needs a date's key.
-        let by_date = tree_key((Sort::Date, true, true));
+        let by_date = tree_key((Sort::Modified, true, true));
         assert!(parse(&file_of(&by_date, &["a.jpg"]), &by_date).is_none());
     }
 
@@ -631,7 +631,7 @@ mod tests {
             of("/photos", true, images(), order),
             of("/photos", false, hidden, order),
             of("/photos", false, raw, order),
-            of("/photos", false, images(), (Sort::Date, true, true)),
+            of("/photos", false, images(), (Sort::Modified, true, true)),
             of("/photos", false, images(), (Sort::Name, false, true)),
             of("/photos", false, images(), (Sort::Name, true, false)),
         ];

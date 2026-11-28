@@ -735,14 +735,14 @@ impl crate::App {
         menu_toggle(ui, chosen, c.toolbar, Action::Toolbar);
         menu_toggle(ui, chosen, c.path_bar, Action::PathBar);
         menu_toggle(ui, chosen, c.folder_tree, Action::FolderTree);
-        menu_toggle(ui, chosen, c.show_subfolders, Action::Subfolders);
+        menu_toggle(ui, chosen, c.include_subfolders, Action::Subfolders);
         menu_toggle(ui, chosen, c.show_hidden, Action::HiddenFiles);
         menu_toggle(ui, chosen, c.thumbnails, Action::Thumbnails);
         menu_toggle(ui, chosen, c.icon_grid, Action::IconGrid);
         // Ticked only while the grid shows: from an image opened from it, the item goes back to
         // the grid, as G and Esc do.
         let grid = self.panel.is_area_grid_shown();
-        menu_toggle(ui, chosen, grid, Action::ThumbnailGrid);
+        menu_toggle(ui, chosen, grid, Action::ImageAreaGrid);
         let size = with_icon(ui, theme::icon::SIZE, tr("Thumbnail Size"));
         submenu(ui, size, |ui| self.thumbnail_size_setting(ui));
         let c = &self.config;

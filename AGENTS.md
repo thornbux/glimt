@@ -105,7 +105,7 @@ release that drops its format, so that no user's file or mark is lost in the upg
   `print_paper` (`PAPERS`), `print_orientation` (`ORIENTATIONS`), `print_printer`'s own values
   (`print::SYSTEM_DIALOG` and `PDF_FILE`), `theme` (the built-in themes) and `language`
   (`LANGUAGES` and `lang::ENGLISH`); the window state's keys (`state` lines, from
-  `WindowState` and `LAST_DIR`);
+  `WindowState` and `LAST_FOLDER`);
 - the `--remote` commands and the words of their choices (`remote` lines, with `on|off`, from
   `COMMANDS`), the actions `--remote run` takes (`script` lines, from `SCRIPT_ACTIONS`, which
   only grows), and the exit codes (`exit` lines): `--remote`'s `cli::DONE` and `remote::NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`,
@@ -194,7 +194,10 @@ No test pins the following, so they are kept by hand:
 
 Glimt 0.96.0 dropped every old name that 0.74.0 to 0.80.0 had renamed (the settings' and
 window state's keys, the actions, `--remote prev`, a theme, the folders `plugins` and
-`decoders` and the header `[Glimt Decoder]`), so 1.0 starts with no table of old names. From
+`decoders` and the header `[Glimt Decoder]`). Glimt 0.107.0 renamed a few more before 1.0
+(`sort=date`, `show_subfolders`, `remember_dir`, the state's `last_dir` and the action
+`ThumbnailGrid`): each is read once, by `config::old_names_mapped` and `parse_last_folder`, so
+that no user loses a choice in the upgrade, and written only under its new name. From
 1.0 on, a frozen name that misleads its reader is renamed only through a table of old names,
 one for each kind of name, beside the code that reads it. The first rename of a kind adds its
 table, and with it:

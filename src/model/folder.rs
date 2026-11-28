@@ -348,7 +348,7 @@ impl Folder {
 
     /// Turns View → Subfolders on or off. The next listing shows a tree's images as they are
     /// found, when it is on.
-    pub(crate) fn show_subfolders(&mut self, on: bool) {
+    pub(crate) fn include_subfolders(&mut self, on: bool) {
         self.recursive = on;
         self.lists_tree_in_parts = on;
     }
@@ -1625,7 +1625,7 @@ impl crate::App {
         if dir != self.folder.dir {
             self.list.forget_files();
         }
-        self.folder.recursive = self.config.show_subfolders;
+        self.folder.recursive = self.config.include_subfolders;
         self.folder.dir = dir.clone();
         self.remember_recent(&dir);
         let files = shown.iter().map(|name| (name.clone(), None)).collect();
@@ -1789,7 +1789,7 @@ impl crate::App {
         self.folder.collection = None;
         // As when a folder is opened, the subfolders come with it when the menu says so,
         // whatever was shown.
-        self.folder.recursive = self.config.show_subfolders;
+        self.folder.recursive = self.config.include_subfolders;
         self.forget_old_list(ctx);
         self.folder.dir = PathBuf::from("/");
         self.folder.folders = folders;
@@ -2695,7 +2695,7 @@ impl crate::App {
         let as_listed = folder.collection.is_none()
             && folder.folders.is_empty()
             && !folder.is_listing()
-            && folder.recursive == self.config.show_subfolders;
+            && folder.recursive == self.config.include_subfolders;
         if !as_listed || dir != folder.dir {
             return None;
         }
@@ -3680,7 +3680,7 @@ mod tests {
         std::fs::write(&collection, entry).unwrap();
         crate::support::test_support::open_now(&mut app, &ctx, collection);
         assert!(app.folder.collection().is_some());
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         assert!(!app.folder.takes_files_put_in(&z));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -3881,7 +3881,7 @@ mod tests {
         larger.save(dir.join("sub/b.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let dir = crate::model::listing::real_dir(&dir);
-        app.config.show_subfolders = true;
+        app.config.include_subfolders = true;
         crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -4110,7 +4110,7 @@ mod tests {
         }
         image::RgbImage::new(2, 2).save(sub.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&top);
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         let count = |n| move |app: &crate::App| app.list.files().len() == n;
         assert!(run_background_until(&mut app, &ctx, count(1)));
@@ -4177,7 +4177,7 @@ mod tests {
             image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         let whole_listings = |app: &crate::App| app.folder.whole_listings();
         let before = whole_listings(&app);
@@ -4251,7 +4251,7 @@ mod tests {
             .save(dir.join("s2/b.png"))
             .unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         let whole_listings = |app: &crate::App| app.folder.whole_listings();
         let before = whole_listings(&app);
@@ -4605,7 +4605,7 @@ mod tests {
             .save(dir.join("sub").join("a.png"))
             .unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -5004,7 +5004,7 @@ mod tests {
         let at = real.strip_prefix("/").unwrap().to_path_buf();
         for subfolders in [false, true] {
             let (mut app, ctx) = app_on(&dir);
-            app.config.show_subfolders = subfolders;
+            app.config.include_subfolders = subfolders;
             app.open_folders(&ctx, vec![real.join("b"), real.join("a")]);
             app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
             assert!(run_background_until(&mut app, &ctx, |a| !a
@@ -5558,7 +5558,7 @@ mod tests {
         let dir = crate::model::listing::real_dir(&dir);
         test_mount(&dir, Some("cifs"));
         let (mut app, ctx) = app_on(&dir);
-        app.config.show_subfolders = true;
+        app.config.include_subfolders = true;
         crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -5619,7 +5619,7 @@ mod tests {
         let dir = crate::model::listing::real_dir(&dir);
         test_mount(&dir.join("nas"), Some("cifs"));
         let (mut app, ctx) = app_on(&dir);
-        app.config.show_subfolders = true;
+        app.config.include_subfolders = true;
         crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -5671,7 +5671,7 @@ mod tests {
             .folder
             .is_listing()));
         assert!(app.folder.collection().is_some());
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         assert!(!app.folder.walks_subfolders());
         let (places, paths) = (app.folder.places(), [dir.join("a.png")]);
         let total = super::total_size_unless_on_a_share(
@@ -5710,8 +5710,8 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         let orders = [
-            (Sort::Date, true, true),
-            (Sort::Date, false, true),
+            (Sort::Modified, true, true),
+            (Sort::Modified, false, true),
             (Sort::Name, true, false),
             (Sort::Number, false, true),
         ];
@@ -5720,7 +5720,7 @@ mod tests {
             (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
             // A folder opened, with its tree.
             app.replace_files(&ctx, Vec::new(), None);
-            app.folder.show_subfolders(true);
+            app.folder.include_subfolders(true);
             app.start_listing(&ctx);
             let mut fed = feed(&mut app);
             let mut parts = 0;
@@ -5771,7 +5771,7 @@ mod tests {
             file.unwrap().set_modified(when).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        let order = (Sort::Date, true, true);
+        let order = (Sort::Modified, true, true);
         let c = &mut app.config;
         (c.sort, c.sort_ascending, c.sort_case_sensitive) = order;
         // The folder's own images, in that order, and then its tree.
@@ -5780,7 +5780,7 @@ mod tests {
             .folder
             .is_listing()));
         assert_eq!(app.list.files(), ["y.png", "x.png"].map(OsString::from));
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         let mut fed = feed(&mut app);
         FILES_LOOKED_AT.set(0);
@@ -5839,7 +5839,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.config.show_hidden = true;
         app.config.list_raw = true;
-        app.folder.show_subfolders(true);
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -5878,8 +5878,8 @@ mod tests {
         std::fs::create_dir_all(dir.join("s")).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.config.sort = crate::model::listing::Sort::Date;
-        app.folder.show_subfolders(true);
+        app.config.sort = crate::model::listing::Sort::Modified;
+        app.folder.include_subfolders(true);
         // The list in Date order, whose parts go in by the files' dates.
         app.start_listing(&ctx);
         assert!(run_background_until(&mut app, &ctx, |a| !a
@@ -5952,8 +5952,8 @@ mod tests {
         std::fs::create_dir_all(dir.join("s")).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.config.sort = crate::model::listing::Sort::Date;
-        app.folder.show_subfolders(true);
+        app.config.sort = crate::model::listing::Sort::Modified;
+        app.folder.include_subfolders(true);
         app.start_listing(&ctx);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -6023,7 +6023,7 @@ mod tests {
                 .folder
                 .is_listing()));
             // The tree is read a folder at a time, and the folder m is not read yet.
-            app.folder.show_subfolders(true);
+            app.folder.include_subfolders(true);
             app.start_listing(&ctx);
             let mut fed = feed(&mut app);
             assert!(send_part(&mut app, &ctx, &mut fed));
@@ -6507,7 +6507,7 @@ mod tests {
         if !app.folder.is_listing() {
             app.start_listing(ctx);
         }
-        app.config.show_subfolders = !slideshow_first;
+        app.config.include_subfolders = !slideshow_first;
         let path = app.folder.dir().join(name);
         crate::support::test_support::open_now(app, ctx, path);
         assert_eq!(
@@ -6516,7 +6516,7 @@ mod tests {
             "the image alone: {at}"
         );
         app.start_slideshow(ctx);
-        app.config.show_subfolders = true;
+        app.config.include_subfolders = true;
         assert!(app.folder.reads_tree_in_parts(), "its tree in parts: {at}");
     }
 
@@ -6537,7 +6537,7 @@ mod tests {
         // As in `several_folders_with_slideshow`, the slideshow does not end before the stop.
         let delay = std::mem::replace(&mut app.config.slideshow_delay, 3600);
         let repeat = std::mem::replace(&mut app.config.slideshow_repeat, true);
-        let show_subfolders = std::mem::replace(&mut app.config.show_subfolders, false);
+        let include_subfolders = std::mem::replace(&mut app.config.include_subfolders, false);
         let both: Vec<PathBuf> = subfolders[..2].iter().map(|s| dir.join(s)).collect();
         app.slideshow = crate::viewer::slideshow::Slideshow::new(true);
         app.open_folders(ctx, both.clone());
@@ -6569,7 +6569,7 @@ mod tests {
         app.stop_slideshow(ctx);
         app.config.slideshow_delay = delay;
         app.config.slideshow_repeat = repeat;
-        app.config.show_subfolders = show_subfolders;
+        app.config.include_subfolders = include_subfolders;
         crate::support::test_support::open_now(app, ctx, dir.to_path_buf());
     }
 
@@ -6617,7 +6617,7 @@ mod tests {
         app.config.sort_ascending = true;
         app.config.sort_case_sensitive = true;
         // View → Subfolders is on, so that a stop keeps the tree that the test's walk reads.
-        app.config.show_subfolders = true;
+        app.config.include_subfolders = true;
         app.config.slideshow_subfolders = true;
         app.config.slideshow_random = random;
         app.config.slideshow_repeat = repeat;
@@ -6872,8 +6872,8 @@ mod tests {
                         (Sort::Name, true, true),
                         (Sort::Name, true, false),
                         (Sort::Name, false, true),
-                        (Sort::Date, true, true),
-                        (Sort::Date, false, false),
+                        (Sort::Modified, true, true),
+                        (Sort::Modified, false, false),
                         (Sort::Number, true, false),
                         (Sort::Created, true, true),
                         (Sort::Size, false, true),
@@ -6942,8 +6942,8 @@ mod tests {
                     };
                     use crate::model::listing::Sort;
                     let orders = [
-                        (Sort::Date, true, true),
-                        (Sort::Date, false, false),
+                        (Sort::Modified, true, true),
+                        (Sort::Modified, false, false),
                         (Sort::Created, true, true),
                         (Sort::Size, false, true),
                         (Sort::ExifOriginal, true, true),
@@ -6978,7 +6978,7 @@ mod tests {
                     app.stop_slideshow(&ctx);
                     let c = &mut app.config;
                     (c.sort, c.sort_ascending, c.sort_case_sensitive) =
-                        (crate::model::listing::Sort::Date, next(2) == 0, true);
+                        (crate::model::listing::Sort::Modified, next(2) == 0, true);
                     crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
                     app.start_slideshow(&ctx);
                     fed = None;
@@ -7017,7 +7017,7 @@ mod tests {
                     let orders = [
                         (Sort::ExifOriginal, true, true),
                         (Sort::ExifDigitized, false, true),
-                        (Sort::Date, true, true),
+                        (Sort::Modified, true, true),
                         (Sort::Created, false, false),
                         (Sort::Size, true, false),
                     ];
@@ -7073,8 +7073,8 @@ mod tests {
                     // such order chosen, and the parts of the walk in it.
                     use crate::model::listing::Sort;
                     let orders = [
-                        (Sort::Date, true, true),
-                        (Sort::Date, false, false),
+                        (Sort::Modified, true, true),
+                        (Sort::Modified, false, false),
                         (Sort::Created, true, true),
                         (Sort::Size, true, true),
                         (Sort::Size, false, true),
@@ -7367,7 +7367,7 @@ mod tests {
         for i in 0..rows.len() {
             let of_the_order = matches!(
                 (by, rows.key(i)),
-                (Sort::Date | Sort::Created, Some(SortKey::Time(_)))
+                (Sort::Modified | Sort::Created, Some(SortKey::Time(_)))
                     | (Sort::Size, Some(SortKey::Size(_)))
                     | (
                         Sort::ExifOriginal | Sort::ExifDigitized,
@@ -7463,7 +7463,7 @@ mod tests {
         let file = dir.join("c.gqv");
         std::fs::write(&file, gqv).unwrap();
         let (mut app, ctx) = app_on(&file);
-        app.config.sort = crate::model::listing::Sort::Date;
+        app.config.sort = crate::model::listing::Sort::Modified;
         app.folder.sort_collection = true;
         test_mount(&dir, Some("cifs"));
         let awaited = app.decoding.images_awaited().clone();

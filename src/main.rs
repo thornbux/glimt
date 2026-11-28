@@ -15,7 +15,7 @@ use crate::cli::Start;
 use crate::features::check::ImageCheck;
 use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
-use crate::files::config::{Config, LOCK_FILE, WindowState, parse_last_dir, state_path};
+use crate::files::config::{Config, LOCK_FILE, WindowState, parse_last_folder, state_path};
 use crate::files::file_io::{is_surely_gone, write_atomic};
 use crate::metadata::lightroom::Import;
 use crate::model::list::List;
@@ -219,8 +219,8 @@ impl App {
         // because a share that stopped answering would hold the start before the window opens.
         // It is read also when a path is given, because it is kept until another place opens.
         let remembered = (read.window_state.as_deref())
-            .filter(|_| config.remember_dir)
-            .and_then(parse_last_dir);
+            .filter(|_| config.remember_folder)
+            .and_then(parse_last_folder);
         let opens_last_folder = path.is_none() && remembered.is_some();
         let path = (path.or_else(|| remembered.clone())).unwrap_or_else(|| ".".into());
         crate::images::decode::set_animation_limit(config.animation_mb);
@@ -431,10 +431,10 @@ impl eframe::App for App {
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
-        if self.config.remember_dir
+        if self.config.remember_folder
             && let Some(last) = self.folder.place_to_remember()
         {
-            state += &crate::files::config::last_dir_line(last);
+            state += &crate::files::config::last_folder_line(last);
         }
         if self.config.remember_window {
             state += &self.window.state_text();
@@ -557,7 +557,7 @@ fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
         eprintln!("glimt: {problem}");
     }
     // Parsed by `WindowState::parse`, which config's survives_broken_files feeds broken input.
-    let window_state = (config.remember_window || config.remember_dir)
+    let window_state = (config.remember_window || config.remember_folder)
         .then(|| crate::images::decode::read_text(state_path()?).ok())
         .flatten();
     ReadAtStart {
