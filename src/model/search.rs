@@ -95,9 +95,9 @@ pub(crate) struct IndexEntry {
     day: Option<Day>,
 }
 
-/// The EXIF text of each file in the folder, in lowercase, for "exif:" searches, and whether
-/// the names it lacks are read. It is built at the first such search and dropped with the
-/// folder.
+/// What the index holds for each file in the folder (`IndexEntry`), for "exif:" and "date:"
+/// searches, and whether the names it lacks are read. It is built at the first such search and
+/// dropped with the folder.
 #[derive(Default)]
 enum ExifIndex {
     /// No reading has answered in this folder yet.
@@ -137,8 +137,8 @@ impl ExifIndex {
     }
 }
 
-/// The search field. It holds the query, the matches, and the EXIF index that exif: terms look
-/// in.
+/// The search field. It holds the query, the matches, and the EXIF index that exif: and date:
+/// terms look in.
 #[derive(Default)]
 pub(crate) struct Search {
     /// File name search above the file list, and the matching files best first while it has
@@ -193,7 +193,8 @@ impl Search {
         !self.exif_to_read_again.is_empty() && self.has_term_with(&["exif:"])
     }
 
-    /// Drops the EXIF index of the folder and stops its reading, because another folder opens.
+    /// Drops the EXIF index of the folder, which exif: and date: terms read, and stops its
+    /// reading, because another folder opens.
     pub(crate) fn forget_exif_index(&mut self) {
         self.exif_index = ExifIndex::NotRead;
         self.exif_to_read_again.clear();
@@ -400,7 +401,8 @@ impl crate::App {
         self.search.match_size_rx = sum;
     }
 
-    /// Takes the exif: search index once it is read, and runs the search again with it.
+    /// Takes the index of exif: and date: searches once it is read, and runs the search again
+    /// with it.
     pub(crate) fn receive_exif_index(&mut self, ctx: &egui::Context) {
         // The busy pointer goes when this returns, once the search has the index.
         let (index, _pointer) = match self.search.exif_index_rx.take() {

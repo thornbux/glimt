@@ -79,8 +79,8 @@ struct App {
     /// The thumbnails for the file list. It holds those made, those being made, and the
     /// workers that make them.
     thumbs: crate::ui::file_list::Thumbs,
-    /// The search field. It holds the query, the matches, and the EXIF index that exif: terms
-    /// look in.
+    /// The search field. It holds the query, the matches, and the EXIF index that exif: and
+    /// date: terms look in.
     search: crate::model::search::Search,
     /// The status bar's numbers. It holds the shown image's size and place, the folder's total,
     /// and the size of the selection.
