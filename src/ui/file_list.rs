@@ -3230,6 +3230,11 @@ mod tests {
             app.config.slideshow_delay = 1;
             app.config.slideshow_fade = 0;
             app.is_comparing = comparing;
+            // The picks are the same in every run. In 2x2 one pane at a time the first pane
+            // changes only every fourth slide, so with a new seed in each run the last image
+            // missed it for all 300 slides now and then (#330), as with seed 88769. With this
+            // seed it comes there twice within 33 slides in every layout.
+            app.slideshow.seed_random_order(7);
             // The work that the folder started and nobody waits for, the thumbnails and the
             // sizes, is in before the slides are counted, so that none of its answers can wake
             // the window in a counted slide. So are the decodes of the images shown, and the
