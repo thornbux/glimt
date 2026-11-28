@@ -1970,6 +1970,10 @@ mod tests {
         now.extend(theme_keys());
         now.extend(owned_files());
         now.extend(job_records());
+        // The words of a search, which users type and the help names.
+        let search = crate::model::search::PREFIXES.iter();
+        let search = search.chain(&crate::model::search::OPERATORS);
+        now.extend(search.map(|word| format!("search_term {word}")));
         // The print_printer setting's values that are no printer's name.
         use crate::features::print::{PDF_FILE, SYSTEM_DIALOG};
         now.push(format!("value print_printer {SYSTEM_DIALOG}"));

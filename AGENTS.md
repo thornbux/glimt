@@ -145,6 +145,10 @@ release that drops its format, so that no user's file or mark is lost in the upg
   `shared_copy::names_of_single_tags`): each EXIF tag's name, one of each form a tag or part
   without a name of its own gets ("Image 0x…", "JPEG APP…", "PNG chunk …"), and the parts'
   names.
+- the words of a search (`search_term` lines, from `search::PREFIXES` and `search::OPERATORS`,
+  which the parser reads): `exif:`, `re:`, `mark:`, `stars:` and `date:`, and `-`, `|`, `(`
+  and `)`. Their meaning is frozen with them: `exif:` searches the keywords and comments too,
+  `stars:N` finds N stars or more, and `mark:N` finds mark N exactly.
 
 The tests that hold this:
 

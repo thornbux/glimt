@@ -25,7 +25,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Instant;
 
-const PREFIXES: [&str; 5] = ["exif:", "re:", "mark:", "stars:", "date:"];
+/// The words that start a term of a search. They are pinned in src/frozen-1.0.txt, as users type
+/// them and the help and the website name them.
+pub(crate) const PREFIXES: [&str; 5] = ["exif:", "re:", "mark:", "stars:", "date:"];
+
+/// The word before a prefixed term or a group that leaves out what it finds.
+const NOT: &str = "-";
+
+/// The word between groups of terms of which a file needs to match only one.
+const OR: &str = "|";
+
+/// The words that start and end a group.
+const OPEN: &str = "(";
+const CLOSE: &str = ")";
+
+/// The words that join and group the terms, as the parser reads them. They are pinned in
+/// src/frozen-1.0.txt beside `PREFIXES`, which is all this list is for: the parser reads the words
+/// it is made of.
+#[cfg(test)]
+pub(crate) const OPERATORS: [&str; 4] = [NOT, OR, OPEN, CLOSE];
 
 /// The terms that look in the EXIF index (`IndexEntry`), each as its word and its kind. A term
 /// is sent to its search by this list (`index_term`), and a search waits by it for the files the
@@ -823,7 +841,7 @@ fn parse_or(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
     loop {
         parts.extend(parse_and(tokens, at, depth));
         match tokens.get(*at) {
-            Some(&"|") => *at += 1,
+            Some(&OR) => *at += 1,
             _ => break,
         }
     }
@@ -841,18 +859,19 @@ fn parse_and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
     // Words after a term belong to it, and after a group they start a search of the names.
     let mut open_term = false;
     while let Some(&token) = tokens.get(*at) {
+        let is_open = |t: &str| t == OPEN || t.strip_prefix(NOT) == Some(OPEN);
         match token {
-            "|" | ")" => break,
-            "(" | "-(" if depth < MAX_NESTING => {
+            OR | CLOSE => break,
+            _ if is_open(token) && depth < MAX_NESTING => {
                 *at += 1;
                 let inner = parse_or(tokens, at, depth + 1);
-                if tokens.get(*at) == Some(&")") {
+                if tokens.get(*at) == Some(&CLOSE) {
                     *at += 1;
                 }
                 if let Some(inner) = inner {
                     parts.push(match token {
-                        "-(" => Query::Not(Box::new(inner)),
-                        _ => inner,
+                        OPEN => inner,
+                        _ => Query::Not(Box::new(inner)),
                     });
                 }
                 open_term = false;
@@ -861,8 +880,8 @@ fn parse_and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
                 *at += 1;
                 // A date has no spaces, so a "date:" term is one word, and the words after it
                 // start a search of the names, as after a group.
-                let takes_words = !token.trim_start_matches('-').starts_with("date:");
-                match token.strip_prefix('-').filter(|rest| prefixed(rest)) {
+                let takes_words = !token.trim_start_matches(NOT).starts_with("date:");
+                match token.strip_prefix(NOT).filter(|rest| prefixed(rest)) {
                     Some(rest) => {
                         parts.push(Query::Not(Box::new(Query::Term(rest.to_owned()))));
                         open_term = takes_words;

@@ -3,8 +3,8 @@
 # config::NAMED in its order, because a value's place is the number it was written as before),
 # the window state's keys, the --remote commands with the words of their choices and the exit
 # codes, the keys of --remote info's lines, the command-line options, the actions a script may
-# run, the %field% names of the templates, the keys of a theme file, the files Glimt owns and the
-# group words of the sharing file. A line is never taken out or changed. New ones are
+# run, the %field% names of the templates, the keys of a theme file, the files Glimt owns, the
+# group words of the sharing file and the words of a search. A line is never taken out or changed. New ones are
 # added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed after
 # 1.0 keeps its line: a table of old names in the code maps it to the new name, which is still
 # read, and the new name is added at the end. Before 1.0 the maintainer took out the old names
@@ -562,3 +562,12 @@ script ImageAreaGrid
 info_key file_size
 value print_printer PDF file
 job_record record from-log
+search_term exif:
+search_term re:
+search_term mark:
+search_term stars:
+search_term date:
+search_term -
+search_term |
+search_term (
+search_term )
