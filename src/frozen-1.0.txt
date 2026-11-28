@@ -507,7 +507,6 @@ setting print_caption_template
 value thumbnail_size small
 value thumbnail_size medium
 value thumbnail_size large
-value print_printer "PDF file"
 value print_paper 10x15cm
 value print_paper 13x18cm
 value language nb
@@ -562,3 +561,4 @@ value sort modified
 state last_folder
 script ImageAreaGrid
 info_key file_size
+value print_printer PDF file
