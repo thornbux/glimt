@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A date filter in the search field: date:2024, date:2024-06 or date:2024-06-15, or a range
+  such as date:2024-06..2024-08 (date:..2023 and date:2024.. leave an end open), ends included.
+  It finds photos by their EXIF date original, or by the modification time for a file without
+  one, and combines with the other terms; a date it cannot read is told under the field.
+
 ## [0.105.0] - 2026-11-28
 
 ### Added

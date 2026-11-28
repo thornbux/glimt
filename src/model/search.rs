@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Instant;
 
-const PREFIXES: [&str; 4] = ["exif:", "re:", "mark:", "stars:"];
+const PREFIXES: [&str; 5] = ["exif:", "re:", "mark:", "stars:", "date:"];
 
 /// How deep groups may nest in a search. A `(` deeper than this is an ordinary word, so text
 /// pasted with thousands of them cannot overflow the stack of the parser, of the search through
@@ -55,6 +55,46 @@ impl Query {
     }
 }
 
+/// A day of the calendar, made only by `Day::new`, which refuses a day the month lacks. It holds
+/// year, month and day as the number yyyymmdd, so that days compare in their order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Day(u32);
+
+impl Day {
+    /// Returns the day, or `None` when `month` has no such `day` in `year` (the 29th of
+    /// February only in a leap year) or the year has more than four digits.
+    pub(crate) fn new(year: u32, month: u32, day: u32) -> Option<Day> {
+        let last = days_in_month(year, month)?;
+        let is_valid = (1..=last).contains(&day) && year <= 9999;
+        is_valid.then_some(Day(year * 10_000 + month * 100 + day))
+    }
+
+    /// Returns the day that a date starts with, written as "YYYY-MM-DD" or as EXIF writes it,
+    /// "YYYY:MM:DD", or `None` when it starts with no valid day.
+    fn from_text(text: &str) -> Option<Day> {
+        let day = text.get(..10)?;
+        let separator = day.get(4..5)?;
+        if !matches!(separator, "-" | ":") || day.get(7..8)? != separator {
+            return None;
+        }
+        Day::new(
+            number(day.get(..4)?, 4)?,
+            number(day.get(5..7)?, 2)?,
+            number(day.get(8..)?, 2)?,
+        )
+    }
+}
+
+/// What the index holds for one file: its EXIF fields and keywords as one lowercase line, for
+/// "exif:" terms, and its day for "date:" terms.
+#[derive(Debug, Default)]
+pub(crate) struct IndexEntry {
+    text: String,
+    /// The day of its EXIF DateTimeOriginal as written, else of its modification time in local
+    /// time. It is `None` when neither could be read.
+    day: Option<Day>,
+}
+
 /// The EXIF text of each file in the folder, in lowercase, for "exif:" searches, and whether
 /// the names it lacks are read. It is built at the first such search and dropped with the
 /// folder.
@@ -64,16 +104,16 @@ enum ExifIndex {
     #[default]
     NotRead,
     /// The texts read. The names in the list that it lacks are read at the next search.
-    Read(HashMap<OsString, String>),
+    Read(HashMap<OsString, IndexEntry>),
     /// The texts read before a reading ended without its answer in this folder. The names it
     /// lacks are not read again until another folder opens, because the cause, such as a lack
     /// of threads, would end each new reading too, and each would be started at once.
-    Died(HashMap<OsString, String>),
+    Died(HashMap<OsString, IndexEntry>),
 }
 
 impl ExifIndex {
     /// Returns the texts read, or `None` before any reading answered.
-    fn texts(&self) -> Option<&HashMap<OsString, String>> {
+    fn texts(&self) -> Option<&HashMap<OsString, IndexEntry>> {
         match self {
             ExifIndex::NotRead => None,
             ExifIndex::Read(texts) | ExifIndex::Died(texts) => Some(texts),
@@ -81,7 +121,7 @@ impl ExifIndex {
     }
 
     /// Adds the texts of a reading that answered, `read`, to those read before.
-    fn add(&mut self, read: HashMap<OsString, String>) {
+    fn add(&mut self, read: HashMap<OsString, IndexEntry>) {
         match self {
             ExifIndex::NotRead => *self = ExifIndex::Read(read),
             ExifIndex::Read(texts) | ExifIndex::Died(texts) => texts.extend(read),
@@ -104,7 +144,7 @@ pub(crate) struct Search {
     /// File name search above the file list, and the matching files best first while it has
     /// at least three letters.
     query: String,
-    /// Why a re: search pattern is not a valid pattern, shown under the search field.
+    /// Why a term is not valid (a re: pattern, a date), shown whole under the search field.
     error: Option<ShownText>,
     /// The search field takes the focus when it is next drawn (/).
     wants_focus: bool,
@@ -119,7 +159,7 @@ pub(crate) struct Search {
     /// The files whose keywords or comment changed after they were indexed. The next "exif:"
     /// search reads only these files again, not the whole folder.
     exif_to_read_again: HashSet<OsString>,
-    exif_index_rx: Receiving<(HashMap<OsString, String>, Working)>,
+    exif_index_rx: Receiving<(HashMap<OsString, IndexEntry>, Working)>,
     /// Set when the index being read is no longer wanted (another folder), so the thread stops.
     exif_index_stop: Arc<AtomicBool>,
 }
@@ -199,7 +239,9 @@ impl Search {
     }
 
     pub(crate) fn set_exif_index(&mut self, index: HashMap<OsString, String>) {
-        self.exif_index = ExifIndex::Read(index);
+        let entry = |text| IndexEntry { text, day: None };
+        let index = index.into_iter().map(|(n, t)| (n, entry(t)));
+        self.exif_index = ExifIndex::Read(index.collect());
     }
 
     /// Whether a reading of the EXIF index has answered.
@@ -287,7 +329,7 @@ impl crate::App {
         });
         if let Some(e) = &self.search.error {
             let colour = ui.visuals().error_fg_color;
-            ui.show_styled(tf!("Not a pattern: {e}", e), |t| t.color(colour));
+            ui.show_styled(e.clone(), |t| t.color(colour));
         }
     }
 
@@ -424,9 +466,10 @@ impl crate::App {
             mask
         };
         match query {
-            Query::Term(term) => match term.strip_prefix("exif:") {
-                Some(words) => self.exif_matches(ctx, words),
-                None => Some(self.term_matches(ctx, term, 1).unwrap_or_default()),
+            Query::Term(term) => match (term.strip_prefix("exif:"), term.strip_prefix("date:")) {
+                (Some(words), _) => self.exif_matches(ctx, words),
+                (_, Some(dates)) => self.date_matches(ctx, dates),
+                _ => Some(self.term_matches(ctx, term, 1).unwrap_or_default()),
             },
             Query::Not(inner) => {
                 let out = mask(&self.query_matches(ctx, inner)?);
@@ -480,10 +523,13 @@ impl crate::App {
         let regex = |this: &mut Self, pattern: &str| match regex(pattern, case) {
             Ok(re) => regex_matches(this.list.files(), &re),
             Err(e) => {
-                this.search.error = Some(e);
+                this.search.error = Some(tf!("Not a pattern: {e}", e));
                 Vec::new()
             }
         };
+        if let Some(dates) = term.strip_prefix("date:") {
+            return Some(self.date_matches(ctx, dates).unwrap_or_default());
+        }
         match (term.strip_prefix("exif:"), term.strip_prefix("re:")) {
             (Some(words), _) => Some(self.exif_matches(ctx, words).unwrap_or_default()),
             (_, Some(pattern)) if !pattern.is_empty() => Some(regex(self, pattern)),
@@ -502,18 +548,48 @@ impl crate::App {
     }
 
     /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
-    /// list order. The first such search in a folder reads the EXIF of all files in the
-    /// background (the busy pointer shows meanwhile). Returns `None` until the index has read
-    /// every file in the list, as a file it has not read may match or not.
+    /// list order, as `index_matches` finds them.
     pub(crate) fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Option<Vec<usize>> {
         let re = match words.strip_prefix("re:").map(|p| regex(p, false)) {
             Some(Err(e)) => {
-                self.search.error = Some(e);
+                self.search.error = Some(tf!("Not a pattern: {e}", e));
                 return Some(Vec::new());
             }
             Some(Ok(re)) => Some(re),
             None => None,
         };
+        // The index is lowercase, and the words are made so too, while a regular expression
+        // ignores case.
+        let words = words.to_lowercase();
+        let words: Vec<&str> = words.split_whitespace().collect();
+        self.index_matches(ctx, |entry| match &re {
+            Some(re) => re.is_match(entry.text.as_bytes()),
+            None => words.iter().all(|w| entry.text.contains(w)),
+        })
+    }
+
+    /// Files whose day (`IndexEntry::day`) is within the dates of a "date:" term, in list
+    /// order, as `index_matches` finds them. Dates that `parse_dates` cannot read are told
+    /// under the search field, and find nothing.
+    pub(crate) fn date_matches(&mut self, ctx: &egui::Context, dates: &str) -> Option<Vec<usize>> {
+        let Some(range) = parse_dates(dates) else {
+            self.search.error = Some(tr(
+                "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08",
+            ));
+            return Some(Vec::new());
+        };
+        self.index_matches(ctx, |entry| entry.day.is_some_and(|d| range.contains(&d)))
+    }
+
+    /// Files whose index entry `hit` takes, in list order. The first search in a folder that
+    /// needs the index reads the EXIF of all files in the background (the busy pointer shows
+    /// meanwhile). Returns `None` until the index has read every file in the list, as a file
+    /// it has not read may match or not.
+    fn index_matches(
+        &mut self,
+        ctx: &egui::Context,
+        hit: impl Fn(&IndexEntry) -> bool + Sync,
+    ) -> Option<Vec<usize>> {
         // Files edited since are read again alone, while the search goes on with the index
         // there is. That waits while keywords are still being written, and the marks stay until
         // they are, so files read before their sidecar landed are read again after. (The frame
@@ -565,14 +641,6 @@ impl crate::App {
             }
             return None;
         };
-        // The index is lowercase, and the words are made so too, while a regular expression
-        // ignores case.
-        let words = words.to_lowercase();
-        let words: Vec<&str> = words.split_whitespace().collect();
-        let found = |text: &String| match &re {
-            Some(re) => re.is_match(text.as_bytes()),
-            None => words.iter().all(|w| text.contains(w)),
-        };
         // A name the index lacks is read later (`index_new_names`), and until then is unknown.
         let is_unknown = std::sync::atomic::AtomicBool::new(false);
         // This runs in parallel, because it is 500,000 lookups at each letter typed.
@@ -583,7 +651,7 @@ impl crate::App {
                 let mut hits = Vec::new();
                 for (i, f) in part.iter().enumerate() {
                     match index.get(f) {
-                        Some(text) if found(text) => hits.push(at + i),
+                        Some(entry) if hit(entry) => hits.push(at + i),
                         Some(_) => {}
                         None => is_unknown.store(true, std::sync::atomic::Ordering::Relaxed),
                     }
@@ -759,10 +827,13 @@ fn parse_and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
             }
             _ => {
                 *at += 1;
+                // A date has no spaces, so a "date:" term is one word, and the words after it
+                // start a search of the names, as after a group.
+                let takes_words = !token.trim_start_matches('-').starts_with("date:");
                 match token.strip_prefix('-').filter(|rest| prefixed(rest)) {
                     Some(rest) => {
                         parts.push(Query::Not(Box::new(Query::Term(rest.to_owned()))));
-                        open_term = true;
+                        open_term = takes_words;
                     }
                     None if open_term && !prefixed(token) => {
                         let last = match parts.last_mut() {
@@ -777,7 +848,7 @@ fn parse_and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
                     }
                     None => {
                         parts.push(Query::Term(token.to_owned()));
-                        open_term = true;
+                        open_term = takes_words;
                     }
                 }
             }
@@ -860,14 +931,94 @@ fn in_parallel(
     )
 }
 
+/// The dates of a "date:" term as the days they cover, ends included: `2024`, `2024-06` or
+/// `2024-06-15`, or a range of two of these, `FROM..TO`, where either end may be left out
+/// (`..2023`, `2024..`). A year or month as the end of a range covers its last day. Returns
+/// `None` for any other text, a bare `..`, or a range that ends before it starts.
+pub(crate) fn parse_dates(text: &str) -> Option<std::ops::RangeInclusive<Day>> {
+    let (from, to) = match text.split_once("..") {
+        Some(("", "")) => return None,
+        Some(ends) => ends,
+        None => return days_of(text),
+    };
+    let from = match from {
+        "" => Day(0),
+        from => *days_of(from)?.start(),
+    };
+    let to = match to {
+        "" => Day(u32::MAX),
+        to => *days_of(to)?.end(),
+    };
+    (from <= to).then_some(from..=to)
+}
+
+/// The days that one date of a "date:" term covers: a year (`2024`), a month (`2024-06`) or a
+/// day (`2024-06-15`). Returns `None` for any other text.
+fn days_of(date: &str) -> Option<std::ops::RangeInclusive<Day>> {
+    let parts: Vec<&str> = date.split('-').collect();
+    match parts[..] {
+        [year] => {
+            let year = number(year, 4)?;
+            Some(Day::new(year, 1, 1)?..=Day::new(year, 12, 31)?)
+        }
+        [year, month] => {
+            let (year, month) = (number(year, 4)?, number(month, 2)?);
+            let last = days_in_month(year, month)?;
+            Some(Day::new(year, month, 1)?..=Day::new(year, month, last)?)
+        }
+        [year, month, day] => {
+            let day = Day::new(number(year, 4)?, number(month, 2)?, number(day, 2)?)?;
+            Some(day..=day)
+        }
+        _ => None,
+    }
+}
+
+/// Returns the number that `text` writes with exactly `digits` digits, or `None` when it is
+/// anything else, such as a sign or a space.
+fn number(text: &str, digits: usize) -> Option<u32> {
+    let is_digits = text.len() == digits && text.bytes().all(|b| b.is_ascii_digit());
+    is_digits.then(|| text.parse().ok())?
+}
+
+/// The number of days in `month` of `year`, or `None` for a month that is not 1 to 12.
+fn days_in_month(year: u32, month: u32) -> Option<u32> {
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    Some(match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        1..=12 => 31,
+        _ => return None,
+    })
+}
+
+/// The day of the file at `path` for a "date:" term: its EXIF DateTimeOriginal as written
+/// (`exif_date`, as the sort by EXIF date reads it, with no change of time zone), else the
+/// day of its modification time in the computer's local time. An EXIF date that is not a valid
+/// day counts as none. Returns `None` when neither can be read.
+fn day_of(path: &Path, exif_date: Option<&str>) -> Option<Day> {
+    exif_date.and_then(Day::from_text).or_else(|| {
+        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+        let secs = modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        Day::from_text(&crate::support::format::local_time(
+            i64::try_from(secs).ok()?,
+        ))
+    })
+}
+
 /// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
 /// It ends when `stop` is set, and on a share each file's read waits for the images `awaited`
-/// first, as a look through the gate (`ReadsFirst::before_a_look`).
+/// first, as a look through the gate (`ReadsFirst::before_a_look`). Each file's day is read
+/// with its text (`day_of`).
 pub fn exif_index(
     dir: &Path,
     files: &[OsString],
     (stop, awaited): (&std::sync::atomic::AtomicBool, &ImagesAwaited),
-) -> HashMap<OsString, String> {
+) -> HashMap<OsString, IndexEntry> {
     let index = crate::support::threads::in_parts(files, small_alloc_threads(), |part, _| {
         let mut out = Vec::with_capacity(part.len());
         let mut gate = ReadsFirst::for_files_anywhere(awaited);
@@ -880,14 +1031,18 @@ pub fn exif_index(
             gate.before_a_look(&path);
             // A file that breaks its reader has no text. A whole part lost would leave 1/N of
             // the folder out of every exif: search, in silence.
-            let text = crate::support::threads::catch_panic(|| {
-                let rows = exif::read(&path);
+            let entry = crate::support::threads::catch_panic(|| {
+                let (rows, date) = exif::read_with_date(&path);
                 let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
                 let meta = xmp::read(&path).text();
                 text.push(&meta);
-                text.join(" ").to_lowercase()
+                let day = day_of(&path, date.as_deref());
+                IndexEntry {
+                    text: text.join(" ").to_lowercase(),
+                    day,
+                }
             });
-            out.push((name.clone(), text.unwrap_or_default()));
+            out.push((name.clone(), entry.unwrap_or_default()));
         }
         out
     });
@@ -898,6 +1053,9 @@ pub fn exif_index(
 mod tests {
     use crate::support::test_support::app_on;
     use crate::ui::actions::Action;
+
+    /// Noon of 15 June 2024 in UTC, which is that day in the time zones of the test runs.
+    const JUNE_15_2024: u64 = 1_718_452_800;
 
     /// The selection holds only files the list shows. A search takes the files it hides out of
     /// it, so a file action acts on what is on screen and not on a hidden file, and no way of
@@ -1003,7 +1161,7 @@ mod tests {
             .set_files(["a.jpg", "b.jpg"].iter().map(Into::into).collect());
         app.search.set_query("exif:canon");
         let (tx, rx) = std::sync::mpsc::channel::<(
-            HashMap<OsString, String>,
+            HashMap<OsString, super::IndexEntry>,
             crate::support::threads::Working,
         )>();
         drop(tx);
@@ -1223,6 +1381,182 @@ mod tests {
         );
         assert_eq!(p("| ( ) |"), None);
         assert_eq!(p("  "), None);
+        // A date has no spaces, so the words after a "date:" term search the names.
+        assert_eq!(
+            p("date:2024 beach day -date:..2023 sun"),
+            Some(And(vec![
+                t("date:2024"),
+                t("beach day"),
+                not(t("date:..2023")),
+                t("sun")
+            ]))
+        );
+    }
+
+    /// Each form of a "date:" term covers the days it names, ends included, and every other
+    /// text is refused, to be told rather than to find nothing in silence.
+    /// Risk: a date term finds the wrong days, or a typo is taken for a search.
+    #[test]
+    fn parses_dates() {
+        use super::{Day, parse_dates};
+        let day = |y, m, d| Day::new(y, m, d).unwrap();
+        let days = |text| parse_dates(text).map(|r| (*r.start(), *r.end()));
+        assert_eq!(days("2024"), Some((day(2024, 1, 1), day(2024, 12, 31))));
+        assert_eq!(days("2024-06"), Some((day(2024, 6, 1), day(2024, 6, 30))));
+        assert_eq!(days("2024-02"), Some((day(2024, 2, 1), day(2024, 2, 29))));
+        assert_eq!(days("2023-02"), Some((day(2023, 2, 1), day(2023, 2, 28))));
+        assert_eq!(days("1900-02"), Some((day(1900, 2, 1), day(1900, 2, 28))));
+        assert_eq!(
+            days("2024-06-15"),
+            Some((day(2024, 6, 15), day(2024, 6, 15)))
+        );
+        assert_eq!(
+            days("2024-02-29"),
+            Some((day(2024, 2, 29), day(2024, 2, 29)))
+        );
+        assert_eq!(
+            days("2024-06..2024-08"),
+            Some((day(2024, 6, 1), day(2024, 8, 31)))
+        );
+        assert_eq!(
+            days("2023..2024-01-02"),
+            Some((day(2023, 1, 1), day(2024, 1, 2)))
+        );
+        assert_eq!(days("2024-06-15..2024-06-15"), days("2024-06-15"));
+        let until = parse_dates("..2023").unwrap();
+        assert!(until.contains(&day(1, 1, 1)) && until.contains(&day(2023, 12, 31)));
+        assert!(!until.contains(&day(2024, 1, 1)));
+        let from = parse_dates("2024..").unwrap();
+        assert!(from.contains(&day(2024, 1, 1)) && from.contains(&day(9999, 12, 31)));
+        assert!(!from.contains(&day(2023, 12, 31)));
+        for bad in [
+            "",
+            "..",
+            "...",
+            "2024..2023",
+            "2023-02-29",
+            "2024-13",
+            "2024-00",
+            "2024-06-31",
+            "2024-6",
+            "24",
+            "20245",
+            "2024-06-15-01",
+            "2024/06",
+            "+2024",
+            "2024-06-1x",
+            "2024..2025..2026",
+            "2024-06-15T10",
+            " 2024",
+            "2024:06:15",
+            "\u{661}\u{662}\u{663}\u{664}",
+        ] {
+            assert_eq!(parse_dates(bad), None, "{bad:?}");
+        }
+    }
+
+    /// The day of a file is its EXIF date as written, else its modification time, also when the
+    /// EXIF date is there but not a valid day.
+    /// Risk: a file without a readable EXIF date is found by no date term, or by a wrong one.
+    #[test]
+    fn a_file_has_its_exif_day_else_its_modification_day() {
+        use super::{Day, day_of};
+        let dir = std::env::temp_dir().join(format!("glimt-test-dayof-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"x").unwrap();
+        let when = modified_at(&file, JUNE_15_2024);
+        assert_eq!(
+            day_of(&file, Some("2020:01:02 03:04:05")),
+            Day::new(2020, 1, 2)
+        );
+        assert_eq!(
+            day_of(&file, Some("2020-01-02 03:04:05")),
+            Day::new(2020, 1, 2)
+        );
+        for not_a_day in [
+            "0000:00:00 00:00:00",
+            "    :  :     :  :  ",
+            "2023:02:29",
+            "2020",
+        ] {
+            assert_eq!(day_of(&file, Some(not_a_day)), Some(when), "{not_a_day:?}");
+        }
+        assert_eq!(day_of(&file, None), Some(when));
+        assert_eq!(day_of(&dir.join("gone.jpg"), None), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A "date:" term finds the files of its days by their EXIF date, and by their modification
+    /// time when they have none, alone and with other terms. A bad date is told and finds
+    /// nothing.
+    /// Risk: a file is found by its modification time although its EXIF date is outside.
+    #[test]
+    fn a_date_term_finds_the_files_of_its_days() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-bydate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        let exif = crate::support::test_support::exif_with_every_row();
+        jpeg.extend(u16::try_from(exif.len() + 2).unwrap().to_be_bytes());
+        jpeg.extend(&exif);
+        let mut base = Vec::new();
+        let image = image::RgbImage::new(8, 8);
+        let mut cursor = std::io::Cursor::new(&mut base);
+        image
+            .write_to(&mut cursor, image::ImageFormat::Jpeg)
+            .unwrap();
+        jpeg.extend(&base[2..]);
+        // The EXIF date of every_row.jpg is 2020-01-02, and its modification day is in June
+        // 2024 as plain.jpg's is.
+        std::fs::write(dir.join("every_row.jpg"), &jpeg).unwrap();
+        std::fs::write(dir.join("plain.jpg"), b"no exif").unwrap();
+        modified_at(&dir.join("every_row.jpg"), JUNE_15_2024);
+        let june = modified_at(&dir.join("plain.jpg"), JUNE_15_2024 + 5 * 86_400);
+        assert_eq!(june, super::Day::new(2024, 6, 20).unwrap());
+        let (mut app, ctx) = app_on(&dir);
+        app.list.set_files(
+            ["every_row.jpg", "plain.jpg"]
+                .iter()
+                .map(Into::into)
+                .collect(),
+        );
+        let mut shown = |query: &str| {
+            app.search.set_query(query);
+            app.update_search(&ctx);
+            let read = |a: &crate::App| a.search.has_exif_index() && !a.search.reads_index();
+            assert!(crate::support::test_support::run_background_until(
+                &mut app, &ctx, read
+            ));
+            app.update_search(&ctx);
+            (
+                app.list.matches().map(<[usize]>::to_vec),
+                app.search.error.is_some(),
+            )
+        };
+        let found = |files: &[usize]| (Some(files.to_vec()), false);
+        assert_eq!(shown("date:2024-06"), found(&[1]));
+        assert_eq!(shown("date:2020-01-02"), found(&[0]));
+        assert_eq!(shown("date:..2020"), found(&[0]));
+        assert_eq!(shown("date:2020..2024-06-20"), found(&[0, 1]));
+        assert_eq!(shown("date:2020..2024-06-19"), found(&[0]));
+        assert_eq!(shown("date:2024-07.."), found(&[]));
+        assert_eq!(shown("-date:2020"), found(&[1]));
+        assert_eq!(shown("date:2020 | date:2024"), found(&[0, 1]));
+        assert_eq!(shown("plain date:2020..2024"), found(&[1]));
+        assert_eq!(shown("date:2020..2024 every"), found(&[0]));
+        assert_eq!(shown("date:2024-06-31"), (Some(Vec::new()), true));
+        assert_eq!(shown("plain date:junk"), (Some(Vec::new()), true));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Sets the modification time of `file` to `secs` after 1970, and returns its day in local
+    /// time.
+    fn modified_at(file: &std::path::Path, secs: u64) -> super::Day {
+        let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+        let opened = std::fs::File::options().write(true).open(file);
+        opened.unwrap().set_modified(when).unwrap();
+        let local = crate::support::format::local_time(i64::try_from(secs).unwrap());
+        super::Day::from_text(&local).unwrap()
     }
 
     /// A search of 100,000 nested groups, as pasted text may be, is read with its groups cut
@@ -1252,9 +1586,14 @@ mod tests {
     /// Searches broken in thousands of ways are read without a panic or an endless loop.
     #[test]
     fn survives_broken_searches() {
-        let seed = b"sunset ( exif:canon | -exif:nikon 2024 ) -( re:^(a|b) | stars:1 ) mark:2";
+        let seed = b"sunset ( exif:canon | -exif:nikon 2024 ) -( re:^(a|b) | stars:1 ) mark:2 \
+            date:2024-06..2024-08-15";
         for bytes in crate::support::test_support::broken(seed) {
-            super::parse(&String::from_utf8_lossy(&bytes));
+            let text = String::from_utf8_lossy(&bytes);
+            super::parse(&text);
+            for word in text.split_whitespace() {
+                super::parse_dates(word);
+            }
         }
     }
 

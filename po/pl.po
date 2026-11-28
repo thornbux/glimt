@@ -4234,3 +4234,8 @@ msgstr "Wyczyść zapisane listy"
 #, fuzzy
 msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
 msgstr "Przechowywane w ~/.cache/glimt/lists: ponownie otwarty folder od razu pokazuje swoją listę z ostatniego razu, gdy jest czytany ponownie, a działania na jego plikach czekają, aż zostanie przeczytany"
+
+#: src/model/search.rs
+#, fuzzy
+msgid "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08"
+msgstr "To nie jest data: wpisz 2024, 2024-06, 2024-06-15 lub zakres, np. 2024-06..2024-08"

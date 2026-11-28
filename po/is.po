@@ -4222,3 +4222,8 @@ msgstr "Hreinsa vistaða lista"
 #, fuzzy
 msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
 msgstr "Geymdir í ~/.cache/glimt/lists: mappa sem er opnuð aftur sýnir strax listann sinn frá síðasta skipti meðan hún er lesin aftur, og aðgerðir á skrám hennar bíða þar til hún hefur verið lesin"
+
+#: src/model/search.rs
+#, fuzzy
+msgid "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08"
+msgstr "Ekki dagsetning: skrifaðu 2024, 2024-06, 2024-06-15 eða tímabil eins og 2024-06..2024-08"

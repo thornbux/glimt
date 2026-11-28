@@ -4222,3 +4222,8 @@ msgstr "Cancella gli elenchi salvati"
 #, fuzzy
 msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
 msgstr "Conservati in ~/.cache/glimt/lists: una cartella riaperta mostra subito il suo elenco dell'ultima volta mentre viene riletta, e le azioni sui suoi file attendono finché non è letta"
+
+#: src/model/search.rs
+#, fuzzy
+msgid "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08"
+msgstr "Non è una data: scrivi 2024, 2024-06, 2024-06-15 o un intervallo come 2024-06..2024-08"
