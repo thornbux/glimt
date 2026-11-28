@@ -8,8 +8,9 @@
 use crate::files::config::fits_on_a_line;
 use crate::files::file_io::{IfMissing, ListedFile, Transfer, put_file};
 use crate::images::save::FileId;
+use crate::metadata::xmp_packet::Packet;
 use crate::support::format::ShownText;
-use crate::support::format::{escaped_name, without_control_characters};
+use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
@@ -32,52 +33,6 @@ const SLASHED_TREE_LISTS: [(&str, &str, &str); 2] = [
     ),
 ];
 
-/// The namespaces whose properties Copy for Sharing names by the prefix here, whatever prefix a
-/// packet binds them to (`properties`). A packet may write Exif's GPS as `ns1:GPSLatitude`,
-/// and the old `xap:` is `xmp:`, so a name by the prefix as written would miss its group.
-const KNOWN_NAMESPACES: [(&str, &str); 31] = [
-    ("dc", "http://purl.org/dc/elements/1.1/"),
-    ("xmp", "http://ns.adobe.com/xap/1.0/"),
-    ("xmpMM", "http://ns.adobe.com/xap/1.0/mm/"),
-    ("xmpRights", "http://ns.adobe.com/xap/1.0/rights/"),
-    ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
-    ("exif", "http://ns.adobe.com/exif/1.0/"),
-    ("aux", "http://ns.adobe.com/exif/1.0/aux/"),
-    ("exifEX", "http://cipa.jp/exif/1.0/"),
-    ("tiff", "http://ns.adobe.com/tiff/1.0/"),
-    ("photoshop", "http://ns.adobe.com/photoshop/1.0/"),
-    ("crs", "http://ns.adobe.com/camera-raw-settings/1.0/"),
-    ("lr", "http://ns.adobe.com/lightroom/1.0/"),
-    (
-        "Iptc4xmpCore",
-        "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
-    ),
-    ("Iptc4xmpExt", "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"),
-    ("plus", "http://ns.useplus.org/ldf/xmp/1.0/"),
-    ("digiKam", "http://www.digikam.org/ns/1.0/"),
-    // The namespace that digiKam 4 wrote its keyword list and labels in.
-    ("digiKam", "http://www.digikam.org/"),
-    ("MicrosoftPhoto", "http://ns.microsoft.com/photo/1.0/"),
-    (
-        "mwg-rs",
-        "http://www.metadataworkinggroup.com/schemas/regions/",
-    ),
-    ("mediapro", "http://ns.iview-multimedia.com/mediapro/1.0/"),
-    ("drone-dji", "http://www.dji.com/drone-dji/1.0/"),
-    ("GPano", "http://ns.google.com/photos/1.0/panorama/"),
-    // Google's camera: its motion photo's flags, also written with the prefix Camera.
-    ("GCamera", "http://ns.google.com/photos/1.0/camera/"),
-    ("MP", "http://ns.microsoft.com/photo/1.2/"),
-    ("acdsee", "http://ns.acdsee.com/iptc/1.0/"),
-    ("darktable", "http://darktable.sf.net/"),
-    ("hdrgm", "http://ns.adobe.com/hdr-gain-map/1.0/"),
-    // Apple's marks of an iPhone's HDR gain map.
-    ("HDRGainMap", "http://ns.apple.com/HDRGainMap/1.0/"),
-    ("apdi", "http://ns.apple.com/pixeldatainfo/1.0/"),
-    ("Container", "http://ns.google.com/photos/1.0/container/"),
-    ("Item", "http://ns.google.com/photos/1.0/container/item/"),
-];
-
 /// The most of the 64 sidecar locks that a delete holds at once (`chunks_by_sidecar_lock`).
 /// It holds them across a gio call, which waits for ever on a share that stopped answering.
 const MOST_LOCKS_IN_A_CHUNK: usize = 4;
@@ -85,20 +40,6 @@ const MOST_LOCKS_IN_A_CHUNK: usize = 4;
 /// Why there are no sidecar locks without a runtime folder, which the warning of `locks_in`
 /// shows in the user's language.
 const NO_RUNTIME_FOLDER: &str = "it is not set, or is not a folder of this user's own";
-
-/// The start of an rdf:Description's start tag, as `next_description` finds it.
-const DESCRIPTION: &[u8] = b"<rdf:Description";
-
-/// The end tag of an rdf:Description.
-const DESCRIPTION_END: &[u8] = b"</rdf:Description>";
-
-/// The kinds of XML markup that are no element, each as how it starts and how it ends: a
-/// comment, a CDATA section and a processing instruction. A quote, a '<' or a tag inside one is
-/// no part of the packet's structure, so every walk over a packet passes over them whole
-/// (`not_element_length`). A CDATA section with a quote in it once stopped the walk, and the
-/// editors then wrote a second dc:subject.
-const NOT_ELEMENTS: [(&[u8], &[u8]); 3] =
-    [(b"<!--", b"-->"), (b"<![CDATA[", b"]]>"), (b"<?", b"?>")];
 
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.
 #[cfg(not(test))]
@@ -241,7 +182,7 @@ pub(crate) type Namespaces = std::sync::Arc<Vec<(String, String)>>;
 /// element as written (`<dc:subject>…</dc:subject>`), and the namespaces of the packet it came
 /// from, which bind its element's prefixes. The packets of the image and its sidecar may bind
 /// one prefix to two namespaces, so each property keeps its own. The name has the prefix of
-/// its namespace in `KNOWN_NAMESPACES`, which may differ from the element's.
+/// its namespace in `xmp_packet::KNOWN_NAMESPACES`, which may differ from the element's.
 #[derive(Clone, Default, Debug)]
 pub(crate) struct Properties {
     pub(crate) list: Vec<(String, String, Namespaces)>,
@@ -388,145 +329,7 @@ impl LeftBehind {
     }
 }
 
-/// A property at the top of an rdf:Description, an attribute of its start tag or an element
-/// just inside it (`top_level_properties`). Each range is a place in the packet.
-pub(crate) struct TopLevelProperty {
-    /// The name as written, such as "dc:subject". It is private, so that code elsewhere tells
-    /// a property by its namespace (`is_in`, `properties_named`), never by the prefix as
-    /// written, which another writer may have chosen otherwise.
-    name: std::ops::Range<usize>,
-    /// The whole property: an attribute from its name to its closing quote, an element from its
-    /// "<" to the end of its end tag or of its "/>".
-    pub(crate) whole: std::ops::Range<usize>,
-    /// The value: an attribute's text between its quotes, or what is between an element's start
-    /// and end tags, which is nothing for an empty element.
-    pub(crate) value: std::ops::Range<usize>,
-    pub(crate) is_attribute: bool,
-    /// The place in the packet of the URI of the namespace that the name's prefix is bound to
-    /// where the name is written (`Scope`), or `None` when it is bound to none there.
-    namespace: Option<std::ops::Range<usize>>,
-}
-
-impl TopLevelProperty {
-    /// Returns whether this property of the packet `xmp` is `local` in one of the namespaces
-    /// `uris`. Its prefix is read as it is bound where the property is written (`Scope`). Only
-    /// a prefix bound to nothing there is looked up in `declared_elsewhere`
-    /// (`is_in_namespace`), the declarations of another packet that may bind it, as a JPEG's
-    /// extended XMP may use a prefix that its main packet declares. Before, a prefix was
-    /// looked up in the whole packet, so a prefix that two Descriptions bind to two namespaces
-    /// was read in both as the first of them binds it.
-    pub(crate) fn is_in(
-        &self,
-        xmp: &[u8],
-        declared_elsewhere: &std::collections::HashSet<(&str, &str)>,
-        uris: &[&str],
-        local: &str,
-    ) -> bool {
-        let name = &xmp[self.name.clone()];
-        let Some(uri) = &self.namespace else {
-            return is_in_namespace(name, declared_elsewhere, uris, local);
-        };
-        let own_local = name
-            .iter()
-            .position(|&c| c == b':')
-            .map_or(name, |colon| &name[colon + 1..]);
-        own_local == local.as_bytes() && uris.iter().any(|u| xmp[uri.clone()] == *u.as_bytes())
-    }
-}
-
-/// The namespaces in force at a place of a packet, as a walk over it opens and closes its
-/// elements: those that the start tags of the elements open around the place declare. A name
-/// is read by the namespace its prefix is bound to where it is written, so a prefix that two
-/// Descriptions bind to two namespaces is read in each as that Description binds it.
-#[derive(Default)]
-struct Scope<'a> {
-    /// The declarations of each element open, outermost first, each as its prefix ("" for a
-    /// default namespace) and the place of its URI in the packet.
-    open: Vec<Vec<(&'a [u8], std::ops::Range<usize>)>>,
-    /// The places of the URIs that the elements open bind each prefix to, the innermost last.
-    bound: std::collections::HashMap<&'a [u8], Vec<std::ops::Range<usize>>>,
-}
-
-impl<'a> Scope<'a> {
-    /// Opens the element whose start tag has its attributes at `head` in `xmp`, with the
-    /// namespaces that they declare.
-    fn open(&mut self, xmp: &'a [u8], head: std::ops::Range<usize>) {
-        let declared: Vec<(&[u8], std::ops::Range<usize>)> = (tag_attributes(xmp, head)
-            .into_iter())
-        .filter_map(|(name, value)| match &xmp[name] {
-            b"xmlns" => Some((&b""[..], value)),
-            name => {
-                let prefix = name.strip_prefix(b"xmlns:")?;
-                (!prefix.is_empty() && !prefix.contains(&b':')).then_some((prefix, value))
-            }
-        })
-        .collect();
-        for (prefix, uri) in &declared {
-            self.bound.entry(prefix).or_default().push(uri.clone());
-        }
-        self.open.push(declared);
-    }
-
-    /// Closes the innermost element open, and with it the namespaces it declares.
-    fn close(&mut self) {
-        for (prefix, _) in self.open.pop().into_iter().flatten() {
-            if let Some(uris) = self.bound.get_mut(prefix) {
-                uris.pop();
-            }
-        }
-    }
-
-    /// Returns the place of the URI that `prefix` is bound to, or `None` when it is bound to
-    /// none.
-    fn uri(&self, prefix: &[u8]) -> Option<std::ops::Range<usize>> {
-        self.bound.get(prefix)?.last().cloned()
-    }
-
-    /// Opens and closes the elements whose tags are in `xmp` from `from` up to `to`, the
-    /// markup before a Description or between two of them. Comments, CDATA sections and
-    /// processing instructions are passed over whole (`not_element_length`). It stops at a tag
-    /// or such markup that does not end before `to`.
-    fn walk(&mut self, xmp: &'a [u8], mut from: usize, to: usize) {
-        while let Some(found) = xmp[from..to].iter().position(|&c| c == b'<') {
-            let at = from + found;
-            if let Some(length) = not_element_length(&xmp[at..]) {
-                match length.map(|length| at + length) {
-                    Some(end) if end <= to => from = end,
-                    _ => return,
-                }
-                continue;
-            }
-            let Some(gt) = start_tag_end(xmp, at).filter(|&gt| gt < to) else {
-                return;
-            };
-            let name_end = at
-                + 1
-                + (xmp[at + 1..gt].iter())
-                    .take_while(|&&c| is_name_byte(c))
-                    .count();
-            match xmp[at + 1] {
-                b'/' => self.close(),
-                b'!' => {}
-                _ if xmp[gt - 1] == b'/' => {}
-                _ => self.open(xmp, name_end..gt),
-            }
-            from = gt + 1;
-        }
-    }
-
-    /// Returns the namespaces in force with a prefix, each as (prefix, URI), outermost first,
-    /// so that a later one of a prefix is the one in force, as `prefix_in_force` reads them.
-    fn in_force(&self, xmp: &'a str) -> Vec<(&'a str, &'a str)> {
-        (self.open.iter().flatten())
-            .filter(|(prefix, _)| !prefix.is_empty())
-            .filter_map(|(prefix, uri)| {
-                Some((std::str::from_utf8(prefix).ok()?, xmp.get(uri.clone())?))
-            })
-            .collect()
-    }
-}
-
-fn parse_alt_text(xmp: &str) -> AltText {
+fn parse_alt_text(xmp: &Packet) -> AltText {
     AltText {
         text: language_text(xmp, ALT),
         extended_description: language_text(xmp, EXTENDED),
@@ -542,12 +345,12 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
     let source = (side.clone())
-        .filter(|x| has_keywords_or_comment(x))
+        .filter(has_keywords_or_comment)
         .or_else(inside);
-    let alt_text = side.filter(|x| has_alt_text(x)).or_else(inside);
+    let alt_text = side.filter(has_alt_text).or_else(inside);
     (
         source
-            .as_deref()
+            .as_ref()
             .map_or_else(KeywordsAndComment::default, parse),
         source.map_or_else(Vec::new, |x| tree_paths_in(&x)),
         alt_text.map_or_else(AltText::default, |x| parse_alt_text(&x)),
@@ -563,7 +366,7 @@ pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), ShownTe
     // budget, and every other write of a sidecar under this lock would wait with it.
     let inside = read_embedded(path)?;
     let _lock = lock_sidecar(path);
-    let own = (inside.as_deref()).is_some_and(|x| parse_alt_text(x) != AltText::default());
+    let own = (inside.as_ref()).is_some_and(|x| parse_alt_text(x) != AltText::default());
     let fields = [&change.text, &change.extended_description];
     let clears_only = fields
         .iter()
@@ -573,7 +376,7 @@ pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), ShownTe
         false => IfMissing::Create,
     };
     update(path, if_missing, |x| {
-        set_alt_text(x, change, inside.as_deref(), own)
+        set_alt_text(x, change, inside.as_ref(), own)
     })
 }
 
@@ -584,11 +387,11 @@ pub fn write_alt_text(path: &Path, change: &AltTextChange) -> Result<(), ShownTe
 /// a sidecar that has either field (`read_all`), so before, an edit of one hid the image's
 /// other. Returns `None` if `xmp` has no rdf:Description.
 fn set_alt_text(
-    xmp: &str,
+    xmp: &Packet,
     change: &AltTextChange,
-    inside: Option<&str>,
+    inside: Option<&Packet>,
     say_empty: bool,
-) -> Option<String> {
+) -> Option<Packet> {
     let from_image = !has_alt_text(xmp);
     let from = inside.filter(|_| from_image).unwrap_or(xmp);
     let fields = [
@@ -603,12 +406,12 @@ fn set_alt_text(
             None => None,
         })
         .collect();
-    let mut edited_out = xmp.to_owned();
+    let mut edited_out = xmp.clone();
     for (tag, ..) in &written {
-        edited_out = without_property(&edited_out, tag);
+        edited_out = edited_out.without_property(tag);
     }
     let uri = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
-    insert(edited_out, "Iptc4xmpCore", uri, |prefix| {
+    edited_out.with_elements_added("Iptc4xmpCore", uri, |prefix| {
         (written.iter())
             .map(|(tag, text, say_empty)| {
                 language_alternative(from, tag, text, *say_empty, &named(prefix, tag))
@@ -677,7 +480,7 @@ fn tree_paths(path: &Path) -> Vec<String> {
 /// of the lists with "/" between the levels (`SLASHED_TREE_LISTS`), together. A program may have
 /// written one list and not the others, so a path that only one holds is kept, and the writers
 /// write it into each of them.
-fn tree_paths_in(xmp: &str) -> Vec<String> {
+fn tree_paths_in(xmp: &Packet) -> Vec<String> {
     let piped = list_items(xmp, "lr:hierarchicalSubject");
     // A slashed entry that is a path of lr:hierarchicalSubject with "/" for "|" is that path.
     // So a level that holds a "/" itself, as in Music|AC/DC, is not split into two.
@@ -691,28 +494,31 @@ fn tree_paths_in(xmp: &str) -> Vec<String> {
 
 /// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
 /// and otherwise the image's own.
-fn source(path: &Path) -> Option<String> {
+fn source(path: &Path) -> Option<Packet> {
     own_sidecar_text(path)
-        .filter(|x| has_keywords_or_comment(x))
+        .filter(has_keywords_or_comment)
         .or_else(|| embedded(path))
 }
 
 /// Whether `xmp` has keywords or a comment, as top-level elements (`has_property`).
-fn has_keywords_or_comment(xmp: &str) -> bool {
-    has_property(xmp, "dc:subject") || has_property(xmp, "dc:description")
+fn has_keywords_or_comment(xmp: &Packet) -> bool {
+    xmp.has_property("dc:subject") || xmp.has_property("dc:description")
 }
 
 /// Whether `xmp` has alt text or an extended description, as top-level elements
 /// (`has_property`). The panel reads both from a sidecar that has either, and an edit takes
 /// them from the same packet.
-fn has_alt_text(xmp: &str) -> bool {
-    has_property(xmp, ALT) || has_property(xmp, EXTENDED)
+fn has_alt_text(xmp: &Packet) -> bool {
+    xmp.has_property(ALT) || xmp.has_property(EXTENDED)
 }
 
 /// Reads the sidecar of `path` as text for the panel and the search. Returns `None` when there
 /// is none, when it cannot be read or is not UTF-8, and when it is a link (`own_sidecar`).
-fn own_sidecar_text(path: &Path) -> Option<String> {
-    String::from_utf8(own_sidecar(path).ok()??).ok()
+fn own_sidecar_text(path: &Path) -> Option<Packet> {
+    let bytes = own_sidecar(path).ok()??;
+    std::str::from_utf8(&bytes)
+        .is_ok()
+        .then(|| Packet::from_bytes(bytes))
 }
 
 /// Reads the sidecar of `path`, the one way a sidecar is read. Returns `None` when there is
@@ -786,7 +592,7 @@ pub fn read(path: &Path) -> KeywordsAndComment {
 
 /// The XMP packet inside the image, for the panel and the search, which show one that could
 /// not be read as none (`read_embedded`).
-fn embedded(path: &Path) -> Option<String> {
+fn embedded(path: &Path) -> Option<Packet> {
     read_embedded(path).ok().flatten()
 }
 
@@ -795,7 +601,7 @@ fn embedded(path: &Path) -> Option<String> {
 /// image when its file could not be read, as on a share that stopped answering, or its reader
 /// refused the packet, judged as a copy judges it (`save::is_failed_read`). A sidecar written
 /// then would start without the image's own keywords, and hide them from then on.
-fn read_embedded(path: &Path) -> Result<Option<String>, ShownText> {
+fn read_embedded(path: &Path) -> Result<Option<Packet>, ShownText> {
     const JPEG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
     let is_raw = crate::model::listing::has_ext(path, crate::images::raw::EXTS);
     let judged = |e: image::ImageError| match crate::images::save::is_failed_read(&e, is_raw) {
@@ -838,7 +644,9 @@ fn read_embedded(path: &Path) -> Result<Option<String>, ShownText> {
             }
         }
     };
-    Ok(bytes.and_then(|bytes| String::from_utf8(bytes).ok()))
+    // A packet that is not UTF-8 is none that the panel and the search read.
+    let text = bytes.filter(|bytes| std::str::from_utf8(bytes).is_ok());
+    Ok(text.map(Packet::from_bytes))
 }
 
 /// Reads the XMP packet of a TIFF, or of a RAW read as one such as a DNG (tag 700 of its first
@@ -974,33 +782,35 @@ fn write_keywords(
     let inside = read_embedded(path)?;
     let _lock = lock_sidecar(path);
     let own = inside
-        .as_deref()
+        .as_ref()
         .is_some_and(|x| parse(x) != KeywordsAndComment::default());
     // The image's own lists are countered in the sidecar, as its dc:subject is.
     let lists_in_image: Vec<&str> = (SLASHED_TREE_LISTS.iter())
         .map(|(list, ..)| *list)
-        .filter(|list| inside.as_deref().is_some_and(|x| has_property(x, list)))
+        .filter(|list| inside.as_ref().is_some_and(|x| x.has_property(list)))
         .collect();
     let mut written = KeywordsAndComment::default();
+    // An image without XMP of its own gives nothing to read.
+    let no_packet = Packet::default();
     update(path, IfMissing::Create, |x| {
         let from = match has_keywords_or_comment(x) {
             true => x,
-            false => inside.as_deref().unwrap_or_default(),
+            false => inside.as_ref().unwrap_or(&no_packet),
         };
         let (mut meta, mut paths) = (parse(from), tree_paths_in(from));
         let read = (meta.clone(), paths.clone());
         edit(&mut meta, &mut paths);
         written = meta.clone();
         if (&meta, &paths) == (&read.0, &read.1) {
-            return Some(x.to_owned());
+            return Some(x.clone());
         }
         let (meta, paths) = (&meta, &paths);
         // A sidecar without dc:subject takes the keywords that were read, so that a new one
         // does not hide the image's.
-        if edited == Edited::Comment && has_property(x, "dc:subject") {
+        if edited == Edited::Comment && x.has_property("dc:subject") {
             return set_comment(x, from, &meta.comment, own);
         }
-        let x = with_paths(x.to_owned(), paths)?;
+        let x = with_paths(x.clone(), paths)?;
         let x = match edited {
             Edited::Keywords => set_keywords(&x, from, meta, own)?,
             Edited::Comment | Edited::Both => set_keywords_and_comment(&x, from, meta, own)?,
@@ -1333,7 +1143,7 @@ fn lock_of(key: u64) -> &'static std::sync::Mutex<()> {
 pub fn update_sidecar(
     path: &Path,
     if_missing: IfMissing,
-    change: impl FnOnce(&str) -> Option<String>,
+    change: impl FnOnce(&Packet) -> Option<Packet>,
 ) -> Result<(), ShownText> {
     let _lock = lock_sidecar(path);
     update(path, if_missing, change)
@@ -1345,7 +1155,7 @@ pub(crate) fn update_locked_sidecar(
     _lock: &SidecarLock,
     path: &Path,
     if_missing: IfMissing,
-    change: impl FnOnce(&str) -> Option<String>,
+    change: impl FnOnce(&Packet) -> Option<Packet>,
 ) -> Result<(), ShownText> {
     update(path, if_missing, change)
 }
@@ -1353,7 +1163,7 @@ pub(crate) fn update_locked_sidecar(
 fn update(
     path: &Path,
     if_missing: IfMissing,
-    change: impl FnOnce(&str) -> Option<String>,
+    change: impl FnOnce(&Packet) -> Option<Packet>,
 ) -> Result<(), ShownText> {
     // When the image was moved, renamed or deleted while this waited, no sidecar of its old
     // name is made, and it does not count as done.
@@ -1397,17 +1207,19 @@ fn update(
                 e
             ));
         }
-        Ok(Some(bytes)) => String::from_utf8(bytes).map_err(|e| {
-            let e = ShownText::of_error(&e);
-            crate::untranslated!("{name}: {e}", name = escaped_name(&side), e)
-        })?,
+        Ok(Some(bytes)) => match String::from_utf8(bytes) {
+            Ok(text) => Packet::from_bytes(text.into_bytes()),
+            Err(e) => {
+                let e = ShownText::of_error(&e);
+                return Err(crate::untranslated!(
+                    "{name}: {e}",
+                    name = escaped_name(&side),
+                    e
+                ));
+            }
+        },
         Ok(None) if if_missing == IfMissing::LeaveMissing => return Ok(()),
-        Ok(None) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
-             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
-             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
-             <rdf:Description rdf:about=\"\"/>\n </rdf:RDF>\n</x:xmpmeta>\n\
-             <?xpacket end=\"w\"?>\n"
-            .to_owned(),
+        Ok(None) => Packet::new_sidecar(),
     };
     let text = change(&old).ok_or(ShownText::untranslated("unreadable XMP sidecar"))?;
     // A change that changes nothing is not written, and makes no sidecar where there is none.
@@ -1418,7 +1230,7 @@ fn update(
     // alone. A sidecar changed or made since the read is left alone too.
     let named =
         |e: std::io::Error| crate::untranslated!("{name}: {e}", name = escaped_name(&side), e);
-    let write = |f: &mut std::fs::File| std::io::Write::write_all(f, text.as_bytes());
+    let write = |f: &mut std::fs::File| std::io::Write::write_all(f, text.bytes_to_write());
     crate::files::file_io::replace_what_was_read(&side, read, write).map_err(named)
 }
 
@@ -1671,7 +1483,7 @@ pub fn follow(
     }
 }
 
-fn parse(xmp: &str) -> KeywordsAndComment {
+fn parse(xmp: &Packet) -> KeywordsAndComment {
     KeywordsAndComment {
         keywords: list_items(xmp, "dc:subject"),
         comment: language_text(xmp, "dc:description"),
@@ -1679,8 +1491,8 @@ fn parse(xmp: &str) -> KeywordsAndComment {
 }
 
 /// The texts of the rdf:li items of element `tag`.
-fn list_items(xmp: &str, tag: &str) -> Vec<String> {
-    (items_with_languages(xmp, tag).into_iter())
+fn list_items(xmp: &Packet, tag: &str) -> Vec<String> {
+    (xmp.items_with_languages(tag).into_iter())
         .map(|(_, text)| text)
         .collect()
 }
@@ -1695,7 +1507,7 @@ fn shown_language(items: &[(String, String)]) -> Option<usize> {
 }
 
 /// The text of the language alternative `tag` in `xmp` that the panel shows (`shown_language`).
-fn language_text(xmp: &str, tag: &str) -> String {
+fn language_text(xmp: &Packet, tag: &str) -> String {
     let mut items = languages(xmp, tag);
     shown_language(&items).map_or_else(String::new, |i| items.swap_remove(i).1)
 }
@@ -1705,9 +1517,9 @@ fn language_text(xmp: &str, tag: &str) -> String {
 /// writes it so. When a language is written twice, the text of the first is the one read,
 /// edited and written. Before, an item without a language and an x-default item were read as
 /// two languages and written as one, so an edit read back as the old text.
-fn languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
+fn languages(xmp: &Packet, tag: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    for mut item in items_with_languages(xmp, tag) {
+    for mut item in xmp.items_with_languages(tag) {
         if item.0.is_empty() {
             item.0 = "x-default".into();
         }
@@ -1728,7 +1540,7 @@ fn languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
 /// `tag` with the prefix in force where it goes (`insert`). Returns an empty text for no
 /// element, or an empty rdf:Alt when `say_empty`.
 fn language_alternative(
-    read_from: &str,
+    read_from: &Packet,
     tag: &str,
     text: &str,
     say_empty: bool,
@@ -1757,111 +1569,19 @@ fn language_alternative(
     out + &format!("    </rdf:Alt>\n   </{written_as}>")
 }
 
-/// The rdf:li items of property `tag`, each as the language its start tag names (xml:lang, or
-/// empty for none) and its text. They are those of every top-level property that is `tag`
-/// (`properties_named`), in the order they are written, as the editors take out every one of
-/// them (`without_property`) and write back what was read. An item that an earlier one of them
-/// has already is left out. A property written as an attribute is one item without a language.
-/// Before, only the first was read, and an edit of a sidecar that held `dc:subject` and
-/// `ns1:subject` both lost the keywords of the second for good.
-fn items_with_languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
-    for found in properties_named(xmp.as_bytes(), tag) {
-        let items = match found.is_attribute {
-            true => vec![(String::new(), unescape(&xmp[found.value]))],
-            false => element_items(xmp, found.whole.start, found.whole.end),
-        };
-        let earlier = out.len();
-        for item in items {
-            if !out[..earlier].contains(&item) {
-                out.push(item);
-            }
-        }
-    }
-    out
-}
-
-/// The rdf:li items of the element of `xmp` from `start` to `end`, each as the language its
-/// start tag names (xml:lang, or empty for none) and its text.
-fn element_items(xmp: &str, start: usize, end: usize) -> Vec<(String, String)> {
-    const ITEM: &[u8] = b"<rdf:li";
-    let (bytes, mut from, mut out) = (&xmp.as_bytes()[..end], start, Vec::new());
-    while let Some(found) = bytes[from..].iter().position(|&c| c == b'<') {
-        let at = from + found;
-        if let Some(length) = not_element_length(&bytes[at..]) {
-            let Some(length) = length else { break };
-            from = at + length;
-            continue;
-        }
-        let Some(gt) = start_tag_end(bytes, at) else {
-            break;
-        };
-        let is_item = bytes[at..].starts_with(ITEM)
-            && bytes.get(at + ITEM.len()).is_some_and(|&c| ends_a_name(c));
-        if !is_item || bytes[gt - 1] == b'/' {
-            from = gt + 1;
-            continue;
-        }
-        let Some(item_end) = element_end(bytes, gt + 1, b"rdf:li") else {
-            break;
-        };
-        let language = (attributes(&xmp[at + ITEM.len()..gt]).into_iter())
-            .find(|(name, _)| *name == "xml:lang")
-            .map_or_else(String::new, |(_, value)| unescape(value));
-        out.push((
-            language,
-            text_of(&xmp[gt + 1..item_end - b"</rdf:li>".len()]),
-        ));
-        from = item_end;
-    }
-    out
-}
-
-/// Returns the text of `content`, what is between an element's start and end tags, as XML reads
-/// it. Its entities are read, a CDATA section gives its text as it is written, and comments and
-/// processing instructions are left out (`not_element_length`).
-fn text_of(content: &str) -> String {
-    let (mut out, mut from) = (String::new(), 0);
-    while let Some(found) = content[from..].find('<') {
-        let at = from + found;
-        out += &unescape(&content[from..at]);
-        let rest = &content[at..];
-        match not_element_length(rest.as_bytes()) {
-            Some(Some(length)) => {
-                if let Some(text) = rest[..length].strip_prefix("<![CDATA[") {
-                    out += &text[..text.len() - b"]]>".len()];
-                }
-                from = at + length;
-            }
-            _ => {
-                out.push('<');
-                from = at + 1;
-            }
-        }
-    }
-    out + &unescape(&content[from..])
-}
-
 /// `set_keywords_and_comment` for a change of keywords only. A comment the sidecar has stays as
 /// it is, in all its languages. A comment only inside the image is copied into a new sidecar in
 /// all its languages, because the sidecar would hide it otherwise.
 fn set_keywords(
-    xmp: &str,
-    read_from: &str,
+    xmp: &Packet,
+    read_from: &Packet,
     meta: &KeywordsAndComment,
     say_empty: bool,
-) -> Option<String> {
-    if !has_property(xmp, "dc:description") {
+) -> Option<Packet> {
+    if !xmp.has_property("dc:description") {
         return set_keywords_and_comment(xmp, read_from, meta, say_empty);
     }
     with_keywords(xmp, &meta.keywords, |_| String::new(), say_empty)
-}
-
-/// Whether `xmp` has the top-level property `tag` (`properties_named`), as an element or an
-/// attribute, as the readers read both. A search for its name would also find one inside
-/// another property, such as another document's in xmpMM:Pantry.
-fn has_property(xmp: &str, tag: &str) -> bool {
-    !properties_named(xmp.as_bytes(), tag).is_empty()
 }
 
 /// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. The comment
@@ -1869,13 +1589,13 @@ fn has_property(xmp: &str, tag: &str) -> bool {
 /// (`comment_element`). Empty ones are written as empty elements when `say_empty` is set.
 /// Returns `None` if `xmp` has no rdf:Description.
 fn set_keywords_and_comment(
-    xmp: &str,
-    read_from: &str,
+    xmp: &Packet,
+    read_from: &Packet,
     meta: &KeywordsAndComment,
     say_empty: bool,
-) -> Option<String> {
+) -> Option<Packet> {
     let description = comment_element(read_from, &meta.comment, say_empty);
-    let comment_out = without_property(xmp, "dc:description");
+    let comment_out = xmp.without_property("dc:description");
     with_keywords(&comment_out, &meta.keywords, description, say_empty)
 }
 
@@ -1886,7 +1606,7 @@ fn set_keywords_and_comment(
 /// sidecar of an image whose comment had several languages kept only the one shown, and every
 /// program that reads the sidecar first lost the others.
 fn comment_element<'a>(
-    read_from: &'a str,
+    read_from: &'a Packet,
     comment: &'a str,
     say_empty: bool,
 ) -> impl FnOnce(&str) -> String + 'a {
@@ -1901,13 +1621,13 @@ fn comment_element<'a>(
 /// them (`tree_paths_for`). No keywords are written as an empty element when `say_empty` is
 /// set. Returns `None` if `xmp` has no rdf:Description.
 fn with_keywords(
-    xmp: &str,
+    xmp: &Packet,
     keywords: &[String],
     also: impl FnOnce(&str) -> String,
     say_empty: bool,
-) -> Option<String> {
-    let xmp = without_property(xmp, "dc:subject");
-    let xmp = insert(xmp, "dc", "http://purl.org/dc/elements/1.1/", |prefix| {
+) -> Option<Packet> {
+    let xmp = xmp.without_property("dc:subject");
+    let xmp = xmp.with_elements_added("dc", "http://purl.org/dc/elements/1.1/", |prefix| {
         let subject = named(prefix, "dc:subject");
         let mut add = String::new();
         if keywords.is_empty() && say_empty {
@@ -1961,15 +1681,10 @@ fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
 /// `xmp` with `comment` in place of its comment's language shown, and the other languages of
 /// `read_from` kept (`comment_element`). An empty one is written as an empty element when
 /// `say_empty` is set. Returns `None` if `xmp` has no rdf:Description.
-fn set_comment(xmp: &str, read_from: &str, comment: &str, say_empty: bool) -> Option<String> {
-    let comment_out = without_property(xmp, "dc:description");
+fn set_comment(xmp: &Packet, read_from: &Packet, comment: &str, say_empty: bool) -> Option<Packet> {
+    let comment_out = xmp.without_property("dc:description");
     let description = comment_element(read_from, comment, say_empty);
-    insert(
-        comment_out,
-        "dc",
-        "http://purl.org/dc/elements/1.1/",
-        description,
-    )
+    comment_out.with_elements_added("dc", "http://purl.org/dc/elements/1.1/", description)
 }
 
 /// `xmp` with each list of `SLASHED_TREE_LISTS` that it has, or that `lists_in_image` names,
@@ -1979,15 +1694,16 @@ fn set_comment(xmp: &str, read_from: &str, comment: &str, say_empty: bool) -> Op
 /// level, as a backslash. A list the image has is written also when it is empty, because if it
 /// were left out, the image's own would be read in its place. Returns `None` if `xmp` has no
 /// rdf:Description.
-fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<String> {
+fn with_slashed_tree_lists(xmp: Packet, lists_in_image: &[&str]) -> Option<Packet> {
     let paths = list_items(&xmp, "lr:hierarchicalSubject");
     let mut xmp = xmp;
     for (list, container, uri) in SLASHED_TREE_LISTS {
-        if !has_property(&xmp, list) && !lists_in_image.contains(&list) {
+        if !xmp.has_property(list) && !lists_in_image.contains(&list) {
             continue;
         }
         let prefix = list.split(':').next().unwrap_or(list);
-        xmp = insert(without_property(&xmp, list), prefix, uri, |in_force| {
+        let list_taken_out = xmp.without_property(list);
+        xmp = list_taken_out.with_elements_added(prefix, uri, |in_force| {
             let name = named(in_force, list);
             let mut add = format!("\n   <{name}>\n    <rdf:{container}>\n");
             for p in paths.iter().filter(|p| !p.contains('/')) {
@@ -2000,40 +1716,18 @@ fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<Strin
 }
 
 /// `xmp` with lr:hierarchicalSubject holding `paths`, or without it if there are none.
-fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
-    let xmp = without_property(&xmp, "lr:hierarchicalSubject");
+fn with_paths(xmp: Packet, paths: &[String]) -> Option<Packet> {
+    let xmp = xmp.without_property("lr:hierarchicalSubject");
     if paths.is_empty() {
         return Some(xmp);
     }
-    insert(xmp, "lr", "http://ns.adobe.com/lightroom/1.0/", |prefix| {
+    xmp.with_elements_added("lr", "http://ns.adobe.com/lightroom/1.0/", |prefix| {
         let name = named(prefix, "lr:hierarchicalSubject");
         let mut add = format!("\n   <{name}>\n    <rdf:Bag>\n");
         for p in paths {
             add += &format!("     <rdf:li>{}</rdf:li>\n", escape(p));
         }
         add + &format!("    </rdf:Bag>\n   </{name}>")
-    })
-}
-
-/// `xmp` with the elements of the namespace `uri` that `add` writes put in its first
-/// rdf:Description. `add` is given the prefix to write them with, the one in force there for
-/// `uri` (`prefix_in_force`), which is `prefix` declared there when none is.
-fn insert(
-    xmp: String,
-    prefix: &str,
-    uri: &str,
-    add: impl FnOnce(&str) -> String,
-) -> Option<String> {
-    let (end, declared) = first_description(&xmp)?;
-    let (in_force, ns) = prefix_in_force(&declared, prefix, uri);
-    let add = add(&in_force);
-    // A Description without content (<rdf:Description .../>) is opened to hold the elements.
-    Some(match xmp[..end].strip_suffix('/') {
-        Some(head) if !add.is_empty() => {
-            format!("{head}{ns}>{add}\n  </rdf:Description>{}", &xmp[end + 1..])
-        }
-        Some(_) => xmp,
-        None => format!("{}{ns}>{add}{}", &xmp[..end], &xmp[end + 1..]),
     })
 }
 
@@ -2044,12 +1738,12 @@ fn named(prefix: &str, tag: &str) -> String {
 }
 
 /// Returns the prefix that a property of the namespace `uri` is written with in a Description
-/// whose namespaces in force are `declared` (`first_description`), and the declaration to add
-/// to its start tag, which is empty when the prefix is declared already. It is the prefix that
-/// `declared` binds to `uri`, so that a property is written as the same one as the packet has
-/// (`ns1:subject`). When none is bound, it is `prefix`, or `prefix` with a number when that
-/// is bound to another namespace. exiftool gives each namespace a Description of its own, and
-/// a prefix declared on a later one is not in force in the first.
+/// whose namespaces in force are `declared` (`xmp_packet::first_description`), and the
+/// declaration to add to its start tag, which is empty when the prefix is declared already. It
+/// is the prefix that `declared` binds to `uri`, so that a property is written as the same one
+/// as the packet has (`ns1:subject`). When none is bound, it is `prefix`, or `prefix` with a
+/// number when that is bound to another namespace. exiftool gives each namespace a Description
+/// of its own, and a prefix declared on a later one is not in force in the first.
 pub(crate) fn prefix_in_force(
     declared: &[(&str, &str)],
     prefix: &str,
@@ -2091,606 +1785,12 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), ShownText> {
     tagged.map(drop)
 }
 
-/// `xmp` without property `tag` in any form it is written in (`save::xmp_without_property`).
-pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
-    let out = crate::images::save::xmp_without_property(xmp.as_bytes(), tag);
-    // It cuts only at ASCII characters, so the text stays UTF-8.
-    String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
-}
-
-/// Reads the top-level properties of every rdf:Description of `xmp` (`top_level_properties`),
-/// written as attributes or as elements. An attribute is given as the element it stands for,
-/// so a packet written of them holds only elements. A property is named by the namespace its
-/// prefix is bound to where it is written (`name_in_namespace`). Each is given the namespaces in
-/// force where it is written for the prefixes it uses. The Descriptions share them while they
-/// bind no prefix two ways, and one that binds a prefix otherwise than those before it starts
-/// namespaces of its own, which `packet` writes in a Description of their own. Before, every
-/// prefix was read as the first declaration of the packet binds it, so a property of another
-/// namespace written with the same prefix was copied into the first one.
-pub(crate) fn properties(xmp: &str) -> Properties {
-    let mut groups: Vec<Vec<(String, String)>> = Vec::new();
-    let mut bound: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    let mut found_in_group: Vec<(String, String, usize)> = Vec::new();
-    each_description(xmp.as_bytes(), |scope, found| {
-        // The places are at ASCII characters, so each slice is whole UTF-8.
-        let uses = (found.iter()).flat_map(|f| prefixes_in(&xmp[f.whole.clone()]));
-        let needed: Vec<(&str, &str)> = uses
-            .filter_map(|prefix| Some((prefix, &xmp[scope.uri(prefix.as_bytes())?])))
-            .collect();
-        let binds_otherwise = (needed.iter()).any(|(p, u)| bound.get(p).is_some_and(|b| b != u));
-        if groups.is_empty() || binds_otherwise {
-            groups.push(Vec::new());
-            bound.clear();
-        }
-        let group = groups.len() - 1;
-        for (prefix, uri) in needed {
-            if bound.insert(prefix, uri).is_none() {
-                groups[group].push((prefix.to_owned(), uri.to_owned()));
-            }
-        }
-        for found in found {
-            let name = &xmp[found.name.clone()];
-            let Some((prefix, local)) = name.split_once(':') else {
-                continue;
-            };
-            let element = match found.is_attribute {
-                true => format!("<{name}>{}</{name}>", &xmp[found.value]),
-                false => xmp[found.whole].to_owned(),
-            };
-            let uri = found.namespace.map(|uri| &xmp[uri]);
-            found_in_group.push((name_in_namespace(prefix, local, uri), element, group));
-        }
-    });
-    let groups: Vec<Namespaces> = groups.into_iter().map(Namespaces::new).collect();
-    let list = (found_in_group.into_iter())
-        .map(|(name, element, group)| (name, element, groups[group].clone()))
-        .collect();
-    Properties { list }
-}
-
-/// Returns the prefixes that `text`, a property as written, may use: each run of the letters
-/// of a name before a ':'. It may give a word of a value too, which no namespace in force binds
-/// as a rule, or binds to no harm.
-fn prefixes_in(text: &str) -> Vec<&str> {
-    let (mut out, mut start) = (Vec::new(), 0);
-    for (i, &c) in text.as_bytes().iter().enumerate() {
-        if c == b':' && start < i {
-            out.push(&text[start..i]);
-        }
-        if c == b':' || !is_name_byte(c) {
-            start = i + 1;
-        }
-    }
-    out
-}
-
-/// Calls `each` with the namespaces in force in each rdf:Description of `xmp` (`Scope`) and
-/// its top-level properties (`top_level_properties`), in the order they are written.
-fn each_description<'a>(xmp: &'a [u8], mut each: impl FnMut(&Scope<'a>, Vec<TopLevelProperty>)) {
-    let (mut scope, mut from) = (Scope::default(), 0);
-    while let Some(start) = next_description(xmp, from) {
-        scope.walk(xmp, from, start);
-        let Some(gt) = start_tag_end(xmp, start) else {
-            break;
-        };
-        let head = start + DESCRIPTION.len()..gt;
-        scope.open(xmp, head.clone());
-        let mut found = Vec::new();
-        attribute_properties(xmp, head, &scope, &mut found);
-        let end = match xmp[gt - 1] == b'/' {
-            true => Some(gt + 1),
-            false => element_properties(xmp, gt + 1, DESCRIPTION_END, &mut scope, &mut found),
-        };
-        each(&scope, found);
-        scope.close();
-        match end {
-            Some(end) => from = end,
-            None => break,
-        }
-    }
-}
-
-/// Returns the top-level properties of every rdf:Description of `xmp`, in the order they are
-/// written: the attributes of its start tag, but for the namespace declarations and the rdf:
-/// and xml: ones, and the elements just inside it. What is inside a property is no property of
-/// the photo, such as the Descriptions of other documents in xmpMM:Pantry, so the readers and
-/// editors never see it. It is the one reading of where a property is, for them and for Copy
-/// for Sharing. A Description is read up to what does not read as a property, and the walk
-/// stops there, because what follows cannot be told apart from the inside of a property.
-/// Comments, CDATA sections and processing instructions are passed over whole, also inside a
-/// property (`not_element_length`). Each step goes on from where the last one ended, so a
-/// hostile packet takes linear time. Each property's prefix is read as it is bound where the
-/// property is written (`Scope`).
-pub(crate) fn top_level_properties(xmp: &[u8]) -> Vec<TopLevelProperty> {
-    let mut out = Vec::new();
-    each_description(xmp, |_, found| out.extend(found));
-    out
-}
-
-/// Returns the top-level properties of `xmp` (`top_level_properties`) that are `tag`, a name
-/// with the prefix of its namespace in `KNOWN_NAMESPACES`, such as "dc:subject". A property
-/// counts when its prefix is bound to that namespace where it is written, whatever the prefix
-/// is, as a tool that writes `ns1:subject` binds it. It counts too when it is written as `tag`
-/// and its prefix is bound to nothing there, as a broken packet may have it. A `tag` whose
-/// prefix is not in `KNOWN_NAMESPACES` is found as it is written. It is the one way the
-/// readers and editors find a property by its name. Before, they compared the prefix as
-/// written, so they read no keywords of a packet that wrote `ns1:subject` and wrote a second
-/// `dc:subject` beside it, which exiv2 refuses.
-pub(crate) fn properties_named(xmp: &[u8], tag: &str) -> Vec<TopLevelProperty> {
-    let (prefix, local) = tag.split_once(':').unwrap_or(("", tag));
-    let uris: Vec<&str> = (KNOWN_NAMESPACES.iter())
-        .filter(|(known, _)| *known == prefix)
-        .map(|(_, uri)| *uri)
-        .collect();
-    let nowhere_else = std::collections::HashSet::new();
-    (top_level_properties(xmp).into_iter())
-        .filter(|found| {
-            let as_written = uris.is_empty() || found.namespace.is_none();
-            (as_written && xmp[found.name.clone()] == *tag.as_bytes())
-                || found.is_in(xmp, &nowhere_else, &uris, local)
-        })
-        .collect()
-}
-
-/// Returns where the first rdf:Description of `xmp` at `from` or after it starts, at its '<'.
-/// Comments, CDATA sections and processing instructions are passed over whole
-/// (`not_element_length`), so a Description inside one is not found. Returns `None` when there
-/// is none, or when such markup before it does not end.
-fn next_description(xmp: &[u8], mut from: usize) -> Option<usize> {
-    while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
-        let at = from + found;
-        if let Some(length) = not_element_length(&xmp[at..]) {
-            from = at + length?;
-            continue;
-        }
-        let after_name = at + DESCRIPTION.len();
-        if xmp[at..].starts_with(DESCRIPTION)
-            && xmp.get(after_name).is_some_and(|&c| ends_a_name(c))
-        {
-            return Some(at);
-        }
-        from = at + 1;
-    }
-    None
-}
-
-/// Returns the length of the comment, CDATA section or processing instruction that `rest`
-/// starts with (`NOT_ELEMENTS`), from its '<' to past its end. Returns `None` when `rest`
-/// starts with none of them, and `Some(None)` when it starts one that does not end.
-fn not_element_length(rest: &[u8]) -> Option<Option<usize>> {
-    let (starts, ends) = NOT_ELEMENTS
-        .iter()
-        .find(|(starts, _)| rest.starts_with(starts))?;
-    let end = find_bytes(&rest[starts.len()..], ends);
-    Some(end.map(|end| starts.len() + end + ends.len()))
-}
-
-/// Adds the properties written as attributes in `head`, the place of a Description's start tag
-/// after its name, to `out`, each with the namespace its prefix is bound to in `scope`. It reads
-/// up to what does not read as an attribute (`tag_attributes`).
-fn attribute_properties(
-    xmp: &[u8],
-    head: std::ops::Range<usize>,
-    scope: &Scope,
-    out: &mut Vec<TopLevelProperty>,
-) {
-    for (name, value) in tag_attributes(xmp, head) {
-        let written = &xmp[name.clone()];
-        let Some(colon) = written.iter().position(|&c| c == b':') else {
-            continue;
-        };
-        if [&b"xmlns:"[..], b"rdf:", b"xml:"]
-            .iter()
-            .any(|p| written.starts_with(p))
-        {
-            continue;
-        }
-        out.push(TopLevelProperty {
-            namespace: scope.uri(&written[..colon]),
-            whole: name.start..value.end + 1,
-            name,
-            value,
-            is_attribute: true,
-        });
-    }
-}
-
-/// Returns the attributes written in `head`, the place of a start tag after its name, each as
-/// the places of its name and of its value between its quotes. It reads up to what does not
-/// read as an attribute.
-fn tag_attributes(
-    xmp: &[u8],
-    head: std::ops::Range<usize>,
-) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
-    let mut out = Vec::new();
-    let blanks_from = |i: usize| {
-        let i = i.min(head.end);
-        i + (xmp[i..head.end].iter())
-            .take_while(|c| c.is_ascii_whitespace())
-            .count()
-    };
-    let mut at = head.start;
-    loop {
-        let name_start = blanks_from(at);
-        let name_end = name_start
-            + (xmp[name_start..head.end].iter())
-                .take_while(|&&c| is_name_byte(c))
-                .count();
-        let equals = blanks_from(name_end);
-        if name_end == name_start || equals >= head.end || xmp[equals] != b'=' {
-            return out;
-        }
-        let open = blanks_from(equals + 1);
-        let quote = xmp[open..head.end].first().copied();
-        let Some(quote) = quote.filter(|&q| q == b'"' || q == b'\'') else {
-            return out;
-        };
-        let Some(close) = (xmp[open + 1..head.end].iter()).position(|&c| c == quote) else {
-            return out;
-        };
-        let close = open + 1 + close;
-        out.push((name_start..name_end, open + 1..close));
-        at = close + 1;
-    }
-}
-
-/// Adds the elements in `xmp` from `from` on, the properties inside a Description or the
-/// fields inside a structure's item, to `out`. They end at the end tag `end`, such as
-/// `DESCRIPTION_END`. Each is given the namespace its prefix is bound to in `scope` with the
-/// declarations of its own start tag. Returns the place just after that end tag, or `None` when
-/// something else stops the reading.
-fn element_properties<'a>(
-    xmp: &'a [u8],
-    mut from: usize,
-    end_tag: &[u8],
-    scope: &mut Scope<'a>,
-    out: &mut Vec<TopLevelProperty>,
-) -> Option<usize> {
-    loop {
-        from += (xmp[from..].iter())
-            .take_while(|c| c.is_ascii_whitespace())
-            .count();
-        let rest = &xmp[from..];
-        if let Some(length) = not_element_length(rest) {
-            from += length?;
-            continue;
-        }
-        if rest.starts_with(end_tag) {
-            return Some(from + end_tag.len());
-        }
-        if rest.first() != Some(&b'<') {
-            return None;
-        }
-        let name_length = rest[1..].iter().take_while(|&&c| is_name_byte(c)).count();
-        let name = from + 1..from + 1 + name_length;
-        if name_length == 0 || !xmp.get(name.end).is_some_and(|&c| ends_a_name(c)) {
-            return None;
-        }
-        let gt = start_tag_end(xmp, from)?;
-        let (value, end) = match xmp[gt - 1] == b'/' {
-            true => (gt + 1..gt + 1, gt + 1),
-            false => {
-                let end = element_end(xmp, gt + 1, &xmp[name.clone()])?;
-                (gt + 1..end - name_length - 3, end)
-            }
-        };
-        let written = &xmp[name.clone()];
-        let prefix = written
-            .iter()
-            .position(|&c| c == b':')
-            .map_or(&b""[..], |colon| &written[..colon]);
-        scope.open(xmp, name.end..gt);
-        let namespace = scope.uri(prefix);
-        scope.close();
-        out.push(TopLevelProperty {
-            name,
-            whole: from..end,
-            value,
-            is_attribute: false,
-            namespace,
-        });
-        from = end;
-    }
-}
-
-/// Returns the fields of each item whose name as written `is_item` takes, inside `within`, the
-/// place of a property's value in `xmp`, in the order the items are written. Such items are the
-/// parts of a structure, such as the Container:Item elements of a motion photo's
-/// Container:Directory, and they are found at any depth inside the value. An item's fields are
-/// read in each form that XMP writes a structure in (`item_fields`). Comments, CDATA sections
-/// and processing instructions are passed over whole (`not_element_length`). The walk stops at
-/// such markup that does not end, and at an item that does not end.
-pub(crate) fn structure_items(
-    xmp: &[u8],
-    within: std::ops::Range<usize>,
-    is_item: impl Fn(&[u8]) -> bool,
-) -> Vec<Vec<TopLevelProperty>> {
-    let (xmp, mut from, mut out) = (&xmp[..within.end], within.start, Vec::new());
-    while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
-        let at = from + found;
-        if let Some(length) = not_element_length(&xmp[at..]) {
-            let Some(length) = length else { break };
-            from = at + length;
-            continue;
-        }
-        let Some(gt) = start_tag_end(xmp, at) else {
-            break;
-        };
-        let name_end = at
-            + 1
-            + (xmp[at + 1..gt].iter())
-                .take_while(|&&c| is_name_byte(c))
-                .count();
-        if !is_item(&xmp[at + 1..name_end]) {
-            from = gt + 1;
-            continue;
-        }
-        let mut fields = Vec::new();
-        let Some(end) = item_fields(xmp, at, name_end, gt, &mut fields) else {
-            break;
-        };
-        out.push(fields);
-        from = end;
-    }
-    out
-}
-
-/// Adds the fields of the structure's item whose start tag starts at `start` in `xmp`, with
-/// its name ending at `name_end` and its '>' at `gt`, to `out` (`structure_items`). XMP writes
-/// them in three forms, and all three are read: as attributes of the item's start tag, as
-/// elements inside it (rdf:parseType="Resource", as ExifTool writes them), and as the
-/// attributes and elements of an rdf:Description just inside it. The elements are read up to
-/// what does not read as one. Returns the place just past the item's end tag, or `None` when
-/// it does not end. A field's prefix is read by the declarations of the item and of the tags
-/// inside it around the field. One that they bind to nothing is looked up by the caller
-/// (`TopLevelProperty::is_in`).
-fn item_fields(
-    xmp: &[u8],
-    start: usize,
-    name_end: usize,
-    gt: usize,
-    out: &mut Vec<TopLevelProperty>,
-) -> Option<usize> {
-    let scope = &mut Scope::default();
-    scope.open(xmp, name_end..gt);
-    attribute_properties(xmp, name_end..gt, scope, out);
-    if xmp[gt - 1] == b'/' {
-        return Some(gt + 1);
-    }
-    let end = element_end(xmp, gt + 1, &xmp[start + 1..name_end])?;
-    // The end tag is "</", the name and ">".
-    let end_tag = end - (name_end - start) - 2;
-    let mut inside = Vec::new();
-    // What follows a field that does not read as one is not read, and the fields before it
-    // count, as at the top of a Description.
-    element_properties(xmp, gt + 1, &xmp[end_tag..end], scope, &mut inside);
-    for field in inside {
-        if xmp[field.name.clone()] != DESCRIPTION[1..] {
-            out.push(field);
-            continue;
-        }
-        let Some(description_gt) = start_tag_end(xmp, field.whole.start) else {
-            continue;
-        };
-        let head = field.name.end..description_gt;
-        scope.open(xmp, head.clone());
-        attribute_properties(xmp, head, scope, out);
-        if xmp[description_gt - 1] != b'/' {
-            element_properties(xmp, description_gt + 1, DESCRIPTION_END, scope, out);
-        }
-        scope.close();
-    }
-    Some(end)
-}
-
-/// Whether `c` may be in an XML name, such as "dc:subject". A byte of a letter beyond ASCII is.
-fn is_name_byte(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b':') || c >= 0x80
-}
-
-/// Whether `c` ends the name of a start tag.
-fn ends_a_name(c: u8) -> bool {
-    c.is_ascii_whitespace() || c == b'>' || c == b'/'
-}
-
-/// Returns the first place of `what` in `hay`, or `None` when it is not there.
-fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {
-    hay.windows(what.len()).position(|w| w == what)
-}
-
-/// The namespaces that `xmp` declares anywhere, each as (prefix, URI), in the order they are
-/// written. A default namespace (`xmlns="…"`) has the prefix "". It is only for a name that
-/// another packet may bind, as a JPEG's extended XMP may use a prefix that its main packet
-/// declares (`TopLevelProperty::is_in`). A property of a packet is read by the namespaces in
-/// force where it is written (`Scope`), never by these. A declaration inside a comment, a CDATA
-/// section or a processing instruction declares nothing, so these are passed over whole
-/// (`not_element_length`), and the reading stops at one that does not end. Before, a
-/// Description commented out declared its prefixes for the one after it, and the writers wrote
-/// a property with its prefix bound to nothing.
-pub(crate) fn namespace_declarations_with_default(xmp: &str) -> Vec<(&str, &str)> {
-    let bytes = xmp.as_bytes();
-    let (mut out, mut from, mut at) = (Vec::new(), 0, 0);
-    while let Some(found) = bytes[at..].iter().position(|&c| c == b'<') {
-        let start = at + found;
-        let Some(length) = not_element_length(&bytes[start..]) else {
-            at = start + 1;
-            continue;
-        };
-        // The markup starts at a '<', so the text before it is whole UTF-8.
-        declarations_in(&xmp[from..start], &mut out);
-        let Some(length) = length else {
-            return out;
-        };
-        (from, at) = (start + length, start + length);
-    }
-    declarations_in(&xmp[from..], &mut out);
-    out
-}
-
-/// Adds the namespaces that `text`, a part of a packet outside its comments, CDATA sections
-/// and processing instructions, declares to `out`. `namespace_declarations_with_default` cuts
-/// the packet into such parts at the markup that `not_element_length` passes over.
-fn declarations_in<'a>(text: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
-    for (at, _) in text.match_indices("xmlns") {
-        // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
-        // would be searched to its end a million times. The cap is moved back to the start of
-        // a letter, as a cut inside one would panic.
-        let rest = &text[at + 5..text.floor_char_boundary(at + 1024)];
-        // XML allows spaces around the "=", as in `xmlns:tiff = "…"`.
-        let declared = rest.split_once('=');
-        let Some((name, uri)) =
-            declared.and_then(|(p, v)| Some((p.trim_end(), quoted(v.trim_start())?)))
-        else {
-            continue;
-        };
-        // A default namespace, written `xmlns="…"`, is given the prefix "".
-        if name.is_empty() {
-            out.push(("", uri));
-        } else if let Some(prefix) = name.strip_prefix(':')
-            && is_name(prefix)
-            && !prefix.contains(':')
-        {
-            out.push((prefix, uri));
-        }
-    }
-}
-
-/// Returns whether `name`, an element's or attribute's name as written ("GContainer:Item"), is
-/// `local` in one of the namespaces `uris`. Its prefix counts when any of the `declared`
-/// namespaces (`namespace_declarations_with_default`) binds it to one of them, whatever the
-/// prefix is. One writer's prefix is not another's: ExifTool writes Google's Container as
-/// GContainer, and Dynamic Depth binds Container to a namespace of its own. A name without a
-/// prefix counts when a default namespace (the prefix "") is one of them. XML puts only an
-/// element's name in the default namespace, and the readers of properties list no attribute
-/// without a prefix. Before, such an element was in no namespace.
-///
-/// The declarations are a set of (prefix, URI), so a name is looked up once for each of `uris`,
-/// however many declarations a packet has. Before, every declaration was compared for each
-/// name, and a crafted packet of 16 MiB with a declaration and a property in each Description
-/// took about nine minutes (hours at 100 MB).
-pub(crate) fn is_in_namespace(
-    name: &[u8],
-    declared: &std::collections::HashSet<(&str, &str)>,
-    uris: &[&str],
-    local: &str,
-) -> bool {
-    let colon = name.iter().position(|&c| c == b':');
-    let (prefix, rest) = match colon {
-        Some(colon) => (&name[..colon], &name[colon + 1..]),
-        None => (&b""[..], name),
-    };
-    let Ok(prefix) = std::str::from_utf8(prefix) else {
-        return false;
-    };
-    rest == local.as_bytes() && uris.iter().any(|uri| declared.contains(&(prefix, *uri)))
-}
-
-/// Returns where the start tag of the first rdf:Description in `xmp` ends, at its '>' past any
-/// '>' in its quoted values, and the namespaces with a prefix in force there (`Scope::in_force`):
-/// those declared on it and on the elements around it, outermost first. The writers put what
-/// they add into this Description, and read it as `properties` does, so a declaration written
-/// `xmlns:dc = "…"` is not declared twice. Before, a declaration on an element that had ended
-/// before it counted too, and a property was written with a prefix bound to nothing there.
-/// Returns `None` when `xmp` has no Description or its start tag does not end.
-pub(crate) fn first_description(xmp: &str) -> Option<(usize, Vec<(&str, &str)>)> {
-    let start = first_description_start(xmp)?;
-    let end = start_tag_end(xmp.as_bytes(), start)?;
-    let mut scope = Scope::default();
-    scope.walk(xmp.as_bytes(), 0, start);
-    scope.open(xmp.as_bytes(), start + DESCRIPTION.len()..end);
-    Some((end, scope.in_force(xmp)))
-}
-
-/// Returns where the first rdf:Description of `xmp` starts, at its '<', past the comments,
-/// CDATA sections and processing instructions (`next_description`), so that a writer never puts
-/// a property into a Description that is commented out. Returns `None` when there is none.
-pub(crate) fn first_description_start(xmp: &str) -> Option<usize> {
-    next_description(xmp.as_bytes(), 0)
-}
-
-/// Returns the name of the property `local` written with `prefix`, which is bound to the
-/// namespace `uri`, or to none, where it is written. It has the prefix of its namespace in
-/// `KNOWN_NAMESPACES`, or else the prefix as written. A known prefix bound to another
-/// namespace, or to none, is replaced by that namespace in braces ("{urn:other}Make"), so the
-/// name cannot pass for a known one. An empty prefix is a default namespace's, and a property
-/// in an unknown default namespace is named by it in braces too, as is one whose name would
-/// start like a word of Copy for Sharing's choice that is no tag ("group:x",
-/// `shared_copy::GROUP_KEY_START`). Saved, such a name was read back as a later group word,
-/// which leaves out no block, while in the dialog it left out every block. The namespace's
-/// control characters are replaced (`without_control_characters`), as the name is saved in
-/// Copy for Sharing's choice, one name to a line.
-fn name_in_namespace(prefix: &str, local: &str, uri: Option<&str>) -> String {
-    let is_group_word =
-        crate::images::shared_copy::GROUP_KEY_START.strip_suffix(':') == Some(prefix);
-    match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| *known == u)) {
-        Some((known, _)) => format!("{known}:{local}"),
-        None if prefix.is_empty()
-            || is_group_word
-            || KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) =>
-        {
-            format!(
-                "{{{}}}{local}",
-                without_control_characters(uri.unwrap_or(""))
-            )
-        }
-        None => format!("{prefix}:{local}"),
-    }
-}
-
-/// Returns where the start tag that begins at `start` in `xmp` ends, at its '>', past any '>'
-/// in its quoted values, or `None` when it does not end.
-fn start_tag_end(xmp: &[u8], start: usize) -> Option<usize> {
-    let mut quote = None;
-    for (i, &c) in xmp[start..].iter().enumerate() {
-        match (quote, c) {
-            (None, b'"' | b'\'') => quote = Some(c),
-            (Some(q), _) if c == q => quote = None,
-            (None, b'>') => return Some(start + i),
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Returns the attributes of a start tag's text `head` after its name, as (name, value), the
-/// value as written, up to what does not read as one.
-fn attributes(head: &str) -> Vec<(&str, &str)> {
-    let (mut out, mut rest) = (Vec::new(), head);
-    while let Some((name, after)) = rest.split_once('=') {
-        let after = after.trim_start();
-        let (name, Some(value)) = (name.trim(), quoted(after)) else {
-            break;
-        };
-        if !is_name(name) {
-            break;
-        }
-        out.push((name, value));
-        rest = &after[value.len() + 2..];
-    }
-    out
-}
-
-/// Whether `text` reads as an XML name, such as "dc:subject", so a packet written with it as an
-/// element's name stays XML.
-fn is_name(text: &str) -> bool {
-    !text.is_empty()
-        && (text.chars()).all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
-}
-
-/// Returns the text between the quotes that `text` starts with, single or double, or `None`
-/// when it starts with none or the quote is not closed.
-fn quoted(text: &str) -> Option<&str> {
-    let quote = text.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-    let end = text[1..].find(quote)?;
-    Some(&text[1..1 + end])
-}
-
 /// Writes a new XMP packet of the properties of `properties`. The properties of each packet
 /// they came from go into an rdf:Description of their own, with the namespaces they use
 /// declared on it, so a prefix that two packets bind to two namespaces keeps both. It writes
 /// markup and walks none, so it has no comment to pass over (`not_element_length`): a '<' in a
 /// namespace's URI is escaped.
-pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
+pub(crate) fn packet(properties: &Properties) -> Packet {
     let mut out = String::from(
         "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
          <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
@@ -2722,179 +1822,7 @@ pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
         out += "  </rdf:Description>\n";
     }
     out += " </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
-    out.into_bytes()
-}
-
-/// Returns the property element `element` with only its own value. Every property written
-/// inside it, as an element or as an attribute, is left out unless `keeps` keeps its name. A
-/// name is read by the namespace its prefix is bound to there (`name_inside`): by a declaration
-/// inside the element, by a default namespace, or else by the namespaces `namespaces` in force
-/// where the element is written, as `properties` reads the properties themselves. The RDF and
-/// XML names that give the value its form (rdf:Seq, rdf:li, rdf:parseType, xml:lang) stay,
-/// and comments go. Without it, a kept property could carry a value the user left out, such
-/// as a GPS position written inside a gain map's property. Returns an empty text when the
-/// element does not read as balanced XML (an element that never ends, a start tag without its
-/// '>'), so that a property that cannot be read is left out whole rather than written into a
-/// packet broken.
-pub(crate) fn with_own_value_only(
-    element: &str,
-    namespaces: &[(String, String)],
-    keeps: &dyn Fn(&str) -> bool,
-) -> String {
-    // The elements open at this point, each with the namespaces that it declares.
-    let mut open: Vec<(&str, Vec<(&str, &str)>)> = Vec::new();
-    let mut out = String::with_capacity(element.len());
-    let mut from = 0;
-    while let Some(found) = element[from..].find('<') {
-        let start = from + found;
-        out += &element[from..start];
-        let rest = &element[start..];
-        // A comment goes. A CDATA section is text, which may hold a quote or a '<', and it
-        // stays, as a processing instruction does.
-        if let Some(length) = not_element_length(rest.as_bytes()) {
-            let Some(length) = length else {
-                return String::new();
-            };
-            if !rest.starts_with("<!--") {
-                out += &rest[..length];
-            }
-            from = start + length;
-            continue;
-        }
-        let Some(gt) = start_tag_end(element.as_bytes(), start) else {
-            return String::new();
-        };
-        let is_empty_element = element[..gt].ends_with('/');
-        let tag = element[start + 1..gt].trim_end_matches('/');
-        if let Some(closed) = tag.strip_prefix('/') {
-            if open.pop().is_none_or(|(name, _)| name != closed.trim()) {
-                return String::new();
-            }
-            out += &element[start..=gt];
-            from = gt + 1;
-            continue;
-        }
-        if rest.starts_with("<!") {
-            out += &element[start..=gt];
-            from = gt + 1;
-            continue;
-        }
-        let name_end = tag.find(char::is_whitespace).unwrap_or(tag.len());
-        let (name, head) = tag.split_at(name_end);
-        let found = attributes(head);
-        let declared: Vec<(&str, &str)> = (found.iter())
-            .filter_map(|&(n, uri)| match n.strip_prefix("xmlns")? {
-                "" => Some(("", uri)),
-                prefix => Some((prefix.strip_prefix(':')?, uri)),
-            })
-            .collect();
-        let is_kept = |name: &str, is_attribute: bool| {
-            name_inside(name, is_attribute, &declared, &open, namespaces).is_none_or(|n| keeps(&n))
-        };
-        if start > 0 && !is_kept(name, false) {
-            from = match is_empty_element {
-                true => gt + 1,
-                false => element_end(element.as_bytes(), gt + 1, name.as_bytes())
-                    .unwrap_or(element.len()),
-            };
-            continue;
-        }
-        let kept: Vec<_> = found.iter().filter(|(n, _)| is_kept(n, true)).collect();
-        // The attributes end where the last value's closing quote is.
-        let read_to = found.last().map_or(0, |(_, value)| {
-            value.as_ptr() as usize - head.as_ptr() as usize + value.len() + 1
-        });
-        if kept.len() == found.len() && head[read_to..].trim().is_empty() {
-            out += &element[start..=gt];
-        } else {
-            out.push('<');
-            out += name;
-            for (n, value) in kept {
-                let quote = if value.contains('"') { '\'' } else { '"' };
-                out += &format!(" {n}={quote}{value}{quote}");
-            }
-            out += if is_empty_element { "/>" } else { ">" };
-        }
-        if !is_empty_element {
-            open.push((name, declared));
-        }
-        from = gt + 1;
-    }
-    match open.is_empty() {
-        true => out + &element[from..],
-        false => String::new(),
-    }
-}
-
-/// Returns the property name of the element or attribute `name` inside a property element, as
-/// `name_in_namespace` gives it. Its prefix is looked up in `declared`, the declarations of its
-/// own element, then in those of the elements `open` around it, innermost first, and last in
-/// the `namespaces` in force where the property is written. An element without a prefix is in
-/// the default namespace, if one is declared. Returns `None` for what is no property: a name in
-/// the RDF or XML namespace, a namespace declaration, an attribute without a prefix, and an
-/// element without a namespace. The rdf and xml prefixes bound to nothing count as theirs, as
-/// before the namespaces were read.
-fn name_inside(
-    name: &str,
-    is_attribute: bool,
-    declared: &[(&str, &str)],
-    open: &[(&str, Vec<(&str, &str)>)],
-    namespaces: &[(String, String)],
-) -> Option<String> {
-    const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-    const XML: &str = "http://www.w3.org/XML/1998/namespace";
-    if name == "xmlns" || name.starts_with("xmlns:") {
-        return None;
-    }
-    let (prefix, local) = name.split_once(':').unwrap_or(("", name));
-    if prefix.is_empty() && is_attribute {
-        return None;
-    }
-    let in_open = (open.iter().rev()).flat_map(|(_, d)| d.iter().rev());
-    let uri = (declared.iter().rev().chain(in_open))
-        .find(|(p, _)| *p == prefix)
-        .map(|(_, uri)| *uri)
-        .or_else(|| {
-            (namespaces.iter())
-                .find(|(p, _)| p == prefix)
-                .map(|(_, u)| u.as_str())
-        });
-    match (prefix, uri) {
-        ("xml", _) | (_, Some(RDF | XML)) | ("" | "rdf", None) => None,
-        _ => Some(name_in_namespace(prefix, local, uri)),
-    }
-}
-
-/// Returns where the element `name` whose start tag ends before `from` in `xmp` ends, past its
-/// end tag, counting the elements of the same name inside it. Comments, CDATA sections and
-/// processing instructions are passed over whole (`not_element_length`). Returns `None` when
-/// it does not end.
-fn element_end(xmp: &[u8], mut from: usize, name: &[u8]) -> Option<usize> {
-    let mut depth = 1;
-    while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
-        let at = from + found;
-        let rest = &xmp[at..];
-        if let Some(length) = not_element_length(rest) {
-            from = at + length?;
-            continue;
-        }
-        let closed = rest.strip_prefix(b"</").and_then(|r| r.strip_prefix(name));
-        if closed.is_some_and(|r| r.first() == Some(&b'>')) {
-            depth -= 1;
-            from = at + name.len() + 3;
-            if depth == 0 {
-                return Some(from);
-            }
-            continue;
-        }
-        let gt = start_tag_end(xmp, at)?;
-        let after_name = rest[1..].strip_prefix(name).and_then(|r| r.first());
-        if after_name.is_some_and(|&c| ends_a_name(c)) && xmp[gt - 1] != b'/' {
-            depth += 1;
-        }
-        from = gt + 1;
-    }
-    None
+    Packet::from_bytes(out.into_bytes())
 }
 
 /// `text` as XML character data or an attribute's value. The characters that XML 1.0 does not
@@ -2912,50 +1840,6 @@ pub(crate) fn escape(text: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-/// `text`, an XML value, with its entities and character references read. The text is a value,
-/// not markup, so it has no comment to pass over (`not_element_length`).
-fn unescape(text: &str) -> String {
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(i) = rest.find('&') {
-        out += &rest[..i];
-        rest = &rest[i..];
-        // The longest entity, "&#x10FFFF;", is 10 bytes, so a ';' further on ends none. Looking
-        // to the next ';' from each '&' was quadratic (a million '&' and one ';' took hours).
-        let Some(end) = rest.as_bytes().iter().take(11).position(|&b| b == b';') else {
-            out.push('&');
-            rest = &rest[1..];
-            continue;
-        };
-        let entity = &rest[1..end];
-        let c = match entity {
-            "amp" => Some('&'),
-            "lt" => Some('<'),
-            "gt" => Some('>'),
-            "quot" => Some('"'),
-            "apos" => Some('\''),
-            _ => entity
-                .strip_prefix("#x")
-                .map_or_else(
-                    || entity.strip_prefix('#').and_then(|n| n.parse().ok()),
-                    |h| u32::from_str_radix(h, 16).ok(),
-                )
-                .and_then(char::from_u32),
-        };
-        match c {
-            Some(c) => {
-                out.push(c);
-                rest = &rest[end + 1..];
-            }
-            None => {
-                out.push('&');
-                rest = &rest[1..];
-            }
-        }
-    }
-    out + rest
 }
 
 /// Keyword tree paths cleaned up: trimmed around each level, without empty ones, sorted, and
@@ -3060,7 +1944,7 @@ mod tests {
     /// document's too.
     #[test]
     fn what_is_inside_a_property_is_left_alone() {
-        use super::{KeywordsAndComment, parse, set_keywords_and_comment, without_property};
+        use super::KeywordsAndComment;
         let pantry = "<xmpMM:Pantry><rdf:Bag><rdf:li><rdf:Description xmp:Rating=\"2\" \
              tiff:Orientation=\"6\"><dc:subject><rdf:Bag><rdf:li>theirs</rdf:li></rdf:Bag>\
              </dc:subject><tiff:Orientation>8</tiff:Orientation></rdf:Description></rdf:li>\
@@ -3083,12 +1967,11 @@ mod tests {
         assert!(edited.contains(pantry), "{edited}");
         assert_eq!(parse(&edited).keywords, ["new"]);
         assert!(without_property(&packet, "xmp:Rating").contains(pantry));
-        let mut turned = packet.clone().into_bytes();
-        crate::metadata::exif::set_xmp_orientation(&mut turned, 1);
-        let turned = String::from_utf8(turned).unwrap();
+        let turned = Packet::for_test(&packet).with_orientation(1);
+        let turned = String::from_utf8(turned.into_bytes()).unwrap();
         assert!(turned.contains(pantry), "{turned}");
         assert!(turned.contains("tiff:Orientation=\"1\">"), "{turned}");
-        let subjects = (super::properties(&packet).list.into_iter())
+        let subjects = (properties(&packet).list.into_iter())
             .filter(|(name, ..)| name == "dc:subject")
             .count();
         assert_eq!(subjects, 1);
@@ -3102,7 +1985,7 @@ mod tests {
     /// a keyword edit wrote a second dc:subject.
     #[test]
     fn markup_that_is_no_element_is_passed_over() {
-        use super::{KeywordsAndComment, parse, set_keywords_and_comment, without_property};
+        use super::KeywordsAndComment;
         let lightroom = "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 7.0-c000 1.000000\">\n \
             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
@@ -3160,7 +2043,7 @@ mod tests {
             (digikam, "It's <b>bold"),
         ];
         let count = |xmp: &str, name: &str| {
-            (super::properties(xmp).list.into_iter())
+            (properties(xmp).list.into_iter())
                 .filter(|(found, ..)| found == name)
                 .count()
         };
@@ -3172,7 +2055,7 @@ mod tests {
                 keywords: vec!["Oslo".into(), "Beach".into()],
                 comment: comment.into(),
             };
-            let edited = super::set_keywords(packet, packet, &meta, false).unwrap();
+            let edited = set_keywords(packet, packet, &meta, false).unwrap();
             assert_eq!(parse(&edited), meta, "{edited}");
             for name in ["dc:subject", "dc:description", "xmp:Rating"] {
                 assert_eq!(count(&edited, name), 1, "{name} in {edited}");
@@ -3191,9 +2074,8 @@ mod tests {
         assert!(added.contains("<!-- <rdf:Description rdf:about='old' xmp:Rating='1'> -->"));
         assert_eq!(count(&added, "dc:subject"), 1, "{added}");
         // The orientation after digiKam's CDATA section is found and turned.
-        let mut turned = digikam.as_bytes().to_vec();
-        crate::metadata::exif::set_xmp_orientation(&mut turned, 1);
-        let turned = String::from_utf8(turned).unwrap();
+        let turned = Packet::for_test(digikam).with_orientation(1);
+        let turned = String::from_utf8(turned.into_bytes()).unwrap();
         assert!(
             turned.contains("<tiff:Orientation>1</tiff:Orientation>"),
             "{turned}"
@@ -3206,12 +2088,9 @@ mod tests {
             <!-- <rdf:Description xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\"/> -->\
             <?note xmlns:dc='http://purl.org/dc/elements/1.1/'?>\
             <![CDATA[ xmlns:x='u' ]]><rdf:Description rdf:about=\"\"/></rdf:RDF>";
-        let (_, declared) = super::first_description(hidden).unwrap();
-        assert_eq!(
-            declared,
-            [("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")]
-        );
-        let tagged = super::with_paths(hidden.into(), &["Places|Oslo".into()]).unwrap();
+        // The declarations in force there are read in xmp_packet's
+        // `a_namespace_declared_in_markup_that_is_no_element_is_not_in_force`.
+        let tagged = with_paths(hidden.into(), &["Places|Oslo".into()]).unwrap();
         assert!(
             tagged.contains("<rdf:Description rdf:about=\"\" xmlns:lr="),
             "{tagged}"
@@ -3267,16 +2146,6 @@ mod tests {
         assert!(writer.join().unwrap().is_err());
         assert!(!super::sidecar(&from).exists());
         std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// A million '&' and then one ';' (a crafted keyword) are read at once, not in hours.
-    #[test]
-    fn unescapes_in_one_pass() {
-        let text = "&".repeat(1_000_000) + "; &amp; &#x41; &#66; &ampno;";
-        let start = std::time::Instant::now();
-        let out = super::unescape(&text);
-        assert!(start.elapsed() < std::time::Duration::from_secs(2));
-        assert!(out.ends_with("; & A B &ampno;") && out.len() == text.len() - 13);
     }
 
     /// Two tests never wait for each other's sidecar locks. A sidecar whose lock number
@@ -3542,6 +2411,123 @@ mod tests {
     }
 
     use super::*;
+
+    // The readers and editors take a `Packet`. These give them a packet's text and give back
+    // text, so that a test reads as the packet it writes.
+
+    /// `super::parse` of the packet `xmp`.
+    fn parse(xmp: &str) -> KeywordsAndComment {
+        super::parse(&Packet::for_test(xmp))
+    }
+
+    /// `super::list_items` of the packet `xmp`.
+    fn list_items(xmp: &str, tag: &str) -> Vec<String> {
+        super::list_items(&Packet::for_test(xmp), tag)
+    }
+
+    /// `super::tree_paths_in` of the packet `xmp`.
+    fn tree_paths_in(xmp: &str) -> Vec<String> {
+        super::tree_paths_in(&Packet::for_test(xmp))
+    }
+
+    /// `Packet::items_with_languages` of the packet `xmp`.
+    fn items_with_languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
+        Packet::for_test(xmp).items_with_languages(tag)
+    }
+
+    /// `Packet::properties` of the packet `xmp`.
+    fn properties(xmp: &str) -> Properties {
+        Packet::for_test(xmp).properties()
+    }
+
+    /// `Packet::without_property` of the packet `xmp`, as text.
+    fn without_property(xmp: &str, tag: &str) -> String {
+        text(Some(Packet::for_test(xmp).without_property(tag))).unwrap_or_default()
+    }
+
+    /// `super::set_keywords_and_comment` of the packets `xmp` and `read_from`, as text.
+    fn set_keywords_and_comment(
+        xmp: &str,
+        read_from: &str,
+        meta: &KeywordsAndComment,
+        say_empty: bool,
+    ) -> Option<String> {
+        let (xmp, read_from) = (Packet::for_test(xmp), Packet::for_test(read_from));
+        text(super::set_keywords_and_comment(
+            &xmp, &read_from, meta, say_empty,
+        ))
+    }
+
+    /// `super::set_keywords` of the packets `xmp` and `read_from`, as text.
+    fn set_keywords(
+        xmp: &str,
+        read_from: &str,
+        meta: &KeywordsAndComment,
+        say_empty: bool,
+    ) -> Option<String> {
+        let (xmp, read_from) = (Packet::for_test(xmp), Packet::for_test(read_from));
+        text(super::set_keywords(&xmp, &read_from, meta, say_empty))
+    }
+
+    /// `super::set_comment` of the packets `xmp` and `read_from`, as text.
+    fn set_comment(xmp: &str, read_from: &str, comment: &str, say_empty: bool) -> Option<String> {
+        let (xmp, read_from) = (Packet::for_test(xmp), Packet::for_test(read_from));
+        text(super::set_comment(&xmp, &read_from, comment, say_empty))
+    }
+
+    /// `super::set_alt_text` of the packets `xmp` and `inside`, as text.
+    fn set_alt_text(
+        xmp: &str,
+        change: &AltTextChange,
+        inside: Option<&str>,
+        say_empty: bool,
+    ) -> Option<String> {
+        let (xmp, inside) = (Packet::for_test(xmp), inside.map(Packet::for_test));
+        text(super::set_alt_text(
+            &xmp,
+            change,
+            inside.as_ref(),
+            say_empty,
+        ))
+    }
+
+    /// `super::with_paths` of the packet `xmp`, as text.
+    fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
+        text(super::with_paths(Packet::for_test(&xmp), paths))
+    }
+
+    /// `super::with_slashed_tree_lists` of the packet `xmp`, as text.
+    fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<String> {
+        text(super::with_slashed_tree_lists(
+            Packet::for_test(&xmp),
+            lists_in_image,
+        ))
+    }
+
+    /// `super::parse_alt_text` of the packet `xmp`.
+    fn parse_alt_text(xmp: &str) -> AltText {
+        super::parse_alt_text(&Packet::for_test(xmp))
+    }
+
+    /// `super::languages` of the packet `xmp`.
+    fn languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
+        super::languages(&Packet::for_test(xmp), tag)
+    }
+
+    /// `super::has_keywords_or_comment` of the packet `xmp`.
+    fn has_keywords_or_comment(xmp: &str) -> bool {
+        super::has_keywords_or_comment(&Packet::for_test(xmp))
+    }
+
+    /// `super::has_alt_text` of the packet `xmp`.
+    fn has_alt_text(xmp: &str) -> bool {
+        super::has_alt_text(&Packet::for_test(xmp))
+    }
+
+    /// The text of the packet `packet`, if there is one.
+    fn text(packet: Option<Packet>) -> Option<String> {
+        packet.map(|p| p.text_for_test().to_owned())
+    }
 
     /// The change that adds `keywords`, as an edit of the panel's empty field sends it.
     fn adding(keywords: &[String]) -> Option<KeywordChange> {
@@ -3852,7 +2838,7 @@ mod tests {
     #[test]
     fn control_characters_are_not_written() {
         let meta = KeywordsAndComment {
-            keywords: vec![unescape("Oslo&#1;&#xFFFF;")],
+            keywords: vec![crate::metadata::xmp_packet::unescape("Oslo&#1;&#xFFFF;")],
             comment: "page\u{c}break\ttab\nline\u{fffe}".into(),
         };
         let empty = "<rdf:Description rdf:about=\"\">";
@@ -3981,7 +2967,7 @@ mod tests {
         let ro = std::fs::Permissions::from_mode(0o444);
         std::fs::set_permissions(sidecar(&file), ro).unwrap();
         let refused = update_sidecar(&file, crate::files::file_io::IfMissing::LeaveMissing, |x| {
-            Some(format!("{x} "))
+            Some(Packet::for_test(&format!("{} ", x.text_for_test())))
         })
         .unwrap_err();
         assert!(
@@ -4026,7 +3012,7 @@ mod tests {
             }
             let written = update_sidecar(&file, crate::files::file_io::IfMissing::Create, |old| {
                 std::fs::write(sidecar(&file), theirs).unwrap();
-                Some(format!("{old} "))
+                Some(Packet::for_test(&format!("{} ", old.text_for_test())))
             });
             assert!(written.is_err(), "was there: {was_there}");
             assert_eq!(std::fs::read_to_string(sidecar(&file)).unwrap(), theirs);
@@ -4203,7 +3189,10 @@ mod tests {
             .unwrap();
         assert_eq!(parse(&none), KeywordsAndComment::default());
         assert!(none.contains("xmp:Rating=\"3\""));
-        assert_eq!(unescape("a&#x41;&#66;&bogus c&amp;"), "aAB&bogus c&");
+        assert_eq!(
+            crate::metadata::xmp_packet::unescape("a&#x41;&#66;&bogus c&amp;"),
+            "aAB&bogus c&"
+        );
         assert_eq!(
             KeywordsAndComment::parse_keywords(" a, b,,a ,c "),
             ["a", "b", "c"].map(String::from)
@@ -5011,7 +4000,7 @@ mod tests {
                    xmlns:dc='http://purl.org/dc/elements/1.1/' tiff:Make=\"Canon\">\
                    <!-- <dc:title>x</dc:title> --><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
                    </rdf:Bag></dc:subject><dc:rights/></rdf:Description></rdf:RDF></x:xmpmeta>";
-        let read = super::properties(xmp);
+        let read = properties(xmp);
         let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(names, ["tiff:Make", "dc:subject", "dc:rights"]);
         assert!(
@@ -5020,8 +4009,8 @@ mod tests {
                 .iter()
                 .any(|(p, u)| p == "dc" && u.contains("purl"))
         );
-        let written = String::from_utf8(super::packet(&read)).unwrap();
-        let again = super::properties(&written);
+        let written = String::from_utf8(super::packet(&read).into_bytes()).unwrap();
+        let again = properties(&written);
         let elements = |p: &super::Properties| -> Vec<(String, String)> {
             (p.list.iter())
                 .map(|(n, e, _)| (n.clone(), e.clone()))
@@ -5040,10 +4029,10 @@ mod tests {
                    xmlns:xap=\"http://ns.adobe.com/xap/1.0/\" xmlns:my=\"urn:my\" \
                    ns1:GPSLatitude=\"59,55N\" my:Thing=\"x\"><xap:CreateDate>2023\
                    </xap:CreateDate></rdf:Description></rdf:RDF></x:xmpmeta>";
-        let read = super::properties(xmp);
+        let read = properties(xmp);
         let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(names, ["exif:GPSLatitude", "my:Thing", "xmp:CreateDate"]);
-        let written = String::from_utf8(super::packet(&read)).unwrap();
+        let written = String::from_utf8(super::packet(&read).into_bytes()).unwrap();
         assert!(written.contains("xmlns:ns1=\"http://ns.adobe.com/exif/1.0/\""));
         assert!(written.contains("<ns1:GPSLatitude>59,55N</ns1:GPSLatitude>"));
     }
@@ -5056,7 +4045,7 @@ mod tests {
         let xmp = "<rdf:Description rdf:about=\"\" xmlns:aux=\"http://example.com/x\" \
                    xmlns:exif=\"urn:other\" aux:SerialNumber=\"1\" exif:Make=\"x\" \
                    tiff:Model=\"y\"/>";
-        let read = super::properties(xmp);
+        let read = properties(xmp);
         let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(
             names,
@@ -5079,7 +4068,7 @@ mod tests {
         let xmp = "<rdf:Description rdf:about=\"\" xmlns:digiKam=\"http://www.digikam.org/\">\
                    <digiKam:TagsList><rdf:Seq><rdf:li>Adrien</rdf:li></rdf:Seq>\
                    </digiKam:TagsList></rdf:Description>";
-        let read = super::properties(xmp);
+        let read = properties(xmp);
         assert_eq!(read.list[0].0, "digiKam:TagsList");
         let groups = crate::images::shared_copy::Group::groups_of(&read.list[0].0);
         assert_eq!(groups, [crate::images::shared_copy::Group::Keywords]);
@@ -5096,13 +4085,13 @@ mod tests {
                    xmlns:Container =\"http://ns.google.com/photos/1.0/container/\" \
                    tiff:Orientation=\"6\" hdrgm:Version=\"1.0\"><Container:Directory/>\
                    </rdf:Description>";
-        let read = super::properties(xmp);
+        let read = properties(xmp);
         let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(
             names,
             ["tiff:Orientation", "hdrgm:Version", "Container:Directory"]
         );
-        let written = String::from_utf8(super::packet(&read)).unwrap();
+        let written = String::from_utf8(super::packet(&read).into_bytes()).unwrap();
         assert!(written.contains("xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\""));
     }
 
@@ -5137,7 +4126,7 @@ mod tests {
         let read = properties(&xmp);
         let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(names, ["dc:subject", "{http://purl.org/dc/terms/}subject"]);
-        let copy = String::from_utf8(packet(&read)).unwrap();
+        let copy = String::from_utf8(packet(&read).into_bytes()).unwrap();
         let terms = copy.find(TERMS).unwrap();
         assert!(copy.find("Geography").unwrap() > terms, "{copy}");
         assert!(
@@ -5171,74 +4160,10 @@ mod tests {
     #[test]
     fn a_property_name_holds_no_control_character() {
         let xmp = "<rdf:Description xmlns:aux=\"u\nkeep:GPSLatitude\n\" aux:A=\"1\"/>";
-        let read = super::properties(xmp);
+        let read = properties(xmp);
         let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(names.len(), 1);
         assert!(!names[0].chars().any(char::is_control), "{names:?}");
-    }
-
-    /// Packets broken in thousands of ways: their properties read, and a packet written of them,
-    /// without a panic.
-    #[test]
-    fn survives_broken_xmp_properties() {
-        let seed = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
-                    rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
-                    dc:format='image/jpeg'><!--c--><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
-                    <rdf:li><rdf:Description dc:x='1' dc:y=\"2\"/></rdf:li><dc:z><dc:z>3\
-                    </dc:z></dc:z></rdf:Bag></dc:subject><dc:rights/></rdf:Description>\
-                    <rdf:Description rdf:about=\"\" xmlns:dc='urn:terms'><dc:subject \
-                    xmlns:dc='urn:dc'>b</dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
-        // A text of letters of two, three and four bytes, longer than the 1 KB that a namespace
-        // is read in, so a cut lands inside a letter.
-        let text = "Ålesund bæt 東京 \u{1f30a} ".repeat(80);
-        let long = seed.replace(
-            "<!--c-->",
-            &format!("<dc:description>{text}</dc:description>"),
-        );
-        assert!(long.len() > 2048);
-        for bytes in crate::support::test_support::broken(seed.as_bytes())
-            .chain(crate::support::test_support::broken(long.as_bytes()))
-        {
-            let text = String::from_utf8_lossy(&bytes);
-            let read = super::properties(&text);
-            super::packet(&read);
-            super::properties_named(&bytes, "dc:subject");
-            if let Some((_, declared)) = super::first_description(&text) {
-                super::prefix_in_force(&declared, "dc", "http://purl.org/dc/elements/1.1/");
-            }
-            for (name, element, namespaces) in &read.list {
-                super::with_own_value_only(element, namespaces, &|n| n != name);
-            }
-        }
-    }
-
-    /// A motion photo's directory broken in thousands of ways: the fields of its items read in
-    /// each of their forms, without a panic.
-    #[test]
-    fn survives_broken_structure_items() {
-        let seed = "<rdf:Description><Container:Directory><rdf:Seq><rdf:li \
-                    rdf:parseType='Resource'><Container:Item Item:Semantic=\"Primary\"/>\
-                    </rdf:li><rdf:li><Container:Item rdf:parseType='Resource'><!-- c -->\
-                    <Item:Length>12</Item:Length><Item:Padding>0</Item:Padding>\
-                    </Container:Item></rdf:li><rdf:li><Container:Item><rdf:Description \
-                    Item:Mime='video/mp4'><Item:Length>7</Item:Length></rdf:Description>\
-                    </Container:Item></rdf:li></rdf:Seq></Container:Directory></rdf:Description>";
-        let read = |xmp: &[u8]| {
-            let found = super::top_level_properties(xmp);
-            let directory = found.into_iter().find(|f| !f.is_attribute);
-            let is_item = |name: &[u8]| name == b"Container:Item";
-            directory.map(|d| super::structure_items(xmp, d.value, is_item))
-        };
-        let lengths: Vec<Vec<&str>> = (read(seed.as_bytes()).unwrap().iter())
-            .map(|fields| fields.iter().map(|f| &seed[f.value.clone()]).collect())
-            .collect();
-        assert_eq!(
-            lengths,
-            [vec!["Primary"], vec!["12", "0"], vec!["video/mp4", "7"]]
-        );
-        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
-            read(&bytes);
-        }
     }
 
     /// A GPS field inside a kept keyword list is known by its namespace, not by its prefix's
@@ -5260,7 +4185,8 @@ mod tests {
                 "<dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li><rdf:li>{inside}</rdf:li>\
                  </rdf:Bag></dc:subject>"
             );
-            let kept = super::with_own_value_only(&element, &namespaces, &keeps);
+            let kept =
+                crate::metadata::xmp_packet::with_own_value_only(&element, &namespaces, &keeps);
             assert!(!kept.contains("59N"), "{kept}");
             assert!(kept.contains("<rdf:li>Oslo</rdf:li>"), "{kept}");
             assert!(kept.ends_with("</dc:subject>"), "{kept}");
@@ -5284,12 +4210,15 @@ mod tests {
             "<dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li><!-- not closed",
             "<dc:subject><rdf:Bag><rdf:li xml:lang='x",
         ] {
-            assert_eq!(super::with_own_value_only(broken, &namespaces, &keeps), "");
+            assert_eq!(
+                crate::metadata::xmp_packet::with_own_value_only(broken, &namespaces, &keeps),
+                ""
+            );
         }
         let cdata = "<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">\
                      <![CDATA[It's <b>bold</b>]]></rdf:li></rdf:Alt></dc:description>";
         assert_eq!(
-            super::with_own_value_only(cdata, &namespaces, &keeps),
+            crate::metadata::xmp_packet::with_own_value_only(cdata, &namespaces, &keeps),
             cdata
         );
     }
@@ -5304,7 +4233,7 @@ mod tests {
                  <dc:title>{pad}{}</dc:title></rdf:Description>",
                 "ø".repeat(700)
             );
-            let read = super::properties(&xmp);
+            let read = properties(&xmp);
             assert_eq!(read.list.len(), 1, "{pad:?}");
         }
     }
@@ -5316,9 +4245,9 @@ mod tests {
         let packet = |uri: &str, name: &str| {
             format!("<rdf:Description rdf:about=\"\" xmlns:my=\"{uri}\" my:{name}=\"x\"/>")
         };
-        let mut merged = super::properties(&packet("urn:a", "One"));
-        merged.add_over(super::properties(&packet("urn:b", "Two")));
-        let written = String::from_utf8(super::packet(&merged)).unwrap();
+        let mut merged = properties(&packet("urn:a", "One"));
+        merged.add_over(properties(&packet("urn:b", "Two")));
+        let written = String::from_utf8(super::packet(&merged).into_bytes()).unwrap();
         let declares = |name: &str, uri: &str| {
             (written.split("<rdf:Description"))
                 .find(|d| d.contains(&format!("<my:{name}>")))
@@ -5405,23 +4334,6 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A default namespace puts an element's name without a prefix in it, for the readers of
-    /// what follows a JPEG's image. The writers, which write only names with a prefix, never
-    /// see it. Before, it was not read, and such a name was in no namespace.
-    #[test]
-    fn a_default_namespace_is_read_for_names_without_a_prefix() {
-        let xmp = "<rdf:Description xmlns:p = 'urn:p'><Directory xmlns = 'urn:d'/>\
-            <!-- <a xmlns='urn:hidden'/> --></rdf:Description>";
-        let all = super::namespace_declarations_with_default(xmp);
-        assert_eq!(all, [("p", "urn:p"), ("", "urn:d")]);
-        assert_eq!(super::first_description(xmp).unwrap().1, [("p", "urn:p")]);
-        let all = all.into_iter().collect();
-        let is = |name: &[u8], uri: &str| super::is_in_namespace(name, &all, &[uri], "Directory");
-        assert!(is(b"Directory", "urn:d"));
-        assert!(is(b"p:Directory", "urn:p"));
-        assert!(!is(b"Directory", "urn:p"));
-    }
-
     /// Returns a grey TIFF of one pixel whose XMP (tag 700) claims `claimed` bytes, followed by
     /// `xmp`. The image crate reads no XMP of more than a 32nd of one pixel's byte.
     fn tiff_of_one_pixel(xmp: &[u8], claimed: u32) -> Vec<u8> {
@@ -5462,7 +4374,9 @@ mod tests {
         for name in ["a.tif", "a.dng"] {
             let path = dir.join(name);
             std::fs::write(&path, &tiff).unwrap();
-            shown.push(super::embedded(&path).is_some_and(|x| x.contains("KeptWord")));
+            shown.push(
+                super::embedded(&path).is_some_and(|x| x.text_for_test().contains("KeptWord")),
+            );
         }
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(shown, [true, true]);
@@ -5523,5 +4437,29 @@ mod tests {
         assert!(alt_text.is_err(), "{alt_text:?}");
         assert!(!started);
         assert_eq!(shown, super::KeywordsAndComment::default());
+    }
+
+    /// A sidecar read into a `Packet` and handed back unchanged is left byte for byte as it was,
+    /// with its line ends and byte order mark, and one that is not UTF-8 is refused and left as
+    /// it was. The risk is that the type's way in or out changes a sidecar that nobody edited.
+    #[test]
+    fn a_sidecar_handed_back_unchanged_stays_byte_for_byte() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-sidecar-unchanged-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        let text = "\u{feff}<x:xmpmeta xmlns:x='adobe:ns:meta/'>\r\n<rdf:RDF>\
+            <rdf:Description rdf:about='' xmp:Rating='3'/></rdf:RDF></x:xmpmeta>\r\n";
+        let latin1 = b"<x:xmpmeta><rdf:Description dc:title='\xc5lesund'/></x:xmpmeta>".to_vec();
+        for (bytes, is_refused) in [(text.as_bytes().to_vec(), false), (latin1, true)] {
+            std::fs::write(sidecar(&file), &bytes).unwrap();
+            let handed_back = update_sidecar(&file, IfMissing::LeaveMissing, |x| Some(x.clone()));
+            assert_eq!(handed_back.is_err(), is_refused);
+            assert_eq!(std::fs::read(sidecar(&file)).unwrap(), bytes);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

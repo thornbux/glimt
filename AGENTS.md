@@ -318,6 +318,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/metadata/lightroom.rs` | Import Lightroom Catalog, through `sqlite3` |
 | `src/metadata/marks.rs` | Marks 1–6 and stars, kept in `$XDG_DATA_HOME/glimt/marks`, and the move of the file from `$XDG_STATE_HOME` |
 | `src/metadata/xmp.rs` | XMP sidecars: keywords, comment, alt text, stars; sidecars that follow their files |
+| `src/metadata/xmp_packet.rs` | An XMP packet (`Packet`), whose bytes only its walk reads: the top-level properties, and the edits that take one out or add one |
 | `src/files.rs` | **The files/ folder:** how files change on disk |
 | `src/files/config.rs` | `Config` (the `config!` macro), the window state, the XDG paths |
 | `src/files/backup.rs` | File → Back Up and `--back-up` |

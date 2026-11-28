@@ -702,27 +702,12 @@ fn oriented(
     {
         let end = (start + len).min(data.len());
         let how = crate::images::save::Derived::Oriented(new as u8);
-        let xmp = crate::images::save::derived_xmp(&data[start..end], how);
+        let packet = crate::metadata::xmp_packet::Packet::from_bytes(data[start..end].to_vec());
+        let xmp = crate::images::save::derived_xmp(&packet, how);
         // Only the orientation's one digit changes, so the segment keeps its length.
-        data[start..end].copy_from_slice(&xmp);
+        data[start..end].copy_from_slice(xmp.bytes_to_write());
     }
     Ok((data, new as u8))
-}
-
-/// Sets the XMP's `tiff:Orientation` to `value` (1–8), as an attribute or an element. The
-/// length stays, as a value is one digit. Only the photo's own orientation changes, a top-level
-/// property (`xmp::properties_named`), and not that of another document in xmpMM:Pantry. It is
-/// found by its namespace, whatever prefix the packet binds to it.
-pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
-    for found in crate::metadata::xmp::properties_named(xmp, "tiff:Orientation") {
-        let text = &xmp[found.value.clone()];
-        let blanks = text.iter().take_while(|c| c.is_ascii_whitespace()).count();
-        if let [digit] = text.trim_ascii()
-            && digit.is_ascii_digit()
-        {
-            xmp[found.value.start + blanks] = b'0' + value.min(9);
-        }
-    }
 }
 
 /// Set the orientation in an EXIF block, as PNG and WebP keep it, to 1: for pixels that were
@@ -2103,38 +2088,6 @@ mod tests {
         assert_eq!(exposure(0.4), "0.4 s");
         assert_eq!(exposure(0.8), "0.8 s");
         assert_eq!(exposure(2.0), "2 s");
-    }
-
-    /// The XMP's orientation upright in both forms; nothing else changed, and broken XMP is
-    /// survived.
-    #[test]
-    fn sets_xmp_upright() {
-        let mut xmp = br#"<rdf:Description tiff:Orientation="6" a="6"><tiff:Orientation>8</tiff:Orientation></rdf:Description>"#.to_vec();
-        super::set_xmp_orientation(&mut xmp, 1);
-        assert_eq!(
-            xmp,
-            br#"<rdf:Description tiff:Orientation="1" a="6"><tiff:Orientation>1</tiff:Orientation></rdf:Description>"#
-        );
-        // The orientation under another prefix bound to TIFF's namespace is set too.
-        let mut other =
-            br#"<rdf:Description xmlns:ns1="http://ns.adobe.com/tiff/1.0/" ns1:Orientation="6"/>"#
-                .to_vec();
-        super::set_xmp_orientation(&mut other, 1);
-        assert!(other.ends_with(br#"ns1:Orientation="1"/>"#));
-        let mut odd =
-            b"<rdf:Description tiff:Orientation='12' x:y='1'><tiff:Orientation/>".to_vec();
-        let before = odd.clone();
-        super::set_xmp_orientation(&mut odd, 1);
-        assert_eq!(odd, before);
-    }
-
-    #[test]
-    fn survives_broken_xmp_orientation() {
-        for mut xmp in crate::support::test_support::broken(
-            br#"<rdf:Description tiff:Orientation="6"><tiff:Orientation>8</tiff:Orientation></rdf:Description>"#,
-        ) {
-            super::set_xmp_orientation(&mut xmp, 1);
-        }
     }
 
     /// With Auto Rotate off the view showed the pixels as stored: a quarter turn saved on a

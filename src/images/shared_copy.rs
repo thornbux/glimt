@@ -1621,10 +1621,14 @@ fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
     let image_end = walked.image_end?;
     images_after(data, &entries, tiff_header, image_end).find_map(|(attribute, bytes)| {
         let image = walk_jpeg_segments(bytes)?;
-        let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok());
         // Each is decided by a property at the top of the gain map's XMP, never by its
-        // namespace found anywhere in the packet, such as in a comment or in xmpMM:Pantry.
-        let properties = xmp.map(|x| crate::metadata::xmp::properties(x).list);
+        // namespace found anywhere in the packet, such as in a comment or in xmpMM:Pantry. A
+        // packet that is not UTF-8 has none.
+        let properties = (image.xmp).map(|x| {
+            crate::metadata::xmp_packet::Packet::from_bytes(x.to_vec())
+                .properties()
+                .list
+        });
         let has =
             |is: &dyn Fn(&str) -> bool| (properties.iter().flatten()).any(|(name, ..)| is(name));
         let is_ultra_hdr = has(&|name| name.starts_with("hdrgm:"));
@@ -2270,12 +2274,12 @@ fn gain_map_copy(gain_map: &GainMap) -> Result<Vec<u8>, ShownText> {
 /// an attribute, as readers of gain maps (Android's and Chrome's) look for one there, and a
 /// value for each colour as the element it is. Every property is in one rdf:Description, as
 /// Chrome looks for Apple's two namespaces on the same one. The properties come from
-/// `xmp::properties`, whose walk passes over comments and CDATA (`not_element_length`), so a '<'
+/// `Packet::properties`, whose walk passes over comments and CDATA (`not_element_length`), so a '<'
 /// left in a value is markup, and that value is written as its element.
 /// shortcut: an element written with another prefix or with attributes of its own is left out;
 /// write it with its namespace's prefix if a gain map is found that has one.
 fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
-    let properties = crate::metadata::xmp::properties(std::str::from_utf8(xmp).ok()?);
+    let properties = crate::metadata::xmp_packet::Packet::from_bytes(xmp.to_vec()).properties();
     let (mut attributes, mut elements) = (String::new(), String::new());
     let mut namespaces_used = Vec::new();
     for (name, element, namespaces) in &properties.list {
@@ -2296,7 +2300,9 @@ fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
             // compared, as the walk found it, rather than searched for.
             _ if element.get(..name.len() + 2) == Some(format!("<{name}>").as_str()) => {
                 elements +=
-                    &crate::metadata::xmp::with_own_value_only(element, namespaces, &|_| false)
+                    &crate::metadata::xmp_packet::with_own_value_only(element, namespaces, &|_| {
+                        false
+                    })
             }
             _ => continue,
         }
@@ -2523,7 +2529,7 @@ mod tests {
     fn an_xmp_tag_named_like_a_group_word_stays_a_tag() {
         let xmp = "<rdf:Description xmlns:group='urn:g' group:x='1'><group:y>2</group:y>\
                    </rdf:Description>";
-        let read = crate::metadata::xmp::properties(xmp);
+        let read = crate::metadata::xmp_packet::Packet::for_test(xmp).properties();
         let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(names, ["{urn:g}x", "{urn:g}y"]);
         for name in names {
@@ -3232,7 +3238,7 @@ mod tests {
                  xmlns:Device=\"http://ns.google.com/photos/dd/1.0/device/\">{element}\
                  </rdf:Description>"
             );
-            let read = crate::metadata::xmp::properties(&xmp);
+            let read = crate::metadata::xmp_packet::Packet::for_test(&xmp).properties();
             (read.list.into_iter())
                 .map(|(name, ..)| name)
                 .collect::<Vec<_>>()

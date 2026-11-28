@@ -7,6 +7,7 @@ use crate::files::config::fits_on_a_line;
 use crate::files::file_io::{ListedFile, Transfer};
 use crate::files::journal::MarksAtNewNames;
 use crate::files::trash::ForgottenMarks;
+use crate::metadata::xmp_packet::Packet;
 use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
@@ -1204,24 +1205,15 @@ pub fn write_xmp(path: &Path, stars: u8) -> Result<(), ShownText> {
 
 /// `xmp` with its rating set to `stars`, as an attribute of its first rdf:Description. Returns
 /// `None` if it has no rdf:Description to put it in.
-fn set_rating(xmp: &str, stars: u8) -> Option<String> {
-    use crate::metadata::xmp::{
-        first_description, first_description_start, prefix_in_force, without_property,
-    };
+fn set_rating(xmp: &Packet, stars: u8) -> Option<Packet> {
     // The rating it has goes first, under any prefix bound to XMP's namespace and in whatever
     // form and quotes it was written, so the sidecar never holds two, which darktable and
     // digiKam refuse as broken XML.
-    let xmp = &without_property(xmp, "xmp:Rating");
+    let xmp = xmp.without_property("xmp:Rating");
     // It is written with the prefix that the sidecar binds to XMP's namespace, such as an old
     // packet's xap, so it is the same property as the rating there.
-    let (_, declared) = first_description(xmp)?;
-    let (prefix, ns) = prefix_in_force(&declared, "xmp", "http://ns.adobe.com/xap/1.0/");
-    let at = first_description_start(xmp)? + "<rdf:Description".len();
-    Some(format!(
-        "{}{ns} {prefix}:Rating=\"{stars}\"{}",
-        &xmp[..at],
-        &xmp[at..]
-    ))
+    let uri = "http://ns.adobe.com/xap/1.0/";
+    xmp.with_attribute_added("xmp", uri, "Rating", &stars.to_string())
 }
 
 /// "★★★" for the stars and "1 4" for the marks, for the file list and overlay.
@@ -1243,6 +1235,12 @@ pub fn text((bits, stars): (u8, u8)) -> ShownText {
 #[cfg(test)]
 mod tests {
     use crate::support::threads::lock_even_if_poisoned;
+
+    /// `super::set_rating` of the packet `xmp`, as text.
+    fn set_rating(xmp: &str, stars: u8) -> Option<String> {
+        let packet = crate::metadata::xmp_packet::Packet::for_test(xmp);
+        super::set_rating(&packet, stars).map(|p| p.text_for_test().to_owned())
+    }
 
     /// A mark set during Rename Many at the photo's new name is added to the photo's own marks
     /// and stars, at the new name and back at the old one when the rename is undone. A mark
@@ -2506,7 +2504,7 @@ mod tests {
                    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"3\"><xmp:Rating>-1</xmp:Rating>\
                    </rdf:Description></rdf:RDF></x:xmpmeta>";
         for bytes in crate::support::test_support::broken(xmp.as_bytes()) {
-            let _ = super::set_rating(&String::from_utf8_lossy(&bytes), 4);
+            let _ = set_rating(&String::from_utf8_lossy(&bytes), 4);
         }
     }
 
@@ -2554,23 +2552,23 @@ mod tests {
         // A darktable sidecar keeps its fields; the rating is changed or added.
         let dt = r#"<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="1" darktable:x="y">"#;
         assert_eq!(
-            super::set_rating(dt, 4).unwrap(),
+            set_rating(dt, 4).unwrap(),
             r#"<rdf:Description xmp:Rating="4" rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" darktable:x="y">"#
         );
         // A rating in single quotes, as exiftool may write it, is replaced, not written twice,
         // which would make the XML broken.
         let quoted = r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating='3'>"#;
         assert_eq!(
-            super::set_rating(quoted, 4).unwrap(),
+            set_rating(quoted, 4).unwrap(),
             r#"<rdf:Description xmp:Rating="4" xmlns:xmp="http://ns.adobe.com/xap/1.0/">"#
         );
         let none = r#"<rdf:Description rdf:about="">"#;
         assert_eq!(
-            super::set_rating(none, 2).unwrap(),
+            set_rating(none, 2).unwrap(),
             r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="2" rdf:about="">"#
         );
         assert_eq!(
-            super::set_rating(
+            set_rating(
                 "<rdf:Description>\n <xmp:Rating>5</xmp:Rating></rdf:Description>",
                 0
             )
@@ -2582,28 +2580,16 @@ mod tests {
         // twice.
         let xap = r#"<rdf:Description xmlns:xap = "http://ns.adobe.com/xap/1.0/" xap:Rating="3">"#;
         assert_eq!(
-            super::set_rating(xap, 4).unwrap(),
+            set_rating(xap, 4).unwrap(),
             r#"<rdf:Description xap:Rating="4" xmlns:xap = "http://ns.adobe.com/xap/1.0/">"#
         );
         let spaced = r#"<rdf:Description xmlns:xmp = "http://ns.adobe.com/xap/1.0/">"#;
-        assert_eq!(
-            super::set_rating(spaced, 1)
-                .unwrap()
-                .matches("xmlns:")
-                .count(),
-            1
-        );
-        assert_eq!(super::set_rating("nothing", 1), None);
+        assert_eq!(set_rating(spaced, 1).unwrap().matches("xmlns:").count(), 1);
+        assert_eq!(set_rating("nothing", 1), None);
         // A rating under another prefix in a later Description, as exiftool writes one
         // Description for each namespace, is replaced, not left beside the new one.
         let later = r#"<rdf:Description rdf:about=""/><rdf:Description rdf:about="" xmlns:ns2="http://ns.adobe.com/xap/1.0/" ns2:Rating="2"/>"#;
-        assert_eq!(
-            super::set_rating(later, 4)
-                .unwrap()
-                .matches("Rating=")
-                .count(),
-            1
-        );
+        assert_eq!(set_rating(later, 4).unwrap().matches("Rating=").count(), 1);
         // A Description in a comment is not the one the rating goes into, and a CDATA section
         // with a quote does not hide the rating after it. Before, the rating went into the
         // comment, and the one after the CDATA section stayed beside it.
@@ -2613,7 +2599,7 @@ mod tests {
              {title}<xmp:Rating>3</xmp:Rating></rdf:Description>"
         );
         assert_eq!(
-            super::set_rating(&commented, 4).unwrap(),
+            set_rating(&commented, 4).unwrap(),
             format!(
                 "<!-- <rdf:Description xmp:Rating='1'> --><rdf:Description \
                  xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"4\" rdf:about=\"\">\
@@ -2631,7 +2617,7 @@ mod tests {
         ] {
             let xmp = format!("<rdf:RDF>{hidden}<rdf:Description rdf:about=\"\"/></rdf:RDF>");
             assert_eq!(
-                super::set_rating(&xmp, 4).unwrap(),
+                set_rating(&xmp, 4).unwrap(),
                 format!(
                     "<rdf:RDF>{hidden}<rdf:Description xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" \
                      xmp:Rating=\"4\" rdf:about=\"\"/></rdf:RDF>"

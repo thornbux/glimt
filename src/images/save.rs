@@ -4,6 +4,7 @@
 use crate::files::file_io::{FileFingerprint, RenameFailed};
 use crate::images::decode::{ImageBytes, Source, load_icc, start_decode_job};
 use crate::metadata::exif;
+use crate::metadata::xmp_packet::{Packet, TopLevelProperty};
 use crate::model::listing::has_ext;
 use crate::support::format::{ShownText, escaped_name};
 use crate::support::lang::tr;
@@ -286,10 +287,13 @@ impl SharedMetadata {
             keeps(name) || !(crate::images::shared_copy::is_known(name) || is_own_tag(name))
         };
         for (_, element, namespaces) in &mut kept.list {
-            *element =
-                crate::metadata::xmp::with_own_value_only(element, namespaces, &keeps_inside);
+            *element = crate::metadata::xmp_packet::with_own_value_only(
+                element,
+                namespaces,
+                &keeps_inside,
+            );
         }
-        let xmp = (!kept.list.is_empty()).then(|| crate::metadata::xmp::packet(&kept));
+        let xmp = (!kept.list.is_empty()).then(|| crate::metadata::xmp::packet(&kept).into_bytes());
         (exif, xmp)
     }
 }
@@ -489,24 +493,19 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     // declarations of both count for a prefix that is bound to nothing where it is written
     // (`TopLevelProperty::is_in`).
     let declared: std::collections::HashSet<(&str, &str)> = (packets.iter())
-        .flat_map(|xmp| crate::metadata::xmp::namespace_declarations_with_default(xmp))
+        .flat_map(|xmp| xmp.namespace_declarations_with_default())
         .collect();
     let (mut items_length, mut offset) = (0, None);
     for xmp in &packets {
         // Only the photo's own properties count, not those of another document inside one,
         // such as a placed image in xmpMM:Pantry.
-        let properties = crate::metadata::xmp::top_level_properties(xmp.as_bytes());
+        let properties = xmp.top_level_properties();
         // A directory in each packet describes the same bytes, as two in one packet do.
         items_length = appended_items_length(xmp, &properties, &declared).max(items_length);
-        let found = properties.iter().find(|found| {
-            found.is_in(
-                xmp.as_bytes(),
-                &declared,
-                &[GOOGLE_CAMERA],
-                "MicroVideoOffset",
-            )
-        });
-        offset = offset.or(found.and_then(|found| leading_number(&xmp[found.value.clone()])));
+        let found = (properties.iter())
+            .find(|found| found.is_in(&declared, &[GOOGLE_CAMERA], "MicroVideoOffset"));
+        let value = found.and_then(|found| found.value_text());
+        offset = offset.or(value.and_then(leading_number));
     }
     let offset = offset.filter(|&back| back != 0);
     let video_is_cut = offset.is_some_and(|back| {
@@ -535,30 +534,27 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
 /// extended XMP comes before the image data, so a copy still coming in has them all. A part
 /// missing is a writer's doing, then, not a copy cut short. Before, such a whole file was
 /// refused as if it were still being copied.
-fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
+fn jpeg_xmp_packets(data: &[u8]) -> [Packet; 2] {
     let main = exif::jpeg_segment_with(data, 0xe1, b"http://ns.adobe.com/xap/1.0/\0");
     let main = main.map_or_else(String::new, |(_, body)| {
         String::from_utf8_lossy(body).into_owned()
     });
+    let main = Packet::from_bytes(main.into_bytes());
     // The main packet names its extended packet itself, so no other packet binds its prefix.
     let nowhere_else = std::collections::HashSet::new();
-    let properties = crate::metadata::xmp::top_level_properties(main.as_bytes());
-    let guid = (properties.iter()).find(|found| {
-        found.is_in(
-            main.as_bytes(),
-            &nowhere_else,
-            &[XMP_NOTE],
-            "HasExtendedXMP",
-        )
-    });
-    let Some(guid) = guid.map(|found| main[found.value.clone()].trim().to_owned()) else {
-        return [main, String::new()];
+    let properties = main.top_level_properties();
+    let guid = (properties.iter())
+        .find(|found| found.is_in(&nowhere_else, &[XMP_NOTE], "HasExtendedXMP"))
+        .and_then(|found| found.value_text())
+        .map(|guid| guid.trim().to_owned());
+    let Some(guid) = guid else {
+        return [main, Packet::default()];
     };
     let extended = exif::jpeg_extended_xmp(data, guid.as_bytes()).unwrap_or_default();
     // A packet in UTF-8, as XMP must be, is taken as it is, not copied.
     let extended = String::from_utf8(extended)
         .unwrap_or_else(|bad| String::from_utf8_lossy(bad.as_bytes()).into_owned());
-    [main, extended]
+    [main, Packet::from_bytes(extended.into_bytes())]
 }
 
 /// Returns the length of what a JPEG's XMP `xmp` says follows its main image, from the
@@ -580,28 +576,26 @@ fn jpeg_xmp_packets(data: &[u8]) -> [String; 2] {
 /// one still being copied. The first item's Padding was not counted either, so a copy cut in
 /// that many last bytes was turned.
 fn appended_items_length(
-    xmp: &str,
-    properties: &[crate::metadata::xmp::TopLevelProperty],
+    xmp: &Packet,
+    properties: &[TopLevelProperty],
     declared: &std::collections::HashSet<(&str, &str)>,
 ) -> u64 {
-    let is = |found: &crate::metadata::xmp::TopLevelProperty, uris: &[&str], local: &str| {
-        found.is_in(xmp.as_bytes(), declared, uris, local)
-    };
+    let is =
+        |found: &TopLevelProperty, uris: &[&str], local: &str| found.is_in(declared, uris, local);
     let directories = properties.iter().filter(|found| {
-        !found.is_attribute
+        !found.is_attribute()
             && (is(found, &CONTAINERS, "Directory") || is(found, &[DEPTH_DEVICE], "Container"))
     });
-    let field = |fields: &[crate::metadata::xmp::TopLevelProperty], local: &str| {
+    let field = |fields: &[TopLevelProperty], local: &str| {
         let found = fields.iter().find(|found| is(found, &ITEMS, local));
-        found.and_then(|found| leading_number(&xmp[found.value.clone()]))
+        (found.and_then(|found| found.value_text())).and_then(leading_number)
     };
     let mut longest = 0;
     for directory in directories {
         let is_item = |name: &[u8]| {
-            crate::metadata::xmp::is_in_namespace(name, declared, &CONTAINERS, "Item")
+            crate::metadata::xmp_packet::is_in_namespace(name, declared, &CONTAINERS, "Item")
         };
-        let items =
-            crate::metadata::xmp::structure_items(xmp.as_bytes(), directory.value.clone(), is_item);
+        let items = xmp.structure_items(directory, is_item);
         // The items are read in every form XMP writes them in, also as the elements that
         // ExifTool writes. The first item is the main image, whose own Length is not counted.
         let first = items.first().and_then(|first| field(first, "Padding"));
@@ -1034,8 +1028,10 @@ fn write_copys_sidecar(
     xmp: Option<Vec<u8>>,
     not_on_disk: Option<std::io::Error>,
 ) -> Option<ShownText> {
-    let written =
-        xmp.map(|xmp| crate::files::file_io::create_file(side, derived_xmp(&xmp, Derived::Copy)));
+    let written = xmp.map(|xmp| {
+        let copys = derived_xmp(&Packet::from_bytes(xmp), Derived::Copy);
+        crate::files::file_io::create_file(side, copys.bytes_to_write())
+    });
     let (sidecar_not_on_disk, sidecar_failed) =
         match crate::files::file_io::named_but_not_on_disk(written.unwrap_or(Ok(()))) {
             Ok(not_on_disk) => (not_on_disk, None),
@@ -1405,7 +1401,7 @@ fn derived_metadata<'a>(
         exif::set_upright(exif, size)?;
     }
     if let Some(xmp) = &mut xmp {
-        *xmp = derived_xmp(xmp, how);
+        *xmp = derived_xmp(&Packet::from_bytes(std::mem::take(xmp)), how).into_bytes();
     }
     let stored_quarter = stored.is_some_and(crate::images::decode::is_quarter_turn);
     Ok((exif, xmp, (turns % 2 == 1) != stored_quarter))
@@ -1440,22 +1436,21 @@ fn metadata_not_read(path: &Path, e: impl crate::support::format::Shown) -> Show
 /// Makes the XMP packet `xmp` what a file derived from its image as `how` says keeps of it,
 /// whether it was inside the image or in its sidecar. Its orientation is set, for new pixels
 /// the properties of `DROPPED_XMP` are left out, and for a copy those of `DROPPED_FROM_COPIES`.
-pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
-    let mut out = xmp.to_vec();
+pub(crate) fn derived_xmp(xmp: &Packet, how: Derived) -> Packet {
     match how {
-        Derived::Oriented(value) => exif::set_xmp_orientation(&mut out, value),
+        Derived::Oriented(value) => xmp.with_orientation(value),
         Derived::Turned | Derived::Copy => {
-            exif::set_xmp_orientation(&mut out, 1);
+            let mut out = xmp.with_orientation(1);
             let copy = (how == Derived::Copy).then_some(&DROPPED_FROM_COPIES[..]);
             for name in DROPPED_XMP.iter().chain(copy.unwrap_or_default()) {
-                out = xmp_without_property(&out, name);
+                out = out.without_property(name);
             }
+            out
         }
         // A copy for sharing writes a new packet of the properties kept instead
         // (`SharedMetadata::written`), and its pixels and orientation are the image's own.
-        Derived::Shared => {}
+        Derived::Shared => xmp.clone(),
     }
-    out
 }
 
 /// Reads what a copy for sharing of `path` may keep of its metadata. That is the EXIF block
@@ -1482,10 +1477,13 @@ pub(crate) fn shared_metadata<'a>(
         }
         None => None,
     };
-    let text = |bytes: &[u8]| std::str::from_utf8(bytes).ok().map(xmp::properties);
-    let mut properties = embedded.and_then(text).unwrap_or_default();
+    // A packet that is not UTF-8 gives no properties.
+    let read = |bytes: Vec<u8>| Packet::from_bytes(bytes).properties();
+    let mut properties = embedded
+        .map(|bytes| read(bytes.to_vec()))
+        .unwrap_or_default();
     let sidecar = xmp::own_sidecar(path).map_err(|e| ShownText::of_error(&e))?;
-    properties.add_over(sidecar.as_deref().and_then(text).unwrap_or_default());
+    properties.add_over(sidecar.map(read).unwrap_or_default());
     properties.add_missing(iim);
     Ok(SharedMetadata {
         exif,
@@ -1510,11 +1508,13 @@ fn derive_sidecar<'a>(
     use crate::files::file_io::IfMissing;
     use crate::metadata::xmp::update_locked_sidecar;
     let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
-    let changed = (old.and_then(|x| String::from_utf8(x).ok()))
-        .filter(|x| derived_xmp(x.as_bytes(), how) != x.as_bytes());
+    // Only a sidecar that is UTF-8 is written, as `update` refuses another.
+    let changed = (old.filter(|x| std::str::from_utf8(x).is_ok()))
+        .map(Packet::from_bytes)
+        .filter(|x| derived_xmp(x, how) != *x);
     if changed.is_some() {
         update_locked_sidecar(lock, path, IfMissing::LeaveMissing, |x| {
-            String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
+            Some(derived_xmp(x, how))
         })?;
     }
     Ok(Box::new(move |lock, failed| match (changed, failed) {
@@ -1527,31 +1527,6 @@ fn derive_sidecar<'a>(
         )),
         (None, _) => Ok(()),
     }))
-}
-
-/// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"` or with single
-/// quotes) or as an element (`<name …>…</name>` or `<name …/>`), every time it is a top-level
-/// property of an rdf:Description (`xmp::top_level_properties`). One inside another property is
-/// left as it is, such as the rating of another document in xmpMM:Pantry. An element goes with
-/// the white space before it, so a sidecar written again and again does not gather empty lines.
-/// Every XMP editor that replaces a property takes the old one out here, as a search for one
-/// spelling misses the others (`xmp:Rating='3'`) and leaves the property twice. A property with
-/// a comment or a CDATA section inside it goes whole too, as the walk reads its end past them.
-/// Before, one with a comment was left, and the editor then wrote the property a second time.
-pub(crate) fn xmp_without_property(xmp: &[u8], name: &str) -> Vec<u8> {
-    let (mut out, mut copied) = (Vec::with_capacity(xmp.len()), 0);
-    for found in crate::metadata::xmp::properties_named(xmp, name) {
-        let start = found.whole.start;
-        let start = match found.is_attribute {
-            true if start > copied && xmp[start - 1].is_ascii_whitespace() => start - 1,
-            true => start,
-            false => copied + xmp[copied..start].trim_ascii_end().len(),
-        };
-        out.extend_from_slice(&xmp[copied..start]);
-        copied = found.whole.end;
-    }
-    out.extend_from_slice(&xmp[copied..]);
-    out
 }
 
 /// `img` turned as the view turns it, mirrored first and then turned clockwise `turns`
@@ -4517,7 +4492,8 @@ mod tests {
             <darktable:history><rdf:Seq><rdf:li darktable:operation=\"crop\"/></rdf:Seq>\
             </darktable:history></rdf:Description>";
         let has = |x: &[u8], what: &str| x.windows(what.len()).any(|w| w == what.as_bytes());
-        let copy = super::derived_xmp(xmp, super::Derived::Copy);
+        let packet = crate::metadata::xmp_packet::Packet::from_bytes(xmp.to_vec());
+        let copy = super::derived_xmp(&packet, super::Derived::Copy).into_bytes();
         for gone in ["crs:HasCrop", "crs:Crop", "darktable:"] {
             assert!(
                 !has(&copy, gone),
@@ -4529,59 +4505,9 @@ mod tests {
         // The image's own edits stay when it is turned, a JPEG by its orientation and a PNG or
         // WebP by its pixels. A turned PNG lost the whole darktable history of its sidecar.
         for how in [super::Derived::Oriented(6), super::Derived::Turned] {
-            let turned = super::derived_xmp(xmp, how);
+            let turned = super::derived_xmp(&packet, how).into_bytes();
             assert!(has(&turned, "crs:CropTop") && has(&turned, "darktable:operation=\"crop\""));
         }
-    }
-
-    /// A property is left out of XMP in one pass, also from a hostile packet, and never through
-    /// a comment. Before, 100,000 properties to leave out moved the rest of the packet each
-    /// time, and a `<!--<xmp:Thumbnails>-->` comment was cut to the next end tag, so the
-    /// comment's end went and the packet was broken.
-    #[test]
-    fn leaves_xmp_properties_out_in_one_pass() {
-        // Each text is the rest of a Description's start tag and what it holds.
-        let without_thumbnails = |x: &str| {
-            let packet = format!("<rdf:Description{x}</rdf:Description>");
-            let out = super::xmp_without_property(packet.as_bytes(), "xmp:Thumbnails");
-            let out = String::from_utf8(out).unwrap();
-            let inside = out.strip_prefix("<rdf:Description").unwrap();
-            inside
-                .strip_suffix("</rdf:Description>")
-                .unwrap()
-                .to_owned()
-        };
-        let kept = "><!--<xmp:Thumbnails>--><a/>";
-        assert_eq!(
-            without_thumbnails(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")),
-            format!("{kept}<b/>")
-        );
-        // A property with a comment or CDATA section inside it goes whole, also when that
-        // holds what looks like its end tag.
-        for inside in [
-            "<!-- -->",
-            "<!-- </xmp:Thumbnails> -->",
-            "<![CDATA[</xmp:Thumbnails>]]>",
-        ] {
-            let commented = format!("><xmp:Thumbnails>t{inside}</xmp:Thumbnails><b/>");
-            assert_eq!(without_thumbnails(&commented), "><b/>");
-        }
-        assert_eq!(
-            without_thumbnails(
-                " xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"><xmp:Thumbnails/>"
-            ),
-            " b=\"2\">"
-        );
-        let started = std::time::Instant::now();
-        let many = " xmp:Thumbnails=\"1\"".repeat(100_000);
-        assert_eq!(without_thumbnails(&format!("{many}>")), ">");
-        let open = format!(">{}", "<xmp:Thumbnails>".repeat(100_000));
-        assert_eq!(without_thumbnails(&open), open);
-        let unclosed = format!(">{}", "<xmp:Thumbnails".repeat(100_000));
-        assert_eq!(without_thumbnails(&unclosed), unclosed);
-        let comments = format!(">{}", "<!-- -->".repeat(100_000));
-        assert_eq!(without_thumbnails(&comments), comments);
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     /// XMP packets broken in thousands of ways are made a derived file's without a panic or a
@@ -4589,7 +4515,10 @@ mod tests {
     #[test]
     fn survives_broken_xmp_derived() {
         for bytes in crate::support::test_support::broken(BRIDGE_XMP.as_bytes()) {
-            super::derived_xmp(&bytes, super::Derived::Copy);
+            super::derived_xmp(
+                &crate::metadata::xmp_packet::Packet::from_bytes(bytes),
+                super::Derived::Copy,
+            );
         }
     }
 
@@ -4949,7 +4878,9 @@ mod tests {
         };
         let step = |lock: &crate::metadata::xmp::SidecarLock| {
             let leave = crate::files::file_io::IfMissing::LeaveMissing;
-            update_locked_sidecar(lock, &a, leave, |_| Some("new side".into()))?;
+            update_locked_sidecar(lock, &a, leave, |_| {
+                Some(crate::metadata::xmp_packet::Packet::for_test("new side"))
+            })?;
             go.send(()).unwrap();
             // A move that is not held back lands now, before the image is looked at again.
             let _ = moved.recv_timeout(std::time::Duration::from_millis(200));

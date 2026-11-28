@@ -111,6 +111,7 @@
     <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
       <text x="296" y="636">exif.rs</text><text x="420" y="636">xmp.rs</text>
       <text x="296" y="652">marks.rs</text><text x="420" y="652">lightroom.rs*</text>
+      <text x="296" y="668">xmp_packet.rs</text>
     </g>
 
     <rect x="540" y="550" width="242" height="170" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>

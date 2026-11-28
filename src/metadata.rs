@@ -6,3 +6,4 @@ pub(crate) mod lightroom;
 #[cfg(feature = "marks")]
 pub(crate) mod marks;
 pub(crate) mod xmp;
+pub(crate) mod xmp_packet;
