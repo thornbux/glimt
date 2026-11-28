@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-11-28
+
 ### Changed
 
 - --random, --layout and --fade apply only to the window they start, and are no longer saved to
@@ -4995,7 +4997,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.106.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.107.0...HEAD
+[0.107.0]: https://github.com/thornbux/glimt/compare/v0.106.0...v0.107.0
 [0.106.0]: https://github.com/thornbux/glimt/compare/v0.105.0...v0.106.0
 [0.105.0]: https://github.com/thornbux/glimt/compare/v0.104.0...v0.105.0
 [0.104.0]: https://github.com/thornbux/glimt/compare/v0.103.0...v0.104.0
