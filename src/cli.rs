@@ -15,10 +15,7 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
         "--slideshow",
         "Start the slideshow; of a list (.gqv, .txt, .m3u), in its order",
     ),
-    (
-        "--random",
-        "Random order in the slideshow (kept, as in the View menu)",
-    ),
+    ("--random", "Random order in the slideshow"),
     ("--fullscreen", "Start in full screen"),
     (
         "--kiosk",
@@ -28,11 +25,8 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
         "--lock-settings",
         "No Preferences, and changes to settings last only until Glimt closes",
     ),
-    ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
-    (
-        "--fade off|short|long",
-        "Fade between slideshow images (kept)",
-    ),
+    ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout"),
+    ("--fade off|short|long", "Fade between slideshow images"),
     (
         "--name NAME",
         "Name this Glimt; glimt --name NAME --remote COMMAND reaches every Glimt of that name, and NAME may be the process ID of a Glimt, as %id% shows it",
@@ -98,6 +92,12 @@ pub(crate) struct Start {
 }
 
 impl Start {
+    /// Sets the settings that --layout, --random and --fade ask for, for this window only. They
+    /// are not saved, so a script's start does not change the starts after it.
+    pub(crate) fn apply_to(&self, config: &mut Config) {
+        config.change_for_this_start_only(self.layout, self.random, self.fade);
+    }
+
     /// Reads the start options in `args`, and returns them with the other arguments. The
     /// options come before the files and folders, and also after them, as Geeqie reads its
     /// own. After a file or folder only the start options are read: `--remote`, a command or

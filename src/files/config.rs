@@ -21,11 +21,13 @@ macro_rules! config {
         #[derive(Debug, PartialEq)]
         pub struct Config {
             $($(#[$doc])* pub $name: $ty,)*
+            /// The settings that a start option set for this window only, which no file holds.
+            pub start_only: StartOnly,
         }
 
         impl Default for Config {
             fn default() -> Self {
-                Config { $($name: $default,)* }
+                Config { $($name: $default,)* start_only: StartOnly::default() }
             }
         }
 
@@ -196,6 +198,29 @@ pub(crate) struct MemoryLevel {
     /// One malloc arena for all threads.
     pub(crate) one_arena: bool,
     pub(crate) tooltip: &'static str,
+}
+
+/// The settings that a start option (--layout, --random, --fade) set for this window only. A
+/// save writes the values read from the file in their place, until the window changes them. It
+/// is filled only by `Config::change_for_this_start_only`, and the save takes out a setting the
+/// window changed, so it sits behind a mutex, as `save` takes the settings unchanged.
+#[derive(Debug, Default)]
+pub struct StartOnly(std::sync::Mutex<Vec<StartOnlyLine>>);
+
+impl PartialEq for StartOnly {
+    fn eq(&self, other: &Self) -> bool {
+        // The same mutex would be locked twice.
+        std::ptr::eq(self, other)
+            || *lock_even_if_poisoned(&self.0) == *lock_even_if_poisoned(&other.0)
+    }
+}
+
+/// A setting that a start option set for this window only, as lines of the settings file: the
+/// line the option made, and the line read from the file before it.
+#[derive(Debug, PartialEq)]
+struct StartOnlyLine {
+    started: String,
+    read: String,
 }
 
 /// The window geometry saved at exit, in points. It holds the size, the position and whether
@@ -613,14 +638,45 @@ impl Config {
         (config, problems)
     }
 
+    /// Sets the layout, random order and fade that the start options ask for, for this window
+    /// only. The saves go on writing what these settings were before, until the window changes
+    /// them, so a script's start does not change the starts after it.
+    pub fn change_for_this_start_only(
+        &mut self,
+        layout: Option<&str>,
+        random: bool,
+        fade: Option<usize>,
+    ) {
+        let read = self.to_text();
+        if let Some(layout) = layout {
+            self.layout = layout.to_owned();
+        }
+        self.slideshow_random |= random;
+        if let Some(fade) = fade {
+            self.slideshow_fade = fade;
+        }
+        let changed = start_only_lines(&read, &self.to_text());
+        lock_even_if_poisoned(&self.start_only.0).extend(changed);
+    }
+
+    /// Returns the settings as a save writes them: as `to_text` does, with each setting that a
+    /// start option set and that the window has not changed since as it was read.
+    fn text_to_save(&self) -> String {
+        without_start_only(
+            &self.to_text(),
+            &mut lock_even_if_poisoned(&self.start_only.0),
+        )
+    }
+
     /// Saves the settings. Only the settings this window changed go over the file, and the
-    /// others keep what other windows wrote meanwhile. Locked settings are never written.
+    /// others keep what other windows wrote meanwhile. A setting that a start option set is
+    /// saved as it was read (`change_for_this_start_only`). Locked settings are never written.
     pub fn save(&self) {
         if locked() {
             return;
         }
         if let Some(p) = config_path() {
-            let ours = self.to_text();
+            let ours = self.text_to_save();
             // The file is read, merged and written in the background, because each toggle in a
             // menu saves, and the file's sync must not hold the window.
             write_later(move || {
@@ -996,6 +1052,30 @@ pub(crate) fn unlock() {
     SETTINGS_LOCKED.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Returns the lines of the settings file that differ between `read` and `changed`, both written
+/// by `to_text`, so that their lines come in the same order.
+fn start_only_lines(read: &str, changed: &str) -> Vec<StartOnlyLine> {
+    (read.lines().zip(changed.lines()))
+        .filter(|(read, started)| read != started)
+        .map(|(read, started)| StartOnlyLine {
+            started: started.to_owned(),
+            read: read.to_owned(),
+        })
+        .collect()
+}
+
+/// Returns `ours` (written by `to_text`) with the line read in place of each line that a start
+/// option made and that is still as it made it. A setting that the window changed since is taken
+/// out of `start_only`, so that it is saved from then on, also when it is changed back.
+fn without_start_only(ours: &str, start_only: &mut Vec<StartOnlyLine>) -> String {
+    start_only.retain(|kept| ours.lines().any(|l| l == kept.started));
+    let line = |l: &str| match start_only.iter().find(|kept| kept.started == l) {
+        Some(kept) => kept.read.clone(),
+        None => l.to_owned(),
+    };
+    ours.lines().map(|l| line(l) + "\n").collect()
+}
+
 /// `ours` (key=value lines), except that where a value is as this window `saved` it, the one
 /// `on_disk` is kept, because another window may have changed that setting since. The result
 /// keeps the file's own order, its comments and blank lines, with the settings it lacks after
@@ -1167,6 +1247,42 @@ mod tests {
         let saved = super::Config::parse(&std::fs::read_to_string(&path).unwrap());
         assert_eq!(saved.thumbnails, changed.thumbnails);
         assert_eq!(saved.show_marks, changed.show_marks);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A start with --random, --layout or --fade leaves the settings file as it was, also when
+    /// another setting is saved, and a setting the window changes later is saved, also back to
+    /// the start option's value. Before, a script's `glimt --random` made every later start
+    /// random, with no option to turn it off.
+    #[test]
+    fn start_options_are_not_saved() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-start-not-saved-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config");
+        let read = super::Config::default().to_text();
+        std::fs::write(&path, &read).unwrap();
+        let last_saved = std::sync::Mutex::new(read.clone());
+        let args = ["--random", "--layout", "2x2", "--fade", "long"].map(Into::into);
+        let (start, _) = crate::cli::Start::parse(args.to_vec()).unwrap();
+        let mut config = super::Config::parse(&read);
+        start.apply_to(&mut config);
+        assert!(config.slideshow_random && config.layout == "2x2" && config.slideshow_fade == 2);
+        let save = |config: &super::Config| {
+            super::write_settings(&path, &config.text_to_save(), &last_saved).unwrap();
+            super::Config::parse(&std::fs::read_to_string(&path).unwrap())
+        };
+        assert_eq!(save(&config), super::Config::default());
+        config.show_marks = !config.show_marks;
+        let saved = save(&config);
+        assert!(!saved.slideshow_random && saved.layout == "1" && saved.slideshow_fade == 1);
+        assert_eq!(saved.show_marks, config.show_marks);
+        // Random order turned off and on again in the View menu is saved on.
+        config.slideshow_random = false;
+        assert!(!save(&config).slideshow_random);
+        config.slideshow_random = true;
+        assert!(save(&config).slideshow_random);
+        assert_eq!(save(&config).layout, "1");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

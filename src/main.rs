@@ -213,17 +213,7 @@ impl App {
     ) -> Self {
         let mut config = read.config;
         crate::support::lang::set_language(&config.language);
-        // Start options are kept, as choosing them in the View menu would.
-        if let Some(layout) = start.layout {
-            config.layout = layout.into();
-        }
-        config.slideshow_random |= start.random;
-        if let Some(fade) = start.fade {
-            config.slideshow_fade = fade;
-        }
-        if start.layout.is_some() || start.random || start.fade.is_some() {
-            config.save();
-        }
+        start.apply_to(&mut config);
         crate::ui::actions::use_user_keys(&config.keys);
         // The folder shown last is looked at only in the background (`open_last_folder`),
         // because a share that stopped answering would hold the start before the window opens.
