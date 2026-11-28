@@ -389,6 +389,13 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("metadata/xmp.rs", "locks"),           // lock_dir
     ("metadata/xmp.rs", "same"),            // same_keyword
     ("metadata/xmp.rs", "without"),         // without_thumbnails, without_property
+    ("metadata/xmp_packet.rs", "Access"),   // AltText
+    ("metadata/xmp_packet.rs", "Meta"),     // KeywordsAndComment
+    ("metadata/xmp_packet.rs", "access"),   // alt_text
+    ("metadata/xmp_packet.rs", "leaf"),     // keyword_of_path
+    ("metadata/xmp_packet.rs", "mul"),      // compose_orientations
+    ("metadata/xmp_packet.rs", "same"),     // same_keyword
+    ("metadata/xmp_packet.rs", "without"),  // without_thumbnails, without_property
     ("model/collections.rs", "LISTS"),      // LIST_EXTS
     ("model/collections.rs", "act"),        // chosen
     ("model/collections.rs", "lexical"),    // lexically_normal
