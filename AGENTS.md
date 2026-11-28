@@ -638,7 +638,10 @@ arm becomes a method.
   - change a file the user picked in the list (its sidecar, marks, a delete, a rename, a
     tool) only through a `file_io::ListedFile` (`App::listed_file`), checked with
     `ListedFile::check` right before the change, in the thread that makes it, so that a name
-    another window or program has given another file since the listing is left alone;
+    another window or program has given another file since the listing is left alone. A
+    `ListedFile` of an entry no listing has checked yet (a saved list's row, a collection's
+    entry, `ListedAs::UncheckedEntry`) passes no check. An edit takes its file from the list
+    when it is saved, never a judgement made when it was read;
   - rename with `file_io::rename_never_over` (never over a file), and move or copy with
     `put_file` (never `std::fs::copy`). A rename that a later step counts on (an unlink,
     a plan removed) is first made lasting with `sync_folder_of`, which syncs its folder.
