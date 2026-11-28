@@ -1175,6 +1175,18 @@ const TEXT_SEARCHES: [(&str, usize); 34] = [
     ("RegexBuilder::new(", 0),
 ];
 
+/// The calls that look at a name, as `drops_the_error_of_a_look` and `kept_looks_that_guess`
+/// read them: `file_io::look_at` and `look_through` (whose `Look` holds the rule in its type,
+/// but a `_ =>` arm or a `let Look::There(…) else` still folds a failed look into an answer),
+/// and the raw looks, which clippy.toml refuses outside `file_io::look`.
+const LOOKS_AT_A_NAME: [&str; 5] = [
+    "look_at(",
+    "look_through(",
+    "metadata(",
+    "try_exists(",
+    "exists(",
+];
+
 /// The helpers that look at a name for another reason than to judge where a failed step left a
 /// file (`steps_judged_by_looks`), each as its file and name, with that reason. Approved by the
 /// maintainer (#308), who approved `trash::is_taken_in` too, which the rule does not find, as it
@@ -5232,7 +5244,9 @@ fn looks_at_the_disk_in_the_logs_can_say_cannot_tell() {
 /// Returns the functions in `text`, the source of `file`, outside the tests, that return a
 /// plain `bool` and look at the disk, as "file: function".
 fn sure_answers_from_the_disk_in(file: &str, text: &str) -> Vec<String> {
-    const LOOKS: [&str; 10] = [
+    const LOOKS: [&str; 12] = [
+        "look_at(",
+        "look_through(",
         "is_surely_there(",
         "is_surely_gone(",
         "is_surely_dir(",
@@ -5272,10 +5286,11 @@ fn sure_answers_from_the_disk_in(file: &str, text: &str) -> Vec<String> {
 fn finds_a_look_at_the_disk_that_answers_a_bool() {
     let text = "fn a(p: &Path) -> bool {\n    is_surely_there(p)\n}\n\
         fn b(p: &Path) -> AtStart<bool> {\n    Ok(is_surely_there(p))\n}\n\
-        fn c(x: u8) -> bool {\n    x == 0\n}\n";
+        fn c(x: u8) -> bool {\n    x == 0\n}\n\
+        fn d(p: &Path) -> bool {\n    matches!(look_at(p), Look::Gone)\n}\n";
     assert_eq!(
         sure_answers_from_the_disk_in("files/journal.rs", text),
-        ["files/journal.rs: a"]
+        ["files/journal.rs: a", "files/journal.rs: d"]
     );
 }
 
@@ -6541,8 +6556,9 @@ fn steps_are_judged_done_in_one_place() {
     );
 }
 
-/// Returns the looks at a name (`is_surely_gone`, `is_surely_there`, `is_followed_to`) in the
-/// functions of `sources` (each a file's name and its `code_lines`), outside the tests, that
+/// Returns the looks at a name (`is_surely_gone`, `is_surely_there`, `is_followed_to`, and a
+/// `file_io::Look` asked which answer it gave) in the functions of `sources` (each a file's
+/// name and its `code_lines`), outside the tests, that
 /// have a step's failure in hand: they call a step, name a `StepError` or a `Restoring` (whose
 /// `Failed` passes a step's error on), or take an `std::io::Error` or `std::io::Result`, which
 /// may be a step's error passed on. A share that lost a step's answer may have lost the file
@@ -6556,7 +6572,16 @@ fn steps_judged_by_looks(
     sources: &[(String, Vec<String>)],
     on_its_own: &[(&str, &str)],
 ) -> Vec<String> {
-    const LOOKS: [&str; 3] = ["is_surely_gone", "is_surely_there", "is_followed_to"];
+    // A `Look` asked which answer it is, as a `Look` read only for a value of the file
+    // (`look_through(p).metadata()`, its size or device) judges no step.
+    const LOOKS: [&str; 6] = [
+        "is_surely_gone",
+        "is_surely_there",
+        "is_followed_to",
+        "Look::Gone",
+        "Look::There",
+        "Look::CannotTell",
+    ];
     let helpers = helpers_that_look(sources, &LOOKS, on_its_own);
     let mut wrong: Vec<String> = Vec::new();
     for (file, code) in sources {
@@ -6852,6 +6877,10 @@ fn trashed(a: &Path) -> bool {
     let failed = trash(&[a]);
     !failed.is_empty() && is_surely_gone(a)
 }
+fn looked_again(a: &Path, b: &Path) -> bool {
+    let failed = rename_step(a, b).is_err();
+    failed && matches!(file_io::look_at(a), file_io::Look::Gone)
+}
 #[cfg(test)]
 mod tests {
     fn t() {
@@ -6874,6 +6903,7 @@ mod tests {
             "a.rs:48 (through through looked)",
             "a.rs:55 (two_down through deeper)",
             "a.rs:59 (trashed)",
+            "a.rs:63 (looked_again)",
         ]
     );
     // An excuse holds for the helper of its file only.
@@ -8196,7 +8226,7 @@ fn kept_looks_that_guess(lines: &[String]) -> Vec<usize> {
         let rest = rest.strip_prefix("mut ").unwrap_or(rest);
         let name: String = rest.chars().take_while(|&c| is_word_char(c)).collect();
         let statement = statement_from(lines, i);
-        let looks = ["metadata(", "try_exists(", "exists("].iter().any(|look| {
+        let looks = LOOKS_AT_A_NAME.iter().any(|look| {
             (statement.match_indices(look)).any(|(at, _)| {
                 let before = &statement[..at];
                 !before.ends_with(is_word_char) || before.ends_with("symlink_")
@@ -8282,11 +8312,13 @@ fn drops_the_error_of_a_look(statement: &str) -> bool {
                 || (after.contains(".unwrap_or_default()")
                     && !makes_text.iter().any(|text| after.contains(text))))
     };
-    let guesses_without_error = ["let Ok(", "Err(_", "Err(..)", "_ =>"]
+    let guesses_without_error = ["let Ok(", "Err(_", "Err(..)", "_ =>", "let Look::There("]
         .iter()
         .any(|c| statement.contains(c));
     // `exists(` is `std::fs::exists`, by its path or imported, a yes or no as `try_exists` is.
-    ["metadata(", "try_exists(", "exists("].iter().any(|look| {
+    // `file_io::look_at` and `look_through` answer a `Look`, whose `metadata()` is read as a
+    // look of its own.
+    LOOKS_AT_A_NAME.iter().any(|look| {
         (statement.match_indices(look)).any(|(at, found)| {
             let before = &statement[..at];
             if before.ends_with(is_word_char) && !before.ends_with("symlink_") {
@@ -8306,7 +8338,9 @@ fn drops_the_error_of_a_look(statement: &str) -> bool {
             let after = &after[..after.find(';').unwrap_or(after.len())];
             // `.ok()?` passes the failure on as `None`.
             let chained: String = after.chars().filter(|c| !c.is_whitespace()).collect();
-            !(chained.starts_with('?') || chained.starts_with(".ok()?"))
+            !(chained.starts_with('?')
+                || chained.starts_with(".ok()?")
+                || (look.starts_with("look_") && chained.starts_with(".metadata()")))
                 && (look.ends_with("exists(")
                     || asks_the_result(after)
                     || gives_a_value_of_its_own(after)
@@ -8444,8 +8478,14 @@ fn finds_a_failed_look_in_any_spelling() {
         let t = p.try_exists().is_ok_and(|b| b);\n    let l = std::fs::symlink_metadata(p)?\n        \
         .file_type()\n        .is_symlink();\n    let l = m.is_symlink();\n    \
         let t = p.try_exists()?;\n    match std::fs::symlink_metadata(p) {\n        \
-        Ok(m) => m.is_dir(),\n        Err(e) => e.kind() == ErrorKind::NotFound,\n    }\n}\n";
-    assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9, 10]);
+        Ok(m) => m.is_dir(),\n        Err(e) => e.kind() == ErrorKind::NotFound,\n    }\n    \
+        match look_at(p) {\n        Look::There(_) => 1,\n        _ => 2,\n    }\n    \
+        let Look::There(m) = look_through(p) else {\n    \
+        let s = look_through(p).metadata().ok()?.len();\n    \
+        let d = look_through(p).metadata().is_ok_and(|m| m.is_dir());\n    \
+        match look_at(p) {\n        Look::There(m) => m.is_dir(),\n        \
+        Look::Gone | Look::CannotTell(_) => false,\n    }\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9, 10, 20, 24, 26]);
 }
 
 /// A file is locked only through `file_io::open_and_lock` and `open_if_unlocked`, which open it
