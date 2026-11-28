@@ -5287,7 +5287,7 @@ fn finds_a_look_at_the_disk_that_answers_a_bool() {
     let text = "fn a(p: &Path) -> bool {\n    is_surely_there(p)\n}\n\
         fn b(p: &Path) -> AtStart<bool> {\n    Ok(is_surely_there(p))\n}\n\
         fn c(x: u8) -> bool {\n    x == 0\n}\n\
-        fn d(p: &Path) -> bool {\n    matches!(look_at(p), Look::Gone)\n}\n";
+        fn d(p: &Path) -> bool {\n    matches!(look_at(p), Look::Gone(_))\n}\n";
     assert_eq!(
         sure_answers_from_the_disk_in("files/journal.rs", text),
         ["files/journal.rs: a", "files/journal.rs: d"]
@@ -6879,7 +6879,7 @@ fn trashed(a: &Path) -> bool {
 }
 fn looked_again(a: &Path, b: &Path) -> bool {
     let failed = rename_step(a, b).is_err();
-    failed && matches!(file_io::look_at(a), file_io::Look::Gone)
+    failed && matches!(file_io::look_at(a), file_io::Look::Gone(_))
 }
 #[cfg(test)]
 mod tests {
@@ -8479,12 +8479,12 @@ fn finds_a_failed_look_in_any_spelling() {
         .file_type()\n        .is_symlink();\n    let l = m.is_symlink();\n    \
         let t = p.try_exists()?;\n    match std::fs::symlink_metadata(p) {\n        \
         Ok(m) => m.is_dir(),\n        Err(e) => e.kind() == ErrorKind::NotFound,\n    }\n    \
-        match look_at(p) {\n        Look::There(_) => 1,\n        _ => 2,\n    }\n    \
-        let Look::There(m) = look_through(p) else {\n    \
+        match look_at(p) {\n        Look::There(..) => 1,\n        _ => 2,\n    }\n    \
+        let Look::There(m, _) = look_through(p) else {\n    \
         let s = look_through(p).metadata().ok()?.len();\n    \
         let d = look_through(p).metadata().is_ok_and(|m| m.is_dir());\n    \
-        match look_at(p) {\n        Look::There(m) => m.is_dir(),\n        \
-        Look::Gone | Look::CannotTell(_) => false,\n    }\n}\n";
+        match look_at(p) {\n        Look::There(m, _) => m.is_dir(),\n        \
+        Look::Gone(_) | Look::CannotTell(..) => false,\n    }\n}\n";
     assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9, 10, 20, 24, 26]);
 }
 

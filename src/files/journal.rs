@@ -1141,9 +1141,9 @@ fn old_log_written_anew(jobs: &Path, path: &Path) -> AtStart<()> {
 /// Returns `Ok` when `path`, not followed through a link, is a file or surely not there.
 fn is_file_or_gone(path: &Path) -> AtStart<()> {
     match crate::files::file_io::look_at(path) {
-        Look::There(meta) if meta.file_type().is_file() => Ok(()),
-        Look::Gone => Ok(()),
-        Look::There(_) | Look::CannotTell(_) => Err(CannotTell),
+        Look::There(meta, _) if meta.file_type().is_file() => Ok(()),
+        Look::Gone(_) => Ok(()),
+        Look::There(..) | Look::CannotTell(..) => Err(CannotTell),
     }
 }
 

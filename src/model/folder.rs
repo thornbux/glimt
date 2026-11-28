@@ -3165,9 +3165,9 @@ fn edit_recent(change: impl FnOnce(Vec<PathBuf>) -> Vec<PathBuf> + Send + 'stati
 fn is_dir_if_there(path: &Path) -> Option<bool> {
     use crate::files::file_io::Look;
     match look_through(path) {
-        Look::There(meta) => Some(meta.is_dir()),
-        Look::Gone => None,
-        Look::CannotTell(_) => Some(true),
+        Look::There(meta, _) => Some(meta.is_dir()),
+        Look::Gone(_) => None,
+        Look::CannotTell(..) => Some(true),
     }
 }
 
