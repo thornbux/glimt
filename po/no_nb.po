@@ -3393,3 +3393,7 @@ msgstr "Tøm lagrede lister"
 #: src/ui/preferences.rs
 msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
 msgstr "Lagres i ~/.cache/glimt/lists: en mappe som åpnes igjen, viser listen fra sist med en gang mens den leses på nytt, og handlinger på filene venter til den er lest"
+
+#: src/model/search.rs
+msgid "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08"
+msgstr "Ikke en dato: skriv 2024, 2024-06, 2024-06-15 eller et tidsrom som 2024-06..2024-08"

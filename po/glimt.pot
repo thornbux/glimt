@@ -3403,3 +3403,7 @@ msgstr ""
 #: src/ui/preferences.rs
 msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
 msgstr ""
+
+#: src/model/search.rs
+msgid "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08"
+msgstr ""

@@ -333,6 +333,11 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          exif:canon 2024:05 for photos from a Canon camera taken in May 2024; every word must \
          match. Start with re: for a regular expression instead, ignoring case: \
          re:^img_\\d+\\.jpe?g$, or exif:re:canon.*2024:0[5-7] for the EXIF.\n\n\
+         Start with date: for the day a photo was taken: date:2024, date:2024-06 or \
+         date:2024-06-15, or a range such as date:2024-06..2024-08, ends included; date:..2023 \
+         and date:2024.. leave one end open. The day is the EXIF date original as the camera \
+         wrote it, or for a file without one its modification time in the computer's local time. \
+         A date has no spaces, so the words after it search the names (date:2024 beach).\n\n\
          The .* button beside the field (or the setting in Preferences → File List) makes the \
          field a regular expression always, from the first letter and in list order, as Geeqie's \
          file filter; Case beside it then tells upper and lower case apart. Plain words then find \
@@ -344,12 +349,12 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          writes the stars to XMP sidecars for darktable and digiKam.\n\n\
          These can be combined:\n\n\
          - terms one after the other must all match (sunset exif:canon stars:3)\n\
-         - a - before exif:, re:, mark: or stars: means it must not (sunset -exif:iphone)\n\
+         - a - before exif:, re:, mark:, stars: or date: means it must not (sunset -exif:iphone)\n\
          - | between terms means either (exif:canon | exif:nikon); | binds loosest.\n\n\
          Parentheses group, as words of their own with spaces around them: sunset ( exif:canon | \
          exif:nikon ), and -( … ) leaves a group out; a regular expression keeps its own \
-         (re:^(IMG|DSC)). The words after a prefix belong to it, so a search of the names comes \
-         first. Combined, the list is in its own order.\n\n\
+         (re:^(IMG|DSC)). The words after a prefix other than date: belong to it, so a search of \
+         the names comes first. Combined, the list is in its own order.\n\n\
          The sort menu at the bottom left sorts by name, number, date, file creation date, \
          EXIF date original, EXIF date digitized, size or extension; the Types menu beside it \
          chooses what the list shows: images, RAW files and videos. The date is when the file \
@@ -1076,8 +1081,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Search field",
         "Above the file list; fuzzy (like fzf) by default, re: for a regular expression, exif:, \
-         mark: and stars:, combined with -, | and ( ); the .* button beside it (or a setting) \
-         makes it a regular expression always, as Geeqie's, with a Case checkbox beside it",
+         mark:, stars: and date:, combined with -, | and ( ); the .* button beside it (or a \
+         setting) makes it a regular expression always, as Geeqie's, with a Case checkbox beside it",
         "File filter (View → Show File Filter): a regular expression, with a Case checkbox",
     ),
     (

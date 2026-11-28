@@ -346,6 +346,9 @@ fn find(ifd: &[(u16, Entry)], tag: u16) -> Option<Entry> {
 }
 
 /// (label, value) rows for the panel, in display order; empty if the file has no EXIF.
+/// The program reads them together with what else it needs from the block (`read_with_date`,
+/// `read_and_all`, `read_with_orientation`), so only the tests read them alone.
+#[cfg(test)]
 pub fn read(path: &Path) -> Vec<(&'static str, String)> {
     // The panel shows a block it cannot read as none.
     read_exif_block(path)
@@ -370,6 +373,15 @@ pub fn read_with_orientation(path: &Path) -> (Vec<(&'static str, String)>, Optio
     };
     let orientation = ifds(&raw).and_then(|(t, ifd0, _, _)| t.int(find(&ifd0, ORIENTATION)?));
     (parse(&raw), orientation)
+}
+
+/// `read` of `path`, and its DateTimeOriginal as `date` gives it, from one reading of its EXIF
+/// block. The date is `None` when the file has none.
+pub fn read_with_date(path: &Path) -> (Vec<(&'static str, String)>, Option<String>) {
+    let Some(raw) = read_exif_block(path).ok().flatten() else {
+        return Default::default();
+    };
+    (parse(&raw), date_in(&raw, false))
 }
 
 /// Every field of an EXIF block, for the EXIF window.
@@ -509,17 +521,21 @@ pub fn date(path: &Path, digitized: bool) -> Option<String> {
     // A decoder panicking on one file must not end the sort or the Pan view that asked.
     crate::support::threads::catch_panic(|| {
         // A photo whose EXIF cannot be read sorts as one without a date.
-        let raw = read_exif_block(path).ok()??;
-        let (t, _, exif, _) = ifds(&raw)?;
-        let tag = if digitized { 0x9004 } else { 0x9003 };
-        let mut date = t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)?;
-        if let Some(day) = date.get(..10) {
-            let day = day.replace('-', ":");
-            date.replace_range(..10, &day);
-        }
-        Some(date)
+        date_in(&read_exif_block(path).ok()??, digitized)
     })
     .flatten()
+}
+
+/// `date` of the EXIF block `raw`.
+fn date_in(raw: &[u8], digitized: bool) -> Option<String> {
+    let (t, _, exif, _) = ifds(raw)?;
+    let tag = if digitized { 0x9004 } else { 0x9003 };
+    let mut date = t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)?;
+    if let Some(day) = date.get(..10) {
+        let day = day.replace('-', ":");
+        date.replace_range(..10, &day);
+    }
+    Some(date)
 }
 
 /// Whether the EXIF block says the pixels are Adobe RGB without an ICC profile, as cameras set

@@ -4234,3 +4234,8 @@ msgstr "Tøm lagra lister"
 #, fuzzy
 msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
 msgstr "Lagra i ~/.cache/glimt/lists: ei mappe som blir opna igjen, viser lista frå sist med ein gong medan ho blir lesen på nytt, og handlingar på filene ventar til ho er lesen"
+
+#: src/model/search.rs
+#, fuzzy
+msgid "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08"
+msgstr "Ikkje ein dato: skriv 2024, 2024-06, 2024-06-15 eller eit tidsrom som 2024-06..2024-08"

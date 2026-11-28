@@ -4222,3 +4222,8 @@ msgstr "Töm sparade listor"
 #, fuzzy
 msgid "Kept in ~/.cache/glimt/lists: a folder opened again shows its list from the last time at once while it is read again, and actions on its files wait until it is read"
 msgstr "Sparas i ~/.cache/glimt/lists: en mapp som öppnas igen visar listan från förra gången direkt medan den läses på nytt, och åtgärder på filerna väntar tills den är läst"
+
+#: src/model/search.rs
+#, fuzzy
+msgid "Not a date: write 2024, 2024-06, 2024-06-15 or a range such as 2024-06..2024-08"
+msgstr "Inte ett datum: skriv 2024, 2024-06, 2024-06-15 eller ett intervall som 2024-06..2024-08"
