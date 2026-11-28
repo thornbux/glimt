@@ -1321,33 +1321,41 @@ mod tests {
         assert_eq!(thumb_threads_at(1, 1), 1);
     }
 
-    /// A thread of `spawn` holds its busy pointer while its work runs, and lets it go and asks
-    /// for a frame when the work ends, also by a panic. Risk: `--remote … --wait` answering
-    /// before the work is done, or a pointer left on until the mouse moves.
+    /// A thread of `spawn` holds its busy pointer while its work runs, lets it go when the work
+    /// ends, and then asks for a frame. A panic lets the pointer go too, but asks for no frame.
+    /// Risk: `--remote … --wait` answering before the work is done, or a pointer left on until
+    /// the mouse moves.
     #[test]
     fn a_thread_holds_its_busy_pointer_until_its_work_ends() {
         use super::{Busy, Working, spawn};
-        use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering, mpsc};
+        use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering};
         let ctx = eframe::egui::Context::default();
-        let asked = Arc::new(AtomicUsize::new(0));
-        let frames = asked.clone();
-        ctx.set_request_repaint_callback(move |_| {
-            frames.fetch_add(1, Ordering::Relaxed);
-        });
         let count = Arc::new(AtomicUsize::new(0));
-        let (go, wait) = mpsc::channel::<()>();
+        // The busy count when the frame is asked for, `usize::MAX` before it is.
+        let at_frame = Arc::new(AtomicUsize::new(usize::MAX));
+        let (seen, counted) = (at_frame.clone(), count.clone());
+        ctx.set_request_repaint_callback(move |_| {
+            seen.store(counted.load(Ordering::SeqCst), Ordering::SeqCst);
+        });
+        let during = count.clone();
         let pointer = Busy::Pointer(Working::new(&count), ctx.clone());
-        let held = spawn(pointer, move || wait.recv().is_ok());
-        assert_eq!(count.load(Ordering::Relaxed), 1);
-        go.send(()).unwrap();
-        assert!(held.join().unwrap());
-        assert_eq!(count.load(Ordering::Relaxed), 0);
-        assert!(asked.load(Ordering::Relaxed) > 0);
+        let held = spawn(pointer, move || during.load(Ordering::SeqCst));
+        assert_eq!(held.join().unwrap(), 1, "the pointer went before the work");
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            0,
+            "the pointer stayed after the work"
+        );
+        assert_eq!(
+            at_frame.load(Ordering::SeqCst),
+            0,
+            "the frame came before the pointer went"
+        );
         let broke = spawn(Busy::Pointer(Working::new(&count), ctx), || {
             panic!("a broken file");
         });
         assert!(broke.join().is_err());
-        assert_eq!(count.load(Ordering::Relaxed), 0);
+        assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 
     /// The busy pointer goes when its work ends, also by a panic.
