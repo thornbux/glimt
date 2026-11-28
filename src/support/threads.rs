@@ -1,5 +1,6 @@
-//! Threads: how many for each kind of work (the CPU use level), work split over them
-//! (`in_parts`), a background thread's answer (`Receiving`), and work counted while it runs
+//! Threads: starting one (`spawn`, which says what it does for the busy pointer), how many for
+//! each kind of work (the CPU use level), work split over them (`in_parts`), a background
+//! thread's answer (`Receiving`), and work counted while it runs
 //! (`Working`) and until the window has handled its answer (`AnswerSender`).
 
 use crate::viewer::view::Failure;
@@ -305,6 +306,21 @@ impl<T> AnswerSender<T> {
     }
 }
 
+/// What a background thread does for the busy pointer, which every thread says when it is
+/// started (`spawn`). `--remote … --wait` and the tests answer when the busy count is down, so
+/// work the user waits for without a pointer let them answer before it was done.
+pub(crate) enum Busy {
+    /// The thread holds the busy pointer until its work has ended, and then asks the window
+    /// for a frame, so that the pointer goes at once.
+    Pointer(Working, eframe::egui::Context),
+    /// The thread's busy pointer is shown in a way of its own, which the text names: the
+    /// answer it sends through an `AnswerSender`, or a state of the window that waits for it.
+    ShownBy(&'static str),
+    /// The thread shows no busy pointer, for the reason the text gives: nobody waits for it,
+    /// or the thread that started it waits for it itself.
+    NoPointer(&'static str),
+}
+
 /// The progress of the job that the worker in each place of a pool does, with the folder its
 /// job is set aside by (`spawn_worker_pool`), `None` while it waits for a job. A worker given up
 /// leaves its place to a new worker with a new `JobStart`, and ends once its job returns, when
@@ -581,17 +597,22 @@ fn start_pool<J: Send + 'static>(
     let starts: Vec<JobStart> = (0..places).map(|_| JobStart::default()).collect();
     let (wake, next) = mpsc::channel();
     let handed_on = wake.clone();
-    // No busy pointer: it only hands the pool's jobs on to its workers, through the channel
-    // that also says when a job set aside is ready. It ends with the sending half of `jobs`.
-    std::thread::spawn(move || {
-        while let Ok(job) = jobs.recv() {
-            if handed_on.send(Next::Job(job)).is_err() {
-                return;
+    // It ends with the sending half of `jobs`.
+    spawn(
+        Busy::NoPointer(
+            "it only hands the pool's jobs on to its workers, through the channel that also \
+             says when a job set aside is ready",
+        ),
+        move || {
+            while let Ok(job) = jobs.recv() {
+                if handed_on.send(Next::Job(job)).is_err() {
+                    return;
+                }
             }
-        }
-        // The workers may be gone already.
-        let _ = handed_on.send(Next::End);
-    });
+            // The workers may be gone already.
+            let _ = handed_on.send(Next::End);
+        },
+    );
     let pool = Arc::new(WorkerPool {
         jobs: Mutex::new(next),
         wake,
@@ -613,17 +634,19 @@ fn start_pool<J: Send + 'static>(
         start_worker(&pool, place, start);
     }
     let watched = Arc::downgrade(&pool);
-    // No busy pointer: the watch over a pool's workers, which only starts workers. It ends
-    // with the pool, once its workers have ended.
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(stuck_after / 4);
-            let Some(pool) = watched.upgrade() else {
-                return;
-            };
-            replace_stuck_workers(&pool, stuck_after);
-        }
-    });
+    // It ends with the pool, once its workers have ended.
+    spawn(
+        Busy::NoPointer("the watch over a pool's workers, which only starts workers"),
+        move || {
+            loop {
+                std::thread::sleep(stuck_after / 4);
+                let Some(pool) = watched.upgrade() else {
+                    return;
+                };
+                replace_stuck_workers(&pool, stuck_after);
+            }
+        },
+    );
     pool
 }
 
@@ -658,32 +681,34 @@ fn replace_stuck_workers<J: Send + 'static>(
 /// Starts the worker of `pool` in place `place`, which notes when it starts each job in `start`.
 fn start_worker<J: Send + 'static>(pool: &Arc<WorkerPool<J>>, place: usize, start: JobStart) {
     let pool = pool.clone();
-    // No busy pointer: a worker of a pool, which lasts as long as the window. Each answer is
-    // shown when it comes.
-    std::thread::spawn(move || {
-        loop {
-            (pool.wait_for_turn)(place);
-            let Some(job) = next_job(&pool) else {
-                return;
-            };
-            let set_aside_by = (pool.set_aside_by)(&job);
-            let folder = set_aside_by.as_ref().map(|(folder, _)| folder.clone());
-            if let Some((folder, file)) = set_aside_by {
-                let mut stalled = lock_even_if_poisoned(&pool.stalled);
-                if stalled.folders.contains(&folder) {
-                    stalled.set_aside(folder, file, job);
-                    continue;
+    // Each answer is shown when it comes.
+    spawn(
+        Busy::NoPointer("a worker of a pool, which lasts as long as the window"),
+        move || {
+            loop {
+                (pool.wait_for_turn)(place);
+                let Some(job) = next_job(&pool) else {
+                    return;
+                };
+                let set_aside_by = (pool.set_aside_by)(&job);
+                let folder = set_aside_by.as_ref().map(|(folder, _)| folder.clone());
+                if let Some((folder, file)) = set_aside_by {
+                    let mut stalled = lock_even_if_poisoned(&pool.stalled);
+                    if stalled.folders.contains(&folder) {
+                        stalled.set_aside(folder, file, job);
+                        continue;
+                    }
+                }
+                let note = JobNote::new(&pool, place, &start, folder);
+                (pool.work)(job);
+                drop(note);
+                if !is_place_of(&pool, place, &start) {
+                    pool.stuck.fetch_sub(1, Ordering::Relaxed);
+                    return;
                 }
             }
-            let note = JobNote::new(&pool, place, &start, folder);
-            (pool.work)(job);
-            drop(note);
-            if !is_place_of(&pool, place, &start) {
-                pool.stuck.fetch_sub(1, Ordering::Relaxed);
-                return;
-            }
-        }
-    });
+        },
+    );
 }
 
 /// Returns the next job of `pool`: a job set aside whose folder answers again, or else a new
@@ -830,6 +855,49 @@ pub(crate) fn told_work(
         drop(held);
         ctx.request_repaint();
     }
+}
+
+/// Starts a thread that does `work`, and shows the busy pointer as `busy` says. This is the one
+/// way a thread is started outside the tests (clippy.toml), so that every thread says what it
+/// does for the busy pointer. A scope's thread (`std::thread::scope`) ends before its scope,
+/// so the thread that runs the scope holds the pointer for it. Work that writes is started with
+/// `spawn_told` instead.
+pub(crate) fn spawn<R: Send + 'static>(
+    busy: Busy,
+    work: impl FnOnce() -> R + Send + 'static,
+) -> std::thread::JoinHandle<R> {
+    if let Busy::ShownBy(why) | Busy::NoPointer(why) = &busy {
+        debug_assert!(
+            !why.trim().is_empty(),
+            "a thread says why it has no pointer of its own"
+        );
+    }
+    // Its busy pointer: the one that `busy` holds or names, or none for the reason it gives.
+    #[allow(clippy::disallowed_methods)] // the one place that starts a thread, given its Busy
+    std::thread::spawn(move || {
+        let answer = work();
+        if let Busy::Pointer(pointer, ctx) = busy {
+            drop(pointer);
+            ctx.request_repaint();
+        }
+        answer
+    })
+}
+
+/// Starts a thread that does `work`, which writes, through `told_work`: what it returns and a
+/// panic in it are told to the window through `notices`, and `held` (the busy pointer, the
+/// count of writing) is dropped only after the telling.
+pub(crate) fn spawn_told(
+    notices: NoticeSender,
+    ctx: &eframe::egui::Context,
+    held: impl Send + 'static,
+    work: impl FnOnce() -> Option<Told> + Send + 'static,
+) -> std::thread::JoinHandle<()> {
+    let work = told_work(notices, ctx, held, work);
+    spawn(
+        Busy::ShownBy("what it holds, dropped once it has told what it did"),
+        work,
+    )
 }
 
 /// Panics when `path` is one of `BREAKING_FILES`, for a test of what a file that breaks the
@@ -1225,6 +1293,35 @@ mod tests {
         assert_eq!(at(1), (2, cores()));
         assert_eq!(at(2), (cores(), cores()));
         assert_eq!(thumb_threads_at(1, 1), 1);
+    }
+
+    /// A thread of `spawn` holds its busy pointer while its work runs, and lets it go and asks
+    /// for a frame when the work ends, also by a panic. Risk: `--remote … --wait` answering
+    /// before the work is done, or a pointer left on until the mouse moves.
+    #[test]
+    fn a_thread_holds_its_busy_pointer_until_its_work_ends() {
+        use super::{Busy, Working, spawn};
+        use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering, mpsc};
+        let ctx = eframe::egui::Context::default();
+        let asked = Arc::new(AtomicUsize::new(0));
+        let frames = asked.clone();
+        ctx.set_request_repaint_callback(move |_| {
+            frames.fetch_add(1, Ordering::Relaxed);
+        });
+        let count = Arc::new(AtomicUsize::new(0));
+        let (go, wait) = mpsc::channel::<()>();
+        let pointer = Busy::Pointer(Working::new(&count), ctx.clone());
+        let held = spawn(pointer, move || wait.recv().is_ok());
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        go.send(()).unwrap();
+        assert!(held.join().unwrap());
+        assert_eq!(count.load(Ordering::Relaxed), 0);
+        assert!(asked.load(Ordering::Relaxed) > 0);
+        let broke = spawn(Busy::Pointer(Working::new(&count), ctx), || {
+            panic!("a broken file");
+        });
+        assert!(broke.join().is_err());
+        assert_eq!(count.load(Ordering::Relaxed), 0);
     }
 
     /// The busy pointer goes when its work ends, also by a panic.

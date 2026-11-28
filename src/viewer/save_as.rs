@@ -11,6 +11,7 @@ use crate::images::save::{CopyAs, Format};
 use crate::support::format::{ShownText, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::dialogs::Pick;
@@ -114,10 +115,8 @@ impl crate::App {
         let (tx, rx) = answer_channel(&self.busy);
         let (looked_up, ctx) = (path.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        std::thread::spawn(move || {
-            let _pointer = pointer;
+        threads::spawn(Busy::Pointer(pointer, ctx), move || {
             let _ = tx.send(Format::of(&looked_up));
-            ctx.request_repaint();
         });
         let copy_as = self.shown_copy();
         self.save_as = Some(SaveAs {

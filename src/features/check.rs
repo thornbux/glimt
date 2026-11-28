@@ -5,6 +5,7 @@ use crate::files::file_io::{FileFingerprint, fingerprint_of_file_read, same_fing
 use crate::images::decode::DecodeFailure;
 use crate::support::format::{ShownText, count, escaped_name, thousands};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took, Working, answer_channel, background_threads};
 use crate::ui::menus::{DrawShown, ShownProgress};
 use crate::{images::decode, tf};
@@ -176,7 +177,7 @@ impl crate::App {
             // Counted down when the thread ends, also by a panic, as every count of work is.
             let working = Working::new(&check.working);
             let pointer = Working::new(&self.busy);
-            std::thread::spawn(move || {
+            threads::spawn(Busy::Pointer(pointer, ctx), move || {
                 while !stop.load(Ordering::Relaxed) {
                     let Some((name, path)) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
                         break;
@@ -189,8 +190,6 @@ impl crate::App {
                     done.fetch_add(1, Ordering::Relaxed);
                 }
                 drop(working);
-                drop(pointer);
-                ctx.request_repaint();
             });
         }
         check
@@ -221,19 +220,21 @@ impl crate::App {
             .collect();
         let (tx, rx) = answer_channel(&self.busy);
         let ctx = self.ctx.clone();
-        // Its busy pointer: the answer's, until the window has selected the files.
-        std::thread::spawn(move || {
-            let is_as_read = |name: &OsString, read_as: Option<FileFingerprint>| {
-                let now = fingerprint_of_file_read(&dir.join(name));
-                matches!((read_as, now), (Some(a), Some(b)) if same_fingerprint(a, b))
-            };
-            let unchanged = (read.into_iter())
-                .filter(|(name, read_as)| is_as_read(name, *read_as))
-                .map(|(name, _)| name)
-                .collect();
-            let _ = tx.send(unchanged);
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::ShownBy("the answer's, until the window has selected the files"),
+            move || {
+                let is_as_read = |name: &OsString, read_as: Option<FileFingerprint>| {
+                    let now = fingerprint_of_file_read(&dir.join(name));
+                    matches!((read_as, now), (Some(a), Some(b)) if same_fingerprint(a, b))
+                };
+                let unchanged = (read.into_iter())
+                    .filter(|(name, read_as)| is_as_read(name, *read_as))
+                    .map(|(name, _)| name)
+                    .collect();
+                let _ = tx.send(unchanged);
+                ctx.request_repaint();
+            },
+        );
         check.still_broken = Receiving::of(rx);
     }
 

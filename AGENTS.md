@@ -33,9 +33,11 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   count, or a `threads::Working` held for the work) when the user started the work and waits
   for it. A look-up that nobody waits for, such as the folder's size in the status bar or the
   list of printers, shows no busy pointer, so the pointer is not busy while the user can go
-  on. Every thread says which: it holds a `Working` or answers through an `AnswerSender`, or a
-  comment just above it says "No busy pointer:" and why, or "Its busy pointer:" and the state
-  that shows it (`source_rules::threads_show_the_busy_pointer_or_say_why_not`), because
+  on. Every thread says which when it is started with `threads::spawn`, by its `Busy`: it holds
+  the pointer (`Busy::Pointer`, a `Working`), or names what shows it (`Busy::ShownBy`, such as
+  the answer of an `AnswerSender` or the state that waits for it), or gives the reason it shows
+  none (`Busy::NoPointer`); work that writes starts with `threads::spawn_told`
+  (`source_rules::threads_show_the_busy_pointer_or_say_why_not`), because
   `--remote … --wait` answers when the busy count is down. The UI thread does not even look at a
   user's file or folder (a stat, a real path, a read), because on a share that stopped
   answering that waits for ever and the window hangs.
@@ -480,7 +482,7 @@ arm becomes a method.
   `source_rules::parts_keep_their_fields` checks every part of `App`, `self.folder` and
   `self.list` among them: each struct of the crate that a field of `App` holds, so a new part
   is checked without being listed.
-- **Background work:** spawn a thread, send the result over a channel stored in `App` as a
+- **Background work:** start a thread with `threads::spawn`, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`
   or `wait`, which also tell, once, when the thread is gone. A pool's workers judge a
   job by its file, never by its place in the list, which a listing moves while the jobs wait

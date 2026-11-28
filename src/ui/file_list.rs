@@ -12,6 +12,7 @@ use crate::support::format::{
 };
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{Pick, entered};
@@ -533,9 +534,12 @@ impl StatusBar {
             let (asked, questions) = mpsc::channel::<(OsString, PathBuf)>();
             let (found, answers) = mpsc::channel();
             let (ctx, gate) = (ctx.clone(), ReadsFirst::for_files_anywhere(awaited));
-            // No busy pointer: the list's sizes and dates, a look-up nobody waits for, shown when
-            // it comes.
-            std::thread::spawn(move || answer_sizes_and_dates(&questions, &found, &ctx, gate));
+            threads::spawn(
+                Busy::NoPointer(
+                    "the list's sizes and dates, a look-up nobody waits for, shown when it comes",
+                ),
+                move || answer_sizes_and_dates(&questions, &found, &ctx, gate),
+            );
             self.sizes_and_dates_found = Receiving::of(answers);
             asked
         });
@@ -1185,18 +1189,22 @@ impl crate::App {
             self.tree.children.insert(dir.clone(), None);
             let (tx, ctx) = (self.tree.subfolders_sender.clone(), ui.ctx().clone());
             let mut gate = ReadsFirst::for_files_anywhere(self.decoding.images_awaited());
-            // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
-            // when it comes.
-            std::thread::spawn(move || {
-                // Always wanted: the tree marks the folder as asked about and asks no more, so it
-                // shows the folder's subfolders only from this answer.
-                let _turn = gate.before_work_nobody_waits_for(&dir, || true);
-                // Not told: the tree shows no subfolders of a folder it could not read, and opening
-                // that folder tells why.
-                let subdirs = list_folder(&dir, folders).map(|l| l.0).unwrap_or_default();
-                let _ = tx.send((dir, subdirs));
-                ctx.request_repaint();
-            });
+            threads::spawn(
+                Busy::NoPointer(
+                    "a folder's subfolders in the tree, a look-up nobody waits for, shown when it \
+                 comes",
+                ),
+                move || {
+                    // Always wanted: the tree marks the folder as asked about and asks no more, so
+                    // it shows the folder's subfolders only from this answer.
+                    let _turn = gate.before_work_nobody_waits_for(&dir, || true);
+                    // Not told: the tree shows no subfolders of a folder it could not read, and
+                    // opening that folder tells why.
+                    let subdirs = list_folder(&dir, folders).map(|l| l.0).unwrap_or_default();
+                    let _ = tx.send((dir, subdirs));
+                    ctx.request_repaint();
+                },
+            );
         }
     }
 

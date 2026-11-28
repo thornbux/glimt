@@ -19,6 +19,7 @@ use crate::files::config::{Config, LOCK_FILE, WindowState, parse_last_dir, state
 use crate::files::file_io::{is_surely_gone, write_atomic};
 use crate::metadata::lightroom::Import;
 use crate::model::list::List;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, Working};
 use crate::support::threads::{cores, set_cpu_use, thread_cpu_us};
 use crate::viewer::pan::PanView;
@@ -430,8 +431,10 @@ impl eframe::App for App {
         // The listener closes to new clients first, because a client coming after the answers
         // would get none. Its socket is removed in a thread of its own, as every look at the
         // disk is.
-        // No busy pointer: the window is closing, and nothing waits for the socket to go.
-        std::thread::spawn(crate::features::remote::close);
+        threads::spawn(
+            Busy::NoPointer("the window is closing, and nothing waits for the socket to go"),
+            crate::features::remote::close,
+        );
         self.answer_waiting_selects();
         let ctx = self.ctx.clone();
         self.take_last_reports_before_exit(&ctx);

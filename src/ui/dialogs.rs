@@ -12,6 +12,7 @@ use crate::files::file_ops::{
 use crate::model::listing::pattern_name;
 use crate::support::format::{ShownText, count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{AnswerSender, Receiving, Told, Took, Working, answer_channel};
 use crate::ui::menus::DrawShown;
 use crate::{files::journal, images::save, model::collections, tf, ui::theme};
@@ -420,12 +421,16 @@ impl crate::App {
             .map(Path::to_path_buf);
         let (tx, rx) = mpsc::channel();
         let ctx = self.ctx.clone();
-        // No busy pointer: the file system for Rename Many's preview, a look-up nobody waits for,
-        // shown when it comes.
-        std::thread::spawn(move || {
-            let _ = tx.send(folder.and_then(|f| fat_file_system_type(&f)));
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::NoPointer(
+                "the file system for Rename Many's preview, a look-up nobody waits for, shown when it \
+             comes",
+            ),
+            move || {
+                let _ = tx.send(folder.and_then(|f| fat_file_system_type(&f)));
+                ctx.request_repaint();
+            },
+        );
         self.dialogs.fat_file_system_type = None;
         self.dialogs.fat_file_system_answer = Receiving::of(rx);
         self.dialogs
@@ -478,42 +483,48 @@ impl crate::App {
         let notices = self.notice_sender.clone();
         let make_start_first = matches!(purpose, Pick::Collection);
         let is_profile = matches!(purpose, Pick::ScreenProfile | Pick::InputProfile);
-        std::thread::spawn(move || {
-            if make_start_first {
-                // Not told: the chooser starts in another folder then, and a collection saved
-                // into this one tells its own failure.
-                drop(std::fs::create_dir_all(&start));
-            }
-            let start = match is_profile && !crate::files::file_io::is_surely_dir(&start) {
-                true => Path::new(SYSTEM_PROFILES).join(""),
-                false => start,
-            };
-            let output = run_chooser(&title, &start, (save, folder, several));
-            let picked = match output {
-                Err(e) => {
-                    let _ = notices
-                        .send_error(tf!("No file dialog (install zenity or kdialog): {e}", e));
-                    None
+        threads::spawn(
+            Busy::ShownBy(
+                "the `Working` made for the look at a name picked to save at, while the chooser itself waits for the user",
+            ),
+            move || {
+                if make_start_first {
+                    // Not told: the chooser starts in another folder then, and a collection saved
+                    // into this one tells its own failure.
+                    drop(std::fs::create_dir_all(&start));
                 }
-                // Cancel exits with status 1 in both.
-                Ok(o) if !o.status.success() => None,
-                Ok(mut o) => {
-                    o.stdout.pop_if(|b| *b == b'\n');
-                    Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
-                }
-            };
-            // What is at a name to save at, which the chooser asked to replace. The save
-            // replaces only that file, or, when nothing was there, never a file that came since.
-            let at_pick = match &picked {
-                Some(path) if save => {
-                    let _pointer = Working::new(&busy);
-                    fingerprint(path)
-                }
-                _ => None,
-            };
-            let _ = tx.send((picked, at_pick));
-            ctx.request_repaint();
-        });
+                let start = match is_profile && !crate::files::file_io::is_surely_dir(&start) {
+                    true => Path::new(SYSTEM_PROFILES).join(""),
+                    false => start,
+                };
+                let output = run_chooser(&title, &start, (save, folder, several));
+                let picked = match output {
+                    Err(e) => {
+                        let _ = notices
+                            .send_error(tf!("No file dialog (install zenity or kdialog): {e}", e));
+                        None
+                    }
+                    // Cancel exits with status 1 in both.
+                    Ok(o) if !o.status.success() => None,
+                    Ok(mut o) => {
+                        o.stdout.pop_if(|b| *b == b'\n');
+                        Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
+                    }
+                };
+                // What is at a name to save at, which the chooser asked to replace. The save
+                // replaces only that file, or, when nothing was there, never a file that came
+                // since.
+                let at_pick = match &picked {
+                    Some(path) if save => {
+                        let _pointer = Working::new(&busy);
+                        fingerprint(path)
+                    }
+                    _ => None,
+                };
+                let _ = tx.send((picked, at_pick));
+                ctx.request_repaint();
+            },
+        );
         self.dialogs.file_dialog = Some(purpose);
         self.dialogs.picked_path = Receiving::of(rx);
     }

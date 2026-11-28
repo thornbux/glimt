@@ -3942,7 +3942,9 @@ fn notices_beside_writers(file: &str, text: &str) -> Vec<String> {
         // A function that starts a job or work that counts as writing hands its sender only to
         // `told_work`, so the work tells through a `Told`, which says whether it is a failure.
         writes |= WRITING_WORK.iter().any(|w| line.contains(w));
-        notices |= line.contains("notice_sender") && !line.contains("told_work(");
+        // `threads::spawn_told` hands it on to `told_work`.
+        let to_told_work = line.contains("told_work(") || line.contains("spawn_told(");
+        notices |= line.contains("notice_sender") && !to_told_work;
     }
     wrong
 }
@@ -4003,6 +4005,17 @@ fn finds_every_writing_thread_that_tells_nothing() {
         untold_writing_threads("x.rs", text),
         ["x.rs: a", "x.rs: b", "x.rs: c"]
     );
+}
+
+/// The check above finds a job moved into a thread of `threads::spawn`, which tells nothing of
+/// a panic, and passes one started with `threads::spawn_told`, which runs through `told_work`.
+#[test]
+fn finds_a_writing_thread_started_through_threads_spawn() {
+    let text = "impl A {\n    fn a(app: &App) {\n        let job = app.start_job(x);\n        \
+        threads::spawn(Busy::Pointer(w, ctx), move || drop(job));\n    }\n    \
+        fn b(app: &App) {\n        let w = app.start_job_of(x);\n        \
+        threads::spawn_told(app.notice_sender.clone(), c, w, work);\n    }\n}\n";
+    assert_eq!(untold_writing_threads("x.rs", text), ["x.rs: a"]);
 }
 
 /// Returns the functions in `text`, the source of `file`, that start writing work
@@ -9723,7 +9736,8 @@ fn threads_show_the_busy_pointer_or_say_why_not() {
 
 /// Returns the lines of `text` outside the tests that start a thread (`thread_start`) that is
 /// given no busy pointer of its own, unless the comment lines just above the statement say
-/// "No busy pointer:" or "Its busy pointer:". A thread has a pointer of its own when its call
+/// "No busy pointer:" or "Its busy pointer:", or its `Busy` says so (`Busy::NoPointer` or
+/// `Busy::ShownBy`, with the reason). A thread has a pointer of its own when its call
 /// makes one (a `Working`, an `AnswerSender` or an `answer_channel`), or names what its
 /// function bound to one before it (`pointer_holders`), so that a pointer moved into one thread
 /// does not count for the next.
@@ -9742,7 +9756,10 @@ fn threads_without_pointer(text: &str) -> Vec<usize> {
         let Some(at) = thread_start(line, &scopes) else {
             continue;
         };
-        if names_a_pointer(&call_text(&code[..end], i, at).0, &holders) {
+        let call = call_text(&code[..end], i, at).0;
+        // `threads::spawn` takes the reason as its `Busy`, in place of the comment.
+        let says_why = call.contains("Busy::ShownBy(") || call.contains("Busy::NoPointer(");
+        if says_why || names_a_pointer(&call, &holders) {
             continue;
         }
         if !comment_above(&code, &comments, i).contains("busy pointer:") {
@@ -9785,10 +9802,11 @@ fn pointer_holders(line: &str, holders: &[String]) -> Vec<String> {
 }
 
 /// Returns where `line` starts a thread that may outlive its function, in each way one is
-/// started: `thread::spawn(`, `spawn(` imported alone, and a `thread::Builder`'s `.spawn(` with
-/// its work, also on a line of its own. A scope's thread, started on one of the receivers in
-/// `scopes`, ends before its scope does, and a program's `.spawn()` has nothing in its
-/// parentheses, so both are left out. Returns `None` for a line that starts no thread.
+/// started: `threads::spawn(`, `thread::spawn(`, `spawn(` imported alone, and a
+/// `thread::Builder`'s `.spawn(` with its work, also on a line of its own. A scope's thread,
+/// started on one of the receivers in `scopes`, ends before its scope does, and a program's
+/// `.spawn()` has nothing in its parentheses, so both are left out. Returns `None` for a line
+/// that starts no thread.
 fn thread_start(line: &str, scopes: &[String]) -> Option<usize> {
     let call = "spawn(";
     (line.match_indices(call).map(|(at, _)| at)).find(|&at| {
@@ -9798,6 +9816,7 @@ fn thread_start(line: &str, scopes: &[String]) -> Option<usize> {
             true => has_work && !is_scoped(before, scopes),
             false => {
                 before.ends_with("thread::")
+                    || before.ends_with("threads::")
                     || !(before.ends_with(is_word_char)
                         || before.ends_with(':')
                         || before.ends_with("fn "))
@@ -9846,6 +9865,20 @@ fn finds_every_thread_without_the_busy_pointer() {
         fn g() {\n    let child = command.spawn()?;\n    \
         std::thread::scope(|scope| {\n        scope.spawn(f);\n    });\n}\n";
     assert_eq!(threads_without_pointer(text), [2, 7, 10, 15, 28]);
+}
+
+/// The check above reads a thread started through `threads::spawn`: it passes one whose `Busy`
+/// holds a pointer or gives the reason, and finds one whose `Busy` was bound before, so that
+/// its call says nothing of what it does. Before `threads::spawn`, a `::` before `spawn(` hid
+/// the thread from the check.
+#[test]
+fn finds_a_thread_started_through_threads_spawn() {
+    let text = "fn a(&self) {\n    let p = Working::new(&self.busy);\n    \
+        threads::spawn(Busy::Pointer(p, ctx), f);\n}\nfn b() {\n    \
+        threads::spawn(Busy::NoPointer(\"a listener\"), f);\n    \
+        threads::spawn(Busy::ShownBy(\"`is_listing`\"), f);\n}\nfn c() {\n    \
+        let busy = Busy::NoPointer(\"a listener\");\n    threads::spawn(busy, f);\n}\n";
+    assert_eq!(threads_without_pointer(text), [11]);
 }
 
 /// Every thread in the background that nobody waits for (its comment says "No busy pointer:")
@@ -9930,6 +9963,24 @@ fn finds_a_background_reader_without_the_gate() {
         .map(|(_, function)| function)
         .collect();
     assert_eq!(found, ["a", "f", "g", "k", "m", "n", "o"]);
+}
+
+/// The check above reads a thread started through `threads::spawn`: it finds one whose `Busy`
+/// says nobody waits for it, or that was bound before the call, and passes one whose `Busy`
+/// holds the pointer or names what shows it.
+#[test]
+fn finds_a_background_reader_started_through_threads_spawn() {
+    let text = "fn look(p: &Path) {\n    std::fs::metadata(p);\n}\n\
+        fn a() {\n    threads::spawn(Busy::NoPointer(\"a look-up\"), move || look(p));\n}\n\
+        fn b() {\n    threads::spawn(Busy::Pointer(w, ctx), move || look(p));\n}\n\
+        fn c() {\n    threads::spawn(Busy::ShownBy(\"`is_listing`\"), move || look(p));\n}\n\
+        fn d() {\n    let busy = Busy::NoPointer(\"a look-up\");\n    \
+        threads::spawn(busy, move || look(p));\n}\n";
+    let sources = [("x.rs".to_owned(), text.to_owned())];
+    let found: Vec<String> = (ungated_background_readers(&sources).into_iter())
+        .map(|(_, function)| function)
+        .collect();
+    assert_eq!(found, ["a", "d"]);
 }
 
 /// Work that goes through the gate for work nobody waits for
@@ -10096,9 +10147,24 @@ fn finds_work_through_the_gate_not_judged_wanted() {
     assert_eq!(work_not_judged_wanted(text, &callees), [3, 6, 23, 32, 36]);
 }
 
+/// Returns whether the thread that line `i` of `code` starts at `at` is one that nobody waits
+/// for: its comment above says "No busy pointer:", or it says nothing of a pointer at all.
+/// A thread is waited for only when its `Busy` holds the pointer or names what shows it
+/// (`Busy::Pointer`, `Busy::ShownBy`), or its comment above says "Its busy pointer:". So a
+/// `Busy` bound before the call, which the call does not show, counts as nobody's.
+fn is_waited_for_by_nobody(code: &[String], comments: &[String], i: usize, at: usize) -> bool {
+    let comment = comment_above(code, comments, i);
+    if comment.contains("No busy pointer:") {
+        return true;
+    }
+    let call = call_text(code, i, at).0;
+    let is_waited_for = call.contains("Busy::Pointer(") || call.contains("Busy::ShownBy(");
+    !is_waited_for && !comment.contains("Its busy pointer:")
+}
+
 /// Returns, as (file, function), the functions of `sources` outside the tests that start a
-/// thread whose comment above says "No busy pointer:", or a worker pool, whose work reaches one
-/// of `BACKGROUND_READS` and none of `THE_GATE`
+/// thread that nobody waits for (`is_waited_for_by_nobody`), or a worker pool, whose work reaches
+/// one of `BACKGROUND_READS` and none of `THE_GATE`
 /// (`background_reads_on_a_share_go_through_the_gate`).
 fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, String)> {
     let graph = CallGraph::new(sources);
@@ -10150,7 +10216,7 @@ fn ungated_background_readers(sources: &[(String, String)]) -> Vec<(String, Stri
         for (i, line) in code[..end].iter().enumerate() {
             scopes.extend(scope_names(line));
             let at = match thread_start(line, &scopes) {
-                Some(at) if comment_above(&code, &comments, i).contains("No busy pointer:") => at,
+                Some(at) if is_waited_for_by_nobody(&code, &comments, i, at) => at,
                 _ => match line.find("spawn_worker_pool(") {
                     Some(at) if !line.contains("fn spawn_worker_pool") => at,
                     _ => continue,

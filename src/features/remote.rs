@@ -15,6 +15,7 @@ use crate::support::lang::tr;
 #[cfg(feature = "test-hooks")]
 use crate::support::test_hooks;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::actions::Action;
@@ -449,21 +450,24 @@ impl Listener {
         let (name_sender, name_answers) = answer_channel(busy);
         if let Some(start_listening) = start_listening {
             let (tx, ctx, answers) = (tx.clone(), ctx.clone(), name_sender.clone());
-            std::thread::spawn(move || {
-                let taken = {
-                    let _one_at_a_time = lock_even_if_poisoned(&NAMING);
-                    start_listening(tx, ctx.clone())
-                };
-                if let Err(why) = &taken {
-                    eprintln!("{why}");
-                }
-                let taken = taken.map_err(Some);
-                let _ = answers.send(NameAnswer {
-                    asked_by: NameAskedBy::Start,
-                    taken,
-                });
-                ctx.request_repaint();
-            });
+            threads::spawn(
+                Busy::ShownBy("the name's answer, sent through an AnswerSender"),
+                move || {
+                    let taken = {
+                        let _one_at_a_time = lock_even_if_poisoned(&NAMING);
+                        start_listening(tx, ctx.clone())
+                    };
+                    if let Err(why) = &taken {
+                        eprintln!("{why}");
+                    }
+                    let taken = taken.map_err(Some);
+                    let _ = answers.send(NameAnswer {
+                        asked_by: NameAskedBy::Start,
+                        taken,
+                    });
+                    ctx.request_repaint();
+                },
+            );
         }
         Listener {
             rx,
@@ -847,14 +851,12 @@ impl crate::App {
         let (commands, ctx) = (self.remote.tx.clone(), ctx.clone());
         let listens_without_name = self.remote.listens_without_name;
         let (tx, pointer) = (self.remote.name_sender.clone(), Working::new(&self.busy));
-        std::thread::spawn(move || {
+        threads::spawn(Busy::Pointer(pointer, ctx.clone()), move || {
             let taken = {
                 let _one_at_a_time = lock_even_if_poisoned(&NAMING);
                 name_this_window(name.as_deref(), listens_without_name, commands, &ctx)
             };
             let _ = tx.send(NameAnswer { asked_by, taken });
-            drop(pointer);
-            ctx.request_repaint();
         });
     }
 
@@ -935,19 +937,22 @@ impl crate::App {
         let marks = vec![None; paths.len()];
         // Each record is sent as soon as it is read, so the client's time limit (`WAIT`) holds
         // for each file and not for all of them. The thread stops when the client is gone.
-        // No busy pointer: the client reads each record as it comes, and waits for
-        // the end itself.
-        std::thread::spawn(move || {
-            for (path, marks) in paths.iter().zip(marks) {
-                // A blank line ends each record, so the answers of several windows
-                // (--remote-all) stay apart too.
-                let mut record = info_record(path, marks);
-                record.push(b'\n');
-                if reply.send(record).is_err() {
-                    return;
+        threads::spawn(
+            Busy::NoPointer(
+                "the client reads each record as it comes, and waits for the end itself",
+            ),
+            move || {
+                for (path, marks) in paths.iter().zip(marks) {
+                    // A blank line ends each record, so the answers of several windows
+                    // (--remote-all) stay apart too.
+                    let mut record = info_record(path, marks);
+                    record.push(b'\n');
+                    if reply.send(record).is_err() {
+                        return;
+                    }
                 }
-            }
-        });
+            },
+        );
     }
 
     /// `--remote select PATH…` (the paths after a NUL each). It selects those of the list and
@@ -1845,13 +1850,15 @@ pub fn listen(tx: mpsc::Sender<Sent>, ctx: eframe::egui::Context) -> Result<(), 
         std::sync::atomic::Ordering::Relaxed,
     );
     mark_this_window_focused();
-    // No busy pointer: the listener, which lasts as long as the window. A command
-    // counts as work once the window takes it.
-    std::thread::spawn(move || {
-        serve_clients(listener, MOST_CLIENTS, move |stream, place| {
-            serve(stream, place, &tx, &ctx, WAIT, &WAITING_PLACES)
-        });
-    });
+    // A command counts as work once the window takes it.
+    threads::spawn(
+        Busy::NoPointer("the listener, which lasts as long as the window"),
+        move || {
+            serve_clients(listener, MOST_CLIENTS, move |stream, place| {
+                serve(stream, place, &tx, &ctx, WAIT, &WAITING_PLACES)
+            });
+        },
+    );
     Ok(())
 }
 
@@ -1934,26 +1941,28 @@ fn serve_clients(
     // place in the socket's queue, and its time was counted from when a thread took it, so its
     // command could be done after the client had been told "no answer".
     let (accepted, waiting) = mpsc::sync_channel(MOST_ACCEPTED_WAITING);
-    // No busy pointer: the listener, which lasts as long as the window. A command counts as
-    // work once the window takes it.
-    std::thread::spawn(move || {
-        loop {
-            let Ok((stream, _)) = listener.accept() else {
-                // A lasting error, such as too many open files, would otherwise be a busy loop.
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                continue;
-            };
-            // The client is counted from here, before its query is read, so a client that came
-            // just before the socket went is waited for at closing too.
-            let client = UnfinishedAnswer::new();
-            if accepted
-                .send((stream, std::time::Instant::now(), client))
-                .is_err()
-            {
-                return;
+    // A command counts as work once the window takes it.
+    threads::spawn(
+        Busy::NoPointer("the listener, which lasts as long as the window"),
+        move || {
+            loop {
+                let Ok((stream, _)) = listener.accept() else {
+                    // A lasting error, such as too many open files, would otherwise be a busy loop.
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue;
+                };
+                // The client is counted from here, before its query is read, so a client that came
+                // just before the socket went is waited for at closing too.
+                let client = UnfinishedAnswer::new();
+                if accepted
+                    .send((stream, std::time::Instant::now(), client))
+                    .is_err()
+                {
+                    return;
+                }
             }
-        }
-    });
+        },
+    );
     // A free place is a message in this channel: taken before a client is served, and given
     // back when its thread is done, or earlier by a command sent with `--wait`, which takes a
     // place of `waiting_places` instead.
@@ -1966,9 +1975,8 @@ fn serve_clients(
             return;
         }
         let (serve, free) = (serve.clone(), free.clone());
-        // No busy pointer: a client's connection. Its command counts as work once the
-        // window takes it.
-        std::thread::spawn(move || {
+        // Its command counts as work once the window takes it.
+        threads::spawn(Busy::NoPointer("a client's connection"), move || {
             serve(stream, ClientPlace { free, accepted });
             drop(client);
         });
@@ -2444,10 +2452,12 @@ fn connected_in_time(
     let (tx, rx) = mpsc::channel();
     for _ in 0..PROBE_TRIES {
         let (tx, connect) = (tx.clone(), connect.clone());
-        // No busy pointer: its caller waits for it, at most `limit` each time.
-        std::thread::spawn(move || {
-            let _ = tx.send(connect());
-        });
+        threads::spawn(
+            Busy::NoPointer("its caller waits for it, at most `limit` each time"),
+            move || {
+                let _ = tx.send(connect());
+            },
+        );
         if let Ok(answered) = rx.recv_timeout(limit) {
             return answered;
         }

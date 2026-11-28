@@ -7,6 +7,7 @@ use crate::metadata::exif;
 use crate::support::format::ShownText;
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use eframe::egui;
 use std::collections::HashMap;
@@ -175,7 +176,7 @@ impl ProfileChanges {
             }
         };
         let (ctx, pointer) = (ctx.clone(), Working::new(busy));
-        std::thread::spawn(move || {
+        threads::spawn(Busy::Pointer(pointer, ctx), move || {
             let set = {
                 let _one_at_a_time = lock_even_if_poisoned(&PROFILE_CHANGES);
                 match asked {
@@ -194,8 +195,6 @@ impl ProfileChanges {
                 }
             };
             let _ = sender.send(set);
-            drop(pointer);
-            ctx.request_repaint();
         });
     }
 
@@ -570,14 +569,16 @@ pub fn colour_source(path: &Path) -> ShownText {
 pub fn read_desktop_screen(ctx: &egui::Context) -> mpsc::Receiver<Option<String>> {
     let (tx, rx) = mpsc::channel();
     let ctx = ctx.clone();
-    // No busy pointer: the screen's profile, read as the window opens. The first
-    // images wait for it a short while on their own (`SCREEN_WAIT`).
-    std::thread::spawn(move || {
-        let path = desktop_screen_profile();
-        take_desktop_screen(path.as_deref());
-        let _ = tx.send(path);
-        ctx.request_repaint();
-    });
+    // The first images wait for it a short while on their own (`SCREEN_WAIT`).
+    threads::spawn(
+        Busy::NoPointer("the screen's profile, read as the window opens"),
+        move || {
+            let path = desktop_screen_profile();
+            take_desktop_screen(path.as_deref());
+            let _ = tx.send(path);
+            ctx.request_repaint();
+        },
+    );
     rx
 }
 

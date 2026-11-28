@@ -9,6 +9,7 @@
 //! ends.
 
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use crate::viewer::view::Failure;
 use std::path::{Path, PathBuf};
 
@@ -701,15 +702,17 @@ impl PickedFiles {
         let (tx, rx) = std::sync::mpsc::channel();
         let paths = std::sync::Arc::new(paths);
         let taken = paths.clone();
-        // No busy pointer: as said above, nobody waits for the fingerprints.
-        std::thread::spawn(move || {
-            for path in taken.iter() {
-                // Once nobody waits for them, the rest are not taken.
-                if tx.send(picked_fingerprint(path)).is_err() {
-                    break;
+        threads::spawn(
+            Busy::NoPointer("as said above, nobody waits for the fingerprints"),
+            move || {
+                for path in taken.iter() {
+                    // Once nobody waits for them, the rest are not taken.
+                    if tx.send(picked_fingerprint(path)).is_err() {
+                        break;
+                    }
                 }
-            }
-        });
+            },
+        );
         PickedFiles {
             paths,
             listed,
@@ -2428,15 +2431,17 @@ fn queue_write(
 /// does not end it, or every later work sent would be lost.
 pub fn start_ordered_worker() -> std::sync::mpsc::Sender<QueuedWrite> {
     let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
-    // No busy pointer: the writer, which lasts as long as Glimt. Each write it
-    // runs counts as writing (`WRITING`) from when it is sent.
-    std::thread::spawn(move || {
-        for work in rx {
-            run_and_tell_a_panic(work);
-            #[cfg(test)]
-            TOLD_FOR.set(None);
-        }
-    });
+    // Each write it runs counts as writing (`WRITING`) from when it is sent.
+    threads::spawn(
+        Busy::NoPointer("the writer, which lasts as long as Glimt"),
+        move || {
+            for work in rx {
+                run_and_tell_a_panic(work);
+                #[cfg(test)]
+                TOLD_FOR.set(None);
+            }
+        },
+    );
     works
 }
 

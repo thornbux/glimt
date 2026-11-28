@@ -14,6 +14,7 @@ use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
 use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, escaped_name};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Told, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::actions::Action;
@@ -375,8 +376,7 @@ impl crate::App {
         let read_count = Arc::new(AtomicUsize::new(0));
         let (counter, images, ctx) = (read_count.clone(), paths.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        std::thread::spawn(move || {
-            let _pointer = pointer;
+        threads::spawn(Busy::Pointer(pointer, ctx.clone()), move || {
             // Parsed by `LeftOut::parse`, which survives_broken_sharing_file feeds broken input.
             let last = (sharing_path())
                 .and_then(|file| crate::images::decode::read_text(file).ok())

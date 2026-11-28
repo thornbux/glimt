@@ -8,6 +8,7 @@ use crate::images::colour::{INPUT_PROFILES, INTENTS};
 use crate::support::format::{ShownText, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::set_cpu_use;
+use crate::support::threads::{self, Busy};
 use crate::ui::actions::{ALL, Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
 use crate::ui::menus::{DrawShown, ShownChoice, ShownHint, ShownSlider, ShownTip, ShownUnit};
@@ -841,12 +842,17 @@ impl crate::App {
         {
             let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
             let awaited = self.decoding.images_awaited().clone();
-            // No busy pointer: a look at a thumbnail's file on a share that stopped answering
-            // waits for ever, and the user can go on meanwhile. Its notice tells when it ends.
-            std::thread::spawn(move || {
-                let _ = tx.send(remove_orphaned_thumbnails_told(&awaited));
-                ctx.request_repaint();
-            });
+            // Its notice tells when it ends.
+            threads::spawn(
+                Busy::NoPointer(
+                    "a look at a thumbnail's file on a share that stopped answering waits for ever, \
+                 and the user can go on meanwhile",
+                ),
+                move || {
+                    let _ = tx.send(remove_orphaned_thumbnails_told(&awaited));
+                    ctx.request_repaint();
+                },
+            );
         }
         changed
     }

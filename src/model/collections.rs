@@ -9,6 +9,7 @@ use crate::model::selection::Targets;
 use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took, lock_even_if_poisoned};
 use crate::ui::actions::Action;
 use crate::ui::menus::DrawShown;
@@ -58,12 +59,15 @@ impl SavedCollections {
             self.read_at = Some(std::time::Instant::now());
             let (tx, rx) = std::sync::mpsc::channel();
             let ctx = ctx.clone();
-            // No busy pointer: the menu's collections, a look-up nobody waits for, shown when it
-            // comes.
-            std::thread::spawn(move || {
-                let _ = tx.send(saved_collections());
-                ctx.request_repaint();
-            });
+            threads::spawn(
+                Busy::NoPointer(
+                    "the menu's collections, a look-up nobody waits for, shown when it comes",
+                ),
+                move || {
+                    let _ = tx.send(saved_collections());
+                    ctx.request_repaint();
+                },
+            );
             self.answer = Receiving::of(rx);
         }
         self.listed.clone()

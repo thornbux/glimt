@@ -20,6 +20,7 @@ use crate::model::listing::pattern_name;
 use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, escaped_file_name, escaped_name, thousands};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{
     AnswerSender, Receiving, Told, Took, Working, answer_channel, catch_panic,
     lock_even_if_poisoned, told_work,
@@ -587,30 +588,33 @@ impl FileOperations {
         let (tx, cut_short_rx) = mpsc::channel();
         let (real_folder_tx, real_folder_found) = answer_channel(busy);
         let moves_tx = report_tx.clone();
-        std::thread::spawn(move || {
-            // The tests share one test home, so a test's window would otherwise find the plans
-            // and Move logs that another test left there, and act on them.
-            // The Moves and deletes come first, as their look at the job logs holds each one
-            // locked for a moment, and a plan of Rename Many held so while the user answers
-            // about it would be taken for one that another window put right.
-            #[cfg(not(test))]
-            send_moves_cut_short(&moves_tx);
-            #[cfg(test)]
-            drop(moves_tx);
-            let found = match crate::files::job_log::jobs_dir() {
-                _ if cfg!(test) => Vec::new(),
-                Some(jobs) => {
-                    // The folders of the logs of Glimt 0.92 and older are no longer read: an
-                    // empty one goes, and one that still holds a log is told.
-                    if let Some(state) = jobs.parent() {
-                        journal::clear_old_log_folders(state);
+        threads::spawn(
+            Busy::ShownBy("the Moves cut short, sent through an AnswerSender"),
+            move || {
+                // The tests share one test home, so a test's window would otherwise find the plans
+                // and Move logs that another test left there, and act on them.
+                // The Moves and deletes come first, as their look at the job logs holds each one
+                // locked for a moment, and a plan of Rename Many held so while the user answers
+                // about it would be taken for one that another window put right.
+                #[cfg(not(test))]
+                send_moves_cut_short(&moves_tx);
+                #[cfg(test)]
+                drop(moves_tx);
+                let found = match crate::files::job_log::jobs_dir() {
+                    _ if cfg!(test) => Vec::new(),
+                    Some(jobs) => {
+                        // The folders of the logs of Glimt 0.92 and older are no longer read: an
+                        // empty one goes, and one that still holds a log is told.
+                        if let Some(state) = jobs.parent() {
+                            journal::clear_old_log_folders(state);
+                        }
+                        journal::cut_short_plans(&jobs)
                     }
-                    journal::cut_short_plans(&jobs)
-                }
-                None => Vec::new(),
-            };
-            let _ = tx.send(found);
-        });
+                    None => Vec::new(),
+                };
+                let _ = tx.send(found);
+            },
+        );
         FileOperations {
             jobs: Vec::new(),
             held_back_files: Vec::new(),
@@ -1587,13 +1591,17 @@ impl crate::App {
     ) {
         let (found_tx, found) = mpsc::channel();
         let looked_at = folder.clone();
-        // No busy pointer: the look-up, whose answer `wait_for_look_up_before_the_job` holds
-        // the pointer for. One given up ends when the share answers, or never.
-        std::thread::spawn(move || {
-            let real = crate::model::listing::real_dir(&looked_at);
-            let file_system = file_system_type_or_test(&real);
-            drop(found_tx.send((real, file_system)));
-        });
+        // One given up ends when the share answers, or never.
+        threads::spawn(
+            Busy::NoPointer(
+                "the look-up, whose answer `wait_for_look_up_before_the_job` holds the pointer for",
+            ),
+            move || {
+                let real = crate::model::listing::real_dir(&looked_at);
+                let file_system = file_system_type_or_test(&real);
+                drop(found_tx.send((real, file_system)));
+            },
+        );
         self.wait_for_look_up_before_the_job(
             folder,
             (held_back_files, job),
@@ -1650,8 +1658,8 @@ impl crate::App {
             ));
             None
         };
-        // Through `told_work`, as the thread holds an Undo on the way.
-        std::thread::spawn(told_work(self.notice_sender.clone(), &ctx, pointer, wait));
+        // Through `spawn_told`, as the thread holds an Undo on the way.
+        threads::spawn_told(self.notice_sender.clone(), &ctx, pointer, wait);
     }
 
     /// Runs what waited for a look at a folder, once the look has answered or been given up.
@@ -1885,11 +1893,15 @@ impl crate::App {
             .collect();
         let (found_tx, found) = mpsc::channel();
         let names = to.clone();
-        // No busy pointer: the look-up, whose answer `wait_for_look_up_before_the_job` holds
-        // the pointer for. One given up ends when the share answers, or never.
-        std::thread::spawn(move || {
-            drop(found_tx.send(refused_on_fat(&names, file_system_type_or_test)));
-        });
+        // One given up ends when the share answers, or never.
+        threads::spawn(
+            Busy::NoPointer(
+                "the look-up, whose answer `wait_for_look_up_before_the_job` holds the pointer for",
+            ),
+            move || {
+                drop(found_tx.send(refused_on_fat(&names, file_system_type_or_test)));
+            },
+        );
         self.wait_for_look_up_before_the_job(
             folder,
             (held_back_files, JobAfterLookUp::Rename),
@@ -2670,7 +2682,7 @@ impl crate::App {
         // starts the next operation on these files, and the files still held back would refuse
         // it. A panic in `work` is told as a failed write (`told_work`).
         let held = (writing, held_back, pointer);
-        std::thread::spawn(told_work(self.notice_sender.clone(), ctx, held, work));
+        threads::spawn_told(self.notice_sender.clone(), ctx, held, work);
         true
     }
 
@@ -3140,13 +3152,15 @@ impl crate::App {
     /// background.
     pub(crate) fn set_wallpaper(&mut self) {
         let (path, tx) = (self.path(self.list.shown()), self.notice_sender.clone());
-        // No busy pointer: the desktop may ask the user first, which may take long. A
-        // failure is told.
-        std::thread::spawn(move || {
-            if let Err(e) = external::set_wallpaper(&path) {
-                let _ = tx.send_error(tf!("Could not set the wallpaper: {e}", e));
-            }
-        });
+        // A failure is told.
+        threads::spawn(
+            Busy::NoPointer("the desktop may ask the user first, which may take long"),
+            move || {
+                if let Err(e) = external::set_wallpaper(&path) {
+                    let _ = tx.send_error(tf!("Could not set the wallpaper: {e}", e));
+                }
+            },
+        );
     }
 
     /// Copy Path. It copies the targets' paths as text, quoted for Copy Path and not quoted for

@@ -2,6 +2,7 @@
 //! desktop's light or dark style and accent colour, from the XDG desktop portal (GNOME, KDE).
 
 use crate::support::format::ShownText;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took};
 use eframe::egui;
 use std::sync::Arc;
@@ -234,11 +235,13 @@ impl DesktopSettings {
     pub(crate) fn new(ctx: &egui::Context, profile: bool) -> Self {
         let (tx, rx) = mpsc::channel();
         let repaint = ctx.clone();
-        // No busy pointer: the desktop's look, a look-up nobody waits for, shown when it comes.
-        std::thread::spawn(move || {
-            let _ = tx.send(read_desktop_look());
-            repaint.request_repaint();
-        });
+        threads::spawn(
+            Busy::NoPointer("the desktop's look, a look-up nobody waits for, shown when it comes"),
+            move || {
+                let _ = tx.send(read_desktop_look());
+                repaint.request_repaint();
+            },
+        );
         let mut settings = DesktopSettings {
             look: Default::default(),
             look_answer: Receiving::of(rx),
@@ -276,11 +279,15 @@ impl DesktopSettings {
         self.theme_files_read_at = Some(std::time::Instant::now());
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        // No busy pointer: the theme files' names, a look-up nobody waits for, shown when it comes.
-        std::thread::spawn(move || {
-            let _ = tx.send(read_theme_files());
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::NoPointer(
+                "the theme files' names, a look-up nobody waits for, shown when it comes",
+            ),
+            move || {
+                let _ = tx.send(read_theme_files());
+                ctx.request_repaint();
+            },
+        );
         self.theme_files_answer = Receiving::of(rx);
     }
 

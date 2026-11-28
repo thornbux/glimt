@@ -1,6 +1,7 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
 use crate::support::format::ShownText;
+use crate::support::threads::{self, Busy};
 use crate::ui::actions::Action;
 use crate::ui::actions::shortcuts_in_effect;
 use crate::ui::menus::{DrawShown, PaintShown, ShownTip};
@@ -1541,8 +1542,12 @@ fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
     }
     let Some(pixels) = LOGO_PIXELS.get() else {
         let ctx = ctx.clone();
-        // No busy pointer: the logo is drawn when it comes, and nothing waits for it.
-        DECODE_STARTED.call_once(|| drop(std::thread::spawn(move || decode_logo(&ctx))));
+        DECODE_STARTED.call_once(|| {
+            drop(threads::spawn(
+                Busy::NoPointer("the logo is drawn when it comes, and nothing waits for it"),
+                move || decode_logo(&ctx),
+            ))
+        });
         return None;
     };
     let logo = ctx.load_texture("glimt-logo", pixels.clone()?, egui::TextureOptions::LINEAR);

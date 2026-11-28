@@ -16,6 +16,7 @@ use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::Working;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use crate::ui::dialogs::{Pick, Prompt};
 use crate::viewer::pan::PanView;
 use crate::viewer::view::LAYOUTS;
@@ -1621,8 +1622,10 @@ impl crate::App {
         match started {
             // Reap the child when it exits, so it does not linger as a zombie.
             #[allow(clippy::disallowed_methods)] // the new window, reaped in a thread of its own
-            // No busy pointer: it only reaps the new window when that window closes.
-            Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
+            Ok(mut child) => drop(threads::spawn(
+                Busy::NoPointer("it only reaps the new window when that window closes"),
+                move || child.wait(),
+            )),
             Err(e) => self
                 .notice
                 .give_error(tf!("Could not open a new window: {e}", e)),
@@ -1636,15 +1639,13 @@ impl crate::App {
         let (clip_tx, clip_rx) = crate::support::threads::answer_channel(&self.busy);
         self.file_operations.copy_image_from(clip_rx);
         let pointer = Working::new(&self.busy);
-        std::thread::spawn(move || {
+        threads::spawn(Busy::Pointer(pointer, ctx), move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
             // would stay for good.
             match catch_panic_as_error(|| save::shown_image(&path, &how)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
                 Err(e) => drop(tx.send_error(tf!("Could not copy the image: {e}", e))),
             }
-            drop(pointer);
-            ctx.request_repaint();
         });
     }
 

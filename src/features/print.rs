@@ -9,6 +9,7 @@ use crate::model::listing::ReadsFirst;
 use crate::model::selection::Targets;
 use crate::support::format::{ShownText, count, escaped_file_name, escaped_name};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Told, Took};
 use crate::ui::dialogs::Pick;
 use crate::ui::menus::{DrawShown, PaintShown, ShownChoice, ShownHint, ShownTip};
@@ -376,33 +377,42 @@ impl crate::App {
         let (rotate, ctx2) = (self.config.auto_rotate, ctx.clone());
         let mut gate = ReadsFirst::for_files_anywhere(self.decoding.images_awaited());
         let ctx = ctx.clone();
-        // No busy pointer: the list of printers, a look-up nobody waits for, shown when it comes.
-        std::thread::spawn(move || {
-            let _ = tx.send(printers());
-            ctx.request_repaint();
-        });
-        // No busy pointer: the preview's images, a look-up nobody waits for, shown when it comes.
-        std::thread::spawn(move || {
-            for (k, path) in first.iter().enumerate() {
-                // On a share the images that the window waits for are read first.
-                let Some(_turn) = gate.before_work_nobody_waits_for(path, &is_wanted) else {
-                    break;
-                };
-                // The preview is in the colours of the print, so a photo with its own profile
-                // looks as on paper.
-                let small = catch_panic_as_error(|| {
-                    let (img, icc, size) = decode::decode_shrunk(path, [PREVIEW_PX; 2], rotate)?;
-                    Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
-                });
-                // When the dialog is gone, the rest are not decoded.
-                if let Ok((img, size)) = small
-                    && shown_tx.send((k, size, decode::color_image(img))).is_err()
-                {
-                    break;
+        threads::spawn(
+            Busy::NoPointer(
+                "the list of printers, a look-up nobody waits for, shown when it comes",
+            ),
+            move || {
+                let _ = tx.send(printers());
+                ctx.request_repaint();
+            },
+        );
+        threads::spawn(
+            Busy::NoPointer(
+                "the preview's images, a look-up nobody waits for, shown when it comes",
+            ),
+            move || {
+                for (k, path) in first.iter().enumerate() {
+                    // On a share the images that the window waits for are read first.
+                    let Some(_turn) = gate.before_work_nobody_waits_for(path, &is_wanted) else {
+                        break;
+                    };
+                    // The preview is in the colours of the print, so a photo with its own profile
+                    // looks as on paper.
+                    let small = catch_panic_as_error(|| {
+                        let (img, icc, size) =
+                            decode::decode_shrunk(path, [PREVIEW_PX; 2], rotate)?;
+                        Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
+                    });
+                    // When the dialog is gone, the rest are not decoded.
+                    if let Ok((img, size)) = small
+                        && shown_tx.send((k, size, decode::color_image(img))).is_err()
+                    {
+                        break;
+                    }
+                    ctx2.request_repaint();
                 }
-                ctx2.request_repaint();
-            }
-        });
+            },
+        );
         self.print_dialog = Some(PrintDialog {
             previews: vec![None; paths.len().min(MAX_PREVIEWS)],
             sizes: vec![None; paths.len().min(MAX_PREVIEWS)],
@@ -439,19 +449,23 @@ impl crate::App {
         // The dialog closed drops the receiver, which stops the captions.
         let captions_rx = Receiving::of(rx);
         let is_wanted = captions_rx.is_waited_for();
-        // No busy pointer: the preview's captions, a look-up nobody waits for, shown when it comes.
-        std::thread::spawn(move || {
-            // On a share the images that the window waits for are read first.
-            let mut texts = Vec::new();
-            for (k, p) in first.iter().enumerate() {
-                let Some(_turn) = gate.before_work_nobody_waits_for(p, &is_wanted) else {
-                    return;
-                };
-                texts.push(caption(&template, p, k, n, sizes[k]));
-            }
-            let _ = tx.send((template, texts));
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::NoPointer(
+                "the preview's captions, a look-up nobody waits for, shown when it comes",
+            ),
+            move || {
+                // On a share the images that the window waits for are read first.
+                let mut texts = Vec::new();
+                for (k, p) in first.iter().enumerate() {
+                    let Some(_turn) = gate.before_work_nobody_waits_for(p, &is_wanted) else {
+                        return;
+                    };
+                    texts.push(caption(&template, p, k, n, sizes[k]));
+                }
+                let _ = tx.send((template, texts));
+                ctx.request_repaint();
+            },
+        );
         dialog.captions_rx = captions_rx;
     }
 

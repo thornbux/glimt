@@ -15,6 +15,7 @@ use crate::model::saved_list;
 use crate::model::saved_list::{ListKey, SaveTicket, SavedListUse, SavesStopped};
 use crate::support::format::{NOT_COUNTED_ON_A_SHARE, ShownText, escaped_name};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::menus::DrawShown;
@@ -1468,12 +1469,14 @@ impl crate::App {
         let (tx, rx) = mpsc::channel();
         self.folder.looking_up = Receiving::of(rx);
         let ctx = ctx.clone();
-        // Its busy pointer: `is_listing`, while `looking_up` waits for this answer.
-        std::thread::spawn(move || {
-            let found = look_up(&opening.paths);
-            let _ = tx.send((opening, found));
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::ShownBy("`is_listing`, while `looking_up` waits for this answer"),
+            move || {
+                let found = look_up(&opening.paths);
+                let _ = tx.send((opening, found));
+                ctx.request_repaint();
+            },
+        );
     }
 
     /// Opens what a look-up found, when it has come. It waits for it up to `wait`.
@@ -1863,12 +1866,14 @@ impl crate::App {
             .give(tf!("Connecting to {uri}…", uri = escaped_name(&login.uri)));
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        // Its busy pointer: `is_mounting`, while `mounting_rx` waits for this answer.
-        std::thread::spawn(move || {
-            let result = gio_mount(&login.uri, answer.then_some(&login));
-            let _ = tx.send((result, login));
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::ShownBy("`is_mounting`, while `mounting_rx` waits for this answer"),
+            move || {
+                let result = gio_mount(&login.uri, answer.then_some(&login));
+                let _ = tx.send((result, login));
+                ctx.request_repaint();
+            },
+        );
         self.folder.mounting_rx = Receiving::of(rx);
     }
 
@@ -1972,16 +1977,14 @@ impl crate::App {
             ctx: ctx2,
             started: Instant::now(),
         };
-        // Its busy pointer: `is_listing`, while `listing_rx` waits for this answer.
-        std::thread::spawn(move || {
-            if !folders.is_empty() {
-                listing.folders(&folders, part_tx);
-            } else if let Some(files) = collection {
-                listing.collection(files, saved, sort);
-            } else {
-                listing.folder(before, part_tx, subdirs_tx);
-            }
-        });
+        threads::spawn(
+            Busy::ShownBy("`is_listing`, while `listing_rx` waits for this answer"),
+            move || match collection {
+                _ if !folders.is_empty() => listing.folders(&folders, part_tx),
+                Some(files) => listing.collection(files, saved, sort),
+                None => listing.folder(before, part_tx, subdirs_tx),
+            },
+        );
         self.folder.listing_rx = Receiving::of(rx);
         self.folder.listing_version = self.list.version();
         // A subfolder read again leaves the folder's size as it is.
@@ -2144,54 +2147,58 @@ impl crate::App {
             ctx.clone(),
             self.decoding.images_awaited().clone(),
         );
-        // No busy pointer: it follows the folder's changes, and nobody waits for it.
-        std::thread::spawn(move || {
-            // Whether the places are on a share is asked through a gate for files anywhere, as
-            // each later look goes through the gate made from its answer (#294).
-            let mut asks_first = listing::ReadsFirst::for_files_anywhere(&awaited);
-            let on_a_share = (places.iter()).any(|place| {
-                asks_first.before_a_look(place);
-                listing::is_on_a_share(place, with_subfolders)
-            });
-            let mut gate = listing::ReadsFirst::new(Arc::default(), awaited, on_a_share);
-            // The first modification times go through the gate too, as every look after them
-            // does, so that on a share the image the window waits for goes first (#294).
-            if times_unknown {
-                let is_wanted = || watcher_generation.load(Ordering::Relaxed) == generation;
-                for (path, time) in read.iter_mut() {
-                    let Some(_turn) = gate.before_work_nobody_waits_for(path, is_wanted) else {
-                        break;
-                    };
-                    *time = modified(path);
+        threads::spawn(
+            Busy::NoPointer("it follows the folder's changes, and nobody waits for it"),
+            move || {
+                // Whether the places are on a share is asked through a gate for files anywhere, as
+                // each later look goes through the gate made from its answer (#294).
+                let mut asks_first = listing::ReadsFirst::for_files_anywhere(&awaited);
+                let on_a_share = (places.iter()).any(|place| {
+                    asks_first.before_a_look(place);
+                    listing::is_on_a_share(place, with_subfolders)
+                });
+                let mut gate = listing::ReadsFirst::new(Arc::default(), awaited, on_a_share);
+                // The first modification times go through the gate too, as every look after them
+                // does, so that on a share the image the window waits for goes first (#294).
+                if times_unknown {
+                    let is_wanted = || watcher_generation.load(Ordering::Relaxed) == generation;
+                    for (path, time) in read.iter_mut() {
+                        let Some(_turn) = gate.before_work_nobody_waits_for(path, is_wanted) else {
+                            break;
+                        };
+                        *time = modified(path);
+                    }
                 }
-            }
-            // The open folders come first, and the tree's subfolders after them. A tree of many
-            // folders is put in this order here rather than in the window's thread.
-            let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
-            read.sort_by_key(|(p, _)| !is_open(p));
-            let open = read.iter().take_while(|(p, _)| is_open(p)).count();
-            let mut next = 0;
-            while watcher_generation.load(Ordering::Relaxed) == generation {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                // A program started on a file of the share reads its start first.
-                if on_a_share && listing::a_program_is_starting() {
-                    continue;
+                // The open folders come first, and the tree's subfolders after them. A tree of many
+                // folders is put in this order here rather than in the window's thread.
+                let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
+                read.sort_by_key(|(p, _)| !is_open(p));
+                let open = read.iter().take_while(|(p, _)| is_open(p)).count();
+                let mut next = 0;
+                while watcher_generation.load(Ordering::Relaxed) == generation {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    // A program started on a file of the share reads its start first.
+                    if on_a_share && listing::a_program_is_starting() {
+                        continue;
+                    }
+                    let is_wanted = || watcher_generation.load(Ordering::Relaxed) == generation;
+                    let (changed, looked) = look_this_second(
+                        &mut read,
+                        (open, next),
+                        on_a_share,
+                        (&mut gate, &is_wanted),
+                        modified,
+                    );
+                    next = (next + looked) % (read.len() - open).max(1);
+                    if !changed.is_empty()
+                        && watcher_generation.load(Ordering::Relaxed) == generation
+                    {
+                        let _ = tx.send(changed);
+                        ctx.request_repaint();
+                    }
                 }
-                let is_wanted = || watcher_generation.load(Ordering::Relaxed) == generation;
-                let (changed, looked) = look_this_second(
-                    &mut read,
-                    (open, next),
-                    on_a_share,
-                    (&mut gate, &is_wanted),
-                    modified,
-                );
-                next = (next + looked) % (read.len() - open).max(1);
-                if !changed.is_empty() && watcher_generation.load(Ordering::Relaxed) == generation {
-                    let _ = tx.send(changed);
-                    ctx.request_repaint();
-                }
-            }
-        });
+            },
+        );
     }
 
     /// Take the folder listing if it is ready, waiting up to `wait`.

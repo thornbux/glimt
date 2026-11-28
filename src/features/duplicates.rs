@@ -7,6 +7,7 @@ use crate::support::format::{
     ShownText, count, escaped_file_name, escaped_name, human_size, thousands,
 };
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
 use crate::ui::menus::{DrawShown, ShownChoice};
 use crate::{features::duplicates, tf};
@@ -387,15 +388,13 @@ impl crate::App {
         find_duplicates.found_by = by;
         find_duplicates.progress = progress.clone();
         find_duplicates.groups_rx = Receiving::of(rx);
-        std::thread::spawn(move || {
+        threads::spawn(Busy::Pointer(pointer, ctx), move || {
             let (groups, seen) = find(paths, by, rotate, save, &progress);
             let sizes = (groups.iter().flatten())
                 // A size that could not be looked at is left out, never shown as 0 bytes.
                 .filter_map(|p| Some((p.clone(), p.metadata().ok()?.len())))
                 .collect();
             let _ = sender.send((groups, sizes, seen));
-            drop(pointer);
-            ctx.request_repaint();
         });
     }
 

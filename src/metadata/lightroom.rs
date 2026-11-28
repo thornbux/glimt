@@ -10,6 +10,7 @@ use crate::model::listing::{Types, is_listed};
 use crate::support::format::ShownText;
 use crate::support::format::{count, escaped_name};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::ui::menus::DrawShown;
 use crate::{metadata::xmp, model::collections, tf};
@@ -248,13 +249,16 @@ impl Import {
         self.typed_folders_asked = self.root_folders_now.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let (typed, ctx) = (self.root_folders_now.clone(), ctx.clone());
-        // No busy pointer: whether each typed folder is there, a look-up nobody waits for, shown
-        // when it comes.
-        std::thread::spawn(move || {
-            let there = folders_there(&typed);
-            let _ = tx.send((typed, there));
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::NoPointer(
+                "whether each typed folder is there, a look-up nobody waits for, shown when it comes",
+            ),
+            move || {
+                let there = folders_there(&typed);
+                let _ = tx.send((typed, there));
+                ctx.request_repaint();
+            },
+        );
         self.typed_folders_answer = Receiving::of(rx);
     }
 
@@ -290,10 +294,8 @@ impl crate::App {
         let (tx, rx) = answer_channel(&self.busy);
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
-        std::thread::spawn(move || {
+        threads::spawn(Busy::Pointer(pointer, ctx), move || {
             let _ = tx.send(read(&file).map(import_dialog_for));
-            drop(pointer);
-            ctx.request_repaint();
         });
         self.lightroom_catalog_answer = Receiving::of(rx);
     }
@@ -428,11 +430,9 @@ impl crate::App {
         let (tx, rx) = answer_channel(&self.busy);
         let (catalog, now) = (lr.catalog.clone(), lr.root_folders_now.clone());
         let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
-        std::thread::spawn(move || {
+        threads::spawn(Busy::Pointer(pointer, ctx), move || {
             let plan = catalog.plan(&now);
             let _ = tx.send((now, plan));
-            drop(pointer);
-            ctx.request_repaint();
         });
         lr.planning = Receiving::of(rx);
     }

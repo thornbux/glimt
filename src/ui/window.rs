@@ -3,6 +3,7 @@
 use crate::files::config::WindowState;
 use crate::support::format::{ShownText, escaped_name, fill_template};
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::viewer::view::Failure;
 use crate::{features::remote, files::external, tf};
@@ -503,46 +504,49 @@ impl crate::App {
         // The first that is there, on the host in a Flatpak: asked of the shell, through
         // flatpak-spawn there, so in a thread, not each time full screen starts on the UI thread.
         let inhibitor = self.window.inhibitor.clone();
-        // No busy pointer: it holds the screen saver off while full screen lasts.
-        std::thread::spawn(move || {
-            #[cfg(feature = "portals")]
-            let portal = (crate::files::external::in_flatpak())
-                .then(|| crate::files::portal::inhibit_idle("Glimt full screen"))
-                .and_then(|held| held.map_err(|e| eprintln!("inhibit portal: {e}")).ok());
-            #[cfg(not(feature = "portals"))]
-            let portal: Option<std::sync::mpsc::Sender<()>> = None;
-            let end: InhibitorStop = if let Some(held) = portal {
-                Box::new(move || drop(held))
-            } else {
-                let found = commands.iter().find(|c| external::host_has_program(c[0]));
-                let Some(mut child) = found.and_then(|c| {
-                    external::host_command(c[0])
-                        .args(&c[1..])
-                        .stdin(std::process::Stdio::piped())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .spawn()
-                        .ok()
-                }) else {
-                    return;
+        threads::spawn(
+            Busy::NoPointer("it holds the screen saver off while full screen lasts"),
+            move || {
+                #[cfg(feature = "portals")]
+                let portal = (crate::files::external::in_flatpak())
+                    .then(|| crate::files::portal::inhibit_idle("Glimt full screen"))
+                    .and_then(|held| held.map_err(|e| eprintln!("inhibit portal: {e}")).ok());
+                #[cfg(not(feature = "portals"))]
+                let portal: Option<std::sync::mpsc::Sender<()>> = None;
+                let end: InhibitorStop = if let Some(held) = portal {
+                    Box::new(move || drop(held))
+                } else {
+                    let found = commands.iter().find(|c| external::host_has_program(c[0]));
+                    let Some(mut child) = found.and_then(|c| {
+                        external::host_command(c[0])
+                            .args(&c[1..])
+                            .stdin(std::process::Stdio::piped())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn()
+                            .ok()
+                    }) else {
+                        return;
+                    };
+                    Box::new(move || {
+                        let _ = child.kill();
+                        #[allow(clippy::disallowed_methods)] // killed just now, reaped here
+                        threads::spawn(
+                            Busy::NoPointer("it only reaps the inhibitor, killed just now"),
+                            move || child.wait(),
+                        );
+                    })
                 };
-                Box::new(move || {
-                    let _ = child.kill();
-                    #[allow(clippy::disallowed_methods)]
-                    // killed just now, reaped in its own thread
-                    // No busy pointer: it only reaps the inhibitor, killed just now.
-                    std::thread::spawn(move || child.wait());
-                })
-            };
-            let mut held = lock_even_if_poisoned(&inhibitor);
-            // Full screen ended or started again meanwhile: this one is not wanted.
-            if held.0 == turn {
-                held.1 = Some(end);
-            } else {
-                drop(held);
-                end();
-            }
-        });
+                let mut held = lock_even_if_poisoned(&inhibitor);
+                // Full screen ended or started again meanwhile: this one is not wanted.
+                if held.0 == turn {
+                    held.1 = Some(end);
+                } else {
+                    drop(held);
+                    end();
+                }
+            },
+        );
     }
 
     /// Sets the window's title to `title_text`. It is the one place the title is set, so the
@@ -702,16 +706,17 @@ pub(crate) fn close_on_termination_signals(ctx: &egui::Context) {
     }
     SIGNAL_WAKER.store(waker.into_raw_fd(), Ordering::Relaxed);
     let ctx = ctx.clone();
-    // No busy pointer: it waits for the termination signals as long as the window
-    // lasts.
-    std::thread::spawn(move || {
-        wake_at_signals(
-            waiting,
-            &TERMINATION_SIGNALS,
-            || ctx.request_repaint(),
-            || end_at_once(128 + libc::SIGTERM),
-        );
-    });
+    threads::spawn(
+        Busy::NoPointer("it waits for the termination signals as long as the window lasts"),
+        move || {
+            wake_at_signals(
+                waiting,
+                &TERMINATION_SIGNALS,
+                || ctx.request_repaint(),
+                || end_at_once(128 + libc::SIGTERM),
+            );
+        },
+    );
     for signal in [libc::SIGTERM, libc::SIGHUP] {
         handle_unless_ignored(signal, on_termination_signal);
     }

@@ -8,6 +8,7 @@
 use crate::support::format::ShownText;
 use crate::support::format::{Piece, escaped_name, pieces};
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -30,12 +31,15 @@ impl InstalledTools {
     pub(crate) fn new(ctx: &eframe::egui::Context) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = ctx.clone();
-        // No busy pointer: the tools, read as the window opens, and shown in the menu
-        // when they come.
-        std::thread::spawn(move || {
-            let _ = tx.send(find());
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::NoPointer(
+                "the tools, read as the window opens, and shown in the menu when they come",
+            ),
+            move || {
+                let _ = tx.send(find());
+                ctx.request_repaint();
+            },
+        );
         InstalledTools {
             tools: Vec::new(),
             answer: crate::support::threads::Receiving::of(rx),
@@ -140,9 +144,12 @@ impl Tool {
             // them open for hours, so the tool is waited for, not the end of its errors.
             let errors = child.stderr.take().map(|e| {
                 let (tx, rx) = std::sync::mpsc::channel();
-                // No busy pointer: a reader of a program's errors, which the caller's thread waits
-                // for.
-                std::thread::spawn(move || tx.send(crate::files::external::last_text(e, 64 << 10)));
+                threads::spawn(
+                    Busy::NoPointer(
+                        "a reader of a program's errors, which the caller's thread waits for",
+                    ),
+                    move || tx.send(crate::files::external::last_text(e, 64 << 10)),
+                );
                 rx
             });
             #[allow(clippy::disallowed_methods)] // the user's own program, which may take long

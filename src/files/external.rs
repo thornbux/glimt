@@ -8,6 +8,7 @@ use crate::model::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
 use crate::support::format::ShownText;
 use crate::support::format::escaped_name;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use std::path::{Path, PathBuf};
 
 /// ffmpeg's input options for files that come from anywhere. They allow only local files (no
@@ -51,26 +52,28 @@ impl Watchdog {
             fed: std::time::Instant::now().into(),
         });
         let watchdog_state = state.clone();
-        // No busy pointer: a program's watchdog, whose caller waits for the program.
-        std::thread::spawn(move || {
-            let step = limit.min(std::time::Duration::from_millis(100));
-            loop {
-                std::thread::sleep(step);
-                if watchdog_state.ended.load(Relaxed) {
-                    return;
+        threads::spawn(
+            Busy::NoPointer("a program's watchdog, whose caller waits for the program"),
+            move || {
+                let step = limit.min(std::time::Duration::from_millis(100));
+                loop {
+                    std::thread::sleep(step);
+                    if watchdog_state.ended.load(Relaxed) {
+                        return;
+                    }
+                    // The pause is read under the lock that `paused_while` sets it under, so the
+                    // watchdog never gives up just as a pause begins.
+                    let fed = lock_even_if_poisoned(&watchdog_state.fed);
+                    let is_due = !watchdog_state.is_paused.load(Relaxed) && fed.elapsed() >= limit;
+                    drop(fed);
+                    if is_due {
+                        watchdog_state.gave_up.store(true, Relaxed);
+                        stop_group(-(pid as i32), || watchdog_state.ended.load(Relaxed));
+                        return;
+                    }
                 }
-                // The pause is read under the lock that `paused_while` sets it under, so the
-                // watchdog never gives up just as a pause begins.
-                let fed = lock_even_if_poisoned(&watchdog_state.fed);
-                let is_due = !watchdog_state.is_paused.load(Relaxed) && fed.elapsed() >= limit;
-                drop(fed);
-                if is_due {
-                    watchdog_state.gave_up.store(true, Relaxed);
-                    stop_group(-(pid as i32), || watchdog_state.ended.load(Relaxed));
-                    return;
-                }
-            }
-        });
+            },
+        );
         Watchdog { state }
     }
 
@@ -438,8 +441,10 @@ pub fn counted_output_of(
     let watchdog = Watchdog::new(child.id(), limit);
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
-        // No busy pointer: a reader of a program's errors, which the caller's thread waits for.
-        std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
+        threads::spawn(
+            Busy::NoPointer("a reader of a program's errors, which the caller's thread waits for"),
+            move || tx.send(last_text(e, 64 << 10)),
+        );
         rx
     });
     let (mut out, mut refused) = (Vec::new(), false);
@@ -806,8 +811,10 @@ fn failure_text(name: &str, errors: &str, status: std::process::ExitStatus) -> S
 pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result<(), ShownText> {
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
-        // No busy pointer: a reader of a program's errors, which the caller's thread waits for.
-        std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
+        threads::spawn(
+            Busy::NoPointer("a reader of a program's errors, which the caller's thread waits for"),
+            move || tx.send(last_text(e, 64 << 10)),
+        );
         rx
     });
     #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
@@ -859,15 +866,17 @@ pub fn open_own_folder(dir: &Path, notices: &crate::support::threads::NoticeSend
 /// Open `url` in the default browser, in the background.
 pub fn open_url(url: &str) {
     let url = url.to_owned();
-    // No busy pointer: the browser may stay open for hours, and nothing waits for it.
-    std::thread::spawn(move || {
-        #[allow(clippy::disallowed_methods)]
-        // The browser may stay open, so it is waited for in its own thread.
-        let run = |cmd: &str, args: &[&str]| command(cmd).args(args).arg(&url).status();
-        if !run("gio", &["open"]).is_ok_and(|s| s.success()) {
-            let _ = run("xdg-open", &[]);
-        }
-    });
+    threads::spawn(
+        Busy::NoPointer("the browser may stay open for hours, and nothing waits for it"),
+        move || {
+            #[allow(clippy::disallowed_methods)]
+            // The browser may stay open, so it is waited for in its own thread.
+            let run = |cmd: &str, args: &[&str]| command(cmd).args(args).arg(&url).status();
+            if !run("gio", &["open"]).is_ok_and(|s| s.success()) {
+                let _ = run("xdg-open", &[]);
+            }
+        },
+    );
 }
 
 /// File → Set as Wallpaper. It sets `path` as the desktop's background, through the desktop

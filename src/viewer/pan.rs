@@ -4,6 +4,7 @@
 
 use crate::support::format::{ShownText, count, thousands};
 use crate::support::lang::tr;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took, Working};
 use crate::ui::menus::{DrawShown, PaintShown, ShownTip};
 use crate::{tf, viewer::pan};
@@ -341,12 +342,11 @@ impl crate::App {
         let pointer = Working::new(&self.busy);
         pan.stop_reading_days = Arc::default();
         let stop = pan.stop_reading_days.clone();
-        std::thread::spawn(move || {
+        threads::spawn(Busy::Pointer(pointer, ctx.clone()), move || {
             timeline(&dir, &files, exif, known, &stop, |days, known| {
                 let _ = tx.send((days, known));
                 ctx.request_repaint();
             });
-            drop(pointer);
         });
         pan.days_rx = Receiving::of(rx);
     }

@@ -10,6 +10,7 @@ use crate::model::listing::{ImagesAwaited, ReadsFirst};
 use crate::support::format::ShownText;
 use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::support::threads::{background_threads, in_parts};
 use crate::ui::menus::{DrawShown, ShownHint, ShownTip};
@@ -344,13 +345,16 @@ impl crate::App {
         // A new search drops the receiver, which stops the looks of this sum.
         let sum = Receiving::of(rx);
         let is_wanted = sum.is_waited_for();
-        // No busy pointer: the matches' size in the status bar, a look-up nobody waits for, shown
-        // when it comes.
-        std::thread::spawn(move || {
-            let size = |n: &OsString| size_through(&mut gate, &dir.join(n), &is_wanted);
-            let sizes = names.iter().filter_map(size);
-            send_sizes_unless_on_a_share(&places, with_subfolders, sizes, tx, &ctx);
-        });
+        threads::spawn(
+            Busy::NoPointer(
+                "the matches' size in the status bar, a look-up nobody waits for, shown when it comes",
+            ),
+            move || {
+                let size = |n: &OsString| size_through(&mut gate, &dir.join(n), &is_wanted);
+                let sizes = names.iter().filter_map(size);
+                send_sizes_unless_on_a_share(&places, with_subfolders, sizes, tx, &ctx);
+            },
+        );
         self.search.match_size_rx = sum;
     }
 
@@ -533,10 +537,8 @@ impl crate::App {
             let pointer = Working::new(&self.busy);
             self.search.exif_index_stop = Arc::default();
             let stop = self.search.exif_index_stop.clone();
-            std::thread::spawn(move || {
+            threads::spawn(Busy::Pointer(pointer, ctx), move || {
                 let _ = tx.send(exif_index(&dir, &names, (&stop, &awaited)));
-                drop(pointer);
-                ctx.request_repaint();
             });
             self.search.exif_index_rx = Receiving::of(rx);
         }
@@ -556,10 +558,8 @@ impl crate::App {
                 let pointer = Working::new(&self.busy);
                 self.search.exif_index_stop = Arc::default();
                 let stop = self.search.exif_index_stop.clone();
-                std::thread::spawn(move || {
+                threads::spawn(Busy::Pointer(pointer, ctx), move || {
                     let _ = tx.send(exif_index(&dir, &files, (&stop, &awaited)));
-                    drop(pointer);
-                    ctx.request_repaint();
                 });
                 self.search.exif_index_rx = Receiving::of(rx);
             }

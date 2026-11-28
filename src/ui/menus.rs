@@ -10,6 +10,7 @@ use crate::support::format::{ShownText, count, escaped_name};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{self, Busy};
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::{Action, shortcut_text};
 use crate::{features::tools, files::config, files::external, tf, ui::theme};
@@ -64,12 +65,15 @@ impl OpenWith {
         if stale {
             let (tx, rx) = mpsc::channel();
             let ctx = ctx.clone();
-            // No busy pointer: Open With's applications, a look-up nobody waits for, shown when it
-            // comes.
-            std::thread::spawn(move || {
-                let _ = tx.send(ask());
-                ctx.request_repaint();
-            });
+            threads::spawn(
+                Busy::NoPointer(
+                    "the applications of Open With, a look-up nobody waits for, shown when they come",
+                ),
+                move || {
+                    let _ = tx.send(ask());
+                    ctx.request_repaint();
+                },
+            );
             self.apps
                 .insert(key.to_owned(), AppsLookup::Asking(Receiving::of(rx)));
         }
@@ -408,8 +412,12 @@ impl crate::App {
             && let Some(dir) = theme::own_themes_dir()
         {
             let notices = self.notice_sender.clone();
-            // No busy pointer: the file manager may stay open for hours, and nothing waits for it.
-            std::thread::spawn(move || open_own_folder(&dir, &notices));
+            threads::spawn(
+                Busy::NoPointer(
+                    "the file manager may stay open for hours, and nothing waits for it",
+                ),
+                move || open_own_folder(&dir, &notices),
+            );
         }
         if button(ui, tr("Get More Themes…")).clicked() {
             open_url("https://github.com/thornbux/glimt/tree/main/themes");
@@ -869,9 +877,10 @@ impl crate::App {
                     running.retain(|r| r.1 != pid);
                     // Not when it ended meanwhile: its number may be another's by now.
                     if running.len() < was {
-                        // No busy pointer: a tool's Stop. The tool's own thread tells when the tool
-                        // ends.
-                        std::thread::spawn(move || external::stop_process_group(pid));
+                        // The tool's own thread tells when the tool ends.
+                        threads::spawn(Busy::NoPointer("a tool's Stop"), move || {
+                            external::stop_process_group(pid)
+                        });
                     }
                 }
             }
@@ -884,9 +893,12 @@ impl crate::App {
                 && let Some(home) = glimt_home
             {
                 let notices = self.notice_sender.clone();
-                // No busy pointer: the file manager may stay open for hours, and nothing waits for
-                // it.
-                std::thread::spawn(move || open_own_folder(&home.join("tools"), &notices));
+                threads::spawn(
+                    Busy::NoPointer(
+                        "the file manager may stay open for hours, and nothing waits for it",
+                    ),
+                    move || open_own_folder(&home.join("tools"), &notices),
+                );
             }
             let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
                 return;
@@ -912,51 +924,55 @@ impl crate::App {
         let report_tx = self.file_operations.report_sender();
         let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let awaited = self.decoding.images_awaited().clone();
-        // No busy pointer: a tool may be an editor that stays open for hours, so it is not
-        // waited for at closing either, as for Open With.
-        std::thread::spawn(move || {
-            // Each file is looked at on a share only after the images the window waits
-            // for, as every other look in the background is (#294).
-            let mut gate = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited);
-            for file in &listed {
-                gate.before_a_look(file.path());
-            }
-            // A file whose name another file has taken since the list was read is not given
-            // to the tool, which may change it.
-            let (targets, refused) = crate::files::file_io::still_listed(listed);
-            if let Some(first) = refused.into_iter().next() {
-                tx.send_failed_write(first);
-            }
-            // The types a tool takes are looked up in the system's files of file types, the
-            // first time, so the files are sorted here and not in the window's thread.
-            let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
-                targets.into_iter().partition(|p| tool.accepts(p));
-            held_back.hold_only(&files);
-            let name = ShownText::from_file_text_on_one_line(&tool.name);
-            if files.is_empty() {
-                let _ = tx.send_error(tf!("{name} takes none of these files", name));
-                return;
-            }
-            if !left.is_empty() {
-                let files = count(left.len(), "file");
-                let _ = tx.send(tf!(
-                    "{name} leaves out {files} of a type it does not take",
-                    name,
-                    files
-                ));
-            }
-            let result = tool.run(&files, &dir, &running);
-            drop(held_back);
-            let _ = report_tx.send(OperationReport {
-                read_folder_again: true,
-                changed: files,
-                ..Default::default()
-            });
-            if let Err(e) = result {
-                let _ = tx.send_error(tf!("{name}: {e}", name = tool.shown_name(), e));
-            }
-            ctx.request_repaint();
-        });
+        threads::spawn(
+            Busy::NoPointer(
+                "a tool may be an editor that stays open for hours, so it is not waited for at \
+             closing either, as for Open With",
+            ),
+            move || {
+                // Each file is looked at on a share only after the images the window waits
+                // for, as every other look in the background is (#294).
+                let mut gate = crate::model::listing::ReadsFirst::for_files_anywhere(&awaited);
+                for file in &listed {
+                    gate.before_a_look(file.path());
+                }
+                // A file whose name another file has taken since the list was read is not given
+                // to the tool, which may change it.
+                let (targets, refused) = crate::files::file_io::still_listed(listed);
+                if let Some(first) = refused.into_iter().next() {
+                    tx.send_failed_write(first);
+                }
+                // The types a tool takes are looked up in the system's files of file types, the
+                // first time, so the files are sorted here and not in the window's thread.
+                let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
+                    targets.into_iter().partition(|p| tool.accepts(p));
+                held_back.hold_only(&files);
+                let name = ShownText::from_file_text_on_one_line(&tool.name);
+                if files.is_empty() {
+                    let _ = tx.send_error(tf!("{name} takes none of these files", name));
+                    return;
+                }
+                if !left.is_empty() {
+                    let files = count(left.len(), "file");
+                    let _ = tx.send(tf!(
+                        "{name} leaves out {files} of a type it does not take",
+                        name,
+                        files
+                    ));
+                }
+                let result = tool.run(&files, &dir, &running);
+                drop(held_back);
+                let _ = report_tx.send(OperationReport {
+                    read_folder_again: true,
+                    changed: files,
+                    ..Default::default()
+                });
+                if let Err(e) = result {
+                    let _ = tx.send_error(tf!("{name}: {e}", name = tool.shown_name(), e));
+                }
+                ctx.request_repaint();
+            },
+        );
     }
 
     /// The Open With submenu. It lists the applications registered for the type of the first
@@ -996,18 +1012,21 @@ impl crate::App {
                     // Each selected file (or the shown one), the chooser asking for each.
                     let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
                     let tx = self.notice_sender.clone();
-                    // No busy pointer: the application chosen may stay open for hours, and nothing
-                    // waits for it.
-                    std::thread::spawn(move || {
-                        // Cancel ends them all, not only the one asked about.
-                        for path in files {
-                            match crate::files::portal::open_with(&path) {
-                                Ok(true) => {}
-                                Ok(false) => break,
-                                Err(e) => drop(tx.send_error(e)),
+                    threads::spawn(
+                        Busy::NoPointer(
+                            "the application chosen may stay open for hours, and nothing waits for it",
+                        ),
+                        move || {
+                            // Cancel ends them all, not only the one asked about.
+                            for path in files {
+                                match crate::files::portal::open_with(&path) {
+                                    Ok(true) => {}
+                                    Ok(false) => break,
+                                    Err(e) => drop(tx.send_error(e)),
+                                }
                             }
-                        }
-                    });
+                        },
+                    );
                 }
                 return;
             }
@@ -1032,15 +1051,18 @@ impl crate::App {
                 let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
                 let tx = self.notice_sender.clone();
                 // The chosen application may stay open, so it is waited for in a thread of its own.
-                // No busy pointer: the application chosen may stay open for hours, and nothing
-                // waits for it.
-                std::thread::spawn(move || {
-                    let mut gio = external::host_command("gio");
-                    gio.arg("launch").arg(&desktop).args(&files);
-                    if let Err(told) = external::run_telling("gio", gio) {
-                        let _ = tx.send_error(told);
-                    }
-                });
+                threads::spawn(
+                    Busy::NoPointer(
+                        "the application chosen may stay open for hours, and nothing waits for it",
+                    ),
+                    move || {
+                        let mut gio = external::host_command("gio");
+                        gio.arg("launch").arg(&desktop).args(&files);
+                        if let Err(told) = external::run_telling("gio", gio) {
+                            let _ = tx.send_error(told);
+                        }
+                    },
+                );
             }
         });
     }
@@ -1064,19 +1086,21 @@ impl crate::App {
         let words: Vec<String> = (tools::command_words(command_line).into_iter())
             .map(|word| word.text)
             .collect();
-        // No busy pointer: each program may stay open for hours, and nothing waits for it.
-        std::thread::spawn(move || {
-            for path in files {
-                if let Err(told) = open_one_in(&words, &path) {
-                    let _ = tx.send_error(told);
-                    // In a Flatpak the default application is chosen through the desktop's
-                    // portal, and its Cancel is a failure of gio, which ends them all.
-                    if words.is_empty() && external::in_flatpak() {
-                        break;
+        threads::spawn(
+            Busy::NoPointer("each program may stay open for hours, and nothing waits for it"),
+            move || {
+                for path in files {
+                    if let Err(told) = open_one_in(&words, &path) {
+                        let _ = tx.send_error(told);
+                        // In a Flatpak the default application is chosen through the desktop's
+                        // portal, and its Cancel is a failure of gio, which ends them all.
+                        if words.is_empty() && external::in_flatpak() {
+                            break;
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
     }
 
     /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
