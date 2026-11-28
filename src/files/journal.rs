@@ -897,9 +897,9 @@ fn written_anew_without(path: &Path, applied: &[PathBuf]) -> std::io::Result<()>
     };
     let dir = path.parent().unwrap_or(Path::new("/"));
     let mut left = records_without_steps(records, applied);
-    // The `old-log` record comes last, so that a new log cut off by a kill while it is written
+    // The `from-log` record comes last, so that a new log cut off by a kill while it is written
     // never names the old log, which then stays and is read again.
-    left.push(Record::OldLog(path.to_path_buf()));
+    left.push(Record::FromLog(path.to_path_buf()));
     let started = JobLog::start(dir, job, &left);
     if let Some(sure) = Sure::of(&started) {
         remove_job_log(path, sure);
@@ -909,7 +909,7 @@ fn written_anew_without(path: &Path, applied: &[PathBuf]) -> std::io::Result<()>
 
 /// Returns `records` without the steps on the files `applied`, or in folders among them, and
 /// without the records of those steps. The other steps are numbered anew in their order. An
-/// `old-log` record is kept while its log is there, as the start may have failed to remove the
+/// `from-log` record is kept while its log is there, as the start may have failed to remove the
 /// log it names, which would then be read again as a log of its own and give its marks and
 /// places a second time. One whose log is surely gone is left out, so that a log written anew
 /// again and again does not grow by one record each time (#302).
@@ -924,7 +924,7 @@ fn records_without_steps(records: Vec<Record>, applied: &[PathBuf]) -> Vec<Recor
         }
     }
     (records.into_iter())
-        .filter(|record| !matches!(record, Record::OldLog(log) if is_surely_gone(log)))
+        .filter(|record| !matches!(record, Record::FromLog(log) if is_surely_gone(log)))
         .filter_map(|mut record| {
             if let Some(number) = record.step_number_mut() {
                 *number = *new_numbers.get(number)?;
@@ -956,7 +956,7 @@ fn found_move_log(log: JobLog, sure: Sure) -> MoveLog {
 /// The job logs in `dir` that Glimt was killed during, which are those no running window holds
 /// locked: the Moves (as `move_jobs_cut_short` gives them) and the deletes (as
 /// `put_right_a_delete` gives them). A log in `dir` that another log there names in its
-/// `old-log` record was written anew as that one, which a kill left beside it, and is removed
+/// `from-log` record was written anew as that one, which a kill left beside it, and is removed
 /// unread. So is a log of Glimt 0.92 or older that such a record names directly in one of the old
 /// folders beside `dir` (`old_log_written_anew`), with its lists, as Glimt 0.93 and 0.94 wrote
 /// it anew and a kill kept it. A path that such a record names anywhere else is no log, and
@@ -969,7 +969,7 @@ pub fn jobs_cut_short(dir: &Path) -> JobsCutShort {
     let written_anew: HashSet<PathBuf> = (found.iter())
         .flat_map(|found| &found.records)
         .filter_map(|record| match record {
-            Record::OldLog(path) => Some(path.clone()),
+            Record::FromLog(path) => Some(path.clone()),
             _ => None,
         })
         .collect();
@@ -1116,7 +1116,7 @@ fn tell(tells: &[Tell]) {
     }
 }
 
-/// Returns whether `path`, which a job log in `jobs` names in its `old-log` record, is a log of
+/// Returns whether `path`, which a job log in `jobs` names in its `from-log` record, is a log of
 /// Glimt 0.92 or older that may go: a file, or no name, directly in a folder of
 /// `OLD_LOG_FOLDERS` beside `jobs`. Returns `CannotTell` for any other path, for a link, and when
 /// the name cannot be looked at. The record is written after the whole log, so it is read only
@@ -1168,7 +1168,7 @@ fn remove_old_log_with_its_lists(path: &Path, sure: Sure) {
     }
 }
 
-/// Returns whether a job log in `written_anew` names the log at `path` in its `old-log` record:
+/// Returns whether a job log in `written_anew` names the log at `path` in its `from-log` record:
 /// it was written anew as that one, whole, before it named it, so it may go unread.
 fn is_named_anew(written_anew: &HashSet<PathBuf>, path: &Path) -> AtStart<()> {
     written_anew.contains(path).then_some(()).ok_or(CannotTell)
@@ -1252,7 +1252,7 @@ fn put_right_a_delete(
 
 /// Returns the records of the log written anew for the steps of `r` that are `untold`, numbered
 /// anew: each step with its fingerprint, its sidecars put aside, and whether it is `kept`,
-/// `done` or `found`. They come after the collection shown and before the `old-log` records:
+/// `done` or `found`. They come after the collection shown and before the `from-log` records:
 /// those of `r`, and the one that names the log at `old`, which a kill may leave beside the new
 /// one.
 fn steps_left(
@@ -1316,11 +1316,11 @@ fn steps_left(
     // The logs that the old log names stay named while they are there, as the start may have
     // failed to remove one, which would then be read again as a log of its own. One surely gone
     // is named no more, so a log that stays for many starts does not grow at each (#302).
-    let still_there = (r.old_logs.iter()).filter(|log| !is_surely_gone(log));
-    records.extend(still_there.cloned().map(Record::OldLog));
-    // The `old-log` record of the old log comes last, so that a new log cut off by a kill while
+    let still_there = (r.from_logs.iter()).filter(|log| !is_surely_gone(log));
+    records.extend(still_there.cloned().map(Record::FromLog));
+    // The `from-log` record of the old log comes last, so that a new log cut off by a kill while
     // it is written never names the old log, which then stays and is read again.
-    records.push(Record::OldLog(old.to_path_buf()));
+    records.push(Record::FromLog(old.to_path_buf()));
     records
 }
 
@@ -4468,7 +4468,7 @@ mod tests {
             device,
             inode,
         };
-        assert_eq!(records, [folder, step, Record::OldLog(old.clone())]);
+        assert_eq!(records, [folder, step, Record::FromLog(old.clone())]);
         // A kill cut the new log off while it was written: it does not name the old one, which
         // the next start then reads again instead of removing it unread.
         let new_bytes = std::fs::read(&new).unwrap();
@@ -4479,7 +4479,7 @@ mod tests {
         let LogRead::Log { records, .. } = read else {
             panic!("not a log: {read:?}");
         };
-        assert!(!records.contains(&Record::OldLog(old.clone())));
+        assert!(!records.contains(&Record::FromLog(old.clone())));
         std::fs::remove_file(&cut).unwrap();
         // A kill came before the old log went: the next start removes it unread.
         std::fs::write(&old, &old_bytes).unwrap();
@@ -4683,7 +4683,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A planted job log whose `old-log` record names a file outside the folder of the job logs
+    /// A planted job log whose `from-log` record names a file outside the folder of the job logs
     /// does not get that file removed: neither a photo, also by a path through `..`, nor a file
     /// deeper in a folder of Glimt 0.92 or older. The start removes only a log of the job logs'
     /// own folder that such a record names, as a kill leaves one beside the log written from it,
@@ -4706,7 +4706,7 @@ mod tests {
             .into_path_and_file();
         for job in ["rename", "delete", "move"] {
             for named in [&photo, &through_parent, &old, &written_from] {
-                let planted = [super::Record::OldLog(named.clone())];
+                let planted = [super::Record::FromLog(named.clone())];
                 drop(super::JobLog::start(&jobs, job, &planted).unwrap());
             }
         }
@@ -4720,7 +4720,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Glimt 0.93 and 0.94 wrote an old log anew as a job log with an `old-log` record, and then
+    /// Glimt 0.93 and 0.94 wrote an old log anew as a job log with an `from-log` record, and then
     /// removed the old one. A kill between the two leaves both. The start puts the job log right
     /// and removes the old log with its lists, so the old folder goes and nothing is told. Before,
     /// the old log stayed, and the user was sent to Glimt 0.94, which put it right a second time.
@@ -4736,7 +4736,7 @@ mod tests {
         let old = deletes.join("w-1");
         std::fs::write(&old, b"/p/a.jpg\0").unwrap();
         std::fs::write(deletes.join("files").join("w-1"), "-\n").unwrap();
-        let planted = [super::Record::OldLog(old.clone())];
+        let planted = [super::Record::FromLog(old.clone())];
         drop(super::JobLog::start(&jobs, "delete", &planted).unwrap());
         crate::files::file_io::take_saves_failed();
         drop(super::jobs_cut_short(&jobs));
@@ -4971,7 +4971,7 @@ mod tests {
     /// A log of any kind of job that stays for the next start while the window runs is written
     /// anew without the steps that the window applied, so that a new kind gets the rule too. It
     /// still names the log that it was itself written anew from, whose removal at the start may
-    /// have failed. Before, that `old-log` record was left out, and the next start read the
+    /// have failed. Before, that `from-log` record was left out, and the next start read the
     /// older log as one of its own and gave its marks and places again (#279).
     #[test]
     fn a_kept_log_of_every_kind_leaves_out_the_steps_the_window_applied() {
@@ -5003,7 +5003,7 @@ mod tests {
                     bits: 0,
                     stars: 5,
                 },
-                super::Record::OldLog(dir.join("older")),
+                super::Record::FromLog(dir.join("older")),
             ];
             let mut log = super::JobLog::start(&jobs, job, &records).unwrap();
             log.note_steps_applied(std::slice::from_ref(&a));
@@ -5023,7 +5023,7 @@ mod tests {
                 stars: 5,
             };
             assert_eq!(left[..2], [step(0, &b), marks], "{job}");
-            let older = super::Record::OldLog(dir.join("older"));
+            let older = super::Record::FromLog(dir.join("older"));
             assert!(
                 left.contains(&older),
                 "{job}: the older log no longer named"
@@ -5052,14 +5052,14 @@ mod tests {
                     to: None,
                     fingerprint: None,
                 },
-                Record::OldLog(older.clone()),
-                Record::OldLog(gone.clone()),
+                Record::FromLog(older.clone()),
+                Record::FromLog(gone.clone()),
             ]
         };
         let named = |records: Vec<Record>| -> Vec<std::path::PathBuf> {
             (records.into_iter())
                 .filter_map(|r| match r {
-                    Record::OldLog(log) => Some(log),
+                    Record::FromLog(log) => Some(log),
                     _ => None,
                 })
                 .collect()

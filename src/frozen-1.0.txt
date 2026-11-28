@@ -497,7 +497,6 @@ job_record record marks
 job_record record place
 job_record record aside
 job_record record kept
-job_record record old-log
 job_record record found
 job_record record written
 job_record record volume
@@ -562,3 +561,4 @@ state last_folder
 script ImageAreaGrid
 info_key file_size
 value print_printer PDF file
+job_record record from-log

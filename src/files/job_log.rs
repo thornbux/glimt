@@ -35,9 +35,14 @@ pub(crate) const JOB_KINDS: [&str; 7] = [
 /// Undo of a Move wrote "undo-move", which a start read as a Move.
 const OLD_JOB_KINDS: [(&str, &str); 1] = [("undo-move", "move")];
 
+/// The word that Glimt 0.106 and older wrote for `Record::FromLog`'s record. A log that a kill
+/// left under 0.106 is read with it once, and every log written since says "from-log".
+const OLD_FROM_LOG: &[u8] = b"old-log";
+
 /// The kinds of record after the header, as `Record::kind` names them. They are pinned in
-/// src/frozen-1.0.txt. "old-log" names the job log that this one was written from
-/// (`Record::OldLog`), a log of this format, not one of the old logs of Glimt 0.92 and older.
+/// src/frozen-1.0.txt. "from-log" names the job log that this one was written from
+/// (`Record::FromLog`). Glimt 0.106 and older wrote it "old-log", which is read too
+/// (`OLD_FROM_LOG`).
 #[cfg(test)]
 pub(crate) const RECORD_KINDS: [&str; 16] = [
     "folder",
@@ -49,7 +54,7 @@ pub(crate) const RECORD_KINDS: [&str; 16] = [
     "place",
     "aside",
     "kept",
-    "old-log",
+    "from-log",
     "found",
     "written",
     "volume",
@@ -140,7 +145,7 @@ pub(crate) enum Record {
     /// names: one in a folder of Glimt 0.92 or older, which Glimt 0.93 and 0.94 wrote, is no
     /// longer read. The steps of a log written from such an old log are read as its own: each
     /// has a `done` record, as an old log's name meant a file that may have gone.
-    OldLog(PathBuf),
+    FromLog(PathBuf),
     /// A start found the step of a delete for good, which has no `done`, with its photo gone,
     /// and kept its marks and its hidden sidecar for a later start, which finishes it.
     Found(usize),
@@ -211,7 +216,7 @@ impl Record {
                 hidden,
             } => ("aside", vec![text(number), path(sidecar), path(hidden)]),
             Record::Kept(number) => ("kept", vec![text(number)]),
-            Record::OldLog(log) => ("old-log", vec![path(log)]),
+            Record::FromLog(log) => ("from-log", vec![path(log)]),
             Record::Found(number) => ("found", vec![text(number)]),
             Record::Written {
                 number,
@@ -280,7 +285,7 @@ impl Record {
                 hidden: absolute(hidden)?,
             },
             (b"kept", [n]) => Record::Kept(number(n)?),
-            (b"old-log", [p]) => Record::OldLog(absolute(p)?),
+            (b"from-log" | OLD_FROM_LOG, [p]) => Record::FromLog(absolute(p)?),
             (b"found", [n]) => Record::Found(number(n)?),
             (b"written", [n, known]) => Record::Written {
                 number: number(n)?,
@@ -317,7 +322,7 @@ impl Record {
             | Record::InFileSystem { .. }
             | Record::Shown(_)
             | Record::Tree { .. }
-            | Record::OldLog(_) => None,
+            | Record::FromLog(_) => None,
         }
     }
 
@@ -340,7 +345,7 @@ impl Record {
             | Record::InFileSystem { .. }
             | Record::Shown(_)
             | Record::Tree { .. }
-            | Record::OldLog(_) => None,
+            | Record::FromLog(_) => None,
         }
     }
 }
@@ -926,7 +931,7 @@ mod tests {
                 from: p("/photos/new"),
                 to: Some(p("/photos/newer")),
             },
-            Record::OldLog(p("/state/glimt/jobs/1-2")),
+            Record::FromLog(p("/state/glimt/jobs/1-2")),
             Record::Found(1),
             Record::Written {
                 number: 0,
@@ -1045,7 +1050,7 @@ mod tests {
             b"tree\0/photos/old\0../x\0\0",
             b"step\x001\0/photos/a.jpg\0photos/b.jpg\0-\0\0",
             b"aside\x000\0/p/a.xmp\0/p/../q/.h\0\0",
-            b"old-log\0../deletes/1-2\0\0",
+            b"from-log\0../deletes/1-2\0\0",
             b"volume\0/card\0../1234-ABCD\0\0",
         ] {
             let mut bytes = good.clone();
@@ -1056,6 +1061,22 @@ mod tests {
             expected.push(Record::Done(0));
             assert_eq!(records_of(&bytes), expected, "{}", bad.escape_ascii());
         }
+    }
+
+    /// A log that a kill left under Glimt 0.106.0 names the log it was written from in an
+    /// "old-log" record, which is read as the record that this Glimt writes as "from-log".
+    /// Risk: the start no longer sees that the log it names was written anew, reads that one
+    /// as a log of its own too, and gives its marks and places a second time.
+    #[test]
+    fn an_old_log_record_of_0_106_is_read() {
+        let mut bytes = log_bytes("1", &every_record()[..3]);
+        bytes.extend(b"old-log\0/state/glimt/jobs/1-2\0\0");
+        let LogRead::Log { records, .. } = parsed(&bytes) else {
+            panic!("not read as a log");
+        };
+        let named = PathBuf::from("/state/glimt/jobs/1-2");
+        assert_eq!(records.last(), Some(&Record::FromLog(named)));
+        assert_eq!(records.len(), 4);
     }
 
     /// A log of an Undo of a Move that a kill left under Glimt 0.99.0, of the kind "undo-move",

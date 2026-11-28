@@ -250,8 +250,8 @@ pub(crate) struct DeleteRecords {
     pub(crate) found: HashSet<PathBuf>,
     /// The folders of the files, each as the log noted it.
     pub(crate) folders: HashMap<PathBuf, FolderNoted>,
-    /// The logs that the log's `old-log` records name, which it was written anew from.
-    pub(crate) old_logs: Vec<PathBuf>,
+    /// The logs that the log's `from-log` records name, which it was written anew from.
+    pub(crate) from_logs: Vec<PathBuf>,
 }
 
 /// How a start sorts the files of a delete's log (`sort_deleted`).
@@ -673,7 +673,7 @@ pub(crate) fn delete_records(job: &'static str, records: &[Record]) -> DeleteRec
             Record::Found(number) => {
                 read.found.insert(read.names[*number].clone());
             }
-            Record::OldLog(path) => read.old_logs.push(path.clone()),
+            Record::FromLog(path) => read.from_logs.push(path.clone()),
             _ => {}
         }
     }

@@ -130,11 +130,11 @@ The record kinds:
 | `place` | number, index in the collection | with `marks` | #235 |
 | `aside` | number, sidecar, hidden name | synced before the sidecar is renamed | now `aside/` |
 | `kept` | number | when a step must wait for a later start | now `kept/` |
-| `old-log` | the path of the log it was written from | when a log is written anew | section 5 |
+| `from-log` (`old-log` until 0.106, still read) | the path of the log it was written from | when a log is written anew | section 5 |
 | `found` | number | when a start first finds a delete for good's step without `done` gone | decision 5 |
 | `written` | number, fingerprint | when Glimt writes a step's file anew in its place after the step was written down | Rename Many's `note_written_anew` |
 
-An `old-log` record is part of version 1. It names the log that this one was written from: an
+A `from-log` record is part of version 1. It names the log that this one was written from: an
 old log of 0.92 or older (decision 2), a job log that a start wrote anew with only its steps
 left, or (from 0.95) a log that a running job kept for the next start, written anew at the job's
 end without the steps whose marks, stars and places the window had already applied, so that the
@@ -271,7 +271,7 @@ user starts an older build by hand:
   version before 0.81 did after a kill. No file and no mark is lost: the log waits on disk.
 - 0.93's rewrite of an old log into `jobs/` is done under the old log's lock. The new log is
   synced before the old one goes. A kill in between leaves both, and the next start reads them
-  as one, because the new log names the old one in its `old-log` record and the old one is
+  as one, because the new log names the old one in its `from-log` record and the old one is
   dropped.
 - Two 0.93 windows: one lock for each log, and one start repairs it.
 - A new log is never seen in `jobs/` before it is locked (since 0.94, #268). `JobLog::start`
@@ -385,7 +385,7 @@ folder that is not empty (section 11).
   was) is left as it is, and the start tells once, in each window's start, that Glimt 0.94 puts
   it right. Nothing is followed through a link.
 - A folder that cannot be looked at is left, and the next start looks again.
-- An `old-log` record removes only a log in `jobs/` (section 4). A kill of 0.93 or 0.94 between
+- A `from-log` record removes only a log in `jobs/` (section 4). A kill of 0.93 or 0.94 between
   the new log's write and the old log's removal leaves the old log in its folder; 0.95 tells
   about it like any other, and a start of 0.94 removes it unread, as its job log names it.
 
