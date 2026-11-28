@@ -141,6 +141,12 @@ impl Slideshow {
         self.shown_at = self.shown_at.and_then(|at| at.checked_sub(passed));
     }
 
+    /// Seeds the random order with `seed`, so that a test gets the same picks in every run.
+    #[cfg(test)]
+    pub(crate) fn seed_random_order(&mut self, seed: u64) {
+        self.random_state = seed | 1;
+    }
+
     /// Whether --slideshow starts it now, once the folder is `listed`: only once.
     pub(crate) fn starts_now(&mut self, listed: bool) -> bool {
         let now = self.start_after_listing && listed;
