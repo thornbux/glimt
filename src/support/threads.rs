@@ -866,6 +866,8 @@ pub(crate) fn spawn<R: Send + 'static>(
     busy: Busy,
     work: impl FnOnce() -> R + Send + 'static,
 ) -> std::thread::JoinHandle<R> {
+    // This stops an empty reason only in a debug build. The checks build without debug
+    // assertions, so `source_rules::gives_a_blank_reason` refuses one there.
     if let Busy::ShownBy(why) | Busy::NoPointer(why) = &busy {
         debug_assert!(
             !why.trim().is_empty(),

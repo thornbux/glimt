@@ -9737,12 +9737,15 @@ fn threads_show_the_busy_pointer_or_say_why_not() {
 /// Returns the lines of `text` outside the tests that start a thread (`thread_start`) that is
 /// given no busy pointer of its own, unless the comment lines just above the statement say
 /// "No busy pointer:" or "Its busy pointer:", or its `Busy` says so (`Busy::NoPointer` or
-/// `Busy::ShownBy`, with the reason). A thread has a pointer of its own when its call
+/// `Busy::ShownBy`, with the reason). A `Busy` whose reason is no string literal with words in
+/// it (`gives_a_blank_reason`) is found whatever the comment says. A thread has a pointer of its
+/// own when its call
 /// makes one (a `Working`, an `AnswerSender` or an `answer_channel`), or names what its
 /// function bound to one before it (`pointer_holders`), so that a pointer moved into one thread
 /// does not count for the next.
 fn threads_without_pointer(text: &str) -> Vec<usize> {
     let (code, comments) = (code_lines(text), comment_lines(text));
+    let raw: Vec<&str> = text.lines().collect();
     let end = tests_start(&code);
     let mut found = Vec::new();
     let (mut holders, mut scopes): (Vec<String>, Vec<String>) = Default::default();
@@ -9756,7 +9759,11 @@ fn threads_without_pointer(text: &str) -> Vec<usize> {
         let Some(at) = thread_start(line, &scopes) else {
             continue;
         };
-        let call = call_text(&code[..end], i, at).0;
+        let (call, last) = call_text(&code[..end], i, at);
+        if gives_a_blank_reason(&code, &raw, (i, at), last) {
+            found.push(i + 1);
+            continue;
+        }
         // `threads::spawn` takes the reason as its `Busy`, in place of the comment.
         let says_why = call.contains("Busy::ShownBy(") || call.contains("Busy::NoPointer(");
         if says_why || names_a_pointer(&call, &holders) {
@@ -9767,6 +9774,39 @@ fn threads_without_pointer(text: &str) -> Vec<usize> {
         }
     }
     found
+}
+
+/// Returns whether the call that starts at line `first`, column `at`, and ends on line `last`
+/// gives a `Busy::NoPointer` or `Busy::ShownBy` a reason that is no string literal with words in
+/// it: an empty or blank literal, or a name in its place. `code` holds the lines as code only
+/// (`code_lines`), `raw` as written. This stands in for a type: a reason checked when Glimt is
+/// built would need a const block at every call, and a call without one would still compile.
+fn gives_a_blank_reason(
+    code: &[String],
+    raw: &[&str],
+    (first, at): (usize, usize),
+    last: usize,
+) -> bool {
+    const KINDS: [&str; 2] = ["Busy::NoPointer(", "Busy::ShownBy("];
+    (first..=last).any(|j| {
+        let from = if j == first { at } else { 0 };
+        let line = code[j].get(from..).unwrap_or("");
+        let mut starts = KINDS
+            .iter()
+            .flat_map(|kind| (line.match_indices(kind)).map(move |(p, _)| from + p + kind.len()));
+        starts.any(|after| {
+            // A literal is blanked in `code`, one space for each character, so the column is
+            // counted in characters to find the same place in `raw`.
+            let column = code[j][..after].chars().count();
+            let at_raw = (raw[j].char_indices().nth(column)).map_or(raw[j].len(), |(b, _)| b);
+            let rest = std::iter::once(&raw[j][at_raw..]).chain(raw[j + 1..=last].iter().copied());
+            let rest = rest.collect::<Vec<_>>().join("\n");
+            match rest.trim_start().strip_prefix('"') {
+                Some(literal) => literal.split('"').next().unwrap_or("").trim().is_empty(),
+                None => true,
+            }
+        })
+    })
 }
 
 /// Returns whether `text` makes a busy pointer (a `Working`, an `AnswerSender` or an
@@ -9869,16 +9909,23 @@ fn finds_every_thread_without_the_busy_pointer() {
 
 /// The check above reads a thread started through `threads::spawn`: it passes one whose `Busy`
 /// holds a pointer or gives the reason, and finds one whose `Busy` was bound before, so that
-/// its call says nothing of what it does. Before `threads::spawn`, a `::` before `spawn(` hid
-/// the thread from the check.
+/// its call says nothing of what it does. It finds a reason that is empty, blank (also on a
+/// line of its own) or a name in place of a literal. The `debug_assert!` in `spawn` stops an
+/// empty one only in a debug build, never in the checks, which build without debug assertions.
+/// Before
+/// `threads::spawn`, a `::` before `spawn(` hid the thread from the check.
 #[test]
 fn finds_a_thread_started_through_threads_spawn() {
     let text = "fn a(&self) {\n    let p = Working::new(&self.busy);\n    \
         threads::spawn(Busy::Pointer(p, ctx), f);\n}\nfn b() {\n    \
         threads::spawn(Busy::NoPointer(\"a listener\"), f);\n    \
         threads::spawn(Busy::ShownBy(\"`is_listing`\"), f);\n}\nfn c() {\n    \
-        let busy = Busy::NoPointer(\"a listener\");\n    threads::spawn(busy, f);\n}\n";
-    assert_eq!(threads_without_pointer(text), [11]);
+        let busy = Busy::NoPointer(\"a listener\");\n    threads::spawn(busy, f);\n}\n\
+        fn d() {\n    // No busy pointer: a listener.\n    \
+        threads::spawn(Busy::NoPointer(\"\"), f);\n    threads::spawn(Busy::ShownBy(\n        \
+        \"  \",\n    ), f);\n    threads::spawn(Busy::NoPointer(WHY), f);\n    \
+        threads::spawn(Busy::NoPointer(\n        \"a listener on its own line\",\n    ), f);\n}\n";
+    assert_eq!(threads_without_pointer(text), [11, 15, 16, 19]);
 }
 
 /// Every thread in the background that nobody waits for (its comment says "No busy pointer:")
