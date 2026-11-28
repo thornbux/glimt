@@ -58,7 +58,7 @@
       <line x1="830" y1="290" x2="830" y2="326" marker-end="url(#arrow)"/>
       <line x1="1060" y1="290" x2="1060" y2="326" marker-end="url(#arrow)"/>
     </g>
-    <text x="150" y="314" font-size="12" fill="#57606a">thread::spawn</text>
+    <text x="150" y="314" font-size="12" fill="#57606a">threads::spawn</text>
 
     <!-- 3. The job threads -->
     <g font-size="12">
