@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Each release has a Flatpak bundle, glimt-X.Y.Z-x86_64.flatpak, built and smoke-tested with
+  the other packages, in SHA256SUMS and with its attestation. `flatpak install --user` of the
+  file fetches its runtime from Flathub. Glimt itself comes to Flathub with 1.0.
+
 ## [0.107.0] - 2026-11-28
 
 ### Changed
