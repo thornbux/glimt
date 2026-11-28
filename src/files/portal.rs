@@ -491,7 +491,7 @@ mod tests {
         ];
         let at = std::env::temp_dir().join(format!("glimt-test-bus-{}", std::process::id()));
         let listener = std::os::unix::net::UnixListener::bind(&at).unwrap();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let (mut said, mut chunk, mut logged_in) = (Vec::new(), [0u8; 256], false);
             while let Ok(n @ 1..) = stream.read(&mut chunk) {
@@ -513,7 +513,7 @@ mod tests {
         });
         let address = format!("unix:path={}", at.display());
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let builder = zbus::blocking::connection::Builder::address(address.as_str()).unwrap();
             let limit = std::time::Duration::from_millis(300);
             let conn = super::calls_limited(builder, limit).build().unwrap();

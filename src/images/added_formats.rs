@@ -350,7 +350,7 @@ mod tests {
         let slow = "Name=Slow\nExtensions=xyz\nExec=sh -c \"sleep 2; cat \\\"$0\\\"\" %f";
         let slow = super::parse(slow, &dir).unwrap();
         let share_budget = crate::images::decode::share_this_threads_budget();
-        let thumbnail = std::thread::spawn(move || {
+        let thumbnail = crate::support::threads::spawn_in_a_test(move || {
             share_budget();
             slow.decode(&file).map(|img| img.width())
         });
@@ -380,7 +380,7 @@ mod tests {
                       Exec=sh -c \"head -c 3000000 /dev/zero; sleep 2\" %f";
         let writes = super::parse(writes, &dir).unwrap();
         let share_budget = crate::images::decode::share_this_threads_budget();
-        let decode = std::thread::spawn(move || {
+        let decode = crate::support::threads::spawn_in_a_test(move || {
             share_budget();
             writes.decode(&file).is_err()
         });

@@ -4805,7 +4805,9 @@ mod tests {
         let lock = crate::metadata::xmp::lock_sidecar(&b);
         let saver = {
             let (a, b) = (a.clone(), b.clone());
-            std::thread::spawn(move || super::save_copy_with_sidecar(&a, &b, b"x", None, false))
+            crate::support::threads::spawn_in_a_test(move || {
+                super::save_copy_with_sidecar(&a, &b, b"x", None, false)
+            })
         };
         let written = || {
             (std::fs::read_dir(&dir).unwrap().flatten()).any(|e| {
@@ -4937,7 +4939,7 @@ mod tests {
             let (a, b) = (a.clone(), b.clone());
             // Another window moves the image and then its sidecar, under the sidecar's lock, as
             // Glimt's moves do.
-            std::thread::spawn(move || {
+            crate::support::threads::spawn_in_a_test(move || {
                 went.recv().unwrap();
                 let _lock = lock_sidecar(&a);
                 std::fs::rename(&a, &b).unwrap();

@@ -1245,7 +1245,7 @@ mod tests {
         // that waits for it is shared with the other tests.
         let held = crate::files::file_io::file_lock(&trip).unwrap();
         let (release, released) = std::sync::mpsc::channel::<()>();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let _ = released.recv_timeout(std::time::Duration::from_secs(2));
             drop(held);
         });
@@ -1577,7 +1577,9 @@ mod tests {
         let held = crate::files::file_io::file_lock(&file).unwrap();
         let renaming = {
             let file = file.clone();
-            std::thread::spawn(move || super::rename(&file, "trip 2024", &picked(&file)))
+            crate::support::threads::spawn_in_a_test(move || {
+                super::rename(&file, "trip 2024", &picked(&file))
+            })
         };
         std::thread::sleep(std::time::Duration::from_millis(150));
         assert!(file.exists(), "renamed while the edit held the lock");

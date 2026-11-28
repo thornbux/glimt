@@ -5911,7 +5911,7 @@ mod tests {
         // the part looks at its images.
         awaited.set(vec![dir.join("a.png")]);
         let decoded = awaited.clone();
-        let later = std::thread::spawn(move || {
+        let later = crate::support::threads::spawn_in_a_test(move || {
             std::thread::sleep(Duration::from_millis(400));
             decoded.set(Vec::new());
         });
@@ -7397,7 +7397,7 @@ mod tests {
         let awaited = crate::model::listing::ImagesAwaited::default();
         awaited.set(vec![dir.join("shown.jpg")]);
         let given_up = awaited.clone();
-        let decoded = std::thread::spawn(move || {
+        let decoded = crate::support::threads::spawn_in_a_test(move || {
             std::thread::sleep(Duration::from_millis(300));
             given_up.set(Vec::new());
         });
@@ -7425,7 +7425,7 @@ mod tests {
         let (is_wanted, paths) = (sum.is_waited_for(), [dir.join("a.png")]);
         let given = awaited.clone();
         let began = Instant::now();
-        let summing = std::thread::spawn(move || {
+        let summing = crate::support::threads::spawn_in_a_test(move || {
             let total =
                 super::total_size_unless_on_a_share(&places, false, &paths, (&given, &is_wanted));
             tx.send(total).unwrap_or_default();

@@ -1946,7 +1946,7 @@ mod tests {
         let (running, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
         let start_large = |job| {
             let (budget, running, most) = (budget.clone(), running.clone(), most.clone());
-            std::thread::spawn(move || {
+            crate::support::threads::spawn_in_a_test(move || {
                 budget.take(job, 600, false).unwrap();
                 most.fetch_max(running.fetch_add(1, SeqCst) + 1, SeqCst);
                 std::thread::sleep(Duration::from_millis(300));
@@ -1959,7 +1959,7 @@ mod tests {
         // One large decode holds 600 now. Thirty small ones of 10 still pass without waiting.
         let (done, small_done) = mpsc::channel();
         let small = budget.clone();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             for _ in 0..30 {
                 small.take(3, 10, false).unwrap();
                 small.give_back(3);
@@ -1989,7 +1989,7 @@ mod tests {
         let taken = Arc::new(Mutex::new(Vec::new()));
         let start = |name: &'static str, bytes: u64, goes_first: bool| {
             let (budget, taken) = (budget.clone(), taken.clone());
-            let thread = std::thread::spawn(move || {
+            let thread = crate::support::threads::spawn_in_a_test(move || {
                 budget.take(bytes, bytes, goes_first).unwrap();
                 lock_even_if_poisoned(&taken).push(name);
             });
@@ -2022,7 +2022,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         // The decode runs in a thread of its own, with the budget this test holds whole.
         let held = super::budget();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(held));
             let logo = include_bytes!("../../assets/glimt-256.png");
             tx.send(super::decode_glimts_own_image(logo).is_ok())
@@ -2041,9 +2041,8 @@ mod tests {
     fn tests_never_wait_for_each_others_decode_budget() {
         let whole = super::reserve_from_budget(super::DECODE_BUDGET).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        let other_test = std::thread::Builder::new().name("other::tests::decodes".into());
-        other_test
-            .spawn(move || tx.send(super::reserve_from_budget(1).is_ok()))
+        let other_test = move || tx.send(super::reserve_from_budget(1).is_ok());
+        crate::support::threads::named_thread_in_a_test("other::tests::decodes", other_test)
             .unwrap();
         let taken = rx.recv_timeout(std::time::Duration::from_secs(2));
         drop(whole);
@@ -2059,7 +2058,7 @@ mod tests {
     #[test]
     fn a_reservation_outside_a_job_never_waits_for_itself() {
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(super::own_budget()));
             let first = super::reserve_from_budget(super::DECODE_BUDGET / 2 + 1).unwrap();
             let second = super::reserve_from_budget(super::DECODE_BUDGET / 2 + 2).unwrap();
@@ -2084,7 +2083,7 @@ mod tests {
         let budget = super::budget();
         let (taken, stuck_holds) = mpsc::channel();
         let (wake, stuck) = mpsc::channel::<()>();
-        let stuck_one = std::thread::spawn(move || {
+        let stuck_one = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total).unwrap();
             taken.send(()).unwrap();
@@ -2093,7 +2092,7 @@ mod tests {
         });
         stuck_holds.recv().unwrap();
         let (done, waited) = mpsc::channel();
-        let waiting = std::thread::spawn(move || {
+        let waiting = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total / 2).unwrap();
             done.send(()).unwrap();
@@ -2120,7 +2119,7 @@ mod tests {
         let (taken, slow_holds) = mpsc::channel();
         let (done, waited) = mpsc::channel();
         let done_too = done.clone();
-        let slow_one = std::thread::spawn(move || {
+        let slow_one = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total).unwrap();
             taken.send(()).unwrap();
@@ -2132,7 +2131,7 @@ mod tests {
             drop(held);
         });
         slow_holds.recv().unwrap();
-        let waiting = std::thread::spawn(move || {
+        let waiting = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total / 2).unwrap();
             done_too.send("waiting").unwrap();
@@ -2163,7 +2162,7 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let (taken, slow_holds) = mpsc::channel();
         let stop_spinning = stop.clone();
-        let slow_one = std::thread::spawn(move || {
+        let slow_one = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total).unwrap();
             taken.send(()).unwrap();
@@ -2212,7 +2211,7 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_spinning = stop.clone();
         let (taken, endless_holds) = mpsc::channel();
-        let endless = std::thread::spawn(move || {
+        let endless = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total).unwrap();
             taken.send(()).unwrap();
@@ -2223,7 +2222,7 @@ mod tests {
         });
         endless_holds.recv().unwrap();
         let (done, went_on) = mpsc::channel();
-        let waiting = std::thread::spawn(move || {
+        let waiting = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total / 2).unwrap();
             done.send(()).unwrap();
@@ -2311,7 +2310,7 @@ mod tests {
         // Another decode holds half, until it is told to let go.
         let (taken, other_holds) = mpsc::channel();
         let (let_go, told) = mpsc::channel::<()>();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let held = super::reserve_from_budget(total / 2).unwrap();
             taken.send(()).unwrap();
@@ -2321,13 +2320,13 @@ mod tests {
         other_holds.recv().unwrap();
         // A third asks for half and waits in line, with a tenth free.
         let in_line = order.clone();
-        let third = std::thread::spawn(move || {
+        let third = crate::support::threads::spawn_in_a_test(move || {
             super::TEST_BUDGET.set(Some(budget));
             let _held = super::reserve_from_budget(total / 2).unwrap();
             lock_even_if_poisoned(&in_line).push("asked first");
         });
         std::thread::sleep(Duration::from_millis(100));
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             std::thread::sleep(Duration::from_millis(200));
             let_go.send(()).unwrap();
         });

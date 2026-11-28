@@ -3857,7 +3857,7 @@ mod tests {
     /// test waited for (`every_undo_leaves_a_file_put_in_its_place`).
     #[test]
     fn a_save_error_in_a_test_stays_with_its_test() {
-        std::thread::spawn(|| super::save_failed("another test's error"))
+        crate::support::threads::spawn_in_a_test(|| super::save_failed("another test's error"))
             .join()
             .unwrap();
         assert_eq!(super::take_save_error(), None);
@@ -5431,7 +5431,7 @@ mod tests {
         use std::sync::atomic::Ordering::Relaxed;
         let (counted, wait) = std::sync::mpsc::channel();
         let (release, released) = std::sync::mpsc::channel::<()>();
-        let other = std::thread::spawn(move || {
+        let other = crate::support::threads::spawn_in_a_test(move || {
             let writing = crate::support::threads::Working::new(&super::WRITING);
             counted.send(super::WRITING.load(Relaxed)).unwrap();
             let _ = released.recv();
@@ -5649,7 +5649,7 @@ mod tests {
         let target = dir.join("never-made");
         std::os::unix::fs::symlink(&target, dir.join(".b.gqv.lock")).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let pipe_locked = super::file_lock(&with_pipe).is_some();
             let link_locked = super::file_lock(&with_link).is_some();
             tx.send((pipe_locked, link_locked)).unwrap();

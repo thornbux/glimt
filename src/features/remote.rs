@@ -2732,7 +2732,8 @@ mod tests {
         let starting_windows_lock =
             crate::files::file_io::open_and_lock(&b.with_extension("lock")).unwrap();
         let (a_too, b_too) = (a.clone(), b.clone());
-        let linking = std::thread::spawn(move || super::link_socket(&a_too, &b_too));
+        let linking =
+            crate::support::threads::spawn_in_a_test(move || super::link_socket(&a_too, &b_too));
         std::thread::sleep(std::time::Duration::from_millis(300));
         let linked_while_held = b.exists();
         drop(starting_windows_lock);
@@ -3154,7 +3155,7 @@ mod tests {
     fn answers_a_query_that_comes_while_closing() {
         let mut client = Some(super::UnfinishedAnswer::new());
         let (query, queries) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
             let _ = query.send(());
         });
@@ -3226,7 +3227,9 @@ mod tests {
         // The listener writes the window's answer back to the client.
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || serve_alone(window, &tx, &eframe::egui::Context::default()));
+        crate::support::threads::spawn_in_a_test(move || {
+            serve_alone(window, &tx, &eframe::egui::Context::default())
+        });
         writeln!(client, "nxet").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (line, reply, _) = rx.recv().unwrap();
@@ -3580,7 +3583,7 @@ mod tests {
         use std::io::{Read, Write};
         let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, commands) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let place = super::ClientPlace {
                 free: std::sync::mpsc::channel().0,
                 accepted: std::time::Instant::now(),
@@ -3607,7 +3610,7 @@ mod tests {
         use std::io::{Read, Write};
         let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, commands) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let place = super::ClientPlace {
                 free: std::sync::mpsc::channel().0,
                 accepted: std::time::Instant::now(),
@@ -3626,7 +3629,7 @@ mod tests {
         line.resize(super::MOST_FILES_LINE as usize + 100, b'x');
         line.push(b'\n');
         let mut writer = client.try_clone().unwrap();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let _ = writer.write_all(&line);
             let _ = writer.shutdown(std::net::Shutdown::Write);
         });
@@ -3642,7 +3645,9 @@ mod tests {
     fn the_client_reads_an_answer_up_to_its_most() {
         use std::io::Write;
         let (mut window, client) = std::os::unix::net::UnixStream::pair().unwrap();
-        std::thread::spawn(move || while window.write_all(&[b'x'; 4096]).is_ok() {});
+        crate::support::threads::spawn_in_a_test(
+            move || while window.write_all(&[b'x'; 4096]).is_ok() {},
+        );
         let (answer, read) = super::read_answer_up_to(client, 10_000);
         assert_eq!(answer.len(), 10_000);
         assert!(read.is_err());
@@ -3679,7 +3684,7 @@ mod tests {
             let ctx = eframe::egui::Context::default();
             super::serve(stream, place, &tx, &ctx, wait, &WAITING_PLACES);
         };
-        std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+        crate::support::threads::spawn_in_a_test(move || super::serve_clients(listener, 1, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
         let mut first = connect();
         writeln!(first, "current").unwrap();
@@ -3747,7 +3752,8 @@ mod tests {
         let (tx, _rx) = std::sync::mpsc::channel();
         let (mut client, window) = super::UnixStream::pair().unwrap();
         let ctx = eframe::egui::Context::default();
-        let server = std::thread::spawn(move || serve_alone(window, &tx, &ctx));
+        let server =
+            crate::support::threads::spawn_in_a_test(move || serve_alone(window, &tx, &ctx));
         let long = "x".repeat(4 * super::MOST_LINE as usize);
         client
             .write_all(format!("title {long}\n").as_bytes())
@@ -3772,7 +3778,7 @@ mod tests {
             let _ = started.send(());
             let _ = std::io::copy(&mut stream, &mut std::io::sink());
         };
-        std::thread::spawn(move || super::serve_clients(listener, 2, serve));
+        crate::support::threads::spawn_in_a_test(move || super::serve_clients(listener, 2, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
         let (first, _second, _third) = (connect(), connect(), connect());
         let wait = |ms| starts.recv_timeout(std::time::Duration::from_millis(ms));
@@ -3802,7 +3808,7 @@ mod tests {
             let ctx = eframe::egui::Context::default();
             super::serve(stream, place, &tx, &ctx, wait, &WAITING_PLACES);
         };
-        std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+        crate::support::threads::spawn_in_a_test(move || super::serve_clients(listener, 1, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
         let (mut first, mut second) = (connect(), connect());
         writeln!(first, "current").unwrap();
@@ -3835,7 +3841,7 @@ mod tests {
             let ctx = eframe::egui::Context::default();
             super::serve(stream, place, &tx, &ctx, super::WAIT, &WAITING_PLACES);
         };
-        std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+        crate::support::threads::spawn_in_a_test(move || super::serve_clients(listener, 1, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
         let five_seconds = std::time::Duration::from_secs(5);
         let mut waits = connect();
@@ -3877,7 +3883,7 @@ mod tests {
         let (tx, _commands) = std::sync::mpsc::channel();
         let (ended_tx, ended) = std::sync::mpsc::channel();
         let wait = std::time::Duration::from_millis(300);
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let place = super::ClientPlace {
                 free: std::sync::mpsc::channel().0,
                 accepted: std::time::Instant::now(),
@@ -3907,7 +3913,7 @@ mod tests {
         let (tx, commands) = std::sync::mpsc::channel();
         let (ended_tx, ended) = std::sync::mpsc::channel();
         let wait = std::time::Duration::from_millis(300);
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let place = super::ClientPlace {
                 free: std::sync::mpsc::channel().0,
                 accepted: std::time::Instant::now(),
@@ -3940,7 +3946,9 @@ mod tests {
         use std::io::{Read, Write};
         let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || serve_alone(server, &tx, &eframe::egui::Context::default()));
+        crate::support::threads::spawn_in_a_test(move || {
+            serve_alone(server, &tx, &eframe::egui::Context::default())
+        });
         writeln!(client, "select /a.jpg\0").unwrap();
         let (_, reply, _) = rx.recv().unwrap();
         drop(reply);
@@ -3966,7 +3974,7 @@ mod tests {
                       other_has_it: std::sync::mpsc::Receiver<()>| {
             let socket = dir.join(super::socket_name(id));
             let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
-            std::thread::spawn(move || {
+            crate::support::threads::spawn_in_a_test(move || {
                 let (stream, _) = listener.accept().unwrap();
                 let mut line = String::new();
                 std::io::BufReader::new(&stream)
@@ -4020,8 +4028,10 @@ mod tests {
                 super::serve(stream, place, &tx, &ctx, wait, &super::WAITING_PLACES);
                 let _ = after.send(());
             };
-            std::thread::spawn(move || super::serve_clients(listener, 1, serve));
-            std::thread::spawn(move || {
+            crate::support::threads::spawn_in_a_test(move || {
+                super::serve_clients(listener, 1, serve)
+            });
+            crate::support::threads::spawn_in_a_test(move || {
                 let (_, reply, _): super::Sent = commands.recv().unwrap();
                 let _ = before.recv();
                 let _ = reply.unwrap().send(answer);
@@ -4789,7 +4799,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = eframe::egui::Context::default();
-        std::thread::spawn(move || serve_alone(window, &tx, &ctx));
+        crate::support::threads::spawn_in_a_test(move || serve_alone(window, &tx, &ctx));
         writeln!(client, "info /a.png\0/b.png").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (command, reply, _) = rx.recv().unwrap();
@@ -4839,7 +4849,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let window_ctx = ctx.clone();
-        std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
+        crate::support::threads::spawn_in_a_test(move || serve_alone(window, &tx, &window_ctx));
         let named = format!("{}\0{}", shown.display(), other.join("b.png").display());
         writeln!(client, "info").unwrap();
         writeln!(client, "info {named}").unwrap();

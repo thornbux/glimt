@@ -900,6 +900,30 @@ pub(crate) fn spawn_told(
     )
 }
 
+/// Starts a thread for a test, which says nothing of the busy pointer.
+#[cfg(test)]
+pub(crate) fn spawn_in_a_test<R: Send + 'static>(
+    work: impl FnOnce() -> R + Send + 'static,
+) -> std::thread::JoinHandle<R> {
+    // No busy pointer: a test's own thread, which the test waits for itself.
+    #[allow(clippy::disallowed_methods)] // a test's own thread, which no busy pointer counts
+    std::thread::spawn(work)
+}
+
+/// Starts a thread named `name` for a test, as `spawn_in_a_test` does. Returns the error of a
+/// thread that could not be started.
+#[cfg(test)]
+pub(crate) fn named_thread_in_a_test<R: Send + 'static>(
+    name: &str,
+    work: impl FnOnce() -> R + Send + 'static,
+) -> std::io::Result<std::thread::JoinHandle<R>> {
+    // No busy pointer: a test's own thread, which the test waits for itself.
+    #[allow(clippy::disallowed_methods)] // a test's own named thread, which no pointer counts
+    std::thread::Builder::new()
+        .name(name.to_owned())
+        .spawn(work)
+}
+
 /// Panics when `path` is one of `BREAKING_FILES`, for a test of what a file that breaks the
 /// work does to the files after it.
 #[cfg(test)]
@@ -986,9 +1010,11 @@ mod tests {
             count.fetch_add(1, Ordering::Relaxed);
         });
         let (notice_sender, rx) = super::NoticeSender::new(&ctx);
-        std::thread::spawn(move || notice_sender.send("done".into()).unwrap())
-            .join()
-            .unwrap();
+        crate::support::threads::spawn_in_a_test(move || {
+            notice_sender.send("done".into()).unwrap()
+        })
+        .join()
+        .unwrap();
         assert_eq!(rx.try_recv(), Ok(super::Told::Notice("done".into())));
         assert!(asked.load(Ordering::Relaxed) > 0);
     }
@@ -1331,7 +1357,7 @@ mod tests {
         let count = Arc::new(AtomicUsize::new(0));
         let pointer = super::Working::new(&count);
         assert_eq!(count.load(Ordering::Relaxed), 1);
-        let _ = std::thread::spawn(move || {
+        let _ = crate::support::threads::spawn_in_a_test(move || {
             let _pointer = pointer;
             panic!("a broken file");
         })

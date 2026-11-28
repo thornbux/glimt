@@ -2446,7 +2446,7 @@ mod tests {
         );
         crate::files::file_ops::test_mount(&dir, Some("cifs"));
         let decoded = awaited.clone();
-        let decoded = std::thread::spawn(move || {
+        let decoded = crate::support::threads::spawn_in_a_test(move || {
             std::thread::sleep(Duration::from_millis(400));
             decoded.set(Vec::new());
         });
@@ -2486,7 +2486,7 @@ mod tests {
         awaited.set(vec!["first.jpg".into()]);
         let decodes = {
             let (awaited, walked) = (awaited.clone(), walked.clone());
-            std::thread::spawn(move || {
+            crate::support::threads::spawn_in_a_test(move || {
                 for n in 0..160 {
                     if walked.load(Relaxed) {
                         break;
@@ -3500,7 +3500,7 @@ mod tests {
         let wanted = Arc::new(AtomicBool::new(true));
         let (tx, rx) = mpsc::channel();
         let (gate_b, still) = (share(), wanted.clone());
-        let waiter = std::thread::spawn(move || {
+        let waiter = crate::support::threads::spawn_in_a_test(move || {
             let mut gate = gate_b;
             tx.send(
                 gate.before_work_nobody_waits_for(b, || still.load(Ordering::Relaxed))
@@ -3518,7 +3518,7 @@ mod tests {
         awaited.set(Vec::new());
         let ((tx, rx), (release, released)) = (mpsc::channel(), mpsc::channel::<()>());
         let gate_b = share();
-        let waiter = std::thread::spawn(move || {
+        let waiter = crate::support::threads::spawn_in_a_test(move || {
             let mut gate = gate_b;
             let turn = gate.before_work_nobody_waits_for(b, || true).unwrap();
             tx.send(turn.held.is_some()).unwrap();
@@ -3544,7 +3544,7 @@ mod tests {
         let before = TURN.queue(super::mount_point(a));
         let (tx, rx) = mpsc::channel();
         let gate_b = share();
-        let waiter = std::thread::spawn(move || {
+        let waiter = crate::support::threads::spawn_in_a_test(move || {
             let mut gate = gate_b;
             let turn = gate.before_work_nobody_waits_for(b, || true).unwrap();
             tx.send(turn.held.is_some()).unwrap();
@@ -3612,7 +3612,7 @@ mod tests {
         };
         let looping = Arc::new(AtomicBool::new(true));
         let (still, mut gate) = (looping.clone(), share());
-        let looper = std::thread::spawn(move || {
+        let looper = crate::support::threads::spawn_in_a_test(move || {
             let is_wanted = || still.load(Ordering::Relaxed);
             while is_wanted() {
                 let _turn = gate
@@ -3625,7 +3625,7 @@ mod tests {
         // Before, each waited for a time left to chance, often for more than a second.
         let (tx, rx) = mpsc::channel();
         let mut gate = share();
-        let waiter = std::thread::spawn(move || {
+        let waiter = crate::support::threads::spawn_in_a_test(move || {
             let mut longest = Duration::ZERO;
             for _ in 0..5 {
                 std::thread::sleep(Duration::from_millis(30));
@@ -3658,7 +3658,7 @@ mod tests {
         for _ in 0..20 {
             let held = TURN.queue(mount.clone()).take(Instant::now()).unwrap();
             let ticket = TURN.queue(mount.clone());
-            let waiter = std::thread::spawn(move || {
+            let waiter = crate::support::threads::spawn_in_a_test(move || {
                 loop {
                     let at_most = Duration::from_millis(20);
                     if let Some(_turn) = ticket.take_or_wait(Instant::now(), true, at_most) {
@@ -3712,7 +3712,7 @@ mod tests {
         );
         let (tx, rx) = mpsc::channel();
         let path = one.join("c.jpg");
-        let waiter = std::thread::spawn(move || {
+        let waiter = crate::support::threads::spawn_in_a_test(move || {
             let turn = gate().before_work_nobody_waits_for(&path, || true);
             tx.send(turn.is_some_and(|t| t.held.is_some())).unwrap();
         });

@@ -746,7 +746,7 @@ mod tests {
         let start = std::time::Instant::now();
         let stopping = {
             let running = running.clone();
-            std::thread::spawn(move || {
+            crate::support::threads::spawn_in_a_test(move || {
                 while lock_even_if_poisoned(&running).is_empty() {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }

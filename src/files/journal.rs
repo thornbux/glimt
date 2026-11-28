@@ -3220,7 +3220,7 @@ mod tests {
         assert!(std::fs::read_dir(&plans).unwrap().next().is_none());
         // A plan finished while another window waits for its lock is not taken for one cut short.
         let finishing = super::start_journal(&plans, &moves).unwrap();
-        let ends = std::thread::spawn(move || {
+        let ends = crate::support::threads::spawn_in_a_test(move || {
             std::thread::sleep(std::time::Duration::from_millis(30));
             drop(finishing);
         });

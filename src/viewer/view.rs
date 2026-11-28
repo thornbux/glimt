@@ -2832,7 +2832,7 @@ mod tests {
         crate::files::file_ops::test_mount(&tree, Some("cifs"));
         let walk = {
             let (tree, awaited) = (tree.clone(), app.decoding.images_awaited().clone());
-            std::thread::spawn(move || {
+            crate::support::threads::spawn_in_a_test(move || {
                 let types = crate::model::listing::Types {
                     images: true,
                     raw: false,

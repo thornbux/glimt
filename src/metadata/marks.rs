@@ -1440,7 +1440,9 @@ mod tests {
         std::os::unix::fs::symlink("marks", &file).unwrap();
         let (old, new) = (dir.join("state/marks"), file.clone());
         let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || sender.send(super::move_marks_file(&old, &new)).unwrap());
+        crate::support::threads::spawn_in_a_test(move || {
+            sender.send(super::move_marks_file(&old, &new)).unwrap()
+        });
         let moved = receiver.recv_timeout(std::time::Duration::from_secs(10));
         assert!(moved.is_ok(), "the move waits for its own lock");
         assert_eq!(
@@ -1466,7 +1468,7 @@ mod tests {
         let old_lock = open_and_lock(&lock_beside(&old).unwrap()).unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
         let written = old.clone();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             super::write(
                 &written,
                 vec![super::Edit::Forget(vec!["/photos/b.jpg".into()], None)],
@@ -2123,7 +2125,7 @@ mod tests {
         let listed =
             crate::files::file_io::ListedFile::new(a.clone(), identity, &Default::default());
         let (held, lock_held) = std::sync::mpsc::channel();
-        let other = std::thread::spawn({
+        let other = crate::support::threads::spawn_in_a_test({
             let (file, a, b) = (file.clone(), a.clone(), b.clone());
             move || {
                 crate::files::file_io::edit_shared(&file, |old| {

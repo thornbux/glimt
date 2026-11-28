@@ -699,7 +699,7 @@ mod tests {
         image::RgbImage::new(4, 4).save(&a).unwrap();
         let target = out.join("a.png");
         let sidecar_lock = crate::metadata::xmp::lock_sidecar(&target);
-        let copying = std::thread::spawn({
+        let copying = crate::support::threads::spawn_in_a_test({
             let (a, out) = (a.clone(), out.clone());
             move || {
                 let mut outcome = super::SharingOutcome::default();

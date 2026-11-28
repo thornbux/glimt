@@ -37,6 +37,8 @@ disallowed-methods = [
     { path = "std::process::Command::new", reason = "external::command (Glimt's own programs, in a Flatpak's sandbox) or host_command (the user's, on the host), or their stoppable_ forms" },
     { path = "std::process::Command::output", reason = "external::run_limited or short_output_of: never wait for good" },
     { path = "std::process::Command::status", reason = "external::run_limited or short_output_of: never wait for good" },
+    { path = "std::thread::spawn", reason = "start a thread with threads::spawn, which says what it does for the busy pointer, or threads::spawn_told for work that writes" },
+    { path = "std::thread::Builder::spawn", reason = "start a thread with threads::spawn or threads::spawn_told" },
     { path = "std::fs::File::open_buffered", reason = "decode::open_regular: no pipe or device, which would block or never end" },
     { path = "std::fs::exists", reason = "file_io::is_surely_gone or is_surely_there: only NotFound means gone" },
     { path = "std::fs::File::open", reason = "decode::open_regular: no pipe or device, which would block or never end" },

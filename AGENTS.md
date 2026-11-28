@@ -482,7 +482,8 @@ arm becomes a method.
   `source_rules::parts_keep_their_fields` checks every part of `App`, `self.folder` and
   `self.list` among them: each struct of the crate that a field of `App` holds, so a new part
   is checked without being listed.
-- **Background work:** start a thread with `threads::spawn`, send the result over a channel stored in `App` as a
+- **Background work:** start a thread with `threads::spawn` (clippy.toml refuses
+  `std::thread::spawn` and `thread::Builder::spawn`), send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`
   or `wait`, which also tell, once, when the thread is gone. A pool's workers judge a
   job by its file, never by its place in the list, which a listing moves while the jobs wait

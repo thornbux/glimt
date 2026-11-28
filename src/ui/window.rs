@@ -1202,7 +1202,7 @@ mod tests {
         let (woken_tx, woken) = std::sync::mpsc::channel();
         let (ended_tx, ended) = std::sync::mpsc::channel();
         let counted = signals.clone();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let wake = || {
                 let _ = woken_tx.send(());
             };

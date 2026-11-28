@@ -560,7 +560,7 @@ mod tests {
         use std::sync::atomic::Ordering;
         let (held, is_held) = std::sync::mpsc::channel();
         let (done, is_done) = std::sync::mpsc::channel::<()>();
-        let holder = std::thread::spawn(move || {
+        let holder = crate::support::threads::spawn_in_a_test(move || {
             let _held = super::change_shared_settings();
             held.send(()).unwrap();
             is_done.recv().unwrap();

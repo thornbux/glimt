@@ -3249,7 +3249,9 @@ mod tests {
         let move_lock = super::lock_sidecar(&from);
         let writer = {
             let from = from.clone();
-            std::thread::spawn(move || super::add_keywords(&from, &["Oslo".to_owned()]))
+            crate::support::threads::spawn_in_a_test(move || {
+                super::add_keywords(&from, &["Oslo".to_owned()])
+            })
         };
         std::thread::sleep(std::time::Duration::from_millis(50));
         crate::files::file_io::put_file(&from, &to, crate::files::file_io::Transfer::Move).unwrap();
@@ -3292,7 +3294,7 @@ mod tests {
             .unwrap();
         let others_lock = super::lock_sidecar(&other);
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        crate::support::threads::spawn_in_a_test(move || {
             let _lock = super::lock_sidecar(&mine);
             tx.send(()).unwrap();
         });
@@ -3373,7 +3375,7 @@ mod tests {
         );
         let lock = super::lock_sidecar(&real);
         let (tx, rx) = std::sync::mpsc::channel();
-        let waiter = std::thread::spawn(move || {
+        let waiter = crate::support::threads::spawn_in_a_test(move || {
             let all = super::lock_sidecars([&through_link]);
             tx.send(()).unwrap();
             drop(all);
@@ -3441,7 +3443,7 @@ mod tests {
             let lock = super::lock_sidecar_in(first, &photo, &mut super::FolderIds::new());
             let (tx, rx) = std::sync::mpsc::channel();
             let (dir2, p) = (then.map(|d| d.to_path_buf()), photo.clone());
-            let waiter = std::thread::spawn(move || {
+            let waiter = crate::support::threads::spawn_in_a_test(move || {
                 let all = super::lock_sidecars_in(dir2.as_deref(), [&p]);
                 tx.send(()).unwrap();
                 drop(all);
@@ -3491,7 +3493,7 @@ mod tests {
         let first = super::lock_file(&dir, super::sidecar_lock_number(&side)).unwrap();
         let (dir2, side2) = (dir.clone(), side.clone());
         let started = std::time::Instant::now();
-        let other = std::thread::spawn(move || {
+        let other = crate::support::threads::spawn_in_a_test(move || {
             drop(super::lock_file(&dir2, super::sidecar_lock_number(&side2)).unwrap());
             started.elapsed()
         });
@@ -3617,12 +3619,14 @@ mod tests {
         jpeg_with_xmp(&a, &packet("old"));
         let other_writers_lock = lock_sidecar(&a);
         let (a_too, b_too) = (a.clone(), a.clone());
-        let keywords = std::thread::spawn(move || add_keywords(&a_too, &["new".into()]));
+        let keywords =
+            crate::support::threads::spawn_in_a_test(move || add_keywords(&a_too, &["new".into()]));
         let change = AltTextChange {
             text: Some("alt".into()),
             extended_description: None,
         };
-        let alt_text = std::thread::spawn(move || write_alt_text(&b_too, &change));
+        let alt_text =
+            crate::support::threads::spawn_in_a_test(move || write_alt_text(&b_too, &change));
         std::thread::sleep(std::time::Duration::from_millis(300));
         jpeg_with_xmp(&a, &packet("changed"));
         drop(other_writers_lock);

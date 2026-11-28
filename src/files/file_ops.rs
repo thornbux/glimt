@@ -5164,7 +5164,7 @@ mod tests {
         }
         let held = crate::metadata::xmp::lock_sidecar(&p("b.jpg"));
         let (from, to) = (vec![p("a.jpg"), p("b.jpg")], vec![p("c.jpg"), p("d.jpg")]);
-        let renaming = std::thread::spawn(move || {
+        let renaming = crate::support::threads::spawn_in_a_test(move || {
             let job = super::Job::new("Renaming", 2, super::JobWrites::TheFiles, Vec::new());
             rename_files(from, to, &job).map_err(|e| e.text.to_string())
         });
@@ -10386,7 +10386,7 @@ mod tests {
     ) -> std::thread::JoinHandle<()> {
         let (a, b) = (a.to_path_buf(), b.to_path_buf());
         let (held, locks_held) = std::sync::mpsc::channel();
-        let other = std::thread::spawn(move || {
+        let other = crate::support::threads::spawn_in_a_test(move || {
             let locks = crate::metadata::xmp::lock_sidecars(&[a.clone(), b.clone()]);
             held.send(()).unwrap();
             // Long enough for a check made before the lock to be made before the swap.
