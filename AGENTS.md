@@ -704,7 +704,15 @@ arm becomes a method.
     `.is_ok_and(|m| m.is_dir())` or `matches!(metadata(p), Ok(m) if m.is_file())`), which take
     a share that dropped for a moment for a file that is gone. Only NotFound means gone. A metadata or file type that has been read is named `m`,
     `meta` or `kind`, so the check tells it from a path
-    (`source_rules::gone_means_not_found`);
+    (`source_rules::gone_means_not_found`). Any other look at a name, for its kind or a value
+    such as its size or time, is `file_io::look_at` (the name itself) or `look_through`
+    (through a link), which answer a `file_io::Look`: `Gone` (NotFound), `There` with what the
+    look read, or `CannotTell` with its error. Its `metadata()` gives a value of the file. A
+    match on it names each answer, never `_ =>` or `let Look::There(…) else`. clippy.toml refuses
+    the raw looks (`std::fs::metadata`, `symlink_metadata`, and `Path`'s `metadata`,
+    `symlink_metadata`, `exists`, `try_exists`, `is_file`, `is_dir` and `is_symlink`) outside
+    `file_io::look`. A look at a file already open (`File::metadata`) or at an entry of a folder
+    read (`DirEntry::metadata`, `file_type`) names no path, and is not refused;
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside
     a Flatpak's sandbox), and one of the user's with `host_command` or `stoppable_host_command`
     (on the host). Wait for it only with `run_limited`, `short_output_of`, `output_of` or a
