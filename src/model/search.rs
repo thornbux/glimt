@@ -27,6 +27,10 @@ use std::time::Instant;
 
 const PREFIXES: [&str; 5] = ["exif:", "re:", "mark:", "stars:", "date:"];
 
+/// The prefixes of the terms that look in the EXIF index (`IndexEntry`), and so wait for the
+/// files it reads again.
+const INDEX_PREFIXES: [&str; 2] = ["exif:", "date:"];
+
 /// How deep groups may nest in a search. A `(` deeper than this is an ordinary word, so text
 /// pasted with thousands of them cannot overflow the stack of the parser, of the search through
 /// the tree, or of dropping the tree. Nobody types groups this deep.
@@ -188,9 +192,10 @@ impl Search {
         self.exif_to_read_again.extend(names);
     }
 
-    /// Whether an "exif:" search waits for files whose keywords are still being written.
-    pub(crate) fn exif_search_waits_for_writes(&self) -> bool {
-        !self.exif_to_read_again.is_empty() && self.has_term_with(&["exif:"])
+    /// Whether a search that looks in the index ("exif:" or "date:") waits for files that are
+    /// read again once their writes end.
+    pub(crate) fn indexed_search_waits_for_writes(&self) -> bool {
+        !self.exif_to_read_again.is_empty() && self.has_term_with(&INDEX_PREFIXES)
     }
 
     /// Drops the EXIF index of the folder, which exif: and date: terms read, and stops its
@@ -1058,6 +1063,24 @@ mod tests {
 
     /// Noon of 15 June 2024 in UTC, which is that day in the time zones of the test runs.
     const JUNE_15_2024: u64 = 1_718_452_800;
+
+    /// A search that looks in the index waits for the files it reads again, a date: search as
+    /// an exif: one, so the frame that sees the writes end searches again. Risk: a date: search
+    /// that kept a file's old day after Glimt changed the file while sidecars were written.
+    #[test]
+    fn a_search_in_the_index_waits_for_the_files_read_again() {
+        let mut search = super::Search::default();
+        search.read_exif_again([std::ffi::OsString::from("a.jpg")]);
+        let waits = [
+            ("exif:canon", true),
+            ("date:2024", true),
+            ("a -date:2024", true),
+        ];
+        for (query, waits) in waits.into_iter().chain([("re:a", false), ("abc", false)]) {
+            search.set_query(query);
+            assert_eq!(search.indexed_search_waits_for_writes(), waits, "{query}");
+        }
+    }
 
     /// The selection holds only files the list shows. A search takes the files it hides out of
     /// it, so a file action acts on what is on screen and not on a hidden file, and no way of
