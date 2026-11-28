@@ -733,7 +733,8 @@ fn caption_of_file(
             .or_else(|| crate::images::decode::dimensions(path))
             .map(|(w, h)| tf!("{w} × {h}", w, h))
             .unwrap_or_default(),
-        "file_size" => std::fs::metadata(path)
+        "file_size" => crate::files::file_io::look_through(path)
+            .metadata()
             .map(|m| crate::support::format::human_size(m.len()))
             .unwrap_or_default(),
         "keywords" => said(

@@ -1184,15 +1184,50 @@ impl Readers {
     }
 }
 
+/// What a look at a name found, made only by `look_at` and `look_through`. Only NotFound means
+/// that nothing is there. Any other failed look, such as a share that dropped for a moment, an
+/// error of the disk or no permission, says nothing either way and keeps its error, so that the
+/// caller names which way it counts and can tell it.
+#[must_use]
+pub(crate) enum Look {
+    /// The system said that nothing is at the name (NotFound).
+    Gone,
+    /// Something is at the name, with what the look read of it.
+    There(std::fs::Metadata),
+    /// The look failed otherwise, so nothing is known of the name.
+    CannotTell(std::io::Error),
+}
+
+impl Look {
+    /// Returns what the look read, for a value of the file such as its size or time, or the
+    /// look's error. A name that is gone gives ENOENT, the error the system gave.
+    pub(crate) fn metadata(self) -> std::io::Result<std::fs::Metadata> {
+        match self {
+            Look::There(meta) => Ok(meta),
+            Look::Gone => Err(std::io::Error::from_raw_os_error(libc::ENOENT)),
+            Look::CannotTell(e) => Err(e),
+        }
+    }
+
+    /// Returns the answer that the result of a look gives.
+    fn of(looked: std::io::Result<std::fs::Metadata>) -> Self {
+        match looked {
+            Ok(meta) => Look::There(meta),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Look::Gone,
+            Err(e) => Look::CannotTell(e),
+        }
+    }
+}
+
 /// Returns whether nothing is at `path`: the system said that the name is not there (NotFound).
 /// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
 /// permission, says nothing, so the name counts as there. A step that removes, renames over or
 /// counts a file as deleted is then not taken on a look that failed. A link counts by its own
 /// name, not by its target. This, `check_free`, `is_surely_there`, `is_surely_file`,
-/// `is_surely_dir` and `is_link` are the one way Glimt asks whether a name is there, and what it is
-/// (`source_rules::gone_means_not_found`).
+/// `is_surely_dir`, `is_link`, and `look_at` and `look_through` with their `Look`, are the one
+/// way Glimt asks whether a name is there, and what it is (`source_rules::gone_means_not_found`).
 pub(crate) fn is_surely_gone(path: &Path) -> bool {
-    look(path, false).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    matches!(look_at(path), Look::Gone)
 }
 
 /// Returns whether the error `e` of a look at a name says that no file can be reached there:
@@ -1209,10 +1244,10 @@ pub(crate) fn names_no_file(e: &std::io::Error) -> bool {
 /// which says nothing either way. A name longer than its file system takes fails with
 /// ENAMETOOLONG, as no file can be there, which the caller tells from a name taken.
 pub(crate) fn check_free(path: &Path) -> std::io::Result<()> {
-    match look(path, false) {
-        Ok(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e),
+    match look_at(path) {
+        Look::There(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
+        Look::Gone => Ok(()),
+        Look::CannotTell(e) => Err(e),
     }
 }
 
@@ -1220,7 +1255,7 @@ pub(crate) fn check_free(path: &Path) -> std::io::Result<()> {
 /// counts as not there, so this is for a step that needs the name to be there before it is
 /// taken, such as a sidecar written only beside its photo.
 pub(crate) fn is_surely_there(path: &Path) -> bool {
-    look(path, false).is_ok()
+    matches!(look_at(path), Look::There(_))
 }
 
 /// Returns whether the marks and collection entries of a file that a record says was moved to
@@ -1229,10 +1264,10 @@ pub(crate) fn is_surely_there(path: &Path) -> bool {
 /// A pair left out on a failed look let the other pairs of a swap give the other photo's
 /// marks to its name.
 pub(crate) fn is_followed_to(path: &Path) -> bool {
-    match look(path, false) {
-        Ok(_) => true,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-        Err(e) => {
+    match look_at(path) {
+        Look::There(_) => true,
+        Look::Gone => false,
+        Look::CannotTell(e) => {
             save_failed(crate::tf!(
                 "Could not look at {name}: {e}. Its marks and collection entries followed it \
                  there all the same, as the file was there before.",
@@ -1249,14 +1284,20 @@ pub(crate) fn is_followed_to(path: &Path) -> bool {
 /// one read or run. A pipe would block a reader for good, and a device such as /dev/zero would
 /// fill memory. A step that would take the name's place uses `is_surely_gone` instead.
 pub(crate) fn is_surely_file(path: &Path) -> bool {
-    look(path, true).is_ok_and(|meta| meta.is_file())
+    match look_through(path) {
+        Look::There(meta) => meta.is_file(),
+        Look::Gone | Look::CannotTell(_) => false,
+    }
 }
 
 /// Returns whether `path` is surely a folder, also through a link: the look answered that it is
 /// one. A failed look counts as no folder, so this is for a step that needs a folder, such as
 /// one opened or read. A step that would leave a folder out uses `is_surely_gone` instead.
 pub(crate) fn is_surely_dir(path: &Path) -> bool {
-    look(path, true).is_ok_and(|meta| meta.is_dir())
+    match look_through(path) {
+        Look::There(meta) => meta.is_dir(),
+        Look::Gone | Look::CannotTell(_) => false,
+    }
 }
 
 /// Returns whether `path` is a link, by the look at its own name. A name that is surely not
@@ -1264,15 +1305,27 @@ pub(crate) fn is_surely_dir(path: &Path) -> bool {
 /// so that the caller does not take the step it would take for a file that is no link, such as
 /// a sidecar read or copied through a link to another file of the user's.
 pub(crate) fn is_link(path: &Path) -> std::io::Result<bool> {
-    match look(path, false) {
-        Ok(meta) => Ok(meta.file_type().is_symlink()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e),
+    match look_at(path) {
+        Look::There(meta) => Ok(meta.file_type().is_symlink()),
+        Look::Gone => Ok(false),
+        Look::CannotTell(e) => Err(e),
     }
 }
 
+/// Looks at the name `path` itself, not through a link (lstat). A link is answered as a link.
+pub(crate) fn look_at(path: &Path) -> Look {
+    Look::of(look(path, false))
+}
+
+/// Looks at the name `path` through a link (stat), so a link is answered as what it points to.
+pub(crate) fn look_through(path: &Path) -> Look {
+    Look::of(look(path, true))
+}
+
 /// Looks at the name `path`, through a link when `follow`. In tests, a name in `LOOKS_FAIL`
-/// fails with EIO, as a share that dropped for a moment does.
+/// fails with EIO, as a share that dropped for a moment does. This is the one raw look of
+/// Glimt; the rest asks `look_at` or `look_through`, which say which way a failed look counts.
+#[allow(clippy::disallowed_methods)] // the one raw look, which look_at and look_through wrap
 fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
     #[cfg(test)]
     LOOKS_MADE.set(LOOKS_MADE.get() + 1);
@@ -1395,7 +1448,7 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     let Err(e) = unlinked else {
         return Ok(());
     };
-    if std::fs::symlink_metadata(from).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+    if matches!(look_at(from), Look::Gone) {
         return Ok(());
     }
     if unlink_was_refused(&e) {
@@ -2305,7 +2358,7 @@ pub fn remove_shared(path: &Path) {
 /// log left behind is acted on again at the next start.
 pub fn remove_own(path: &Path) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // the one way Glimt's own files are removed
-    let removed = match std::fs::symlink_metadata(path) {
+    let removed = match look_at(path).metadata() {
         // Glimt's own: a folder, such as the copy of a state folder in a backup.
         Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
         // Glimt's own: a plan, a log or a state file.
@@ -3151,7 +3204,7 @@ fn volumes_in(folder: &Path) -> Option<std::collections::HashMap<u64, Option<std
     for entry in std::fs::read_dir(folder).ok()? {
         let entry = entry.ok()?;
         // The entry is a link to the volume's block device, whose number it follows to.
-        let meta = std::fs::metadata(entry.path()).ok()?;
+        let meta = look_through(&entry.path()).metadata().ok()?;
         if meta.file_type().is_block_device() {
             volumes.push((entry.file_name(), meta.rdev()));
         }
@@ -3164,7 +3217,9 @@ fn volumes_in(folder: &Path) -> Option<std::collections::HashMap<u64, Option<std
 /// look fails. It waits for the disk.
 pub(crate) fn device_of_volume_now(volume: &std::ffi::OsStr) -> Option<u64> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
-    let meta = std::fs::metadata(Path::new(VOLUMES_FOLDER).join(volume)).ok()?;
+    let meta = look_through(&Path::new(VOLUMES_FOLDER).join(volume))
+        .metadata()
+        .ok()?;
     meta.file_type().is_block_device().then(|| meta.rdev())
 }
 

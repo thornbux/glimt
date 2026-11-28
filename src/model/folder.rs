@@ -5,7 +5,9 @@ use crate::files::config::sort_folders_from;
 use crate::files::config::sort_folders_path;
 use crate::files::external::Mounted;
 use crate::files::external::{Login, gio_mount};
-use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
+use crate::files::file_io::{
+    ListIsOld, forget_passing_identities, is_another_file, look_at, look_through,
+};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
     FolderReadWhole, FoldersRead, ListedName, ListingCounter, ListingProgress, NameHashes,
@@ -938,9 +940,7 @@ impl Listing {
         };
         if self.tx.send(listed).is_ok() {
             self.ctx.request_repaint();
-            let sizes = paths
-                .into_iter()
-                .filter_map(|p| Some(p.metadata().ok()?.len()));
+            let sizes = (paths.into_iter()).filter_map(|p| file_size(&p));
             send_sizes_unless_on_a_share(folders, self.recursive, sizes, self.size_tx, &self.ctx);
         }
     }
@@ -1022,10 +1022,10 @@ impl Listing {
         let sizes = keep_files_with_size(&mut files, |(f, identity)| {
             let path = self.dir.join(f);
             gate.before_a_look(&path);
-            let m = looked_at(std::fs::symlink_metadata(&path), &path, &mut left_out)?;
+            let m = looked_at(look_at(&path).metadata(), &path, &mut left_out)?;
             *identity = crate::files::file_io::identity_from_metadata(&path, &m);
             let meta = match m.is_symlink() {
-                true => looked_at(path.metadata(), &path, &mut left_out)?,
+                true => looked_at(look_through(&path).metadata(), &path, &mut left_out)?,
                 false => m,
             };
             // The file types and hidden names shown in a folder are those shown in a list too.
@@ -1229,8 +1229,7 @@ impl Listing {
                 .flatten()
                 .flat_map(|(rel, _, files, _)| {
                     let folder = self.dir.join(rel);
-                    (files.into_iter())
-                        .filter_map(move |f| Some(folder.join(f.0).metadata().ok()?.len()))
+                    (files.into_iter()).filter_map(move |f| file_size(&folder.join(f.0)))
                 });
             return send_sizes_unless_on_a_share(&places, true, sizes, self.size_tx, &self.ctx);
         }
@@ -1240,7 +1239,7 @@ impl Listing {
             .flatten()
             .filter(|e| listing::kind(e).0 && is_listed(&e.path(), self.types));
         // Through a link, the size of the file it points to, as the list shows that.
-        let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
+        let sizes = images.filter_map(|e| file_size(&e.path()));
         send_sizes_unless_on_a_share(&places, false, sizes, self.size_tx, &self.ctx);
     }
 }
@@ -3164,10 +3163,11 @@ fn edit_recent(change: impl FnOnce(Vec<PathBuf>) -> Vec<PathBuf> + Send + 'stati
 /// that is there. Opened, its failure to be read is told. Counted as gone, it was taken out of
 /// Open Recent, and taken for a file, its parent folder was opened in its place.
 fn is_dir_if_there(path: &Path) -> Option<bool> {
-    match std::fs::metadata(path) {
-        Ok(meta) => Some(meta.is_dir()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(_) => Some(true),
+    use crate::files::file_io::Look;
+    match look_through(path) {
+        Look::There(meta) => Some(meta.is_dir()),
+        Look::Gone => None,
+        Look::CannotTell(_) => Some(true),
     }
 }
 
@@ -3202,9 +3202,17 @@ fn looked_at(
     }
 }
 
+/// Returns the size of the file at `path`, through a link, or `None` when it cannot be read.
+fn file_size(path: &Path) -> Option<u64> {
+    Some(look_through(path).metadata().ok()?.len())
+}
+
 /// Returns the modification time of `path`, or `None` when it cannot be read.
 fn modified(path: &Path) -> Option<std::time::SystemTime> {
-    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+    look_through(path)
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
 }
 
 /// Returns the places in the watched list to look at in a second: the `open` folders first in
@@ -3341,7 +3349,7 @@ pub(crate) fn size_through(
     is_wanted: &dyn Fn() -> bool,
 ) -> Option<u64> {
     let _turn = gate.before_work_nobody_waits_for(path, is_wanted)?;
-    Some(path.metadata().ok()?.len())
+    file_size(path)
 }
 
 /// Returns whether a folder of `places` is on a share, or with `with_subfolders` has one mounted
@@ -3365,7 +3373,7 @@ pub(crate) fn add_sent_sizes(rx: &mut Receiving<u64>, total: &mut u64) {
 pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
     paths
         .iter()
-        .filter_map(|p| p.metadata().ok())
+        .filter_map(|p| look_through(p).metadata().ok())
         .map(|m| m.len())
         .sum()
 }

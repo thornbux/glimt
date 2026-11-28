@@ -988,7 +988,9 @@ pub(crate) fn spawn_exif_reader(
             };
             let identity = crate::files::file_io::identity_of(&path);
             // A size that could not be looked at is left out, never shown as 0 bytes.
-            let size = std::fs::metadata(&path).map(|m| m.len());
+            let size = crate::files::file_io::look_through(&path)
+                .metadata()
+                .map(|m| m.len());
             let mut rows: Vec<_> = (size.ok().into_iter())
                 .map(|size| (FILE_SIZE, human_size(size).to_string()))
                 .collect();

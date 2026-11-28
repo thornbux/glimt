@@ -490,7 +490,7 @@ fn read_marks_file(file: &Path) -> Option<HashMap<PathBuf, (u8, u8)>> {
 #[allow(clippy::disallowed_methods)] // never tells two files apart, which is save::file_id's
 fn file_stamp(file: &Path) -> Option<FileStamp> {
     use std::os::unix::fs::MetadataExt;
-    let m = std::fs::metadata(file).ok()?;
+    let m = crate::files::file_io::look_through(file).metadata().ok()?;
     Some((m.ino(), m.modified().ok()?))
 }
 
@@ -555,7 +555,9 @@ pub fn move_old_marks_file() -> Option<crate::support::format::ShownText> {
 /// marks. A move that failed is told, and the old file is used where it is.
 fn move_marks_file(old: &Path, new: &Path) -> MarksMove {
     move_marks_file_by(old, new, |file| {
-        let m = std::fs::metadata(file).map_err(|e| ShownText::of_error(&e))?;
+        let m = crate::files::file_io::look_through(file)
+            .metadata()
+            .map_err(|e| ShownText::of_error(&e))?;
         Ok(crate::images::save::file_id_from_metadata(file, &m))
     })
 }

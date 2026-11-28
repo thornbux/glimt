@@ -14,7 +14,7 @@
 //! name.
 
 use crate::files::file_io::{
-    FileFingerprint, is_surely_dir, is_surely_gone, is_surely_there, may_have_been_done,
+    FileFingerprint, Look, is_surely_dir, is_surely_gone, is_surely_there, may_have_been_done,
 };
 use crate::files::job_decisions;
 use crate::files::job_decisions::{
@@ -1140,10 +1140,10 @@ fn old_log_written_anew(jobs: &Path, path: &Path) -> AtStart<()> {
 
 /// Returns `Ok` when `path`, not followed through a link, is a file or surely not there.
 fn is_file_or_gone(path: &Path) -> AtStart<()> {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_file() => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        _ => Err(CannotTell),
+    match crate::files::file_io::look_at(path) {
+        Look::There(meta) if meta.file_type().is_file() => Ok(()),
+        Look::Gone => Ok(()),
+        Look::There(_) | Look::CannotTell(_) => Err(CannotTell),
     }
 }
 
@@ -2233,7 +2233,7 @@ fn do_steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, us
 fn repair_step(a: &Path, b: &Path) -> Option<bool> {
     // Only a name that is surely not there is passed over. One that cannot be looked at (a
     // share that answers EIO) may still hold a file, so the plan is kept for it.
-    match std::fs::symlink_metadata(a) {
+    match crate::files::file_io::look_at(a).metadata() {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => Some(false),
         // A step that failed, also one that may have been done, counts as not done, which keeps

@@ -1050,7 +1050,11 @@ fn days_in_month(year: u32, month: u32) -> Option<u32> {
 /// day counts as none. Returns `None` when neither can be read.
 fn day_of(path: &Path, exif_date: Option<&str>) -> Option<Day> {
     exif_date.and_then(Day::from_text).or_else(|| {
-        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+        let modified = crate::files::file_io::look_through(path)
+            .metadata()
+            .ok()?
+            .modified()
+            .ok()?;
         let secs = modified
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?

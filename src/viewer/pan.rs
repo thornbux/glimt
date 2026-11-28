@@ -592,7 +592,10 @@ pub fn timeline(
     }
     let time = |p: &Path| {
         use std::os::unix::fs::MetadataExt;
-        p.metadata().ok().map(|m| (String::new(), m.mtime()))
+        crate::files::file_io::look_through(p)
+            .metadata()
+            .ok()
+            .map(|m| (String::new(), m.mtime()))
     };
     // The local date once for each quarter of an hour, where every time zone changes.
     let mut last = (i64::MIN, String::new());

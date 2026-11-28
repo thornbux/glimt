@@ -1659,7 +1659,10 @@ where
             }
             // The time is taken before the folder is read, so the folder watcher sees a file
             // made while it is read, which the read itself may have missed.
-            let modified = std::fs::metadata(&full).and_then(|m| m.modified()).ok();
+            let modified = crate::files::file_io::look_through(&full)
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok();
             let (dirs, files) = match list(&full, types) {
                 Ok(listed) => listed,
                 Err(e) if !is_top && e.kind() == std::io::ErrorKind::NotFound => Default::default(),
@@ -1869,7 +1872,9 @@ pub fn walk_tree(
             // The folder stays watched, so a change in it lists the tree again. Its time is
             // taken as it is now, as a time unknown would be a change every second.
             Err(unread) => {
-                let modified = std::fs::metadata(&unread.0).and_then(|m| m.modified());
+                let modified = crate::files::file_io::look_through(&unread.0)
+                    .metadata()
+                    .and_then(|m| m.modified());
                 read.push((unread.0.clone(), modified.ok()));
                 left_out.push(unread);
                 continue;
@@ -2130,7 +2135,7 @@ fn sort_key(path: &Path, by: Sort) -> SortKey {
     if by.looks_at_files() {
         FILES_LOOKED_AT.set(FILES_LOOKED_AT.get() + 1);
     }
-    let meta = || std::fs::metadata(path).ok();
+    let meta = || crate::files::file_io::look_through(path).metadata().ok();
     let nanos = |t: std::io::Result<std::time::SystemTime>| {
         let since = t
             .ok()

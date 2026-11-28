@@ -2345,7 +2345,10 @@ fn answer_sizes_and_dates(
         // Always wanted: a question that waits is one of the newest, as the older ones were
         // answered as dropped above, and the row drawn waits for it.
         let _turn = gate.before_work_nobody_waits_for(&path, || true);
-        let d = std::fs::metadata(&path).map(|m| (m.len(), m.mtime())).ok();
+        let d = crate::files::file_io::look_through(&path)
+            .metadata()
+            .map(|m| (m.len(), m.mtime()))
+            .ok();
         let is_known = d.is_some();
         if found.send((name, path, d)).is_err() {
             return;

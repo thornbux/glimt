@@ -1070,7 +1070,9 @@ fn is_info(command: &str) -> bool {
 fn info_record(path: &Path, marks: Option<(u8, u8)>) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
     let is_file = crate::files::file_io::is_surely_file(path);
-    let file = is_file.then(|| std::fs::metadata(path).ok()).flatten();
+    let file = is_file
+        .then(|| crate::files::file_io::look_through(path).metadata().ok())
+        .flatten();
     let (values, exif_rows) = match file {
         Some(file) => info_values(path, &file, marks),
         None => Default::default(),
@@ -1249,7 +1251,10 @@ fn glimt_folder_for(
 fn own_glimt_folder(dir: PathBuf) -> Option<PathBuf> {
     // A folder of this name may be another user's, where $XDG_RUNTIME_DIR is not private as it
     // should be (/tmp). Its sockets would be theirs to answer, and its locks theirs to hold.
-    let uid = std::fs::metadata("/proc/self").ok()?.uid();
+    let uid = crate::files::file_io::look_through(Path::new("/proc/self"))
+        .metadata()
+        .ok()?
+        .uid();
     is_own_or_missing(&dir, uid).then_some(dir)
 }
 
@@ -1269,7 +1274,7 @@ fn runtime_dir_from(set: Option<std::ffi::OsString>) -> Option<PathBuf> {
 
 /// Whether `dir` is a folder of user `uid`, not a link, or not there yet (made by `listen`).
 fn is_own_or_missing(dir: &std::path::Path, uid: u32) -> bool {
-    match std::fs::symlink_metadata(dir) {
+    match crate::files::file_io::look_at(dir).metadata() {
         Ok(m) => m.is_dir() && m.uid() == uid,
         Err(e) => e.kind() == std::io::ErrorKind::NotFound,
     }
@@ -2242,7 +2247,9 @@ fn make_own_folder_private(dir: &Path) -> Result<(), ShownText> {
         Err(_) if is_another_users_dir(dir) => return Err(not_own()),
         Err(e) => return Err(cannot(e)),
     };
-    let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
+    let uid = crate::files::file_io::look_through(Path::new("/proc/self"))
+        .metadata()
+        .map(|m| m.uid());
     let owner = folder.metadata().map_err(cannot)?.uid();
     if uid.is_ok_and(|uid| uid != owner) {
         return Err(not_own());
@@ -2254,7 +2261,9 @@ fn make_own_folder_private(dir: &Path) -> Result<(), ShownText> {
 
 /// Whether `dir` is there and not the user's own folder.
 fn is_another_users_dir(dir: &std::path::Path) -> bool {
-    let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
+    let uid = crate::files::file_io::look_through(Path::new("/proc/self"))
+        .metadata()
+        .map(|m| m.uid());
     uid.is_ok_and(|uid| !is_own_or_missing(dir, uid))
 }
 

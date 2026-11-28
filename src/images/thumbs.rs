@@ -57,10 +57,13 @@ fn thumbnail_in(
     let (size, folder) = SIZES[large as usize];
     // The time is in whole seconds, as the spec has it, so the size tells apart two photos of a
     // burst that took each other's name in the same second (Rename Many).
-    let stamp = std::fs::metadata(path).ok().and_then(|m| {
-        let time = m.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
-        Some((time.as_secs(), m.len()))
-    });
+    let stamp = crate::files::file_io::look_through(path)
+        .metadata()
+        .ok()
+        .and_then(|m| {
+            let time = m.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+            Some((time.as_secs(), m.len()))
+        });
     let uri = format!("file://{}", uri_path(path));
     let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
     let failed = cache.as_ref().map(|c| cache_file(c, FAILED_DIR, &uri));

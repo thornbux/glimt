@@ -392,7 +392,15 @@ impl crate::App {
             let (groups, seen) = find(paths, by, rotate, save, &progress);
             let sizes = (groups.iter().flatten())
                 // A size that could not be looked at is left out, never shown as 0 bytes.
-                .filter_map(|p| Some((p.clone(), p.metadata().ok()?.len())))
+                .filter_map(|p| {
+                    Some((
+                        p.clone(),
+                        crate::files::file_io::look_through(p)
+                            .metadata()
+                            .ok()?
+                            .len(),
+                    ))
+                })
                 .collect();
             let _ = sender.send((groups, sizes, seen));
         });
@@ -538,7 +546,10 @@ fn label_of(by: By) -> &'static str {
 }
 
 fn size(path: &Path) -> Option<u64> {
-    path.metadata().ok().map(|m| m.len())
+    crate::files::file_io::look_through(path)
+        .metadata()
+        .ok()
+        .map(|m| m.len())
 }
 
 /// The paths with the same key, in groups of two or more (`None`: left out).

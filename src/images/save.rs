@@ -1146,7 +1146,7 @@ fn look_in_same_file(p: &Path) -> std::io::Result<std::fs::Metadata> {
     if crate::support::threads::lock_even_if_poisoned(&LOOK_FAILS).as_deref() == Some(p) {
         return Err(std::io::Error::other("the share stopped answering"));
     }
-    std::fs::metadata(p)
+    crate::files::file_io::look_through(p).metadata()
 }
 
 /// Whether `a` and `b` are names of one file, as `same_file` says, but by opening each name
@@ -1237,7 +1237,10 @@ fn case_folded(a: &Path, b: &Path) -> bool {
 /// comparison of two files or folders by who they are goes through it. Returns `None` when the
 /// file cannot be looked up.
 pub(crate) fn file_id(path: &Path) -> Option<FileId> {
-    Some(file_id_from_metadata(path, &std::fs::metadata(path).ok()?))
+    Some(file_id_from_metadata(
+        path,
+        &crate::files::file_io::look_through(path).metadata().ok()?,
+    ))
 }
 
 /// Returns the id of `path` from its metadata `meta`, which the caller looked up itself, for

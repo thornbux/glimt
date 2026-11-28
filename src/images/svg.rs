@@ -114,7 +114,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             // passes on, and a path under /net would mount a share.
             let file = file_below(opts.resources_dir.as_deref()?, Path::new(href))?;
             // A folder or a pipe at the name is refused by `read_limited` below.
-            let meta = std::fs::metadata(&file).ok()?;
+            let meta = crate::files::file_io::look_through(&file).metadata().ok()?;
             if meta.len() > 64 << 20 {
                 return None;
             }
@@ -143,7 +143,8 @@ fn file_below(folder: &Path, relative: &Path) -> Option<std::path::PathBuf> {
             Normal(name) => path.push(name),
             _ => return None,
         }
-        if std::fs::symlink_metadata(&path)
+        if crate::files::file_io::look_at(&path)
+            .metadata()
             .ok()?
             .file_type()
             .is_symlink()

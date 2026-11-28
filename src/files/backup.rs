@@ -59,7 +59,7 @@ fn copy_into(
         let (source, dest) = (entry.path(), to.join(entry.file_name()));
         // Through a link. One that leads nowhere is left out, and a look that failed otherwise
         // fails the backup, which would else miss the file or folder without a word.
-        let meta = match std::fs::metadata(&source) {
+        let meta = match crate::files::file_io::look_through(&source).metadata() {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => {
                 return Err(std::io::Error::new(

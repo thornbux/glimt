@@ -647,7 +647,12 @@ fn trash_by_hand_anywhere(paths: &[&Path], home: &Path) -> Vec<(PathBuf, std::io
 fn trash_place(folder: &Path, home: &Path) -> std::io::Result<TrashPlace> {
     use std::io::ErrorKind::{CrossesDevices, Unsupported};
     use std::os::unix::fs::MetadataExt;
-    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+    let dev = |p: &Path| {
+        crate::files::file_io::look_through(p)
+            .metadata()
+            .map(|m| m.dev())
+            .ok()
+    };
     // The home trash may not be there yet, so the nearest folder of it that is tells its disk.
     if dev(folder) == home.ancestors().find_map(dev) {
         return Ok(TrashPlace {
@@ -897,7 +902,12 @@ pub(crate) fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf, Option<std::fs::
 /// link's name would stop at the link. Returns `None` when the folder cannot be read.
 fn top_of_file_system(real_folder: &Path) -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
-    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+    let dev = |p: &Path| {
+        crate::files::file_io::look_through(p)
+            .metadata()
+            .map(|m| m.dev())
+            .ok()
+    };
     let mut top = real_folder;
     let here = dev(top)?;
     while let Some(up) = top.parent().filter(|up| dev(up) == Some(here)) {
@@ -909,7 +919,10 @@ fn top_of_file_system(real_folder: &Path) -> Option<PathBuf> {
 /// Returns the user ID that Glimt runs as, or `None` when it cannot be read.
 fn own_uid() -> Option<u32> {
     use std::os::unix::fs::MetadataExt;
-    std::fs::metadata("/proc/self").map(|m| m.uid()).ok()
+    crate::files::file_io::look_through(Path::new("/proc/self"))
+        .metadata()
+        .map(|m| m.uid())
+        .ok()
 }
 
 /// Opens `dir` as a trash folder at the top of a file system, when it may be used as one, as

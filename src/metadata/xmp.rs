@@ -877,7 +877,9 @@ fn lock_by_hash(dir: Option<&Path>, hash: u64) -> SidecarLock {
 /// cannot be looked at.
 fn known_folder_id(side: &Path) -> Option<FileId> {
     let folder = folder_of(side);
-    let meta = std::fs::metadata(folder).ok()?;
+    let meta = crate::files::file_io::look_through(folder)
+        .metadata()
+        .ok()?;
     let now = crate::images::save::file_id_from_metadata(folder, &meta);
     FOLDERS_LOCKED.with_borrow_mut(|known| {
         if let Some((was, id)) = known.get(folder)
@@ -1053,7 +1055,12 @@ pub(crate) fn lock_file_number(hash: u64) -> u64 {
 /// folder that holds the link, and a sidecar on the card had a lock by inode and another by path.
 fn folder_id(side: &Path) -> Option<FileId> {
     let folder = folder_of(side);
-    folder_id_from(folder, &std::fs::metadata(folder).ok()?)
+    folder_id_from(
+        folder,
+        &crate::files::file_io::look_through(folder)
+            .metadata()
+            .ok()?,
+    )
 }
 
 /// Returns `folder_id` of `folder`, whose metadata the caller looked up as `meta`.
@@ -1355,7 +1362,7 @@ fn has_another_raw(
         // where IMG_1.cr2 names IMG_1.CR2 too. The other names are then told by who they are.
         false => {
             let identity = |p: &Path| {
-                let meta = std::fs::symlink_metadata(p).ok()?;
+                let meta = crate::files::file_io::look_at(p).metadata().ok()?;
                 Some(crate::images::save::file_id_from_metadata(p, &meta))
             };
             let own = identity(path);
