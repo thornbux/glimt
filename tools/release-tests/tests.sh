@@ -1171,7 +1171,7 @@ EOF
          $1 in want { printf "%s=%s|", $1, $2 }'; }
     if [ $v = new ]; then
         expect "info: the keys, all and in order" "$(printf '%s\n' "$shown" | cut -f1 | tr '\n' ' ')" \
-            "path size modified width height format orientation stars marks keywords comment alt_text extended_description exif.camera exif.lens exif.taken exif.exposure exif.aperture exif.iso exif.focal_length exif.exposure_bias exif.flash exif.gps "
+            "path file_size modified width height format orientation stars marks keywords comment alt_text extended_description exif.camera exif.lens exif.taken exif.exposure exif.aperture exif.iso exif.focal_length exif.exposure_bias exif.flash exif.gps "
         expect "info: the values of the image shown" \
             "$(pick "$shown" "path width height format orientation stars marks keywords comment exif.camera exif.taken")" \
             "path=$d/a.jpg|width=300|height=200|format=jpg|orientation=6|stars=3|marks=1,4|keywords=beach; sea|comment=Sunset|exif.camera=Canon EOS R6|exif.taken=2020:01:02 03:04:05|"

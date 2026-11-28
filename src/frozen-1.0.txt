@@ -528,7 +528,6 @@ field gps
 file $XDG_DATA_HOME/glimt/marks
 file $XDG_DATA_HOME/glimt/.marks.lock
 info_key path
-info_key size
 info_key modified
 info_key width
 info_key height
@@ -562,3 +561,4 @@ setting include_subfolders
 value sort modified
 state last_folder
 script ImageAreaGrid
+info_key file_size

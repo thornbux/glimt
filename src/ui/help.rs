@@ -755,7 +755,7 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          current, selection and select PATH … tell a script (or an AI assistant) what is shown and \
          selected, or select files for you; they print each path followed by a NUL byte, and none \
          of them changes a file. info, or info FILE …, prints what Glimt knows about the image \
-         shown or the files named: a line for each key, such as size, modified, width, stars, \
+         shown or the files named: a line for each key, such as file_size, modified, width, stars, \
          keywords, comment or exif.camera, with a tab before its value, and a blank line after \
          each file. The keys stay the same, so a script can read them. A backslash, tab, line \
          feed or carriage return in a value is written as \\\\, \\t, \\n or \\r, and a ; inside a \

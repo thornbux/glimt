@@ -143,7 +143,7 @@ const NOT_A_NAME: &str =
 /// them, so they stay as they are, and a new one goes at the end, before the EXIF rows.
 const INFO_KEYS: [&str; 13] = [
     "path",
-    "size",
+    "file_size",
     "modified",
     "width",
     "height",
@@ -4713,7 +4713,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH);
         let modified = crate::support::format::utc_time(modified.unwrap().as_secs() as i64);
         let expected = format!(
-            "path\t{}\nsize\t{}\nmodified\t{modified}\nwidth\t8\nheight\t4\nformat\tpng\n\
+            "path\t{}\nfile_size\t{}\nmodified\t{modified}\nwidth\t8\nheight\t4\nformat\tpng\n\
              orientation\t6\nstars\t3\nmarks\t1,4\nkeywords\tbeach; a\\;b\n\
              comment\tline one\\nline\\ttwo\nalt_text\tA red \\\\ square\nextended_description\t\n\
              exif.camera\tCanon\nexif.lens\t\nexif.taken\t2020:01:02 03:04:05\n\
@@ -4751,7 +4751,7 @@ mod tests {
         let keys = super::info_keys();
         assert_eq!(lines.iter().map(|l| l.0.clone()).collect::<Vec<_>>(), keys);
         let filled: Vec<(&str, &str)> = (lines.iter())
-            .filter(|l| !l.1.is_empty() && !["path", "size", "modified"].contains(&&*l.0))
+            .filter(|l| !l.1.is_empty() && !["path", "file_size", "modified"].contains(&&*l.0))
             .map(|l| (l.0.as_str(), l.1.as_str()))
             .collect();
         let expected = [
@@ -4787,7 +4787,7 @@ mod tests {
         assert_eq!(super::escaped(b"a;b\\", b";"), b"a\\;b\\\\");
         let path = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/no/\xff\tx\\.png"));
         let record = super::info_record(path, None);
-        assert!(record.starts_with(b"path\t/no/\xff\\tx\\\\.png\nsize\t\n"));
+        assert!(record.starts_with(b"path\t/no/\xff\\tx\\\\.png\nfile_size\t\n"));
     }
 
     /// `info`'s records go to the client as the window sends them, each at once, so the
